@@ -6,10 +6,10 @@ points here, so there is one copy.
 ## Current state
 
 The repository is bootstrapping. It holds a Go module, a placeholder
-`windmill-lite` command that prints its version, CI, and the documentation
-gate. The package layout is decided by the design phase, which will land
-under `docs/design/`; until then, do not add packages or top-level
-directories that pre-empt it.
+`windmill-lite` command that prints its version, CI, the documentation gate,
+and the Windmill semantics reference under `docs/semantics/`. The package
+layout is decided by the design phase, which will land under `docs/design/`;
+until then, do not add packages or top-level directories that pre-empt it.
 
 ## Language
 
@@ -29,9 +29,9 @@ directories that pre-empt it.
 windmill-lite is released under the Unlicense. Windmill itself is mixed
 licence: most of its repository (`backend/`, `frontend/`, and everything not
 otherwise marked) is AGPLv3, some parts are proprietary enterprise code (the
-`enterprise` feature and `*_ee*` files), and a few parts are Apache-2.0
-(`openflow.openapi.yaml` and the other OpenAPI files, `python-client/`,
-`deno-client/`, `go-client/`, `powershell-client/`, and
+`enterprise` and `private` features and `*_ee*` files), and a few parts are
+Apache-2.0 (`openflow.openapi.yaml` and the other OpenAPI files,
+`python-client/`, `deno-client/`, `go-client/`, `powershell-client/`, and
 `typescript-client/`). AGPL or proprietary code must never enter this
 repository, copied or translated. Contributors therefore work in one of two
 separate roles:
@@ -43,10 +43,9 @@ separate roles:
    AGPL or proprietary source, for any area and at any time. Clean-room
    separation only works when nothing from that source reaches a design
    before an implementer reads it. The build team works from the semantics
-   reference in this repository (`docs/semantics/`, once it lands), the
-   public documentation at <https://www.windmill.dev/docs>, the Apache-2.0
-   parts listed above, and black-box behaviour observed on a running
-   Windmill.
+   reference in this repository (`docs/semantics/`), the public
+   documentation at <https://www.windmill.dev/docs>, the Apache-2.0 parts
+   listed above, and black-box behaviour observed on a running Windmill.
 2. **The semantics team** writes and validates the semantics reference
    (`docs/semantics/`). It may read Windmill's AGPL source at a pinned
    release. It describes behaviour in its own words: rules, tables, decision
