@@ -5,9 +5,10 @@ folder with Windmill's semantics, but without Windmill's scheduling: no job
 queue, no job per step, and no worker pickup.
 
 **Current state:** bootstrapping. Nothing runs flows yet. The repository holds
-a Go module, a placeholder command that prints its version, CI, and a
-documentation gate. The first work is a written reference of the Windmill
-semantics that windmill-lite must match; the design, and with it the package
+a Go module, a placeholder command that prints its version, CI, a
+documentation gate, and the [semantics reference](docs/semantics/README.md):
+the Windmill `v1.767.0` behaviour that windmill-lite must match, written as
+numbered findings with conformance cases. The design, and with it the package
 layout, follows from that reference.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
@@ -28,6 +29,7 @@ go test -race ./...
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
+| [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/memoria.md](docs/memoria.md) | How the documentation gate works and the per-session review flow. |
 | [AGENTS.md](AGENTS.md) | Contributor rules: the clean-room rule, synthetic fixtures, Go as the primary language, pull requests. |
 
