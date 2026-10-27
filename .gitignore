@@ -3,3 +3,6 @@
 .idea/
 .vscode/
 node_modules/
+*.test
+*.out
+__pycache__/

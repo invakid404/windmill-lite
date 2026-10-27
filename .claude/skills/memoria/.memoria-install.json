@@ -1,0 +1,21 @@
+{
+  "backup": null,
+  "hashes": {
+    "SKILL.md": "eecc5f2245bc9da0",
+    "integrations.md": "0408fa2920a8f078",
+    "review-details.md": "496e82358268e67c",
+    "saved-exports.md": "dbf1e44d430e7f3d",
+    "section-guidance.md": "be33589700f239bb"
+  },
+  "managed_paths": [
+    "SKILL.md",
+    "integrations.md",
+    "review-details.md",
+    "saved-exports.md",
+    "section-guidance.md"
+  ],
+  "package_version": "0.9.2",
+  "schema_version": 2,
+  "scope": "local",
+  "target": "claude"
+}

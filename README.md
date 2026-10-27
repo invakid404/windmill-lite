@@ -4,9 +4,42 @@ windmill-lite runs the flows and scripts of a [Windmill](https://www.windmill.de
 folder with Windmill's semantics, but without Windmill's scheduling: no job
 queue, no job per step, and no worker pickup.
 
-**Current state:** pre-alpha. Nothing runs yet. The repository is being
-bootstrapped, and the first work is a written reference of the Windmill
-semantics that windmill-lite must match.
+**Current state:** bootstrapping. Nothing runs flows yet. The repository holds
+a Go module, a placeholder command that prints its version, CI, and a
+documentation gate. The first work is a written reference of the Windmill
+semantics that windmill-lite must match; the design, and with it the package
+layout, follows from that reference.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE).
+
+## Quick start
+
+Requires Go 1.27.
+
+```sh
+go run ./cmd/windmill-lite    # prints: windmill-lite (devel)
+go test -race ./...
+```
+
+## Index
+
+| Path | What it covers |
+|---|---|
+| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
+| [scripts](scripts/README.md) | Repository tooling used by CI to auto-acknowledge Renovate dependency bumps. |
+| [docs/memoria.md](docs/memoria.md) | How the documentation gate works and the per-session review flow. |
+| [AGENTS.md](AGENTS.md) | Contributor rules: the clean-room rule, synthetic fixtures, Go as the primary language, pull requests. |
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) first. Its clean-room rule is a hard constraint:
+Windmill's server is AGPLv3, so implementation code is written without reading
+that source, from the semantics reference, Windmill's public documentation, the
+Apache-2.0 parts of Windmill, and observed behaviour.
+
+[CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
+`go vet ./...` and `go test -race ./...` on Ubuntu and macOS for pull requests
+and pushes to `main`. The [Memoria gate](.github/workflows/memoria.yml) fails
+while any README has an unacknowledged change in its scope.
+[Renovate](renovate.json) keeps dependencies and action pins current.
