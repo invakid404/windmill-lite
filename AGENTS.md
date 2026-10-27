@@ -33,22 +33,31 @@ otherwise marked) is AGPLv3, some parts are proprietary enterprise code (the
 (`openflow.openapi.yaml` and the other OpenAPI files, `python-client/`,
 `deno-client/`, `go-client/`, `powershell-client/`, and
 `typescript-client/`). AGPL or proprietary code must never enter this
-repository, copied or translated. So:
+repository, copied or translated. Contributors therefore work in one of two
+separate roles:
 
-1. **Implementation code** (Go, harnesses, tests, tooling): do not open
-   Windmill's AGPL or proprietary source while you write it. Work from the
-   semantics reference in this repository (`docs/semantics/`, once it lands),
-   the public documentation at <https://www.windmill.dev/docs>, the
-   Apache-2.0 parts listed above, and black-box behaviour observed on a
-   running Windmill.
-2. **The semantics reference** (`docs/semantics/`) may be written by reading
-   Windmill's AGPL source at a pinned release. Describe the behaviour in your
-   own words: rules, tables, decision lists, input-to-output examples, and
-   source pointers such as `path/to/file.rs:123 @ v1.767.0`. Never include
-   code blocks or line-by-line paraphrases of that source.
-3. **Keep the roles apart.** If you have read Windmill's AGPL source for an
-   area, contribute to that area's semantics reference, not to its
-   implementation.
+1. **The build team** is everyone who shapes or writes windmill-lite itself:
+   architects and other authors of designs (`docs/design/`), reviewers of
+   designs and of implementation pull requests, and implementers of Go code,
+   harnesses, tests and tooling. Build-team members **never open** Windmill's
+   AGPL or proprietary source, for any area and at any time. Clean-room
+   separation only works when nothing from that source reaches a design
+   before an implementer reads it. The build team works from the semantics
+   reference in this repository (`docs/semantics/`, once it lands), the
+   public documentation at <https://www.windmill.dev/docs>, the Apache-2.0
+   parts listed above, and black-box behaviour observed on a running
+   Windmill.
+2. **The semantics team** writes and validates the semantics reference
+   (`docs/semantics/`). It may read Windmill's AGPL source at a pinned
+   release. It describes behaviour in its own words: rules, tables, decision
+   lists, input-to-output examples, and source pointers such as
+   `path/to/file.rs:123 @ v1.767.0`. It never includes code blocks or
+   line-by-line paraphrases of that source.
+3. **Pick one role.** If you have read Windmill's AGPL or proprietary source,
+   you are on the semantics team: do not author or review designs or
+   implementation for this repository. Questions from the build team reach
+   the semantics team as requests for the reference to cover a behaviour,
+   never as source excerpts.
 4. Identifiers, JSON field names, enum values, error-message strings and
    wire-format literals that compatibility requires may be used anywhere.
 5. Apache-2.0 parts may be used as dependencies, or copied with their licence
@@ -56,7 +65,7 @@ repository, copied or translated. So:
 6. Enterprise-only behaviour is out of scope unless it is observable on the
    Community Edition; mark it `EE` where you meet it.
 
-When in doubt, ask in the pull request before writing the code.
+When in doubt, ask in the pull request before you start.
 
 ## Fixtures and public hygiene
 

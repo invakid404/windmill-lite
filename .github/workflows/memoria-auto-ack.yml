@@ -49,17 +49,18 @@ jobs:
       startsWith(github.event.pull_request.head.ref, 'renovate/')
 
     steps:
-      # The PAT below is a repository secret that a maintainer creates by
-      # hand. Without it, actions/checkout would fall back to no token and
-      # every later push would fail obscurely; stop here with a clear
-      # message instead. The Memoria gate on the PR still fails until
+      # The PAT below is a repository secret that the owner creates by hand.
+      # Until it exists this workflow is installed but not active (see
+      # docs/memoria.md). Without it, actions/checkout would fall back to no
+      # token and every later push would fail obscurely; stop here with a
+      # clear message instead. The Memoria gate on the PR still fails until
       # someone acks the README by hand, so nothing merges unreviewed.
       - name: Require the auto-ack token
         env:
           HAS_TOKEN: ${{ secrets.MEMORIA_AUTO_ACK_TOKEN != '' }}
         run: |
           if [ "$HAS_TOKEN" != "true" ]; then
-            echo "::error::MEMORIA_AUTO_ACK_TOKEN is not configured; Renovate PRs need a manual memoria ack."
+            echo "::error::Auto-ack is awaiting activation: MEMORIA_AUTO_ACK_TOKEN is not configured. Acknowledge this PR by hand (docs/memoria.md)."
             exit 1
           fi
 

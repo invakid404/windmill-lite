@@ -3,10 +3,12 @@
 
 Safe means: every difference between BASE and HEAD is a version literal
 on an existing `require` entry (same module path, same `// indirect`
-marker) or on the `toolchain` line. Anything else — a requirement added
-or removed, a `go` language-version change, a `replace`, `exclude`,
-`retract` or `module` edit, or any reordering — exits non-zero, and the
-caller MUST fall back to a human ack.
+marker) or a `toolchain` line moving from one concrete Go release to
+another (`go1.N.P` or a pre-release such as `go1.NrcK`). Anything else —
+a requirement added or removed, a `go` language-version change, a
+`toolchain` change to or from `default` or any other non-version operand,
+a `replace`, `exclude`, `retract` or `module` edit, or any reordering —
+exits non-zero, and the caller MUST fall back to a human ack.
 
 The check parses both revisions into directive entries rather than
 diffing text, so whitespace churn cannot hide a change and cannot cause
@@ -17,12 +19,18 @@ Usage: check-go-mod-diff.py <base-ref> [go.mod-path]
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
 # A requirement entry is (directive, module path, version, indirect).
 # Every other directive is (directive, *tokens).
 Entry = tuple[str, ...]
+
+# A concrete Go toolchain release: `go1.N.P`, or a pre-release `go1.NrcK` /
+# `go1.NbetaK`. `default`, `local`, bare language versions such as `go1.27`
+# and custom suffixes are policy choices, not version literals.
+CONCRETE_TOOLCHAIN = re.compile(r"^go1\.(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)|(?:rc|beta)[1-9][0-9]*)$")
 
 
 def load_at(ref: str, path: str) -> str:
@@ -77,8 +85,22 @@ def is_version_bump(base: Entry, head: Entry) -> bool:
         # Same module, same indirect marker; only the version may differ.
         return base[1] == head[1] and base[3] == head[3]
     if base[0] == "toolchain":
-        return len(base) == len(head) == 2
+        return (
+            len(base) == len(head) == 2
+            and CONCRETE_TOOLCHAIN.match(base[1]) is not None
+            and CONCRETE_TOOLCHAIN.match(head[1]) is not None
+        )
     return False
+
+
+def unsafe_change(base: list[Entry], head: list[Entry]) -> str | None:
+    """Return None if head differs from base only by safe bumps; else a reason."""
+    if len(base) != len(head):
+        return f"entry count changed ({len(base)} -> {len(head)})"
+    for b, h in zip(base, head):
+        if b != h and not is_version_bump(b, h):
+            return f"non-version change: {' '.join(b)!r} -> {' '.join(h)!r}"
+    return None
 
 
 def main(argv: list[str]) -> int:
@@ -99,18 +121,10 @@ def main(argv: list[str]) -> int:
         print(f"error: cannot parse {path}: {e}", file=sys.stderr)
         return 3
 
-    if len(base) != len(head):
-        print(
-            f"UNSAFE: {path} entry count changed ({len(base)} -> {len(head)})",
-            file=sys.stderr,
-        )
+    reason = unsafe_change(base, head)
+    if reason is not None:
+        print(f"UNSAFE: {path}: {reason}", file=sys.stderr)
         return 1
-    for b, h in zip(base, head):
-        if b != h and not is_version_bump(b, h):
-            print(f"UNSAFE: non-version change in {path}:", file=sys.stderr)
-            print(f"  before: {' '.join(b)}", file=sys.stderr)
-            print(f"  after:  {' '.join(h)}", file=sys.stderr)
-            return 1
 
     print(f"SAFE: {path} diff is pure version-literal bumps")
     return 0

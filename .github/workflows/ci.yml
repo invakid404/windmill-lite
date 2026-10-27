@@ -58,3 +58,7 @@ jobs:
 
       - name: Test
         run: go test -race ./...
+
+      - name: Test repository scripts
+        # Unit tests for the Renovate auto-ack helpers in scripts/.
+        run: python3 -m unittest discover -s scripts -v

@@ -60,16 +60,25 @@ managing the file. The runner label is exact because the Action supports Ubuntu
 
 ## Renovate bumps
 
-The [auto-ack workflow](../.github/workflows/memoria-auto-ack.yml) acknowledges
-README reviews on Renovate pull requests whose only changes are dependency
-version bumps in `go.mod` and `go.sum` or action-pin bumps in workflow files,
-using the [scripts](../scripts/README.md) in this repository. It installs the
-same Memoria version from the same Action ref as the gate, pinned additionally
-by archive digest; bump both workflows and your local install together. It
-pushes with the `MEMORIA_AUTO_ACK_TOKEN` repository secret, a fine-grained
-token with read and write access to this repository's contents. Without that
-secret the workflow fails at its first step and a Renovate pull request needs a
-manual ack like any other.
+**Current state: installed, awaiting activation.** The
+[auto-ack workflow](../.github/workflows/memoria-auto-ack.yml) is in place but
+does not acknowledge anything yet. It pushes with the `MEMORIA_AUTO_ACK_TOKEN`
+repository secret, a fine-grained token with read and write access to this
+repository's contents, and the repository owner has not provisioned that
+secret. Until they do, the workflow fails at its first step on every Renovate
+pull request.
+
+Until then, acknowledge a Renovate pull request by hand like any other: check
+out its branch in a Git worktree, follow the per-session flow above, and push
+the updated `memoria.lock` to the Renovate branch.
+
+Once the secret exists, the workflow acknowledges README reviews on Renovate
+pull requests whose only changes are dependency version bumps in `go.mod` and
+`go.sum` or action-pin bumps in workflow files, using the
+[scripts](../scripts/README.md) in this repository. Anything else still needs a
+manual ack. It installs the same Memoria version from the same Action ref as the
+gate, pinned additionally by archive digest; bump both workflows and your local
+install together.
 
 ## Policy changes
 

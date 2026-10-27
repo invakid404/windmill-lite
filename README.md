@@ -27,19 +27,21 @@ go test -race ./...
 | Path | What it covers |
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
-| [scripts](scripts/README.md) | Repository tooling used by CI to auto-acknowledge Renovate dependency bumps. |
+| [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/memoria.md](docs/memoria.md) | How the documentation gate works and the per-session review flow. |
 | [AGENTS.md](AGENTS.md) | Contributor rules: the clean-room rule, synthetic fixtures, Go as the primary language, pull requests. |
 
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md) first. Its clean-room rule is a hard constraint:
-Windmill's server is AGPLv3, so implementation code is written without reading
-that source, from the semantics reference, Windmill's public documentation, the
-Apache-2.0 parts of Windmill, and observed behaviour.
+Windmill's server is AGPLv3, so everyone who designs, reviews or implements
+windmill-lite works without reading that source. They work from the semantics
+reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
+and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race ./...` on Ubuntu and macOS for pull requests
-and pushes to `main`. The [Memoria gate](.github/workflows/memoria.yml) fails
-while any README has an unacknowledged change in its scope.
+`go vet ./...` and `go test -race ./...`, and runs the unit tests of the
+helpers in `scripts/`, on Ubuntu and macOS for pull requests and pushes to
+`main`. The [Memoria gate](.github/workflows/memoria.yml) fails while any
+README has an unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
