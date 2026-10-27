@@ -15,7 +15,7 @@ public domain under the [Unlicense](LICENSE).
 
 ## Quick start
 
-Requires Go 1.27.
+Requires Go 1.27.3 or later (the `go` directive in `go.mod`).
 
 ```sh
 go run ./cmd/windmill-lite    # prints: windmill-lite (devel)
