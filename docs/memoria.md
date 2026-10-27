@@ -79,6 +79,7 @@ not: `memoria invalidate all --reason "..."` for a repository-wide rule, or
 drift from ordinary code changes flows through the per-session flow instead.
 
 [memoria.toml](../memoria.toml) holds the writing rules. Its ignore list
-excludes jj internal state, build output, `go.sum`, and agent process records
-from review inputs, so a checksum-only dependency update needs no README review;
-`go.mod` remains a review input.
+excludes jj internal state, build output, `go.sum`, `renovate.json`, and agent
+process records from review inputs, so a checksum-only dependency update or a
+Renovate config migration needs no README review; `go.mod` remains a review
+input.

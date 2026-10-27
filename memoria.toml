@@ -5,6 +5,10 @@ version = 3
 # - bin/**, dist/**: build output.
 # - go.sum: dependency checksums; avoid review churn on lockfile-only updates.
 #   go.mod remains a review input.
+# - renovate.json: bot configuration that Renovate itself may rewrite (config
+#   migrations). It is not a documented module, and as a review input outside
+#   the auto-ack allowlist it would hold every such Renovate change for a
+#   human ack.
 # - Agent process records (impl.md, publish.md, done.md, review-*.md,
 #   fix-r*.md, and the rest below): per-PR notes that coding agents write
 #   while they work. They belong outside the repository; ignoring them keeps
@@ -16,6 +20,7 @@ ignore = [
     "bin/**",
     "dist/**",
     "go.sum",
+    "renovate.json",
     "impl.md",
     "publish.md",
     "done.md",

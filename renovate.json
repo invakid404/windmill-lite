@@ -1,7 +1,0 @@
-{
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "local>invakid404/renovate-config",
-    "helpers:pinGitHubActionDigests"
-  ]
-}
