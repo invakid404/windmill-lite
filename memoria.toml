@@ -1,0 +1,58 @@
+version = 3
+
+# Not documentation inputs.
+# - .jj/**: jj internal state (colocated with .git; .git is already invisible).
+# - bin/**, dist/**: build output.
+# - go.sum: dependency checksums; avoid review churn on lockfile-only updates.
+#   go.mod remains a review input.
+# - renovate.json: bot configuration that Renovate itself may rewrite (config
+#   migrations). It is not a documented module, and as a review input outside
+#   the auto-ack allowlist it would hold every such Renovate change for a
+#   human ack.
+# - Agent process records (impl.md, publish.md, done.md, review-*.md,
+#   fix-r*.md, and the rest below): per-PR notes that coding agents write
+#   while they work. They belong outside the repository; ignoring them keeps
+#   a stray copy from re-pending a README. These globs are start-anchored,
+#   so every name needs a pattern that matches it from the first character:
+#   `fix-r*.md` does not match `ci-fix-r1.md`.
+ignore = [
+    ".jj/**",
+    "bin/**",
+    "dist/**",
+    "go.sum",
+    "renovate.json",
+    "impl.md",
+    "publish.md",
+    "done.md",
+    "merge-gate.md",
+    "audit.md",
+    "design-gate.md",
+    "prep-workspace.md",
+    "bootstrap.md",
+    "fix-r*.md",
+    "ci-fix-r*.md",
+    "ci-round*.md",
+    "review-*.md",
+    "audit-comment*.md",
+]
+include = []
+
+[documentation]
+guidance = [
+    "Write in windmill-lite's house style: concise, technically precise, and honest about current state. Distinguish what ships from what is a stub, prototype, or planned. Never use marketing language, superlatives, or forward-looking claims dressed as present-tense capability.",
+    "Every README states its current state near the top, and every nested README also declares its document scope there; the root README leads with product and problem instead. State what the package or directory does today, what is stubbed, and what depends on unshipped work. When a claim is quantitative (test count, version, file count), quote it from source; otherwise omit the number.",
+    "Cross-check every prose claim against the code in the document's scope before acknowledgement. If the README describes exported names, commands, flags, or behaviour that no longer matches source, edit the README rather than acknowledging the drift.",
+    "Root README.md is the one document written for a new consumer: lead with product, problem, current state, and an index of every module README and of docs/. Nested READMEs stay inside their own directory; they may import short summaries from providers via `memoria render` but must not duplicate whole sections.",
+    "Clean room: describe Windmill behaviour in your own words, citing public documentation, the Apache-2.0 parts of Windmill, or observed behaviour. Never quote, translate, or paraphrase line by line any AGPL or proprietary Windmill source. Identifiers, JSON field names, enum values, and error strings that compatibility requires are fine.",
+    "Use GitHub-flavoured Markdown; use Mermaid for diagrams with neutral wording and default rendering (no theme/color overrides). Give each diagram one claim. Keep code fences, paths, identifiers, and quoted errors byte-exact.",
+    "Prefer short sections with clear takeaways and progressive detail over long walls. Explain each term the first time it appears. Number multi-step procedures.",
+]
+guidance_files = []
+section_guidance_files = []
+
+[fingerprints]
+default = "raw"
+languages = {}
+
+[lint]
+missing_import_hint = true
