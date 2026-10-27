@@ -1589,10 +1589,11 @@ These are proposals made while studying the behaviour. They bind nothing.
   and stored form.
 <a id="q-cf-16"></a>
 - **Q-CF-16** · affects [CF-19](#cf-19), [CF-V6](#cf-v6),
-  [CF-14](#cf-14) · DISPUTED: does direct result lookup require the whole
-  expression to match (as drafted in CF-19), or can one line of a multiline
-  expression match and the rest be ignored (CF-V6)? *Settled by:* an oracle
-  run of CF-V6/a and CF-V6/b, and reconciliation with
+  [CF-14](#cf-14), [FX-10](execution.md#fx-10) (route 2) · DISPUTED: does
+  direct result lookup require the whole expression to match (as drafted in
+  CF-19 and in FX-10's route 2), or can one line of a multiline expression
+  match and the rest be ignored (CF-V6)? *Settled by:* an oracle run of
+  CF-V6/a and CF-V6/b, and reconciliation with
   [JE-9](expressions.md#je-9).
 <a id="q-cf-17"></a>
 - **Q-CF-17** · affects [CF-1](#cf-1), [CF-2](#cf-2), [CF-3](#cf-3),

@@ -638,6 +638,21 @@ question names).
      the preceding step**. So `results.<p>.x` reads the stored job result of
      `p`, which can differ from `previous_result` ([FX-V2](#fx-v2)). A missing
      step or path gives `null`.
+
+     **Contested: whole expression or one line.** "The whole expression"
+     is how this route was drafted, and how [CF-19](control-flow.md#cf-19)
+     drafts it too. [JE-9](expressions.md#je-9) and
+     [CF-V6](control-flow.md#cf-v6) instead state that the pattern is
+     matched line by line: the first qualifying line selects this route and
+     the rest of the text is ignored, without running JavaScript
+     (`backend/windmill-jseval/src/lib.rs:73-75`, `:180-217`;
+     `backend/windmill-worker/src/js_eval.rs:36-79`). Discriminating case: `a`
+     returns `7`, a step returning `0` follows, and a transform is
+     `results.a`, a newline, then `+ 100`. The whole-expression reading sends
+     it to the engine (`107`); the line-by-line reading returns `7`. The
+     single-line `results.a + 100` gives `107` under both. This is the
+     dispute tracked by [Q-CF-16](control-flow.md#q-cf-16), with cases
+     [CF-V6/a, CF-V6/b](conformance.md#cf-v6).
   3. **Anything else goes to the engine.** `results` is a lazy proxy. The
      preceding id returns the in-memory `previous_result`; other ids fetch
      from storage; loops and branchall return arrays of child results; a step
@@ -662,7 +677,8 @@ question names).
   defined. Computed indexing therefore does not always read storage. Evidence:
   `backend/windmill-jseval/src/lib.rs:253-279`, `:804-815`. The competing rule
   is stated in full as [FX-V6](#fx-v6).
-- **Open:** [Q-FX-15](#q-fx-15).
+- **Open:** [Q-FX-15](#q-fx-15) (when route 3 uses memory) and
+  [Q-CF-16](control-flow.md#q-cf-16) (route 2's whole-expression condition).
 - **Evidence:**
   - `backend/windmill-worker/src/js_eval.rs:44-79`
   - `backend/windmill-jseval/src/lib.rs:65-76`, `:165-218`, `:260-279`,
@@ -670,10 +686,16 @@ question names).
   - `backend/windmill-worker/src/worker_flow.rs:324-340`, `:3805-3813`,
     `:6155-6172`
 - **Conformance:** [FX-10/a, FX-10/b](conformance.md#fx-10); the contested
-  expectation is [FX-V6/a](conformance.md#fx-v6).
-- **Note:** routes 1 and 2 and the proxy's basic behaviour are not contested;
-  the dispute concerns only when route 3 uses memory. Coordinate with
-  [expressions.md](expressions.md).
+  expectations are [FX-V6/a](conformance.md#fx-v6) (route 3's memory
+  binding) and [CF-V6/a, CF-V6/b](conformance.md#cf-v6) (route 2's
+  whole-expression condition).
+- **Note:** two separate disputes touch this finding: when route 3 uses
+  memory ([Q-FX-15](#q-fx-15)), and whether route 2 needs the whole
+  expression or one qualifying line ([Q-CF-16](control-flow.md#q-cf-16),
+  shared with [CF-19](control-flow.md#cf-19), [CF-V6](control-flow.md#cf-v6)
+  and [JE-9](expressions.md#je-9)). Route 1 (an exact whole-expression match
+  of the preceding id) and the proxy's basic behaviour are not contested.
+  Coordinate with [expressions.md](expressions.md).
 
 <a id="fx-v6"></a>
 ### FX-V6 · Dynamic preceding-result lookup depends on all context-binding triggers
@@ -1499,14 +1521,14 @@ question names).
 <a id="fx-33"></a>
 ### FX-33 · `failure_module`: the flow's final result and `recover`
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source-traced; oracle pending); which results count as `recover: true` disputed · **Status:** DISPUTED
 
-- **Rule:** After the failure module ran, the flow completes with the
-  **failure module's result as its result**, stored as-is with no wrapping.
-  The flow succeeds only if the failure module's job **succeeded** and its
-  result is an object whose `recover` field is the JSON boolean `true`;
-  otherwise it is failed. A string `"true"` or a non-object does not count.
-  If the failure module itself fails, the flow fails with the failure
+- **Rule (as drafted):** After the failure module ran, the flow completes with
+  the **failure module's result as its result**, stored as-is with no
+  wrapping. The flow succeeds only if the failure module's job **succeeded**
+  and its result is an object whose `recover` field is the JSON boolean
+  `true`; otherwise it is failed. A string `"true"` or a non-object does not
+  count. If the failure module itself fails, the flow fails with the failure
   module's wrapped error.
 
   **Seen from a parent**, a child flow (inline or by path) that ran its
@@ -1516,9 +1538,39 @@ question names).
 
   The flow log says `Flow job completed with error, and error handler was
   triggered. It completed with <success|error>, and with recover: <bool>`.
-- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:409-412`,
-  `:1809-1810`, `:2006-2059`, `:2143-2153`
-- **Conformance:** [FX-33/a, FX-33/b](conformance.md#fx-33)
+- **Correction (review of this reference, finding SR-1):** the recovery check
+  does not require an object. It decodes the failure module's raw result into
+  a record with one optional boolean field `recover`, and counts the flow as
+  recovered only when that decode succeeds with `recover` equal to `true`; a
+  decode error, an absent `recover` or `null` counts as not recovered
+  (`backend/windmill-worker/src/worker_flow.rs:298-301`, `:409-412`). The
+  record decoder is serde's derived struct decoding at the pinned `serde`
+  1.0.229 and `serde_json` 1.0.151 (`backend/Cargo.lock:11067`, `:11151`),
+  which also accepts a JSON array holding the field positionally. A decoder
+  probe with exactly those versions (decoding only, no Windmill process) gave:
+
+  | Failure-module result | Decoded `recover` | Flow recovers? |
+  |---|---|---|
+  | `[true]` | `true` | yes |
+  | `[false]` | `false` | no |
+  | `[null]` | absent | no |
+  | `[]` | decode error | no |
+  | `[true,false]` | decode error | no |
+  | `{"recover":true}` | `true` | yes |
+  | `{"recover":"true"}` | decode error | no |
+
+  So a successful failure module returning `[true]` makes the flow complete
+  successfully with result `[true]`, where the drafted object-only rule fails
+  it. The parent-side rule is unchanged (`:2140-2153`).
+- **Not contested:** the final result is the failure module's result as-is;
+  an object with boolean `recover: true` recovers; a string `"true"` does
+  not; a failed failure module fails the flow; the parent view and the log
+  line above.
+- **Open:** [Q-FX-19](#q-fx-19).
+- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:298-301`,
+  `:409-412`, `:1809-1810`, `:2006-2059`, `:2140-2153`;
+  `backend/Cargo.lock:11067`, `:11151`.
+- **Conformance:** [FX-33/a–g](conformance.md#fx-33)
 
 <a id="fx-34"></a>
 ### FX-34 · `failure_module` inside inline bodies runs at the innermost level
@@ -1742,8 +1794,8 @@ question names).
   (completion by signal passes the unrecoverable flag);
   `backend/windmill-types/src/flows.rs:512-534`; Docs:
   https://www.windmill.dev/docs/flows/flow_approval
-- **Conformance:** none (the only case given is a windmill-lite policy check;
-  see the design note).
+- **Conformance:** [FX-39/a](conformance.md#fx-39), a windmill-lite policy
+  check (not Windmill behaviour; see the design note).
 - **Design note (not Windmill behaviour):** windmill-lite must refuse flows
   that use `suspend` at load time, or fail them with a clear
   unsupported-feature error (for example `unsupported: suspend`). It must not
@@ -2352,3 +2404,19 @@ against Windmill CE `v1.767.0`.
   ([FX-7/d](conformance.md#fx-7)), and the virtual step on deployed flows
   ([FX-4/a](conformance.md#fx-4)). *Settled by:* recording each case on the
   oracle and updating its provenance.
+<a id="q-fx-19"></a>
+- **Q-FX-19** · affects [FX-33](#fx-33) · **DISPUTED; raised by the review
+  of this reference (finding SR-1), not by the module study.** Does a
+  successful failure module recover the flow only when its result is an
+  object with boolean `recover: true` (as drafted), or whenever the result
+  decodes as the one-field recovery record, which serde also accepts as a
+  one-element array, so that `[true]` recovers and the flow succeeds with
+  result `[true]` (correction)? Source pointers:
+  `backend/windmill-worker/src/worker_flow.rs:298-301` (the recovery record),
+  `:409-412` (decode of the raw result; any error counts as not recovered),
+  `:2006-2059` (flow success flag and preserved result), `:2140-2153`
+  (parent notification, unchanged); `backend/Cargo.lock:11067` (`serde`
+  1.0.229), `:11151` (`serde_json` 1.0.151). *Settled by:* oracle runs of
+  [FX-33/c–g](conformance.md#fx-33) (`[true]`, `[false]`, `[null]`, `[]`,
+  `[true,false]`) next to the object controls FX-33/a–b. Until then the
+  decoder probe is the only evidence for the array cases.

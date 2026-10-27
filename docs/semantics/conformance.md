@@ -23,6 +23,10 @@ below it has:
   - `disputed`: the finding is `DISPUTED`, `needs-evidence` or `open`. The case
     states the contested expectation and both claims; do not encode either
     as a passing test until the open question is closed.
+  - `policy`: a windmill-lite acceptance or policy check. It tests a choice
+    windmill-lite makes (rejecting an unsupported feature, a design option
+    such as the platform facade), not Windmill behaviour, and it is not an
+    oracle case unless the case says it compares with the oracle.
 - **A scope tag**, only when the case's scope differs from the entry's.
 - **Given** (the input: flow, scripts, arguments, state) and **Expect** (the
   exact result, or the exact error shape).
@@ -32,17 +36,17 @@ behaviour each. Paths such as `f/demo/...` are invented.
 
 ## Summary
 
-| Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed |
-|---|---|---|---|---|---|---|---|
-| [OpenFlow model and the sync folder](#openflow) | 129 | 110 | 19 | 0 | 0 | 0 | 4 |
-| [Flow execution](#execution) | 114 | 87 | 27 | 0 | 0 | 0 | 23 |
-| [Loops, branches and subflows](#control-flow) | 84 | 67 | 15 | 0 | 2 | 0 | 15 |
-| [Expressions](#expressions) | 160 | 121 | 39 | 0 | 0 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 116 | 78 | 38 | 0 | 0 | 0 | 12 |
-| [The wmill client API and the platform interface](#client-api) | 87 | 48 | 35 | 4 | 0 | 0 | 0 |
-| [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 36 | 15 |
-| [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 775 | 589 | 178 | 4 | 4 | 36 | 69 |
+| Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
+|---|---|---|---|---|---|---|---|---|
+| [OpenFlow model and the sync folder](#openflow) | 129 | 110 | 19 | 0 | 0 | 0 | 4 | 0 |
+| [Flow execution](#execution) | 120 | 92 | 27 | 1 | 0 | 0 | 30 | 1 |
+| [Loops, branches and subflows](#control-flow) | 84 | 67 | 15 | 0 | 2 | 0 | 15 | 0 |
+| [Expressions](#expressions) | 160 | 121 | 39 | 0 | 0 | 0 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 116 | 78 | 38 | 0 | 0 | 0 | 12 | 0 |
+| [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
+| [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 36 | 15 | 0 |
+| [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | 787 | 598 | 179 | 6 | 4 | 36 | 76 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -1438,14 +1442,49 @@ present, is `bun: return "H"`.
 
 **Scope:** core · **Finding:** [FX-33](execution.md#fx-33)
 
-- **FX-33/a** · source-derived · `recover: true` makes the flow succeed.
+FX-33 is `DISPUTED` ([Q-FX-19](execution.md#q-fx-19)): does a successful
+failure module recover the flow only with an object result, or with any
+result that decodes as the one-field recovery record, including a one-element
+array? Every case is oracle pending; only FX-33/c is contested.
+
+- **FX-33/a** · disputed · `recover: true` makes the flow succeed.
   - **Given:** a failing flow whose handler returns `{"recover": true, "v":
     1}`.
   - **Expect:** `{success: true, status: "success", result: {"v": 1,
     "recover": true}}` (jsonb key order).
-- **FX-33/b** · source-derived · A string `"true"` does not recover.
+  - **Contested:** no (object control; both readings agree).
+- **FX-33/b** · disputed · A string `"true"` does not recover.
   - **Given:** the handler returns `{"recover": "true"}`.
   - **Expect:** `expect.success = false`.
+  - **Contested:** no (object control; the value fails to decode as a
+    boolean under both readings).
+- **FX-33/c** · disputed · A one-element array `[true]`.
+  - **Given:** a failing top-level flow whose failure module succeeds and
+    returns `[true]`.
+  - **Expect (as drafted):** `expect.success = false`, `expect.result =
+    [true]` (a non-object does not count).
+  - **Expect (correction):** `{success: true, status: "success", result:
+    [true]}` (the array decodes positionally as `recover: true`).
+  - **Contested:** yes. Oracle pending.
+- **FX-33/d** · disputed · `[false]` does not recover.
+  - **Given:** as FX-33/c, but the failure module returns `[false]`.
+  - **Expect:** `expect.success = false`, `expect.result = [false]`.
+  - **Contested:** no (decodes as `recover: false` under the correction; a
+    non-object as drafted). Oracle pending.
+- **FX-33/e** · disputed · `[null]` does not recover.
+  - **Given:** as FX-33/c, but the failure module returns `[null]`.
+  - **Expect:** `expect.success = false`, `expect.result = [null]`.
+  - **Contested:** no (decodes with `recover` absent under the correction).
+    Oracle pending.
+- **FX-33/f** · disputed · `[]` does not recover.
+  - **Given:** as FX-33/c, but the failure module returns `[]`.
+  - **Expect:** `expect.success = false`, `expect.result = []`.
+  - **Contested:** no (a decode error under the correction). Oracle pending.
+- **FX-33/g** · disputed · `[true,false]` does not recover.
+  - **Given:** as FX-33/c, but the failure module returns `[true,false]`.
+  - **Expect:** `expect.success = false`, `expect.result = [true,false]`.
+  - **Contested:** no (a decode error under the correction: too many
+    elements). Oracle pending.
 
 <a id="fx-34"></a>
 ### FX-34 · `failure_module` inside inline bodies runs at the innermost level
@@ -1531,6 +1570,18 @@ is settled.
   - **Expect:** `{status: "canceled", success: false, result: {"error":
     {"message": "Job canceled: r by u", "name": "Canceled", "reason": "r",
     "canceler": "u"}}}`; the handler never runs.
+
+<a id="fx-39"></a>
+### FX-39 · `suspend` / approval
+
+**Scope:** out · **Finding:** [FX-39](execution.md#fx-39)
+
+- **FX-39/a** · policy · windmill-lite rejects a flow that suspends.
+  - **Given:** a flow with `suspend: {required_events: 1}` on any module,
+    loaded by windmill-lite.
+  - **Expect:** windmill-lite's own error `unsupported: suspend`, at load
+    time. This tests windmill-lite's policy, not Windmill behaviour; it is
+    not an oracle case.
 
 <a id="fx-40"></a>
 ### FX-40 · `cache_ttl` (step and flow)
@@ -4408,6 +4459,20 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
   - **Given:** `setProgress(-5)`, then `getProgress()`.
   - **Expect:** `0`.
 
+<a id="wa-30"></a>
+### WA-30 · How the client reaches a job, and the options for serving it without Windmill
+
+**Scope:** core · **Finding:** [WA-30](client-api.md#wa-30)
+
+- **WA-30/a** · policy · the facade and the in-process interceptor agree.
+  - **Given:** the same fixture flow, run once through the HTTP facade with
+    the stock `windmill-client@1.767.0` and once through the in-process
+    `fetch` interceptor.
+  - **Expect:** byte-identical normalised step results and identical
+    recorded platform calls (method, path, query, body). This is a
+    windmill-lite acceptance check for a design option, not Windmill
+    behaviour.
+
 <a id="wa-31"></a>
 ### WA-31 · Per-invocation identity: process-global env and token require per-step isolation
 
@@ -4457,6 +4522,30 @@ In WA-12/b and WA-12/c, `nest(0) = 1` and `nest(n) = {"a": nest(n-1)}`.
     `workflow(` and `task(` only in a comment.
   - **Expect:** not workflow-as-code.
 
+- **WA-33/c** · policy · windmill-lite rejects workflow-as-code.
+  - **Given:** a script that upstream classifies as workflow-as-code (by
+    either detection path), loaded by windmill-lite.
+  - **Expect:** the loader rejects it with error kind
+    `unsupported_feature`/`workflow_as_code`. windmill-lite policy, not
+    Windmill behaviour.
+
+<a id="wa-40"></a>
+### WA-40 · Platform services, and the three resource-read contracts they must keep apart
+
+**Scope:** core · **Finding:** [WA-40](client-api.md#wa-40)
+
+Both cases are windmill-lite acceptance checks for the platform-service
+design, not Windmill behaviour.
+
+- **WA-40/a** · policy · the WA-V3/a contexts hold under windmill-lite.
+  - **Given:** the fixture of [WA-V3/a](#wa-v3), run on windmill-lite.
+  - **Expect:** the argument resolves to `{"root":""}`, `getResource` returns
+    `{"root":"$WM_ROOT_JOB_ID"}`, and the process `WM_ROOT_JOB_ID` is F.
+- **WA-40/b** · policy · each platform service matches the oracle.
+  - **Given:** for each platform service, one shared fixture run on both the
+    oracle and windmill-lite.
+  - **Expect:** equal results after normalisation.
+
 <a id="wa-41"></a>
 ### WA-41 · Unsupported platform calls: what the stock clients do with an error response
 
@@ -4500,6 +4589,15 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
     `Resource not found at u/t/outer or not visible to you: Not found: Resource not found at name u/t/missing (<location>)`.
     Compare up to and including the `(`.
 
+- **WA-41/b** · policy · `fail` mode surfaces unsupported calls.
+  - **Given:** windmill-lite in `fail` mode (the default); the steps of
+    [WA-V5/a–c](#wa-v5); a call to `getIdToken("aud")`; a call to
+    `getState()`.
+  - **Expect:** the WA-V5 steps end with the `UnsupportedPlatformCall` error
+    even though each script returned normally; `getIdToken("aud")` throws
+    with `status === 501`; `getState()` returns `undefined` only for a
+    genuinely missing state. windmill-lite policy, not Windmill behaviour.
+
 <a id="wa-50"></a>
 ### WA-50 · Delegation endpoints and their semantics
 
@@ -4526,6 +4624,13 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
   - **Given:** on the oracle, a token scoped to `jobs:run:scripts:u/t/a`.
   - **Expect:** it can run `u/t/a` by path but is refused by
     `/api/w/{ws}/jobs/run/preview`.
+
+- **WA-51/b** · policy · remote-backed variables read the same.
+  - **Given:** hybrid mode (a), remote-backed platform: a local step and a
+    delegated step each call `getVariable("u/x/v")`.
+  - **Expect:** both return the same value, and the facade records one
+    proxied `GET …/variables/get_value/u/x/v`. windmill-lite acceptance
+    check, not Windmill behaviour.
 
 <a id="wa-v1"></a>
 ### WA-V1 · Stored root fields, effective root identity and innermost flow scope are distinct

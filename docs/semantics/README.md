@@ -55,14 +55,14 @@ and [licensing.md](licensing.md) maps which parts do.
 | Area | Findings | `core` | `later` | `out` | `EE` | Not settled | Question entries | Conformance cases |
 |---|---|---|---|---|---|---|---|---|
 | [openflow.md](openflow.md) | 47 | 38 | 8 | 1 | 0 | 2 | 12 | 129 |
-| [execution.md](execution.md) | 55 | 44 | 9 | 2 | 0 | 6 | 18 | 114 |
+| [execution.md](execution.md) | 55 | 44 | 9 | 2 | 0 | 7 | 19 | 120 |
 | [control-flow.md](control-flow.md) | 35 | 29 | 5 | 0 | 1 | 4 | 17 | 84 |
 | [expressions.md](expressions.md) | 52 | 39 | 10 | 3 | 0 | 0 | 10 | 160 |
 | [languages.md](languages.md) | 48 | 33 | 13 | 0 | 2 | 2 | 20 | 116 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 87 |
+| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 93 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 6 | 18 | 82 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **321** | **251** | **58** | **7** | **5** | **20** | **109** | **775** |
+| **Total** | **321** | **251** | **58** | **7** | **5** | **21** | **110** | **787** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
@@ -70,7 +70,9 @@ status is `DISPUTED`, `needs-evidence` or `open` (listed under
 [Findings that are not settled](#not-settled)). Question entries include
 answered questions, which keep their numbers; openflow.md's `Q-OF-7` entry
 points to licensing.md, where that question lives. Only the oracle area has
-`oracle-observed` cases so far ([conformance.md](conformance.md#summary)).
+`oracle-observed` cases so far, and seven cases are windmill-lite `policy`
+checks rather than Windmill behaviour
+([conformance.md](conformance.md#summary)).
 
 <a id="legend"></a>
 ## Legend
@@ -110,7 +112,7 @@ recording yet), `oracle pending` (an open question asks for a recording), or
 | Status | Meaning |
 |---|---|
 | `confirmed` | An independent check against the pinned source confirmed the finding as written. |
-| `DISPUTED` | The final independent check disputed the latest text. The entry shows the rule as drafted and the correction side by side, and an open question tracks it. Neither side is settled behaviour: do not build on it until the question is closed. |
+| `DISPUTED` | An independent check against the pinned source disputed the latest text: the final check of the study the finding comes from, or a later review of this reference (the entry says which). The entry shows the rule as drafted and the correction side by side, and an open question tracks it. Neither side is settled behaviour: do not build on it until the question is closed. |
 | `needs-evidence` | The finding lacks the evidence its claim needs. |
 | `open` | The behaviour itself is undecided; see the linked open question. |
 | `withdrawn`, `merged into …` | The ID is kept so it is never reused; the entry has no rule of its own. |
@@ -158,8 +160,9 @@ shows the drafted rule and the competing claim side by side.
 |---|---|---|---|
 | [OF-3](openflow.md#of-3) | `DISPUTED` | Which form of a flow (lite or full) a run reads: one selection, or separate selections at enqueue and in the worker. | [Q-OF-11](openflow.md#q-of-11) |
 | [OF-V5](openflow.md#of-v5) | `open` | The two-phase selection rule: the competing claim against OF-3. | [Q-OF-11](openflow.md#q-of-11) |
-| [FX-10](execution.md#fx-10) | `DISPUTED` | When an engine lookup of the preceding step's result reads memory rather than storage. | [Q-FX-15](execution.md#q-fx-15) |
+| [FX-10](execution.md#fx-10) | `DISPUTED` | When an engine lookup of the preceding step's result reads memory rather than storage; and whether the simple-path route needs the whole expression or one qualifying line. | [Q-FX-15](execution.md#q-fx-15), [Q-CF-16](control-flow.md#q-cf-16) |
 | [FX-V6](execution.md#fx-v6) | `open` | The binding triggers for `previous_result`: the competing claim against FX-10. | [Q-FX-15](execution.md#q-fx-15) |
+| [FX-33](execution.md#fx-33) | `DISPUTED` | Whether a failure module's non-object result (a one-element array such as `[true]`) can recover the flow. Raised by a review of this reference. | [Q-FX-19](execution.md#q-fx-19) |
 | [FX-36](execution.md#fx-36) | `needs-evidence` | Whether a non-object final result (an array) decodes positionally as response metadata. | [Q-FX-12](execution.md#q-fx-12) |
 | [FX-40](execution.md#fx-40) | `DISPUTED` | Whether collapsed loop iterations of one run can share cache entries. | [Q-FX-17](execution.md#q-fx-17) |
 | [FX-42](execution.md#fx-42) | `DISPUTED` | Whether `$jsonvar:` values keep their raw spelling or only their key order. | [Q-FX-16](execution.md#q-fx-16) |

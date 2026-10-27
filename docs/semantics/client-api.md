@@ -1235,7 +1235,8 @@ interface); `WA-Vn` findings were added during validation.
   (`bun run … -r ./loader.bun.js wrapper.mjs`), `:353-404` (lockfile split),
   `:1766-1776` (`windmill-client` imported as a package);
   `typescript-client/client.ts:52-54`.
-- **Conformance:** none (design options).
+- **Conformance:** [WA-30/a](conformance.md#wa-30), a windmill-lite
+  acceptance check (not Windmill behaviour).
 - **Design note (not Windmill behaviour):** three ways to serve the client
   surface without a real Windmill:
   1. **Loopback HTTP facade, stock client unmodified.** Point `BASE_URL` and
@@ -1373,7 +1374,8 @@ interface); `WA-Vn` findings were added during validation.
   `backend/windmill-worker/src/wac_executor.rs:18-81`, `:219-260`;
   `backend/parsers/windmill-parser-ts/src/lib.rs:399-440`, `:476-530`
   (`extract_workflow_params`).
-- **Conformance:** [WA-33/a, WA-33/b](conformance.md#wa-33)
+- **Conformance:** [WA-33/a, WA-33/b](conformance.md#wa-33); the policy
+  check [WA-33/c](conformance.md#wa-33)
 - **Design note (not Windmill behaviour):** rejecting WAC scripts is
   windmill-lite policy, not upstream behaviour. Imports alone do not prove a
   program uses WAC; to match upstream classification the loader should mirror
@@ -1412,9 +1414,10 @@ interface); `WA-Vn` findings were added during validation.
 - **Evidence:** derived from [WA-8](#wa-8) to [WA-20](#wa-20), [WA-V1](#wa-v1),
   [WA-V3](#wa-v3); `backend/windmill-worker/src/common.rs:164-210`, `:262-396`;
   `backend/windmill-store/src/resources.rs:913-935`.
-- **Conformance:** none of its own (design proposal); the upstream contracts
-  are exercised by [WA-V3/a](conformance.md#wa-v3) and the service fixtures of
-  WA-10 to WA-18.
+- **Conformance:** windmill-lite acceptance checks
+  [WA-40/a, WA-40/b](conformance.md#wa-40) (not Windmill behaviour); the
+  upstream contracts are exercised by [WA-V3/a](conformance.md#wa-v3) and the
+  service fixtures of WA-10 to WA-18.
 - **Design note (not Windmill behaviour):** each service is a Go interface
   with a default local implementation and a host override, arranged as a chain
   of resolvers like the windmill-ts `ResourceResolver` ([WA-60](#wa-60)).
@@ -1488,7 +1491,8 @@ interface); `WA-Vn` findings were added during validation.
   `:432-442`, `:530-539`, `:672-720`, `:734-736`, `:759-761`;
   `python-client/wmill/wmill/client.py:669-673`, `:807-829`; [WA-V8](#wa-v8),
   [WA-V9](#wa-v9).
-- **Conformance:** [WA-41/a](conformance.md#wa-41); stock-client reactions in
+- **Conformance:** [WA-41/a](conformance.md#wa-41) and the policy check
+  [WA-41/b](conformance.md#wa-41); stock-client reactions in
   [WA-V5/a, WA-V5/b, WA-V5/c](conformance.md#wa-v5).
 - **Design note (not Windmill behaviour):**
   - **Facade endpoint contract.** An unimplemented route answers HTTP 501,
@@ -1706,7 +1710,8 @@ interface); `WA-Vn` findings were added during validation.
   `backend/windmill-api-jobs/src/execution.rs:874` (flows), `:916` (scripts);
   `go-client/windmill.go:16-190` (`:20-35`), `go-client/build.sh:1-27`
   (`:14-19`), `go-client/LICENSE`.
-- **Conformance:** [WA-51/a](conformance.md#wa-51)
+- **Conformance:** [WA-51/a](conformance.md#wa-51); the policy check
+  [WA-51/b](conformance.md#wa-51)
 - **Design note (not Windmill behaviour):** two coherent hybrid modes:
   - **(a) Remote-backed platform.** The facade proxies resources, variables,
     S3 and state to the real Windmill, adding a configured token and
