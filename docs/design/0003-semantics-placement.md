@@ -152,8 +152,13 @@ harness, which is (a) with its duplication.
      that they start on an empty base.
    - **Stack.** QuickJS-ng's maximum stack size is pinned to its built-in
      default of 1 MiB and recorded in the manifest, because stack-overflow
-     depth is observable; semantics request 3 (README) asks which value
-     Windmill's embedding uses, and the pin follows the answer.
+     depth is observable. Semantics request 3 (README) is answered by
+     [JE-48](../semantics/expressions.md#je-48): Windmill's embedding never
+     sets a stack size, so it runs on that default, measured from where each
+     call enters the engine. Evaluations run on threads that the engine
+     creates with stacks well above the limit (at least 8 MiB), because a
+     thread the Go runtime creates gets the C library's default stack, which
+     is 128 KiB on musl and would end before the engine's limit.
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against
@@ -220,8 +225,9 @@ one returns, which is the shape of runs that interleave evaluations with
 step I/O (the paced row of the pool table above). Back-to-back load is
 measured and reported beside it but not gated: it saturates the CPU by
 design, and the wazero numbers above show it at about four times the paced
-latency. The native pool has not been measured under load yet; B1a measures
-it, and B2b may not merge on the wazero figures:
+latency. B1a measured the native pool under these loads (the table after
+the gate, below); B2b may not merge on the wazero figures, nor on B1a's,
+which bind values without the pipeline's wrapper:
 
 | Bound value | p95 | p99 |
 |---|---|---|
@@ -234,6 +240,47 @@ not merge. The remedies, in order: pool size,
 memory recycling thresholds, and binding only the paths an expression reads
 when a static check proves the expression cannot observe the rest. That last
 remedy needs its own record.
+
+**The native pool under load (milestone B1a).** `TestPoolUnderLoad` in
+`internal/expr/quickjs` evaluates a stand-in predicate: it binds an invented
+order object of the row's size as one results value and a small flow input,
+both as host strings; parses both; and serialises
+`Boolean(results.fetch_order.archived ? null : flow_input.order.ref)`. There
+is no pipeline wrapper and no shortcut. QuickJS-ng `be664ca1` built with the
+system clang at `-O2`, the default pool (8 slots), Apple M4 (4 performance
+and 6 efficiency cores), macOS 26.5, Go 1.27.3, 3 s per row. The machine was
+shared with other work, at a load average of about 2.9 when the run started.
+CPU per evaluation is the process's CPU time divided by the evaluations, so
+it includes freeing each runtime and preparing the next. A burst's latency
+counts from when the burst is issued.
+
+| Load | Bound value | p50 | p95 | p99 | CPU per evaluation |
+|---|---|---|---|---|---|
+| 1 caller, 2 ms between evaluations | 4 KB | 89 µs | 150 µs | 191 µs | 397 µs |
+| 8 callers, 0.5 ms between evaluations | 4 KB | 95 µs | 152 µs | 193 µs | 221 µs |
+| 8 callers, back to back | 4 KB | 190 µs | 264 µs | 336 µs | 201 µs |
+| 16 callers, back to back | 4 KB | 381 µs | 438 µs | 588 µs | 199 µs |
+| burst of 64 at once | 4 KB | 1.44 ms | 4.55 ms | 5.56 ms | 311 µs |
+| 1 caller, 2 ms between evaluations | 64 KB | 257 µs | 328 µs | 569 µs | 406 µs |
+| 8 callers, 0.5 ms between evaluations | 64 KB | 350 µs | 539 µs | 582 µs | 470 µs |
+| 8 callers, back to back | 64 KB | 495 µs | 848 µs | 1.04 ms | 568 µs |
+| 16 callers, back to back | 64 KB | 1.12 ms | 1.54 ms | 1.91 ms | 566 µs |
+| burst of 64 at once | 64 KB | 4.01 ms | 5.54 ms | 9.72 ms | 606 µs |
+| 1 caller, 2 ms between evaluations | 256 KB | 939 µs | 991 µs | 1.55 ms | 1.10 ms |
+| 8 callers, 0.5 ms between evaluations | 256 KB | 1.32 ms | 2.10 ms | 2.31 ms | 1.61 ms |
+| 8 callers, back to back | 256 KB | 1.45 ms | 2.46 ms | 2.87 ms | 1.68 ms |
+| 16 callers, back to back | 256 KB | 3.33 ms | 4.40 ms | 5.13 ms | 1.68 ms |
+| burst of 64 at once | 256 KB | 7.89 ms | 13.6 ms | 15.1 ms | 1.68 ms |
+
+The paced rows sit inside the gate's bounds at every size, but they are not
+the gate: B2b measures through the pipeline. On a busier machine the tails
+grew several times over. A run at a load average of about 20 before it
+started gave a paced 4 KB p99 of 1.98 ms and a paced 256 KB p99 of 59.5 ms,
+so the gate needs a quiet machine. The unloaded rows are not a lower bound:
+an idle caller on this machine often runs at a lower clock. CI reports the
+same table on each run from its shared Linux and macOS runners, where the
+default pool follows the runner's CPU count (3 to 5 slots so far); those
+figures show the trend, not the gate.
 
 ### The conformance-suite format
 
@@ -305,6 +352,10 @@ validation with `contextual_case_needs_flow_fixture`.
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.
+- Milestone B1a measured the native pool under load and recorded it under
+  the budget gate, and moved evaluations onto threads the engine creates,
+  because the stack limit of JE-48 needs more stack than musl gives the Go
+  runtime's threads.
 - The decode level was added with milestone A3. A flow value's accept or
   reject decision has no run to observe, so it fits none of the three run
   levels, and the decoder is Go only, so no harness reads these cases.
@@ -322,5 +373,5 @@ validation with `contextual_case_needs_flow_fixture`.
 
 ## Spec IDs relied on
 
-FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, WR-6 to WR-21,
+FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, JE-48, WR-6 to WR-21,
 OR-15, and the conformance catalogue's notation and provenance rules.

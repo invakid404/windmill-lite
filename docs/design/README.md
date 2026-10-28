@@ -7,8 +7,10 @@ dialect in [internal/yamlx](../../internal/yamlx/README.md), milestone A1 the
 jsonb canonicaliser of [0005](0005-json-step-boundaries.md) in
 [internal/jsonval](../../internal/jsonval/README.md), milestone K1
 the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
-interfaces under `internal/`), and milestone C1 the harness protocol of
-[0004](0004-harness-protocol.md) in
+interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
+[0003](0003-semantics-placement.md) in
+[internal/expr/quickjs](../../internal/expr/quickjs/README.md), and milestone
+C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness; nothing runs flows yet. This README covers
 `docs/design/`: this index and the decision records it links. The records
@@ -22,7 +24,8 @@ documentation, the Apache-2.0 parts of Windmill, and observed behaviour.
 Where a decision depends on a number, the number was measured with a
 throwaway prototype outside this repository, and the record states the
 hardware, versions and method. Milestone G1 turns those prototypes into
-in-repository benchmarks.
+in-repository benchmarks. The one exception so far is the native pool
+under load, measured by milestone B1a's own load test.
 
 ## The architecture in one paragraph
 
@@ -51,7 +54,7 @@ flowchart LR
 |---|---|
 | [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and seven restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
 | [0002 IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
-| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a pinned stack size; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases and harness protocol cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
+| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a stack pinned at 1 MiB on threads the engine creates; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases and harness protocol cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
 | [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and large messages in base64 part streams; validated entrypoint names; a shared-process failure model (handlers that never exit, attribution without guessing, D9–D11); `fetch` as the only platform transport in warm processes (other transports refused, unrecorded); no in-flight cap unless a host sets one (D15); host mode never tainted, drained by the host, and killed by the engine's watchdog when its event loop stops answering. |
 | [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
 | [0006 Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition. |
@@ -73,6 +76,7 @@ each record):
 | First QuickJS-ng evaluation on a never-used runtime (setup excluded), by bound input | wazero: 53 µs at 50 B, 79 µs at 4 KB, 427 µs at 64 KB; native: 87 µs, 91 µs, 162 µs | 0003 |
 | Fresh runtime setup | 221 µs in wazero, 84 µs native | 0003 |
 | Bounded pool (wazero prototype), 8 slots, 8 callers with pauses, 4 KB | 120 µs p50, 260 µs p95 | 0003 |
+| Native pool (milestone B1a), 8 slots, 8 callers with pauses, by bound value | 4 KB: 95 µs p50, 152 µs p95; 64 KB: 350 µs, 539 µs; 256 KB: 1.32 ms, 2.10 ms | 0003 |
 | Normalising walk versus native JSON round trip in Bun | faster, but not equivalent (top-level functions and symbols, own `__proto__` keys) | 0005 |
 | Fresh module state per invocation in one process | 0.6–2.1 ms for 0.3–1.3 MB bundles; re-importing leaks module records | 0006 |
 | Step code reading a host scope through a separately bundled copy of the module, on Bun 1.3.10 | `undefined`; through a host-provided module, 16 of 16 isolated, compiled host included | 0010 |
@@ -114,9 +118,9 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    refines those settings but does not hold C2b.
 3. **The expression engine's stack limit**: which maximum stack size
    Windmill's QuickJS-ng embedding uses, since stack-overflow depth is
-   observable. Until it is answered, windmill-lite pins QuickJS-ng's built-in
-   default of 1 MiB and records it in the manifest
-   ([0003](0003-semantics-placement.md)).
+   observable. Answered by [JE-48](../semantics/expressions.md#je-48):
+   QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
+   records in the manifest ([0003](0003-semantics-placement.md)).
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
