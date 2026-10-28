@@ -1,0 +1,38 @@
+summary: E1 WR-13 and WR-14 serialisation
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          a:
+            type: javascript
+            expr: previous_result.a
+          d:
+            type: javascript
+            expr: previous_result.d
+          has_a:
+            type: javascript
+            expr: previous_result.hasOwnProperty("a")
+        lock: '!inline b.lock'
+        language: bun
+    - id: c
+      value:
+        type: rawscript
+        content: '!inline c.ts'
+        input_transforms: {}
+        lock: '!inline c.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

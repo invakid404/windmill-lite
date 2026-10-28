@@ -1,0 +1,11 @@
+# Each codebase script doubles its argument; the flow's result is the CJS
+# step's (FX-36).
+spec: [SY-8, WR-47, WR-50]
+target: f/wl_e1_cb/chain
+args: {x: 3}
+expect:
+  status: success
+  result: {doubled: 12, entry: cjs}
+  steps:
+    "m:a": {status: success, args: {x: 3}, result: {doubled: 6, entry: esm}}
+    "m:b": {status: success, args: {x: 6}, result: {doubled: 12, entry: cjs}}

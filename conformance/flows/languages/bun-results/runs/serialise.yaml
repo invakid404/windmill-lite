@@ -1,0 +1,19 @@
+# WR-13/a: the step's result as JSON.stringify(value ?? null, replacer)
+# writes it, with the undefined replacer and the BigInt patch; WR-14: the
+# next step still sees the key that held undefined, now null; WR-13/b: a
+# top-level undefined is null, which is the flow's result (FX-36).
+spec: [WR-13/a, WR-13/b, WR-14, FX-36]
+target: f/wl_e1_wr/serialise
+expect:
+  status: success
+  result: null
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result: {a: null, n: "10", d: "2024-01-02T03:04:05.006Z", m: {}, u8: {"0": 1, "1": 2}, x: [null, null, 0]}
+    "m:b":
+      status: success
+      args: {has_a: true, a: null, d: "2024-01-02T03:04:05.006Z"}
+      result: {has_a: true, a: null, d: "2024-01-02T03:04:05.006Z"}
+    "m:c": {status: success, args: {}, result: null}
