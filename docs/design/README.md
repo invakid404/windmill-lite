@@ -13,6 +13,8 @@ the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
 interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [0003](0003-semantics-placement.md) in
 [internal/expr/quickjs](../../internal/expr/quickjs/README.md), milestone
+B2a the textual stages and shortcuts of its expression pipeline in
+[internal/expr](../../internal/expr/README.md), on a fake engine, milestone
 C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, milestone C2a the Bun side of the build of
