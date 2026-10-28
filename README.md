@@ -12,11 +12,12 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Three milestones have landed, and no command uses them yet: the OpenFlow
-decoder in [internal/openflow](internal/openflow/README.md) (A3); K1, the
-shared types and interfaces under `internal/` that later milestones implement
-and code against; and the QuickJS-ng expression engine in
-[internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
+Four milestones have landed, and no command uses them yet: the OpenFlow
+decoder in [internal/openflow](internal/openflow/README.md) (A3); the YAML
+dialect of the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md)
+(A2); K1, the shared types and interfaces under `internal/` that later
+milestones implement and code against; and the QuickJS-ng expression engine
+in [internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
@@ -41,6 +42,7 @@ go test -race ./...
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
+| [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, stored text and the NUL flag. The canonicaliser is not implemented yet. |
 | [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. The pipeline is not implemented yet. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |

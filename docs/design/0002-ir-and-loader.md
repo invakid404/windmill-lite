@@ -61,6 +61,30 @@ flowchart LR
    typed field needs them. This answers [Q-OF-6](../semantics/openflow.md#q-of-6):
    the library's own scalar resolution is never used, and fixtures pin each
    rule.
+   - **What a mapping becomes.** The CLI sends a JavaScript object, so a key
+     is the property name JavaScript gives it (`1` is `"1"`, `~` is `""`),
+     array-index keys come first, and two distinct keys with one name (`1`
+     and `"1"`) keep the later value. Keys with equal values (`1` and `0x1`)
+     are the duplicates that are errors.
+   - **Refusals.** The library, `go.yaml.in/yaml/v3`, is a YAML 1.1 parser.
+     Input that the CLI's parser accepts but turns into JavaScript-specific
+     values (the YAML 1.1 tags such as `!!binary`, collection keys,
+     directives other than `%YAML 1.2`), or that a YAML 1.1 parser reads
+     differently (a bare carriage return, anchor names that YAML 1.2 reads
+     further, a `?` or `:` in a flow collection that the two parsers read
+     as different indicators), fails with `unsupported_yaml`. NEL, LS, PS
+     and the control characters the library refuses (DEL, the C0 and C1
+     controls) are hidden from it and read as ordinary characters, as the
+     CLI's parser reads them; the CLI's writer emits DEL, LS and PS
+     unescaped. Block scalar values and explicit tags are read from the
+     source, because the library's whitespace and percent-escape handling
+     differs from the CLI's.
+     Some YAML 1.2 syntax that the library rejects, such as the `\/`
+     escape, fails with the library's `yaml_syntax` error. Both are
+     restrictions of [0001](0001-equivalence-contract.md) §5a; the package
+     README of `internal/yamlx` lists them. Input that the CLI rejects may
+     still parse: the CLI cannot push such a file, so there is no Windmill
+     behaviour for it to match.
 3. **`openflow`** decodes flow values with the effective rules
    ([OF-5](../semantics/openflow.md#of-5) to [OF-16](../semantics/openflow.md#of-16),
    [OF-V1](../semantics/openflow.md#of-v1), [OF-V2](../semantics/openflow.md#of-v2)):
@@ -297,7 +321,10 @@ the flow folder and reject paths that escape the sync root
 as an error ([PA-1](../semantics/openflow.md#pa-1)). Only the first refuses
 folders the CLI accepts: the CLI truncates a dotted logical path to its first
 segment, which silently renames the item. The others change nothing about
-how an accepted folder runs.
+how an accepted folder runs. The YAML refusals of the dialect (Pipeline,
+step 2) also refuse files the CLI accepts; none of them is a construct the
+CLI's writer emits for a value a Windmill server returns, so they reach
+only hand-written files.
 
 ## Consequences
 
@@ -317,6 +344,14 @@ how an accepted folder runs.
   `windmill-utils-internal`) are not used until the open licence question is
   answered ([Q-OF-7](../semantics/openflow.md#q-of-7)); the loader is written
   from the `SY-` findings either way.
+- The YAML dialect's mapping rules and refusals (Pipeline, step 2) were added
+  when milestone A2 implemented it. Pinning the dialect against the CLI's
+  YAML library showed that a mapping's keys and order follow the JavaScript
+  object the CLI builds, and that a YAML 1.1 parser cannot read a few YAML
+  1.2 constructs as the CLI does. Matching those would need another parser
+  or JavaScript-specific values; none of them comes from the CLI's writer
+  for a server value, so they are refused, as a restriction of
+  [0001](0001-equivalence-contract.md) §5a.
 
 ## Spec IDs relied on
 
