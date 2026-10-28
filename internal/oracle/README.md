@@ -2,7 +2,7 @@
 
 **Current state:** implemented (milestones E2 and E4a of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), extended by
-the recording batches E3c and E3b). This README
+the recording batches E3c, E3b, E3d and E3a). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow

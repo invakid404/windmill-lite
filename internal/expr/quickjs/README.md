@@ -174,8 +174,9 @@ each with mimalloc and with its own `malloc`).
   or readback), `Close`, the arrival order of waiting callers,
   concurrent use under `-race`, and the overflow depth at the default
   stack, which they log for each platform and check lies between 1 000
-  (fits) and 1 000 000 (overflows). JE-48's compatibility band is now wider:
-  depths up to 600 fit, and Windmill itself overflows at 1 000. An engine started through the tests' shared helper must end with
+  (fits) and 1 000 000 (overflows). On Windmill, JE-48 records that depths
+  up to 600 fit and depth 1 000 overflows; whether windmill-lite must match
+  that is open (JE-48's design note). An engine started through the tests' shared helper must end with
   no leaked heap block; the one test that makes QuickJS-ng leak uses a
   helper without that check.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and

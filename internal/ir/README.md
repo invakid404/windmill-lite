@@ -240,8 +240,10 @@ from the compiler's reading of the import base, `schema_validation` and
   ([CF-30](../../docs/semantics/control-flow.md#cf-30)).
 - **The import base** of an inline step with an explicit `path` is that path
   as written, at any depth. [WR-29](../../docs/semantics/languages.md#wr-29)
-  now differs: a deployed flow drops the field, so the default base applies,
-  and the explicit path is the base only where raw module values run.
+  now differs for module lists: a deployed flow drops the field from the
+  inline scripts of its module lists and their container bodies, so the
+  default base applies there; its failure and preprocessor slots stay raw
+  and keep it, as the compiler does (WR-29/c).
 - **`schema_validation`** is read as a header annotation key by the rule of
   [WR-31](../../docs/semantics/languages.md#wr-31).
   [WR-54](../../docs/semantics/languages.md#wr-54) now differs: the line has
