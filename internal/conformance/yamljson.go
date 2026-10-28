@@ -15,10 +15,11 @@ import (
 var jsonNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
 // YAMLToJSON converts one YAML document to JSON text, keeping mapping order
-// and number spelling. It is for windmill-lite's own fixture files and for
-// reading module ids out of a sync tree; Windmill's YAML dialect (SY-9) is
-// internal/yamlx's. Mapping keys must be strings; aliases, merge keys and
-// non-JSON numbers are refused.
+// and number spelling. It is for windmill-lite's own fixture files
+// (fixture.yaml, setup.yaml, runs/*.yaml), which are strict on purpose: a
+// value is the JSON its author wrote. Aliases, merge keys, repeated keys
+// and non-JSON numbers are refused. A sync tree's files are Windmill's and
+// are read in the CLI's dialect (SY-9) by internal/yamlx instead.
 func YAMLToJSON(data []byte) (json.RawMessage, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {

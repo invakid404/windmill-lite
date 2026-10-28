@@ -39,7 +39,7 @@ func TestCatalogueCoverage(t *testing.T) {
 			if err != nil || d.IsDir() {
 				return err
 			}
-			if filepath.Base(p) == "coverage.json" {
+			if filepath.Base(p) == "coverage.json" || strings.Contains(filepath.ToSlash(p), "/openapi/") {
 				return nil
 			}
 			if strings.HasSuffix(p, "_test.go") || strings.HasSuffix(p, ".json") || strings.HasSuffix(p, ".yaml") {
@@ -95,11 +95,25 @@ func TestCatalogueCoverage(t *testing.T) {
 		accounted[d.Case] = "deferred to " + d.Milestone
 	}
 
+	// A case ID is cited where it stands alone: not inside a longer ID such
+	// as OR-11/a (for OR-1/a) or OR-1/ab.
+	citedIDs := map[string]bool{}
+	text := cited.Bytes()
+	token := regexp.MustCompile(`(?:OR-V?[0-9]+|LIC-1)/[a-z]`)
+	isWord := func(c byte) bool {
+		return c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+	}
+	for _, loc := range token.FindAllIndex(text, -1) {
+		if (loc[0] > 0 && isWord(text[loc[0]-1])) || (loc[1] < len(text) && text[loc[1]] >= 'a' && text[loc[1]] <= 'z') {
+			continue
+		}
+		citedIDs[string(text[loc[0]:loc[1]])] = true
+	}
 	inCatalogue := map[string]bool{}
 	var missing []string
 	for _, c := range cases {
 		inCatalogue[c] = true
-		citedHere := regexp.MustCompile(`(^|[^A-Za-z0-9-])` + regexp.QuoteMeta(c) + `($|[^a-z])`).Match(cited.Bytes())
+		citedHere := citedIDs[c]
 		how, listed := accounted[c]
 		switch {
 		case citedHere && listed && how != "live":

@@ -12,6 +12,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/openflow"
+	"github.com/invakid404/windmill-lite/internal/yamlx"
 )
 
 // nilJob is the job id of a module that completed without running a child
@@ -26,9 +27,11 @@ type SyncTree struct {
 	Flows map[string]*openflow.Flow
 }
 
-// LoadSyncTree reads every <name>.flow/flow.yaml below dir. A flow's path
-// is its directory's path relative to dir without the .flow suffix, for
-// example f/wl_smoke/two_step.
+// LoadSyncTree reads every <name>.flow/flow.yaml below dir, in the YAML
+// dialect of the wmill CLI (SY-9, internal/yamlx), and decodes it with
+// Windmill's effective decoder (internal/openflow). A flow's path is its
+// directory's path relative to dir without the .flow suffix, for example
+// f/wl_smoke/two_step.
 func LoadSyncTree(dir string) (*SyncTree, error) {
 	t := &SyncTree{Flows: make(map[string]*openflow.Flow)}
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -42,7 +45,7 @@ func LoadSyncTree(dir string) (*SyncTree, error) {
 		if err != nil {
 			return err
 		}
-		j, err := conformance.YAMLToJSON(data)
+		j, err := yamlx.ToJSON(data)
 		if err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
