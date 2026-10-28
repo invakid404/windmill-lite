@@ -1,0 +1,135 @@
+{
+  "finding": "OF-15",
+  "cases": [
+    {
+      "spec": "OF-15/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "windmill-lite never runs Windmill's dependency job: it keeps every lock the folder gives, byte for byte (0002, Validation; Q-OF-5). The bundle that uses the lock is F4's.",
+      "title": "no relock: the existing lock is kept",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/x/main.flow/a.inline_script.ts": "export async function main() { return 1 }\n",
+          "f/x/main.flow/a.inline_script.lock": "{\"dependencies\":{\"left-pad\":\"1.3.0\"}}\n  \n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/lock": "{\"dependencies\":{\"left-pad\":\"1.3.0\"}}\n  \n",
+                "/lock_file": "f/x/main.flow/a.inline_script.lock",
+                "/file": "f/x/main.flow/a.inline_script.ts",
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-15/b",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "windmill-lite has no relock selection: every module is untouched, as an unselected one is. The bundle is F4's.",
+      "title": "an unselected module is untouched",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n        lock: \"{\\\"dependencies\\\":{\\\"left-pad\\\":\\\"1.3.0\\\"}}\\n  \\n\"\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/lock": "{\"dependencies\":{\"left-pad\":\"1.3.0\"}}\n  \n",
+                "/language": "bun",
+                "/bundling": "bundled"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-15",
+      "variant": "empty",
+      "provenance": "policy",
+      "policy": "0002 Validation 5",
+      "title": "an empty lock is kept and is not an error",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n        lock: \"\"\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/lock": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-15",
+      "variant": "absent",
+      "provenance": "policy",
+      "policy": "0002 Validation 5",
+      "title": "an absent lock is null",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/lock": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-15",
+      "variant": "relabel",
+      "provenance": "policy",
+      "policy": "0002 Validation 5",
+      "note": "A deploy would regenerate this lock, because the language disagrees with the header, and relabel the step bun. windmill-lite relabels it and keeps the supplied lock (Q-OF-5).",
+      "title": "relabelling keeps the lock text",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bunnative\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n        lock: \"{\\\"dependencies\\\":{\\\"left-pad\\\":\\\"1.3.0\\\"}}\\n  \\n\"\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bun",
+                "/lock": "{\"dependencies\":{\"left-pad\":\"1.3.0\"}}\n  \n"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "windmill-lite's lock policy: the folder's lock text is kept exactly, never generated or relocked; an empty or absent lock is not an error by itself (0002, Validation 5)."
+}

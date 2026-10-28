@@ -1,0 +1,115 @@
+summary: The deployed form, normalised once
+description: Container defaults, virtual steps, collapse, occurrences and every expression site
+schema:
+  type: object
+  properties:
+    x: {type: number}
+timeout: 600
+value:
+  flow_env:
+    MODE: test
+    TOKEN: $var:f/demo/token
+  skip_expr: flow_input.skip === true
+  cache_ttl: 120
+  early_return: twice
+  same_worker: false
+  priority: 3
+  concurrent_limit: 2
+  modules:
+    - id: twice
+      summary: a path script with a JavaScript input
+      skip_if: {expr: flow_input.x === undefined}
+      stop_after_if: {expr: result > 1000, skip_if_stopped: false, error_message: too large}
+      timeout: {type: javascript, expr: '10'}
+      retry:
+        exponential: {attempts: 2, seconds: 1, multiplier: 2, random_factor: 10}
+        retry_if: {expr: error.name === 'Timeout'}
+      delete_after_use: true
+      value:
+        type: script
+        path: f/demo/double
+        input_transforms:
+          x: {type: javascript, expr: flow_input.x}
+    - id: format
+      continue_on_error: true
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline format.inline_script.ts'
+        lock: '!inline format.inline_script.lock'
+        input_transforms:
+          n: {type: javascript, expr: results.twice}
+          unused: {type: ai}
+    - id: each
+      summary: collapses (one simple rawscript body, sequential, no failure module)
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1, 2, 3]}
+        modules:
+          - id: inc
+            timeout: 5
+            value:
+              type: rawscript
+              language: bun
+              content: 'export async function main(v: number) { return v + 1 }'
+              input_transforms:
+                v: {type: javascript, expr: flow_input.iter.value}
+    - id: fanout
+      summary: parallel, so never collapses; its body ends in a sleep
+      stop_after_all_iters_if: {expr: 'false', skip_if_stopped: true}
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: '[4, 5]'}
+        parallel: true
+        parallelism: 2
+        skip_failures: false
+        modules:
+          - id: inner
+            value: {type: identity}
+          - id: inner
+            sleep: {type: static, value: 1}
+            value: {type: identity}
+    - id: poll
+      value:
+        type: whileloopflow
+        parallel: true
+        modules:
+          - id: probe
+            mock: {enabled: false}
+            value:
+              type: rawscript
+              language: bun
+              content: '// native
+
+                export async function main() { return 1 }'
+              input_transforms: {}
+            stop_after_if: {expr: result === 1, skip_if_stopped: true}
+    - id: pick
+      value:
+        type: branchone
+        branches:
+          - summary: big
+            expr: results.twice > 10
+            modules:
+              - id: child
+                value:
+                  type: flow
+                  path: f/demo/child
+                  input_transforms:
+                    y: {type: static, value: {"b": 1, "a": [true, null]}}
+        default:
+          - id: none
+            value: {type: identity}
+    - id: all
+      value:
+        type: branchall
+        parallel: false
+        branches:
+          - modules: []
+          - skip_failure: false
+            modules:
+              - value: {type: identity}
+    - id: twice
+      sleep: {type: javascript, expr: '0'}
+      mock: {enabled: true, return_value: 7}
+      value: {type: identity}

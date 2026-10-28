@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "roots": {
+    "flows": [
+      "f/app/root"
+    ],
+    "scripts": []
+  },
+  "contract": {
+    "roots": [
+      {
+        "flow": "f/app/root"
+      }
+    ],
+    "provided": [
+      {
+        "selector": {
+          "flow": "f/app/root",
+          "module": "permit"
+        },
+        "provider": "permitCheck",
+        "mandatory": true
+      },
+      {
+        "selector": {
+          "script": "f/app/audit_log"
+        },
+        "static": {
+          "logged": true
+        },
+        "mandatory": true
+      }
+    ],
+    "host_modules": [
+      "f/app/scope.ts"
+    ]
+  },
+  "flows": {
+    "f/app/root": {
+      "path": "f/app/root",
+      "summary": "The compile-time half of 0002's provided-site policy case",
+      "modules": [
+        {
+          "id": "prepare",
+          "kind": "rawscript",
+          "leaf": {
+            "script": "inline-9bed1afa5885b4fd",
+            "harness": "bun",
+            "boundary": "bun",
+            "inputs": [
+              {
+                "name": "u",
+                "transform": {
+                  "type": "javascript",
+                  "expr": {
+                    "site": "input_transform",
+                    "text": "flow_input.user"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "permit",
+          "kind": "provided",
+          "skip_if": {
+            "site": "skip_if",
+            "text": "flow_input.trusted === true"
+          },
+          "stop_after_if": {
+            "expr": {
+              "site": "stop_after_if",
+              "text": "!result.granted"
+            },
+            "skip_if_stopped": false,
+            "error_message": "permit denied"
+          },
+          "retry": {
+            "constant": {
+              "attempts": 3,
+              "seconds": 2
+            }
+          },
+          "provided": {
+            "site": 0,
+            "provider": "permitCheck",
+            "target": {
+              "kind": "flow",
+              "path": "f/app/permit"
+            },
+            "inputs": [
+              {
+                "name": "who",
+                "transform": {
+                  "type": "javascript",
+                  "expr": {
+                    "site": "input_transform",
+                    "text": "results.prepare.user"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "audit",
+          "kind": "provided",
+          "provided": {
+            "site": 1,
+            "static": {
+              "logged": true
+            },
+            "target": {
+              "kind": "script",
+              "path": "f/app/audit_log"
+            },
+            "inputs": [
+              {
+                "name": "event",
+                "transform": {
+                  "type": "static",
+                  "value": "permit"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "inline-9bed1afa5885b4fd": {
+      "id": "inline-9bed1afa5885b4fd",
+      "kind": "inline",
+      "path": "f/app/root/prepare",
+      "flow": "f/app/root",
+      "module": "prepare",
+      "site": "m:prepare",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:a8e298eafadab78de1e1ee0dc65b6abc3219376f64c8c231d8a1642db03a5bfa",
+      "lock": null,
+      "bundling": "bundled",
+      "import_base": "f/app/root/prepare",
+      "dependency_set": "bundled"
+    }
+  },
+  "deviations": [
+    "D12"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "finding": "OF-2",
+  "cases": [
+    {
+      "spec": "OF-2/d",
+      "variant": "occurrences",
+      "provenance": "source-derived",
+      "title": "duplicate ids: occurrences in one list, none across lists",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: identity}\n    - id: a\n      value: {type: identity}\n    - id: l\n      value:\n        type: whileloopflow\n        modules:\n          - id: a\n            value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a~0",
+            "m:a~1",
+            "m:l"
+          ],
+          "f/x/main m:l": [
+            "m:a"
+          ]
+        },
+        "steps": {
+          "f/x/main m:a~1": {
+            "at": {
+              "/occurrence": 1
+            }
+          },
+          "f/x/main m:l/m:a": {
+            "absent": [
+              "/occurrence"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "Windmill does not check ids (OF-2), so the program records each repeated id's occurrence in its list, which site paths carry (0011)."
+}

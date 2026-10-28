@@ -1,0 +1,515 @@
+{
+  "version": 1,
+  "roots": {
+    "flows": [
+      "f/demo/main"
+    ],
+    "scripts": []
+  },
+  "contract": {
+    "roots": [
+      {
+        "flow": "f/demo/main"
+      }
+    ]
+  },
+  "flows": {
+    "f/demo/child": {
+      "path": "f/demo/child",
+      "summary": "A subflow with a failure module, so its loop does not collapse",
+      "modules": [
+        {
+          "id": "again",
+          "kind": "forloopflow",
+          "forloop": {
+            "iterator": {
+              "type": "static",
+              "value": [
+                1
+              ]
+            },
+            "modules": [
+              {
+                "id": "twice",
+                "kind": "script",
+                "leaf": {
+                  "script": "f/demo/double",
+                  "harness": "bun",
+                  "boundary": "bun",
+                  "inputs": [
+                    {
+                      "name": "x",
+                      "transform": {
+                        "type": "static",
+                        "value": 1
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "skip_failures": true,
+            "parallel": false,
+            "collapse": false
+          }
+        }
+      ],
+      "failure_module": {
+        "id": "failure",
+        "kind": "rawscript",
+        "leaf": {
+          "script": "inline-fef670d72935424e",
+          "harness": "bun",
+          "boundary": "bun",
+          "inputs": [
+            {
+              "name": "e",
+              "transform": {
+                "type": "javascript",
+                "expr": {
+                  "site": "failure_input_transform",
+                  "text": "error"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "f/demo/main": {
+      "path": "f/demo/main",
+      "summary": "The deployed form, normalised once",
+      "description": "Container defaults, virtual steps, collapse, occurrences and every expression site",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          }
+        }
+      },
+      "modules": [
+        {
+          "id": "twice",
+          "occurrence": 0,
+          "kind": "script",
+          "summary": "a path script with a JavaScript input",
+          "skip_if": {
+            "site": "skip_if",
+            "text": "flow_input.x === undefined"
+          },
+          "stop_after_if": {
+            "expr": {
+              "site": "stop_after_if",
+              "text": "result > 1000"
+            },
+            "skip_if_stopped": false,
+            "error_message": "too large"
+          },
+          "timeout": {
+            "type": "javascript",
+            "expr": {
+              "site": "timeout",
+              "text": "10"
+            }
+          },
+          "retry": {
+            "exponential": {
+              "attempts": 2,
+              "multiplier": 2,
+              "seconds": 1,
+              "random_factor": 10
+            },
+            "retry_if": {
+              "site": "retry_if",
+              "text": "error.name === 'Timeout'"
+            }
+          },
+          "leaf": {
+            "script": "f/demo/double",
+            "harness": "bun",
+            "boundary": "bun",
+            "inputs": [
+              {
+                "name": "x",
+                "transform": {
+                  "type": "javascript",
+                  "expr": {
+                    "site": "input_transform",
+                    "text": "flow_input.x"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "format",
+          "kind": "rawscript",
+          "continue_on_error": true,
+          "leaf": {
+            "script": "inline-b6f1318faf1b479a",
+            "harness": "bun",
+            "boundary": "bun",
+            "inputs": [
+              {
+                "name": "n",
+                "transform": {
+                  "type": "javascript",
+                  "expr": {
+                    "site": "input_transform",
+                    "text": "results.twice"
+                  }
+                }
+              },
+              {
+                "name": "unused",
+                "transform": {
+                  "type": "ai"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "each",
+          "kind": "forloopflow",
+          "summary": "collapses (one simple rawscript body, sequential, no failure module)",
+          "forloop": {
+            "iterator": {
+              "type": "static",
+              "value": [
+                1,
+                2,
+                3
+              ]
+            },
+            "modules": [
+              {
+                "id": "inc",
+                "kind": "rawscript",
+                "timeout": {
+                  "type": "static",
+                  "value": 5
+                },
+                "leaf": {
+                  "script": "inline-344fadc3068781bf",
+                  "harness": "bun",
+                  "boundary": "bun",
+                  "inputs": [
+                    {
+                      "name": "v",
+                      "transform": {
+                        "type": "javascript",
+                        "expr": {
+                          "site": "input_transform",
+                          "text": "flow_input.iter.value"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "skip_failures": true,
+            "parallel": false,
+            "collapse": true
+          }
+        },
+        {
+          "id": "fanout",
+          "kind": "forloopflow",
+          "summary": "parallel, so never collapses; its body ends in a sleep",
+          "stop_after_all_iters_if": {
+            "expr": {
+              "site": "stop_after_all_iters_if",
+              "text": "false"
+            },
+            "skip_if_stopped": true
+          },
+          "forloop": {
+            "iterator": {
+              "type": "javascript",
+              "expr": {
+                "site": "iterator",
+                "text": "[4, 5]"
+              }
+            },
+            "modules": [
+              {
+                "id": "inner",
+                "occurrence": 0,
+                "kind": "identity"
+              },
+              {
+                "id": "inner",
+                "occurrence": 1,
+                "kind": "identity",
+                "sleep": {
+                  "type": "static",
+                  "value": 1
+                }
+              },
+              {
+                "id": "inner-v",
+                "kind": "identity",
+                "virtual": true,
+                "summary": "Virtual module needed for suspend/sleep when last module"
+              }
+            ],
+            "skip_failures": false,
+            "parallel": true,
+            "parallelism": {
+              "type": "static",
+              "value": 2
+            },
+            "collapse": false
+          }
+        },
+        {
+          "id": "poll",
+          "kind": "whileloopflow",
+          "whileloop": {
+            "modules": [
+              {
+                "id": "probe",
+                "kind": "rawscript",
+                "stop_after_if": {
+                  "expr": {
+                    "site": "stop_after_if",
+                    "text": "result === 1"
+                  },
+                  "skip_if_stopped": true
+                },
+                "mock": {
+                  "enabled": false
+                },
+                "leaf": {
+                  "script": "inline-8dfdaba1b0d0889c",
+                  "harness": "bun",
+                  "boundary": "native",
+                  "inputs": []
+                }
+              }
+            ],
+            "skip_failures": false,
+            "collapse": false
+          }
+        },
+        {
+          "id": "pick",
+          "kind": "branchone",
+          "branchone": {
+            "branches": [
+              {
+                "summary": "big",
+                "expr": {
+                  "site": "branchone",
+                  "text": "results.twice > 10"
+                },
+                "modules": [
+                  {
+                    "id": "child",
+                    "kind": "flow",
+                    "subflow": {
+                      "path": "f/demo/child",
+                      "inputs": [
+                        {
+                          "name": "y",
+                          "transform": {
+                            "type": "static",
+                            "value": {
+                              "b": 1,
+                              "a": [
+                                true,
+                                null
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ],
+            "default": [
+              {
+                "id": "none",
+                "kind": "identity"
+              }
+            ]
+          }
+        },
+        {
+          "id": "all",
+          "kind": "branchall",
+          "branchall": {
+            "branches": [
+              {
+                "modules": [],
+                "skip_failure": true
+              },
+              {
+                "modules": [
+                  {
+                    "id": "wld9ff3020",
+                    "kind": "identity",
+                    "derived_id": true
+                  }
+                ],
+                "skip_failure": false
+              }
+            ],
+            "parallel": false
+          }
+        },
+        {
+          "id": "twice",
+          "occurrence": 1,
+          "kind": "identity",
+          "sleep": {
+            "type": "javascript",
+            "expr": {
+              "site": "sleep",
+              "text": "0"
+            }
+          },
+          "mock": {
+            "enabled": true,
+            "return_value": 7
+          }
+        },
+        {
+          "id": "twice-v",
+          "kind": "identity",
+          "virtual": true,
+          "summary": "Virtual module needed for suspend/sleep when last module"
+        }
+      ],
+      "skip_expr": {
+        "site": "skip_expr",
+        "text": "flow_input.skip === true"
+      },
+      "flow_env": [
+        {
+          "name": "MODE",
+          "value": "test"
+        },
+        {
+          "name": "TOKEN",
+          "value": "$var:f/demo/token"
+        }
+      ],
+      "early_return": "twice",
+      "cache_ttl": 120,
+      "timeout": 600
+    }
+  },
+  "scripts": {
+    "f/demo/double": {
+      "id": "f/demo/double",
+      "kind": "path",
+      "path": "f/demo/double",
+      "file": "f/demo/double.ts",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:3d71c32bc1b3be26702ac35d02e81f39ae5bffa50531855bf0daecf29016eedc",
+      "lock": "",
+      "bundling": "bundled",
+      "import_base": "f/demo/double",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "x"
+        ]
+      },
+      "metadata": {
+        "envs": [
+          "MODE=test"
+        ],
+        "timeout": 30
+      },
+      "dependency_set": "bundled"
+    },
+    "inline-344fadc3068781bf": {
+      "id": "inline-344fadc3068781bf",
+      "kind": "inline",
+      "path": "f/demo/main/inc",
+      "flow": "f/demo/main",
+      "module": "inc",
+      "site": "m:each/m:inc",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:729520a767c5f6b0bd5da8ae18f54469b726607c18765cb72edff9bd87efd717",
+      "lock": null,
+      "bundling": "bundled",
+      "import_base": "f/demo/main/flow",
+      "dependency_set": "bundled"
+    },
+    "inline-8dfdaba1b0d0889c": {
+      "id": "inline-8dfdaba1b0d0889c",
+      "kind": "inline",
+      "path": "f/demo/main/probe",
+      "flow": "f/demo/main",
+      "module": "probe",
+      "site": "m:poll/m:probe",
+      "language": "bunnative",
+      "harness": "bun",
+      "boundary": "native",
+      "content_digest": "sha256:8ebcea1b033c94676b56957d32572046cf75529bed842873a2b59125a6e19d60",
+      "lock": null,
+      "bundling": "bundled",
+      "import_base": "f/demo/main/flow",
+      "annotations": [
+        "native"
+      ],
+      "dependency_set": "bundled"
+    },
+    "inline-b6f1318faf1b479a": {
+      "id": "inline-b6f1318faf1b479a",
+      "kind": "inline",
+      "path": "f/demo/main/format",
+      "flow": "f/demo/main",
+      "module": "format",
+      "site": "m:format",
+      "file": "f/demo/main.flow/format.inline_script.ts",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:4e0ae204c278766c2ebac43043cefa2a9ec48b832d6446d7a36b528831ab03ef",
+      "lock": "{\"lockfileVersion\":1,\"workspaces\":{\"\":{\"dependencies\":{}}}}\n",
+      "lock_file": "f/demo/main.flow/format.inline_script.lock",
+      "bundling": "bundled",
+      "import_base": "f/demo/main/format",
+      "dependency_set": "bundled"
+    },
+    "inline-fef670d72935424e": {
+      "id": "inline-fef670d72935424e",
+      "kind": "inline",
+      "path": "f/demo/child/failure",
+      "flow": "f/demo/child",
+      "module": "failure",
+      "site": "s:failure",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:1f7378b11278fdfbc59f03ece7e2af68b5e2adceb1158f17e2739a59db1408c5",
+      "lock": null,
+      "bundling": "bundled",
+      "import_base": "f/demo/child/failure",
+      "dependency_set": "bundled"
+    }
+  },
+  "deviations": [
+    "D5",
+    "D6"
+  ]
+}

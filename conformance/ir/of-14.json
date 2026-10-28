@@ -1,0 +1,59 @@
+{
+  "finding": "OF-14",
+  "cases": [
+    {
+      "spec": "OF-14",
+      "variant": "pinned",
+      "provenance": "policy",
+      "scope": "later",
+      "policy": "0002 Validation 6",
+      "note": "A folder holds one version per path and never records the hash Windmill gave it, so no pin can be shown to be the folder's version (SY-15).",
+      "title": "a pinned script hash is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: script, path: f/x/s, hash: '0000000000000001'}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "pinned_hash",
+            "contains": [
+              "f/x/main step 'a'",
+              "0000000000000001",
+              "f/x/s"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "OF-14",
+      "variant": "provided",
+      "provenance": "policy",
+      "scope": "later",
+      "policy": "0002 Validation 6",
+      "title": "a provided site may pin a hash",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: script, path: f/x/s, hash: '0000000000000001'}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: a}\n    provider: p\n    mandatory: true\n"
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "at": {
+              "/kind": "provided",
+              "/provided/target/path": "f/x/s"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "A script step's hash pins a version a folder cannot supply (SY-15); a provided site can stand in for it."
+}
