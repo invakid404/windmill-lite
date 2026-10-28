@@ -44,7 +44,7 @@ and [licensing.md](licensing.md) maps which parts do.
 | [execution.md](execution.md) | How a flow advances step by step: `flow_input`, `results`, `previous_result`, transforms, `skip_if`, `stop_after_if`, early return, sleep, timeout, retry, `continue_on_error`, error shapes, failure and preprocessor modules, cancellation. | `FX-` |
 | [control-flow.md](control-flow.md) | `forloopflow`, `whileloopflow`, `branchone`, `branchall`, subflows and `identity`; result shapes, failure handling and `results` visibility across container boundaries. | `CF-` |
 | [expressions.md](expressions.md) | The JavaScript expression evaluator: engine and limits, fast paths, every expression site and its scope, static values and `$var:`/`$res:` references. | `JE-` |
-| [languages.md](languages.md) | How a script runs, by language: Bun in depth (arguments, results, errors, environment, bundling and imports), Deno, Python, Go and Bash in summary. | `WR-` |
+| [languages.md](languages.md) | How a script runs, by language: Bun in depth (arguments, results, errors, environment, bundling and imports), codebase bundles, the native runtime of `nativets` and `bunnative` steps, and Deno, Python, Go and Bash in summary. | `WR-` |
 | [client-api.md](client-api.md) | The `wmill` client surface a script can call, the endpoint behind each call, and the platform services windmill-lite must provide. | `WA-` |
 | [oracle.md](oracle.md) | Differential testing against a real Windmill CE `v1.767.0`: topology, bootstrap, running flows, capturing per-step results, normalisation, fixture format, and observations recorded so far. | `OR-` |
 | [licensing.md](licensing.md) | The licence map of Windmill's repository, what windmill-lite may read, depend on or copy, and the decision on using the CE image as a test oracle. | `LIC-` |
@@ -57,17 +57,21 @@ and [licensing.md](licensing.md) maps which parts do.
 | [openflow.md](openflow.md) | 47 | 38 | 8 | 1 | 0 | 2 | 12 | 129 |
 | [execution.md](execution.md) | 55 | 44 | 9 | 2 | 0 | 7 | 19 | 120 |
 | [control-flow.md](control-flow.md) | 35 | 29 | 5 | 0 | 1 | 4 | 17 | 84 |
-| [expressions.md](expressions.md) | 52 | 39 | 10 | 3 | 0 | 0 | 10 | 160 |
-| [languages.md](languages.md) | 48 | 33 | 13 | 0 | 2 | 2 | 20 | 116 |
+| [expressions.md](expressions.md) | 54 | 39 | 12 | 3 | 0 | 0 | 11 | 167 |
+| [languages.md](languages.md) | 59 | 42 | 15 | 0 | 2 | 2 | 25 | 156 |
 | [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 93 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 6 | 18 | 82 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **321** | **251** | **58** | **7** | **5** | **21** | **110** | **787** |
+| **Total** | **334** | **260** | **62** | **7** | **5** | **21** | **116** | **834** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
 status is `DISPUTED`, `needs-evidence` or `open` (listed under
-[Findings that are not settled](#not-settled)). Question entries include
+[Findings that are not settled](#not-settled)). Thirteen findings are
+`drafted` and not yet independently checked: [JE-48](expressions.md#je-48),
+[JE-49](expressions.md#je-49) and [WR-40](languages.md#wr-40) to
+[WR-50](languages.md#wr-50). They answer the design's semantics requests 1
+to 3 and are not counted as unsettled. Question entries include
 answered questions, which keep their numbers; openflow.md's `Q-OF-7` entry
 points to licensing.md, where that question lives. Only the oracle area has
 `oracle-observed` cases so far, and seven cases are windmill-lite `policy`
@@ -112,6 +116,7 @@ recording yet), `oracle pending` (an open question asks for a recording), or
 | Status | Meaning |
 |---|---|
 | `confirmed` | An independent check against the pinned source confirmed the finding as written. |
+| `drafted` | The semantics team wrote the finding from the pinned source; the independent check has not run yet. Build on it as stated; if the check corrects it, the finding is edited in place. |
 | `DISPUTED` | An independent check against the pinned source disputed the latest text: the final check of the study the finding comes from, or a later review of this reference (the entry says which). The entry shows the rule as drafted and the correction side by side, and an open question tracks it. Neither side is settled behaviour: do not build on it until the question is closed. |
 | `needs-evidence` | The finding lacks the evidence its claim needs. |
 | `open` | The behaviour itself is undecided; see the linked open question. |

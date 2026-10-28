@@ -41,12 +41,12 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [OpenFlow model and the sync folder](#openflow) | 129 | 110 | 19 | 0 | 0 | 0 | 4 | 0 |
 | [Flow execution](#execution) | 120 | 92 | 27 | 1 | 0 | 0 | 30 | 1 |
 | [Loops, branches and subflows](#control-flow) | 84 | 67 | 15 | 0 | 2 | 0 | 15 | 0 |
-| [Expressions](#expressions) | 160 | 121 | 39 | 0 | 0 | 0 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 116 | 78 | 38 | 0 | 0 | 0 | 12 | 0 |
+| [Expressions](#expressions) | 167 | 121 | 46 | 0 | 0 | 0 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 156 | 107 | 49 | 0 | 0 | 0 | 12 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 36 | 15 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 787 | 598 | 179 | 6 | 4 | 36 | 76 | 7 |
+| **Total** | 834 | 627 | 197 | 6 | 4 | 36 | 76 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -3311,6 +3311,43 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ca
   - **Given:** flow input `{"n":1e3}`; `x = flow_input.n`
   - **Expect:** O2 `1000`
 
+<a id="je-48"></a>
+### JE-48 · The stack limit is quickjs-ng's built-in 1 MiB, measured from where the embedding enters the engine
+
+**Scope:** later · **Finding:** [JE-48](expressions.md#je-48)
+
+The cases bracket the limit; none locates it ([Q-JE-11](expressions.md#q-je-11)).
+
+- **JE-48/a** · source-derived · a recursion of depth 1 000 fits
+  - **Given:** `x = (() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()`
+  - **Expect:** `1000`
+- **JE-48/b** · source-derived · a recursion of depth 1 000 000 overflows
+  - **Given:** the same expression with `f(1000000)`
+  - **Expect:** `b` fails; its message contains `QuickJS evaluation error: Error: Maximum call stack size exceeded`.
+- **JE-48/c** · source-derived · the overflow is a catchable `RangeError`
+  - **Given:** `x = (() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()`
+  - **Expect:** `["RangeError","Maximum call stack size exceeded"]`
+- **JE-48/d** · source-derived · stringifying deeply nested JSON overflows
+  - **Given:** `x = (() => { let v = []; for (let i = 0; i < 100000; i++) v = [v]; return JSON.stringify(v).length; })()`
+  - **Expect:** `b` fails; its message contains `Maximum call stack size exceeded`.
+
+<a id="je-49"></a>
+### JE-49 · Context values nested deeper than 127 levels fail before evaluation
+
+**Scope:** later · **Finding:** [JE-49](expressions.md#je-49)
+
+*Notation:* `nest(1)` is `[]` and `nest(k)` is `[nest(k-1)]`, so `nest(k)` is `k` levels deep. Step `a` is a Bun script that builds and returns `nest(k)`; its result text is compact (`[[…]]`). The oracle recording is [Q-JE-11](expressions.md#q-je-11).
+
+- **JE-49/a** · source-derived · depth 127 binds
+  - **Given:** `a` returns `nest(127)`; `x = previous_result.length`
+  - **Expect:** `1`
+- **JE-49/b** · source-derived · depth 128 fails before any JavaScript runs
+  - **Given:** `a` returns `nest(128)`; `x = previous_result.length`
+  - **Expect:** `b` fails; its message contains `recursion limit exceeded at line 1 column 128` and does not contain `QuickJS evaluation error`.
+- **JE-49/c** · source-derived · a shortcut passes any depth through
+  - **Given:** `a` returns `nest(128)`; `x = previous_result` (the [JE-6](expressions.md#je-6) shortcut)
+  - **Expect:** `nest(128)`, unchanged.
+
 <a id="je-v1"></a>
 ### JE-V1 · Parallel-loop `parallelism` is an expression site
 
@@ -3412,6 +3449,8 @@ Findings: [languages.md](languages.md).
 - In messages, `\n` is the JSON escape for a newline.
 - The oracle harness normalises job ids ([oracle](oracle.md)).
 - No case below has been recorded on the v1.767.0 CE oracle yet ([Q-WR-20](languages.md#q-wr-20)).
+- **Native cases** ([WR-40](#wr-40) to [WR-46](#wr-46)). A `nativets` step is an inline rawscript with `language: nativets`. A `bunnative` step is an inline rawscript with `language: bun` whose first line is `//native`. "Both kinds" means the case runs once as each, with the same expectation. Their recording is [Q-WR-21](languages.md#q-wr-21). In a native error, `<stack>` stands for the two-part `stack` value of [WR-43](languages.md#wr-43). Unlike the Bun errors above, native exception objects carry no `step_id`.
+- **Codebase cases** ([WR-47](#wr-47) to [WR-50](#wr-50)). The sync root holds a `wmill.yaml` with `defaultTs: bun` and one `codebases` entry, `relative_path: f/cb` and `includes: ["f/cb/**"]`, plus the fields each case adds. Scripts live under `f/cb/`, with the `.script.yaml` the CLI generates. The fixture is pushed with the pinned `wmill` CLI from the sync root, to the CE oracle in standalone mode ([OR-4](oracle.md#or-4)), and the script is then run by path.
 
 <a id="wr-1"></a>
 ### WR-1 · One fresh OS process per script job, in a fresh job directory
@@ -3971,6 +4010,233 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
 - **WR-39/d** · source-derived · comments do not affect the parsed signature
   - **Given:** `/* export function main(a: Date) {} */ export function main(b: number) { return b; }`, args `{"b":2,"a":"x"}`.
   - **Expect:** `2`.
+
+<a id="wr-40"></a>
+### WR-40 · Which steps run in the native runtime, and how each kind is prepared
+
+**Scope:** core · **Finding:** [WR-40](languages.md#wr-40)
+
+- **WR-40/a** · source-derived · the header, not the stored language, selects the runtime
+  - **Given:** two inline steps with the same body, `export function main() { return typeof (globalThis as any).Bun; }`: step `a` with `language: bun` and a first line `//native`; step `b` with `language: bunnative` and no header.
+  - **Expect:** `a` returns `"undefined"` (native runtime); `b` returns `"object"` (Bun).
+- **WR-40/b** · source-derived · `nativets` imports the embedded client as `./windmill.ts`
+  - **Given:** a `nativets` step:
+    ```ts
+    import * as wmill from "./windmill.ts";
+    export function main() { return typeof wmill.getVariable; }
+    ```
+  - **Expect:** `"function"`.
+- **WR-40/c** · source-derived · any other `nativets` import fails to load
+  - **Given:** a `nativets` step `a`: `import { x } from "./helper.ts"; export function main() { return x; }`, with or without a workspace script at the matching path.
+  - **Expect:** `{"error":{"message":"execution error:\nError: failed to load module…","name":"ExecutionErr","step_id":"a"}}`; match on the prefix.
+
+<a id="wr-41"></a>
+### WR-41 · A fresh isolate per job; how arguments bind
+
+**Scope:** core · **Finding:** [WR-41](languages.md#wr-41)
+
+- **WR-41/a** · source-derived · a `Date` parameter is not hydrated (both kinds)
+  - **Given:** `export function main(d: Date) { return typeof d; }`, args `{"d":"2024-01-02T03:04:05.000Z"}`.
+  - **Expect:** `"string"`. The same script on Bun returns `"object"` ([WR-8](#wr-8)).
+- **WR-41/b** · source-derived · a missing argument takes its default, `null` stays `null`, extra keys are ignored (both kinds)
+  - **Given:** `export function main(a = 3, b: number | null = 5) { return [a, b]; }`, args `{"b":null,"z":1}`.
+  - **Expect:** `[3,null]`.
+- **WR-41/c** · source-derived · every job gets a fresh isolate (both kinds)
+  - **Given:** `let n = 0; export function main() { n += 1; return n; }`, run as two separate jobs.
+  - **Expect:** `1`, then `1`.
+- **WR-41/d** · source-derived · later · `nativets` ignores the preprocessor entrypoint (medium)
+  - **Given:** a flow whose `preprocessor_module` is a `nativets` rawscript:
+    ```ts
+    export function preprocessor() { return { v: "pre" }; }
+    export function main() { return { v: "main" }; }
+    ```
+    then one step `a` with the transform `x = flow_input.v` that returns `x`.
+  - **Expect:** `a` returns `"main"`.
+
+<a id="wr-42"></a>
+### WR-42 · The result is `JSON.stringify(value ?? null)` with no replacer
+
+**Scope:** core · **Finding:** [WR-42](languages.md#wr-42)
+
+All cases run on both kinds.
+
+- **WR-42/a** · source-derived · an `undefined` field is omitted
+  - **Given:** step `a` is `export function main() { return { a: undefined, b: 1, c: [undefined] }; }`. A next-step transform evaluates `results.a.hasOwnProperty("a")`.
+  - **Expect:** `a`'s result is `{"b":1,"c":[null]}`, and the transform gives `false`. Compare [WR-14/a](#wr-14).
+- **WR-42/b** · source-derived · a top-level function becomes `null`
+  - **Given:** `export function main() { return () => 1; }`
+  - **Expect:** `null`. Compare [WR-13/d](#wr-13).
+- **WR-42/c** · source-derived · a `BigInt` fails the job
+  - **Given:** step `a` is `export function main() { return { n: 10n }; }`
+  - **Expect:** `{"error":{"message":"Do not know how to serialize a BigInt","stack":<stack>,"name":"TypeError"}}`. Match `name` exactly; the message is V8's ([Q-WR-21](languages.md#q-wr-21)).
+- **WR-42/d** · source-derived · `toJSON` and non-finite numbers
+  - **Given:** `export function main() { return { d: new Date(Date.UTC(2024, 0, 2)), x: NaN, m: new Map([[1, 2]]) }; }`
+  - **Expect:** `{"d":"2024-01-02T00:00:00.000Z","x":null,"m":{}}`.
+
+<a id="wr-43"></a>
+### WR-43 · The native error shapes
+
+**Scope:** core · **Finding:** [WR-43](languages.md#wr-43)
+
+- **WR-43/a** · source-derived · an `Error` gives exactly three fields (both kinds)
+  - **Given:** step `a`: `export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }`
+  - **Expect:** `{"error":{"message":"boom","stack":<stack>,"name":"TypeError"}}`: exactly these keys, so no `step_id` and no `extra`.
+- **WR-43/b** · source-derived · any other thrown value gives three `null`s (both kinds)
+  - **Given:** step `a` throwing, in three variants, `"s"`, `{ message: "m", name: "N" }` and `null`.
+  - **Expect:** each time `{"error":{"message":null,"stack":null,"name":null}}`.
+- **WR-43/c** · source-derived · the stack starts with the failing source line (both kinds)
+  - **Given:**
+    ```ts
+    export function main() {
+      throw new Error("x");
+    }
+    ```
+  - **Expect:** `error.stack` has a first line containing `throw new Error("x")` (the line as loaded, so its indentation may differ from the source), then a line `Error: x`.
+- **WR-43/d** · source-derived · an unhandled rejection fails the job (medium; both kinds)
+  - **Given:** step `a`: `export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }`
+  - **Expect:** `{"error":{"message":"late","stack":<stack>,"name":"Error"}}`, not `1`.
+- **WR-43/e** · source-derived · later · a promise that never settles, with nothing pending (both kinds)
+  - **Given:** step `a`: `export function main() { return new Promise(() => {}); }`
+  - **Expect:** `{"error":{"message":"execution error:\nPromise resolution is still pending but the event loop has already resolved","name":"ExecutionErr","step_id":"a"}}`, at once, not after a timeout.
+- **WR-43/f** · source-derived · a syntax error fails at the transpile step (`nativets`)
+  - **Given:** a `nativets` step `a` with the text `export function main( {`.
+  - **Expect:** `{"error":{"message":"execution error:\nError: …","name":"ExecutionErr","step_id":"a"}}`; match on the prefix. The message does not contain `failed to load module`.
+
+<a id="wr-44"></a>
+### WR-44 · Timeout, heap and stack limits
+
+**Scope:** core · **Finding:** [WR-44](languages.md#wr-44)
+
+All cases run on both kinds.
+
+- **WR-44/a** · source-derived · the timeout message
+  - **Given:** step `a` with `timeout: {"type":"static","value":1}`, running `export async function main() { await new Promise(r => setTimeout(r, 5000)); }`.
+  - **Expect:** `{"error":{"message":"execution error:\nQuery timeout after (>1s)","name":"ExecutionErr","step_id":"a"}}`. Compare [WR-37/a](#wr-37).
+- **WR-44/b** · source-derived · later · stack overflow is an ordinary `RangeError`
+  - **Given:** step `a`: `export function main() { const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1); return f(1e6); }`
+  - **Expect:** `{"error":{"message":"Maximum call stack size exceeded","stack":<stack>,"name":"RangeError"}}`.
+- **WR-44/c** · source-derived · later · the heap cap, with the script waiting between allocations (medium)
+  - **Given:** step `a`:
+    ```ts
+    export async function main() {
+      const keep: number[][] = [];
+      for (let i = 0; i < 64; i++) {
+        keep.push(new Array(1_000_000).fill(i + 0.5));
+        await new Promise(r => setTimeout(r, 0));
+      }
+      return keep.length;
+    }
+    ```
+  - **Expect:** `{"error":{"message":"execution error:\nMemory limit reached, killing isolate","name":"ExecutionErr","step_id":"a"}}`.
+
+<a id="wr-45"></a>
+### WR-45 · What the native runtime offers: environment, globals and `fetch`
+
+**Scope:** core · **Finding:** [WR-45](languages.md#wr-45)
+
+- **WR-45/a** · source-derived · what `process.env` holds (both kinds)
+  - **Given:** step `a`: `export function main() { return [typeof process.env.WM_TOKEN, process.env.WM_FLOW_STEP_ID, process.env.BASE_URL === process.env.BASE_INTERNAL_URL, typeof process.env.PATH, typeof (process as any).exit]; }`
+  - **Expect:** `["string","a",true,"undefined","undefined"]`.
+- **WR-45/b** · source-derived · reserved names are bare identifiers only in `nativets`
+  - **Given:** `declare const WM_WORKSPACE: string; export function main() { return typeof WM_WORKSPACE; }`
+  - **Expect:** `"string"` as `nativets`; `"undefined"` as `bunnative`.
+- **WR-45/c** · source-derived · redeclaring a preamble name fails the load (`nativets`)
+  - **Given:** a `nativets` step `a`: `const BASE_URL = "x"; export function main() { return BASE_URL; }`
+  - **Expect:** `{"error":{"message":"execution error:\nError: failed to load module…","name":"ExecutionErr","step_id":"a"}}`; match on the prefix.
+- **WR-45/d** · source-derived · installed globals (both kinds)
+  - **Given:** `export function main() { return [typeof fetch, typeof URLPattern, typeof atob, typeof setInterval, typeof crypto.subtle, typeof structuredClone, typeof queueMicrotask, typeof CompressionStream, typeof Intl]; }`
+  - **Expect:** `["function","function","function","function","object","function","function","function","object"]`.
+- **WR-45/e** · source-derived · absent globals (`nativets`)
+  - **Given:** a `nativets` step: `export function main() { const g = globalThis as any; return [typeof g.Bun, typeof g.Buffer, typeof g.require, typeof g.WebSocket, typeof g.EventSource, typeof g.setImmediate, typeof g.navigator, typeof g.Deno?.env]; }`
+  - **Expect:** eight times `"undefined"`.
+- **WR-45/f** · source-derived · later · `//proxy` is refused on CE (`nativets`)
+  - **Given:** a `nativets` step `a` whose first line is `//proxy http://127.0.0.1:3128`, followed by `export function main() { return 1; }`.
+  - **Expect:** `{"error":{"message":"execution error:\nProxy is an EE feature","name":"ExecutionErr","step_id":"a"}}`.
+- **WR-45/g** · source-derived · later · the `fetch` user agent (both kinds)
+  - **Given:** a local HTTP endpoint that answers with the request's `User-Agent` header; a step that fetches it and returns the response text. A second variant adds the first line `//useragent probe/1` (for `bunnative`, the line after `//native`).
+  - **Expect:** `"windmill/beta"`; with the annotation, `"probe/1"`.
+
+<a id="wr-46"></a>
+### WR-46 · Native result streaming
+
+**Scope:** later · **Finding:** [WR-46](languages.md#wr-46)
+
+All cases run on both kinds.
+
+- **WR-46/a** · source-derived · the stream text becomes the raw result
+  - **Given:** `export async function* main() { yield "1"; yield "2"; }`
+  - **Expect:** the result is the JSON number `12`. Bun gives the JSON string `"12"` ([WR-16](#wr-16)).
+- **WR-46/b** · source-derived · a non-string chunk ends the stream without failing
+  - **Given:** `export async function* main() { yield "1"; yield 5 as any; yield "2"; }`
+  - **Expect:** the job succeeds with the result `1`.
+
+<a id="wr-47"></a>
+### WR-47 · How the pinned CLI bundles a codebase script
+
+**Scope:** core · **Finding:** [WR-47](languages.md#wr-47)
+
+The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
+
+- **WR-47/a** · source-derived · an absent `format` runs as CommonJS on Node
+  - **Given:** `f/cb/runtime.ts`: `export function main() { return typeof (globalThis as any).Bun; }`; no `format` in the entry.
+  - **Expect:** `"undefined"`.
+- **WR-47/b** · source-derived · `format: esm` runs on Bun
+  - **Given:** the same script; the entry adds `format: esm`.
+  - **Expect:** `"object"`.
+- **WR-47/c** · source-derived · `define` is applied
+  - **Given:** the entry adds `define: {"__MODE__": "\"lite\""}`; `f/cb/mode.ts`: `declare const __MODE__: string; export function main() { return __MODE__; }`.
+  - **Expect:** `"lite"`.
+- **WR-47/d** · source-derived · `inject` supplies a free identifier
+  - **Given:** the entry adds `inject: ["f/cb/shim.ts"]`; `f/cb/shim.ts`: `export const answer = 42;`; `f/cb/inject.ts`: `declare const answer: number; export function main() { return answer; }`.
+  - **Expect:** `42`.
+- **WR-47/e** · source-derived · a `loader` map is applied
+  - **Given:** the entry adds `loader: {".txt": "text"}`; `f/cb/note.txt` contains `hi`; `f/cb/text.ts`: `import note from "./note.txt"; export function main() { return note; }`.
+  - **Expect:** `"hi"`.
+- **WR-47/f** · source-derived · `banner` is prepended
+  - **Given:** the entry adds `banner: {js: "globalThis.__banner = 1;"}`; `f/cb/banner.ts`: `export function main() { return (globalThis as any).__banner; }`.
+  - **Expect:** `1`.
+
+<a id="wr-48"></a>
+### WR-48 · `customBundler`
+
+**Scope:** later · **Finding:** [WR-48](languages.md#wr-48)
+
+- **WR-48/a** · source-derived · the command's output is the bundle, and esbuild settings are not applied
+  - **Given:** the entry adds `customBundler: "sh f/cb/emit.sh"` and `define: {"__X__": "1"}`; `f/cb/emit.sh` ignores its argument and prints `exports.main = () => typeof __X__;`; the script `f/cb/custom.ts` is `export function main() { return "source"; }`.
+  - **Expect:** `"undefined"`: the printed text, not the source, ran as CommonJS on Node, and `define` was not applied.
+
+<a id="wr-49"></a>
+### WR-49 · What the CLI uploads, the codebase id, and where the server keeps the bundle
+
+**Scope:** core · **Finding:** [WR-49](languages.md#wr-49)
+
+- **WR-49/a** · source-derived · an asset is unpacked next to `main.js`
+  - **Given:** the entry adds `assets: [{from: "f/cb/data/a.txt", to: "data/a.txt"}]`; `f/cb/data/a.txt` contains `asset`; `f/cb/asset.ts`:
+    ```ts
+    import { readFileSync } from "node:fs";
+    export function main() { return readFileSync("data/a.txt", "utf8"); }
+    ```
+  - **Expect:** `"asset"`.
+- **WR-49/b** · source-derived · later · several output files drop the assets (medium)
+  - **Given:** the entry adds `loader: {".bin": "file"}` and `assets: [{from: "f/cb/data/a.txt", to: "a.txt"}]`; `f/cb/blob.bin` holds any bytes; `f/cb/multi.ts`:
+    ```ts
+    import p from "./blob.bin";
+    import { existsSync } from "node:fs";
+    export function main() { return [existsSync(p), existsSync("a.txt")]; }
+    ```
+  - **Expect:** `[true,false]`.
+
+<a id="wr-50"></a>
+### WR-50 · How a codebase script runs: lookup, extraction and runtime
+
+**Scope:** core · **Finding:** [WR-50](languages.md#wr-50)
+
+- **WR-50/a** · source-derived · CE standalone deploys and runs a codebase script
+  - **Given:** the WR-47/a fixture, pushed once to the CE oracle in standalone mode and once to a CE deployment with separate `MODE=server` and `MODE=worker` containers.
+  - **Expect:** standalone: the push succeeds and the run returns `"undefined"`. Split: the push of that script fails with HTTP 500 and a body containing `codebase is an EE feature`, and no script exists at the path afterwards.
+- **WR-50/b** · source-derived · later · the Node version is recorded
+  - **Given:** `f/cb/node.ts`: `export function main() { return process.version; }`; no `format`.
+  - **Expect:** a string starting `v20.`. Record the exact value ([Q-WR-24](languages.md#q-wr-24)).
 
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values
@@ -4563,6 +4829,14 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
     `{name:"ApiError", status:501, statusText:"Not Implemented", message:"Not Implemented", body:"Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}"}`.
     `statusText` is the status text the facade sent; `message` comes from the
     generator's status table.
+- **WA-41/b** · policy · `fail` mode surfaces unsupported calls.
+  - **Given:** windmill-lite in `fail` mode (the default); the steps of
+    [WA-V5/a–c](#wa-v5); a call to `getIdToken("aud")`; a call to
+    `getState()`.
+  - **Expect:** the WA-V5 steps end with the `UnsupportedPlatformCall` error
+    even though each script returned normally; `getIdToken("aud")` throws
+    with `status === 501`; `getState()` returns `undefined` only for a
+    genuinely missing state. windmill-lite policy, not Windmill behaviour.
 
 <a id="wa-42"></a>
 ### WA-42 · Error status codes and bodies
@@ -4588,15 +4862,6 @@ The stock-client reactions to a 501 for dispatch and flow state are the cases of
     `Not found: Resource not found at name u/t/missing (`; TS throws
     `Resource not found at u/t/outer or not visible to you: Not found: Resource not found at name u/t/missing (<location>)`.
     Compare up to and including the `(`.
-
-- **WA-41/b** · policy · `fail` mode surfaces unsupported calls.
-  - **Given:** windmill-lite in `fail` mode (the default); the steps of
-    [WA-V5/a–c](#wa-v5); a call to `getIdToken("aud")`; a call to
-    `getState()`.
-  - **Expect:** the WA-V5 steps end with the `UnsupportedPlatformCall` error
-    even though each script returned normally; `getIdToken("aud")` throws
-    with `status === 501`; `getState()` returns `undefined` only for a
-    genuinely missing state. windmill-lite policy, not Windmill behaviour.
 
 <a id="wa-50"></a>
 ### WA-50 · Delegation endpoints and their semantics
