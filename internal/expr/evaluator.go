@@ -35,6 +35,14 @@ type Scope struct {
 	// FlowInput is the current (sub)flow's input (JE-37), or the zero Value
 	// at a site with no flow input, where flow_input is bound to null
 	// (JE-10).
+	//
+	// The shortcuts answer these texts verbatim: JE-6 a context value's,
+	// JE-8 previous_result's, JE-7 a member of FlowInput or FlowEnv. A site
+	// can quote the answer (the timeout site's parse error does), so the
+	// form of each text is observable. ADR 0005's routing table says which
+	// text each value holds; whether a value read from the database (the
+	// flow input's members, previous_result after a loop) is in jsonb's
+	// spaced text output there is open (docs/design/README.md request 8).
 	FlowInput jsonval.Value
 	// FlowEnv is the resolved flow env (JE-38), or the zero Value when there
 	// is none, where flow_env is bound to {} (JE-10).
@@ -62,12 +70,16 @@ type Results interface {
 	// Lookup resolves results.<id> on the engine path, steps 2 and 3 of
 	// JE-18: a module of the current flow that has a job yields its result
 	// (an array of child results for a loop or branchall) or an error when
-	// fetching it fails; anything else goes through the node-id lookup, and
-	// any failure there yields JSON null.
+	// fetching it fails, whose message is the read's whole text, Failed to
+	// fetch result for step '<id>': <cause> (results for step, for a list);
+	// anything else goes through the node-id lookup, and any failure there
+	// yields JSON null. Either way it is a database read: the evaluator
+	// binds the value's stored text.
 	Lookup(ctx context.Context, id string) (jsonval.Value, error)
 	// Stored returns the stored result found for id by the result-by-node-id
 	// lookup of JE-19, through the scope chain, and false when there is
-	// none. JE-9 applies its path to this value.
+	// none. JE-9 applies its path to this value's stored text and answers
+	// in jsonb's text output.
 	Stored(ctx context.Context, id string) (jsonval.Value, bool)
 }
 

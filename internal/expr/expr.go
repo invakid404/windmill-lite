@@ -12,7 +12,10 @@
 //   - Evaluator and Scope, what the flow interpreter calls at each
 //     expression site (milestones B2a and B2b implement it).
 //
-// The pipeline itself is not implemented yet.
+// Compile runs the textual stages and Pipeline is the Evaluator (milestone
+// B2a). The program around an expression's source on the engine, the
+// serialisation of its value and Windmill's error texts are milestone
+// B2b's; until then a Pipeline runs only on a fake Engine.
 package expr
 
 import "fmt"
@@ -171,13 +174,17 @@ type Expr struct {
 	Shortcut Shortcut `json:"shortcut,omitzero"`
 	// Mode is the mode of the engine source.
 	Mode Mode `json:"mode,omitempty"`
-	// Binds lists the names the evaluation binds, from the text alone: the
-	// context names, flow_input, flow_env, results and error it mentions
-	// (JE-10, JE-17).
+	// Binds lists, sorted, the names the evaluation binds from the text
+	// alone: the context names, flow_input, flow_env, results and error it
+	// mentions, and previous_result when it mentions error (JE-10, JE-17).
+	// A spelling of the previous id also binds previous_result (JE-8); that
+	// depends on the run, so the evaluator adds it.
 	Binds []string `json:"binds,omitempty"`
-	// Source is the engine source: Trimmed after the rewrites of JE-11 and
-	// JE-12, in the wrapper that Mode selects (JE-13), serialising the value
-	// as JSON.stringify(value ?? null) (JE-15).
+	// Source is the expression's code on the engine: Trimmed after the
+	// rewrites of JE-11 and JE-12, in the single-line async function that
+	// Mode selects (JE-13, JE-14), called at once. The program the engine
+	// compiles around it, which binds the scope's values and serialises the
+	// value as JSON.stringify(value ?? null) (JE-15), is milestone B2b's.
 	Source string `json:"source,omitempty"`
 }
 
@@ -194,8 +201,10 @@ type Shortcut struct {
 	// FlowKey is the key of JE-7's flow_input or flow_env forms.
 	FlowKey *FlowKey `json:"flow_key,omitempty"`
 	// PreviousID is the id that the text names when it is exactly one of
-	// JE-8's four spellings. It fires only if that id is the previous id,
-	// which may be "" (the first module of a flow or body).
+	// JE-8's four spellings, the bracket forms read first. It fires only if
+	// the text is a spelling of the previous id, which may be "" (the first
+	// module of a flow or body); the evaluator compares the whole text, so
+	// a text that spells two ids fires for either.
 	PreviousID *string `json:"previous_id,omitempty"`
 	// ResultsPath is JE-9's first qualifying line, or nil when no line
 	// qualifies.
