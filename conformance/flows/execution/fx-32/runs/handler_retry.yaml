@@ -1,7 +1,9 @@
 # FX-32/b: the handler's first attempt fails (s:failure/r:0); its
 # retry reuses {n: 1} and sees its own failed value, so skip_if is
 # true and the retry is a passthrough of the reused args'
-# previous_result field, absent, so {}. The flow fails with {}.
+# previous_result field, absent, so {}. The flow fails with {}. The
+# passthrough is an identity job that, unlike a skipped regular module
+# (FX-17), is not marked skipped, so the handler's status is success.
 spec: [FX-32/b]
 target: f/wl_fx32/handler_retry
 expect:
@@ -16,4 +18,4 @@ expect:
       status: failure
       args: {n: 1}
       result: {error: {message: h1, name: Error, stack: "<stack>", step_id: failure}}
-    "s:failure": {status: skipped, skipped: true, args: {n: 1}, result: {}}
+    "s:failure": {status: success, args: {n: 1}, result: {}}

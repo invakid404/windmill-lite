@@ -4,13 +4,13 @@ spec: [FX-14/a]
 target: f/wl_fx14/bad_transform_handled
 expect:
   status: failure
-  result: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}
+  result: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}
   steps:
     "m:a":
       status: failure
       args: {}
-      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
     "s:failure":
       status: success
-      args: {e: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}}
-      result: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}
+      args: {e: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
+      result: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}

@@ -6,6 +6,7 @@ value:
         type: rawscript
         content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
         language: bun
       continue_on_error: true
     - id: b
@@ -19,6 +20,7 @@ value:
           r:
             type: javascript
             expr: results.a
+        lock: '!inline b.lock'
         language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

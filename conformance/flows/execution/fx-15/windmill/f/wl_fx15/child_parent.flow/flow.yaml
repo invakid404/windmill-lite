@@ -4,14 +4,15 @@ value:
     - id: s
       value:
         type: flow
-        path: f/wl_fx15/child
         input_transforms: {}
+        path: f/wl_fx15/child
   failure_module:
     id: failure
     value:
       type: rawscript
       content: '!inline failure.ts'
       input_transforms: {}
+      lock: '!inline failure.lock'
       language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

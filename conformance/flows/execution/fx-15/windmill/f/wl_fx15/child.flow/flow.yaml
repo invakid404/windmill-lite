@@ -6,6 +6,7 @@ value:
         type: rawscript
         content: '!inline c.ts'
         input_transforms: {}
+        lock: '!inline c.lock'
         language: bun
       skip_if:
         expr: null.x
@@ -15,6 +16,7 @@ value:
       type: rawscript
       content: '!inline failure.ts'
       input_transforms: {}
+      lock: '!inline failure.lock'
       language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

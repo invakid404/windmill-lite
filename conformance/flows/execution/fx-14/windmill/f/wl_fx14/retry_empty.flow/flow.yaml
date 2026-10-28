@@ -9,6 +9,7 @@ value:
           x:
             type: javascript
             expr: null.x
+        lock: '!inline a.lock'
         language: bun
       retry:
         constant:

@@ -10,5 +10,5 @@ expect:
     "m:a/r:0":
       status: failure
       args: {}
-      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `null.x`:\nTypeError: cannot read property 'x' of null"}}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `null.x`:\nQuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"}}
     "m:a": {status: success, args: {}, result: 7}

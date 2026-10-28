@@ -6,12 +6,14 @@ value:
         type: rawscript
         content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
         language: bun
     - id: b
       value:
         type: rawscript
         content: '!inline b.ts'
         input_transforms: {}
+        lock: '!inline b.lock'
         language: bun
   failure_module:
     id: failure
@@ -19,15 +21,16 @@ value:
       type: rawscript
       content: '!inline failure.ts'
       input_transforms:
+        e:
+          type: javascript
+          expr: error
         x:
           type: javascript
           expr: previous_result
         y:
           type: javascript
           expr: results.a
-        e:
-          type: javascript
-          expr: error
+      lock: '!inline failure.lock'
       language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

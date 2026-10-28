@@ -1,6 +1,7 @@
 # FX-15/c: context 3. The child fails at its pickup with Anyhow; its
 # module c and its failure module never run; the parent's failure
-# module does, so the parent fails with "P".
+# module does, so the parent fails with "P". The child's message wraps
+# the predicate's error twice, with two location suffixes.
 spec: [FX-15/c]
 target: f/wl_fx15/child_parent
 expect:
@@ -10,7 +11,7 @@ expect:
     "m:s":
       status: failure
       args: {}
-      result: {error: {name: Anyhow, message: "Error: TypeError: cannot read property 'x' of null"}}
+      result: {error: {name: Anyhow, message: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker.rs:3822:13"}}
     "m:s/m:c": {status: not_run}
     "m:s/s:failure": {status: not_run}
     "s:failure": {status: success, args: {}, result: P}

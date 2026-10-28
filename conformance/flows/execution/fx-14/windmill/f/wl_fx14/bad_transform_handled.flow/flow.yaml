@@ -9,6 +9,7 @@ value:
           x:
             type: javascript
             expr: flow_input.a.b.c
+        lock: '!inline a.lock'
         language: bun
   failure_module:
     id: failure
@@ -19,6 +20,7 @@ value:
         e:
           type: javascript
           expr: error
+      lock: '!inline failure.lock'
       language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

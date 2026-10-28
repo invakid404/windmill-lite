@@ -9,6 +9,7 @@ value:
           x:
             type: javascript
             expr: flow_input.a.b.c
+        lock: '!inline a.lock'
         language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

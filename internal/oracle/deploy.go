@@ -271,7 +271,7 @@ func CheckDeployedModules(tree *SyncTree, d Deployment) error {
 			entries[i] = FlowStatusModule{ID: id}
 		}
 		user := got
-		if len(entries) >= 2 && generated(entries, bodyDef(f.Value.Modules, nil)) {
+		if len(entries) >= 2 && generated(entries, bodyDef(f.Value.Modules)) {
 			user = got[:len(got)-1]
 		}
 		if len(user) != len(want) {

@@ -4,24 +4,30 @@ value:
     - id: ba
       value:
         type: branchall
-        parallel: false
         branches:
-          - skip_failure: false
-            modules:
+          - modules:
               - id: x
                 value:
                   type: rawscript
                   content: '!inline x.ts'
                   input_transforms: {}
+                  lock: '!inline x.lock'
                   language: bun
-          - skip_failure: false
-            modules:
+            expr: ''
+            parallel: true
+            skip_failure: false
+          - modules:
               - id: y
                 value:
                   type: rawscript
                   content: '!inline y.ts'
                   input_transforms: {}
+                  lock: '!inline y.lock'
                   language: bun
+            expr: ''
+            parallel: true
+            skip_failure: false
+        parallel: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object
