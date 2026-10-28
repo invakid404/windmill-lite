@@ -12,12 +12,15 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-The first milestone, K1, has landed: the shared types and interfaces under
-`internal/` that later milestones implement and code against. They define no
-runnable component yet.
+Two milestones have landed: the OpenFlow decoder in
+[internal/openflow](internal/openflow/README.md) (A3), which no command uses
+yet, and K1, the shared types and interfaces under `internal/` that later
+milestones implement and code against, which define no runnable component.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
-public domain under the [Unlicense](LICENSE).
+public domain under the [Unlicense](LICENSE), except for the Apache-2.0 files
+vendored from Windmill under `internal/openflow/schema/`, which keep their
+licence ([NOTICE](internal/openflow/schema/NOTICE)).
 
 ## Quick start
 
@@ -33,10 +36,12 @@ go test -race ./...
 | Path | What it covers |
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
+| [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, stored text and the NUL flag. The canonicaliser is not implemented yet. |
 | [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. No implementation yet. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary: the site-path encoder with its negative tests, run and step statuses, and the observation types. |
+| [conformance](conformance/README.md) | The shared conformance cases. Today only the OpenFlow decode cases exist. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |

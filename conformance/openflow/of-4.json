@@ -1,0 +1,12 @@
+{
+  "finding": "OF-4",
+  "cases": [
+    {
+      "spec": "OF-4/a",
+      "provenance": "source-derived",
+      "title": "notes and an unknown key parse",
+      "given": {"modules": [], "notes": [{"id": "n", "text": "t", "color": "yellow", "type": "free"}], "foo": 1},
+      "expect": {"accept": {"at": {"/modules": []}, "absent": ["/notes", "/foo"]}}
+    }
+  ]
+}

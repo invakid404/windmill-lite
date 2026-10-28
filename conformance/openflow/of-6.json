@@ -1,0 +1,14 @@
+{
+  "finding": "OF-6",
+  "cases": [
+    {
+      "spec": "OF-6/a",
+      "provenance": "source-derived",
+      "part": "decode",
+      "note": "The catalogue expects this shape from flows/get after a deploy, which rebuilds the value from its typed decode. This case checks the typed decode's defaults; recording the stored form on the oracle is Q-OF-1.",
+      "title": "deployed branchall shape",
+      "given": {"modules": [{"id": "a", "value": {"type": "branchall", "branches": [{"modules": []}]}}]},
+      "expect": {"accept": {"at": {"/modules/0/value": {"type": "branchall", "branches": [{"expr": "", "modules": [], "skip_failure": true, "parallel": true}], "parallel": true}}}}
+    }
+  ]
+}
