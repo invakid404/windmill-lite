@@ -64,7 +64,8 @@ type exStep struct {
 	// Exit waits for the process to exit with this code, having sent
 	// nothing more.
 	Exit *int `json:"exit"`
-	// Stdout asserts that the process's stdout so far contains the text.
+	// Stdout asserts that the process's stdout contains the text within
+	// the step's time limit.
 	Stdout string `json:"stdout_contains"`
 }
 
@@ -94,9 +95,12 @@ func TestExchanges(t *testing.T) {
 	}
 }
 
+// received is the next item from the harness: a message, or, as the last
+// item, the error that ended the stream. One channel keeps them in order.
 type received struct {
 	payload []byte
 	parts   int
+	err     error
 }
 
 type exRun struct {
@@ -106,7 +110,6 @@ type exRun struct {
 	digest string
 	pid    int
 	msgs   chan received
-	readEr chan error
 	exited chan struct{}
 	stdout *syncBuffer
 }
@@ -133,7 +136,7 @@ func runExchange(t *testing.T, bun string, x exchange) {
 		t.Fatal(err)
 	}
 	r := &exRun{t: t, nc: nc, cmd: cmd, digest: digest, pid: cmd.Process.Pid,
-		msgs: make(chan received, 64), readEr: make(chan error, 1), exited: make(chan struct{}), stdout: stdout}
+		msgs: make(chan received, 64), exited: make(chan struct{}), stdout: stdout}
 	go func() {
 		cmd.Wait()
 		close(r.exited)
@@ -158,12 +161,12 @@ func (r *exRun) read() {
 	for {
 		payload, err := readFrame(r.nc, MaxFrame)
 		if err != nil {
-			r.readEr <- err
+			r.msgs <- received{err: err}
 			return
 		}
 		m, err := Decode(payload)
 		if err != nil {
-			r.readEr <- err
+			r.msgs <- received{err: err}
 			return
 		}
 		parts := 0
@@ -171,7 +174,7 @@ func (r *exRun) read() {
 			counts[p.ID]++
 			full, done, err := asm.add(p)
 			if err != nil {
-				r.readEr <- err
+				r.msgs <- received{err: err}
 				return
 			}
 			if !done {
@@ -227,20 +230,24 @@ func (r *exRun) step(i int, s exStep) {
 	case s.Expect != nil:
 		select {
 		case m := <-r.msgs:
+			if m.err != nil {
+				t.Fatalf("step %d: waiting for %s: %v", i, s.Expect, m.err)
+			}
 			if err := matchJSON(s.Expect, m.payload, r.vars()); err != nil {
 				t.Fatalf("step %d: %v\n got %s", i, err, abbreviate(m.payload))
 			}
 			if m.parts != s.Parts {
 				t.Fatalf("step %d: carried by %d part frames, want %d", i, m.parts, s.Parts)
 			}
-		case err := <-r.readEr:
-			t.Fatalf("step %d: waiting for %s: %v", i, s.Expect, err)
 		case <-time.After(within):
 			t.Fatalf("step %d: no message within %s, want %s", i, within, s.Expect)
 		}
 	case s.QuietMS > 0:
 		select {
 		case m := <-r.msgs:
+			if m.err != nil {
+				t.Fatalf("step %d: want quiet, the stream ended: %v", i, m.err)
+			}
 			t.Fatalf("step %d: want quiet, got %s", i, abbreviate(m.payload))
 		case <-time.After(time.Duration(s.QuietMS) * time.Millisecond):
 		}
@@ -255,17 +262,23 @@ func (r *exRun) step(i int, s exStep) {
 		}
 		select {
 		case m := <-r.msgs:
-			t.Fatalf("step %d: unexpected message before exit: %s", i, abbreviate(m.payload))
-		case err := <-r.readEr:
-			if err != io.EOF {
-				t.Fatalf("step %d: the stream ended with %v, want a clean end", i, err)
+			if m.err == nil {
+				t.Fatalf("step %d: unexpected message before exit: %s", i, abbreviate(m.payload))
+			}
+			if m.err != io.EOF {
+				t.Fatalf("step %d: the stream ended with %v, want a clean end", i, m.err)
 			}
 		case <-time.After(time.Second):
 			t.Fatalf("step %d: the stream did not end", i)
 		}
 	case s.Stdout != "":
-		if !strings.Contains(r.stdout.String(), s.Stdout) {
-			t.Fatalf("step %d: stdout %q lacks %q", i, r.stdout.String(), s.Stdout)
+		// stdout is a pipe, read apart from the frames, so it may lag.
+		deadline := time.Now().Add(within)
+		for !strings.Contains(r.stdout.String(), s.Stdout) {
+			if time.Now().After(deadline) {
+				t.Fatalf("step %d: stdout %q lacks %q", i, r.stdout.String(), s.Stdout)
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	default:
 		t.Fatalf("step %d: no action", i)

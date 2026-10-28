@@ -32,8 +32,10 @@ try {
 const bundleDigest = "sha256:" + new Bun.CryptoHasher("sha256").update(manifest).digest("hex");
 
 let runtime: Runtime | undefined;
-let socket: { write(b: Uint8Array): number; end(): void } | undefined;
+let socket: { write(b: Uint8Array): number; flush(): void; end(): void } | undefined;
 const pending: Uint8Array[] = [];
+let markClosed: () => void;
+const closed = new Promise<void>((resolve) => (markClosed = resolve));
 
 socket = await Bun.connect({
   fd: 3,
@@ -49,6 +51,7 @@ socket = await Bun.connect({
       runtime?.onClose();
     },
     close() {
+      markClosed();
       runtime?.onClose();
     },
     error(_s, e) {
@@ -63,9 +66,17 @@ runtime = new Runtime({
   bundleDigest,
   transport: {
     write: (b) => socket!.write(b),
-    end: () => socket!.end(),
+    end: () => {
+      socket!.flush();
+      socket!.end();
+    },
   },
-  exit: (code) => process.exit(code),
+  // A write counts bytes the socket accepted, which it may still hold in
+  // its own buffer, so the process exits only once the socket has closed
+  // (or a second later): otherwise the last frame, such as bye, is lost.
+  exit: (code) => {
+    Promise.race([closed, Bun.sleep(1000)]).then(() => process.exit(code));
+  },
 });
 runtime.start();
 for (const d of pending.splice(0)) runtime.onData(d);
