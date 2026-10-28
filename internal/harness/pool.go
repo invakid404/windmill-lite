@@ -244,8 +244,11 @@ func (pl *Pool) executeFresh(ctx context.Context, inv engine.Invocation) (engine
 	p, err := Spawn(ctx, pl.cfg.Process)
 	pl.mu.Lock()
 	pl.starting--
-	if err == nil {
+	closed := pl.closed
+	if err == nil && !closed {
 		pl.fresh[p] = struct{}{}
+		// Close waits for these, as long as its context lasts.
+		pl.bg.Add(1)
 	}
 	pl.broadcastLocked()
 	pl.mu.Unlock()
@@ -253,8 +256,25 @@ func (pl *Pool) executeFresh(ctx context.Context, inv engine.Invocation) (engine
 		inv.Report.Settled(engine.SettleNotStarted)
 		return engine.StepOutcome{}, err
 	}
+	if closed {
+		// Close may have stopped waiting for this start already.
+		p.Kill()
+		inv.Report.Settled(engine.SettleNotStarted)
+		return engine.StepOutcome{}, ErrPoolClosed
+	}
+	outcome := make(chan struct{})
 	go func() {
-		<-p.Done()
+		defer pl.bg.Done()
+		select {
+		case <-p.Done():
+		case <-outcome:
+			select {
+			case <-p.Done():
+			case <-time.After(freshExitGrace):
+				p.kill("a fresh process outlived its invocation's outcome")
+				<-p.Done()
+			}
+		}
 		pl.mu.Lock()
 		delete(pl.fresh, p)
 		pl.broadcastLocked()
@@ -266,13 +286,7 @@ func (pl *Pool) executeFresh(ctx context.Context, inv engine.Invocation) (engine
 		p.Kill()
 		inv.Report.Settled(engine.SettleNotStarted)
 	case completed:
-		go func() {
-			select {
-			case <-p.Done():
-			case <-time.After(freshExitGrace):
-				p.kill("a fresh process outlived its invocation's outcome")
-			}
-		}()
+		close(outcome)
 	}
 	return out, err
 }

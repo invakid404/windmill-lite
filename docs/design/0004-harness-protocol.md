@@ -233,15 +233,25 @@ microtask see none.
    neither `process.env` nor its view. Output written through
    `Bun.stdout`, a raw file descriptor or a child's inherited stdio is not
    attributed: it reaches the process log, not the invocation's log tail.
+   The wrappers, like the timer fence's, replace the functions on the
+   builtins' CommonJS objects before any step module loads. On Bun 1.3.10
+   the first named import of a builtin fixes its named bindings for every
+   later importer, so the host SDK reaches `node:child_process` through
+   `require`. A host whose own modules import `node:child_process` or
+   `node:timers` by name before it connects leaves steps' named imports of
+   them unwrapped; default imports and `require` always see the wrappers.
 8. **`fresh` mode** restores Windmill's behaviour for all of the above:
    - **One process per invocation**, in its own working directory. The
      engine starts the process for the invocation, and the process offers
      the `fresh` capability and refuses a second `invoke`.
    - **Exit after the result.** The process exits once its result frame
-     has gone out, as the wrapper exits after writing `result.json`.
+     has been written to the socket, however large, as the wrapper exits
+     after writing `result.json`.
    - **No handlers, no interception.** An uncaught error or an unhandled
      rejection ends it with exit code 1, and `process.exit` ends it with
-     its code, each after sending the invocation's log. An exit 0 before
+     its code, each once the invocation's log has been written. The
+     invocation is fenced at once, so a step that catches the sentinel
+     meanwhile can do nothing through the fenced channels. An exit 0 before
      any result is [WR-V2](../semantics/languages.md#wr-v2)'s empty
      result.
    - **Killed, not abandoned.** The engine kills it on timeout or
@@ -355,7 +365,10 @@ sequenceDiagram
    requests, children) is the module's, not the invocation's: it is not
    fenced or reported when the invocation settles. Module state outlives
    invocations in `warm` mode (D1), and a client a module makes at load
-   keeps its maintenance timers that way. Host-provided modules are
+   keeps its maintenance timers that way. Once the loading invocation has
+   settled, what that work writes goes to the process's own streams and it
+   cannot reach the platform, as with work in a process scope; its errors
+   are still attributed to the loading invocation, as `late`. Host-provided modules are
    registered before that ([0010](0010-packaging.md)). A host may ask for
    eager loading to move the cost off the first run.
    [0006](0006-module-state.md) covers the modes.

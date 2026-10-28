@@ -125,6 +125,11 @@ const (
 	runTimeout    = 30 * time.Second
 	settleTimeout = 10 * time.Second
 	pendingWindow = 500 * time.Millisecond
+	// lateWindow is how long a warm case's process is still observed after
+	// its last run settled, when that run states its late reports: a later
+	// run of the case observes the earlier ones' work, and nothing follows
+	// the last.
+	lateWindow = 200 * time.Millisecond
 )
 
 // runFile builds f's scripts into one bundle and runs every case, a few at
@@ -301,7 +306,6 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 		if warm, err = spawn(); err != nil {
 			return []string{"spawn: " + err.Error()}, diag.String()
 		}
-		defer end(warm)
 	}
 	runID := newUUID()
 	var problems []string
@@ -323,6 +327,12 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 		for _, pr := range prs {
 			problems = append(problems, fmt.Sprintf("run %d: %s", i+1, pr))
 		}
+	}
+	if warm != nil {
+		if k := c.Runs[len(c.Runs)-1].Check(sc.mode); (k.Settled != "" && k.Settled != conformance.StepPending) || len(k.Late) > 0 {
+			time.Sleep(lateWindow)
+		}
+		end(warm)
 	}
 	for i := range c.Runs {
 		k := c.Runs[i].Check(sc.mode)

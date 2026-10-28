@@ -134,6 +134,7 @@ test("a child started without an environment gets the invocation's; one given an
       String(cp.execSync("printenv WL_FENCE_TEST_CHILD || true", { env: { PATH: process.env.PATH! } })).trim(),
       await new Promise((resolve) => cp.exec("printenv WL_FENCE_TEST_CHILD", (_e: unknown, so: string) => resolve(so.trim()))),
     ];
+    out.push((await promisify(cp.exec)("printenv WL_FENCE_TEST_CHILD")).stdout.trim());
     const child = Bun.spawn(["sleep", "0.05"]);
     out.push(JSON.stringify(c.resources.pending()));
     await child.exited;
@@ -141,7 +142,8 @@ test("a child started without an environment gets the invocation's; one given an
     out.push(JSON.stringify(c.resources.pending()));
     return out;
   });
-  expect(got).toEqual(["inv", "inv", "inv", "", "inv", '{"child":1}', "{}"]);
+  // promisify(exec) keeps Node's {stdout, stderr} form (c3b review).
+  expect(got).toEqual(["inv", "inv", "inv", "", "inv", "inv", '{"child":1}', "{}"]);
   expect(process.env.WL_FENCE_TEST_CHILD).toBeUndefined();
 });
 

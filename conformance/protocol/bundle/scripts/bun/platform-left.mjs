@@ -1,9 +1,11 @@
-// Calls the platform facade named in BASE_URL and returns without waiting
-// for the answer. The settle-time fence aborts the call when the invocation
+// Logs a line, then calls the platform facade named in BASE_URL, whose
+// frame goes out after the log's, and returns without waiting for the
+// answer. The settle-time fence aborts the call when the invocation
 // settles; the outcome of the call is thrown from a process.nextTick
 // callback, which keeps the invocation's context, so it reaches the engine
 // as a late error (D9).
 export function main() {
+  console.log("calling the platform");
   fetch(`${process.env.BASE_URL}/api/w/ws1/left`)
     .then(
       () => "answered",

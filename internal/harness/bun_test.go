@@ -678,6 +678,26 @@ func freshInvocation(script, args string, rep engine.Reporter) engine.Invocation
 // gone reports whether no process has pid any more.
 func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
 
+// Work a step module starts while it evaluates is the module's (ADR 0004,
+// loading): once the invocation that loaded the module has settled, what
+// the work writes reaches the process's stdout, as from a process scope,
+// rather than being dropped with the invocation's log.
+func TestBunModuleWorkWritesToTheProcessAfterSettlement(t *testing.T) {
+	cfg, diag := bunConfig(t)
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	if out, err := execute(t, p, newInvocation("module-logger", `{}`, rec), 5*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	pid := strconv.Itoa(p.PID())
+	waitFor(t, "the module's line on the process's stdout", func() bool {
+		return hasLine(diag.String(), "harness pid "+pid+" stdout: ", "module work after settlement")
+	})
+	if got := rec.log(); got != "settled completed" {
+		t.Fatalf("reporter calls %q", got)
+	}
+}
+
 // Fresh mode (ADR 0006): each invocation runs in a process of its own, in
 // a working directory of its own, and the process ends right after the
 // result, which settles the invocation; a warm invocation is refused.
@@ -744,6 +764,27 @@ func TestBunFreshEndsWithTheProcess(t *testing.T) {
 		}
 		if got := rec.log(); got != "settled process_exited" {
 			t.Fatalf("reporter calls %q", got)
+		}
+	})
+	// The process ends only once its frames are written, however much the
+	// socket takes at once (c3b review: a result above the socket's buffer
+	// was cut off).
+	for _, bytes := range []int{200_000, 3 << 20} {
+		t.Run(fmt.Sprintf("a result of %d bytes", bytes), func(t *testing.T) {
+			rec := newRecorder()
+			out, err := execute(t, pool, freshInvocation("big", fmt.Sprintf(`{"bytes":%d}`, bytes), rec), 10*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK || len(out.Body.Producer()) != bytes+2 {
+				t.Fatalf("got %s %d bytes, %v", out.Kind, len(out.Body.Producer()), err)
+			}
+			if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+				t.Fatalf("settled %s", k)
+			}
+		})
+	}
+	t.Run("an exit after a long log", func(t *testing.T) {
+		out, err := execute(t, pool, freshInvocation("log-exit", `{"lines":3000,"code":6}`, newRecorder()), 10*time.Second)
+		if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 6 || out.Signal != "" || !strings.Contains(out.Tail, "line 2999 ") {
+			t.Fatalf("got %s exit %d %q, tail ending %q, %v", out.Kind, out.ExitCode, out.Signal, out.Tail[max(0, len(out.Tail)-120):], err)
 		}
 	})
 	t.Run("exit 0", func(t *testing.T) {

@@ -70,8 +70,8 @@ cannot corrupt the protocol.
   out as the `late` frame that settles it.
 - **Fresh mode** ([ADR 0006](../../docs/design/0006-module-state.md)): the
   process serves one invocation (a second `invoke` is a protocol error)
-  and exits once its result has gone out, as Windmill's wrapper exits
-  after writing the result. `process.exit` and an uncaught error or
+  and exits once its result has been written to the socket, however large,
+  as Windmill's wrapper exits after writing the result. `process.exit` and an uncaught error or
   unhandled rejection end the process, with its code or with 1, after the
   invocation's log has gone out: nothing keeps it alive (D9, D11). The
   engine kills it on timeout or cancellation.
@@ -128,8 +128,12 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   immediate that fires, unregister it. Bun's `util.promisify` form is
   kept. Handles created outside every invocation, in a process scope, or
   while a step module evaluates are not registered. `node:timers` is
-  patched before any step module imports it; a module that imported its
-  named exports earlier (a host's own, in host mode) keeps Bun's. The
+  patched before any step module imports it. On Bun 1.3.10 the first named
+  import of a builtin fixes its named bindings for every later importer:
+  in host mode, a host whose own modules import `node:timers` or
+  `node:child_process` by name before it connects leaves steps' named
+  imports of them unwrapped (default imports and `require` always see the
+  wrappers), which is why the host SDK requires `node:child_process`. The
   runtime's own timers use `realTimers`, the functions as Bun has them.
 - **The log view.** Inside an invocation, `console`'s methods and
   `process.stdout.write` and `process.stderr.write` write to the
@@ -150,8 +154,9 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   child started inside an invocation without an `env` the invocation's
   view, a plain copy of `process.env`; on Bun 1.3.10 `spawnSync`,
   `execSync` and `Bun.spawn` would otherwise pass the process's own
-  environment. A child still running is registered as `child`, and left
-  running.
+  environment. `util.promisify(exec)` and `util.promisify(execFile)` keep
+  their `{stdout, stderr}` form. A child still running is registered as
+  `child`, and left running.
 - **Process-level error handlers.** `uncaughtException` and
   `unhandledRejection` handlers that never exit
   ([ADR 0004](../../docs/design/0004-harness-protocol.md), the
@@ -214,7 +219,9 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   `work` is empty, though, so the timers, requests and children its
   evaluation starts are the module's (D1), never registered or fenced: a
   client a module makes at load keeps its maintenance timers (case
-  `D9/module-evaluation`).
+  `D9/module-evaluation`). Once the loading invocation has settled, what
+  that work writes goes to the process's streams, and its platform calls
+  are refused, as from a process scope.
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client

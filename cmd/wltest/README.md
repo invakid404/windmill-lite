@@ -128,7 +128,9 @@ collected until then, and its late reports are compared when the case
 states them. A run whose call must not settle says `settled: pending` and
 is observed for 500 ms instead. A run's late reports are compared at the
 end of its case, so that a late report of work it left running after it
-settled, which the D9 fence must stop, fails the case. `left` compares the
+settled, which the D9 fence must stop, fails the case; in `warm` mode the
+process is observed for 200 ms more after a last run that states its late
+reports or settlement, before it is drained. `left` compares the
 counts of the run's `left_behind` warning.
 
 It prints `pass` or `fail`, the case and its file, then each difference,

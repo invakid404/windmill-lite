@@ -162,6 +162,9 @@ export class Runtime {
   private mode: Mode = "warm";
   /** A fresh process's one invocation has been invoked. */
   private served = false;
+  /** A fresh process is ending: it sends nothing more, and stops once what
+   * it queued has been written. */
+  private exiting = false;
   private invocations = new Map<string, Invocation>();
   private modules = new Map<string, Promise<Record<string, unknown>>>();
   private metas = new Map<string, Promise<unknown>>();
@@ -179,8 +182,10 @@ export class Runtime {
   constructor(private opts: Options) {
     this.sender = new Sender((b) => opts.transport.write(b));
     // Diagnostics go to the process's own stderr, never to the log of the
-    // invocation whose context the runtime happens to run in.
-    this.diag = opts.diag ?? ((line) => realStderr(line + "\n"));
+    // invocation whose context the runtime happens to run in, even when the
+    // host's own diag writes through console or process.stderr.
+    const diag = opts.diag ?? ((line: string) => realStderr(line + "\n"));
+    this.diag = (line) => invocations.exit(() => diag(line));
     installEnvView();
     installProcessScope();
     installTimers();
@@ -454,7 +459,10 @@ export class Runtime {
    * nothing and is reported as a late error. */
   private onExit(c: InvocationContext, status: number) {
     const inv = c.resources.settled ? undefined : this.invocations.get(c.id);
-    if (this.mode === "fresh") this.exitNow(status);
+    if (this.mode === "fresh") {
+      this.exitNow(status);
+      return;
+    }
     if (inv?.state === "running") {
       this.fix(inv, exited(status));
       return;
@@ -462,11 +470,23 @@ export class Runtime {
     this.lateError(c.id, new ProcessExit(status));
   }
 
-  /** Fresh mode: ends the process now with status, as the job's process
-   * would end, after sending what its invocation logged. */
-  private exitNow(status: number): never {
-    for (const inv of this.invocations.values()) this.sendLog(inv, true);
-    exitProcess(status);
+  /** Fresh mode: ends the process with status, as the job's process would
+   * end, once what its invocation logged has been written. The invocation
+   * is fenced at once, so a step that catches the sentinel of an
+   * intercepted process.exit can do nothing through the fenced channels
+   * meanwhile, and nothing else is sent: no result, late frame or warning.
+   * When the socket takes everything at once, the process ends before this
+   * returns. A second call, or one after the connection ended, changes
+   * nothing. */
+  private exitNow(status: number) {
+    if (this.stopped || this.exiting) return;
+    for (const inv of this.invocations.values()) {
+      this.sendLog(inv, true);
+      inv.resources.settle();
+      inv.log.close();
+    }
+    this.exiting = true;
+    this.sender.whenFlushed(() => this.stop(status));
   }
 
   /** A process-level error (ADR 0004, the shared-process failure model).
@@ -499,6 +519,7 @@ export class Runtime {
       this.diag(`windmill-lite harness: ${kind}: ${describe(e)}`);
       for (const inv of this.invocations.values()) inv.log.lines(describe(e));
       this.exitNow(1);
+      return;
     }
     if (c !== undefined) {
       this.diag(`windmill-lite harness: ${kind} in invocation ${JSON.stringify(c.id)}: ${describe(e)}`);
@@ -510,7 +531,11 @@ export class Runtime {
     this.errors++;
     this.diag(`windmill-lite harness: ${kind} that no invocation owns: ${describe(e)}`);
     const message = `${kind}: ${describe(e)}`;
-    for (const inv of this.invocations.values()) this.sendWarning(inv.id, message);
+    for (const inv of this.invocations.values()) {
+      // What the invocation wrote before the error goes out first.
+      this.sendLog(inv);
+      this.sendWarning(inv.id, message);
+    }
   }
 
   /** Sends a warning, its message cut to fit max_message: the error's
@@ -535,7 +560,7 @@ export class Runtime {
    * that follows ends what the invocation said. It never throws. */
   private sendLog(inv: Invocation, all = false) {
     const lines = inv.log.take(all);
-    if (lines.length === 0 || this.stopped || this.byeSent) return;
+    if (lines.length === 0 || this.closing()) return;
     const limit = Math.min(LOG_FRAME, this.sender.maxMessage);
     const base = encode({ t: "log", id: inv.id, lines: [] }).length;
     let batch: string[] = [];
@@ -577,7 +602,7 @@ export class Runtime {
   /** Reports a running invocation's outcome while its call goes on: a
    * result frame with settled false. The call's end is reported late. */
   private fix(inv: Invocation, o: Outcome) {
-    if (this.stopped || this.byeSent) return;
+    if (this.closing()) return;
     inv.state = "fixed";
     const tail = this.endLog(inv, o);
     for (const msg of [
@@ -631,8 +656,11 @@ export class Runtime {
    * When signal aborts first, the call rejects with its reason and the
    * reply is dropped when it comes: the engine has the request already. */
   private platformCall(c: PlatformCall, signal: AbortSignal): Promise<PlatformAnswer> {
-    if (this.stopped) return Promise.reject(new TypeError("windmill-lite: the engine connection is closed"));
+    if (this.closing()) return Promise.reject(new TypeError("windmill-lite: the engine connection is closed"));
     if (signal.aborted) return Promise.reject(signal.reason);
+    // What the invocation wrote before the call goes out first.
+    const inv = this.invocations.get(c.inv);
+    if (inv) this.sendLog(inv);
     const id = `p${++this.platformSeq}`;
     return new Promise((resolve, reject) => {
       const call: PendingCall = { resolve, reject };
@@ -717,7 +745,7 @@ export class Runtime {
    * is closed. A fresh process then ends, as the job's process ends right
    * after the wrapper writes its result (WR-2). */
   private finish(inv: Invocation, o: Outcome) {
-    if (this.stopped || this.byeSent || this.invocations.get(inv.id) !== inv) return;
+    if (this.closing() || this.invocations.get(inv.id) !== inv) return;
     const tail = this.endLog(inv, o);
     const left = inv.resources.pending();
     if (Object.keys(left).length > 0) {
@@ -736,7 +764,12 @@ export class Runtime {
         this.invocations.delete(inv.id);
         inv.resources.settle();
         inv.log.close();
-        if (this.mode === "fresh") this.stop(EXIT.ok);
+        // A fresh process ends once its result has been written: a frame
+        // the socket did not take at once must not be cut off.
+        if (this.mode === "fresh") {
+          this.exiting = true;
+          this.sender.whenFlushed(() => this.stop(EXIT.ok));
+        }
         return;
       } catch (e) {
         this.diag(`windmill-lite harness: ${e instanceof ProtocolError ? e.message : describe(e)}`);
@@ -773,7 +806,13 @@ export class Runtime {
   }
 
   private send(m: Outgoing) {
-    if (!this.stopped && !this.byeSent) this.sender.send(m);
+    if (!this.closing()) this.sender.send(m);
+  }
+
+  /** Nothing more is sent: the connection ended, bye went out, or a fresh
+   * process is ending. */
+  private closing(): boolean {
+    return this.stopped || this.byeSent || this.exiting;
   }
 
   private protocolError(e: unknown) {

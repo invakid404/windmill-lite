@@ -734,13 +734,16 @@ func (p *Process) readerDone(err error) {
 	}
 	p.conn.close()
 	status := p.endInvocations()
+	p.mu.Lock()
+	clean := p.readErr == nil && p.killReason == ""
+	p.mu.Unlock()
 	// A process that dies fails its in-flight invocations as escaped, with
 	// its real exit code or the signal that ended it (ADR 0004, WR-4). A
 	// fresh process is its invocation's job process: when it exits 0
-	// before a result, the job's result is empty (WR-19, WR-V2), as after
-	// process.exit(0).
+	// before a result, over a connection that never failed, the job's
+	// result is empty (WR-19, WR-V2), as after process.exit(0).
 	p.failInvocations(func(inv *invocation) execResult {
-		if p.cfg.ModuleState == engine.ModuleStateFresh && status.Signal == "" && status.Code == 0 {
+		if p.cfg.ModuleState == engine.ModuleStateFresh && clean && status.Signal == "" && status.Code == 0 {
 			return execResult{out: engine.StepOutcome{Kind: engine.OutcomeEmpty}}
 		}
 		return execResult{out: engine.StepOutcome{

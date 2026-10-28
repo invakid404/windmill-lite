@@ -551,9 +551,11 @@ let timersInstalled = false;
  * step module while it evaluates belong to no invocation: they are never
  * registered or cleared. Promise-based waits (Bun.sleep,
  * node:timers/promises) do not go through these functions and are not
- * fenced. The node:timers named exports are rewritten before any step
- * module imports them; a module that imported them earlier (a host's own,
- * in host mode) keeps Bun's. */
+ * fenced. node:timers is patched before any step module imports it. On
+ * Bun 1.3.10 the first named import of a builtin fixes its named bindings
+ * for every later importer, so when a host's own module imported it by
+ * name before the runtime was made, named imports keep Bun's functions;
+ * the default import and require see these. */
 export function installTimers() {
   if (timersInstalled) return;
   timersInstalled = true;
@@ -658,15 +660,25 @@ const CONSOLE_METHODS = [
 
 let logsInstalled = false;
 
+/** The context whose log a write goes to, if any. Work a step module
+ * started while it evaluated is the module's, not the invocation's that
+ * loaded it (ADR 0004, loading): once that invocation has settled, what
+ * the work writes goes to the process's streams, as from a process scope. */
+function logContext(): InvocationContext | undefined {
+  const c = invocations.getStore();
+  return c === undefined || (c.work === undefined && c.resources.settled) ? undefined : c;
+}
+
 /** Installs the log view (ADR 0004, per-invocation logs), before any step
  * module loads: inside an invocation, console's methods and
  * process.stdout.write and process.stderr.write write to the invocation's
  * log instead of the process's streams. A console call is formatted by a
  * Console of the invocation's own, Node's, without colours. Once the
  * invocation has settled its writes are dropped (the D9 fence). Outside
- * every invocation, in a process scope included, both write to the
- * process's streams as before. Bun.stdout, a raw file descriptor and a
- * child's inherited stdio are not attributed. */
+ * every invocation, in a process scope included, and from a module's own
+ * work after its loading invocation settled (logContext), both write to
+ * the process's streams as before. Bun.stdout, a raw file descriptor and
+ * a child's inherited stdio are not attributed. */
 export function installLogs() {
   if (logsInstalled) return;
   logsInstalled = true;
@@ -686,7 +698,7 @@ export function installLogs() {
     if (typeof real !== "function") continue;
     con[m] = Object.defineProperty(
       function (this: unknown, ...args: unknown[]) {
-        const c = invocations.getStore();
+        const c = logContext();
         if (c === undefined) return real.apply(console, args);
         if (c.log.closed) return;
         c.log.console ??= new Console({ stdout: sink(c.log, "stdout"), stderr: sink(c.log, "stderr"), colorMode: false });
@@ -702,7 +714,7 @@ export function installLogs() {
   ] as const) {
     const real = stream.write;
     stream.write = function (this: unknown, chunk: unknown, encoding?: unknown, cb?: unknown) {
-      const c = invocations.getStore();
+      const c = logContext();
       if (c === undefined) return (real as TimerFn).apply(stream, [chunk, encoding, cb].slice(0, arguments.length));
       const text =
         typeof chunk === "string" ? chunk : Buffer.from(chunk as Uint8Array).toString(typeof encoding === "string" ? (encoding as BufferEncoding) : "utf8");
@@ -780,7 +792,7 @@ export function installChildProcesses() {
     ["fork", true],
   ] as const) {
     const real = cp[name];
-    cp[name] = Object.defineProperty(
+    const wrapped = Object.defineProperty(
       function (this: unknown, ...args: unknown[]) {
         const child = real.apply(this, withEnv(args, hasArgs)) as { pid?: number; once(e: string, f: () => void): void };
         track(child.pid, (done) => {
@@ -792,6 +804,17 @@ export function installChildProcesses() {
       "name",
       { value: real.name },
     ) as TimerFn;
+    // util.promisify(exec) resolves {stdout, stderr} through this, as on
+    // Node's own functions; the env view reaches it too.
+    const custom = (real as unknown as Record<symbol, TimerFn | undefined>)[Symbol.for("nodejs.util.promisify.custom")];
+    if (custom !== undefined) {
+      Object.defineProperty(wrapped, Symbol.for("nodejs.util.promisify.custom"), {
+        value: function (this: unknown, ...args: unknown[]) {
+          return custom.apply(this, withEnv(args, hasArgs));
+        },
+      });
+    }
+    cp[name] = wrapped;
   }
   for (const [name, hasArgs] of [
     ["spawnSync", true],

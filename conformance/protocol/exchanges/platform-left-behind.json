@@ -1,6 +1,6 @@
 {
   "case": "platform-left-behind",
-  "title": "a platform call still waiting for its answer when the invocation settles is reported and aborted, and the answer that comes later is dropped",
+  "title": "a platform call still waiting for its answer when the invocation settles is reported and aborted, and the answer that comes later is dropped; what the step logged before the call goes out first",
   "provenance": "policy",
   "relies_on": [
     "WR-2"
@@ -54,6 +54,15 @@
           "WM_FLOW_STEP_ID": "a"
         },
         "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "log",
+        "id": "i1",
+        "lines": [
+          "calling the platform"
+        ]
       }
     },
     {
