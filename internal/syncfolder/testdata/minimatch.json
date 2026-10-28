@@ -1,0 +1,2251 @@
+{
+  "about": [
+    "Glob cases for internal/syncfolder: wmill.yaml's filter and codebase globs are minimatch globs with default options over root-relative POSIX paths (SY-8, SY-13).",
+    "Every match and no_match entry was observed as a black box on npm minimatch 10.2.6, and agrees with minimatch 9.0.9: minimatch(path, pattern). None was recorded on a running Windmill, and the reference does not name the CLI's minimatch version.",
+    "refused lists patterns windmill-lite refuses with unsupported_glob (policy): forms minimatch versions read differently, or that a plain matcher does not read as minimatch does; error is a substring of the message."
+  ],
+  "groups": [
+    {
+      "group": "globstar",
+      "patterns": [
+        {
+          "pattern": "f/**",
+          "match": [
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "x.ts",
+            "u/me/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "f/a/**",
+          "match": [
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "f/a/test/b/x.ts",
+            "f/a/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "x.ts",
+            "f/test/x.ts",
+            "u/me/x.ts",
+            "f/ab/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "**",
+          "match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "u/me/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts",
+            "a"
+          ],
+          "no_match": []
+        },
+        {
+          "pattern": "**/*.ts",
+          "match": [
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "u/me/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "a"
+          ]
+        },
+        {
+          "pattern": "f/**/x.ts",
+          "match": [
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "x.ts",
+            "u/me/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "f/**/**/x.ts",
+          "match": [
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "x.ts",
+            "u/me/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "**/test/**",
+          "match": [
+            "f/test/x.ts",
+            "f/a/test/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "u/me/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "f/**/test/**",
+          "match": [
+            "f/test/x.ts",
+            "f/a/test/b/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "u/me/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "u/*/**",
+          "match": [
+            "u/me/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "f/a**/x.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/ab/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "u/me/x.ts",
+            "f/a/b/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "f/**b/x.ts",
+          "match": [
+            "f/ab/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "u/me/x.ts",
+            "f/a/b/x.ts",
+            "a"
+          ]
+        },
+        {
+          "pattern": "***",
+          "match": [
+            "f",
+            "x.ts",
+            "a"
+          ],
+          "no_match": [
+            "f/a",
+            "f/x.ts",
+            "f/a/x.ts",
+            "f/a/b/x.ts",
+            "f/test/x.ts",
+            "f/a/test/b/x.ts",
+            "u/me/x.ts",
+            "f/ab/x.ts",
+            "f/a/b/x.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "star and question",
+      "patterns": [
+        {
+          "pattern": "f/a/*",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x",
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/a/x.script.yaml",
+            "f/a/xx"
+          ],
+          "no_match": [
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/.x.ts"
+          ]
+        },
+        {
+          "pattern": "f/*/x.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/b/x.ts"
+          ],
+          "no_match": [
+            "f/a/x",
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/x.script.yaml",
+            "f/a/.x.ts",
+            "f/a/xx"
+          ]
+        },
+        {
+          "pattern": "f/a/x*",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x",
+            "f/a/x.script.yaml",
+            "f/a/xx"
+          ],
+          "no_match": [
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/.x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/*x",
+          "match": [
+            "f/a/x",
+            "f/a/xx"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/x.script.yaml",
+            "f/a/.x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/*.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/a/ab.ts",
+            "f/a/b.ts"
+          ],
+          "no_match": [
+            "f/a/x",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/x.script.yaml",
+            "f/a/.x.ts",
+            "f/a/xx"
+          ]
+        },
+        {
+          "pattern": "f/a/?.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/a/b.ts"
+          ],
+          "no_match": [
+            "f/a/x",
+            "f/a/ab.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/x.script.yaml",
+            "f/a/.x.ts",
+            "f/a/xx"
+          ]
+        },
+        {
+          "pattern": "f/a/??.ts",
+          "match": [
+            "f/a/ab.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/a/x",
+            "f/a/b.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/x.script.yaml",
+            "f/a/.x.ts",
+            "f/a/xx"
+          ]
+        },
+        {
+          "pattern": "f/?/**",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x",
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "f/a/x.script.yaml",
+            "f/a/xx"
+          ],
+          "no_match": [
+            "x.resource-type.yaml",
+            "f/a/.x.ts"
+          ]
+        },
+        {
+          "pattern": "*.resource-type.yaml",
+          "match": [
+            "x.resource-type.yaml"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/a/x",
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "f/a/x.script.yaml",
+            "f/a/.x.ts",
+            "f/a/xx"
+          ]
+        },
+        {
+          "pattern": "f/a/x.*",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x.script.yaml"
+          ],
+          "no_match": [
+            "f/a/x",
+            "f/a/ab.ts",
+            "f/a/b.ts",
+            "f/b/x.ts",
+            "f/a/sub/x.ts",
+            "x.resource-type.yaml",
+            "f/a/.x.ts",
+            "f/a/xx"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "dot rule",
+      "patterns": [
+        {
+          "pattern": "f/**",
+          "match": [
+            "f/a/x.ts",
+            "f/a/ax.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts"
+          ]
+        },
+        {
+          "pattern": "f/*/x.ts",
+          "match": [
+            "f/a/x.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/*",
+          "match": [
+            "f/a/x.ts",
+            "f/a/ax.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/.*",
+          "match": [
+            "f/a/.x.ts",
+            "f/a/.ts"
+          ],
+          "no_match": [
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/?x.ts",
+          "match": [
+            "f/a/ax.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[.]x.ts",
+          "match": [
+            "f/a/.x.ts"
+          ],
+          "no_match": [
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[.-.]x.ts",
+          "match": [
+            "f/a/.x.ts"
+          ],
+          "no_match": [
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[..]x.ts",
+          "match": [],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[.a]x.ts",
+          "match": [
+            "f/a/ax.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[!a]x.ts",
+          "match": [],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/\\.x.ts",
+          "match": [
+            "f/a/.x.ts"
+          ],
+          "no_match": [
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/**/.x.ts",
+          "match": [
+            "f/a/.x.ts"
+          ],
+          "no_match": [
+            "f/.a/x.ts",
+            "f/a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/.*/**",
+          "match": [
+            "f/.a/x.ts",
+            "f/.a/b/x.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/a/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "**/.a/**",
+          "match": [
+            "f/.a/x.ts",
+            "f/.a/b/x.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/a/x.ts",
+            "f/a/.ts",
+            "f/a/ax.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/*.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/a/ax.ts"
+          ],
+          "no_match": [
+            "f/a/.x.ts",
+            "f/.a/x.ts",
+            "f/.a/b/x.ts",
+            "f/a/.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "classes",
+      "patterns": [
+        {
+          "pattern": "f/a/[abc].ts",
+          "match": [
+            "f/a/a.ts",
+            "f/a/b.ts"
+          ],
+          "no_match": [
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[a-c].ts",
+          "match": [
+            "f/a/a.ts",
+            "f/a/b.ts"
+          ],
+          "no_match": [
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[!a-c].ts",
+          "match": [
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/x.ts",
+            "f/a/*.ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/[a.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[^a-c].ts",
+          "match": [
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/x.ts",
+            "f/a/*.ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/[a.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[]].ts",
+          "match": [
+            "f/a/].ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[]a].ts",
+          "match": [
+            "f/a/a.ts",
+            "f/a/].ts"
+          ],
+          "no_match": [
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[a-].ts",
+          "match": [
+            "f/a/a.ts",
+            "f/a/-.ts"
+          ],
+          "no_match": [
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[-a].ts",
+          "match": [
+            "f/a/a.ts",
+            "f/a/-.ts"
+          ],
+          "no_match": [
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[z-a].ts",
+          "match": [],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[a.ts",
+          "match": [
+            "f/a/[a.ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[\\]].ts",
+          "match": [
+            "f/a/].ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/[ab]/**",
+          "match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts",
+            "f/b/x.ts"
+          ],
+          "no_match": [
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/[!a]/**",
+          "match": [
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/a/*.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[x].ts",
+          "match": [
+            "f/a/x.ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/*.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/[*].ts",
+          "match": [
+            "f/a/*.ts"
+          ],
+          "no_match": [
+            "f/a/a.ts",
+            "f/a/b.ts",
+            "f/a/d.ts",
+            "f/a/].ts",
+            "f/a/-.ts",
+            "f/a/[a.ts",
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "braces",
+      "patterns": [
+        {
+          "pattern": "f/{a,b}/**",
+          "match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py"
+          ],
+          "no_match": [
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "{f,u}/**",
+          "match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ],
+          "no_match": []
+        },
+        {
+          "pattern": "f/{a,{b,x}}/x.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "f/x/x.ts"
+          ],
+          "no_match": [
+            "u/a/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/x{,.bun}.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x.bun.ts"
+          ],
+          "no_match": [
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a/x.{ts,py}",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x.py"
+          ],
+          "no_match": [
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{1..3}/x.ts",
+          "match": [
+            "f/2/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{3..1}/x.ts",
+          "match": [
+            "f/2/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{01..3}/x.ts",
+          "match": [
+            "f/02/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{1..10..3}/x.ts",
+          "match": [
+            "f/7/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{a..c}/x.ts",
+          "match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "f/c/x.ts"
+          ],
+          "no_match": [
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{a,b}{1..2}/x.ts",
+          "match": [
+            "f/b2/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/{-2..2}/x.ts",
+          "match": [
+            "f/2/x.ts",
+            "f/-1/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/\\{a,b}/x.ts",
+          "match": [
+            "f/{a,b}/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/a}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a}/**",
+          "match": [
+            "f/a}/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}b/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/a}{b,c}/x.ts",
+          "match": [
+            "f/a}b/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/b/x.ts",
+            "u/a/x.ts",
+            "f/x/x.ts",
+            "f/a/x.bun.ts",
+            "f/a/x.py",
+            "f/2/x.ts",
+            "f/02/x.ts",
+            "f/7/x.ts",
+            "f/c/x.ts",
+            "f/b2/x.ts",
+            "f/-1/x.ts",
+            "f/{a,b}/x.ts",
+            "f/a}/x.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "negation and comments",
+      "patterns": [
+        {
+          "pattern": "!f/**",
+          "match": [
+            "u/a/x.ts",
+            "#f/a"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/a/x.py"
+          ]
+        },
+        {
+          "pattern": "!!f/**",
+          "match": [
+            "f/a/x.ts",
+            "f/a/x.py"
+          ],
+          "no_match": [
+            "u/a/x.ts",
+            "#f/a"
+          ]
+        },
+        {
+          "pattern": "!**/*.ts",
+          "match": [
+            "f/a/x.py",
+            "#f/a"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "u/a/x.ts"
+          ]
+        },
+        {
+          "pattern": "#f/**",
+          "match": [],
+          "no_match": [
+            "f/a/x.ts",
+            "u/a/x.ts",
+            "f/a/x.py",
+            "#f/a"
+          ]
+        },
+        {
+          "pattern": "!#f/**",
+          "match": [
+            "f/a/x.ts",
+            "u/a/x.ts",
+            "f/a/x.py"
+          ],
+          "no_match": [
+            "#f/a"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "slashes",
+      "patterns": [
+        {
+          "pattern": "f//a/x.ts",
+          "match": [
+            "f/a/x.ts"
+          ],
+          "no_match": [
+            "f",
+            "f/x.ts"
+          ]
+        },
+        {
+          "pattern": "/f/**",
+          "match": [],
+          "no_match": [
+            "f/a/x.ts",
+            "f",
+            "f/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/",
+          "match": [],
+          "no_match": [
+            "f/a/x.ts",
+            "f",
+            "f/x.ts"
+          ]
+        },
+        {
+          "pattern": "f/**/",
+          "match": [],
+          "no_match": [
+            "f/a/x.ts",
+            "f",
+            "f/x.ts"
+          ]
+        },
+        {
+          "pattern": "f//**",
+          "match": [
+            "f/a/x.ts",
+            "f/x.ts"
+          ],
+          "no_match": [
+            "f"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "escapes",
+      "patterns": [
+        {
+          "pattern": "f/a/\\*",
+          "match": [
+            "f/a/*"
+          ],
+          "no_match": [
+            "f/a/x",
+            "f/a/[a]",
+            "f/a/a",
+            "f/a/x.ts",
+            "f/a/xa"
+          ]
+        },
+        {
+          "pattern": "f/a/\\[a]",
+          "match": [
+            "f/a/[a]"
+          ],
+          "no_match": [
+            "f/a/*",
+            "f/a/x",
+            "f/a/a",
+            "f/a/x.ts",
+            "f/a/xa"
+          ]
+        },
+        {
+          "pattern": "f/a/x\\.ts",
+          "match": [
+            "f/a/x.ts"
+          ],
+          "no_match": [
+            "f/a/*",
+            "f/a/x",
+            "f/a/[a]",
+            "f/a/a",
+            "f/a/xa"
+          ]
+        },
+        {
+          "pattern": "f/\\a/x.ts",
+          "match": [
+            "f/a/x.ts"
+          ],
+          "no_match": [
+            "f/a/*",
+            "f/a/x",
+            "f/a/[a]",
+            "f/a/a",
+            "f/a/xa"
+          ]
+        },
+        {
+          "pattern": "f/a/[x]\\a",
+          "match": [
+            "f/a/xa"
+          ],
+          "no_match": [
+            "f/a/*",
+            "f/a/x",
+            "f/a/[a]",
+            "f/a/a",
+            "f/a/x.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "case",
+      "patterns": [
+        {
+          "pattern": "F/**",
+          "match": [
+            "F/a/x.ts"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "f/A/x"
+          ]
+        },
+        {
+          "pattern": "f/A/*",
+          "match": [
+            "f/A/x"
+          ],
+          "no_match": [
+            "f/a/x.ts",
+            "F/a/x.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "UTF-16 code units",
+      "patterns": [
+        {
+          "pattern": "f/?.ts",
+          "match": [
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/😀😀.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/??.ts",
+          "match": [
+            "f/😀.ts",
+            "f/𐍈.ts",
+            "f/aé.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts"
+          ]
+        },
+        {
+          "pattern": "f/???.ts",
+          "match": [
+            "f/a😀.ts",
+            "f/😀a.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[😀].ts",
+          "match": [],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[😀]?.ts",
+          "match": [
+            "f/😀.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/?[😀].ts",
+          "match": [
+            "f/😀.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[😀][😀].ts",
+          "match": [
+            "f/😀.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/*😀.ts",
+          "match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀😀.ts"
+          ],
+          "no_match": [
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/😀*",
+          "match": [
+            "f/😀.ts",
+            "f/😀a.ts",
+            "f/😀😀.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[😀-𐍈]*",
+          "match": [
+            "f/😀.ts",
+            "f/😀a.ts",
+            "f/😀😀.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[a-😀]*",
+          "match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ],
+          "no_match": []
+        },
+        {
+          "pattern": "f/[!a]?.ts",
+          "match": [
+            "f/😀.ts",
+            "f/𐍈.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[!😀].ts",
+          "match": [
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/😀😀.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/😀.ts",
+          "match": [
+            "f/😀.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[😀a].ts",
+          "match": [
+            "f/a.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/*[😀]*.ts",
+          "match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/😀😀.ts"
+          ],
+          "no_match": [
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "**/?.ts",
+          "match": [
+            "f/a.ts",
+            "f/é.ts",
+            "f/b.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/😀😀.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/{😀,b}.ts",
+          "match": [
+            "f/😀.ts",
+            "f/b.ts"
+          ],
+          "no_match": [
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/[é].ts",
+          "match": [
+            "f/é.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/😀😀.ts",
+            "f/b.ts",
+            "f/aé.ts"
+          ]
+        },
+        {
+          "pattern": "f/?é.ts",
+          "match": [
+            "f/aé.ts"
+          ],
+          "no_match": [
+            "f/😀.ts",
+            "f/a😀.ts",
+            "f/😀a.ts",
+            "f/𐍈.ts",
+            "f/a.ts",
+            "f/é.ts",
+            "f/😀😀.ts",
+            "f/b.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "sequence bounds",
+      "patterns": [
+        {
+          "pattern": "f/{a..z..-9223372036854775808}.ts",
+          "match": [
+            "f/a.ts"
+          ],
+          "no_match": [
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{a..z..9223372036854775807}.ts",
+          "match": [
+            "f/a.ts"
+          ],
+          "no_match": [
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{z..a..-9223372036854775808}.ts",
+          "match": [
+            "f/z.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{z..a..9223372036854775807}.ts",
+          "match": [
+            "f/z.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{1..3..9223372036854775807}.ts",
+          "match": [
+            "f/1.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{3..1..-9223372036854775808}.ts",
+          "match": [
+            "f/3.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{1..3..-9223372036854775808}.ts",
+          "match": [
+            "f/1.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{a..e..99999999999999999999}.ts",
+          "match": [
+            "f/a.ts"
+          ],
+          "no_match": [
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{1..5..99999999999999999999}.ts",
+          "match": [
+            "f/1.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{9007199254740991..9007199254740992}.ts",
+          "match": [
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{-9007199254740992..-9007199254740991}.ts",
+          "match": [
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{0..9007199254740992..4503599627370496}.ts",
+          "match": [
+            "f/0.ts",
+            "f/9007199254740992.ts",
+            "f/4503599627370496.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{9007199254740992..-9007199254740992..9007199254740992}.ts",
+          "match": [
+            "f/0.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{a..c..2}.ts",
+          "match": [
+            "f/a.ts",
+            "f/c.ts"
+          ],
+          "no_match": [
+            "f/b.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{a..c..-2}.ts",
+          "match": [
+            "f/a.ts",
+            "f/c.ts"
+          ],
+          "no_match": [
+            "f/b.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{1..3..0}.ts",
+          "match": [
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4096",
+            "f/4097"
+          ]
+        },
+        {
+          "pattern": "f/{1..4096}",
+          "match": [
+            "f/4096"
+          ],
+          "no_match": [
+            "f/a.ts",
+            "f/b.ts",
+            "f/c.ts",
+            "f/z.ts",
+            "f/y.ts",
+            "f/1.ts",
+            "f/2.ts",
+            "f/3.ts",
+            "f/0.ts",
+            "f/e.ts",
+            "f/9007199254740991.ts",
+            "f/9007199254740992.ts",
+            "f/-9007199254740992.ts",
+            "f/-9007199254740991.ts",
+            "f/4503599627370496.ts",
+            "f/4097"
+          ]
+        }
+      ]
+    }
+  ],
+  "refused": [
+    {
+      "pattern": "f/a/*.@(ts|py)",
+      "error": "extglob"
+    },
+    {
+      "pattern": "f/a/+(x).ts",
+      "error": "extglob"
+    },
+    {
+      "pattern": "f/!(a)/**",
+      "error": "extglob"
+    },
+    {
+      "pattern": "f/a/?(x).ts",
+      "error": "extglob"
+    },
+    {
+      "pattern": "f/a/*(x).ts",
+      "error": "extglob"
+    },
+    {
+      "pattern": "f/a/[[:alpha:]].ts",
+      "error": "POSIX class"
+    },
+    {
+      "pattern": "f/a/[a[:digit:]].ts",
+      "error": "POSIX class"
+    },
+    {
+      "pattern": "f/./a/**",
+      "error": "segment"
+    },
+    {
+      "pattern": "f/a/../b/**",
+      "error": "segment"
+    },
+    {
+      "pattern": "f/\\../x",
+      "error": "reads as"
+    },
+    {
+      "pattern": "f/a\\",
+      "error": "trailing backslash"
+    },
+    {
+      "pattern": "f/a/\\\\x",
+      "error": "escaped backslash"
+    },
+    {
+      "pattern": "f/a/*\\a",
+      "error": "starts with `*` or `?`"
+    },
+    {
+      "pattern": "f/a/?\\a",
+      "error": "starts with `*` or `?`"
+    },
+    {
+      "pattern": "f/{a}/**",
+      "error": "do not expand"
+    },
+    {
+      "pattern": "f/{}/**",
+      "error": "do not expand"
+    },
+    {
+      "pattern": "f/{a,b/**",
+      "error": "without `}`"
+    },
+    {
+      "pattern": "f/${a,b}/**",
+      "error": "${"
+    },
+    {
+      "pattern": "f/{a..1}/**",
+      "error": "do not expand"
+    },
+    {
+      "pattern": "f/{1..}/**",
+      "error": "do not expand"
+    },
+    {
+      "pattern": "f/[\\\\]/**",
+      "error": "escaped backslash"
+    },
+    {
+      "pattern": "f/{1..9007199254740993}",
+      "error": "end beyond 2^53"
+    },
+    {
+      "pattern": "f/{-9007199254740992..9007199254740992..9007199254740993}",
+      "error": "step beyond 2^53"
+    },
+    {
+      "pattern": "f/{1..4097}",
+      "error": "brace expansions"
+    },
+    {
+      "pattern": "f/{a,b,c}{1..2048}",
+      "error": "brace expansions"
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "finding": "SY-5",
+  "cases": [
+    {
+      "spec": "SY-5/a",
+      "provenance": "source-derived",
+      "title": "missing lock file",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline f/a/x.script.lock'\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": ""
+              },
+              "absent": [
+                "/lock_file"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5/b",
+      "provenance": "source-derived",
+      "title": "legacy array lock",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: [a, b]\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "a\nb"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "empty and absent locks",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/e.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/e.script.yaml": "lock: ''\n",
+          "f/a/n.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/n.script.yaml": "summary: n\n",
+          "f/a/n.script.lock": "unused\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/e": {
+              "at": {
+                "/lock": ""
+              }
+            },
+            "f/a/n": {
+              "at": {
+                "/lock": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "the reference is relative to the sync root",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "locks/x.lock": "root-relative\n",
+          "f/a/locks/x.lock": "script-relative\n",
+          "f/a/x.script.yaml": "lock: '!inline locks/x.lock'\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "root-relative\n",
+                "/lock_file": "locks/x.lock"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "the tag form",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.lock": "tagged\n",
+          "f/a/x.script.yaml": "lock: !inline f/a/x.script.lock\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "tagged\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "a lock literal",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: |\n  {\"a\": 1}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "{\"a\": 1}\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "policy",
+      "policy": "ADR 0002: references that leave the sync root are refused",
+      "title": "a lock reference that leaves the root",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: '!inline ../x.lock'\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "path_escape",
+                "contains": [
+                  "../x.lock"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "policy",
+      "title": "a lock of the wrong type",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: {a: 1}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "lock must be a string or a list of strings"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

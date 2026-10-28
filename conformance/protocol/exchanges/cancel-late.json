@@ -1,0 +1,128 @@
+{
+  "case": "cancel-late",
+  "title": "a cancel abandons the invocation; how its call ended comes as the late frame that settles it",
+  "provenance": "policy",
+  "relies_on": [
+    "FX-24",
+    "WR-37"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#cancellation-and-deadlines",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "sleep",
+        "entry": "main",
+        "args": {
+          "ms": 1000
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "send": {
+        "t": "cancel",
+        "id": "i1",
+        "reason": "timeout"
+      }
+    },
+    {
+      "send": {
+        "t": "ping",
+        "id": "e1"
+      }
+    },
+    {
+      "expect": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 1,
+        "errors": 0,
+        "lag_ms": "<int>",
+        "rss": "<int>"
+      }
+    },
+    {
+      "quiet_ms": 100
+    },
+    {
+      "expect": {
+        "t": "late",
+        "id": "i1",
+        "kind": "result",
+        "body": 1000,
+        "settled": true
+      },
+      "within_ms": 3000
+    },
+    {
+      "send": {
+        "t": "ping",
+        "id": "e2"
+      }
+    },
+    {
+      "expect": {
+        "t": "pong",
+        "id": "e2",
+        "in_flight": 0,
+        "abandoned": 0,
+        "errors": 0,
+        "lag_ms": "<int>",
+        "rss": "<int>"
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

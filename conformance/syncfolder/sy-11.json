@@ -1,0 +1,136 @@
+{
+  "finding": "SY-11",
+  "cases": [
+    {
+      "spec": "SY-11/a",
+      "provenance": "source-derived",
+      "part": "load",
+      "note": "the loader marks the value as ciphertext; resolving $var:f/a/pw fails with \"secret not available\" in the secret resolver (PF2)",
+      "title": "encrypted secret without a resolver",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/pw.variable.yaml": "is_secret: true\nvalue: c2VjcmV0LWNpcGhlcnRleHQ=\ndescription: ''\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "variable": {
+            "f/a/pw": {
+              "at": {
+                "/is_secret": true,
+                "/encrypted": true,
+                "/value": "c2VjcmV0LWNpcGhlcnRleHQ="
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-11",
+      "provenance": "source-derived",
+      "title": "a plain variable",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/v.variable.yaml": "value: hello\nis_secret: false\naccount: null\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "variable": {
+            "f/a/v": {
+              "at": {
+                "/value": "hello",
+                "/is_secret": false,
+                "/encrypted": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-11",
+      "provenance": "source-derived",
+      "title": "plainSecrets marks secrets as plain",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nplainSecrets: true\n",
+          "f/a/pw.variable.yaml": "is_secret: true\nvalue: hunter2\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "variable": {
+            "f/a/pw": {
+              "at": {
+                "/is_secret": true,
+                "/encrypted": false,
+                "/value": "hunter2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-11",
+      "provenance": "source-derived",
+      "title": "skipSecrets filters secrets out",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nskipSecrets: true\n",
+          "f/a/pw.variable.yaml": "is_secret: true\nvalue: x\n",
+          "f/a/v.variable.yaml": "value: y\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "variable": {
+            "f/a/pw": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "skipSecrets"
+                ]
+              }
+            },
+            "f/a/v": {
+              "at": {
+                "/value": "y"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-11",
+      "provenance": "policy",
+      "title": "a variable value must be a string",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/v.variable.yaml": "value: 3\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "variable": {
+            "f/a/v": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "value must be a string"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

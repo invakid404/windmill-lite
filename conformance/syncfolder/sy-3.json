@@ -1,0 +1,391 @@
+{
+  "finding": "SY-3",
+  "cases": [
+    {
+      "spec": "SY-3/a",
+      "variant": "ts",
+      "provenance": "source-derived",
+      "title": "defaultTs: bun, ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/a.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "bun",
+                "/native": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3/a",
+      "variant": "deno.ts",
+      "provenance": "source-derived",
+      "title": "defaultTs: bun, deno.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/a.deno.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "deno"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3/a",
+      "variant": "fetch.ts",
+      "provenance": "source-derived",
+      "title": "defaultTs: bun, fetch.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/a.fetch.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "nativets"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3/a",
+      "variant": "native",
+      "provenance": "source-derived",
+      "title": "defaultTs: bun, native",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/a.ts": "// native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "bunnative",
+                "/native": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3/a",
+      "variant": "sql",
+      "provenance": "source-derived",
+      "title": "defaultTs: bun, sql",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/a.sql": "select 1;\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "error": {
+                "kind": "unknown_language",
+                "contains": [
+                  "cannot infer script language",
+                  "dialect"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3/b",
+      "variant": "ts",
+      "provenance": "source-derived",
+      "title": "defaultTs: deno, ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: deno\n",
+          "f/a/a.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "deno"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3/b",
+      "variant": "bun.ts",
+      "provenance": "source-derived",
+      "title": "defaultTs: deno, bun.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: deno\n",
+          "f/a/a.bun.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3",
+      "provenance": "source-derived",
+      "title": "suffix tests without a leading dot",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: deno\n",
+          "f/a/mybun.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/xdeno.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/fetch.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/mybun": {
+              "at": {
+                "/language": "bun"
+              }
+            },
+            "f/a/xdeno": {
+              "at": {
+                "/language": "deno"
+              }
+            },
+            "f/a/fetch": {
+              "at": {
+                "/language": "nativets"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3",
+      "provenance": "source-derived",
+      "title": "the native annotation is read only for bun",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/d.deno.ts": "// native\nexport async function main() {\n  return 1;\n}\n",
+          "f/a/n.fetch.ts": "// native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/d": {
+              "at": {
+                "/language": "deno",
+                "/native": false
+              }
+            },
+            "f/a/n": {
+              "at": {
+                "/language": "nativets",
+                "/native": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-3",
+      "provenance": "source-derived",
+      "title": "absent defaultTs is bun, with a warning",
+      "given": {
+        "files": {
+          "wmill.yaml": "nonDottedPaths: false\n",
+          "f/a/a.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/a": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          }
+        },
+        "warnings": [
+          "no defaultTs"
+        ]
+      }
+    },
+    {
+      "spec": "SY-3",
+      "provenance": "source-derived",
+      "title": "other languages",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/s0.py": "x\n",
+          "f/a/s1.go": "x\n",
+          "f/a/s2.my.sql": "x\n",
+          "f/a/s3.bq.sql": "x\n",
+          "f/a/s4.odb.sql": "x\n",
+          "f/a/s5.duckdb.sql": "x\n",
+          "f/a/s6.sf.sql": "x\n",
+          "f/a/s7.ms.sql": "x\n",
+          "f/a/s8.gql": "x\n",
+          "f/a/s9.sh": "x\n",
+          "f/a/s10.ps1": "x\n",
+          "f/a/s11.php": "x\n",
+          "f/a/s12.rs": "x\n",
+          "f/a/s13.cs": "x\n",
+          "f/a/s14.playbook.yml": "x\n",
+          "f/a/s15.nu": "x\n",
+          "f/a/s16.java": "x\n",
+          "f/a/s17.rb": "x\n",
+          "f/a/s18.r": "x\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/s0": {
+              "at": {
+                "/language": "python3"
+              }
+            },
+            "f/a/s1": {
+              "at": {
+                "/language": "go"
+              }
+            },
+            "f/a/s2": {
+              "at": {
+                "/language": "mysql"
+              }
+            },
+            "f/a/s3": {
+              "at": {
+                "/language": "bigquery"
+              }
+            },
+            "f/a/s4": {
+              "at": {
+                "/language": "oracledb"
+              }
+            },
+            "f/a/s5": {
+              "at": {
+                "/language": "duckdb"
+              }
+            },
+            "f/a/s6": {
+              "at": {
+                "/language": "snowflake"
+              }
+            },
+            "f/a/s7": {
+              "at": {
+                "/language": "mssql"
+              }
+            },
+            "f/a/s8": {
+              "at": {
+                "/language": "graphql"
+              }
+            },
+            "f/a/s9": {
+              "at": {
+                "/language": "bash"
+              }
+            },
+            "f/a/s10": {
+              "at": {
+                "/language": "powershell"
+              }
+            },
+            "f/a/s11": {
+              "at": {
+                "/language": "php"
+              }
+            },
+            "f/a/s12": {
+              "at": {
+                "/language": "rust"
+              }
+            },
+            "f/a/s13": {
+              "at": {
+                "/language": "csharp"
+              }
+            },
+            "f/a/s14": {
+              "at": {
+                "/language": "ansible"
+              }
+            },
+            "f/a/s15": {
+              "at": {
+                "/language": "nu"
+              }
+            },
+            "f/a/s16": {
+              "at": {
+                "/language": "java"
+              }
+            },
+            "f/a/s17": {
+              "at": {
+                "/language": "ruby"
+              }
+            },
+            "f/a/s18": {
+              "at": {
+                "/language": "rlang"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

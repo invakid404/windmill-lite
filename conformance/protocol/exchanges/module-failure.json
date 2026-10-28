@@ -1,0 +1,133 @@
+{
+  "case": "module-failure",
+  "title": "a module that throws while it is evaluated escapes, on every invocation of it",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-19",
+    "WR-20",
+    "Q-WR-2"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#messages",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "top-level-throw",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "escaped",
+        "tail": "<string>",
+        "exit_code": 1,
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i2",
+        "run": "r1",
+        "site": "m:a",
+        "script": "top-level-throw",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i2",
+        "outcome": "escaped",
+        "tail": "<string>",
+        "exit_code": 1,
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i3",
+        "run": "r1",
+        "site": "m:a",
+        "script": "not-in-bundle",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i3",
+        "outcome": "escaped",
+        "tail": "<string>",
+        "exit_code": 1,
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

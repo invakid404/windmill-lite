@@ -52,7 +52,11 @@ flowchart LR
    and reads resources, resource types and variables
    ([SY-10](../semantics/openflow.md#sy-10), [SY-11](../semantics/openflow.md#sy-11)).
    Items it recognises but does not run (schedules, triggers, apps) are
-   listed and skipped ([SY-12](../semantics/openflow.md#sy-12)).
+   listed and skipped ([SY-12](../semantics/openflow.md#sy-12)). It
+   classifies the files when the folder is opened and reads and checks each
+   item only when asked, so the closure walk below reads only what the
+   roots reach; a problem with an item outside the closure is a warning, and
+   a check of the whole folder reports every one.
 2. **YAML dialect.** The loader parses YAML into nodes with a Go YAML
    library and resolves scalars itself, to match the CLI's YAML 1.2 core
    schema ([SY-9](../semantics/openflow.md#sy-9)): `!inline` tags become
@@ -312,16 +316,22 @@ Decisions:
    esbuild settings and the semantics request's answer instead, and says so
    in the case.
 
-Proposed loader divergences from the CLI, each labelled in the loader's
-diagnostics: reject dotted logical paths and always use the `wmill.yaml`
-directory as root ([SY-1](../semantics/openflow.md#sy-1),
+Loader divergences from the CLI, each labelled in the loader's diagnostics:
+reject a script file with a dot before its script extension, and always use
+the `wmill.yaml` directory as root ([SY-1](../semantics/openflow.md#sy-1),
 [SY-V4](../semantics/openflow.md#sy-v4)); accept inline paths anywhere inside
-the flow folder and reject paths that escape the sync root
+the sync root, the flow folder's subfolders included, and reject `!inline`
+and script-lock references that leave it
 ([SY-7](../semantics/openflow.md#sy-7)); treat two files mapping to one path
-as an error ([PA-1](../semantics/openflow.md#pa-1)). Only the first refuses
-folders the CLI accepts: the CLI truncates a dotted logical path to its first
-segment, which silently renames the item. The others change nothing about
-how an accepted folder runs. The YAML refusals of the dialect (Pipeline,
+as an error ([PA-1](../semantics/openflow.md#pa-1)). The first refuses
+folders the CLI accepts: the CLI cuts a script file's path at its first dot,
+which silently renames the script (`f/my.dir/x.ts` becomes `f/my`). Flow,
+resource and variable paths keep their dots, as the CLI keeps them. The
+reference refusal also refuses folders the CLI accepts, since the CLI reads
+any path. The others change nothing about how an accepted folder runs. Text
+files that are not UTF-8 and `wmill.yaml` globs outside the syntax that
+minimatch 9 and 10 read alike are refused too; with the first two, they are
+the sync-folder restriction of [0001](0001-equivalence-contract.md) §5a. The YAML refusals of the dialect (Pipeline,
 step 2) also refuse files the CLI accepts; none of them is a construct the
 CLI's writer emits for a value a Windmill server returns, so they reach
 only hand-written files.
@@ -344,6 +354,11 @@ only hand-written files.
   `windmill-utils-internal`) are not used until the open licence question is
   answered ([Q-OF-7](../semantics/openflow.md#q-of-7)); the loader is written
   from the `SY-` findings either way.
+- Milestone A4 implemented `syncfolder`. It reads items on demand (Pipeline,
+  step 1), narrowed the dotted-path divergence to script files, the only
+  paths the CLI cuts at a dot, and added the refusals of references that
+  leave the root, of text that is not UTF-8 and of globs minimatch versions
+  read differently.
 - The YAML dialect's mapping rules and refusals (Pipeline, step 2) were added
   when milestone A2 implemented it. Pinning the dialect against the CLI's
   YAML library showed that a mapping's keys and order follow the JavaScript

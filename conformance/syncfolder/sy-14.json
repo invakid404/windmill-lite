@@ -1,0 +1,52 @@
+{
+  "finding": "SY-14",
+  "cases": [
+    {
+      "spec": "SY-14/a",
+      "variant": "corrupt",
+      "provenance": "source-derived",
+      "title": "cache absent or corrupt",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "wmill-lock.yaml": "{{{ not yaml\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "skipped": [
+          {
+            "file": "wmill-lock.yaml",
+            "kind": "wmill_lock"
+          }
+        ],
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-14/a",
+      "variant": "absent",
+      "provenance": "source-derived",
+      "title": "cache absent or corrupt",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "check_ok": true
+      }
+    }
+  ]
+}

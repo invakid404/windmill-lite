@@ -1,0 +1,58 @@
+{
+  "finding": "PA-1",
+  "cases": [
+    {
+      "spec": "PA-1/a",
+      "provenance": "source-derived",
+      "policy": "ADR 0002: two files for one path are an error",
+      "title": "two folder styles for one flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/x__flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "duplicate_path",
+                "contains": [
+                  "f/a/x.flow",
+                  "f/a/x__flow"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "PA-1/b",
+      "provenance": "source-derived",
+      "title": "lone flat *.flow.json",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow.json": "{\"value\": {\"modules\": []}}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": []
+        },
+        "skipped": [
+          {
+            "file": "f/a/x.flow.json",
+            "kind": "flow_json"
+          }
+        ],
+        "warnings": [
+          "f/a/x.flow.json is ignored"
+        ]
+      }
+    }
+  ]
+}

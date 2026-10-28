@@ -1,0 +1,134 @@
+{
+  "case": "concurrent",
+  "title": "invocations run at once on one event loop and answer in completion order",
+  "provenance": "policy",
+  "relies_on": [],
+  "design": "docs/design/0004-harness-protocol.md#lifecycle",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "sleep",
+        "entry": "main",
+        "args": {
+          "ms": 400
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i2",
+        "run": "r1",
+        "site": "m:a",
+        "script": "sleep",
+        "entry": "main",
+        "args": {
+          "ms": 100
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i3",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {
+          "n": 3
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i3",
+        "outcome": "ok",
+        "body": {
+          "n": 3
+        },
+        "settled": true
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i2",
+        "outcome": "ok",
+        "body": 100,
+        "settled": true
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": 400,
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

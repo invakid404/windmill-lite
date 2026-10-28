@@ -42,12 +42,39 @@ step without failing the others.
 2. A **frame** is a 4-byte big-endian length followed by that many bytes of
    UTF-8 JSON: one object with a `t` (type) field. Values that are JSON in
    the semantics (arguments, results, errors, platform bodies) are embedded
-   as raw JSON text and never re-encoded by Go.
+   as raw JSON text and never re-encoded by Go. Envelopes are written
+   **canonically**: `t` first, then the fields in the order of the table
+   below, strings escaped exactly as JavaScript's `JSON.stringify` escapes
+   them, integers in decimal; readers accept any order. Go and every harness
+   therefore write the same bytes for the same message, which the shared
+   golden frames in `conformance/protocol/` check on both sides. Readers
+   also decode alike: keys match exactly, only the fields of the message's
+   own type are read, a null field counts as absent (except a raw value,
+   which may be JSON null), and an integer field holds a number with an
+   integral value within ±(2^53−1), however it is spelled.
 3. A message larger than 1 MiB is sent as a sequence of `part` frames of at
    most 1 MiB each, so `cancel`, `platform_reply` and other small frames are
    not stuck behind a large result. The largest message accepted is 512 MiB,
    above Windmill's 500 MB default result limit
-   ([WR-15](../semantics/languages.md#wr-15)); hosts may lower it.
+   ([WR-15](../semantics/languages.md#wr-15)); hosts may lower it, and the
+   engine passes the limit in the welcome.
+   - A part's `chunk` is the padded standard base64 of a piece of the
+     message's payload bytes; its `id` names the **part stream**, unique per
+     sender among its streams, so that streams and whole frames interleave.
+     Pieces come in order from `seq` 0, and the one with `last` completes the
+     message, which is never itself a part.
+   - A sender queues whole frames ahead of part frames and gives its part
+     streams turns, one part frame each, so a small frame waits behind at
+     most one part frame.
+   - Messages about one invocation (`invoke`, `cancel`, `result`, `late`,
+     `log`) keep their order: one queued while a part stream about the same
+     invocation is open waits for that stream's last part. A `cancel` never
+     reaches a harness before the large `invoke` it cancels, and a `late`
+     frame never reaches the engine before the large `result` it follows.
+   - A frame over 1 MiB, a part stream out of order and a message over the
+     limit are protocol errors, as is any frame that does not decode. A
+     protocol error ends the connection; the engine then kills the harness,
+     and its in-flight invocations fail as escaped.
 4. Every request carries an `id` unique per sender; replies echo it.
    Invocations, platform calls and host calls are multiplexed on one socket.
 
@@ -55,10 +82,10 @@ step without failing the others.
 
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
-| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded) | handshake |
-| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, facade origin, log limits) or `reject` with a reason | handshake result |
+| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id) | handshake |
+| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`; facade origin and log limits with the milestones that use them) or `reject` (`code`, `message`) | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
-| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` (the last log text for `escaped`), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
+| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
@@ -66,7 +93,7 @@ step without failing the others.
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
 | `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)) | host mode: a harness that is also the host submits runs |
-| `ping` / `pong` | either way | in-flight count, abandoned count, process-level error count, event-loop lag, RSS | health |
+| `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
 | `drain` / `bye` | engine → harness / back | — | orderly shutdown |
 
@@ -286,6 +313,14 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Routing prefers the run's process (affinity), then the least-loaded one.
   When the event loop of a process lags past a threshold (a CPU-bound step),
   the pool starts another process, up to the maximum.
+- Processes that are tainted or being recycled (§Cancellation and deadlines
+  item 4) do not count toward the maximum: they are leaving the pool, and a
+  replacement takes the new invocations, so one abandoned step does not
+  stall a pool of one. A tainted process whose abandoned invocations settle
+  returns to service only if the pool is below its maximum without it,
+  counting processes still starting; otherwise it takes no new invocations
+  and leaves once idle. A cap (D15) counts an invocation until its outcome
+  is fixed, not until its Reporter has heard of it.
 
 ### Host mode
 
@@ -328,6 +363,18 @@ change:
    and starts a replacement (D2). A `fresh` process is exempt: it is the
    invocation, so only the step's own `timeout` ends it, with
    [WR-37](../semantics/languages.md#wr-37)'s text, as on Windmill.
+   - **Silence** is measured from the frames the engine receives, of any
+     type, and a harness sends a `ping` with its health every
+     `heartbeat_ms` on its own, so a live harness never looks silent
+     because the engine's own writes are stuck behind a large message.
+   - **The target.** Before it signals, the engine knows its target is the
+     process that speaks the protocol. A spawned harness whose `hello`
+     names another pid than the one the engine started (a wrapper that
+     forks it) is rejected with `pid_mismatch`, and the signal goes through
+     the process handle the engine holds, which cannot reach a reused pid (a
+     pidfd on Linux; elsewhere Go does not signal a child it has reaped). In
+     host mode, where the engine is the host's child, it checks that the
+     host is still its parent (`getppid()` equals the handshake pid).
 5. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
    `onRunSettled` fires when the run's abandoned invocations have all
    settled, which may be never. A resource that an abandoned invocation may
@@ -439,6 +486,18 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 - Milestone K1 widened the FX-38 exception in §Cancellation and deadlines
   item 3 from "the failure module" to whatever the continue decision asks
   for, to match FX-19 and the precedence of [0008](0008-host-hooks.md).
+- Milestone C1 fixed the wire details the table had left open: canonical
+  envelopes, base64 part chunks with their own stream ids and the sender's
+  queueing rule, the protocol-error rule, `pid` in `hello` (host mode item
+  4 already relied on it), `exit_code` in an escaped `result` (the code of
+  an intercepted non-zero `process.exit`, D11, and Q-WR-2's 1 must reach the
+  engine), `heartbeat_ms` and `max_message` in the welcome, and the
+  harness's own heartbeat pings, so that the watchdog measures silence from
+  received frames (review item cl P4-3, which also asked for the pid
+  check above). It also fixed the decoding rules both sides share, the
+  ordering of messages about one invocation, and that a tainted process
+  does not count toward the pool's maximum and does not take it past the
+  maximum when it returns (§Pooling).
 
 ## Spec IDs relied on
 
