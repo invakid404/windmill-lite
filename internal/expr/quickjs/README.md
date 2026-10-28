@@ -30,7 +30,7 @@ What the package does not do:
 |---|---|
 | `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache). |
-| `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
+| `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. It does not force strict mode, which Windmill's evaluator does ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the bytecode on a fresh runtime and context, then returns the completion string or an error. |
 | `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and heap blocks that QuickJS-ng leaked and the engine freed. |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
@@ -65,7 +65,10 @@ What the package does not do:
    completion value has settled. A completion value that is not a Promise is
    settled at once, and so is a Promise that has fulfilled or rejected; jobs
    still queued then never run. A job that throws (a `queueMicrotask`
-   callback, say) fails the evaluation with its exception.
+   callback, say) fails the evaluation with its exception. Windmill differs
+   on both ([JE-51](../../../docs/semantics/expressions.md#je-51), `later`):
+   it reads the result only once the queue is empty, and it drops a job
+   that throws.
 5. **The answer.** A fulfilled string is returned as UTF-8, except that
    QuickJS-ng writes an unpaired surrogate as three bytes (WTF-8);
    `JSON.stringify` escapes those, so its text is plain UTF-8. Anything else
@@ -170,8 +173,9 @@ each with mimalloc and with its own `malloc`).
   interrupts and cancellations (also when they come during a long built-in
   or readback), `Close`, the arrival order of waiting callers,
   concurrent use under `-race`, and the overflow depth at the default
-  stack, which they log for each platform and check against JE-48's
-  bracket. An engine started through the tests' shared helper must end with
+  stack, which they log for each platform and check lies between 1 000
+  (fits) and 1 000 000 (overflows). JE-48's compatibility band is now wider:
+  depths up to 600 fit, and Windmill itself overflows at 1 000. An engine started through the tests' shared helper must end with
   no leaked heap block; the one test that makes QuickJS-ng leak uses a
   helper without that check.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and

@@ -215,29 +215,42 @@ reading. Otherwise `Compile` returns every error, in walk order: the root
 scripts, then each flow in the order the walk reaches it, module by module,
 and last the provided sites that matched no site or more than one.
 
-## Readings the reference does not settle
+## Readings the compiler takes
 
-Each is the smallest reading consistent with the reference and the design;
-the milestone's pull request lists them as open questions.
+A5 took each as the smallest reading consistent with the reference and the
+design, which did not settle them then. The reference's revision of
+2026-10-28 settles most of them: it states the first three, and it differs
+from the compiler's reading of the import base, `schema_validation` and
+`customBundler`. The compiler still takes the readings below.
 
 - **Collapse in the preprocessor's bodies.** A deploy does not reduce the
   preprocessor module to stored nodes
   ([OF-3](../../docs/semantics/openflow.md#of-3)), so its bodies run as raw
   inline flows, in which a for loop never collapses
   ([CF-V5](../../docs/semantics/control-flow.md#cf-v5)); a while loop
-  there still does.
+  there still does. [CF-30](../../docs/semantics/control-flow.md#cf-30)
+  now states this.
 - **Collapse disqualifiers are presences.** `retry: {}` and `cache_ttl: 0`
-  disqualify a body as any other value does; the reference names the
-  fields, not their values.
+  disqualify a body as any other value does, as
+  [CF-8](../../docs/semantics/control-flow.md#cf-8) now states.
 - **The virtual step** is added for a final `sleep` of any transform type,
-  and not after the failure or preprocessor module, which are slots.
+  and not after the failure or preprocessor module, which are slots
+  ([CF-30](../../docs/semantics/control-flow.md#cf-30)).
 - **The import base** of an inline step with an explicit `path` is that path
-  as written, at any depth.
+  as written, at any depth. [WR-29](../../docs/semantics/languages.md#wr-29)
+  now differs: a deployed flow drops the field, so the default base applies,
+  and the explicit path is the base only where raw module values run.
 - **`schema_validation`** is read as a header annotation key by the rule of
-  [WR-31](../../docs/semantics/languages.md#wr-31); the reference names the
-  annotation but not its spelling.
+  [WR-31](../../docs/semantics/languages.md#wr-31).
+  [WR-54](../../docs/semantics/languages.md#wr-54) now differs: the line has
+  its own test, which needs exactly `// schema_validation` (for TypeScript)
+  and stops at a blank line.
 - **`customBundler`** counts when it is set to anything but null or `""`.
-- **A pinned `hash`** is refused whatever its value (above).
+  [WR-48](../../docs/semantics/languages.md#wr-48) now differs: `false` and
+  `0` mean unset as well.
+- **A pinned `hash`** is refused whatever its value (above). On Windmill a
+  pin that names no version deploys and fails at run time
+  ([OF-14](../../docs/semantics/openflow.md#of-14)/f).
 - **A provided site** must be mandatory, a call site, and match one module
   in every iteration and branch: `iterations` and `branches` are refused on
   it, since its target is replaced everywhere.
