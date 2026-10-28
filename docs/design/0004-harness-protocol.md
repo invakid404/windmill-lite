@@ -387,8 +387,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 3. Cancellation completes the run as `Canceled` and skips the failure module
    ([FX-38](../semantics/execution.md#fx-38), [CF-28](../semantics/control-flow.md#cf-28)),
    with FX-38's one exception: when an error stop and the cancel coincide in
-   a flow that has a failure module, the continue decision still requests the
-   failure module.
+   a flow that has a failure module, the continue decision still continues
+   the flow, and what it asks for starts: a retry when one is due, the next
+   module under `continue_on_error`, or else the failure module
+   ([FX-19](../semantics/execution.md#fx-19); the precedence of
+   [0008](0008-host-hooks.md)).
 4. **Abandonment (deviation D2).** The harness aborts the invocation's
    signal and later reports anything it produces as `late`. In a process the
    engine spawned, the process is marked **tainted**: it gets no new
@@ -412,9 +415,12 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   is still recovered, by the engine's watchdog and the host's supervisor.
 - The protocol is language-neutral; a Python harness implements the same
   frames.
+- Milestone K1 widened the FX-38 exception in §Cancellation and deadlines
+  item 3 from "the failure module" to whatever the continue decision asks
+  for, to match FX-19 and the precedence of [0008](0008-host-hooks.md).
 
 ## Spec IDs relied on
 
 WR-1, WR-2, WR-4, WR-12, WR-13, WR-15, WR-18, WR-20 to WR-23, WR-37, WR-V1,
-WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-23, FX-24, FX-25, FX-38,
+WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
 CF-4, CF-7, CF-28.

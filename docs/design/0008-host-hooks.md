@@ -101,7 +101,7 @@ seams to hosts ([0012](0012-layout-and-milestones.md)).
 | H1 | **Intercept** a site | Runs when the module would launch a job: after `skip_if`, `mock`, its arguments and its timeout are decided, at the launch of [FX-2](../semantics/execution.md#fx-2) start step 10. A module that `skip_if` or `mock` already answered is not intercepted. Receives the evaluated arguments and the run context. Returns a result, an error, or *decline* (the real module runs). The completion phase (stop, retry, `continue_on_error`) then applies to that outcome as if the module had run. Static overrides (a fixed value per selector, from configuration) are the no-code form. A host plugin may instead **wrap** a leaf's real invocation (`around(site, next)`), running code before and after it in the harness, for example to enter a scope or account for resources around one step; the wrapped step's outcome is still its own. |
 | H2 | **Rewrite arguments** of a site | Gets the evaluated arguments, returns the arguments the module runs with. The trace keeps both. |
 | H3 | **Write-capable steps and the first-write signal** | The host marks selectors write-capable. Before the first write-capable module of a run launches, the engine calls `beforeFirstWrite(site)` once; the host can veto, which latches (H5). When several write-capable modules launch at once (parallel branches or iterations), the others wait for that one verdict, and a veto stops them all. From then on the run reports `mayHaveMutated: true`, including in a failed run's outcome. |
-| H4 | **Cancellation and budgets** | A run has a cancellation source and two deadlines: a hard one, and an optional *pre-write* one that only applies until H3 fires. Both are checked at every module boundary, iteration, `sleep`, retry delay and expression evaluation ([0004](0004-harness-protocol.md)). Cancellation outranks `continue_on_error`, `skip_failures`, `retry` and the failure module ([FX-38](../semantics/execution.md#fx-38)), except where FX-38 itself lets an error stop that coincides with the cancel reach the failure module ([0004](0004-harness-protocol.md)). In-flight JavaScript is not killed (D2); plugins and step code reach the run's signal through `wl.signal()` and can tie their I/O to it. |
+| H4 | **Cancellation and budgets** | A run has a cancellation source and two deadlines: a hard one, and an optional *pre-write* one that only applies until H3 fires. Both are checked at every module boundary, iteration, `sleep`, retry delay and expression evaluation ([0004](0004-harness-protocol.md)). Cancellation outranks `continue_on_error`, `skip_failures`, `retry` and the failure module ([FX-38](../semantics/execution.md#fx-38)), except where an error stop that coincides with the cancel continues the flow, as FX-38 and FX-19 allow (precedence below, [0004](0004-harness-protocol.md)). In-flight JavaScript is not killed (D2); plugins and step code reach the run's signal through `wl.signal()` and can tie their I/O to it. |
 | H5 | **Run-fatal latch** | Any hook, plugin, observer or step (through `wl.latch(error)`) can latch an error on its run. A latched run starts no further module, iteration, branch or retry, outranks every later step outcome, ends with status `latched` and the host's error, and never converts the error into a step result. Iterations already running finish (their effects stand) or are abandoned at the deadline. |
 | H6 | **Observers** | `onModuleStart` and `onModuleEnd(site, outcome)` for every module, nested ones and iterations included. Observers can latch (H5). |
 | H7 | **Fatal error names** | The host lists error `name`s that bypass `retry`, `continue_on_error`, `skip_failures` and `skip_failure` and latch instead. Using it is a recorded deviation in the run trace, because Windmill has no such rule ([FX-28](../semantics/execution.md#fx-28) is per-module YAML). |
@@ -116,6 +116,28 @@ seams to hosts ([0012](0012-layout-and-milestones.md)).
 cancellation and deadlines, halt, then Windmill's own start checks, with
 interception at launch. At each completion: latch, cancellation, fatal error
 names, then Windmill's continue decision ([FX-2](../semantics/execution.md#fx-2)).
+Two further rules complete it:
+
+- **Cancellation's one exception.** An error stop that coincides with the
+  cancellation, in a flow with a failure module, passes the cancellation
+  check and goes to Windmill's continue decision, which checks a stop before
+  the cancel flag ([FX-2](../semantics/execution.md#fx-2) completion rule
+  7.1, [FX-38](../semantics/execution.md#fx-38)). What that decision asks for
+  still starts: another attempt of the module when a retry is due, the next
+  module under `continue_on_error`, or else the failure module
+  ([FX-19](../semantics/execution.md#fx-19)). The run then ends canceled at
+  its next completion.
+- **Halting never hides a failure or a cancellation.** `haltBefore` applies
+  at a module's first attempt, never to a failure module. `haltAfter` is
+  checked after the continue decision: it applies once the module has its
+  final outcome (no retry is due) and the run would start something other
+  than a failure module. A completion that ends the run anyway keeps the
+  status Windmill gives it. A halt that falls on a start the cancellation
+  exception lets through stops that start, and the run ends canceled, not
+  halted.
+
+`internal/engine` encodes the whole order as `Start`, `Completion` and
+`AfterContinue`.
 
 ### Patterns built from the hooks
 
@@ -145,8 +167,14 @@ names, then Windmill's continue decision ([FX-2](../semantics/execution.md#fx-2)
 - The hooks that change semantics (H1, H2, H7, H8, H10 in `record` mode, and
   latching) are visible in the trace, so a comparison against the oracle can
   exclude or account for them.
+- Milestone K1 added the two rules after the precedence paragraph, and
+  widened H4's FX-38 exception from "the failure module" to whatever the
+  continue decision asks for, which FX-19 shows can be a retry or the next
+  module. The paragraph named neither how that exception passes the next
+  start check nor where halting applies, and the engine needs both to
+  implement one order.
 
 ## Spec IDs relied on
 
-FX-2, FX-23, FX-26, FX-28, FX-30, FX-38, FX-39, OF-2, CF-5, CF-7, and the
+FX-2, FX-19, FX-23, FX-26, FX-28, FX-30, FX-38, FX-39, OF-2, CF-5, CF-7, and the
 identity encoding of [0011](0011-differential-testing.md).

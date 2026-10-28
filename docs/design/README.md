@@ -1,7 +1,8 @@
 # windmill-lite design
 
-**Current state:** first edition, proposed. Nothing in the repository
-implements these records yet. This README covers `docs/design/`: this index
+**Current state:** first edition, proposed. Implementation has started:
+milestone K1's contracts (the shared types and interfaces under `internal/`)
+exist, and no component runs flows yet. This README covers `docs/design/`: this index
 and the decision records it links. The records decide the architecture, the
 equivalence contract with Windmill `v1.767.0`, the Go package layout and the
 implementation milestones. They build on the

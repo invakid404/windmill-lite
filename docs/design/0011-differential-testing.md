@@ -100,7 +100,15 @@ appear as `m:<loop>/i:<n>/m:<body>`, the same path a non-collapsed loop gives,
 so the shape of Windmill's job tree never leaks into identities. The same
 encoding is used by job-id placeholders (`<job:m:a/i:1/m:s>`), host-hook
 sites ([0008](0008-host-hooks.md)), run traces, and any replay service keyed
-by site. Cases OR-V8/a–c become negative tests of the encoder.
+by site. Inside a placeholder, a `>` from a module id is written `%3E`.
+Path text never contains `%3E`, since a literal `%` is escaped, so a
+placeholder ends at its first `>` and distinct sites never share a
+placeholder. That alone does not make a whole normalised string injective:
+user text that already looks like a placeholder needs its own escape, and
+OR-14's drafted `<<job:` rule is not injective on its own, because a user's
+`<` followed by a walked job id gives the same text. The normaliser
+(milestone E2) chooses that escape. Cases OR-V8/a–c become negative tests of
+the encoder.
 
 ### Fixtures and verbs
 
@@ -194,6 +202,11 @@ merged.
 ## Consequences
 
 - Every comparison, placeholder, hook and trace uses one identity encoding.
+- Milestone K1 added the `%3E` rule for placeholders. Without it, a string
+  holding module `a`'s job id followed by `b>` would normalise to the same
+  text as the job id of a module named `a>b`. Windmill puts no restriction
+  on module ids ([OF-2](../semantics/openflow.md#of-2)). K1 also recorded
+  that the escape for placeholder-like user text is still E2's to choose.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
 - Disputed findings get settled by recordings, early, through a reviewed

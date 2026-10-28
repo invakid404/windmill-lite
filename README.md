@@ -4,14 +4,17 @@ windmill-lite runs the flows and scripts of a [Windmill](https://www.windmill.de
 folder with Windmill's semantics, but without Windmill's scheduling: no job
 queue, no job per step, and no worker pickup.
 
-**Current state:** bootstrapping. Nothing runs flows yet. The repository holds
+**Current state:** first implementation milestones. Nothing runs flows yet.
+The repository holds
 a Go module, a placeholder command that prints its version, CI, a
 documentation gate, the [semantics reference](docs/semantics/README.md) (the
 Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-No component of the design is implemented yet.
+The first milestone, K1, has landed: the shared types and interfaces under
+`internal/` that later milestones implement and code against. They define no
+runnable component yet.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE).
@@ -30,6 +33,10 @@ go test -race ./...
 | Path | What it covers |
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
+| [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, stored text and the NUL flag. The canonicaliser is not implemented yet. |
+| [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. No implementation yet. |
+| [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
+| [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary: the site-path encoder with its negative tests, run and step statuses, and the observation types. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
