@@ -1,0 +1,16 @@
+# FX-33/c: the contested case of Q-FX-19.
+# As drafted, a non-object does not recover (failure); the correction
+# decodes the array positionally as recover: true (success). This
+# expectation is the correction's, the default of ADR 0001 section 6.
+spec: [FX-33/c]
+target: f/wl_fx33/recover
+args: {ret: [true]}
+expect:
+  status: success
+  result: [true]
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: [true]}, result: [true]}

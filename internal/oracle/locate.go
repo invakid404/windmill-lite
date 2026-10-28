@@ -25,7 +25,10 @@ import (
 //     subflow) is walked in turn, a branchone body under b:<n> or
 //     b:default;
 //   - the failure and preprocessor slots are at s:failure and
-//     s:preprocessor, and a generated -v module is skipped (OR-V7).
+//     s:preprocessor, and a generated -v module is skipped (OR-V7), as is
+//     the one entry of a flow the fixture defines with no modules;
+//   - a container body carries the enclosing flow's failure module (CF-1),
+//     and the fixture's definition, not the entry, tells a branchall.
 //
 // A job that is not in the tree yet (its parent's status is written after
 // the job is queued) is looked for again every Interval until the
@@ -129,7 +132,9 @@ func (s *locateState) get(id string) (Job, bool, error) {
 
 func (s *locateState) flow(base conformance.SitePath, fs *FlowStatus, def flowDef) (conformance.SitePath, bool, error) {
 	user := fs.Modules
-	if n := len(user); n >= 2 && generated(user, def) {
+	if emptyFlow(user, def) {
+		user = nil
+	} else if n := len(user); n >= 2 && generated(user, def) {
 		user = user[:n-1]
 	}
 	ids := make([]string, len(user))
@@ -145,7 +150,7 @@ func (s *locateState) flow(base conformance.SitePath, fs *FlowStatus, def flowDe
 		if def.known {
 			d = &def.modules[i]
 		}
-		if site, ok, err := s.module(base.Child(segs[i]), e, d); ok || err != nil {
+		if site, ok, err := s.module(base.Child(segs[i]), e, d, def); ok || err != nil {
 			return site, ok, err
 		}
 	}
@@ -160,7 +165,7 @@ func (s *locateState) flow(base conformance.SitePath, fs *FlowStatus, def flowDe
 		if slot.entry == nil || slot.entry.Job == nil {
 			continue
 		}
-		if site, ok, err := s.module(base.Child(slot.seg), *slot.entry, slot.defined); ok || err != nil {
+		if site, ok, err := s.module(base.Child(slot.seg), *slot.entry, slot.defined, def); ok || err != nil {
 			return site, ok, err
 		}
 	}
@@ -179,14 +184,16 @@ func leafModule(d *openflow.Module) bool {
 	return false
 }
 
-func (s *locateState) module(site conformance.SitePath, e FlowStatusModule, d *openflow.Module) (conformance.SitePath, bool, error) {
+// module looks through one module entry; encl is the definition of the
+// flow whose list or slot holds it.
+func (s *locateState) module(site conformance.SitePath, e FlowStatusModule, d *openflow.Module, encl flowDef) (conformance.SitePath, bool, error) {
 	for _, id := range e.FailedRetries {
 		if id == s.job {
 			return site, true, nil
 		}
 	}
 	if e.HasFlowJobs {
-		return s.container(site, e, d)
+		return s.container(site, e, d, encl)
 	}
 	if e.Job == nil || *e.Job == nilJob {
 		return conformance.SitePath{}, false, nil
@@ -211,9 +218,9 @@ func (s *locateState) module(site conformance.SitePath, e FlowStatusModule, d *o
 		if d != nil {
 			if b, ok := d.Value.(*openflow.BranchOne); ok {
 				if e.BranchChosen.Type == "default" {
-					sub = bodyDef(b.Default)
+					sub = encl.containerBody(b.Default)
 				} else if *e.BranchChosen.Branch < len(b.Branches) {
-					sub = bodyDef(b.Branches[*e.BranchChosen.Branch].Modules)
+					sub = encl.containerBody(b.Branches[*e.BranchChosen.Branch].Modules)
 				}
 			}
 		}
@@ -236,7 +243,7 @@ func (s *locateState) module(site conformance.SitePath, e FlowStatusModule, d *o
 }
 
 // container looks through a loop's or branchall's children.
-func (s *locateState) container(site conformance.SitePath, e FlowStatusModule, d *openflow.Module) (conformance.SitePath, bool, error) {
+func (s *locateState) container(site conformance.SitePath, e FlowStatusModule, d *openflow.Module, encl flowDef) (conformance.SitePath, bool, error) {
 	branchAll := e.BranchAll != nil
 	var bodies [][]openflow.Module
 	if d != nil {
@@ -246,6 +253,9 @@ func (s *locateState) container(site conformance.SitePath, e FlowStatusModule, d
 		case *openflow.WhileLoop:
 			bodies = [][]openflow.Module{v.Modules}
 		case *openflow.BranchAll:
+			// A completed branchall entry need not carry the branchall
+			// field (as the walker found), so the definition decides.
+			branchAll = true
 			for _, b := range v.Branches {
 				bodies = append(bodies, b.Modules)
 			}
@@ -254,9 +264,9 @@ func (s *locateState) container(site conformance.SitePath, e FlowStatusModule, d
 	body := func(i int) flowDef {
 		switch {
 		case branchAll && i < len(bodies):
-			return bodyDef(bodies[i])
+			return encl.containerBody(bodies[i])
 		case !branchAll && len(bodies) == 1:
-			return bodyDef(bodies[0])
+			return encl.containerBody(bodies[0])
 		}
 		return flowDef{}
 	}

@@ -1,0 +1,12 @@
+# FX-30/a: success with a's wrapped error; the handler never runs.
+spec: [FX-30/a, FX-36]
+target: f/wl_fx30/tolerated_last
+expect:
+  status: success
+  result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: not_run}

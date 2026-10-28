@@ -1,0 +1,15 @@
+# FX-14/a: the job runs with empty args and fails with the pre-run
+# error, without step_id. The catalogue asserts the message prefix
+# only (checked by TestRecordingBatches); the engine text after it is
+# the recorded one: "QuickJS evaluation error: Error: …" with the
+# engine's eval_script frames.
+spec: [FX-14/a]
+target: f/wl_fx14/bad_transform
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nQuickJS evaluation error: Error: cannot read property 'b' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}

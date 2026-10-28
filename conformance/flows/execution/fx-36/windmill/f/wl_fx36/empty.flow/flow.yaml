@@ -1,0 +1,8 @@
+summary: FX-36 empty flow
+value:
+  modules: []
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

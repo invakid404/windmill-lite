@@ -1,0 +1,11 @@
+# FX-12: the failure values of Bun script jobs, and a failed flow whose
+# result is its failure module's, not wrapped. Cases FX-12/a, FX-12/b and
+# FX-12/d of docs/semantics/conformance.md#fx-12; they also show FX-36's
+# executor rule for a failure with and without a failure module.
+# Synthetic, written for this repository.
+id: execution/fx-12
+spec: [FX-12/a, FX-12/b, FX-12/d, FX-36]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

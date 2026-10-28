@@ -1,0 +1,13 @@
+# FX-V6/a and FX-10/a: how a failure module entered after an error-stop
+# reads the stopped module. FX-V6/a is the discriminating case of the core
+# blocker Q-FX-15: computed indexing reads storage without a
+# previous_result binding, and memory with one. FX-10/a reads the module
+# through an exact preceding id, a simple subpath and an engine
+# expression. Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-v6 and #fx-10.
+id: execution/fx-v6
+spec: [FX-V6/a, FX-10/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

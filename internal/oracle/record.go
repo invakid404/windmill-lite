@@ -404,18 +404,19 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		}
 		ws := fmt.Sprintf("wl-%s-%d", short, i+1)
 		s.logf("fixture %s: workspace %s", name, ws)
-		if err := NewWorkspace(ctx, c, ws); err != nil {
+		failAll := func(err error) {
 			for _, r := range runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
 			}
+		}
+		if err := NewWorkspace(ctx, c, ws); err != nil {
+			failAll(err)
 			continue
 		}
 		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
 		rep.Session.Deployments[name] = dep
 		if err != nil {
-			for _, r := range runs {
-				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
-			}
+			failAll(err)
 		} else {
 			// Runs of one group are submitted together, as concurrent
 			// outer runs; every other run alone.
@@ -423,11 +424,11 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, batch, tree, sink, replay, base)...)
 			}
 		}
-		// CE admits only two workspaces besides admins, so a fixture's
-		// workspace goes once its runs are done; one that cannot be deleted
-		// would refuse every later fixture.
+		// CE refuses a third workspace besides admins, so the next
+		// fixture needs this one gone; a workspace that cannot be deleted
+		// ends the session.
 		if err := c.DeleteWorkspace(ctx, ws); err != nil {
-			return fmt.Errorf("oracle: deleting workspace %s: %w", ws, err)
+			return fmt.Errorf("oracle: fixture %s: deleting workspace %s: %w", name, ws, err)
 		}
 	}
 	return nil
@@ -449,11 +450,11 @@ func (s *Session) rel(p string) string {
 	return filepath.ToSlash(p)
 }
 
-// deploy optionally regenerates the fixture's metadata in its new
-// workspace, pushes a copy of its sync tree with the CLI, applies its setup
+// deploy optionally regenerates the fixture's metadata, pushes a copy of
+// its sync tree with the CLI into its new workspace ws, applies its setup
 // and passes the deployment gate. A stub fixture's copy is its stubbed
 // tree (StubTree), whose metadata the CLI regenerates before the push;
-// the stub must keep every script's schema (CheckStubSignatures).
+// the stub must keep every path script's schema (CheckStubSignatures).
 func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}

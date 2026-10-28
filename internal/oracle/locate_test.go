@@ -126,6 +126,9 @@ func TestLocatorSites(t *testing.T) {
 		"f/x/l":     "summary: s\nvalue:\n  modules:\n    - id: loop\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1]'}\n        modules:\n          - {id: p, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n          - {id: q, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
 		"f/x/s":     "summary: s\nvalue:\n  modules:\n    - {id: sub, value: {type: flow, path: f/x/child, input_transforms: {}}}\n    - id: fan\n      value:\n        type: branchall\n        branches:\n          - {modules: [{id: u, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n          - {modules: [{id: v, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n    - id: each\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1, 2]'}\n        modules:\n          - {id: one, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
 		"f/x/child": "summary: s\nvalue:\n  modules:\n    - {id: c, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
+		"f/x/fl":    "summary: s\nvalue:\n  modules:\n    - id: loop\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1]'}\n        modules:\n          - {id: p, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n          - {id: q, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n  failure_module: {id: recover, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
+		"f/x/em":    "summary: s\nvalue:\n  modules:\n    - {id: e, value: {type: flow, path: f/x/empty, input_transforms: {}}}\n    - {id: z, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
+		"f/x/empty": "summary: s\nvalue:\n  modules: []\n",
 	})
 	jobs := map[string]string{
 		// A failure handler is at s:failure; a failed attempt at the
@@ -148,6 +151,13 @@ func TestLocatorSites(t *testing.T) {
 		"SUB": flowJob("SUB", "f/x/child", "CompletedJob", `{"modules":[{"type":"Success","id":"c","job":"C"}]}`),
 		"FB0": flowJob("FB0", "", "CompletedJob", `{"modules":[{"type":"Success","id":"u","job":"U"}]}`),
 		"FB1": flowJob("FB1", "", "CompletedJob", `{"modules":[{"type":"Success","id":"v","job":"V"}]}`),
+		"S2":  flowJob("S2", "f/x/s", "QueuedJob", `{"modules":[{"type":"Success","id":"sub","job":"SUB"},{"type":"Success","id":"fan","job":"G1","flow_jobs":["G0","G1"]},{"type":"WaitingForPriorSteps","id":"each"}]}`),
+		"G0":  flowJob("G0", "", "CompletedJob", `{"modules":[{"type":"Success","id":"u","job":"U2"}]}`),
+		"G1":  flowJob("G1", "", "CompletedJob", `{"modules":[{"type":"Success","id":"v","job":"V2"}]}`),
+		"FL":  flowJob("FL", "f/x/fl", "QueuedJob", `{"modules":[{"type":"InProgress","id":"loop","job":"FL","flow_jobs":["FI"]}],"failure_module":{"type":"WaitingForPriorSteps","id":"failure"}}`),
+		"FI":  flowJob("FI", "", "QueuedJob", `{"modules":[{"type":"Failure","id":"p","job":"P9"},{"type":"WaitingForPriorSteps","id":"q"}],"failure_module":{"type":"InProgress","id":"recover","job":"HB"}}`),
+		"EM":  flowJob("EM", "f/x/em", "QueuedJob", `{"modules":[{"type":"Success","id":"e","job":"EJ"},{"type":"InProgress","id":"z","job":"Z"}]}`),
+		"EJ":  flowJob("EJ", "f/x/empty", "CompletedJob", `{"modules":[{"type":"Success","id":"failure","job":"00000000-0000-0000-0000-000000000000"}]}`),
 	}
 	l, api := newLocator(t, tree, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -165,6 +175,14 @@ func TestLocatorSites(t *testing.T) {
 		{"S", "U", "m:fan/b:0/m:u"},
 		{"S", "V", "m:fan/b:1/m:v"},
 		{"S", "E1", "m:each/i:1/m:one"},
+		// A completed branchall entry without its branchall field: the
+		// definition still makes its children branches.
+		{"S2", "V2", "m:fan/b:1/m:v"},
+		// A loop body carries the flow's failure module (CF-1): a stub in
+		// the body's failure slot is at i:<n>/s:failure.
+		{"FL", "HB", "m:loop/i:0/s:failure"},
+		// An empty subflow's lone entry is no module.
+		{"EM", "Z", "m:z"},
 	} {
 		site, err := l.Locate(ctx, c.root, c.job)
 		if err != nil || site.String() != c.site {

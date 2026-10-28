@@ -1,0 +1,13 @@
+# FX-33/d: [false] decodes as recover: false.
+spec: [FX-33/d]
+target: f/wl_fx33/recover
+args: {ret: [false]}
+expect:
+  status: failure
+  result: [false]
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: [false]}, result: [false]}
