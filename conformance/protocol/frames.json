@@ -1,0 +1,685 @@
+{
+  "level": "protocol",
+  "title": "Frame codec golden frames of the harness protocol",
+  "design": "docs/design/0004-harness-protocol.md#transport-and-framing",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-15",
+    "WR-23"
+  ],
+  "note": "Written by `go test ./internal/harness -run TestFrameCases -update`; payload and frames are the Go encoder's output. Both the Go codec and the Bun harness's codec (harnesses/bun/test) run every case unless `sides` limits it.",
+  "cases": [
+    {
+      "case": "hello",
+      "title": "the harness's first frame",
+      "message": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "sha256:00ff",
+        "pid": 4242
+      },
+      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":false,\"native\":false,\"fresh\":false,\"host\":false},\"bundle\":\"sha256:00ff\",\"pid\":4242}"
+    },
+    {
+      "case": "welcome-config",
+      "title": "the engine accepts a harness",
+      "message": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "(devel)",
+        "bundle": "sha256:00ff",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 1000,
+          "max_message": 536870912
+        }
+      },
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"(devel)\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912}}"
+    },
+    {
+      "case": "welcome-reject",
+      "title": "the engine rejects a harness",
+      "message": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "(devel)",
+        "bundle": "sha256:00ff",
+        "reject": {
+          "code": "runtime_mismatch",
+          "message": "runtime \"1.4.2\", the bundle pins \"1.3.10\""
+        }
+      },
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"(devel)\",\"bundle\":\"sha256:00ff\",\"reject\":{\"code\":\"runtime_mismatch\",\"message\":\"runtime \\\"1.4.2\\\", the bundle pins \\\"1.3.10\\\"\"}}"
+    },
+    {
+      "case": "invoke",
+      "title": "run one step; env keys sorted",
+      "message": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {
+          "x": [
+            1,
+            2
+          ],
+          "y": {
+            "z": null
+          }
+        },
+        "env": {
+          "WM_JOB_ID": "j1",
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{\"x\":[1,2],\"y\":{\"z\":null}},\"env\":{\"WM_FLOW_STEP_ID\":\"a\",\"WM_JOB_ID\":\"j1\"},\"boundary\":\"bun\"}"
+    },
+    {
+      "case": "invoke-env-escaping",
+      "title": "env values with every escape class",
+      "message": {
+        "t": "invoke",
+        "id": "i2",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "A": "quote\" backslash\\ bs\b ff\f nl\n cr\r tab\t ctl\u0001\u001f del eé emoji😀 ls\u2028"
+        },
+        "boundary": "bun"
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i2\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{\"A\":\"quote\\\" backslash\\\\ bs\\b ff\\f nl\\n cr\\r tab\\t ctl\\u0001\\u001f del eé emoji😀 ls\u2028\"},\"boundary\":\"bun\"}"
+    },
+    {
+      "case": "result-ok",
+      "title": "an ok result",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": {
+          "b": [
+            1,
+            2
+          ],
+          "a": {
+            "x": null
+          }
+        },
+        "settled": true
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":{\"b\":[1,2],\"a\":{\"x\":null}},\"settled\":true}"
+    },
+    {
+      "case": "result-ok-null",
+      "title": "a step that returned null",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": null,
+        "settled": true
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":null,\"settled\":true}"
+    },
+    {
+      "case": "result-error",
+      "title": "a caught throw",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "error",
+        "body": {
+          "message": "boom",
+          "name": "Error",
+          "stack": "Error: boom"
+        },
+        "settled": true
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"error\",\"body\":{\"message\":\"boom\",\"name\":\"Error\",\"stack\":\"Error: boom\"},\"settled\":true}"
+    },
+    {
+      "case": "result-escaped",
+      "title": "an escaped failure carries its tail and exit code",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "escaped",
+        "tail": "line one\nline two",
+        "exit_code": 1,
+        "settled": true
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"escaped\",\"tail\":\"line one\\nline two\",\"exit_code\":1,\"settled\":true}"
+    },
+    {
+      "case": "result-empty",
+      "title": "an empty outcome",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "empty",
+        "settled": true
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"empty\",\"settled\":true}"
+    },
+    {
+      "case": "result-unsettled",
+      "title": "an outcome fixed while the call goes on",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "escaped",
+        "tail": "",
+        "exit_code": 3,
+        "settled": false
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"escaped\",\"tail\":\"\",\"exit_code\":3,\"settled\":false}"
+    },
+    {
+      "case": "late-result",
+      "title": "how an abandoned call ended",
+      "message": {
+        "t": "late",
+        "id": "i1",
+        "kind": "result",
+        "body": 200,
+        "settled": true
+      },
+      "payload": "{\"t\":\"late\",\"id\":\"i1\",\"kind\":\"result\",\"body\":200,\"settled\":true}"
+    },
+    {
+      "case": "late-error-no-body",
+      "title": "a late error without a body",
+      "message": {
+        "t": "late",
+        "id": "i1",
+        "kind": "error",
+        "settled": true
+      },
+      "payload": "{\"t\":\"late\",\"id\":\"i1\",\"kind\":\"error\",\"settled\":true}"
+    },
+    {
+      "case": "late-log",
+      "title": "late output",
+      "message": {
+        "t": "late",
+        "id": "i1",
+        "kind": "log",
+        "body": [
+          "after the result"
+        ],
+        "settled": false
+      },
+      "payload": "{\"t\":\"late\",\"id\":\"i1\",\"kind\":\"log\",\"body\":[\"after the result\"],\"settled\":false}"
+    },
+    {
+      "case": "cancel",
+      "title": "abandon one invocation",
+      "message": {
+        "t": "cancel",
+        "id": "i1",
+        "reason": "timeout"
+      },
+      "payload": "{\"t\":\"cancel\",\"id\":\"i1\",\"reason\":\"timeout\"}"
+    },
+    {
+      "case": "log",
+      "title": "attributed output",
+      "message": {
+        "t": "log",
+        "id": "i1",
+        "lines": [
+          "one",
+          "two"
+        ]
+      },
+      "payload": "{\"t\":\"log\",\"id\":\"i1\",\"lines\":[\"one\",\"two\"]}"
+    },
+    {
+      "case": "ping-health",
+      "title": "a heartbeat with health",
+      "message": {
+        "t": "ping",
+        "id": "h1",
+        "in_flight": 2,
+        "abandoned": 1,
+        "errors": 0,
+        "lag_ms": 3,
+        "rss": 52428800
+      },
+      "payload": "{\"t\":\"ping\",\"id\":\"h1\",\"in_flight\":2,\"abandoned\":1,\"errors\":0,\"lag_ms\":3,\"rss\":52428800}"
+    },
+    {
+      "case": "ping-bare",
+      "title": "an engine ping",
+      "message": {
+        "t": "ping",
+        "id": "e1"
+      },
+      "payload": "{\"t\":\"ping\",\"id\":\"e1\"}"
+    },
+    {
+      "case": "pong-health",
+      "title": "a pong with health",
+      "message": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 0,
+        "errors": 0,
+        "lag_ms": 0,
+        "rss": 1
+      },
+      "payload": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "drain",
+      "title": "drain",
+      "message": {
+        "t": "drain"
+      },
+      "payload": "{\"t\":\"drain\"}"
+    },
+    {
+      "case": "bye",
+      "title": "bye",
+      "message": {
+        "t": "bye"
+      },
+      "payload": "{\"t\":\"bye\"}"
+    },
+    {
+      "case": "canonical-order",
+      "title": "any key order and whitespace decode; the encoding is canonical",
+      "message_text": " { \"settled\" : true , \"id\":\"i1\",\n\"body\":[1] ,\"outcome\":\"ok\",\"t\":\"result\"}",
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":[1],\"settled\":true}"
+    },
+    {
+      "case": "unknown-field",
+      "title": "fields the decoder does not know are ignored",
+      "message_text": "{\"t\":\"bye\",\"future_field\":{\"x\":1}}",
+      "payload": "{\"t\":\"bye\"}"
+    },
+    {
+      "case": "raw-args-kept",
+      "title": "raw values keep their bytes: whitespace, key order, number spelling",
+      "sides": [
+        "go"
+      ],
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{\"b\" : 1, \"1\": 2.50, \"a\":1e2},\"env\":{},\"boundary\":\"bun\"}",
+      "raw": {
+        "args": "{\"b\" : 1, \"1\": 2.50, \"a\":1e2}"
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{\"b\" : 1, \"1\": 2.50, \"a\":1e2},\"env\":{},\"boundary\":\"bun\"}"
+    },
+    {
+      "case": "split-result",
+      "title": "a message longer than the frame limit goes as a part stream",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "settled": true
+      },
+      "split": {
+        "stream": "1",
+        "chunk_bytes": 16
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"settled\":true}",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaQ==\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":1,\"last\":false,\"chunk\":\"ZCI6ImkxIiwib3V0Y29tZQ==\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":2,\"last\":false,\"chunk\":\"Ijoib2siLCJib2R5IjoieA==\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":3,\"last\":false,\"chunk\":\"eHh4eHh4eHh4eHh4eHh4eA==\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":4,\"last\":false,\"chunk\":\"eHh4eHh4eHh4eHh4eCIsIg==\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":5,\"last\":true,\"chunk\":\"c2V0dGxlZCI6dHJ1ZX0=\"}"
+      ]
+    },
+    {
+      "case": "split-exact",
+      "title": "a payload that is a multiple of the chunk size",
+      "message": {
+        "t": "ping",
+        "id": "e1"
+      },
+      "split": {
+        "stream": "9",
+        "chunk_bytes": 11
+      },
+      "payload": "{\"t\":\"ping\",\"id\":\"e1\"}",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"9\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicGluZyI=\"}",
+        "{\"t\":\"part\",\"id\":\"9\",\"seq\":1,\"last\":true,\"chunk\":\"LCJpZCI6ImUxIn0=\"}"
+      ]
+    },
+    {
+      "case": "parts-interleaved",
+      "title": "whole frames may arrive between the parts of a message",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaWQiOiJpMSIsIm91dGNv\"}",
+        "{\"t\":\"ping\",\"id\":\"h1\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":1,\"last\":true,\"chunk\":\"bWUiOiJvayIsImJvZHkiOiJoZWxsbyIsInNldHRsZWQiOnRydWV9\"}"
+      ],
+      "messages": [
+        {
+          "t": "ping",
+          "id": "h1"
+        },
+        {
+          "t": "result",
+          "id": "i1",
+          "outcome": "ok",
+          "body": "hello",
+          "settled": true
+        }
+      ]
+    },
+    {
+      "case": "parts-two-streams",
+      "title": "two part streams may interleave",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaWQiOiI=\"}",
+        "{\"t\":\"part\",\"id\":\"2\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoiYnk=\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":1,\"last\":true,\"chunk\":\"aTEiLCJvdXRjb21lIjoib2siLCJib2R5IjoiaGVsbG8iLCJzZXR0bGVkIjp0cnVlfQ==\"}",
+        "{\"t\":\"part\",\"id\":\"2\",\"seq\":1,\"last\":true,\"chunk\":\"ZSJ9\"}"
+      ],
+      "messages": [
+        {
+          "t": "result",
+          "id": "i1",
+          "outcome": "ok",
+          "body": "hello",
+          "settled": true
+        },
+        {
+          "t": "bye"
+        }
+      ]
+    },
+    {
+      "case": "frame-empty",
+      "title": "a frame of length 0",
+      "bytes_hex": "00000000",
+      "error": "frame_empty"
+    },
+    {
+      "case": "frame-too-large",
+      "title": "a frame longer than the frame limit",
+      "bytes_hex": "0000000a7b2274223a226279227d",
+      "max_frame": 8,
+      "error": "frame_too_large"
+    },
+    {
+      "case": "truncated-length",
+      "title": "the stream ends inside a length",
+      "bytes_hex": "0000",
+      "error": "truncated"
+    },
+    {
+      "case": "truncated-payload",
+      "title": "the stream ends inside a payload",
+      "bytes_hex": "000000207b2274",
+      "error": "truncated"
+    },
+    {
+      "case": "invalid-utf8",
+      "title": "a payload that is not UTF-8",
+      "bytes_hex": "000000237b2274223a226c6f67222c226964223a226931222c226c696e6573223a5b22ff225d7d",
+      "error": "invalid_utf8"
+    },
+    {
+      "case": "invalid-json",
+      "title": "a payload that is not JSON",
+      "frames": [
+        "{\"t\":\"bye\""
+      ],
+      "error": "invalid_json"
+    },
+    {
+      "case": "not-object-array",
+      "title": "a JSON array",
+      "frames": [
+        "[\"t\",\"bye\"]"
+      ],
+      "error": "not_object"
+    },
+    {
+      "case": "not-object-string",
+      "title": "a JSON string",
+      "frames": [
+        "\"bye\""
+      ],
+      "error": "not_object"
+    },
+    {
+      "case": "missing-type",
+      "title": "no t",
+      "frames": [
+        "{\"id\":\"i1\"}"
+      ],
+      "error": "missing_type"
+    },
+    {
+      "case": "type-not-string",
+      "title": "t is not a string",
+      "frames": [
+        "{\"t\":5}"
+      ],
+      "error": "missing_type"
+    },
+    {
+      "case": "unknown-type",
+      "title": "a type this milestone does not implement",
+      "frames": [
+        "{\"t\":\"platform\",\"id\":\"p1\"}"
+      ],
+      "error": "unknown_type"
+    },
+    {
+      "case": "missing-body",
+      "title": "an ok result without body",
+      "frames": [
+        "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"settled\":true}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "missing-settled",
+      "title": "a result without settled",
+      "frames": [
+        "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"empty\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "missing-exit-code",
+      "title": "an escaped result without exit code",
+      "frames": [
+        "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"escaped\",\"tail\":\"\",\"settled\":true}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "partial-health",
+      "title": "health fields come all or none",
+      "frames": [
+        "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "welcome-neither",
+      "title": "a welcome with neither config nor reject",
+      "frames": [
+        "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"e\",\"bundle\":\"b\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "id-not-string",
+      "title": "an id that is a number",
+      "frames": [
+        "{\"t\":\"cancel\",\"id\":1,\"reason\":\"timeout\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "bad-reason",
+      "title": "a cancel reason outside the enumeration",
+      "frames": [
+        "{\"t\":\"cancel\",\"id\":\"i1\",\"reason\":\"later\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "bad-outcome",
+      "title": "a result outcome outside the enumeration",
+      "frames": [
+        "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"done\",\"settled\":true}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "bad-late-kind",
+      "title": "a late kind outside the enumeration",
+      "frames": [
+        "{\"t\":\"late\",\"id\":\"i1\",\"kind\":\"warning\",\"settled\":false}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "late-log-settles",
+      "title": "a late log cannot settle",
+      "frames": [
+        "{\"t\":\"late\",\"id\":\"i1\",\"kind\":\"log\",\"body\":[],\"settled\":true}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "welcome-both",
+      "title": "a welcome with config and reject",
+      "frames": [
+        "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"e\",\"bundle\":\"b\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1,\"max_message\":1},\"reject\":{\"code\":\"c\",\"message\":\"m\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "seq-not-integer",
+      "title": "a part seq that is not an integer",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0.5,\"last\":true,\"chunk\":\"eA==\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "seq-negative",
+      "title": "a negative part seq",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":-1,\"last\":true,\"chunk\":\"eA==\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "chunk-unpadded",
+      "title": "an unpadded chunk",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"eA\"}"
+      ],
+      "error": "bad_chunk"
+    },
+    {
+      "case": "chunk-empty",
+      "title": "an empty chunk",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"\"}"
+      ],
+      "error": "bad_chunk"
+    },
+    {
+      "case": "chunk-trailing-bits",
+      "title": "a chunk with non-zero padding bits",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"eB==\"}"
+      ],
+      "error": "bad_chunk"
+    },
+    {
+      "case": "chunk-line-break",
+      "title": "a chunk with a line break",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"eA==\\n\"}"
+      ],
+      "error": "bad_chunk"
+    },
+    {
+      "case": "part-gap",
+      "title": "a part stream with a gap",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaWQiOiJpMSIsIm91dGNv\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":2,\"last\":true,\"chunk\":\"bWUiOiJvayIsImJvZHkiOiJoZWxsbyIsInNldHRsZWQiOnRydWV9\"}"
+      ],
+      "error": "part_sequence"
+    },
+    {
+      "case": "part-no-start",
+      "title": "a part stream that does not start at 0",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":1,\"last\":true,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaWQiOiJpMSIsIm91dGNvbWUiOiJvayIsImJvZHkiOiJoZWxsbyIsInNldHRsZWQiOnRydWV9\"}"
+      ],
+      "error": "part_sequence"
+    },
+    {
+      "case": "part-restart",
+      "title": "a part stream started twice",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaWQiOiJpMSIsIm91dGNv\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"bWUiOiJvayIsImJvZHkiOiJoZWxsbyIsInNldHRsZWQiOnRydWV9\"}"
+      ],
+      "error": "part_sequence"
+    },
+    {
+      "case": "part-in-part",
+      "title": "a part stream that reassembles to a part",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"eyJ0IjoicGFydCIsImlkIjoiMiIsInNlcSI6MCwibGFzdCI6dHJ1ZSwiY2h1bmsiOiJlQT09In0=\"}"
+      ],
+      "error": "part_in_part"
+    },
+    {
+      "case": "message-too-large",
+      "title": "a part stream longer than the message limit",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":false,\"chunk\":\"eyJ0IjoicmVzdWx0IiwiaWQiOiJpMSIsIm91dGNvbWUiOiJvayIsIg==\"}",
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":1,\"last\":true,\"chunk\":\"Ym9keSI6ImhlbGxvIiwic2V0dGxlZCI6dHJ1ZX0=\"}"
+      ],
+      "max_message": 64,
+      "error": "message_too_large"
+    },
+    {
+      "case": "part-reassembles-to-junk",
+      "title": "a part stream whose bytes are not JSON",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"eyJ0Ijo=\"}"
+      ],
+      "error": "invalid_json"
+    }
+  ]
+}

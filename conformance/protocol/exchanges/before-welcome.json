@@ -1,0 +1,46 @@
+{
+  "case": "before-welcome",
+  "title": "an invoke before the welcome is a protocol error",
+  "provenance": "policy",
+  "relies_on": [],
+  "design": "docs/design/0004-harness-protocol.md#lifecycle",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "exit": 3
+    }
+  ]
+}

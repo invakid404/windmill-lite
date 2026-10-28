@@ -1,0 +1,4 @@
+{
+  "format": "windmill-lite-protocol-fixture",
+  "note": "A synthetic bundle for the harness protocol cases. Its digest is the SHA-256 of this file; the real manifest is milestone F4's."
+}

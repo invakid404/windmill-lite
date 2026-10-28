@@ -1,10 +1,10 @@
 # conformance
 
-**Current state:** one level of the shared conformance suite exists, the
-OpenFlow decode cases in `openflow/`. This README covers `conformance/`. The
-flow, step and expression levels that
-[0003](../docs/design/0003-semantics-placement.md) defines have no cases or
-runners yet.
+**Current state:** two levels of the shared conformance suite exist: the
+OpenFlow decode cases in `openflow/` and the harness protocol cases in
+`protocol/`. This README covers `conformance/`. The flow, step and expression
+levels that [0003](../docs/design/0003-semantics-placement.md) defines have no
+cases or runners yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -16,6 +16,7 @@ synthetic: invented for this repository to exercise one behaviour each.
 | Level | Directory | Status |
 |---|---|---|
 | decode | `openflow/<finding>.json` | in use; run by `go test ./internal/openflow` |
+| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | flow | `flows/<area>/<case>/` | not yet |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
@@ -61,3 +62,42 @@ Case fields:
 `deferred.json` lists the catalogue's OF cases that are not decode cases,
 each with the reason and where it is expected to be checked. A test fails
 unless every OF case of the catalogue is a decode case here or is deferred.
+
+## Protocol cases
+
+The harness protocol ([0004](../docs/design/0004-harness-protocol.md)) is
+windmill-lite's own, so these cases carry provenance `policy`. They pin the
+Go side ([internal/harness](../internal/harness/README.md)) and each harness
+([harnesses/bun](../harnesses/bun/README.md)) to one set of frames. Each
+file names the design section it encodes (`design`) and the findings it
+relies on (`relies_on`); a case that also encodes a catalogue case says so
+in `spec` (the version check, `WR-3/a`).
+
+**`frames.json`** holds the codec's golden frames. `go test ./internal/harness
+-run TestFrameCases -args -update` writes `payload` and `frames` from Go's
+encoder; both codecs then check every case unless `sides` limits it.
+
+| Kind | Fields | Check |
+|---|---|---|
+| encode | `message` (JSON) or `message_text` (a payload in any key order), `payload` | the message decodes and encodes to `payload`, which re-encodes to itself; `raw` names values whose bytes must survive exactly |
+| split | an encode case plus `split` (`stream`, `chunk_bytes`) and `frames` | the payload splits into exactly those part frames, which reassemble to it |
+| sequence | `frames`, `messages` | the frames, read in order, decode and reassemble to the messages |
+| reject | `bytes_hex` or `frames`, optional `max_frame` and `max_message`, `error` | reading raises the protocol error code `error` |
+
+**`exchanges/<case>.json`** are transcripts that the Go tests play against
+the real harness, on the synthetic bundle in `protocol/bundle/` (a
+`manifest.json` whose SHA-256 is the bundle digest, and one module per
+script under `scripts/bun/`). Each step does one thing:
+
+| Step | Meaning |
+|---|---|
+| `send` | encode a message canonically and send it, as part frames when it is larger than a frame; `fill` stands in for a long string, `split` sends it as small parts with one whole frame between them |
+| `send_text` | send one frame with this exact payload |
+| `expect` | the next message from the harness matches, keys in order; `parts` is how many part frames carried it |
+| `quiet_ms` | no message arrives for that long |
+| `exit` | the process exits with this code and sends nothing more |
+| `stdout_contains` | the process's stdout contains the text |
+
+Expected values may use placeholders: `<any>`, `<string>`, `<int>`, `<pid>`
+(the harness's pid), `<bundle>` (the fixture bundle's digest) and `<c*N>`
+(a string of `N` copies of `c`).

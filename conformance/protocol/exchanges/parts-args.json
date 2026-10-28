@@ -1,0 +1,86 @@
+{
+  "case": "parts-args",
+  "title": "arguments larger than a frame go as a part stream",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-15"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#transport-and-framing",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "length",
+        "entry": "main",
+        "args": {
+          "data": "<fill>"
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      },
+      "fill": {
+        "bytes": 2097152,
+        "char": "y"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": 2097152,
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

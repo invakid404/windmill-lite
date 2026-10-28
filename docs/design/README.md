@@ -2,9 +2,12 @@
 
 **Current state:** first edition, proposed. Milestone A3 implements the
 OpenFlow decoder of [0002](0002-ir-and-loader.md) in
-[internal/openflow](../../internal/openflow/README.md), and milestone K1 the
+[internal/openflow](../../internal/openflow/README.md), milestone K1 the
 contracts of [0012](0012-layout-and-milestones.md) (the shared types and
-interfaces under `internal/`); nothing runs flows yet. This README covers
+interfaces under `internal/`), and milestone C1 the harness protocol of
+[0004](0004-harness-protocol.md) in
+[internal/harness](../../internal/harness/README.md) with a skeleton Bun
+harness; nothing runs flows yet. This README covers
 `docs/design/`: this index and the decision records it links. The records decide the architecture, the
 equivalence contract with Windmill `v1.767.0`, the Go package layout and the
 implementation milestones. They build on the

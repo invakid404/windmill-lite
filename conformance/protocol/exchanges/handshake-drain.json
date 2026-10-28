@@ -1,0 +1,73 @@
+{
+  "case": "handshake-drain",
+  "title": "hello, welcome, an engine ping answered with health, then drain and bye",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-3"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#lifecycle",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": false,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "ping",
+        "id": "e1"
+      }
+    },
+    {
+      "expect": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 0,
+        "errors": 0,
+        "lag_ms": "<int>",
+        "rss": "<int>"
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

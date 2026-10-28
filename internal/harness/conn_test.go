@@ -1,0 +1,134 @@
+package harness
+
+import (
+	"io"
+	"net"
+	"strings"
+	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/jsonval"
+)
+
+func connPair(t *testing.T) (*conn, net.Conn) {
+	t.Helper()
+	a, b, err := socketpair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ac, err := net.FileConn(a)
+	a.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bc, err := net.FileConn(b)
+	b.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newConn(ac, connConfig{onMessage: func(Message) {}, onClose: func(error) {}})
+	c.run()
+	t.Cleanup(func() {
+		c.close()
+		bc.Close()
+	})
+	return c, bc
+}
+
+// readTypes reads n frames and returns, for each, its type and for parts
+// the stream id.
+func readTypes(t *testing.T, r io.Reader, n int) []string {
+	t.Helper()
+	var out []string
+	for range n {
+		p, err := readFrame(r, MaxFrame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := Decode(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if part, ok := m.(Part); ok {
+			out = append(out, "part:"+part.ID)
+		} else {
+			out = append(out, m.Type())
+		}
+	}
+	return out
+}
+
+func bigResult(id string, n int) Result {
+	return Result{ID: id, Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`"` + strings.Repeat("x", n) + `"`)), Settled: true}
+}
+
+// ADR 0004 §Transport and framing item 3: a small frame queued behind a
+// large message goes out after at most one of its part frames.
+func TestSmallFramesOvertakeLargeMessages(t *testing.T) {
+	c, peer := connPair(t)
+	if err := c.send(bigResult("big", 8*PartChunk)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.send(Cancel{ID: "i1", Reason: "timeout"}); err != nil {
+		t.Fatal(err)
+	}
+	types := readTypes(t, peer, 10)
+	at := -1
+	for i, ty := range types {
+		if ty == TypeCancel {
+			at = i
+		}
+	}
+	if at < 0 || at > 1 {
+		t.Fatalf("cancel at frame %d of %v, want before the second part", at, types)
+	}
+}
+
+// Two part streams take turns, one part frame each.
+func TestPartStreamsTakeTurns(t *testing.T) {
+	c, peer := connPair(t)
+	// Hold the writer back with a first large message, so both streams are
+	// queued before their turns start.
+	c.mu.Lock()
+	c.streams = append(c.streams,
+		&outStream{id: "1", payload: mustEncode(t, bigResult("a", 3*PartChunk))},
+		&outStream{id: "2", payload: mustEncode(t, bigResult("b", 3*PartChunk))})
+	c.mu.Unlock()
+	c.wake <- struct{}{}
+	got := strings.Join(readTypes(t, peer, 6), " ")
+	if got != "part:1 part:2 part:1 part:2 part:1 part:2" {
+		t.Fatalf("frames %s", got)
+	}
+}
+
+func mustEncode(t *testing.T, m Message) []byte {
+	t.Helper()
+	b, err := Encode(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestMatchJSON(t *testing.T) {
+	vars := map[string]string{"<pid>": "42", "<bundle>": `"sha256:ab"`}
+	for _, tc := range []struct {
+		want, got string
+		ok        bool
+	}{
+		{`{"a":1,"b":"<string>"}`, `{"a":1,"b":"x"}`, true},
+		{`{"a":1,"b":"<string>"}`, `{"b":"x","a":1}`, false}, // key order counts
+		{`{"a":1}`, `{"a":1.0}`, false},                      // so does number spelling
+		{`{"p":"<pid>","b":"<bundle>"}`, `{"p":42,"b":"sha256:ab"}`, true},
+		{`{"p":"<pid>"}`, `{"p":43}`, false},
+		{`"<x*3>"`, `"xxx"`, true},
+		{`"<x*3>"`, `"xxxx"`, false},
+		{`["<int>","<any>"]`, `[7,{"z":null}]`, true},
+		{`["<int>"]`, `[7.5]`, false},
+		{`{"a":null}`, `{"a":null,"b":1}`, false},
+	} {
+		err := matchJSON([]byte(tc.want), []byte(tc.got), vars)
+		if (err == nil) != tc.ok {
+			t.Errorf("match(%s, %s) = %v, want ok=%v", tc.want, tc.got, err, tc.ok)
+		}
+	}
+}

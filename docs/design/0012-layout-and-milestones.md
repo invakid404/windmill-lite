@@ -44,7 +44,7 @@ internal/oracle/            the oracle harness (0011)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
-conformance/                flows/, steps/, exprs/, openflow/: the shared cases (0003)
+conformance/                flows/, steps/, exprs/, openflow/, protocol/: the shared cases (0003)
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
@@ -151,6 +151,10 @@ waits on an external gate except R1.
   steps are the only ones held by a semantics request.
 - `conformance/openflow/` holds the OpenFlow decode cases, a level that
   [0003](0003-semantics-placement.md) added with milestone A3.
+- `conformance/protocol/` holds the harness protocol's golden frames and
+  exchange transcripts, a level that [0003](0003-semantics-placement.md)
+  added with milestone C1; C1's exit gate is the exchanges passing against
+  the Bun harness on Bun 1.3.10.
 
 ## Spec IDs relied on
 
