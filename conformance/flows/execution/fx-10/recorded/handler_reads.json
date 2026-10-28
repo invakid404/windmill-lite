@@ -1,0 +1,115 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": {
+      "k": [
+        "error"
+      ],
+      "p": {
+        "error": {
+          "name": "EarlyStopError",
+          "message": "E"
+        }
+      },
+      "x": 1
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "module": "failure",
+        "args": {},
+        "result": {
+          "x": 1
+        }
+      },
+      "s:failure": {
+        "status": "success",
+        "args": {
+          "k": [
+            "error"
+          ],
+          "p": {
+            "error": {
+              "name": "EarlyStopError",
+              "message": "E"
+            }
+          },
+          "x": 1
+        },
+        "result": {
+          "k": [
+            "error"
+          ],
+          "p": {
+            "error": {
+              "name": "EarlyStopError",
+              "message": "E"
+            }
+          },
+          "x": 1
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261028115839-5e67af7a60c9",
+      "revision": "5e67af7a60c920098853887671c6dd62efb79ebb",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40684097626"
+    },
+    "recorded_at": "2026-10-28T12:00:30Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:44047"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-28T12:00:30.686968Z",
+          "started_at": "2026-10-28T12:00:30.714700Z",
+          "completed_at": "2026-10-28T12:00:30.813193Z",
+          "duration_ms": 98
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:00:30.715892Z",
+          "started_at": "2026-10-28T12:00:30.720206Z",
+          "completed_at": "2026-10-28T12:00:30.740157Z",
+          "duration_ms": 17
+        },
+        "s:failure": {
+          "kind": "preview",
+          "created_at": "2026-10-28T12:00:30.755681Z",
+          "started_at": "2026-10-28T12:00:30.791409Z",
+          "completed_at": "2026-10-28T12:00:30.809622Z",
+          "duration_ms": 14
+        }
+      }
+    }
+  }
+}

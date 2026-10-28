@@ -1,0 +1,11 @@
+# FX-17/a: b is skipped, so an identity job passes a's result 1 through; b
+# is Success{skipped: true} and the flow is not marked skipped.
+spec: [FX-17/a]
+target: f/wl_fx17/skip_passthrough
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: success, skipped: true, args: {previous_result: 1}, result: 1}
+    "m:c": {status: success, args: {x: 1}, result: 1}

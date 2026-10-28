@@ -1,0 +1,21 @@
+summary: FX-21/a a throwing stop_after_if is a string error tolerance cannot catch
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      continue_on_error: true
+      stop_after_if:
+        expr: null.x
+        skip_if_stopped: false
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun

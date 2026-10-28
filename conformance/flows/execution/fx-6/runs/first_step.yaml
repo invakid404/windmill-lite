@@ -1,0 +1,9 @@
+# FX-6/a: step 0's previous_result is the flow input.
+spec: [FX-6/a]
+target: f/wl_fx6/first_step
+args: {k: 1}
+expect:
+  status: success
+  result: {k: 1}
+  steps:
+    "m:a": {status: success, args: {x: {k: 1}}, result: {k: 1}}

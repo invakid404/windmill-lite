@@ -1,0 +1,16 @@
+summary: FX-19/a clean stop with skip_if_stopped
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_fx19/three
+      stop_after_if:
+        expr: result > 2
+        skip_if_stopped: true
+    - id: b
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_fx19/four

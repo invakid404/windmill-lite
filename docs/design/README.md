@@ -17,9 +17,10 @@ C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, and milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
-[internal/oracle](../../internal/oracle/README.md), on which recording batch
-E3c recorded the flow-execution error cases and settled two contested rules
-of [0001](0001-equivalence-contract.md) §6; nothing runs flows yet.
+[internal/oracle](../../internal/oracle/README.md), on which recording batches
+E3c and E3b recorded the flow-execution error cases and core and settled
+contested rules of [0001](0001-equivalence-contract.md) §6; nothing runs
+flows yet.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -71,7 +72,7 @@ flowchart LR
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
 | [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
-| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 51 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates. |
+| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 51 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
 
 ## Measurements behind the decisions
 
@@ -104,9 +105,10 @@ follows the stated default in one function per rule, and no build switch
 keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
 and FX-33 (Q-FX-19), both for the stated default. It also found one
 confirmed finding contradicted, the id of a failure module copied into an
-inline body (FX-34, FX-32). 0001 §6 gives the results. Batch E3d
-recorded CF-12 and FX-40 as reading (b), the default each already had
-(request 6 below).
+inline body (FX-34, FX-32). E3b recorded Q-FX-16 (FX-42) and the half of
+Q-FX-15 that needs no failure module, also for the stated defaults. 0001 §6
+gives the results. Batch E3d recorded CF-12 and FX-40 as reading (b), the
+default each already had (request 6 below).
 
 ## Requests to the semantics team
 

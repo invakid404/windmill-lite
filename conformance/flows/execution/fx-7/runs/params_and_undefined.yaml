@@ -1,0 +1,9 @@
+# FX-7/b: params is always {}. FX-7/c: a transform giving undefined passes
+# null, which the script receives as null, not undefined.
+spec: [FX-7/b, FX-7/c]
+target: f/wl_fx7/params_and_undefined
+expect:
+  status: success
+  result: {p: {}, u: null, u_is_null: true}
+  steps:
+    "m:a": {status: success, args: {p: {}, u: null}, result: {p: {}, u: null, u_is_null: true}}

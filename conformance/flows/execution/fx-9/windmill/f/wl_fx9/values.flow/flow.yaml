@@ -1,0 +1,101 @@
+summary: FX-9 skip_if truthiness for each listed value
+value:
+  modules:
+    - id: start
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: start
+        path: f/wl_fx9/ret
+    - id: t_false_string
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: t_false_string
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: "'false'"
+    - id: t_empty_array
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: t_empty_array
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: '[]'
+    - id: t_empty_object
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: t_empty_object
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: ({})
+    - id: f_zero
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: f_zero
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: '0'
+    - id: f_empty_string
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: f_empty_string
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: "''"
+    - id: f_null
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: f_null
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: 'null'
+    - id: f_undefined
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: f_undefined
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: undefined
+    - id: f_nan
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: f_nan
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: NaN
+    - id: f_false
+      value:
+        type: script
+        input_transforms:
+          v:
+            type: static
+            value: f_false
+        path: f/wl_fx9/ret
+      skip_if:
+        expr: 'false'

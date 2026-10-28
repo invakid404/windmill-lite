@@ -1,0 +1,21 @@
+# FX-8/b: sleep on a is evaluated before b starts, with no results context,
+# so the expression throws and the later transition fails the flow with an
+# InternalError chaining error (FX-15 context 1); b never runs. The message
+# is FX-15's "Expected a number value, had error instead: ..." around the
+# debug rendering of the evaluation error, which says results is not
+# defined.
+spec: [FX-8/b, FX-15]
+target: f/wl_fx8/sleep_no_results
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Expected a number value, had error instead: ExecutionErr(\"Error during evaluation of expression `results.a`:\\nQuickJS evaluation error: Error: results is not defined\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:46)\\n\")"}}
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: not_run}
+note: >-
+  Corrected after recording. The prediction guessed 'Error: Expected a number
+  value, had error instead: results is not defined'. FX-15 says a throwing
+  expression's InternalError text starts with 'Error: ' and ends in a source
+  location; for a sleep expression the oracle's message has neither, and
+  wraps the debug rendering ExecutionErr("..."). The difference surfaced in
+  oracle run 40685013818 and is recorded by run 40686049913.

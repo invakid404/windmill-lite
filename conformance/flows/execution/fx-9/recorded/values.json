@@ -1,0 +1,198 @@
+{
+  "observation": {
+    "status": "success",
+    "result": "f_false",
+    "steps": {
+      "m:f_empty_string": {
+        "status": "success",
+        "args": {
+          "v": "f_empty_string"
+        },
+        "result": "f_empty_string"
+      },
+      "m:f_false": {
+        "status": "success",
+        "args": {
+          "v": "f_false"
+        },
+        "result": "f_false"
+      },
+      "m:f_nan": {
+        "status": "success",
+        "args": {
+          "v": "f_nan"
+        },
+        "result": "f_nan"
+      },
+      "m:f_null": {
+        "status": "success",
+        "args": {
+          "v": "f_null"
+        },
+        "result": "f_null"
+      },
+      "m:f_undefined": {
+        "status": "success",
+        "args": {
+          "v": "f_undefined"
+        },
+        "result": "f_undefined"
+      },
+      "m:f_zero": {
+        "status": "success",
+        "args": {
+          "v": "f_zero"
+        },
+        "result": "f_zero"
+      },
+      "m:start": {
+        "status": "success",
+        "args": {
+          "v": "start"
+        },
+        "result": "start"
+      },
+      "m:t_empty_array": {
+        "status": "success",
+        "skipped": true,
+        "args": {
+          "previous_result": "start"
+        },
+        "result": "start"
+      },
+      "m:t_empty_object": {
+        "status": "success",
+        "skipped": true,
+        "args": {
+          "previous_result": "start"
+        },
+        "result": "start"
+      },
+      "m:t_false_string": {
+        "status": "success",
+        "skipped": true,
+        "args": {
+          "previous_result": "start"
+        },
+        "result": "start"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261028120533-c396ec663ca6",
+      "revision": "c396ec663ca61940b265a1360fe82abb7ba41229",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40685013818"
+    },
+    "recorded_at": "2026-10-28T12:08:13Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:36321"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 810,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-28T12:08:12.500436Z",
+          "started_at": "2026-10-28T12:08:12.518423Z",
+          "completed_at": "2026-10-28T12:08:13.169137Z",
+          "duration_ms": 651
+        },
+        "m:f_empty_string": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:12.803101Z",
+          "started_at": "2026-10-28T12:08:12.852442Z",
+          "completed_at": "2026-10-28T12:08:12.873570Z",
+          "duration_ms": 17
+        },
+        "m:f_false": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:13.096742Z",
+          "started_at": "2026-10-28T12:08:13.144235Z",
+          "completed_at": "2026-10-28T12:08:13.165338Z",
+          "duration_ms": 17
+        },
+        "m:f_nan": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:13.025047Z",
+          "started_at": "2026-10-28T12:08:13.072154Z",
+          "completed_at": "2026-10-28T12:08:13.092071Z",
+          "duration_ms": 17
+        },
+        "m:f_null": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:12.878263Z",
+          "started_at": "2026-10-28T12:08:12.927423Z",
+          "completed_at": "2026-10-28T12:08:12.948637Z",
+          "duration_ms": 19
+        },
+        "m:f_undefined": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:12.952997Z",
+          "started_at": "2026-10-28T12:08:13.000768Z",
+          "completed_at": "2026-10-28T12:08:13.020616Z",
+          "duration_ms": 17
+        },
+        "m:f_zero": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:12.730097Z",
+          "started_at": "2026-10-28T12:08:12.777146Z",
+          "completed_at": "2026-10-28T12:08:12.798153Z",
+          "duration_ms": 17
+        },
+        "m:start": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:08:12.523250Z",
+          "started_at": "2026-10-28T12:08:12.526257Z",
+          "completed_at": "2026-10-28T12:08:12.551785Z",
+          "duration_ms": 23
+        },
+        "m:t_empty_array": {
+          "kind": "identity",
+          "created_at": "2026-10-28T12:08:12.616865Z",
+          "started_at": "2026-10-28T12:08:12.666201Z",
+          "completed_at": "2026-10-28T12:08:12.670059Z",
+          "duration_ms": 0
+        },
+        "m:t_empty_object": {
+          "kind": "identity",
+          "created_at": "2026-10-28T12:08:12.674539Z",
+          "started_at": "2026-10-28T12:08:12.723321Z",
+          "completed_at": "2026-10-28T12:08:12.725727Z",
+          "duration_ms": 0
+        },
+        "m:t_false_string": {
+          "kind": "identity",
+          "created_at": "2026-10-28T12:08:12.557458Z",
+          "started_at": "2026-10-28T12:08:12.606379Z",
+          "completed_at": "2026-10-28T12:08:12.611799Z",
+          "duration_ms": 0
+        }
+      }
+    }
+  }
+}

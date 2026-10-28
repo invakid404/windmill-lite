@@ -1,0 +1,12 @@
+# FX-8/a: the predicate holds only if result and previous_result are both
+# a's own result 5; the clean stop (skip_if_stopped false, no
+# error_message) ends the flow successfully with a's result, and b never
+# runs (FX-19).
+spec: [FX-8/a, FX-19]
+target: f/wl_fx8/stop_scope
+expect:
+  status: success
+  result: 5
+  steps:
+    "m:a": {status: success, args: {}, result: 5}
+    "m:b": {status: not_run}

@@ -1,0 +1,25 @@
+summary: FX-20/a a stop in a branch body stops the parent
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms: {}
+              lock: '!inline x.lock'
+              language: bun
+            stop_after_if:
+              expr: 'true'
+              skip_if_stopped: true
+    - id: y
+      value:
+        type: rawscript
+        content: '!inline y.ts'
+        input_transforms: {}
+        lock: '!inline y.lock'
+        language: bun
