@@ -11,13 +11,16 @@ sync-folder loader in
 the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
 interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [0003](0003-semantics-placement.md) in
-[internal/expr/quickjs](../../internal/expr/quickjs/README.md), and milestone
+[internal/expr/quickjs](../../internal/expr/quickjs/README.md), milestone
 C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
-harness; nothing runs flows yet. This README covers
-`docs/design/`: this index and the decision records it links. The records
-decide the architecture, the equivalence contract with Windmill `v1.767.0`,
-the Go package layout and the implementation milestones. They build on the
+harness, and milestone E2 the oracle harness of
+[0011](0011-differential-testing.md) in
+[internal/oracle](../../internal/oracle/README.md); nothing runs flows yet.
+This README covers `docs/design/`: this index and the decision records it
+links. The records decide the architecture, the equivalence contract with
+Windmill `v1.767.0`, the Go package layout and the implementation
+milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
 
 The records are written by the build team under the clean-room rule of

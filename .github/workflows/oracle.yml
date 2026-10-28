@@ -1,0 +1,129 @@
+name: Oracle
+
+# Records the flow fixtures under conformance/flows on the unmodified
+# Windmill CE v1.767.0 image (ADR 0011, OR-19) and fails when a normalised
+# observation differs from the committed recording, when a run has no
+# recording, or when the CLI-generated metadata of a sync tree drifts
+# (OR-8). Provenance (dates, timings, image ids) never fails it (OR-V5).
+# The image is pulled by digest and run as a black box; it is never built
+# on, tagged or pushed (OR-3). It runs nightly, on demand, and on pull
+# requests that change the fixtures or the harness or carry the oracle
+# label.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  group: oracle-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Oracle trigger
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      record: ${{ steps.decide.outputs.record }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Decide whether to record
+        id: decide
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'oracle') }}
+        run: |
+          changed=$(git diff --name-only "$BASE...$HEAD" -- \
+            conformance/ internal/oracle/ internal/conformance/ cmd/wltest/ \
+            internal/openflow/ internal/yamlx/ \
+            .github/workflows/oracle.yml go.mod go.sum)
+          if [ "$HAS_LABEL" = "true" ] || [ -n "$changed" ]; then
+            echo "record=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "record=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "label: $HAS_LABEL"
+          echo "changed paths:"
+          echo "$changed"
+
+  record:
+    name: Oracle record
+    needs: changes
+    # !cancelled() lets the job run when the trigger job was skipped (on a
+    # schedule or dispatch) but not after a cancellation.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.record == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node
+        # npx runs the pinned windmill-cli@1.767.0 as a tool (OR-8).
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Build wltest
+        run: go build -o bin/wltest ./cmd/wltest
+
+      - name: Record the fixtures
+        # wltest measures free disk itself and refuses to pull without the
+        # reserve of OR-30.
+        run: |
+          df -h /
+          bin/wltest record --check --regenerate-metadata --repeat 2 \
+            --out "$RUNNER_TEMP/oracle/recorded" \
+            --raw "$RUNNER_TEMP/oracle/raw" \
+            --report "$RUNNER_TEMP/oracle/report.json" \
+            conformance/flows
+
+      - name: Metadata drift gate (OR-8)
+        if: ${{ !cancelled() }}
+        run: |
+          drift=$(git status --porcelain -uall -- conformance/)
+          if [ -z "$drift" ]; then
+            echo "The committed sync-tree metadata is current."
+            exit 0
+          fi
+          echo "generate-metadata changed the fixture trees:" >&2
+          echo "$drift" >&2
+          mkdir -p "$RUNNER_TEMP/oracle/tree"
+          git status --porcelain -uall -z -- conformance/ | while IFS= read -r -d '' entry; do
+            file="${entry:3}"
+            if [ -f "$file" ]; then
+              cp --parents "$file" "$RUNNER_TEMP/oracle/tree/"
+            fi
+          done
+          git diff -- conformance/ > "$RUNNER_TEMP/oracle/tree.diff"
+          exit 1
+
+      - name: Upload recordings, raw captures and report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oracle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oracle
+          if-no-files-found: ignore
+          retention-days: 30

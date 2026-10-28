@@ -1,0 +1,10 @@
+# OR-20/a: the observation of OR-11/a, with the typed site paths of ADR 0011.
+spec: [OR-20/a, OR-11/a, OR-10/c]
+target: f/wl_smoke/two_step
+args: {x: 3}
+expect:
+  status: success
+  result: "hi:6"
+  steps:
+    "m:a": {status: success, args: {x: 3}, result: {doubled: 6, seen: 3}}
+    "m:b": {status: success, args: {n: 6, tag: hi}, result: "hi:6"}

@@ -1,0 +1,55 @@
+# The oracle of docs/semantics/oracle.md (Runbook; OR-1, OR-4, OR-5, OR-16,
+# OR-18): Postgres on tmpfs and the unmodified Windmill CE image in
+# standalone mode, both pinned by digest, ports bound to 127.0.0.1. Compose
+# never pulls: wltest pulls the images first, under the disk policy of OR-30.
+# The second worker of a two-worker profile (OR-5) is the "workers2" profile.
+# WL_EFFECT_SINK is set by wltest to its effect sink (OR-16).
+name: wl-oracle
+services:
+  db:
+    image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+    pull_policy: never
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    tmpfs: [/var/lib/postgresql/data]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 30
+  windmill:
+    image: ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43
+    pull_policy: never
+    environment:
+      DATABASE_URL: postgres://postgres:changeme@db/windmill?sslmode=disable
+      MODE: standalone
+      BASE_URL: http://localhost:8000
+      LISTEN_NEW_EVENTS_INTERVAL_SEC: "1"
+      WHITELIST_ENVS: WL_EFFECT_SINK
+      WL_EFFECT_SINK: ${WL_EFFECT_SINK:?set by wltest}
+    ports: ["127.0.0.1:8000:8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 2g
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/version"]
+      interval: 2s
+      retries: 90
+  worker:
+    profiles: [workers2]
+    image: ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43
+    pull_policy: never
+    environment:
+      DATABASE_URL: postgres://postgres:changeme@db/windmill?sslmode=disable
+      MODE: worker
+      BASE_URL: http://localhost:8000
+      WHITELIST_ENVS: WL_EFFECT_SINK
+      WL_EFFECT_SINK: ${WL_EFFECT_SINK:?set by wltest}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 2g
+    depends_on:
+      windmill:
+        condition: service_healthy

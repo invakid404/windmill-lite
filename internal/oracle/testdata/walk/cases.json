@@ -1,0 +1,2492 @@
+{
+ "about": "Walker cases (OR-11 harness walker, OR-V2 status model, OR-V7 generated modules, OR-25, OR-26, OR-28) with the typed site paths of ADR 0011. Each case gives the fixture's flow definition, the run's jobs as the fake API reports them (kind, status, flow_status, full args and result), and the normalised observation. Job names stand for ids: ${name} anywhere is that job's id. These shapes follow the recorded shapes of oracle run 1 as the reference describes them; the live recordings of E3 confirm them. Provenance is policy unless the case encodes a catalogue harness self-test.",
+ "cases": [
+  {
+   "name": "OR-11/a: two sequential steps, the smoke ok run",
+   "spec": [
+    "OR-11/a",
+    "OR-20/a"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "script",
+       "path": "f/wl_smoke/double"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}"
+       },
+       {
+        "type": "Success",
+        "id": "b",
+        "job": "${b}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "x": 3
+     },
+     "result": "hi:6"
+    },
+    "a": {
+     "kind": "script",
+     "success": true,
+     "args": {
+      "x": 3
+     },
+     "result": {
+      "doubled": 6,
+      "seen": 3
+     }
+    },
+    "b": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "n": 6,
+      "tag": "hi"
+     },
+     "result": "hi:6"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": "hi:6",
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "args": {
+       "x": 3
+      },
+      "result": {
+       "doubled": 6,
+       "seen": 3
+      }
+     },
+     "m:b": {
+      "status": "success",
+      "args": {
+       "n": 6,
+       "tag": "hi"
+      },
+      "result": "hi:6"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-12/a and OR-V2: a failed step masks its stack, the next step is not_run, the unused failure slot is dropped",
+   "spec": [
+    "OR-12/a",
+    "OR-V2/a",
+    "OR-V3",
+    "OR-11"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "c",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": false,
+     "flow_status": {
+      "step": 3,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}"
+       },
+       {
+        "type": "Failure",
+        "id": "b",
+        "job": "${b}"
+       },
+       {
+        "type": "WaitingForPriorSteps",
+        "id": "c"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "x": 60
+     },
+     "result": {
+      "error": {
+       "name": "Error",
+       "message": "too big: 120",
+       "stack": "Error: too big: 120\n    at run (/tmp/windmill/wk-default-x-abcde/${b}/wrapper.mjs:30:21)",
+       "step_id": "b"
+      }
+     }
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "x": 60
+     },
+     "result": {
+      "doubled": 120,
+      "seen": 60
+     }
+    },
+    "b": {
+     "kind": "flowscript",
+     "success": false,
+     "args": {
+      "n": 120,
+      "tag": "hi"
+     },
+     "result": {
+      "error": {
+       "name": "Error",
+       "message": "too big: 120",
+       "stack": "Error: too big: 120\n    at run (/tmp/windmill/wk-default-x-abcde/${b}/wrapper.mjs:30:21)",
+       "step_id": "b"
+      }
+     }
+    }
+   },
+   "expect": {
+    "status": "failure",
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "too big: 120",
+      "stack": "<stack>",
+      "step_id": "b"
+     }
+    },
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "args": {
+       "x": 60
+      },
+      "result": {
+       "doubled": 120,
+       "seen": 60
+      }
+     },
+     "m:b": {
+      "status": "failure",
+      "args": {
+       "n": 120,
+       "tag": "hi"
+      },
+      "result": {
+       "error": {
+        "name": "Error",
+        "message": "too big: 120",
+        "stack": "<stack>",
+        "step_id": "b"
+       }
+      }
+     },
+     "m:c": {
+      "status": "not_run"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V2/a: a stop with skip_if_stopped makes the root skipped; the stopping step is marked skipped",
+   "spec": [
+    "OR-V2/a"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "stop_after_if": {
+       "expr": "result == 1",
+       "skip_if_stopped": true
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}",
+        "skipped": true
+       },
+       {
+        "type": "WaitingForPriorSteps",
+        "id": "b"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 1,
+     "skipped": true
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 1
+    }
+   },
+   "expect": {
+    "status": "skipped",
+    "result": 1,
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "skipped": true,
+      "args": {},
+      "result": 1
+     },
+     "m:b": {
+      "status": "not_run"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V2/d: a skip_if step runs as an identity job",
+   "spec": [
+    "OR-V2/d",
+    "OR-28"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a0",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "skip_if": {
+       "expr": "flow_input.skip"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 3,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a0",
+        "job": "${a0}"
+       },
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}",
+        "skipped": true
+       },
+       {
+        "type": "Success",
+        "id": "b",
+        "job": "${b}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "skip": true
+     },
+     "result": {
+      "p": "a0",
+      "r": "a0"
+     }
+    },
+    "a0": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "a0"
+    },
+    "a": {
+     "kind": "identity",
+     "success": true,
+     "args": {
+      "previous_result": "a0"
+     },
+     "result": "a0"
+    },
+    "b": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "p": "a0",
+      "r": "a0"
+     },
+     "result": {
+      "p": "a0",
+      "r": "a0"
+     }
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": {
+     "p": "a0",
+     "r": "a0"
+    },
+    "steps": {
+     "m:a0": {
+      "status": "success",
+      "args": {},
+      "result": "a0"
+     },
+     "m:a": {
+      "status": "success",
+      "skipped": true,
+      "args": {
+       "previous_result": "a0"
+      },
+      "result": "a0"
+     },
+     "m:b": {
+      "status": "success",
+      "args": {
+       "p": "a0",
+       "r": "a0"
+      },
+      "result": {
+       "p": "a0",
+       "r": "a0"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-11/b, OR-V2/c and OR-26/b: an empty loop ran no child and gives []",
+   "spec": [
+    "OR-11/b",
+    "OR-V2/c",
+    "OR-26/b"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "l",
+      "value": {
+       "type": "forloopflow",
+       "iterator": {
+        "type": "javascript",
+        "expr": "[]"
+       },
+       "modules": [
+        {
+         "id": "x",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "id": "after",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "l",
+        "job": "00000000-0000-0000-0000-000000000000",
+        "flow_jobs": [],
+        "flow_jobs_success": [],
+        "iterator": {
+         "index": 0,
+         "itered": []
+        }
+       },
+       {
+        "type": "Success",
+        "id": "after",
+        "job": "${after}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "p": [],
+      "r": []
+     }
+    },
+    "after": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "p": [],
+      "r": []
+     },
+     "result": {
+      "p": [],
+      "r": []
+     }
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": {
+     "p": [],
+     "r": []
+    },
+    "steps": {
+     "m:l": {
+      "status": "success",
+      "ran": false,
+      "result": []
+     },
+     "m:after": {
+      "status": "success",
+      "args": {
+       "p": [],
+       "r": []
+      },
+      "result": {
+       "p": [],
+       "r": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-28: a sequential loop with a two-step body: iterations are child flows, their steps are under i:<n>",
+   "spec": [
+    "OR-11",
+    "OR-28",
+    "OR-V9/a"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "l",
+      "value": {
+       "type": "forloopflow",
+       "iterator": {
+        "type": "static",
+        "value": [
+         "a",
+         "b"
+        ]
+       },
+       "modules": [
+        {
+         "id": "x1",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        },
+        {
+         "id": "x2",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "l",
+        "job": "${i1}",
+        "flow_jobs": [
+         "${i0}",
+         "${i1}"
+        ],
+        "iterator": {
+         "index": 1
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      "a12",
+      "b12"
+     ]
+    },
+    "i0": {
+     "kind": "flownode",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "x1",
+        "job": "${x1a}"
+       },
+       {
+        "type": "Success",
+        "id": "x2",
+        "job": "${x2a}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 0,
+       "value": "a"
+      }
+     },
+     "result": "a12"
+    },
+    "x1a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "v": "a"
+     },
+     "result": "a1"
+    },
+    "x2a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "p": "a1"
+     },
+     "result": "a12"
+    },
+    "i1": {
+     "kind": "flownode",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "x1",
+        "job": "${x1b}"
+       },
+       {
+        "type": "Success",
+        "id": "x2",
+        "job": "${x2b}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 1,
+       "value": "b"
+      }
+     },
+     "result": "b12"
+    },
+    "x1b": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "v": "b"
+     },
+     "result": "b1"
+    },
+    "x2b": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "p": "b1"
+     },
+     "result": "b12"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": [
+     "a12",
+     "b12"
+    ],
+    "steps": {
+     "m:l": {
+      "status": "success",
+      "result": [
+       "a12",
+       "b12"
+      ]
+     },
+     "m:l/i:0/m:x1": {
+      "status": "success",
+      "args": {
+       "v": "a"
+      },
+      "result": "a1"
+     },
+     "m:l/i:0/m:x2": {
+      "status": "success",
+      "args": {
+       "p": "a1"
+      },
+      "result": "a12"
+     },
+     "m:l/i:1/m:x1": {
+      "status": "success",
+      "args": {
+       "v": "b"
+      },
+      "result": "b1"
+     },
+     "m:l/i:1/m:x2": {
+      "status": "success",
+      "args": {
+       "p": "b1"
+      },
+      "result": "b12"
+     }
+    }
+   }
+  },
+  {
+   "name": "ADR 0011: a collapsed loop's leaf iterations take the same paths as child-flow iterations",
+   "spec": [
+    "OR-11",
+    "OR-28",
+    "Q-OR-17"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "l",
+      "value": {
+       "type": "forloopflow",
+       "iterator": {
+        "type": "static",
+        "value": [
+         10,
+         20,
+         30
+        ]
+       },
+       "modules": [
+        {
+         "id": "x",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "l",
+        "job": "${c2}",
+        "flow_jobs": [
+         "${c0}",
+         "${c1}",
+         "${c2}"
+        ],
+        "iterator": {
+         "index": 2
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      20,
+      41,
+      62
+     ]
+    },
+    "c0": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "i": 0,
+      "v": 10
+     },
+     "result": 20
+    },
+    "c1": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "i": 1,
+      "v": 20
+     },
+     "result": 41
+    },
+    "c2": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "i": 2,
+      "v": 30
+     },
+     "result": 62
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": [
+     20,
+     41,
+     62
+    ],
+    "steps": {
+     "m:l": {
+      "status": "success",
+      "result": [
+       20,
+       41,
+       62
+      ]
+     },
+     "m:l/i:0/m:x": {
+      "status": "success",
+      "args": {
+       "i": 0,
+       "v": 10
+      },
+      "result": 20
+     },
+     "m:l/i:1/m:x": {
+      "status": "success",
+      "args": {
+       "i": 1,
+       "v": 20
+      },
+      "result": 41
+     },
+     "m:l/i:2/m:x": {
+      "status": "success",
+      "args": {
+       "i": 2,
+       "v": 30
+      },
+      "result": 62
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V9/c: branchone records the branch chosen; the branch's steps are under b:<n>",
+   "spec": [
+    "OR-V9/c",
+    "OR-28",
+    "OR-11"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "br",
+      "value": {
+       "type": "branchone",
+       "branches": [
+        {
+         "expr": "flow_input.n > 10",
+         "modules": [
+          {
+           "id": "big",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        },
+        {
+         "expr": "flow_input.n > 0",
+         "modules": [
+          {
+           "id": "pos",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        }
+       ],
+       "default": [
+        {
+         "id": "def",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "br",
+        "job": "${body}",
+        "branch_chosen": {
+         "type": "branch",
+         "branch": 1
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "n": 5
+     },
+     "result": "pos"
+    },
+    "body": {
+     "kind": "flowpreview",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "pos",
+        "job": "${pos}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "n": 5
+     },
+     "result": "pos"
+    },
+    "pos": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "pos"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": "pos",
+    "steps": {
+     "m:br": {
+      "status": "success",
+      "result": "pos",
+      "branch_chosen": {
+       "type": "branch",
+       "branch": 1
+      }
+     },
+     "m:br/b:1/m:pos": {
+      "status": "success",
+      "args": {},
+      "result": "pos"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V9/c: the default branch is b:default",
+   "spec": [
+    "OR-V9/c",
+    "OR-11"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "br",
+      "value": {
+       "type": "branchone",
+       "branches": [
+        {
+         "expr": "flow_input.n > 10",
+         "modules": [
+          {
+           "id": "big",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        },
+        {
+         "expr": "flow_input.n > 0",
+         "modules": [
+          {
+           "id": "pos",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        }
+       ],
+       "default": [
+        {
+         "id": "def",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "br",
+        "job": "${body}",
+        "branch_chosen": {
+         "type": "default"
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "n": -1
+     },
+     "result": "default"
+    },
+    "body": {
+     "kind": "flowpreview",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "def",
+        "job": "${def}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "n": -1
+     },
+     "result": "default"
+    },
+    "def": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "default"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": "default",
+    "steps": {
+     "m:br": {
+      "status": "success",
+      "result": "default",
+      "branch_chosen": {
+       "type": "default"
+      }
+     },
+     "m:br/b:default/m:def": {
+      "status": "success",
+      "args": {},
+      "result": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-25/a: an empty chosen branch completes with a nil job",
+   "spec": [
+    "OR-25/a",
+    "OR-V2"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "br",
+      "value": {
+       "type": "branchone",
+       "branches": [
+        {
+         "expr": "true",
+         "modules": []
+        }
+       ],
+       "default": [
+        {
+         "id": "def",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "id": "after",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "br",
+        "job": "00000000-0000-0000-0000-000000000000",
+        "branch_chosen": {
+         "type": "branch",
+         "branch": 0
+        }
+       },
+       {
+        "type": "Success",
+        "id": "after",
+        "job": "${after}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "p": "{}",
+      "r": "{}"
+     }
+    },
+    "after": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "p": "{}",
+      "r": "{}"
+     },
+     "result": {
+      "p": "{}",
+      "r": "{}"
+     }
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": {
+     "p": "{}",
+     "r": "{}"
+    },
+    "steps": {
+     "m:br": {
+      "status": "success",
+      "ran": false,
+      "branch_chosen": {
+       "type": "branch",
+       "branch": 0
+      }
+     },
+     "m:after": {
+      "status": "success",
+      "args": {
+       "p": "{}",
+       "r": "{}"
+      },
+      "result": {
+       "p": "{}",
+       "r": "{}"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-26/a: a branchall with an empty branch keeps the branch indices",
+   "spec": [
+    "OR-26/a",
+    "OR-28"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "ba",
+      "value": {
+       "type": "branchall",
+       "branches": [
+        {
+         "modules": [
+          {
+           "id": "b0",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        },
+        {
+         "modules": []
+        },
+        {
+         "modules": [
+          {
+           "id": "b2",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "ba",
+        "job": "${p2}",
+        "flow_jobs": [
+         "${p0}",
+         "${p1}",
+         "${p2}"
+        ],
+        "branchall": {
+         "branch": 2,
+         "len": 3
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      0,
+      {},
+      2
+     ]
+    },
+    "p0": {
+     "kind": "flowpreview",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "b0",
+        "job": "${b0j}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 0
+    },
+    "b0j": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 0
+    },
+    "p1": {
+     "kind": "flowpreview",
+     "success": true,
+     "flow_status": {
+      "step": 0,
+      "modules": [],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {}
+    },
+    "p2": {
+     "kind": "flowpreview",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "b2",
+        "job": "${b2j}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 2
+    },
+    "b2j": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 2
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": [
+     0,
+     {},
+     2
+    ],
+    "steps": {
+     "m:ba": {
+      "status": "success",
+      "result": [
+       0,
+       {},
+       2
+      ]
+     },
+     "m:ba/b:0/m:b0": {
+      "status": "success",
+      "args": {},
+      "result": 0
+     },
+     "m:ba/b:2/m:b2": {
+      "status": "success",
+      "args": {},
+      "result": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "a retried step: each failed attempt is r:<k>, the final attempt is the module",
+   "spec": [
+    "OR-11",
+    "Q-OR-17",
+    "OR-V3"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "retry": {
+       "constant": {
+        "attempts": 2,
+        "seconds": 0
+       }
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a1}",
+        "failed_retries": [
+         "${a0}"
+        ]
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "attempt": 2
+     }
+    },
+    "a0": {
+     "kind": "flowscript",
+     "success": false,
+     "args": {},
+     "result": {
+      "error": {
+       "name": "Error",
+       "message": "n=1",
+       "stack": "Error: n=1\n    at main (/tmp/windmill/cache/bun/0f0f:3:9)",
+       "step_id": "a"
+      }
+     }
+    },
+    "a1": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": {
+      "attempt": 2
+     }
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": {
+     "attempt": 2
+    },
+    "steps": {
+     "m:a/r:0": {
+      "status": "failure",
+      "args": {},
+      "result": {
+       "error": {
+        "name": "Error",
+        "message": "n=1",
+        "stack": "<stack>",
+        "step_id": "a"
+       }
+      }
+     },
+     "m:a": {
+      "status": "success",
+      "args": {},
+      "result": {
+       "attempt": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V8/a and OR-12/b: an ordinary module named failure beside a handler named recover",
+   "spec": [
+    "OR-V8/a",
+    "OR-12/b",
+    "OR-V3",
+    "OR-28"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "failure",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ],
+    "failure_module": {
+     "id": "recover",
+     "value": {
+      "type": "rawscript",
+      "language": "bun",
+      "content": "export function main() {}"
+     }
+    }
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": false,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Failure",
+        "id": "failure",
+        "job": "${f}"
+       },
+       {
+        "type": "WaitingForPriorSteps",
+        "id": "b"
+       }
+      ],
+      "failure_module": {
+       "type": "Success",
+       "id": "recover",
+       "job": "${h}",
+       "parent_module": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "saw": "boom",
+      "handled": true
+     }
+    },
+    "f": {
+     "kind": "flowscript",
+     "success": false,
+     "args": {},
+     "result": {
+      "error": {
+       "name": "Error",
+       "message": "boom",
+       "stack": "Error: boom\n    at /tmp/windmill/x/${f}/wrapper.mjs:1:1",
+       "step_id": "failure"
+      }
+     }
+    },
+    "h": {
+     "kind": "preview",
+     "success": true,
+     "args": {
+      "error": {
+       "name": "Error",
+       "message": "boom",
+       "stack": "Error: boom\n    at /tmp/windmill/x/${f}/wrapper.mjs:1:1",
+       "step_id": "failure"
+      }
+     },
+     "result": {
+      "saw": "boom",
+      "handled": true
+     }
+    }
+   },
+   "expect": {
+    "status": "failure",
+    "result": {
+     "saw": "boom",
+     "handled": true
+    },
+    "steps": {
+     "m:failure": {
+      "status": "failure",
+      "args": {},
+      "result": {
+       "error": {
+        "name": "Error",
+        "message": "boom",
+        "stack": "<stack>",
+        "step_id": "failure"
+       }
+      }
+     },
+     "m:b": {
+      "status": "not_run"
+     },
+     "s:failure": {
+      "status": "success",
+      "args": {
+       "error": {
+        "name": "Error",
+        "message": "boom",
+        "stack": "<stack>",
+        "step_id": "failure"
+       }
+      },
+      "result": {
+       "saw": "boom",
+       "handled": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V7/a: a generated <id>-v module after a trailing sleep is omitted",
+   "spec": [
+    "OR-V7/a"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "sleep": {
+       "type": "static",
+       "value": 1
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}"
+       },
+       {
+        "type": "Success",
+        "id": "a-v",
+        "job": "${av}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": "x"
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "x"
+    },
+    "av": {
+     "kind": "identity",
+     "success": true,
+     "args": {
+      "previous_result": "x"
+     },
+     "result": "x"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": "x",
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "args": {},
+      "result": "x"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V7/b: a user-authored a-v stays",
+   "spec": [
+    "OR-V7/b"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "sleep": {
+       "type": "static",
+       "value": 1
+      }
+     },
+     {
+      "id": "a-v",
+      "value": {
+       "type": "identity"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}"
+       },
+       {
+        "type": "Success",
+        "id": "a-v",
+        "job": "${av}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": "x"
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "x"
+    },
+    "av": {
+     "kind": "identity",
+     "success": true,
+     "args": {
+      "previous_result": "x"
+     },
+     "result": "x"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": "x",
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "args": {},
+      "result": "x"
+     },
+     "m:a-v": {
+      "status": "success",
+      "args": {
+       "previous_result": "x"
+      },
+      "result": "x"
+     }
+    }
+   }
+  },
+  {
+   "name": "a subflow by path: its steps are under the module",
+   "spec": [
+    "OR-11",
+    "Q-OR-17"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "sub",
+      "value": {
+       "type": "flow",
+       "path": "f/t/child"
+      }
+     }
+    ]
+   },
+   "subflows": {
+    "f/t/child": {
+     "modules": [
+      {
+       "id": "x",
+       "value": {
+        "type": "rawscript",
+        "language": "bun",
+        "content": "export function main() {}"
+       }
+      }
+     ]
+    }
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "sub",
+        "job": "${s}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 2
+    },
+    "s": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "x",
+        "job": "${sx}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {
+      "n": 1
+     },
+     "result": 2
+    },
+    "sx": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "n": 1
+     },
+     "result": 2
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": 2,
+    "steps": {
+     "m:sub": {
+      "status": "success",
+      "args": {
+       "n": 1
+      },
+      "result": 2
+     },
+     "m:sub/m:x": {
+      "status": "success",
+      "args": {
+       "n": 1
+      },
+      "result": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "FX-V2: after an error stop the job succeeded and the module failed",
+   "spec": [
+    "FX-V2",
+    "OR-V2"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "stop_after_if": {
+       "expr": "true",
+       "skip_if_stopped": false,
+       "error_message": "E"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": false,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Failure",
+        "id": "a",
+        "job": "${a}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "error": {
+       "name": "EarlyStopError",
+       "message": "E"
+      }
+     }
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 1
+    }
+   },
+   "expect": {
+    "status": "failure",
+    "result": {
+     "error": {
+      "name": "EarlyStopError",
+      "message": "E"
+     }
+    },
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "module": "failure",
+      "args": {},
+      "result": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-14/b: a step that returns its own job id and the root's",
+   "spec": [
+    "OR-14/b",
+    "OR-V6"
+   ],
+   "provenance": "disputed",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "job": "${a}",
+      "root": "${r}"
+     }
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": {
+      "job": "${a}",
+      "root": "${r}"
+     }
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": {
+     "job": "<job:m:a>",
+     "root": "<job:>"
+    },
+    "steps": {
+     "m:a": {
+      "status": "success",
+      "args": {},
+      "result": {
+       "job": "<job:m:a>",
+       "root": "<job:>"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "OF-2: a repeated id in one list gets occurrence suffixes",
+   "spec": [
+    "OF-2",
+    "Q-OR-17"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 3,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a0}"
+       },
+       {
+        "type": "Success",
+        "id": "b",
+        "job": "${b}"
+       },
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a1}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 3
+    },
+    "a0": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 1
+    },
+    "b": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 2
+    },
+    "a1": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 3
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": 3,
+    "steps": {
+     "m:a~0": {
+      "status": "success",
+      "args": {},
+      "result": 1
+     },
+     "m:b": {
+      "status": "success",
+      "args": {},
+      "result": 2
+     },
+     "m:a~1": {
+      "status": "success",
+      "args": {},
+      "result": 3
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-11: a flow_status that does not match the fixture is an error, not an observation",
+   "spec": [
+    "OR-11",
+    "OR-15"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "a",
+        "job": "${a}"
+       },
+       {
+        "type": "Success",
+        "id": "c",
+        "job": "${c}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 1
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 1
+    },
+    "c": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 1
+    }
+   },
+   "error": "the fixture's module 1 is \"b\""
+  },
+  {
+   "name": "a script target: the root is a leaf, its stack is masked",
+   "spec": [
+    "OR-V3",
+    "OR-10",
+    "OR-12"
+   ],
+   "provenance": "policy",
+   "target": "f/t/script",
+   "script": true,
+   "root": "${r}",
+   "jobs": {
+    "r": {
+     "kind": "script",
+     "success": false,
+     "args": {
+      "x": 1
+     },
+     "result": {
+      "error": {
+       "name": "Error",
+       "message": "m",
+       "stack": "S"
+      }
+     }
+    }
+   },
+   "expect": {
+    "status": "failure",
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "m",
+      "stack": "<stack>"
+     }
+    }
+   }
+  },
+  {
+   "name": "OR-V2: canceled before skipped; an unfinished module is in_progress",
+   "spec": [
+    "OR-V2",
+    "FX-1"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     },
+     {
+      "id": "b",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": false,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "InProgress",
+        "id": "a",
+        "job": "${a}"
+       },
+       {
+        "type": "WaitingForPriorSteps",
+        "id": "b"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": {
+      "error": {
+       "name": "Canceled",
+       "message": "c"
+      }
+     },
+     "canceled": true,
+     "skipped": true
+    },
+    "a": {
+     "kind": "flowscript",
+     "success": false,
+     "args": {},
+     "result": {
+      "error": {
+       "name": "Canceled",
+       "message": "c"
+      }
+     },
+     "canceled": true
+    }
+   },
+   "expect": {
+    "status": "canceled",
+    "result": {
+     "error": {
+      "name": "Canceled",
+      "message": "c"
+     }
+    },
+    "steps": {
+     "m:a": {
+      "status": "canceled",
+      "module": "in_progress",
+      "args": {},
+      "result": {
+       "error": {
+        "name": "Canceled",
+        "message": "c"
+       }
+      }
+     },
+     "m:b": {
+      "status": "not_run"
+     }
+    }
+   }
+  }
+ ]
+}
