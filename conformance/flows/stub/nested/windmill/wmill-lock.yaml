@@ -1,0 +1,5 @@
+version: v2
+locks:
+  f/wl_stub/nested.flow+__flow_hash: d21aac5caf61fb198367b58104326d8366dc4aee5188c71cbc91d9b75d7a1c46
+  f/wl_stub/nested.flow+read.ts: 1d3a5591273f09d22db689cb4ec1427112146867f2329188ed098b2dafe2775c
+  f/wl_stub/nested.flow+write.ts: 473d24916fc0d86b09a511164d6bfbaa6c25ca9ed27724a2e09345c73b96ac1d

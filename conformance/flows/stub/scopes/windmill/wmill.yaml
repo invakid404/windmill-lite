@@ -1,0 +1,2 @@
+defaultTs: bun
+includes: ["f/**"]

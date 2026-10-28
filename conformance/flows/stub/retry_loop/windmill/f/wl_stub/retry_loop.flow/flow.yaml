@@ -1,0 +1,34 @@
+summary: wl stub retry inside a loop
+value:
+  modules:
+    - id: loop
+      value:
+        type: forloopflow
+        modules:
+          - id: call
+            value:
+              type: rawscript
+              content: '!inline call.ts'
+              input_transforms:
+                item:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline call.lock'
+              language: bun
+            retry:
+              constant:
+                attempts: 2
+                seconds: 0
+        iterator:
+          type: javascript
+          expr: flow_input.items
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    items:
+      type: array
+  required:
+    - items
