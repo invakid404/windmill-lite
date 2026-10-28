@@ -74,8 +74,8 @@ bytes, numbers as written, strings escaped only where JSON requires it
 **bundle digest** is the digest of those bytes, which is what the harness
 runtime computes from `manifest.json` for its handshake.
 `ParseManifest` refuses a manifest that is not in canonical form, has an
-unknown field, another format, or a file path that is not a clean relative
-path.
+unknown field, another format, a file path that is not a clean relative
+path, or a host-provided module whose bundled copy it does not list.
 
 **Sources.** The build reads the folder through a file system that records
 every file read: `wmill.yaml`, the flows and scripts the roots reach with

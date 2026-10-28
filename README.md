@@ -6,7 +6,8 @@ queue, no job per step, and no worker pickup.
 
 **Current state:** first implementation milestones. Nothing runs flows yet.
 The repository holds
-a Go module, a placeholder command that prints its version, CI, a
+a Go module, the `windmill-lite` command, which builds and verifies bundles
+but does not run them yet, CI, a
 documentation gate, the [semantics reference](docs/semantics/README.md) (the
 Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
@@ -128,12 +129,16 @@ and observed behaviour.
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
 `go vet ./...` and `go test -race ./...` (with Bun 1.3.10 and the build
 helper's parser installed, so the harness and build tests cannot skip; the
-tests include the image lint and the manifest guard), prints a load measurement of the expression engine's pool (report
+tests include the image lint and the manifest guard), builds a fixture
+bundle twice with `windmill-lite build` and compares the digests and the
+archives, prints a load measurement of the expression engine's pool (report
 only), and runs the unit tests of the helpers in `scripts/`, on Ubuntu and
 macOS for pull requests and pushes to `main`. Two more jobs run on Linux
-runners. One builds the expression engine's tests as a static musl binary
-with `zig cc` for `amd64` and `arm64`, checks that it is static, and runs it
-on a runner of that architecture. The other, `jsonb (PostgreSQL)`, compares
+runners. One builds the engine and the expression suite as static musl
+binaries with `zig cc` for `amd64` and `arm64`, checks that they are static,
+runs the suite, starts the engine in an image built `FROM scratch`, and
+compares the expression pool's allocators (report only). The other,
+`jsonb (PostgreSQL)`, compares
 the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
 job runs the Bun harness's own `bun test`, which is not a required check.
 The [oracle workflow](.github/workflows/oracle.yml) records the flow
