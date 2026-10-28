@@ -169,6 +169,8 @@ recorded in each run's trace.
 | D13 | Codebase scripts built as CommonJS run on Bun's CommonJS loader, not Node | one JavaScript harness, and host mode needs the steps in the host's Bun process; Windmill runs CJS codebase bundles under Node ([WR-30](../semantics/languages.md#wr-30), `EE`) | [0002](0002-ir-and-loader.md) |
 | D14 | Messages windmill-lite generates in place of Windmill's server-side ones carry no Rust location suffix | windmill-lite has no Rust source; §2 strips the oracle's suffix only on generated messages | §2 |
 | D15 | A host-set cap on in-flight invocations per process. There is none by default; with one set, concurrent children that wait on each other, or parents that wait on runs they dispatched locally, can wait forever where a Windmill with enough workers completes them | a host may need to bound concurrency; the reference has no such bound | [0004](0004-harness-protocol.md) |
+| D16 | A transcendental `Math` function (`Math.sin`, `Math.tan`, `Math.log`, `Math.cosh` and the like) gives what the engine build's C library gives, which can differ in the last digit from the glibc of Windmill's image. Measured on recording batch E3a's 30 values: the static musl engine (`amd64` and `arm64`) gives all of them; the glibc of CI's Ubuntu 24.04 runner differs on `Math.cbrt(10)` and macOS's libm on 6, each by one unit in the last place. Other inputs can differ on any library but the image's own | QuickJS-ng calls the C library's libm, and the release engine links musl statically ([0003](0003-semantics-placement.md)); no libm that reproduces glibc's results is vendored | [JE-1](../semantics/expressions.md#je-1), [0003](0003-semantics-placement.md) |
+| D17 | A recursion fits deeper in an expression than on Windmill: both engines stop at QuickJS-ng's 1 MiB stack ([JE-48](../semantics/expressions.md#je-48)), but the depth that fits depends on the compiled engine's frames. Recording batch E3a found that JE-48/a's depth of 1 000 overflows on the oracle (600 fits); windmill-lite's builds fit about 1 020 to 1 070 frames of such a function (1 019 on the static `amd64` engine, 1 070 on `arm64`, 1 035 on macOS) | depth is not portable between builds (JE-48); matching it would mean calibrating the stack limit to one compiler's frames | [0003](0003-semantics-placement.md) |
 
 `fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10 and D11:
 it runs one process per invocation, in its own working directory, and kills
@@ -329,12 +331,19 @@ switch through a change to this record, naming the reason.
   envelope, the JE-2/a timeout); those cases now expect what the oracle did,
   and the differences are asked of the semantics team ([README](README.md),
   request 7).
+- §5 gained D16 and D17 when milestone B2b ran E3a's expression cases on
+  the engine. Both come from the engine's build, not from a rule: QuickJS-ng
+  takes transcendental `Math` results from the C library's libm, and the
+  depth a recursion reaches before the 1 MiB stack limit from the compiled
+  frames. Every other recorded expression case gives the oracle's value or
+  text on windmill-lite's engine, error texts byte for byte with their
+  stacks. Every bundle lists both deviations.
 
 ## Spec IDs relied on
 
 FX-1, FX-2, FX-4, FX-10, FX-26, FX-32, FX-33, FX-34, FX-36, FX-39, FX-40, FX-41, FX-42,
 FX-46, FX-49, FX-V2, FX-V6, CF-6, CF-7, CF-8, CF-12, CF-19, CF-V5, CF-V6,
-OF-3, OF-7, OF-17, OF-V5, JE-2, JE-9, JE-10, WR-1, WR-2, WR-3, WR-16,
+OF-3, OF-7, OF-17, OF-V5, JE-1, JE-2, JE-9, JE-10, JE-48, WR-1, WR-2, WR-3, WR-16,
 WR-27, WR-28, WR-30, WR-32, WR-36, WA-33, OR-5, OR-11, OR-14, OR-15, OR-21,
 OR-23, OR-V3, OR-V5, OR-V8, OR-V9, SY-1, SY-2, SY-7, SY-9, SY-10, SY-12,
 SY-13, and the questions named in the tables.

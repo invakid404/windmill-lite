@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -61,23 +62,30 @@ func TestShortcutCanceled(t *testing.T) {
 	}
 }
 
-// TestCompileErrorRaisedAtEval follows ADR 0003: a source that does not
-// compile is recorded when the bundle opens and its error is raised each
-// time the expression reaches the engine; it is compiled once.
+// TestCompileErrorRaisedAtEval follows ADR 0003: a program that does not
+// compile is recorded when the bundle opens and its error is raised, in
+// Windmill's text (JE-21), each time the expression reaches the engine; it
+// is compiled once.
 func TestCompileErrorRaisedAtEval(t *testing.T) {
-	syntax := &Exception{Thrown: ThrownError, Name: "SyntaxError", Message: "unexpected token", Text: "SyntaxError: unexpected token"}
-	eng := &fakeEngine{compile: func(string) error { return syntax }}
+	syntax := &Exception{Thrown: ThrownError, Name: "SyntaxError", Message: "unexpected token", Text: "SyntaxError: unexpected token", Stack: "    at eval_script:1:7\n"}
+	eng := &fakeEngine{compile: func(src string) error {
+		if isPrelude(src) {
+			return nil
+		}
+		return syntax
+	}}
 	p := NewPipeline(eng)
 	e := Compile(SiteInputTransform, "flow_input.n // the count")
 	p.Prepare(e, nil, &Expr{})
 	for range 2 {
 		_, err := p.Eval(context.Background(), e, &Scope{FlowInput: value(`{"n":5}`)})
-		if err != syntax {
-			t.Fatalf("Eval: %v, want the compile exception", err)
+		var ee *EvalError
+		if !errors.As(err, &ee) || ee.Err != syntax || ee.Message != "QuickJS evaluation error: Error: unexpected token\n    at eval_script:1:7\n" {
+			t.Fatalf("Eval: %q, want the compile exception in JE-21's text", err)
 		}
 	}
-	if len(eng.compiled) != 1 || len(eng.calls) != 0 {
-		t.Errorf("compiled %d times and evaluated %d times; want 1 and 0", len(eng.compiled), len(eng.calls))
+	if n := len(eng.programs()); n != 1 || len(eng.calls) != 0 {
+		t.Errorf("compiled %d times and evaluated %d times; want 1 and 0", n, len(eng.calls))
 	}
 	// A shortcut still answers: the engine's error is raised only when the
 	// expression reaches it.
@@ -89,26 +97,31 @@ func TestCompileErrorRaisedAtEval(t *testing.T) {
 
 // TestCompileFailureNotKept: a compile error that is not the source's own
 // (a closed engine) is not recorded, so a later evaluation compiles again.
+// A prelude that does not compile is reported as such.
 func TestCompileFailureNotKept(t *testing.T) {
 	closed := errors.New("engine closed")
-	fail := true
-	eng := &fakeEngine{compile: func(string) error {
-		if fail {
+	fail := func(string) bool { return true }
+	eng := &fakeEngine{compile: func(src string) error {
+		if fail(src) {
 			return closed
 		}
 		return nil
 	}}
 	p := NewPipeline(eng)
 	e := Compile(SiteInputTransform, "1 + 1")
+	if _, err := p.Eval(context.Background(), e, nil); !errors.Is(err, closed) || !strings.Contains(err.Error(), "prelude") {
+		t.Fatalf("Eval: %v", err)
+	}
+	fail = func(src string) bool { return !isPrelude(src) }
 	if _, err := p.Eval(context.Background(), e, nil); !errors.Is(err, closed) {
 		t.Fatalf("Eval: %v", err)
 	}
-	fail = false
+	fail = func(string) bool { return false }
 	if v, err := p.Eval(context.Background(), e, nil); err != nil || string(v.Producer()) != fakeAnswer {
 		t.Fatalf("Eval after the engine recovered: %s, %v", v, err)
 	}
-	if len(eng.compiled) != 2 {
-		t.Errorf("compiled %d times, want 2", len(eng.compiled))
+	if n := len(eng.programs()); n != 2 {
+		t.Errorf("compiled %d times, want 2", n)
 	}
 }
 
@@ -122,21 +135,97 @@ func TestPrepareCompilesEachSourceOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(eng.compiled) != 1 || len(eng.calls) != 3 {
-		t.Errorf("compiled %d times and evaluated %d times; want 1 and 3", len(eng.compiled), len(eng.calls))
+	if n := len(eng.programs()); n != 1 || len(eng.calls) != 3 || len(eng.compiled) != 4 {
+		t.Errorf("compiled %d programs and %d sources, evaluated %d times; want 1, 4 (with the three preludes) and 3", n, len(eng.compiled), len(eng.calls))
 	}
 }
 
-// TestEngineErrorsPassThrough: the engine's exceptions and limits reach
-// the caller unwrapped; their texts are B2b's.
-func TestEngineErrorsPassThrough(t *testing.T) {
-	thrown := &Exception{Thrown: ThrownNull, Text: "null"}
-	for _, want := range []error{thrown, ErrAttemptTimeout, ErrNotString} {
-		eng := &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) { return nil, want }}
-		_, err := NewPipeline(eng).Eval(context.Background(), Compile(SiteInputTransform, "x"), nil)
-		if !errors.Is(err, want) {
-			t.Errorf("Eval: %v, want %v", err, want)
+// TestEngineErrorsBecomeWindmillTexts: the engine's exceptions and limits
+// become Windmill's texts, with the engine's error as the cause (JE-2,
+// JE-3, JE-21); a context that ends is not the evaluation's failure, and
+// passes through.
+func TestEngineErrorsBecomeWindmillTexts(t *testing.T) {
+	ended := errors.New("run canceled")
+	memory := "The expression evaluation exceeded the memory limit of 128 MB. Reduce the amount of data handled in the expression, or raise the cap via the QUICKJS_MEMORY_LIMIT_MB environment variable."
+	for _, tc := range []struct {
+		err   error
+		cause error
+		text  string
+	}{
+		{&Exception{Thrown: ThrownNull, Text: "null"}, ErrOutOfMemory, memory},
+		{&Exception{Thrown: ThrownUndefined, Text: "undefined"}, ErrOutOfMemory, memory},
+		{&Exception{Thrown: ThrownError, Name: "InternalError", Message: "out of memory"}, ErrOutOfMemory, memory},
+		{&Exception{Thrown: ThrownError, Name: "Error", Message: "out of memory", Stack: "    at <eval> (eval_script:1:28)\n"}, nil, "QuickJS evaluation error: Error: out of memory\n    at <eval> (eval_script:1:28)\n"},
+		{&Exception{Thrown: ThrownError, Name: "TypeError", Message: "not a function"}, nil, "QuickJS evaluation error: Error: not a function"},
+		{&Exception{Thrown: ThrownOther, Text: "x"}, nil, "QuickJS evaluation error: Exception generated by quickjs: x\n"},
+		{ErrAttemptTimeout, ErrAttemptTimeout, "The expression evaluation `x` took too long to execute (>20000ms)"},
+		{ErrNotString, ErrNotString, "QuickJS evaluation error: the serialised value is not a string"},
+	} {
+		eng := &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) { return nil, tc.err }}
+		p := NewPipeline(eng)
+		setRetry(p, 3, 0)
+		_, err := p.Eval(context.Background(), Compile(SiteInputTransform, " x "), nil)
+		var ee *EvalError
+		if !errors.As(err, &ee) || ee.Message != tc.text {
+			t.Errorf("%v: Eval: %q, want %q", tc.err, err, tc.text)
+			continue
 		}
+		cause := tc.cause
+		if cause == nil {
+			cause = tc.err
+		}
+		if !errors.Is(err, cause) {
+			t.Errorf("%v: the cause is %v, want %v", tc.err, ee.Err, cause)
+		}
+	}
+	eng := &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) { return nil, ended }}
+	if _, err := NewPipeline(eng).Eval(context.Background(), Compile(SiteInputTransform, "x"), nil); err != ended {
+		t.Errorf("Eval: %v, want the context's cause unwrapped", err)
+	}
+	// A completion that is not one JSON value fails, once.
+	eng = &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) { return []byte(`1, "x": 2`), nil }}
+	_, err := NewPipeline(eng).Eval(context.Background(), Compile(SiteInputTransform, "x"), nil)
+	if !errors.Is(err, ErrNotJSON) || err.Error() != "QuickJS evaluation error: the serialised value is not JSON" || len(eng.calls) != 1 {
+		t.Errorf("Eval: %v after %d attempts", err, len(eng.calls))
+	}
+}
+
+// TestTimeoutRetried follows JE-2: an evaluation whose error text contains
+// "took too long" is tried three times in all, with a pause between
+// attempts, whether it is the time-limit message or the user's own; any
+// other error is not tried again.
+func TestTimeoutRetried(t *testing.T) {
+	user := &Exception{Thrown: ThrownError, Name: "Error", Message: "the query took too long"}
+	for _, tc := range []struct {
+		err   error
+		tries int
+	}{
+		{ErrAttemptTimeout, 3},
+		{user, 3},
+		{&Exception{Thrown: ThrownError, Name: "Error", Message: "too long"}, 1},
+		{&Exception{Thrown: ThrownNull}, 1},
+	} {
+		eng := &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) { return nil, tc.err }}
+		p := NewPipeline(eng)
+		setRetry(p, 3, time.Millisecond)
+		_, err := p.Eval(context.Background(), Compile(SiteSkipIf, "x"), nil)
+		if len(eng.calls) != tc.tries || err == nil {
+			t.Errorf("%v: %d attempts, %v; want %d", tc.err, len(eng.calls), err, tc.tries)
+		}
+		if tc.err == ErrAttemptTimeout && err.Error() != "The expression evaluation `Boolean(x)` took too long to execute (>20000ms)" {
+			t.Errorf("the predicate's message quotes its wrapped text: %q", err)
+		}
+	}
+	// The pause ends early when the run does.
+	ctx, cancel := context.WithCancelCause(context.Background())
+	eng := &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) {
+		cancel(errors.New("run canceled"))
+		return nil, ErrAttemptTimeout
+	}}
+	p := NewPipeline(eng)
+	setRetry(p, 3, time.Hour)
+	if _, err := p.Eval(ctx, Compile(SiteInputTransform, "x"), nil); err == nil || err.Error() != "run canceled" || len(eng.calls) != 1 {
+		t.Errorf("Eval: %v after %d attempts, want the cause after 1", err, len(eng.calls))
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -241,6 +242,57 @@ func FuzzJSONText(f *testing.F) {
 			if stored(t, got) != stored(t, wt) {
 				t.Fatalf("walk(%s, %q) = %s, the reference %s", st, path, got, wt)
 			}
+		}
+	})
+}
+
+// TestValidJSON checks validJSON on fixed cases, among them texts that
+// jsonb refuses but that are JSON, each also followed by something
+// malformed (review round 1, P2), and against encoding/json on generated
+// values and every prefix of them.
+func TestValidJSON(t *testing.T) {
+	deep := strings.Repeat("[", 12000) + strings.Repeat("]", 12000)
+	for text, want := range map[string]bool{
+		`null`: true, ` [1, {"a": "x"}] ` + "\n": true, `{}`: true, `[]`: true, `{"a":[{},[]]}`: true,
+		`-0.5e+3`: true, `0`: true, `1E-7`: true, `"\u00e9\n\/"`: true, `"é😀"`: true,
+		`"\u0000"`: true, `["\ud800"]`: true, `[1e999999]`: true, deep: true,
+		`"\u0000" trailing`: false, `["\ud800",]`: false, `[1e999999,]`: false,
+		``: false, ` `: false, `nul`: false, `nulls`: false, `[`: false, `]`: false, `[1,]`: false,
+		`{"a":1,}`: false, `{"a" 1}`: false, `{1:2}`: false, `{"a"}`: false, `1 2`: false,
+		`01`: false, `1.`: false, `.5`: false, `-`: false, `+1`: false, `1e`: false, `1e+`: false,
+		`"\x"`: false, `"\u12"`: false, `"\u12g4"`: false, "\"a\tb\"": false, `"abc`: false,
+		"\"\xff\"": false, deep + "]": false, `[1}`: false, `{"a":1]`: false,
+	} {
+		if got := validJSON([]byte(text)); got != want {
+			t.Errorf("validJSON(%.40q) = %v, want %v", text, got, want)
+		}
+	}
+	r := rand.New(rand.NewPCG(3, 4))
+	for range 2000 {
+		var b strings.Builder
+		genJSON(r, &b, 0)
+		text := []byte(b.String())
+		for n := 0; n <= len(text); n++ {
+			if got, want := validJSON(text[:n]), json.Valid(text[:n]); got != want {
+				t.Fatalf("validJSON(%q) = %v, encoding/json says %v", text[:n], got, want)
+			}
+		}
+	}
+}
+
+// FuzzValidJSON compares validJSON with encoding/json on UTF-8 text that
+// is not deep enough to reach encoding/json's nesting limit.
+func FuzzValidJSON(f *testing.F) {
+	for _, s := range []string{`{"a":[1,{"b":"x"}]}`, `[1,2]`, `"\u0000" x`, `[1e9,]`, `-0.0`, `{"a":`, `"\ud800"`} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		b := []byte(text)
+		if !utf8.Valid(b) || bytes.Count(b, []byte("["))+bytes.Count(b, []byte("{")) > 1000 {
+			return
+		}
+		if got, want := validJSON(b), json.Valid(b); got != want {
+			t.Fatalf("validJSON(%q) = %v, encoding/json says %v", text, got, want)
 		}
 	})
 }
