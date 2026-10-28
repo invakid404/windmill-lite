@@ -1,0 +1,54 @@
+{
+  "finding": "OF-2",
+  "cases": [
+    {
+      "spec": "OF-2/a",
+      "provenance": "source-derived",
+      "title": "non-workspace step path rejects",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "/tmp/x", "input_transforms": {}}}]},
+      "expect": {"reject": {"kind": "step_path", "contains": ["not a workspace path", "'a'"]}}
+    },
+    {
+      "spec": "OF-2/b",
+      "provenance": "source-derived",
+      "title": "empty step path is accepted",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "", "input_transforms": {}}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/path": ""}}}
+    },
+    {
+      "spec": "OF-2/c",
+      "provenance": "source-derived",
+      "title": "zero exponential base rejects",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "retry": {"exponential": {"attempts": 2, "seconds": 0}}}]},
+      "expect": {"reject": {"kind": "retry_base", "contains": ["Module 'a': Exponential backoff base (seconds) must be greater than 0. A base of 0 would cause immediate retries."]}}
+    },
+    {
+      "spec": "OF-2/d",
+      "provenance": "source-derived",
+      "title": "duplicate ids are not checked",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}}, {"id": "a", "value": {"type": "identity"}}]},
+      "expect": {"accept": {"at": {"/modules/0/id": "a", "/modules/1/id": "a"}}}
+    },
+    {
+      "spec": "OF-2/e",
+      "provenance": "source-derived",
+      "title": "bad module value uses the Module prefix",
+      "given": {"modules": [{"id": "a", "value": {"type": "foo"}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["Module 'a': unknown variant `foo`"], "not_prefix": "Invalid flow value:"}}
+    },
+    {
+      "spec": "OF-2/f",
+      "provenance": "source-derived",
+      "title": "bad top-level envelope uses the outer prefix",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "stop_after_if": {"expr": "true"}}]},
+      "expect": {"reject": {"kind": "flow_value", "contains": ["Invalid flow value:", "missing field `skip_if_stopped`"]}}
+    },
+    {
+      "spec": "OF-2/g",
+      "provenance": "source-derived",
+      "title": "bad body-module envelope is attributed to the container",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": [1]}, "modules": [{"id": "b", "value": {"type": "identity"}, "stop_after_if": {"expr": "true"}}]}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["Module 'l':", "missing field `skip_if_stopped`"]}}
+    }
+  ]
+}

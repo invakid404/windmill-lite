@@ -1,0 +1,19 @@
+{
+  "finding": "OF-16",
+  "cases": [
+    {
+      "spec": "OF-16/a",
+      "provenance": "source-derived",
+      "title": "integer concurrency limit",
+      "given": {"modules": [], "concurrent_limit": 1.5},
+      "expect": {"reject": {"kind": "flow_value", "contains": ["i32"]}}
+    },
+    {
+      "spec": "OF-16/b",
+      "provenance": "source-derived",
+      "title": "failure-module id is not enforced",
+      "given": {"modules": [], "failure_module": {"id": "oops", "value": {"type": "identity"}}},
+      "expect": {"accept": {"at": {"/failure_module/id": "oops"}}}
+    }
+  ]
+}

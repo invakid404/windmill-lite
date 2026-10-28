@@ -1,0 +1,54 @@
+{
+  "finding": "OF-V2",
+  "cases": [
+    {
+      "spec": "OF-V2/a",
+      "provenance": "source-derived",
+      "title": "string timeout value",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": {"type": "static", "value": "30"}}]},
+      "expect": {"reject": {"kind": "flow_value", "contains": ["i32"]}}
+    },
+    {
+      "spec": "OF-V2/b",
+      "provenance": "source-derived",
+      "title": "timeout beyond i32",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": {"type": "static", "value": 2147483648}}]},
+      "expect": {"reject": {"kind": "flow_value", "contains": ["2147483648", "i32"]}}
+    },
+    {
+      "spec": "OF-V2/c",
+      "provenance": "source-derived",
+      "title": "parallelism beyond u16",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []}, "modules": [], "parallelism": {"type": "static", "value": 70000}}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["70000", "u16"]}}
+    },
+    {
+      "spec": "OF-V2/d",
+      "provenance": "source-derived",
+      "title": "unused value checked under javascript",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []}, "modules": [], "parallelism": {"type": "javascript", "expr": "2", "value": "unused"}}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["u16"]}}
+    },
+    {
+      "spec": "OF-V2/e",
+      "provenance": "source-derived",
+      "title": "static timeout without value",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": {"type": "static"}}]},
+      "expect": {"accept": {"at": {"/modules/0/timeout": {"type": "static", "value": null}}}}
+    },
+    {
+      "spec": "OF-V2/f",
+      "provenance": "source-derived",
+      "title": "null timeout",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": null}]},
+      "expect": {"accept": {"absent": ["/modules/0/timeout"]}}
+    },
+    {
+      "spec": "OF-V2/g",
+      "provenance": "source-derived",
+      "title": "ordinary slot keeps arbitrary JSON",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "sleep": {"type": "static", "value": "30"}}]},
+      "expect": {"accept": {"at": {"/modules/0/sleep": {"type": "static", "value": "30"}}}}
+    }
+  ]
+}

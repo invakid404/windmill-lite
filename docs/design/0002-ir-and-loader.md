@@ -121,7 +121,8 @@ applied ([0001](0001-equivalence-contract.md) §1):
 A module without an `id` gets a derived one (`wl` plus a hash of its
 position) rather than Windmill's random six characters. Folders produced by a
 deploy always carry ids, so this matters only for hand-written folders
-(deviation D6).
+(deviation D6). The `openflow` decoder assigns it, where Windmill's decoder
+generates its random id, so decode errors already name the module.
 
 ### The IR
 
@@ -329,6 +330,9 @@ only hand-written files.
 
 - The engine receives a fully decided program: no defaults, collapse flags or
   languages are computed during a run.
+- Milestone A3 placed the D6 id in the decoder rather than in `ir.Compile`:
+  Windmill names a module in its decode errors, and the derived id is the same
+  wherever it is assigned.
 - Bundle identity covers the IR, so a changed `stop_after_if` changes the
   digest ([0010](0010-packaging.md)).
 - windmill-ts (Unlicense) is prior art for the folder walk and the schema

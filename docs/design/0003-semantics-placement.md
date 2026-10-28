@@ -240,13 +240,14 @@ remedy needs its own record.
 Every Windmill rule is single-sourced in one implementation, so the suite's
 job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
-as hand-written YAML and JSON, at three levels:
+as hand-written YAML and JSON, at three run levels and one decode level:
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
 | flow | `conformance/flows/<area>/<case>/` | a sync tree, setup, runs and expected observations, in the fixture format of [OR-15](../semantics/oracle.md#or-15) | Go `wltest check`, in each configuration below; the oracle recorder `wltest record` |
 | step | `conformance/steps/<lang>/<case>.yaml` | one script, its arguments, environment and boundary mode, the expected **stored** result or error (Windmill-observable terms), and the expected platform calls | Go `wltest check`, driving the real harness through the protocol; the oracle via a generated one-step flow |
 | expr | `conformance/exprs/<case>.yaml` | a **context-free** expression: an input transform or predicate of a flow's first step, with `flow_input` and `flow_env` as its only bound values (producer text; the stored form is derived with `jsonval`), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
+| decode | `conformance/openflow/<finding>.json` | an OpenFlow flow value as JSON and the effective decoder's decision: the rejection's message substrings, or parts of the accepted value's decoded form ([OF-2](../semantics/openflow.md#of-2)) | Go `internal/openflow` tests; on the oracle, a create-flow request once [Q-OF-2](../semantics/openflow.md#q-of-2) is recorded |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
 reproduce an expression whose meaning depends on what ran before it: a
@@ -300,6 +301,9 @@ validation with `contextual_case_needs_flow_fixture`.
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.
+- The decode level was added with milestone A3. A flow value's accept or
+  reject decision has no run to observe, so it fits none of the three run
+  levels, and the decoder is Go only, so no harness reads these cases.
 
 ## Spec IDs relied on
 
