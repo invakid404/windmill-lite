@@ -1,0 +1,13 @@
+# Stub mode (ADR 0011): a collapsed loop body. A top-level sequential loop
+# of a by-path run whose body is one plain rawscript collapses (CF-8): each
+# iteration is the body's own job, whose site is i:<n>/m:<body>. The body
+# takes a Date through a local type alias, which the stub keeps, so the
+# stub receives the hydrated Date (WR-8, WR-V3). Synthetic, written for
+# this repository.
+id: stub/collapsed
+spec: [OR-11, OR-28, CF-8, CF-24, WR-6, WR-8, WR-V3]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, effects: true}
+stub: true

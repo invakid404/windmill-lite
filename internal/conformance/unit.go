@@ -88,10 +88,10 @@ func (m *MessageMatch) check() error {
 func (m *MessageMatch) Claims(at string) []Claim {
 	var out []Claim
 	if m.Name != "" {
-		out = append(out, Claim{At: at + "/name", Equals: jsonText(m.Name)})
+		out = append(out, Claim{At: at + "/name", Equals: rawString(m.Name)})
 	}
 	if m.Message != nil {
-		out = append(out, Claim{At: at + "/message", Equals: jsonText(*m.Message)})
+		out = append(out, Claim{At: at + "/message", Equals: rawString(*m.Message)})
 	}
 	if m.Prefix != nil || len(m.Contains) > 0 || len(m.NotContains) > 0 {
 		out = append(out, Claim{At: at + "/message", Prefix: m.Prefix, Contains: m.Contains, NotContains: m.NotContains})
@@ -99,7 +99,8 @@ func (m *MessageMatch) Claims(at string) []Claim {
 	return out
 }
 
-func jsonText(s string) json.RawMessage {
+// rawString returns s as a JSON string value.
+func rawString(s string) json.RawMessage {
 	b, _ := json.Marshal(s)
 	return b
 }

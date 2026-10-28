@@ -42,7 +42,11 @@ type Fixture struct {
 	Languages []string    `json:"languages"`
 	Oracle    OracleNeeds `json:"oracle"`
 	Compare   CompareSpec `json:"compare"`
-	Note      string      `json:"note,omitempty"`
+	// Stub runs the fixture in stub mode (ADR 0011): every script body of
+	// the sync tree is replaced by a stub that keeps main's signature and
+	// takes its outcome from the run's replay table.
+	Stub bool   `json:"stub,omitempty"`
+	Note string `json:"note,omitempty"`
 
 	// Setup is setup.yaml, or nil when the fixture has none.
 	Setup *Setup `json:"-"`
@@ -175,6 +179,13 @@ type Run struct {
 	// CancelAfterMS cancels the run that many milliseconds after it was
 	// submitted.
 	CancelAfterMS *int `json:"cancel_after_ms,omitempty"`
+	// Group names the runs that are submitted together, as concurrent
+	// outer runs; a run without a group runs alone (RunBatches).
+	Group string `json:"group,omitempty"`
+	// Replay is the run's replay table, for a fixture in stub mode: the
+	// outcome of each attempt at each stubbed site. A stub fixture's run
+	// without one answers every call with replay_miss.
+	Replay ReplayTable `json:"replay,omitempty"`
 	// Expect is the expected normalised observation, or nil.
 	Expect *Observation `json:"expect,omitempty"`
 	// Claims are what the catalogue says about the observation, where it
@@ -295,6 +306,9 @@ func LoadFixture(dir string) (*Fixture, error) {
 		if err := r.check(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
+		if r.Replay != nil && !f.Stub {
+			return nil, fmt.Errorf("%s: replay needs stub: true in %s", p, FixtureFile)
+		}
 		rec, err := readRecording(f.RecordingPath(r.Name))
 		if err != nil {
 			return nil, err
@@ -396,6 +410,9 @@ func (f *Fixture) check() error {
 	default:
 		return fmt.Errorf("oracle.deploy %q is not %s or %s", f.Oracle.Deploy, DeployCLI, DeployAPI)
 	}
+	if f.Stub && f.Oracle.DeploysThroughAPI() {
+		return fmt.Errorf("stub: true needs oracle.deploy %s: stub mode pushes a stubbed tree with the CLI", DeployCLI)
+	}
 	switch f.Compare.Mode {
 	case "", "exact", "subset":
 	default:
@@ -472,4 +489,25 @@ func (r *Run) check() error {
 		}
 	}
 	return nil
+}
+
+// RunBatches splits runs, sorted by name, into the batches a runner
+// submits together: each group's runs, in name order, at the place of the
+// group's first run, and every run without a group alone.
+func RunBatches(runs []Run) [][]Run {
+	var batches [][]Run
+	at := map[string]int{}
+	for _, r := range runs {
+		if r.Group == "" {
+			batches = append(batches, []Run{r})
+			continue
+		}
+		if i, ok := at[r.Group]; ok {
+			batches[i] = append(batches[i], r)
+			continue
+		}
+		at[r.Group] = len(batches)
+		batches = append(batches, []Run{r})
+	}
+	return batches
 }

@@ -8,13 +8,13 @@ flow fixtures in `flows/`, and the context-free expression cases in
 `exprs/`. `wltest record` records the flow fixtures and the expression cases
 on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
 recording batches E3c (flow execution errors), E3b (flow execution core)
-and E3d (loops, branches and the result cache), and those of recording
-batch E3a (the expression cases of the JE catalogue, and CF-19 and CF-V6).
-This README covers `conformance/`. Nothing runs the flow fixtures or the
-expression cases on windmill-lite yet (`wltest check`, milestone E1; the
-expression pipeline, B2a and B2b), and the step level that
-[0003](../docs/design/0003-semantics-placement.md) defines has no cases or
-runner yet.
+and E3d (loops, branches and the result cache), the stub-mode acceptance
+cases, and those of recording batch E3a (the expression cases of the JE
+catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
+Nothing runs the flow fixtures or the expression cases on windmill-lite yet
+(`wltest check`, milestone E1; the expression pipeline, B2a and B2b), and
+the step level that [0003](../docs/design/0003-semantics-placement.md)
+defines has no cases or runner yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -32,7 +32,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), `flows/je/*` and `flows/cf/cf-19` (E3a); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle` |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
 
@@ -63,6 +63,10 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/execution/fx-12` … `fx-38`, `fx-v6` | Recording batch E3c (ADR 0012): the catalogue cases of [FX-12](../docs/semantics/execution.md#fx-12) to [FX-15](../docs/semantics/execution.md#fx-15) and [FX-30](../docs/semantics/execution.md#fx-30) to [FX-38](../docs/semantics/execution.md#fx-38) (FX-36's executor part), FX-V6/a and FX-10/a. Covered: error values, chaining errors, `continue_on_error`, the failure module (what it sees, its retry, `recover`, inside loop bodies), the preprocessor, final-result selection, `early_return` and cancellation. One fixture per finding, `fx-12-deno` for the Deno case. Each run's `expect` states the catalogue's expectation. It holds the recorded value instead where the catalogue asserts only a prefix of a text, says nothing about a field, or is contradicted by the oracle: one case, FX-34/a's handler id, listed in the batch manifest and in [0001](../docs/design/0001-equivalence-contract.md) §6. The batch's coverage, deferrals and prefix checks are in `internal/oracle/testdata/batches/e3c.json` ([internal/oracle](../internal/oracle/README.md)). |
 | `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop runs (cf-2 to cf-8, cf-9 run `a`, cf-11, cf-13 and the loop runs of cf-12) gate N3a; the while and branch runs (cf-10, cf-9 run `b`, cf-14, cf-15 and the branch runs `d` and `e-*` of cf-12) gate N3b. |
 | `flows/execution/fx-40`, `fx-40-hash` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)); `fx-40-hash` pins the body's script by the hash its deployment assigns. Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4. |
+| `flows/stub/retry_loop` | Stub mode: a retry inside a loop. The body step has two retries; run `ok` fails iteration 1 once and iteration 2 twice before they succeed, run `exhausted` fails iteration 1 on all three attempts, so the loop and the flow fail ([FX-26](../docs/semantics/execution.md#fx-26), [CF-5](../docs/semantics/control-flow.md#cf-5)). |
+| `flows/stub/collapsed` | Stub mode: a collapsed body ([CF-8](../docs/semantics/control-flow.md#cf-8)), each iteration at `i:<n>/m:book`, then a path script. The body takes a `Date` through a local alias, which the stub keeps ([WR-V3](../docs/semantics/languages.md#wr-v3)). |
+| `flows/stub/nested` | Stub mode: nested loops whose bodies do not collapse, the inner one reading the outer iteration as `iter_parent` ([CF-3](../docs/semantics/control-flow.md#cf-3)). |
+| `flows/stub/scopes` | Stub mode: a named subflow and a parallel loop under one outer run (run `alone`), and two concurrent outer runs (`r` and `t`, group `rt`), with every call's `WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID` and `WM_JOB_ID` ([OR-V6](../docs/semantics/oracle.md#or-v6)/a, [Q-OR-10](../docs/semantics/oracle.md#q-or-10)). |
 | `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
 | `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. |
@@ -100,6 +104,12 @@ the API answers after the dependency job, and what `generate-metadata`
 writes for the same source ([internal/oracle](../internal/oracle/README.md#api-deployment)).
 Either way the recordings show deployed flows, the reference configuration
 of [ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
+
+A stub fixture (`stub: true`) commits its original tree; each run's
+`replay` table gives the stubs' outcomes. The scripts call hosts under
+`.invalid`, which nothing resolves, so a script that kept its body would
+fail. The stubbed tree is written and its metadata regenerated in a
+temporary copy on every recording ([internal/oracle](../internal/oracle/README.md#stub-mode)).
 
 Each E3b run's `expect` was written from the reference before the oracle
 first ran it. Where the oracle disagreed, the run's `note` says what was

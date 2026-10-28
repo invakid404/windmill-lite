@@ -1,6 +1,6 @@
 # internal/oracle
 
-**Current state:** implemented (milestone E2 of
+**Current state:** implemented (milestones E2 and E4a of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), extended by
 the recording batches E3c and E3b). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
@@ -9,16 +9,18 @@ covers `internal/oracle/`, its vendored `openapi/` directory and its
 fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
 only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
 and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
-records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke))
-and the fixtures of the recording batches, E3c's and E3b's under
+records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)),
+the fixtures of the recording batches, E3c's and E3b's under
 [conformance/flows/execution](../../conformance/flows/execution) and E3d's
 under [conformance/flows/control-flow](../../conformance/flows/control-flow),
-and the expression cases of batch E3a, which `wltest record` lifts into
-generated flows ([conformance](../../conformance/README.md#expression-cases)).
-E3c extended the session and the walker (below), E3b the walker and the
-batch test, E3d the walker and added the API deployment (below), and E3a
-the session and its own batch tests. Comparing windmill-lite against a
-recording (`wltest check`, milestone E1) and stub mode (E4a) do not exist
+the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
+see [Stub mode](#stub-mode)), and the expression cases of batch E3a, which
+`wltest record` lifts into generated flows
+([conformance](../../conformance/README.md#expression-cases)). E3c extended
+the session and the walker (below), E3b the walker and the batch test, E3d
+the walker and added the API deployment (below), and E3a the session and
+its own batch tests. Comparing windmill-lite against a recording (`wltest
+check`, milestone E1) and stub mode on windmill-lite (E4b) do not exist
 yet.
 
 ## A session
@@ -52,10 +54,10 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    fresh workspace `wl-<6 hex>-<n>`, which is deleted again after the
    fixture's runs, or after its deployment failed, with a context of its own
    so that a canceled session still cleans up
-   (`DELETE /workspaces/delete/{id}`): CE refuses a third
-   workspace besides `admins` ("You have reached the maximum number of
-   workspaces (2 outside of default workspace 'admins') without an
-   enterprise license"), and a workspace that cannot be deleted ends the
+   (`DELETE /workspaces/delete/{id}`): CE refuses a third workspace besides
+   `admins` ("You have reached the maximum number of workspaces (2 outside
+   of default workspace 'admins') without an enterprise license", observed
+   by E3c, E3a and E4a), and a workspace that cannot be deleted ends the
    session. Optionally run
    `folder add-missing` and `generate-metadata` in the fixture's sync tree
    (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)), and
@@ -65,8 +67,14 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    apply `setup.yaml` after the push
    ([OR-31](../../docs/semantics/oracle.md#or-31)); pass the deployment gate
    ([OR-9](../../docs/semantics/oracle.md#or-9)) and check each deployed
-   flow's module ids against the tree (OR-8/b).
-5. **Per run.** Pre-assign the root job id, open the sink for it, submit
+   flow's module ids against the tree (OR-8/b). A stub fixture pushes its
+   stubbed tree instead (see [Stub mode](#stub-mode)).
+5. **Per run.** Runs that share a `group` are submitted together, as
+   concurrent outer runs, and every other run alone; a group fails as a
+   whole when one of its runs fails (`group_member_failed`) or when their
+   root jobs were not in flight together by the oracle's timestamps
+   (`group_not_concurrent`). Pre-assign the root
+   job id, open the sink for it (and, in stub mode, the replay service), submit
    asynchronously and poll `get_result_maybe` until completion, never
    `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
    that times out is canceled, so it cannot hold the worker. Walk the run,
@@ -99,7 +107,10 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml`, the deployment gate and the deployed-module check. |
 | `apideploy.go` | The API deployment of a fixture with `oracle: {deploy: api}` (see below). |
-| `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root, and answers anything else with `{"error":"foreign_effect"}`. |
+| `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root of a run that is open (several can be, for concurrent outer runs), and answers anything else with `{"error":"foreign_effect"}`. It also serves the replay service at `/replay`. |
+| `stub.go`, `stubts.go` | Stub mode's generator: `StubTree` writes a stubbed copy of a sync tree, `StubSource` the stub of one Bun script, `CheckStubSignatures` compares schemas after `generate-metadata`. |
+| `locate.go` | The oracle's `Locator` for the replay service: the site of a stub's job in a run that is still in progress. |
+| `replay.go` | `checkReplay`, which holds a stub run's answered calls against its walk. |
 | `walk.go` | The walker ([OR-11](../../docs/semantics/oracle.md#or-11)). |
 | `record.go` | The session, `Observe` (walk to normalised observation) and provenance. |
 | `lint.go` | The repository checks: `LintImages` and `GuardManifests`. |
@@ -154,8 +165,110 @@ retry and at the end of the flow, and a `branchone` body, and added the
 first-site rule for a repeated attempt. E3d recorded collapsed and
 child-flow loops at two depths, parallel loops, while loops, `branchone`,
 sequential and parallel `branchall` with empty branches, early stops in
-bodies, and cached subflows, whose inner modules are `not_run` on a hit. The
-other recording batches confirm the rest.
+bodies, and cached subflows, whose inner modules are `not_run` on a hit.
+E4a's stub fixtures ([conformance/flows/stub](../../conformance/flows/stub))
+recorded failed attempts, sequential, collapsed, parallel and nested loop
+iterations and a named subflow. The other recording batches confirm the
+rest.
+
+## Stub mode
+
+Stub mode ([ADR 0011](../../docs/design/0011-differential-testing.md))
+compares the orchestration of flows whose steps need systems the oracle
+cannot reach. A fixture with `stub: true` is pushed with every script body
+replaced by a stub, and each run's `replay` table gives the stubs their
+outcomes; the service and the table format are in
+[internal/conformance](../conformance/README.md).
+
+**The stubbed push.** A stub fixture is always deployed through the CLI
+(`stub: true` with `oracle: {deploy: api}` is refused when the fixture
+loads, and again by the session). `StubTree` copies the fixture's tree and replaces the
+source of every Bun script and every `!inline` Bun rawscript of a flow,
+which it finds with [internal/syncfolder](../syncfolder/README.md). It
+refuses (`stub_unsupported`, with the file or step and the reason) a tree
+in which an executed script would keep its real body: another language, the
+`native` annotation, a rawscript whose content is written in `flow.yaml`, a
+step whose target is a hub path or not in the tree, a script step pinned by
+hash (it runs that deployed version, not the stub pushed at its path,
+[OF-14](../../docs/semantics/openflow.md#of-14)), a `flowscript` step, an
+AI-agent step, a retry on a subflow, loop or branch step (a failed attempt's inner steps
+are walked under `r:<k>`, which a table does not address), and a source
+`StubSource` refuses. The output must not lie inside the tree, which is
+decided by file identity (`os.SameFile` against each existing ancestor of
+the output, links resolved), so a symbolic link, another letter case on a
+case-insensitive file system or any other alias of the tree counts; a copy
+that fails removes the output and any parent directory it made. The CLI then runs
+`generate-metadata` in the copy,
+since its locks and `wmill-lock.yaml` still describe the originals, and
+`CheckStubSignatures` requires every path script's generated schema to
+equal the original's (`stub_signature_changed` otherwise): the CLI derives
+the schema from `main`'s signature, so equal schemas show the stub kept
+what Windmill's parser reads. Inline scripts have no schema; for them the
+scanner's cases and the arguments each recorded call shows are the
+evidence. The deployment report lists the stubbed files.
+
+**The stub.** `StubSource` keeps `main`'s declaration with its parameter
+list verbatim, because Windmill's parser finds a `function main`
+declaration, exported or not, and binds arguments by the names it finds
+there ([WR-6](../../docs/semantics/languages.md#wr-6),
+[WR-7](../../docs/semantics/languages.md#wr-7)). That `main` is declared
+with an empty body and never called, so its parameter defaults never run;
+the module exports `__wlMain` under the name `main`, which the wrapper calls
+with the bound arguments and in whose scope no user parameter (one named
+`Array`, say) can shadow what it uses. It also keeps every top-level type
+alias and interface verbatim, because the parser resolves local aliases to
+decide which parameters are hydrated as `Date`
+([WR-8](../../docs/semantics/languages.md#wr-8),
+[WR-V3](../../docs/semantics/languages.md#wr-v3)); types are erased before
+the code runs. It also keeps the `npm`, `nodejs`, `nobundling` and
+`sandbox` flags of the leading comment block, first in the stub, since they
+decide how Windmill runs the script
+([WR-31](../../docs/semantics/languages.md#wr-31)). Imports, top-level code
+and the body are dropped. The exported function
+POSTs `{root, root_flow, flow, job, step, args}` (the job identities of
+[OR-29](../../docs/semantics/oracle.md#or-29) and the arguments it received,
+in parameter order) to `$WL_EFFECT_SINK/replay`, then returns the outcome's
+result or throws its error as an `Error` with its name, message and other
+members as own properties, which the Bun wrapper stores under `extra`
+([OR-12](../../docs/semantics/oracle.md#or-12),
+[WR-18](../../docs/semantics/languages.md#wr-18)); a refused call is thrown
+as an `Error` naming the refusal. The scan is a small lexer that tracks
+bracket depth, so text in strings, comments, templates and regular
+expressions never counts as code. It refuses a script without a `function
+main` declaration (an arrow `main` gets no arguments from Windmill), one
+that is neither exported where it is declared nor through an export list
+(`export { main }`, `export { other as main }`; a type-only entry such as
+`export { type main }` exports nothing at run time), one re-exported from
+another module, a default-exported, generic, generator or overloaded
+`main`, and a `preprocessor`. At the top level, `type` and
+a name on one line before `=` or `<`, and `interface` and a name, are
+always a declaration; a type alias ends at `;` or at a line that does not
+continue it (one starting with `|`, `&`, `?`, `:`, `.` or `=>`, or
+following a token a type cannot end with), since TypeScript reads `[`, `<`
+and `extends` on a new line as a new statement.
+
+**Locating a call.** While a run is in progress, `Locator` walks its job
+tree from the root with the walker's rules and finds the calling job: a
+module's job, or one of its `failed_retries`, is at the module's site; a
+leaf in `flow_jobs` is a collapsed iteration at `i:<n>/m:<body>`; child
+flows (iterations, branch bodies, named subflows) are walked in turn; the
+slots are `s:failure` and `s:preprocessor`; a generated `-v` module and
+the lone entry of an empty flow are skipped; and, as for the walker, a
+container body carries the enclosing flow's failure module and the
+fixture's definition tells a `branchall`. A job not in its parent's status yet, or a walk that failed, is looked
+for again until the call's deadline (60 s), which reports the last walk's
+error. Completed jobs are cached. The attempt is the
+replay service's count of distinct jobs already seen at the site.
+
+**After the run.** `checkReplay` fails the run when a call was refused
+(`replay_miss`: the table has no outcome for the site and attempt;
+`replay_unresolved`), when a call's site and attempt disagree with where
+the walk put its job (`replay_site_mismatch`: a failed attempt `k` must be
+at `<site>/r:<k>`, the last job at `<site>` with `k` equal to the failed
+attempts before it), or when a walked job that executed a script never
+called (`stub_not_called`). The calls are then the run's effects, after the
+sink's, normalised like any value, so a recording holds each call's site,
+attempt, step id, job ids (as placeholders) and arguments.
 
 ## Normalisation and comparison
 
@@ -279,7 +392,16 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |
-| `TestSinkGroupsByOuterRoot` | OR-16/c | — |
+| `TestSinkGroupsByOuterRoot`, `TestSinkKeepsConcurrentRunsApart`, `TestSinkRoutesReplayCalls` | OR-16/c; two open runs each keep their own effects (OR-V6/a); `/replay` goes to the replay service | — |
+| `TestStubSourceCases`, `TestStubSourceGolden` | the stub of each source keeps `main`'s parameter list and the type declarations verbatim and drops the rest, and stubbing is idempotent; or the source is refused with its reason; one whole stub pinned | `testdata/stub/sources.json`, `testdata/stub/book.stub.ts` |
+| `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`, the hash-pinned script step and the `flowscript` step among them; the schema check | `conformance/flows/stub` |
+| `TestStubRunsOnBun` | a generated stub on the pinned Bun (`WL_BUN`) against the real replay service: the request it sends (identities, the hydrated `Date` as its JSON), an error outcome thrown with its name, message and own property, a result returned with its member order, a refusal thrown | `conformance/flows/stub/collapsed` |
+| `TestStubIsolationOnBun` | stubs on the pinned Bun with `fetch` recorded: a default that would call a service or name a dropped binding never runs, and a parameter or destructured binding named `Array` cannot reach the stub's code; the replay call is the only request. Each original runs through the same driver first, to show the recorder sees what a default does | — |
+| `TestStubTreeKeepsItsOutputOutsideTheTree`, `TestStubTreeRefusesACaseAlias` | an output inside the tree, directly, through a symbolic link, or through another letter case where the file system makes it the same directory, is refused with the tree unchanged (where the spellings are two directories, the stub is written); a failed copy removes its output and the parents it made | — |
+| `TestExportListsOnBun` | the scanner accepts a script exactly when importing it on the pinned Bun gives a callable `main` (export lists, type-only entries, aliases), and every accepted script's stub exports one too | — |
+| `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
+| `TestCheckReplay`, `TestCheckOverlap` | each failure of `checkReplay`; a group's root jobs in flight together | — |
+| `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes the stub fixtures job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; runs `r` and `t` run together and keep apart; `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
 | `TestSessionDeletesWorkspacesOnFailure` | a workspace whose check after creation or whose deployment gate failed is deleted too, and a workspace that cannot be deleted ends the session | the smoke fixture |

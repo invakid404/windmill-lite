@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
 // Sink is the effect sink of OR-16: an HTTP recorder on the harness host
@@ -15,18 +17,29 @@ import (
 //
 // An effect is a JSON object that carries "root" (WM_ROOT_JOB_ID), "job"
 // and "step". The sink groups effects by the outer run: it accepts one only
-// while a run is open and only if root is that run's submitted root, and
-// otherwise answers 409 with {"error":"foreign_effect"} and drops it
-// (OR-16/c, OR-V6). Arrival order is kept; with one worker it is execution
-// order.
+// if root is the submitted root of a run that is open, and otherwise
+// answers 409 with {"error":"foreign_effect"} and drops it (OR-16/c,
+// OR-V6). Several runs can be open at once, for concurrent outer runs.
+// Arrival order is kept per run; with one worker it is execution order.
+//
+// The same server answers stub calls at conformance.ReplayPath when Replay
+// is set (ADR 0011 stub mode).
 type Sink struct {
+	// Replay serves POST /replay; nil answers it as an ordinary effect.
+	Replay http.Handler
+
 	mu      sync.Mutex
-	root    string
-	effects []json.RawMessage
+	runs    map[string]*sinkRun
 	foreign int
 
 	srv *http.Server
 	ln  net.Listener
+}
+
+type sinkRun struct {
+	effects []json.RawMessage
+	// foreign is the sink's foreign count when the run was opened.
+	foreign int
 }
 
 // maxEffect bounds one effect body.
@@ -34,6 +47,10 @@ const maxEffect = 1 << 20
 
 // ServeHTTP implements the sink endpoint.
 func (s *Sink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.Replay != nil && r.URL.Path == conformance.ReplayPath {
+		s.Replay.ServeHTTP(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST an effect", http.StatusMethodNotAllowed)
 		return
@@ -51,15 +68,18 @@ func (s *Sink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	accepted := s.root != "" && probe.Root != nil && *probe.Root == s.root
-	if accepted {
-		s.effects = append(s.effects, json.RawMessage(append([]byte(nil), body...)))
+	var run *sinkRun
+	if probe.Root != nil {
+		run = s.runs[*probe.Root]
+	}
+	if run != nil {
+		run.effects = append(run.effects, json.RawMessage(append([]byte(nil), body...)))
 	} else {
 		s.foreign++
 	}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	if !accepted {
+	if run == nil {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write(ErrForeignEffect().JSON())
 		return
@@ -71,17 +91,23 @@ func (s *Sink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Sink) Open(root string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.root, s.effects, s.foreign = root, nil, 0
+	if s.runs == nil {
+		s.runs = map[string]*sinkRun{}
+	}
+	s.runs[root] = &sinkRun{foreign: s.foreign}
 }
 
-// Close stops collecting and returns the run's effects and the number of
-// foreign effects refused while it was open.
-func (s *Sink) Close() (effects []json.RawMessage, foreign int) {
+// Close stops collecting the run's effects and returns them, with the
+// number of foreign effects refused while it was open.
+func (s *Sink) Close(root string) (effects []json.RawMessage, foreign int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	effects, foreign = s.effects, s.foreign
-	s.root, s.effects, s.foreign = "", nil, 0
-	return effects, foreign
+	r := s.runs[root]
+	delete(s.runs, root)
+	if r == nil {
+		return nil, 0
+	}
+	return r.effects, s.foreign - r.foreign
 }
 
 // Listen starts serving on addr (host:port; port 0 picks one) and returns

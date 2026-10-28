@@ -1,0 +1,297 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      {
+        "held": 1,
+        "item": "apple"
+      },
+      {
+        "held": 2,
+        "item": "pear"
+      },
+      {
+        "held": 3,
+        "item": "fig"
+      }
+    ],
+    "steps": {
+      "m:loop": {
+        "status": "success",
+        "result": [
+          {
+            "held": 1,
+            "item": "apple"
+          },
+          {
+            "held": 2,
+            "item": "pear"
+          },
+          {
+            "held": 3,
+            "item": "fig"
+          }
+        ]
+      },
+      "m:loop/i:0/m:call": {
+        "status": "success",
+        "args": {
+          "item": "apple"
+        },
+        "result": {
+          "held": 1,
+          "item": "apple"
+        }
+      },
+      "m:loop/i:1/m:call": {
+        "status": "success",
+        "args": {
+          "item": "pear"
+        },
+        "result": {
+          "held": 2,
+          "item": "pear"
+        }
+      },
+      "m:loop/i:1/m:call/r:0": {
+        "status": "failure",
+        "args": {
+          "item": "pear"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "inventory busy",
+            "step_id": "call"
+          }
+        }
+      },
+      "m:loop/i:2/m:call": {
+        "status": "success",
+        "args": {
+          "item": "fig"
+        },
+        "result": {
+          "held": 3,
+          "item": "fig"
+        }
+      },
+      "m:loop/i:2/m:call/r:0": {
+        "status": "failure",
+        "args": {
+          "item": "fig"
+        },
+        "result": {
+          "error": {
+            "name": "Busy",
+            "extra": {
+              "retry_in": 0
+            },
+            "stack": "<stack>",
+            "message": "inventory busy",
+            "step_id": "call"
+          }
+        }
+      },
+      "m:loop/i:2/m:call/r:1": {
+        "status": "failure",
+        "args": {
+          "item": "fig"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "inventory busy",
+            "step_id": "call"
+          }
+        }
+      }
+    },
+    "effects": [
+      {
+        "site": "m:loop/i:0/m:call",
+        "attempt": 0,
+        "step": "call",
+        "job": "<job:m:loop/i:0/m:call>",
+        "flow": "<job:m:loop/i:0>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "apple"
+        ]
+      },
+      {
+        "site": "m:loop/i:1/m:call",
+        "attempt": 0,
+        "step": "call",
+        "job": "<job:m:loop/i:1/m:call/r:0>",
+        "flow": "<job:m:loop/i:1>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "pear"
+        ]
+      },
+      {
+        "site": "m:loop/i:1/m:call",
+        "attempt": 1,
+        "step": "call",
+        "job": "<job:m:loop/i:1/m:call>",
+        "flow": "<job:m:loop/i:1>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "pear"
+        ]
+      },
+      {
+        "site": "m:loop/i:2/m:call",
+        "attempt": 0,
+        "step": "call",
+        "job": "<job:m:loop/i:2/m:call/r:0>",
+        "flow": "<job:m:loop/i:2>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "fig"
+        ]
+      },
+      {
+        "site": "m:loop/i:2/m:call",
+        "attempt": 1,
+        "step": "call",
+        "job": "<job:m:loop/i:2/m:call/r:1>",
+        "flow": "<job:m:loop/i:2>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "fig"
+        ]
+      },
+      {
+        "site": "m:loop/i:2/m:call",
+        "attempt": 2,
+        "step": "call",
+        "job": "<job:m:loop/i:2/m:call>",
+        "flow": "<job:m:loop/i:2>",
+        "root_flow": "<job:>",
+        "root": "<job:>",
+        "args": [
+          "fig"
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261028123756-6518515abbc5",
+      "revision": "6518515abbc55925517337710505f5c02405d274",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40689406044"
+    },
+    "recorded_at": "2026-10-28T12:52:00Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:33677"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 604,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-28T12:51:59.779249Z",
+          "started_at": "2026-10-28T12:51:59.829020Z",
+          "completed_at": "2026-10-28T12:52:00.289056Z",
+          "duration_ms": 460
+        },
+        "m:loop/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-28T12:51:59.830125Z",
+          "started_at": "2026-10-28T12:51:59.833092Z",
+          "completed_at": "2026-10-28T12:51:59.867168Z",
+          "duration_ms": 34
+        },
+        "m:loop/i:0/m:call": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:51:59.835840Z",
+          "started_at": "2026-10-28T12:51:59.837826Z",
+          "completed_at": "2026-10-28T12:51:59.864270Z",
+          "duration_ms": 24
+        },
+        "m:loop/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-10-28T12:51:59.870219Z",
+          "started_at": "2026-10-28T12:51:59.915911Z",
+          "completed_at": "2026-10-28T12:52:00.032073Z",
+          "duration_ms": 116
+        },
+        "m:loop/i:1/m:call": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:51:59.956682Z",
+          "started_at": "2026-10-28T12:52:00.002561Z",
+          "completed_at": "2026-10-28T12:52:00.028034Z",
+          "duration_ms": 23
+        },
+        "m:loop/i:1/m:call/r:0": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:51:59.920339Z",
+          "started_at": "2026-10-28T12:51:59.923842Z",
+          "completed_at": "2026-10-28T12:51:59.950674Z",
+          "duration_ms": 27
+        },
+        "m:loop/i:2": {
+          "kind": "flownode",
+          "created_at": "2026-10-28T12:52:00.036054Z",
+          "started_at": "2026-10-28T12:52:00.079664Z",
+          "completed_at": "2026-10-28T12:52:00.282492Z",
+          "duration_ms": 203
+        },
+        "m:loop/i:2/m:call": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:52:00.200014Z",
+          "started_at": "2026-10-28T12:52:00.247727Z",
+          "completed_at": "2026-10-28T12:52:00.276549Z",
+          "duration_ms": 26
+        },
+        "m:loop/i:2/m:call/r:0": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:52:00.083743Z",
+          "started_at": "2026-10-28T12:52:00.086035Z",
+          "completed_at": "2026-10-28T12:52:00.113589Z",
+          "duration_ms": 28
+        },
+        "m:loop/i:2/m:call/r:1": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T12:52:00.118520Z",
+          "started_at": "2026-10-28T12:52:00.167102Z",
+          "completed_at": "2026-10-28T12:52:00.194826Z",
+          "duration_ms": 28
+        }
+      }
+    }
+  }
+}

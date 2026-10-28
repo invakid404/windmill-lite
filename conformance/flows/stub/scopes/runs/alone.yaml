@@ -1,0 +1,43 @@
+# One outer run: the subflow's step and both parallel iterations report the
+# submitted root as WM_ROOT_JOB_ID and their own scope as
+# WM_ROOT_FLOW_JOB_ID (OR-V6, Q-OR-10).
+target: f/wl_stub/notify
+args: {team: core}
+replay:
+  "m:who/m:lookup": {result: [ana, ben]}
+  "m:send/i:0/m:post": {result: {to: ana, sent: true}}
+  "m:send/i:1/m:post": {result: {to: ben, sent: true}}
+expect:
+  status: success
+  result: [{to: ana, sent: true}, {to: ben, sent: true}]
+  steps:
+    "m:send": {status: success, result: [{to: ana, sent: true}, {to: ben, sent: true}]}
+    "m:who": {status: success, args: {team: core}, result: [ana, ben]}
+    "m:who/m:lookup": {status: success, args: {team: core}, result: [ana, ben]}
+    "m:send/i:0/m:post": {status: success, args: {team: core, to: ana}, result: {to: ana, sent: true}}
+    "m:send/i:1/m:post": {status: success, args: {team: core, to: ben}, result: {to: ben, sent: true}}
+  effects:
+    - site: "m:who/m:lookup"
+      attempt: 0
+      step: lookup
+      job: "<job:m:who/m:lookup>"
+      flow: "<job:m:who>"
+      root_flow: "<job:m:who>"
+      root: "<job:>"
+      args: [core]
+    - site: "m:send/i:0/m:post"
+      attempt: 0
+      step: post
+      job: "<job:m:send/i:0/m:post>"
+      flow: "<job:m:send/i:0>"
+      root_flow: "<job:m:send/i:0>"
+      root: "<job:>"
+      args: [ana, core]
+    - site: "m:send/i:1/m:post"
+      attempt: 0
+      step: post
+      job: "<job:m:send/i:1/m:post>"
+      flow: "<job:m:send/i:1>"
+      root_flow: "<job:m:send/i:1>"
+      root: "<job:>"
+      args: [ben, core]

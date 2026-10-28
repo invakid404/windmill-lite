@@ -1,0 +1,12 @@
+# Stub mode (ADR 0011): nested loops. The outer body is a loop and the
+# inner body has two steps, so neither collapses (CF-8); every leaf is at
+# m:outer/i:<r>/m:inner/i:<c>/m:<step>. The inner iteration sees the outer
+# one as flow_input.iter_parent (CF-3). Synthetic, written for this
+# repository.
+id: stub/nested
+spec: [OR-11, CF-1, CF-3, CF-4, CF-9]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, effects: true}
+stub: true

@@ -381,7 +381,7 @@ func (c *ExprCase) Claims() []Claim {
 		if e.Status != "" {
 			s = e.Status
 		}
-		return Claim{At: "/status", Equals: jsonText(s)}
+		return Claim{At: "/status", Equals: rawString(s)}
 	}
 	switch {
 	case e.Value != nil:
@@ -392,9 +392,9 @@ func (c *ExprCase) Claims() []Claim {
 	case e.Skipped != nil && *e.Skipped:
 		return []Claim{status("success"), {At: step + "/skipped", Equals: json.RawMessage("true")}}
 	case e.Skipped != nil:
-		return []Claim{status("success"), {At: step + "/skipped", Absent: true}, {At: step + "/status", Equals: jsonText("success")}}
+		return []Claim{status("success"), {At: step + "/skipped", Absent: true}, {At: step + "/status", Equals: rawString("success")}}
 	case e.Error != nil:
-		return append([]Claim{status("failure"), {At: step + "/status", Equals: jsonText("failure")}}, e.Error.Claims(step+"/result/error")...)
+		return append([]Claim{status("failure"), {At: step + "/status", Equals: rawString("failure")}}, e.Error.Claims(step+"/result/error")...)
 	}
 	return append([]Claim{status("failure")}, e.FlowError.Claims("/result/error")...)
 }
