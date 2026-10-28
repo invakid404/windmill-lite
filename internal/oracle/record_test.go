@@ -163,10 +163,13 @@ type fakeOracle struct {
 	jobs    map[string]fakeJob
 	n       int
 	runs    int
+	// workspaces holds the workspaces besides admins; CE refuses a third.
+	workspaces map[string]bool
+	created    int
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
-	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}}
+	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}}
 }
 
 func (o *fakeOracle) newID() string {
@@ -193,7 +196,24 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(200, "session-token")
 		return
 	case p == "/workspaces/create":
+		if len(o.workspaces) >= 2 {
+			write(400, "Bad request: You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one")
+			return
+		}
+		var body struct{ ID string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		o.workspaces[body.ID] = true
+		o.created++
 		write(201, "created")
+		return
+	case strings.HasPrefix(p, "/workspaces/delete/") && r.Method == http.MethodDelete:
+		id := strings.TrimPrefix(p, "/workspaces/delete/")
+		if !o.workspaces[id] {
+			write(404, "not found")
+			return
+		}
+		delete(o.workspaces, id)
+		write(200, "deleted")
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer session-token" {
@@ -484,6 +504,33 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// TestSessionDeletesEachWorkspace records three fixtures in one session on
+// an oracle that, like CE, refuses a third workspace besides admins: each
+// fixture's workspace is deleted once its runs are recorded, so every
+// fixture gets a fresh one and none is left.
+func TestSessionDeletesEachWorkspace(t *testing.T) {
+	rig := newRig(t)
+	fixtures := []*conformance.Fixture{rig.load(t), rig.load(t), rig.load(t)}
+	s := rig.session(20 * GiB)
+	s.Repeat = 1
+	s.Check = true
+	rep, err := s.Run(context.Background(), fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Runs) != 9 {
+		t.Fatalf("%d runs, want 9", len(rep.Runs))
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("%s %s: %s %s", r.Fixture, r.Run, r.Outcome, r.Error)
+		}
+	}
+	if rig.oracle.created != 3 || len(rig.oracle.workspaces) != 0 {
+		t.Fatalf("created %d workspaces, %d left", rig.oracle.created, len(rig.oracle.workspaces))
+	}
 }
 
 // TestSessionUnstableObservation is OR-14/a: repeated runs must observe

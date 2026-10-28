@@ -1,0 +1,13 @@
+# JE-3: an evaluation is capped at 128 MiB of heap, and a null throw is
+# reported as running out of it.
+finding: JE-3
+scope: later
+cases:
+  - spec: JE-3/a
+    provenance: source-derived
+    title: a null throw is reported as out of memory
+    expr: '(() => { throw null })()'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: [exceeded the memory limit of 128 MB]

@@ -460,18 +460,25 @@ func (s *walkState) branchOne(site conformance.SitePath, id string, bc *BranchCh
 // module's result is the aggregate of the children's results in index
 // order; with no children it did not run one (OR-26, OR-V2).
 func (s *walkState) container(site conformance.SitePath, e FlowStatusModule, def *openflow.Module, rec *conformance.StepObservation) error {
+	// A completed branchall's entry has no branchall field (recorded on
+	// the oracle, batch E3a), so the fixture's definition decides when it
+	// has one; the field decides only for a module the fixture does not
+	// define.
 	branchAll := e.BranchAll != nil
 	var bodies [][]openflow.Module
 	if def != nil {
 		switch v := def.Value.(type) {
 		case *openflow.ForLoop:
 			bodies = [][]openflow.Module{v.Modules}
+			branchAll = false
 		case *openflow.WhileLoop:
 			bodies = [][]openflow.Module{v.Modules}
+			branchAll = false
 		case *openflow.BranchAll:
 			for _, b := range v.Branches {
 				bodies = append(bodies, b.Modules)
 			}
+			branchAll = true
 		}
 	}
 	body := func(i int) flowDef {

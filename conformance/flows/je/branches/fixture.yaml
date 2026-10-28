@@ -2,7 +2,7 @@
 # cases that N3b implements. Synthetic, written for this repository from
 # docs/semantics/conformance.md.
 id: je/branches
-spec: [JE-24/a, JE-27/a, JE-27/b, JE-31/a, JE-31/b, JE-36/d, JE-36/f]
+spec: [JE-24/a, JE-27/a, FX-19, JE-27/b, JE-31/a, JE-31/b, JE-36/d, JE-36/f]
 scope: core
 provenance: source-derived
 languages: [bun]

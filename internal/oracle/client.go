@@ -195,6 +195,15 @@ func (c *Client) CreateWorkspace(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteWorkspace deletes a workspace, as the seeded superadmin. CE allows
+// two workspaces besides admins, so a session deletes each fixture's
+// workspace once its runs are recorded (observed on the oracle; OR-6 does
+// not state the limit).
+func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/workspaces/delete/"+url.PathEscape(id), nil, nil, http.StatusOK)
+	return err
+}
+
 // QueueCount returns database_length of GET /w/{ws}/jobs/queue/count.
 func (c *Client) QueueCount(ctx context.Context, workspace string) (int, error) {
 	var v struct {

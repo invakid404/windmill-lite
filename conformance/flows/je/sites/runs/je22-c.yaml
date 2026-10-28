@@ -1,7 +1,10 @@
-spec: [JE-22/c]
+# JE-22/c: a clean stop with skip_if_stopped leaves the flow skipped (FX-19).
+spec: [JE-22/c, FX-19]
 target: f/wl_je_sites/je22_c
 claims:
   - at: /status
-    equals: success
+    equals: skipped
+  - at: /steps/m:b/skipped
+    equals: true
   - at: /steps/m:c/status
     equals: not_run

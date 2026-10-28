@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -490,4 +492,95 @@ func expressionAt(m openflow.Module, input string) (string, bool, error) {
 		return it.Expr, false, nil
 	}
 	return "", false, fmt.Errorf("module %s has no javascript %s", m.ID, input)
+}
+
+// TestBatchCoverage accounts for every JE case of the conformance
+// catalogue and every CF-19 and CF-V6 case (the batch of ADR 0012's E3a):
+// each is the spec of an expression case or of a flow fixture's run, or is
+// deferred with a reason and the milestone that checks it
+// (conformance/exprs/deferred.yaml).
+func TestBatchCoverage(t *testing.T) {
+	root := repoRoot(t)
+	catalogue, err := os.ReadFile(filepath.Join(root, "docs/semantics/conformance.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseLine := regexp.MustCompile(`(?m)^- \*\*((?:JE-V?[0-9]+|CF-19|CF-V6)/[a-z])\*\*`)
+	inCatalogue := map[string]bool{}
+	var cases []string
+	for _, m := range caseLine.FindAllSubmatch(catalogue, -1) {
+		cases = append(cases, string(m[1]))
+		inCatalogue[string(m[1])] = true
+	}
+	if len(cases) < 150 {
+		t.Fatalf("found only %d JE, CF-19 and CF-V6 cases in the catalogue", len(cases))
+	}
+	encoded := map[string]bool{}
+	for _, f := range loadExprFiles(t) {
+		for _, c := range f.Cases {
+			encoded[c.Spec] = true
+		}
+	}
+	dirs, err := conformance.FindFixtures(flowsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dirs {
+		f, err := conformance.LoadFixture(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range f.Runs {
+			for _, s := range r.Spec {
+				encoded[s] = true
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(exprsDir, conformance.ExprDeferredFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := conformance.YAMLToJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Deferred []struct {
+			Case, Reason string
+			CheckedIn    string `json:"checked_in"`
+		} `json:"deferred"`
+		Partial []struct {
+			Case, Recorded, Remaining string
+			CheckedIn                 string `json:"checked_in"`
+		} `json:"partial"`
+	}
+	dec := json.NewDecoder(strings.NewReader(string(j)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	deferred := map[string]bool{}
+	for _, d := range list.Deferred {
+		switch {
+		case !inCatalogue[d.Case]:
+			t.Errorf("deferred.yaml lists %s, which the catalogue does not have", d.Case)
+		case d.Reason == "" || d.CheckedIn == "":
+			t.Errorf("%s: a deferred case needs a reason and checked_in", d.Case)
+		case encoded[d.Case]:
+			t.Errorf("%s is encoded and also deferred", d.Case)
+		case deferred[d.Case]:
+			t.Errorf("%s is deferred twice", d.Case)
+		}
+		deferred[d.Case] = true
+	}
+	for _, p := range list.Partial {
+		if !encoded[p.Case] || p.Recorded == "" || p.Remaining == "" || p.CheckedIn == "" {
+			t.Errorf("%s: a partial case must be encoded and say what is recorded, what remains and where", p.Case)
+		}
+	}
+	for _, c := range cases {
+		if !encoded[c] && !deferred[c] {
+			t.Errorf("%s is neither encoded nor listed in conformance/exprs/deferred.yaml", c)
+		}
+	}
 }

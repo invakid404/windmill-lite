@@ -1,7 +1,9 @@
-spec: [JE-27/a]
+spec: [JE-27/a, FX-19]
 target: f/wl_je_loops/je27_a
 claims:
   - at: /status
-    equals: success
+    equals: skipped
+  - at: /steps/m:l/skipped
+    equals: true
   - at: /steps/m:c/status
     equals: not_run

@@ -2487,6 +2487,190 @@
      }
     }
    }
+  },
+  {
+   "name": "OR-26: a completed branchall as the oracle records it, with no branchall field, keeps the branch segments from the flow definition",
+   "spec": [
+    "OR-26",
+    "OR-11"
+   ],
+   "provenance": "oracle-observed",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "ba",
+      "value": {
+       "type": "branchall",
+       "branches": [
+        {
+         "modules": [
+          {
+           "id": "s",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        },
+        {
+         "modules": [
+          {
+           "id": "t",
+           "value": {
+            "type": "rawscript",
+            "language": "bun",
+            "content": "export function main() {}"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     },
+     {
+      "id": "c",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "skipped": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "ba",
+        "job": "${p1}",
+        "skipped": true,
+        "flow_jobs": [
+         "${p0}",
+         "${p1}"
+        ],
+        "flow_jobs_success": [
+         true,
+         true
+        ]
+       },
+       {
+        "type": "WaitingForPriorSteps",
+        "id": "c"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      1,
+      2
+     ]
+    },
+    "p0": {
+     "kind": "flownode",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "s",
+        "job": "${sj}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 1
+    },
+    "sj": {
+     "kind": "script",
+     "success": true,
+     "args": {
+      "x": 1
+     },
+     "result": 1
+    },
+    "p1": {
+     "kind": "flownode",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "t",
+        "job": "${tj}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": 2
+    },
+    "tj": {
+     "kind": "script",
+     "success": true,
+     "args": {
+      "x": 2
+     },
+     "result": 2
+    }
+   },
+   "expect": {
+    "status": "skipped",
+    "result": [
+     1,
+     2
+    ],
+    "steps": {
+     "m:ba": {
+      "status": "success",
+      "skipped": true,
+      "result": [
+       1,
+       2
+      ]
+     },
+     "m:ba/b:0/m:s": {
+      "status": "success",
+      "args": {
+       "x": 1
+      },
+      "result": 1
+     },
+     "m:ba/b:1/m:t": {
+      "status": "success",
+      "args": {
+       "x": 2
+      },
+      "result": 2
+     },
+     "m:c": {
+      "status": "not_run",
+      "ran": false
+     }
+    }
+   }
   }
  ]
 }

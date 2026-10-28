@@ -5,6 +5,7 @@
 id: je/sites
 spec:
   - JE-22/c
+  - FX-19
   - JE-23/c
   - JE-25/a
   - JE-26/a
