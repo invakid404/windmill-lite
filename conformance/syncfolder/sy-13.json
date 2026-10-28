@@ -1,0 +1,368 @@
+{
+  "finding": "SY-13",
+  "cases": [
+    {
+      "spec": "SY-13/a",
+      "provenance": "source-derived",
+      "title": "extraIncludes narrows",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/**']\nextraIncludes: ['f/a/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "u/me/z.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "f/b/y",
+            "u/me/z"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/b/y": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "extraIncludes"
+                ]
+              }
+            },
+            "u/me/z": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "no includes glob"
+                ]
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "title": "skip switches",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nskipScripts: true\nskipFlows: true\nskipResources: true\nskipVariables: true\nskipResourceTypes: true\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/r.resource.yaml": "value: 1\n",
+          "f/a/v.variable.yaml": "value: v\n",
+          "t.resource-type.yaml": "schema: {}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [],
+          "flow": [],
+          "resource": [],
+          "variable": [],
+          "resource_type": []
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "skipScripts"
+                ]
+              }
+            }
+          },
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "skipFlows"
+                ]
+              }
+            }
+          },
+          "resource": {
+            "f/a/r": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "skipResources"
+                ]
+              }
+            }
+          },
+          "variable": {
+            "f/a/v": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "skipVariables"
+                ]
+              }
+            }
+          },
+          "resource_type": {
+            "t": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "skipResourceTypes"
+                ]
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "policy",
+      "note": "a reading: each item is filtered by its main file (a script's source, a flow's flow.yaml, a resource or variable file)",
+      "title": "a flow is filtered by its flow.yaml",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/a/**']\n",
+          "f/a/x.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/b/y.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x"
+          ]
+        },
+        "filtered": {
+          "flow": [
+            "f/b/y"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "note": "filters apply to files, so the excluded source is not a second source",
+      "title": "filtering a duplicate away",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nexcludes: ['**/*.py']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.py": "x\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/file": "f/a/x.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "policy",
+      "title": "a value of the wrong type",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: node\n"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "invalid_config",
+          "contains": [
+            "defaultTs must be \"bun\" or \"deno\""
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "policy",
+      "title": "includes must be a list",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: f/**\n"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "invalid_config",
+          "contains": [
+            "includes must be a list of strings"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "policy",
+      "policy": "ADR 0001 §5a: globs outside the syntax minimatch 9 and 10 read alike",
+      "title": "an unsupported glob",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/**/*.@(ts|py)']\n"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "unsupported_glob",
+          "contains": [
+            "extglob"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "title": "a top-level overrides",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\noverrides:\n  skipSecrets: false\n"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "invalid_config",
+          "contains": [
+            "overrides"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "policy",
+      "title": "wmill.yaml must be a mapping",
+      "given": {
+        "files": {
+          "wmill.yaml": "- a\n"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "invalid_config"
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "title": "an empty wmill.yaml",
+      "given": {
+        "files": {
+          "wmill.yaml": "",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          }
+        },
+        "warnings": [
+          "no defaultTs"
+        ]
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "note": "minimatch reads a character outside the Basic Multilingual Plane as two code units, so ?? matches it and ? does not; observed on minimatch 9.0.9 and 10.2.6",
+      "title": "globs count UTF-16 code units: includes",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/??.ts']\n",
+          "f/😀.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/😀"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "f/a"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "note": "? takes one code unit, so it excludes f/a.ts and not f/😀.ts; [😀] is a class of the character's two halves, so with * after it, it matches a name that starts with the character",
+      "title": "globs count UTF-16 code units: excludes",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nexcludes: ['f/?.ts', 'f/[😀]*']\n",
+          "f/😀.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b😀.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/b😀"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "f/a",
+            "f/😀"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "note": "minimatch's ** does not match a segment that starts with a dot",
+      "title": "dot files and the dot rule",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/**']\n",
+          "f/a/.x.resource.yaml": "value: 1\n",
+          "f/a/y.resource.yaml": "value: 2\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource": [
+            "f/a/y"
+          ]
+        },
+        "filtered": {
+          "resource": [
+            "f/a/.x"
+          ]
+        }
+      }
+    }
+  ]
+}

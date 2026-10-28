@@ -1,0 +1,117 @@
+{
+  "finding": "SY-V2",
+  "cases": [
+    {
+      "spec": "SY-V2/a",
+      "provenance": "source-derived",
+      "title": "excludes only",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nexcludes: ['u/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "u/me/y.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "u/me/y"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-V2/b",
+      "provenance": "source-derived",
+      "title": "explicitly empty includes",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: []\nexcludes: ['u/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": []
+        },
+        "filtered": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "empty list"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V2/c",
+      "provenance": "source-derived",
+      "title": "extraIncludes alone",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nextraIncludes: ['u/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-V2/d",
+      "provenance": "source-derived",
+      "title": "resource-type bypass",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/**']\n",
+          "x.resource-type.yaml": "schema: {}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource_type": [
+            "x"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-V2",
+      "provenance": "source-derived",
+      "note": "neither list has entries, so the filter is not active",
+      "title": "includes absent with an empty excludes list",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: []\nexcludes: []\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        }
+      }
+    }
+  ]
+}

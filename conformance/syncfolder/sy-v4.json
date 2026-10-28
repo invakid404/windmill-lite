@@ -1,0 +1,32 @@
+{
+  "finding": "SY-V4",
+  "cases": [
+    {
+      "spec": "SY-V4/a",
+      "provenance": "source-derived",
+      "scope": "later",
+      "policy": "ADR 0002: the root is always the directory of wmill.yaml",
+      "note": "the CLI would walk sub/ and see f/demo/example; windmill-lite walks the config directory, where sub/ is not an item directory and f/demo/sibling is",
+      "title": "cwd-relative paths",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnoCdToRoot: true\n",
+          "sub/f/demo/example.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/demo/sibling.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        },
+        "start": "sub"
+      },
+      "expect": {
+        "root": ".",
+        "paths": {
+          "flow": [
+            "f/demo/sibling"
+          ]
+        },
+        "warnings": [
+          "noCdToRoot"
+        ]
+      }
+    }
+  ]
+}

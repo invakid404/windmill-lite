@@ -1,0 +1,30 @@
+{
+  "note": "Catalogue SY and PA cases that are not sync-folder cases here. Each names why and where it is checked. The test in internal/syncfolder fails unless every SY and PA case of docs/semantics/conformance.md is a case in this directory or listed here.",
+  "deferred": [
+    {
+      "spec": "SY-6/c",
+      "reason": "what a pull writes after a deploy; the loader reads whatever form the folder holds. The pull round trip is an optional oracle corroboration (Q-OF-1)",
+      "expected_in": "E3e"
+    },
+    {
+      "spec": "SY-9/a",
+      "reason": "the YAML dialect's own cases",
+      "expected_in": "internal/yamlx/testdata/sy9.json (A2)"
+    },
+    {
+      "spec": "SY-9/b",
+      "reason": "the YAML dialect's own cases",
+      "expected_in": "internal/yamlx/testdata/sy9.json (A2)"
+    },
+    {
+      "spec": "SY-9/c",
+      "reason": "the YAML dialect's own cases",
+      "expected_in": "internal/yamlx/testdata/sy9.json (A2)"
+    },
+    {
+      "spec": "PA-3/a",
+      "reason": "a schema clean-up for typed client generation, not the loader",
+      "expected_in": "F7c and F7d (windmill-lite gen)"
+    }
+  ]
+}

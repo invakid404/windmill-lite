@@ -1,0 +1,163 @@
+{
+  "finding": "SY-2",
+  "cases": [
+    {
+      "spec": "SY-2/a",
+      "provenance": "source-derived",
+      "title": "two sources for one path",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.py": "def main():\n    return 1\n",
+          "f/a/x.script.yaml": "summary: x\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "duplicate_path",
+                "contains": [
+                  "f/a/x.py",
+                  "f/a/x.ts"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "duplicate_path"
+        }
+      }
+    },
+    {
+      "spec": "SY-2",
+      "provenance": "policy",
+      "title": "metadata without a source",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.script.yaml": "summary: x\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "missing_source",
+                "contains": [
+                  "f/a/x.script.yaml"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-2",
+      "provenance": "policy",
+      "scope": "later",
+      "title": "the __mod layout is later scope",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x__mod/script.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x__mod/script.yaml": "summary: x\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "unsupported_feature",
+                "contains": [
+                  "unsupported: multi-file script"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-2",
+      "provenance": "policy",
+      "scope": "out",
+      "title": "JSON-mode metadata is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.json": "{\"summary\": \"x\"}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "unsupported_feature",
+                "contains": [
+                  "unsupported: JSON-mode metadata"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-2",
+      "provenance": "source-derived",
+      "note": "the first-dot rule maps f/a/x.test.ts to f/a/x as well",
+      "title": "a test file next to its script is a second source",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.test.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "duplicate_path",
+                "contains": [
+                  "f/a/x.test.ts",
+                  "f/a/x.ts"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

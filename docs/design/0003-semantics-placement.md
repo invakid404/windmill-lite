@@ -287,9 +287,9 @@ figures show the trend, not the gate.
 Every Windmill rule is single-sourced in one implementation, so the suite's
 job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
-as hand-written YAML and JSON, at three run levels, two levels that observe
-no run (decode and jsonb) and one protocol level (whose golden payloads the
-Go run writes):
+as hand-written YAML and JSON, at three run levels, three levels that
+observe no run (decode, jsonb and load) and one protocol level (whose golden
+payloads the Go run writes):
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
@@ -298,6 +298,7 @@ Go run writes):
 | expr | `conformance/exprs/<case>.yaml` | a **context-free** expression: an input transform or predicate of a flow's first step, with `flow_input` and `flow_env` as its only bound values (producer text; the stored form is derived with `jsonval`), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
 | decode | `conformance/openflow/<finding>.json` | an OpenFlow flow value as JSON and the effective decoder's decision: the rejection's message substrings, or parts of the accepted value's decoded form ([OF-2](../semantics/openflow.md#of-2)) | Go `internal/openflow` tests; on the oracle, a create-flow request once [Q-OF-2](../semantics/openflow.md#q-of-2) is recorded |
 | jsonb | `conformance/jsonb/<finding>.yaml` | a producer text and its stored text or the rejection jsonb gives it ([FX-42](../semantics/execution.md#fx-42), [JE-44](../semantics/expressions.md#je-44), [FX-48](../semantics/execution.md#fx-48)); for a catalogue case, also the form its consumer reads and the top-level key order expected there | Go `internal/jsonval` tests; PostgreSQL in the oracle's pinned image ([0005](0005-json-step-boundaries.md)) |
+| load | `conformance/syncfolder/<finding>.json` | a sync folder as a map of files and what the loader makes of it: whether it opens, the items it lists or filters out, and parts of the records it reads or their errors ([SY-1](../semantics/openflow.md#sy-1) to [SY-15](../semantics/openflow.md#sy-15)) | Go `internal/syncfolder` tests |
 | protocol | `conformance/protocol/frames.json`, `conformance/protocol/exchanges/<case>.json` | the harness protocol of [0004](0004-harness-protocol.md), which is windmill-lite's own (provenance `policy`): golden frames of the codec (a message and its canonical payload, a part split, a byte stream and the protocol error it raises), and exchange transcripts (the frames the engine sends and those the harness must answer with) over a synthetic fixture bundle | Go `internal/harness` tests, the exchanges against the real harness on the pinned runtime; each harness's own developer tests run the codec cases |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
@@ -363,6 +364,10 @@ validation with `contextual_case_needs_flow_fixture`.
   value's stored text is observed without a run, and the canonicaliser is Go
   only. Its catalogue cases are flow cases whose texts it checks; each names
   the milestone that checks its route.
+- The load level was added with milestone A4, for the same reasons: reading
+  a sync folder has no run to observe, and the loader is Go only. A load
+  case may also cite only its finding, for a case that extends the
+  catalogue.
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that
@@ -374,4 +379,5 @@ validation with `contextual_case_needs_flow_fixture`.
 ## Spec IDs relied on
 
 FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, JE-48, WR-6 to WR-21,
-OR-15, and the conformance catalogue's notation and provenance rules.
+OR-15, SY-1 to SY-15, and the conformance catalogue's notation and
+provenance rules.
