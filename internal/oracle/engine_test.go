@@ -25,9 +25,11 @@ import (
 // leaf job is a stub that POSTs its call to the replay service and takes
 // its outcome, failed steps are retried, a sequential loop with a one-step
 // plain body collapses into leaf iterations, parallel iterations run at
-// once, and named subflows are child flows. Its environment values follow
-// OR-V6: a named subflow and a parallel iteration are new innermost root
-// flows; WM_ROOT_JOB_ID is always the submitted root. It models only what
+// once, and named subflows are child flows. Its environment values are
+// those the stub recordings observed on the oracle (OR-V6, Q-OR-10): a
+// named subflow and a parallel iteration are new innermost root flows,
+// sequential iterations and collapsed bodies are not, and WM_ROOT_JOB_ID
+// is always the submitted root. It models only what
 // the stub fixtures use: transforms that read flow_input or results by a
 // dotted path, and static ones.
 type fakeEngine struct {
