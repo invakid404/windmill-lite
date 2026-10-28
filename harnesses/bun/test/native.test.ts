@@ -232,35 +232,146 @@ describe("a native realm", () => {
     }
   });
 
-  test("what a web API returns is the calling invocation's: promises of its realm, objects of its classes (c3n review, finding 1)", async () => {
+  // A native job registered for an async-context store, as Native.run
+  // registers one, and the store to run its code in.
+  const registered = () => {
     const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {} });
     native.capture();
     const resources = new InvocationResources();
     const ctx: InvocationContext = { id: "i", run: "r", env: {}, signal: new AbortController().signal, resources };
     const j = native.open({ id: "i", script: "s", entry: "main", args: {}, env: {}, resources }, { kind: "nativets", param: "P", preamble_at: 0, imports: [], links: [] }, ctx);
+    return { native, j, ctx, resources };
+  };
+
+  test("a realm-facing class wraps every method and getter its class has, inherited and symbol-named ones included (c3n review r2, finding 1)", () => {
+    const { j } = registered();
+    for (const name of ["Request", "Response", "Blob", "File", "FormData", "ReadableStream", "ReadableStreamDefaultReader", "WritableStream", "WritableStreamDefaultWriter", "TransformStream", "SubtleCrypto"]) {
+      const R = j.g[name];
+      const C = (globalThis as Record<string, any>)[name];
+      expect(Object.getPrototypeOf(R)).toBe(C);
+      const missing: string[] = [];
+      for (let proto = C.prototype; proto !== null && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+        for (const k of Reflect.ownKeys(proto)) {
+          const d = Object.getOwnPropertyDescriptor(proto, k)!;
+          if (k === "constructor" || (typeof d.value !== "function" && d.get === undefined)) continue;
+          if (!Object.hasOwn(R.prototype, k)) missing.push(`${name}.${String(k)}`);
+        }
+      }
+      expect(missing).toEqual([]);
+    }
+  });
+
+  test("what a web API returns, and every continuation of it, is the calling invocation's (c3n review, finding 1)", async () => {
+    const { native, j, ctx } = registered();
     const g = j.g;
     await invocations.run(ctx, async () => {
-      const r = new g.Response('{"a":1}');
-      expect([r instanceof g.Response, r instanceof Response]).toEqual([true, true]);
-      const p = r.json();
-      expect(p instanceof g.Promise).toBe(true);
-      expect(native.jobOfPromise(p)).toBe(j);
-      expect(await p).toEqual({ a: 1 });
-      expect((await new g.Response("x").blob()) instanceof g.Blob).toBe(true);
-      expect(g.crypto instanceof g.Crypto).toBe(true);
-      const digest = g.crypto.subtle.digest("SHA-256", new Uint8Array());
-      expect(digest instanceof g.Promise).toBe(true);
-      expect(new Uint8Array(await digest).length).toBe(32);
-      // A rejection is the realm's too, so the runtime attributes it.
-      const bad = new g.Response("invalid json").json();
-      expect(native.jobOfPromise(bad)).toBe(j);
-      expect(await bad.catch((e: Error) => e.name)).toBe("SyntaxError");
-      // A stream's closed is marked handled, as the standard marks it.
-      const reader = new g.ReadableStream({ start: (c: ReadableStreamDefaultController) => c.error(new Error("x")) }).getReader();
-      expect(reader instanceof g.ReadableStreamDefaultReader && reader.closed instanceof g.Promise).toBe(true);
+      const owned = (p: unknown) => native.jobOfPromise(p) === j;
+      const file = new g.File(["file text"], "f.txt");
+      const form = new g.FormData();
+      form.append("f", file);
+      const writable = new g.WritableStream({ write() {} });
+      const writer = writable.getWriter();
+      const reader = new g.Response("streamed").body.getReader();
+      const iterator = new g.ReadableStream({ start: (c: ReadableStreamDefaultController) => { c.enqueue("x"); c.close(); } })[Symbol.asyncIterator]();
+      const promises: Record<string, unknown> = {
+        "Response.json": new g.Response('{"a":1}').json(),
+        "File.text (inherited from Blob)": file.text(),
+        "File.arrayBuffer": file.arrayBuffer(),
+        "FormData File.text": (form.get("f") as Blob).text(),
+        "Request.text": new g.Request("http://x.invalid/", { method: "POST", body: "b" }).text(),
+        "ReadableStream.text": new g.ReadableStream({ start: (c: ReadableStreamDefaultController) => { c.enqueue("s"); c.close(); } }).text(),
+        "reader.read": reader.read(),
+        "async iterator next": iterator.next(),
+        "writer.write": writer.write("w"),
+        "crypto.subtle.digest": g.crypto.subtle.digest("SHA-256", new Uint8Array()),
+      };
+      for (const [what, p] of Object.entries(promises)) {
+        expect([what, owned(p)]).toEqual([what, true]);
+        // A continuation, by then, catch or finally, is the job's too.
+        const q = (p as Promise<unknown>).then((x) => x);
+        expect([what, owned(q), owned(q.catch(() => {})), owned(q.finally(() => {}))]).toEqual([what, true, true, true]);
+        await q;
+      }
+      expect(await promises["Response.json"]).toEqual({ a: 1 });
+      expect(await promises["File.text (inherited from Blob)"]).toBe("file text");
+      // A value a promise gives is the realm's objects too.
+      const blob = await new g.Response("x").blob();
+      expect(blob instanceof g.Blob).toBe(true);
+      expect(owned(blob.text())).toBe(true);
     });
     // The harness realm's own objects keep their prototypes.
     expect(Object.getPrototypeOf(crypto) === Crypto.prototype && Object.getPrototypeOf(new Response("y")) === Response.prototype).toBe(true);
+    const outside = new Response("y").text();
+    expect(Object.getPrototypeOf(outside) === Promise.prototype).toBe(true);
+    await outside;
+  });
+
+  test("a stream error the script catches is no unhandled rejection, as with Bun's own stream (c3n review r2, finding 4)", async () => {
+    const { native, j, ctx } = registered();
+    const seen: unknown[] = [];
+    const record = (_e: unknown, p: unknown) => seen.push(native.jobOfPromise(p) === j ? "job" : "other");
+    process.on("unhandledRejection", record);
+    try {
+      const iterate = async (C: typeof ReadableStream) => {
+        let caught = false;
+        try {
+          for await (const _ of new C({ start: (c: ReadableStreamDefaultController) => c.error(new Error("handled")) })) {
+            // nothing arrives
+          }
+        } catch {
+          caught = true;
+        }
+        await Bun.sleep(30);
+        return caught;
+      };
+      expect(await iterate(ReadableStream)).toBe(true);
+      expect(await invocations.run(ctx, () => iterate(j.g.ReadableStream))).toBe(true);
+      expect(seen).toEqual([]);
+      // A next() nobody awaits is the job's, so its rejection would be
+      // attributed (bun test fails a test on any unhandled rejection, so
+      // the step cases of WR-43 check that end to end).
+      await invocations.run(ctx, async () => {
+        const next = new j.g.ReadableStream({ start: (c: ReadableStreamDefaultController) => c.error(new Error("detached")) })[Symbol.asyncIterator]().next();
+        expect(native.jobOfPromise(next)).toBe(j);
+        await next.catch(() => {});
+      });
+      expect(seen).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+  });
+
+  test("a fetched response's url, redirected and type survive clone, and clones of clones (c3n review r2, finding 5)", async () => {
+    const redirecting = Bun.serve({
+      port: 0,
+      fetch(req) {
+        return new URL(req.url).pathname === "/start" ? Response.redirect(`http://127.0.0.1:${redirecting.port}/ok`, 302) : new Response("arrived");
+      },
+    });
+    try {
+      const url = `http://127.0.0.1:${redirecting.port}/start`;
+      const direct = await fetch(url);
+      const want = { url: direct.url, redirected: direct.redirected, type: direct.type };
+      expect(want.redirected).toBe(true);
+      const { job: j, resources } = job();
+      const res = await j.g.fetch(url);
+      const clone = res.clone();
+      const cloneOfClone = clone.clone();
+      for (const r of [res, clone, cloneOfClone]) {
+        expect({ url: r.url, redirected: r.redirected, type: r.type }).toEqual(want);
+        expect(r instanceof j.g.Response).toBe(true);
+      }
+      expect(Object.keys(res)).toEqual([]);
+      expect(await clone.text()).toBe("arrived");
+      expect(await cloneOfClone.text()).toBe("arrived");
+      expect(await res.text()).toBe("arrived");
+      // The body was read to its end through the clones: the request is
+      // released.
+      expect(resources.settle()).toEqual({});
+      await direct.text();
+    } finally {
+      redirecting.stop(true);
+    }
   });
 
   test("errors take WR-43's shape", () => {

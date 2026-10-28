@@ -199,11 +199,14 @@ cannot keep:
   know that nothing is pending, so such a step runs until its timeout;
 - `FileReader`, which Bun 1.3.10 lacks;
 - separate web API objects: the realm gets the harness realm's classes,
-  as subclasses made once per process whose methods hand it what they
-  return as its own, and `crypto` as an object that forwards to the shared
-  one; a script that changes one of them (a prototype, `crypto`) changes
-  it for the other native invocations of the process, as D1 says of Bun's
-  `globalThis`;
+  as subclasses made once per process whose methods (inherited and
+  symbol-named ones included) hand it the objects they return as its own
+  and track the promises they return for the calling invocation, and
+  `crypto` as an object that forwards to the shared one; a script that
+  changes one of them (a prototype, `crypto`) changes it for the other
+  native invocations of the process, as D1 says of Bun's `globalThis`;
+  and a web API's promise is the harness realm's, so it is not an
+  `instanceof` the realm's `Promise`;
 - imports of files of the host: windmill-lite reads none, so only the
   embedded client resolves ([WR-40](../semantics/languages.md#wr-40)); the
   client is `windmill-client@1.326.0`, the version Windmill embeds, built

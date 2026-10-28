@@ -88,13 +88,22 @@ const WEB_GLOBALS = [
  * those whose methods or getters return a promise or another web object.
  * The harness realm's prototypes cannot be changed (Bun 1.3.10 makes most
  * of their methods read-only, and Bun steps share them), so each of these
- * is a subclass, made once per process, whose methods and getters call the
- * class's own and pass on what it returns as the realm's (Native.toRealm):
- * a promise becomes one of the calling invocation's realm, so a rejection
- * nobody handles is attributed to it (WR-43); an instance of one of these
- * classes takes its subclass's prototype, so what it returns in turn is
- * handled alike. `crypto` and `crypto.subtle`, which every caller shares,
- * become objects of their subclasses that forward to them. */
+ * is a subclass, made once per process, whose methods and getters, its
+ * class's own and inherited ones, symbol-named ones included, call the
+ * original and pass on what it returns (Native.toRealm):
+ *
+ * - a promise of the harness realm is tracked, not replaced: its prototype
+ *   becomes TrackedPromise's, which records the invocation it was returned
+ *   to and gives every promise its then derives the same, so a rejection
+ *   nobody handles, of it or of a continuation, is attributed to that
+ *   invocation (WR-43). It stays the same object, so what the web API's
+ *   own code does with it (marking it handled, as a stream's closed and
+ *   Bun's own iteration do) is unchanged;
+ * - an instance of one of these classes takes its subclass's prototype, so
+ *   what it returns in turn is handled alike, and an async iterator is
+ *   given a forwarder whose results are;
+ * - `crypto` and `crypto.subtle`, which every caller shares, become objects
+ *   of their subclasses that forward to them. */
 const REALM_CLASSES = [
   "Request", "Response", "Blob", "File", "FormData",
   "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamBYOBReader",
@@ -148,6 +157,14 @@ export class Native {
   private realmProtos = new Map<object, object>();
   /** Objects every caller shares, whose prototype is never changed. */
   private shared = new WeakSet<object>();
+  /** The promises given to a native invocation, and those derived from
+   * them, with the job they belong to. */
+  private tracked = new WeakMap<object, NativeJob>();
+  private trackedProto: object | undefined;
+  /** A fetched response's own url, redirected and type, which a response
+   * the harness constructs around its body cannot carry; kept through
+   * every clone. */
+  private responseMeta = new WeakMap<object, { url: string; redirected: boolean; type: string }>();
   private timers = { setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask };
   private fetch: typeof fetch = fetch;
   private console: Console = console;
@@ -172,10 +189,14 @@ export class Native {
     this.fetch = globalThis.fetch;
     this.console = console;
     this.timers = { setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask };
+    this.trackedProto ??= this.trackedPromise().prototype;
+    // Each class gets its own, even one whose prototype another shares
+    // (Bun 1.3.10's File has Blob's); an instance takes the first's.
     for (const name of REALM_CLASSES) {
       const C = this.web[name];
-      if (typeof C === "function" && this.realmProtos.get(C.prototype) === undefined) this.web[name] = this.realmClass(name, C as new (...a: unknown[]) => object);
+      if (typeof C === "function") this.web[name] = this.realmClass(name, C as new (...a: unknown[]) => object);
     }
+    this.responseClass(this.web.Response as { prototype: object });
     const crypto = globalThis.crypto;
     this.shared.add(crypto);
     this.shared.add(crypto.subtle);
@@ -183,41 +204,97 @@ export class Native {
     this.web.crypto = this.forwarder(crypto, this.web.Crypto as { prototype: object }, { subtle });
   }
 
-  /** The realm-facing subclass of a web API class: its prototype's methods
-   * and getters, and its static methods, call the class's own and pass on
-   * the result with toRealm. */
+  /** The class of the promises a native invocation is given: a promise of
+   * the harness realm whose then records the invocation the promise
+   * belongs to on the promise it derives, which by species is one of
+   * these too, and passes a value on with toRealm. catch, finally and
+   * await all go through then. */
+  private trackedPromise() {
+    const native = this;
+    return class TrackedPromise<T> extends Promise<T> {
+      then<A = T, B = never>(onFulfilled?: ((v: T) => A | PromiseLike<A>) | null, onRejected?: ((e: unknown) => B | PromiseLike<B>) | null): Promise<A | B> {
+        const job = native.tracked.get(this) ?? native.currentJob();
+        const ok = typeof onFulfilled === "function" ? (v: T) => onFulfilled(native.toRealm(v) as T) : onFulfilled;
+        const p = super.then(ok, onRejected);
+        if (job !== undefined) native.tracked.set(p, job);
+        return p;
+      }
+    };
+  }
+
+  /** The realm-facing subclass of a web API class: every method and
+   * getter its prototype has, its own and inherited ones up to
+   * Object.prototype, string- and symbol-named, and its own static
+   * methods, call the class's own and pass on the result with toRealm. */
   private realmClass(name: string, C: new (...a: unknown[]) => object) {
     const native = this;
     const R = { [name]: class extends C {} }[name];
-    const wrap = (target: object, from: object, self?: object) => {
-      for (const k of Object.getOwnPropertyNames(from)) {
-        if (k === "constructor" || k === "prototype" || k === "length" || k === "name") continue;
-        const d = Object.getOwnPropertyDescriptor(from, k)!;
-        if (typeof d.value === "function") {
-          const m = d.value as (...a: unknown[]) => unknown;
-          const value = {
-            [k](this: unknown, ...a: unknown[]) {
-              return native.toRealm(Reflect.apply(m, self ?? this, a));
-            },
-          }[k];
-          Object.defineProperty(target, k, { ...d, value });
-        } else if (d.get !== undefined) {
-          const get = d.get;
-          // A promise a getter returns (a stream's closed and ready) is
-          // marked handled, as the streams standard marks it.
-          Object.defineProperty(target, k, {
-            ...d,
-            get(this: unknown) {
-              return native.toRealm(Reflect.apply(get, this, []), true);
-            },
-          });
-        }
+    const define = (target: object, k: PropertyKey, d: PropertyDescriptor, self?: object) => {
+      if (typeof d.value === "function") {
+        const m = d.value as (...a: unknown[]) => unknown;
+        const value = {
+          [k](this: unknown, ...a: unknown[]) {
+            return native.toRealm(Reflect.apply(m, self ?? this, a));
+          },
+        }[k as string];
+        // The subclass's own property, so it may be layered on (Response's
+        // metadata) whatever the original's descriptor says.
+        Object.defineProperty(target, k, { ...d, value, configurable: true });
+      } else if (d.get !== undefined) {
+        const get = d.get;
+        Object.defineProperty(target, k, {
+          ...d,
+          configurable: true,
+          get(this: unknown) {
+            return native.toRealm(Reflect.apply(get, this, []));
+          },
+        });
       }
     };
-    wrap(R.prototype, C.prototype);
-    wrap(R, C, C);
-    this.realmProtos.set(C.prototype, R.prototype);
+    const seen = new Set<PropertyKey>(["constructor"]);
+    for (let proto: object | null = C.prototype; proto !== null && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+      for (const k of Reflect.ownKeys(proto)) {
+        if (seen.has(k)) continue;
+        seen.add(k);
+        define(R.prototype, k, Object.getOwnPropertyDescriptor(proto, k)!);
+      }
+    }
+    for (const k of Reflect.ownKeys(C)) {
+      if (k === "prototype" || k === "length" || k === "name") continue;
+      define(R, k, Object.getOwnPropertyDescriptor(C, k)!, C);
+    }
+    if (!this.realmProtos.has(C.prototype)) this.realmProtos.set(C.prototype, R.prototype);
     return R;
+  }
+
+  /** The realm-facing Response's url, redirected and type read a fetched
+   * response's own, and its clone carries them on (Native.respond). */
+  private responseClass(R: { prototype: object }) {
+    const meta = this.responseMeta;
+    for (const k of ["url", "redirected", "type"] as const) {
+      const d = Object.getOwnPropertyDescriptor(R.prototype, k);
+      if (d?.get === undefined) continue;
+      const get = d.get;
+      Object.defineProperty(R.prototype, k, {
+        ...d,
+        get(this: object) {
+          const m = meta.get(this);
+          return m !== undefined ? m[k] : get.call(this);
+        },
+      });
+    }
+    const d = Object.getOwnPropertyDescriptor(R.prototype, "clone")!;
+    const clone = d.value as (this: object) => object;
+    Object.defineProperty(R.prototype, "clone", {
+      ...d,
+      value: function clone_(this: object) {
+        const c = clone.call(this);
+        const m = meta.get(this);
+        if (m !== undefined) meta.set(c, m);
+        return c;
+      },
+    });
+    Object.defineProperty(R.prototype.clone, "name", { value: "clone" });
   }
 
   /** An object of a realm-facing class that forwards every method of the
@@ -234,38 +311,58 @@ export class Native {
     return out;
   }
 
-  /** What a web API returned, as the calling invocation's realm gets it: a
-   * promise of the harness realm becomes one of the realm, settled as it
-   * settles, with its value passed on alike; an instance of a class with a
-   * realm-facing subclass takes that subclass's prototype; an array has its
-   * elements passed on. Anything else is returned as it is. handled marks
-   * the realm's promise handled. */
-  toRealm(v: unknown, handled = false): unknown {
+  /** What a web API returned, as the calling invocation gets it: a plain
+   * promise of the harness realm is tracked for the invocation, as the same
+   * object; an instance of a class with a realm-facing subclass takes that
+   * subclass's prototype; an async iterator gets a forwarder whose results
+   * are passed on alike; an array has its elements passed on. Anything else
+   * is returned as it is. */
+  toRealm(v: unknown): unknown {
     if (v instanceof Promise) {
-      const job = this.currentJob();
-      if (job === undefined) return v;
-      const p = new job.g.Promise((ok: (x: unknown) => void, fail: (e: unknown) => void) => {
-        v.then((x) => ok(this.toRealm(x)), fail);
-      });
-      if (handled) p.catch(() => {});
-      return p;
+      if (Object.getPrototypeOf(v) === Promise.prototype) {
+        const job = this.currentJob();
+        if (job !== undefined) {
+          Object.setPrototypeOf(v, this.trackedProto!);
+          this.tracked.set(v, job);
+        }
+      }
+      return v;
     }
     if (Array.isArray(v)) {
       for (let i = 0; i < v.length; i++) v[i] = this.toRealm(v[i]);
       return v;
     }
-    if (v !== null && typeof v === "object" && !this.shared.has(v)) {
-      const proto = this.realmProtos.get(Object.getPrototypeOf(v));
-      if (proto !== undefined) Object.setPrototypeOf(v, proto);
+    if (v === null || typeof v !== "object" || this.shared.has(v)) return v;
+    const proto = this.realmProtos.get(Object.getPrototypeOf(v));
+    if (proto !== undefined) {
+      Object.setPrototypeOf(v, proto);
+      return v;
     }
+    const it = v as AsyncIterator<unknown> & { [Symbol.asyncIterator]?: unknown };
+    if (typeof it.next === "function" && typeof it[Symbol.asyncIterator] === "function") return this.iterator(it);
     return v;
   }
 
+  /** An async iterator whose next, return and throw call the original's
+   * and pass on their promises with toRealm. */
+  private iterator(it: AsyncIterator<unknown>): AsyncIterableIterator<unknown> {
+    const out: AsyncIterableIterator<unknown> = {
+      next: (...a: [] | [unknown]) => this.toRealm(it.next(...a)) as Promise<IteratorResult<unknown>>,
+      [Symbol.asyncIterator]() {
+        return out;
+      },
+    };
+    if (typeof it.return === "function") out.return = (x?: unknown) => this.toRealm(it.return!(x)) as Promise<IteratorResult<unknown>>;
+    if (typeof it.throw === "function") out.throw = (e?: unknown) => this.toRealm(it.throw!(e)) as Promise<IteratorResult<unknown>>;
+    return out;
+  }
+
   /** A fetch's response as the realm gets it: of the realm-facing Response,
-   * with a body that reports its end. The request stays the invocation's
-   * until its body has been read to its end, has failed or was cancelled,
-   * or the invocation settles, whatever reads it (a clone included);
-   * done is called once, at that end. */
+   * with a body that reports its end, and the fetched response's url,
+   * redirected and type, which its clones keep. The request stays the
+   * invocation's until its body has been read to its end, has failed or
+   * was cancelled, or the invocation settles, whatever reads it (a clone
+   * included); done is called once, at that end. */
   respond(res: Response, done: () => void): Response {
     const src = res.body;
     if (src === null || NULL_BODY.has(res.status)) {
@@ -300,11 +397,7 @@ export class Native {
     });
     const R = this.web.Response as typeof Response;
     const out = new R(body, { status: res.status, statusText: res.statusText, headers: res.headers });
-    Object.defineProperties(out, {
-      url: { value: res.url, configurable: true },
-      redirected: { value: res.redirected, configurable: true },
-      type: { value: res.type, configurable: true },
-    });
+    this.responseMeta.set(out, { url: res.url, redirected: res.redirected, type: res.type });
     return out;
   }
 
@@ -313,9 +406,12 @@ export class Native {
     return c === undefined ? undefined : this.byContext.get(c);
   }
 
-  /** The native job whose realm made promise, for an unhandled rejection,
-   * which carries no async context (ADR 0004, failure model item 2). */
+  /** The native job a promise belongs to, for an unhandled rejection,
+   * which carries no async context (ADR 0004, failure model item 2): the
+   * one a web API's promise was given to, or the one whose realm made it. */
   jobOfPromise(promise: unknown): NativeJob | undefined {
+    const tracked = promise !== null && typeof promise === "object" ? this.tracked.get(promise) : undefined;
+    if (tracked !== undefined) return tracked;
     let p: unknown = promise;
     try {
       for (let i = 0; i < 8 && p !== null && (typeof p === "object" || typeof p === "function"); i++) {

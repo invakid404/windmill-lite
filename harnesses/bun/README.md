@@ -306,14 +306,26 @@ this mode cannot reproduce is deviation D5 of
 - **Realm-facing web classes.** The classes whose methods return promises
   or other web objects (`Request`, `Response`, `Blob`, `File`, `FormData`,
   the streams and their readers and writers, `Crypto`, `SubtleCrypto`) are
-  given to the realm as subclasses, made once per process: each method and
-  getter calls the class's own and hands the realm what it returns, a
-  promise as one of the calling invocation's realm (a getter's marked
-  handled, as a stream's `closed` is), an instance of such a class with its
-  subclass's prototype. A rejection of a web API's promise is therefore
-  attributed by realm as any other. `crypto` and `crypto.subtle` are
-  objects of those subclasses that forward to the shared ones; the harness
-  realm's own classes and objects are never changed.
+  given to the realm as subclasses, made once per process. Each method and
+  getter the class has, its own and inherited ones (Bun's `File` shares
+  `Blob`'s prototype) and symbol-named ones (a stream's async iterator),
+  calls the original and passes on what it returns:
+  - a promise is **tracked in place**: it takes the prototype of a
+    `Promise` subclass whose `then` records the invocation on every
+    promise it derives, so a rejection nobody handles, of the promise or of
+    a continuation (`then`, `catch`, `finally`, `await`), is attributed to
+    that invocation. Being the same object, a rejection the web API's own
+    code handles (Bun's stream iteration, a stream's `closed`) stays
+    handled. It is a promise of the harness realm, so not an `instanceof`
+    the realm's `Promise`;
+  - an instance of such a class takes its subclass's prototype, an async
+    iterator gets a forwarder whose results are passed on alike, and a
+    promise's value is passed on when a continuation receives it.
+
+  `crypto` and `crypto.subtle` are objects of those subclasses that
+  forward to the shared ones. A fetched response's `url`, `redirected` and
+  `type` are kept for it and every clone of it. The harness realm's own
+  classes and objects are never changed.
 - **Timers and fetch are the invocation's.** `setTimeout` and
   `setInterval` return numeric ids; each pending handle and each fetch in
   flight is registered with the invocation and released when it settles,

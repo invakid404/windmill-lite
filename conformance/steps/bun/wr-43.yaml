@@ -168,6 +168,90 @@ cases:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: NotSupportedError}
   - spec: WR-43
+    variant: web-api-continuation-nativets
+    provenance: source-derived
+    title: a rejection of a continuation of a web API's promise fails the job (nativets)
+    note: >-
+      c3n review round 2, finding 1: File's text is Blob's, inherited, and a
+      continuation that throws is the job's too.
+    language: nativets
+    script: |
+      export async function main() {
+        new File(["x"], "x").text().then(() => { throw new Error("file rejection"); });
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-continuation-bunnative
+    provenance: source-derived
+    title: a rejection of a continuation of a web API's promise fails the job (bunnative)
+    script: |
+      //native
+      export async function main() {
+        new File(["x"], "x").text().then(() => { throw new Error("file rejection"); });
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: stream-iteration-nativets
+    provenance: source-derived
+    title: a stream's async iterator, read to its end, a next nobody awaits, and an error the script catches (nativets)
+    note: >-
+      c3n review round 2, findings 1 and 4: a detached next() rejection
+      fails the job; a for await whose error the script catches does not.
+    language: nativets
+    script: |
+      const failing = (m: string) => new ReadableStream({ start(c) { c.error(new Error(m)); } });
+      export async function main(how: string) {
+        if (how === "read") {
+          let out = "";
+          for await (const chunk of new ReadableStream({ start(c) { c.enqueue("a"); c.enqueue("b"); c.close(); } })) out += chunk;
+          return out;
+        }
+        if (how === "detached") failing("iterator rejection")[Symbol.asyncIterator]().next();
+        else try { for await (const _ of failing("handled iterator")) {} } catch {}
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"how":"read"}'
+        expect: {status: success, result: ab}
+      - args: '{"how":"detached"}'
+        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error}}}
+      - args: '{"how":"caught"}'
+        expect: {status: success, result: success}
+  - spec: WR-43
+    variant: stream-iteration-bunnative
+    provenance: source-derived
+    title: a stream's async iterator, read to its end, a next nobody awaits, and an error the script catches (bunnative)
+    script: |
+      //native
+      const failing = (m: string) => new ReadableStream({ start(c) { c.error(new Error(m)); } });
+      export async function main(how: string) {
+        if (how === "read") {
+          let out = "";
+          for await (const chunk of new ReadableStream({ start(c) { c.enqueue("a"); c.enqueue("b"); c.close(); } })) out += chunk;
+          return out;
+        }
+        if (how === "detached") failing("iterator rejection")[Symbol.asyncIterator]().next();
+        else try { for await (const _ of failing("handled iterator")) {} } catch {}
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"how":"read"}'
+        expect: {status: success, result: ab}
+      - args: '{"how":"detached"}'
+        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error}}}
+      - args: '{"how":"caught"}'
+        expect: {status: success, result: success}
+  - spec: WR-43
     variant: web-api-rejection-handled
     provenance: source-derived
     title: a web API's rejection the script handles fails nothing

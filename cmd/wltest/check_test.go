@@ -233,9 +233,11 @@ func TestStepCatalogue(t *testing.T) {
 }
 
 // A native invocation's rejection that nobody handles, from a promise a web
-// API returned, fails that invocation (WR-43/d) and no other: a native and
-// a Bun invocation in flight beside it in the same process succeed with no
-// warning (c3n review, finding 1).
+// API returned (a method of its own or inherited, a continuation, a stream
+// iterator's next), fails that invocation (WR-43/d) and no other, and an
+// iteration error the script catches fails none: native and Bun
+// invocations in flight beside them in the same process succeed with no
+// warning (c3n review, finding 1; round 2, findings 1 and 4).
 func TestNativeRejectionIsItsInvocationsOwn(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "steps", "bun")
@@ -263,6 +265,52 @@ cases:
         claims:
           - {at: /status, equals: failure}
           - {at: /result/error/name, equals: SyntaxError}
+  - spec: WR-43
+    variant: continuation-rejects
+    provenance: source-derived
+    title: a rejection of a continuation of an inherited web API method's promise
+    script: |
+      //native
+      export async function main() {
+        new File(["x"], "x").text().then(() => { throw new Error("file rejection"); });
+        await new Promise(r => setTimeout(r, 300));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, equals: file rejection}
+  - spec: WR-43
+    variant: iterator-rejects
+    provenance: source-derived
+    title: a stream iterator's next nobody awaits
+    language: nativets
+    script: |
+      export async function main() {
+        new ReadableStream({ start(c) { c.error(new Error("iterator rejection")); } })[Symbol.asyncIterator]().next();
+        await new Promise(r => setTimeout(r, 300));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, equals: iterator rejection}
+  - spec: WR-43
+    variant: iterator-caught
+    provenance: source-derived
+    title: a stream iterator's error the script catches
+    script: |
+      //native
+      export async function main() {
+        try { for await (const _ of new ReadableStream({ start(c) { c.error(new Error("handled")); } })) {} } catch {}
+        await new Promise(r => setTimeout(r, 300));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: success}
   - spec: WR-43
     variant: healthy-native
     provenance: source-derived

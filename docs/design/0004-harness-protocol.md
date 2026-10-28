@@ -607,10 +607,14 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   - **Attribution by realm.** Item 2 of the failure model cannot attribute a
     rejection nobody handles, which carries no async context; for a native
     invocation the promise's realm names it. The web APIs a realm gets are
-    subclasses of the harness's classes whose methods return the calling
-    invocation's promises and objects, so a rejection of what `fetch`,
-    `Response.json()` or `crypto.subtle` returned is attributed the same
-    way, and warns no other invocation. A fetch is the invocation's until
+    subclasses of the harness's classes whose methods, inherited and
+    symbol-named ones included, track each promise they return for the
+    calling invocation, in place, and every continuation `then` derives
+    from it: a rejection nobody handles of what `Response.json()`,
+    `File.text()`, a stream's iterator or `crypto.subtle` returned, or of a
+    continuation of it, is attributed to that invocation and warns no
+    other. The promise stays the same object, so a rejection the web API's
+    own code handles (a stream's iteration, `closed`) stays handled. A fetch is the invocation's until
     its response's body ends, and is aborted when the invocation settles
     first. Such a rejection, a throw from
     one of its timers and a throw from a microtask it queued fail a running
