@@ -135,15 +135,25 @@ harness, which is (a) with its duplication.
    [JE-12](../semantics/expressions.md#je-12), statement-mode detection,
    binding analysis) run at bundle open where they depend only on the text,
    and at run time where they depend on the preceding id.
-3. **The engine is QuickJS-ng at revision `be664ca1`** (MIT), vendored once
-   as C source. Two backends build from that one source behind one Go
-   interface: **native through cgo, the default** for Linux and macOS
-   builds, and **WASM in wazero** for builds without cgo. The native backend
-   is the default because it scales about four times better with the bound
-   input (376 µs against 1.54 ms at 256 KB) and creates a runtime in 84 µs
-   rather than 221 µs; wazero stays because it needs no C toolchain. CI runs
-   the expression suite on both and requires byte-identical results, which
-   also checks that the two builds agree.
+3. **The engine is QuickJS-ng at revision `be664ca1`** (MIT), vendored as C
+   source and embedded **natively through cgo**, behind a Go interface. Native
+   wins because it scales about four times better with the bound input
+   (376 µs against 1.54 ms at 256 KB) and creates a runtime in 84 µs rather
+   than 221 µs. A **wazero backend is not in the first edition**: every
+   target this design ships (`linux/amd64`, `linux/arm64`, `darwin/arm64`)
+   builds native, and no consumer needs a build without cgo. The interface
+   keeps the option; a wazero backend would come with its own record and a
+   named consumer. **Release engineering:**
+   - **Toolchain.** `zig cc` cross-compiles the vendored C for both Linux
+     targets against musl, so the Linux engine is one static binary that
+     runs on an empty base image; macOS builds use the system clang.
+   - **CI.** Both CI runners build the C, including under `-race`.
+   - **Exit checks.** B1a checks that the Linux binaries are static, and F4
+     that they start on an empty base.
+   - **Stack.** QuickJS-ng's maximum stack size is pinned to its built-in
+     default of 1 MiB and recorded in the manifest, because stack-overflow
+     depth is observable; semantics request 3 (README) asks which value
+     Windmill's embedding uses, and the pin follows the answer.
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against
@@ -157,21 +167,21 @@ harness, which is (a) with its duplication.
    time, with the engine's text, as Windmill reports it.
 6. **The pool.**
    - **Size.** N evaluation slots, default `min(GOMAXPROCS, 8)`, host
-     settable. A slot is one prepared fresh runtime on its own OS thread
-     (native) or in its own WASM instance (wazero).
+     settable. A slot is one prepared fresh runtime on its own locked OS
+     thread.
    - **Replenishment.** After an evaluation the slot frees its runtime and
-     prepares the next one on its own thread or goroutine, off the caller's
-     path.
+     prepares the next one on its own thread, off the caller's path.
    - **Drained pool.** A caller that finds no prepared slot waits in FIFO
      order for the next one. No slot is ever created on the critical path,
      and the wait is a span in the run trace.
-   - **Memory.** Each runtime has Windmill's 128 MiB heap limit. A wazero
-     instance whose linear memory exceeds 32 MiB after an evaluation is
-     closed and replaced in the background, which bounds idle memory to
-     about N × 32 MiB.
-   - **Interrupts (D8).** An attempt that reaches 20 s is interrupted: the
-     native backend through QuickJS-ng's interrupt handler, the wazero
-     backend by closing the instance. The slot is then replaced.
+   - **Memory.** Each runtime has Windmill's 128 MiB heap limit, which the
+     host can override with `QUICKJS_MEMORY_LIMIT_MB` as on Windmill
+     ([JE-3](../semantics/expressions.md#je-3)), and freeing
+     a runtime returns its memory to the allocator, so there is no
+     instance-level growth to manage (the wazero prototype held 570 MiB of
+     linear memory after 256 KB runs, which is part of why it is deferred).
+   - **Interrupts (D8).** An attempt that reaches 20 s is interrupted through
+     QuickJS-ng's interrupt handler, and the slot prepares a new runtime.
 7. **Harnesses are step runners.** Given a script, arguments and a
    per-invocation environment, a harness binds arguments, hydrates, calls the
    entrypoint, serialises the result or error with its language's rules, and
@@ -236,7 +246,22 @@ as hand-written YAML and JSON, at three levels:
 |---|---|---|---|
 | flow | `conformance/flows/<area>/<case>/` | a sync tree, setup, runs and expected observations, in the fixture format of [OR-15](../semantics/oracle.md#or-15) | Go `wltest check`, in each configuration below; the oracle recorder `wltest record` |
 | step | `conformance/steps/<lang>/<case>.yaml` | one script, its arguments, environment and boundary mode, the expected **stored** result or error (Windmill-observable terms), and the expected platform calls | Go `wltest check`, driving the real harness through the protocol; the oracle via a generated one-step flow |
-| expr | `conformance/exprs/<case>.yaml` | site kind, text, the **producer text** of each bound value (the stored form is derived with `jsonval`, so a case cannot describe a pair the oracle could never produce), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
+| expr | `conformance/exprs/<case>.yaml` | a **context-free** expression: an input transform or predicate of a flow's first step, with `flow_input` and `flow_env` as its only bound values (producer text; the stored form is derived with `jsonval`), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
+
+**Contextual expression cases are flow fixtures.** A one-step flow cannot
+reproduce an expression whose meaning depends on what ran before it: a
+named predecessor, stored versus carried results, a retry, a container or a
+failure handler. Such cases are written as ordinary flow fixtures, with the
+producer steps, containers and handlers the context needs, and the
+expression at its real site; they are never lifted automatically. The two
+acceptance examples are JE-8 (a step `p` returns `{"b":1,"a":2}` and the next
+step's transform `results.p` must return `previous_result` verbatim, in the
+producer's key order rather than the stored jsonb order, so the two routes
+can be told apart) and FX-V6/a (a
+step stores a result, an error stop fails it, and the failure handler's two
+transforms distinguish the stored value from the carried `EarlyStopError`).
+An expression case that names a predecessor, a handler or a container fails
+validation with `contextual_case_needs_flow_fixture`.
 
 - **One comparator.** Every expectation is compared once, in Go. The
   harness's own tests (`bun test`) are fast developer checks against golden
@@ -268,10 +293,10 @@ as hand-written YAML and JSON, at three levels:
 - Each step costs a round trip; [0005](0005-json-step-boundaries.md) keeps the
   JSON work to what the semantics require.
 - Expression cost scales with what an expression binds. The design measures
-  it, gates it in B2b, and picks the faster backend as default; it does not
+  it, gates it in B2b, and uses the faster backend; it does not
   claim a per-run figure before that gate.
-- Release builds need a C toolchain for the native backend; builds without
-  one still work on wazero, more slowly at large inputs.
+- Every build needs a C toolchain (`zig cc` for Linux releases); builds
+  with `CGO_ENABLED=0` are not supported in the first edition.
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.

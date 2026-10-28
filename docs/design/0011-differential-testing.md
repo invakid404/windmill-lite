@@ -84,7 +84,10 @@ Values are percent-escaped for `%`, `/`, `:` and `~` (`%25`, `%2F`, `%3A`,
 (Windmill does not require unique ids, [OF-2](../semantics/openflow.md#of-2)).
 A unique id carries no suffix, so adding a module elsewhere in a flow does
 not change the identities of the others, which keeps replay tables and
-recorded fixtures stable across flow revisions.
+recorded fixtures stable across flow revisions. The one exception: adding a
+second module with an id that was unique renames the first from `m:a` to
+`m:a~0`, so fixtures and replay tables keyed on it must be updated in the
+same change.
 
 The encoding is injective: the kind separates ordinary modules from slots,
 the occurrence separates repeated ids, and escaping covers the escape
@@ -114,8 +117,10 @@ under `conformance/flows/` ([0003](0003-semantics-placement.md)). The
 
 `check` takes `--mode fresh|warm|host`; host mode drives the cases through a
 small public Bun test host built on the SDK. Exact comparison is the gate.
-Step and expression cases are lifted into generated one-step flow fixtures
-for `record`.
+Step cases, and expression cases (which are context-free by construction,
+[0003](0003-semantics-placement.md)), are lifted into generated one-step flow
+fixtures for `record`. Contextual expression cases are flow fixtures already
+and are recorded as such.
 
 **Location suffixes.** Comparing windmill-lite with the oracle adds one rule
 to [OR-14](../semantics/oracle.md#or-14)'s normaliser: at a path where
@@ -140,16 +145,17 @@ real steps need private systems can then be compared on the oracle without
 those systems; the flows and tables stay with whoever owns them. Outcomes
 are idempotent per raw job id, and the attempt number counts from 0, as the
 `r:` segment does: it is the number of distinct job ids already seen at that
-site in the run. Milestone E4 owns
-the stub generator and the replay service, with acceptance cases for a retry
-inside a loop, a collapsed body, nested loops, a named subflow and a parallel
-loop under one outer run, and two concurrent outer runs.
+site in the run. Milestone E4a owns the stub generator and the replay
+service, with acceptance cases on the oracle for a retry inside a loop, a
+collapsed body, nested loops, a named subflow and a parallel loop under one
+outer run, and two concurrent outer runs. Milestone E4b runs the same cases
+on windmill-lite, once the container and retry milestones they exercise have
+merged.
 
 ### CI
 
 1. **Every pull request** (no Docker): `wltest check` on all levels, in
-   `fresh` and `warm`, with the expression level on both engine backends
-   ([0003](0003-semantics-placement.md)); host mode once milestone F3b lands; the
+   `fresh` and `warm`; host mode once milestone F3b lands; the
    **image lint** (no Dockerfile `FROM ghcr.io/windmill-labs/`, no
    `docker push`/`docker tag` of a Windmill image); the **manifest guard**,
    which rejects AGPL-derived Windmill packages (for example
@@ -171,7 +177,7 @@ loop under one outer run, and two concurrent outer runs.
    **bounded-pool benchmark** in B2b, which gates that milestone
    ([0003](0003-semantics-placement.md)): cold and warm bursts, sustained
    concurrency below and above the pool size, replenishment under load,
-   inputs of 4, 64 and 256 KB, on both backends, reporting p50, p95 and p99
+   inputs of 4, 64 and 256 KB, on the native backend, reporting p50, p95 and p99
    latency (including the wait for a prepared slot), CPU per evaluation and
    memory per slot.
 2. **Run spans.** Every run trace carries durations per module, per

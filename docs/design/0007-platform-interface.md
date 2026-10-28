@@ -106,8 +106,8 @@ decrypts Windmill ciphertext; it hands that to the resolver
      ([0004](0004-harness-protocol.md)). The token in the request is ignored.
      This is the only supported transport in those processes: the facade
      origin is a loopback port the engine binds without listening on, so any
-     other transport is refused (restriction, [0001](0001-equivalence-contract.md)
-     §5a).
+     other transport is refused by the kernel, unrecorded (restriction,
+     [0001](0001-equivalence-contract.md) §5a).
   2. **Loopback TCP** (`fresh` processes, and later harnesses that run one
      invocation per process): the port listens, and each process gets a
      token that names its one invocation. A call whose token is unknown, or
@@ -120,7 +120,8 @@ decrypts Windmill ciphertext; it hands that to the resolver
   Test (milestone PF1): two runs at once, in one warm process, with the
   client first imported during the first run's module load: every call of
   each run is attributed to its own invocation on the intercepted path; a
-  `node:http` call from a warm step is refused and recorded; in `fresh`
+  `node:http` call from a warm step gets "connection refused" and reaches no
+  provider (nothing records it: the refusal carries no invocation); in `fresh`
   mode each process's TCP calls carry its own token; a call replaying an
   ended invocation's token gets the `401`.
 - **Calls made by host plugins** outside any step (an interceptor that calls
@@ -177,9 +178,17 @@ arguments, and the optional `parent_job`, `root_job`, `scheduled_in_secs` and
 `tag` ([WA-6](../semantics/client-api.md#wa-6), client table). The default
 dispatcher runs the target from the bundle as a separate run and returns its
 UUID as `text/plain`; `waitJob` and `getResultMaybe` answer for it with
-Windmill's shapes ([WA-V2](../semantics/client-api.md#wa-v2)). A host
+Windmill's shapes ([WA-V2](../semantics/client-api.md#wa-v2)). The target
+must be a root of the bundle ([0002](0002-ir-and-loader.md) host contract);
+otherwise the dispatching step fails with `UnsupportedPlatformCall`,
+`dispatch target not in bundle: <path>`. A dispatched run starts at once:
+no default cap delays it, so a parent that waits for it cannot starve it
+([0004](0004-harness-protocol.md); a host-set cap is D15). A host
 dispatcher may route elsewhere, for example to a real Windmill, and decides
-whether parent and root links naming windmill-lite ids are sent on.
+whether parent and root links naming windmill-lite ids are sent on. Code
+that bypasses the facade and posts to a real Windmill itself is outside the
+dispatcher's reach; a host that runs such code strips the links in its own
+`fetch` wrapper.
 
 ### Hybrid dispatch to a real Windmill
 

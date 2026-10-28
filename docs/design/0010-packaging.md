@@ -58,11 +58,30 @@ host upgrades the engine and rebuilds the bundle together.
    [WR-31](../semantics/languages.md#wr-31), [WR-32](../semantics/languages.md#wr-32),
    [WR-39](../semantics/languages.md#wr-39)), and checks native scripts for
    imports and globals the native runtime lacks (D5);
-5. rewrites `Bun.env` and `import.meta.env` to `process.env` for
-   per-invocation environments ([WA-31](../semantics/client-api.md#wa-31));
-6. replaces imports of **host-provided modules** (below) with registry
-   references;
+5. applies the **env rewrite** for per-invocation environments
+   ([WA-31](../semantics/client-api.md#wa-31)) in both bundlers, from one
+   define table owned by the Go build: `Bun.env` becomes `process.env` in
+   every output, and `import.meta.env` becomes `process.env` only in ESM
+   output. In CommonJS output `import.meta` stays empty, as it does in the
+   CLI's esbuild bundles, so code that reads `import.meta.env` there fails as
+   it would on Windmill;
+6. resolves imports of **host-provided modules** (below) to generated shims,
+   in both bundlers;
 7. writes the manifest last.
+
+**One implementation for both bundlers.** Ordinary scripts are bundled by
+`Bun.build` in the Bun helper and codebase scripts by esbuild in Go
+([0002](0002-ir-and-loader.md)). The windmill-lite-specific transforms are
+written once: the Bun helper scans the export names of each host-provided
+module (`Bun.Transpiler().scan`, the one scanner); the Go build generates
+one shim source file per module into the bundle tree; and each bundler
+resolves imports of a listed module to that same file through a plugin that
+only maps paths, so neither plugin has logic of its own. The define table of
+step 5 is passed to both bundlers. Measured (prototype outside the
+repository): an esbuild bundle of the synthetic step, in CJS and in ESM,
+resolving the module to the generated shim, read the host's store in 16 of
+16 concurrent invocations on Bun 1.3.10 and 1.4.2, and the define table
+rewrote `Bun.env` in both outputs and `import.meta.env` in ESM only.
 
 ### Host-provided modules
 
@@ -81,9 +100,11 @@ the host was a compiled Bun executable.
 1. **Build.** The build helper resolves each import of a listed module to a
    generated shim that takes every export from a process-wide registry
    (`Symbol.for("windmill-lite.hostModules")`), by name. Export names come
-   from a static scan of the module. A module that exports a binding it
-   reassigns (`export let` that changes) is refused with
-   `host_module_live_binding`, because a shim cannot follow a live binding.
+   from the one scan above. A shim cannot follow a live binding, so a module
+   that declares `export let` or `export var` is refused with
+   `host_module_live_binding`; other ways of exporting a binding that is later
+   reassigned are not detected, and the shim then sees the value as it was
+   when the module was registered.
 2. **Host mode.** The Bun host SDK registers the host's own instances (the
    modules the host's program imported) before any step module loads.
 3. **Elsewhere.** The harness loads the bundled copy from
@@ -91,10 +112,17 @@ the host was a compiled Bun executable.
    script in the process shares that one instance.
 4. **Missing.** A step that imports a host-provided module the registry
    lacks fails at module load with `host-provided module not registered: <path>`.
-5. **Not listed** means per-script, as on Windmill. In particular a host
-   lists only modules that must be shared; a client library that must stay
-   per step (so that its import-time configuration is the facade's, not the
-   host's) is simply not listed.
+5. **Not listed** means per-script, as on Windmill. A host lists only modules
+   that must be shared; a client library that must stay per step (so that
+   its import-time configuration is the facade's, not the host's) is not
+   listed.
+6. **Transitive imports.** A listed module's own imports come with it: in
+   host mode they are the host's instances, elsewhere the bundled copy's. So
+   a library that a listed module imports reaches steps with the host's
+   import-time configuration whenever steps call through the listed module.
+   The build warns (`host_module_shared_dependency`) when a listed module
+   imports a package that a step also imports directly, since that package
+   then exists twice with different configuration.
 
 This departs from Windmill, which inlines every import into each script's
 bundle ([WR-27](../semantics/languages.md#wr-27)): it is deviation D12, and the
@@ -135,8 +163,11 @@ host program that carries the engine binary and starts it
 
 `windmill-lite image <bundle>` writes an OCI image layout (or pushes it) with
 a pure-Go image library, so no Docker daemon is needed. The image holds the
-single executable and its manifest on an empty base, with the chosen adapter
-as entrypoint. No windmill-lite image is ever based on, or contains, a
+single executable and its manifest, with the chosen adapter as entrypoint,
+on the smallest base that runs it: an empty base is enough for the static
+engine, while the compiled Bun harness inside the single executable links a
+C library, so the base must provide one. F6's exit gate runs the image and
+records the base in the manifest. No windmill-lite image is ever based on, or contains, a
 Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 ([0011](0011-differential-testing.md)).
 
@@ -150,6 +181,9 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 4. A host that pins the executable by digest (go-plugin `SecureConfig`) and
    compares `GetBuildInfo` with its release record catches a swapped binary
    and a swapped bundle.
+5. The Linux engine binaries are static (built with `zig cc` against musl,
+   [0003](0003-semantics-placement.md)); F4's exit check starts each one on an
+   empty base and fails the release if it does not run there.
 
 ## Consequences
 

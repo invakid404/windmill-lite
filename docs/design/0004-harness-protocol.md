@@ -143,9 +143,13 @@ microtask see none.
    keeps running; Windmill cuts it off at `process.exit`
    ([WR-2](../semantics/languages.md#wr-2)). Its output and errors are
    reported as `late` (D9).
-5. **Working directory.** Each harness process gets one private directory,
-   created at spawn, as its working directory for all invocations
-   ([WR-1](../semantics/languages.md#wr-1) gives each job its own; D10).
+5. **Working directory.** Each harness process the engine spawns gets one
+   private directory, created at spawn, as its working directory for all
+   invocations ([WR-1](../semantics/languages.md#wr-1) gives each job its
+   own; D10). In host mode the SDK does not change the host's working
+   directory: the host passes a writable directory to the SDK and must have
+   made it its working directory before connecting; the SDK checks both and
+   refuses to connect with `workdir_not_writable` or `workdir_mismatch`.
    Codebase assets are extracted into it before the first invocation
    ([0002](0002-ir-and-loader.md)).
 6. **`process.exit`** is replaced per invocation. The call fixes the
@@ -189,13 +193,18 @@ expects the two to differ as stated.
 - **Platform transports.** In `warm` and host-mode processes, `fetch` is the
   only way to reach the platform. The facade origin in `BASE_URL` is a
   loopback port that the engine binds but never listens on, so any other
-  transport (`node:http`, a raw socket) gets "connection refused" and the
-  trace records `platform_transport_unsupported` for the step. The stock
+  transport (`node:http`, a raw socket) gets "connection refused". Nothing
+  records the refusal: the kernel refuses the connection before any
+  windmill-lite code sees it, and the step sees only the error its client
+  library raises (which a script may catch and ignore). The stock
   client cannot carry an invocation's identity over such a transport,
   because it captures its token at import
   ([WA-1](../semantics/client-api.md#wa-1), [WA-31](../semantics/client-api.md#wa-31)).
   In `fresh` mode the port does listen, because the process is the
-  invocation ([0007](0007-platform-interface.md)).
+  invocation ([0007](0007-platform-interface.md)). Each process receives its
+  own `BASE_URL` at spawn, so a host that runs some scripts `fresh` and the
+  rest `warm` gives the two kinds of process different facade origins: the
+  listening one for `fresh` processes, the non-listening one for warm ones.
 - The base environment of the process follows [WR-22](../semantics/languages.md#wr-22)
   and [WA-2](../semantics/client-api.md#wa-2): `PATH`, `HOME`, `TZ`,
   `FORCE_COLOR=1`, `DO_NOT_TRACK=1`, `BUN_INSTALL_CACHE_DIR`,
@@ -232,8 +241,8 @@ sequenceDiagram
    Host-provided modules are registered before that
    ([0010](0010-packaging.md)). A host may ask for eager loading to move the
    cost off the first run. [0006](0006-module-state.md) covers the modes.
-3. **Serving.** A process serves concurrent invocations up to its in-flight
-   cap (below).
+3. **Serving.** A process serves any number of concurrent invocations,
+   unless the host sets a cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
    ones, sends `drain`, and the harness exits after `bye`.
 
@@ -246,10 +255,18 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Default size is one process per pool: Bun steps are mostly asynchronous
   I/O and run concurrently on one event loop. A host can set a minimum and a
   maximum.
-- Each process accepts at most 64 in-flight invocations by default (host
-  settable); further invocations wait in the engine in release order. This
-  changes timing only, which the contract leaves unspecified for parallel
-  work ([0001](0001-equivalence-contract.md) §1).
+- **No in-flight cap by default.** The reference for parallel containers is
+  a Windmill with enough workers ([0001](0001-equivalence-contract.md) §1),
+  and any cap changes outcomes, not only timing: children that wait on each
+  other, or parents that wait on runs they dispatched locally, never finish
+  if the cap keeps their partners from starting. A host may still set a cap
+  per process, in spawned processes and in host mode alike; it is deviation
+  D15, recorded in the run trace. Abandoned invocations never count toward
+  it. Cases (`policy`, windmill-lite only, because the reference behaviour
+  is the contract's enough-workers assumption): three parallel children
+  that wait on one barrier, and three parents that each dispatch a run
+  locally and wait for it, both completing with no cap and both timing out
+  at the step timeout with a cap of 2.
 - Routing prefers the run's process (affinity), then the least-loaded one.
   When the event loop of a process lags past a threshold (a CPU-bound step),
   the pool starts another process, up to the maximum.
@@ -261,33 +278,64 @@ host's steps is the host itself, because the host's scopes live there
 ([0008](0008-host-hooks.md) H11). The rules for spawned processes therefore
 change:
 
-1. **No taint, no recycle, no kill.** The engine never stops routing to the
-   host process and never ends it (D2). An abandoned invocation keeps
-   running until it settles.
+1. **No taint, no recycle.** The engine never stops routing to the host
+   process (D2). An abandoned invocation keeps running until it settles.
 2. **Reporting.** Abandoned invocations are counted in `pong`, flagged
    `abandoned` on their module in the run trace, and exposed to the host
    through the SDK's `health()`, with the age of the oldest one.
-3. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
+3. **Draining.** The SDK's `drain(timeout)` refuses new runs (`run` frames
+   are answered `draining`), waits for in-flight runs up to `timeout`, and
+   then lets the host exit. Runs still in flight at the deadline end with the
+   host; their callers get whatever the host's own transport gives on exit.
+   A host drains when it decides it is unhealthy but still responsive, for
+   example after too many abandoned invocations.
+4. **The watchdog.** A host whose event loop is blocked (a step spinning in
+   a synchronous loop) cannot answer anything, including its own health
+   checks, so recovery cannot depend on it. The engine is a separate process
+   and keeps running: when the host misses pings for `watchdog.killAfter`
+   (default 30 s, set by the host when it connects; `0` disables it), the
+   engine writes a diagnostic line to its own stderr naming the host's
+   in-flight runs, sends `SIGKILL` to the host process (whose pid it learned
+   in the handshake) and exits. It reports no run outcomes: the only receiver
+   of those was the host. A step that blocks the event loop for longer than
+   `killAfter`, even one that would have finished, therefore ends the host
+   and every run in it (D2); a host that runs long synchronous steps raises
+   or disables the threshold. The only thing the
+   host's supervisor needs is to restart the host when it exits, which
+   supervisors already do. Callers with requests in flight on the killed host
+   get the transport error their side gives when a server dies; the next
+   generation is admitted when it is up, by the supervisor's own rule. A
+   process the engine spawned is handled the same way: the engine kills it
+   after the same silence, fails its in-flight invocations as `escaped`
+   with the signal, and starts a replacement.
+5. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
    `onRunSettled` fires when the run's abandoned invocations have all
-   settled, which may be never. A host that holds per-run resources (leases,
-   connections) releases them at one or the other, by its own policy.
-4. **A step that blocks the event loop** (a CPU-bound loop) blocks the host.
-   The engine keeps time in Go: timeouts fire, modules and runs complete, and
-   the outcome is delivered when the event loop runs again. After three
-   missed pings one second apart the engine reports the process
-   `unresponsive` in health. Host mode gives no latency or cancellation bound
-   while the event loop is blocked; this is a listed limitation, and the
-   remedy is the host's supervisor restarting the host.
-5. **Losing the host.** If the host process exits, its in-flight runs are
+   settled, which may be never. A resource that an abandoned invocation may
+   still use (a pooled client, a lease) is released only at `onRunSettled` or
+   when the process exits, never on a timer, because abandoned code can
+   resume at any time and a timer would hand the resource to two users.
+   Resources that no step code can reach (host-side bookkeeping) may be
+   released at `onRunEnd`.
+6. **Losing the host.** If the host process exits, its in-flight runs are
    lost with it: their callers are the host's own callers. The engine fails
    them as `harness_lost` and does not try to move them, because their scopes
    existed only in that process.
 
-Validation (milestones W1 and F3b): two concurrent host-mode runs, one of
-whose steps never settles: after that step's timeout, the other run's next
-step completes, a new run afterwards succeeds, and health reports one
-abandoned invocation. A step that spins for three seconds: the other run's
-step completes after it, health reports `unresponsive` and then clears.
+Measured (prototype outside the repository, Bun 1.4.2): a Bun host that
+heartbeats a Go child every 100 ms and then spins forever was killed by the
+child 1.04 s after its last heartbeat, with a 1 s threshold; a supervisor
+that only restarts on exit then served a new call on the next generation.
+
+Validation (milestones W1 and F3b, with a public test supervisor that only
+restarts on exit): two concurrent host-mode runs, one of whose steps never
+settles: after that step's timeout, the other run's next step completes, a
+new run afterwards succeeds, and health reports one abandoned invocation.
+A step that spins forever, with a second run active: the engine kills the
+host within `watchdog.killAfter` plus one second, the second run's caller
+sees the host's exit, and a run on the restarted host succeeds. A step that
+spins for 2 s with `killAfter` 1 s kills the host; with the watchdog
+disabled it completes. A resource held by an abandoned invocation is not
+released before `onRunSettled`.
 
 ### Parallel loops
 
@@ -295,7 +343,7 @@ The engine owns concurrency. A parallel `forloopflow` or `branchall` starts
 child runs as goroutines; `parallelism` releases eligibility in index order
 ([CF-7](../semantics/control-flow.md#cf-7)); results are collected in index
 order whatever the completion order ([CF-4](../semantics/control-flow.md#cf-4)).
-Beyond `parallelism`, the only limit is the per-process in-flight cap.
+Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 
 ### Cancellation and deadlines
 
@@ -343,8 +391,8 @@ Beyond `parallelism`, the only limit is the per-process in-flight cap.
 - A shared process changes what can happen after a step's result and where
   its files go (D9 to D11); every such difference is reported, never silent,
   and `fresh` mode removes them.
-- Host mode trades the ability to kill for the ability to keep the host's
-  scopes; its limits are stated and visible in health.
+- Host mode keeps the host's scopes and gives up killing steps; a wedged host
+  is still recovered, by the engine's watchdog and the host's supervisor.
 - The protocol is language-neutral; a Python harness implements the same
   frames.
 

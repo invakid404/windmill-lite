@@ -64,9 +64,15 @@ Every adapter below is a transport over these calls.
      schema.
    - It registers the host's instances of the host-provided modules
      ([0010](0010-packaging.md)) before any step loads.
-   - `health()` reports in-flight, abandoned and unattributed-error counts
-     and the `unresponsive` state, and `onRunSettled` complements `onRunEnd`
-     ([0004](0004-harness-protocol.md), host mode).
+   - `health()` reports in-flight, abandoned and unattributed-error counts;
+     `drain(timeout)` stops new runs and lets the host exit; `onRunSettled`
+     complements `onRunEnd`; and the connect options set the engine's
+     watchdog (`watchdog.killAfter`, default 30 s), which kills the host when
+     its event loop stops answering ([0004](0004-harness-protocol.md), host
+     mode). The host's supervisor only has to restart the host when it exits.
+   - The host passes a writable working directory, which must already be its
+     working directory; the SDK extracts codebase assets there and refuses to
+     connect otherwise (`workdir_not_writable`, `workdir_mismatch`).
    - **Consumption.** Nothing is published to a package registry. A host
      takes the SDK from this repository at the engine release it runs (a git
      dependency on the release tag, or a vendored copy of `harnesses/bun/host`

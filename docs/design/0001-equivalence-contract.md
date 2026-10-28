@@ -42,7 +42,9 @@ every eligible child runs at once ([CF-7](../semantics/control-flow.md#cf-7),
 [OR-5](../semantics/oracle.md#or-5)), so the interleaving of their effects is
 unspecified and never compared. A fixture with blocking dispatch (a step
 that waits for a job it dispatched) assumes at least two workers, as
-[OR-5](../semantics/oracle.md#or-5) requires of such fixtures. Concretely:
+[OR-5](../semantics/oracle.md#or-5) requires of such fixtures; two suffice
+for one level of blocking, and each fixture declares the worker capacity it
+needs (`oracle: {workers: n}`). Concretely:
 
 - container skip flags take their deployed defaults
   ([OF-7](../semantics/openflow.md#of-7), [CF-6](../semantics/control-flow.md#cf-6));
@@ -144,13 +146,15 @@ remotely.
 
 ### 5. Named deviations
 
-Each deviation has an id, is listed in the bundle manifest when it is active,
-and has a conformance case that shows the difference.
+Each deviation has an id and a conformance case that shows the difference.
+A deviation fixed at build time is listed in the bundle manifest; one that
+depends on a runtime setting the host chooses (D15, and D2's watchdog) is
+recorded in each run's trace.
 
 | Id | Deviation | Why | Record |
 |---|---|---|---|
 | D1 | Module state survives between invocations in the default `warm` mode, and every script in a process shares one `globalThis` | per-step re-evaluation costs 0.6 to 2.1 ms per invocation for 0.3 to 1.3 MB bundles, before any dependency initialisation | [0006](0006-module-state.md) |
-| D2 | A timed-out or canceled step is abandoned, not killed; its JavaScript may run on until it settles or the harness process is recycled. In host mode the process is never recycled or killed by the engine | one warm process serves many invocations; killing it would fail unrelated steps, and in host mode it is the host | [0004](0004-harness-protocol.md) |
+| D2 | A timed-out or canceled step is abandoned, not killed; its JavaScript may run on until it settles or the harness process is recycled. In host mode the engine neither recycles nor kills the host, except through the host-mode watchdog when the host's event loop stops answering; a step that blocks the event loop longer than the watchdog's threshold therefore ends the host and every run in it, even if it would have finished | one warm process serves many invocations; killing it would fail unrelated steps, and in host mode it is the host | [0004](0004-harness-protocol.md) |
 | D3 | Job ids are windmill-lite UUIDs; job introspection answers from the run, not from a job table | there is no queue | [0007](0007-platform-interface.md) |
 | D4 | The `cache_ttl` result cache is per process unless the host plugs in a shared store | Windmill's cache lives in its database | [0007](0007-platform-interface.md) |
 | D5 | `nativets` and `//native` scripts run in the Bun harness under a native boundary mode, not in Windmill's V8 isolate | one JavaScript harness; the reference covers the native runtime only in outline ([WR-31](../semantics/languages.md#wr-31), `later`), so the mode's rules wait for a semantics request (README) and the API surface is checked at build | [0004](0004-harness-protocol.md), [0002](0002-ir-and-loader.md) |
@@ -158,11 +162,12 @@ and has a conformance case that shows the difference.
 | D7 | `//nobundling` scripts are bundled at build time instead of resolving imports and installing packages at run time | a bundle must run offline; results are the same, but `import.meta`, file paths and stack text differ, as they already do between Windmill's two modes ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
 | D8 | An expression attempt that hits the 20 s limit is interrupted; Windmill leaves the evaluation running on its thread | frees the CPU; the error text, the three attempts and the 5 s pauses are unchanged | §7, [JE-2](../semantics/expressions.md#je-2) |
 | D9 | Work a step leaves running after its result (unawaited promises, timers) keeps running in a warm process, and its late errors are recorded, not fatal; a process-level error that cannot be attributed to an invocation fails no step | Windmill cuts that work off at `process.exit` ([WR-2](../semantics/languages.md#wr-2)) and a detached rejection kills that step's process; in a shared process it would kill every co-resident step | [0004](0004-harness-protocol.md) |
-| D10 | A harness process has one working directory for all its invocations, not a fresh one per job | the working directory is process-global; Windmill gives each job its own ([WR-1](../semantics/languages.md#wr-1)) | [0004](0004-harness-protocol.md) |
+| D10 | A harness process has one working directory for all its invocations, not a fresh one per job, and every codebase entry's assets are visible there to every script | the working directory is process-global; Windmill gives each job its own, with only its entry's assets ([WR-1](../semantics/languages.md#wr-1)) | [0004](0004-harness-protocol.md) |
 | D11 | An intercepted `process.exit` fixes the step's outcome at the call, but `finally` blocks run and a `catch` can swallow it and continue | the process must not exit; the call can only throw | [0004](0004-harness-protocol.md) |
 | D12 | A host-provided module has one instance per process, shared by the host and every script that imports it | singletons that hold the host's scopes must be the host's own; Windmill inlines every import into each script's bundle ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
 | D13 | Codebase scripts built as CommonJS run on Bun's CommonJS loader, not Node | one JavaScript harness, and host mode needs the steps in the host's Bun process; Windmill runs CJS codebase bundles under Node ([WR-30](../semantics/languages.md#wr-30), `EE`) | [0002](0002-ir-and-loader.md) |
 | D14 | Messages windmill-lite generates in place of Windmill's server-side ones carry no Rust location suffix | windmill-lite has no Rust source; §2 strips the oracle's suffix only on generated messages | §2 |
+| D15 | A host-set cap on in-flight invocations per process. There is none by default; with one set, concurrent children that wait on each other, or parents that wait on runs they dispatched locally, can wait forever where a Windmill with enough workers completes them | a host may need to bound concurrency; the reference has no such bound | [0004](0004-harness-protocol.md) |
 
 `fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10 and D11:
 it runs one process per invocation, in its own working directory, and kills
@@ -175,10 +180,11 @@ fails at load or at the call, with a named error, and has a case.
 
 | Restriction | Error | Record |
 |---|---|---|
-| In a warm or host-mode harness, step code reaches the platform only through `fetch`; other transports (`node:http`, raw sockets) find no listener | a connection error in the step, plus `platform_transport_unsupported` in the trace | [0007](0007-platform-interface.md) |
+| In a warm or host-mode harness, step code reaches the platform only through `fetch`; other transports (`node:http`, raw sockets) find no listener | the step's client gets "connection refused"; nothing is recorded, because the refusal carries no invocation | [0007](0007-platform-interface.md) |
+| A by-path target of a local dispatch (`runScript*`, `runFlow*`) must be a root of the bundle | the dispatching step fails with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>` | [0007](0007-platform-interface.md) |
 | A host-provided module must not export a binding it reassigns (`export let` that changes) | build error `host_module_live_binding` | [0010](0010-packaging.md) |
 | Two codebase scripts may not extract different assets to the same relative path | build error `asset_collision` | [0002](0002-ir-and-loader.md) |
-| A hook selector that names a module id occurring more than once in one module list must give the occurrence | load error `ambiguous_selector` | [0008](0008-host-hooks.md) |
+| A hook selector that names a module id occurring more than once in one module list must give the occurrence; a mandatory provided-site selector must match exactly one site | load error `ambiguous_selector` | [0008](0008-host-hooks.md) |
 | A codebase entry with `customBundler`, and a script with a `schema_validation` annotation, until the reference covers them | load error `unsupported_feature` | [0002](0002-ir-and-loader.md), [0009](0009-host-adapters.md) |
 
 Anything not in this table and not out of scope is a bug when it differs.
@@ -188,11 +194,13 @@ Anything not in this table and not out of scope is a bug when it differs.
 Every contested finding in this table can be recorded on the CE oracle,
 which public CI may run, so none of them gets a permanent switch. Instead:
 
-1. Milestone E3a records the contested cases on the oracle in wave 2, before
-   the engine milestones that implement them merge
-   ([0012](0012-layout-and-milestones.md)).
-2. Until a case is recorded, the engine implements the default below, inside
-   one function per contested rule, and the case keeps its `disputed` tag.
+1. Recordings are made in **batches, one per consumer** (milestones E3a to
+   E3e in [0012](0012-layout-and-milestones.md)): each contested rule's
+   discriminating cases are recorded in the batch that gates the milestone
+   implementing that rule, as the last column says.
+2. Until a case is recorded, the implementation follows the default below,
+   inside one function per contested rule, and the case keeps its `disputed`
+   tag. The implementing milestone cannot merge before its batch has.
 3. When the recording lands, the default becomes the recorded behaviour,
    the case becomes `oracle-observed`, and if the two differ, that one
    function changes in the same pull request.
@@ -200,21 +208,21 @@ which public CI may run, so none of them gets a permanent switch. Instead:
 If a finding later turns out not to be recordable on CE, it gets a build
 switch through a change to this record, naming the reason.
 
-| Finding | Readings | Default until recorded, and why | Settled by |
-|---|---|---|---|
-| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | (b): it agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10) | Q-FX-15, case FX-V6/a |
-| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | (b): it is the confirmed [JE-9](../semantics/expressions.md#je-9) rule | Q-CF-16, cases CF-V6/a,b |
-| [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | (b): the correction traces the decoder | Q-FX-19, cases FX-33/c–g |
-| [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | (b): the correction traces that a break clears the stop, not the failure | Q-CF-14, case CF-12/f |
-| [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`) | Q-FX-16, case FX-42/h |
-| [OF-3](../semantics/openflow.md#of-3) / [OF-V5](../semantics/openflow.md#of-v5) | one or two form selections | not applicable: both readings agree on the successful lite deployment, which is the reference configuration | Q-OF-11 |
-| [CF-8](../semantics/control-flow.md#cf-8) | how far the raw-submission no-collapse rule reaches, and whether the stored form actually selected (lite or full) decides nested collapse | not applicable: windmill-lite never runs raw submissions and always reads the lite form (§1) | Q-CF-15 |
-| [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | re-evaluation itself is not contested and is implemented; (b) for the outcome | Q-FX-11 |
-| [FX-40](../semantics/execution.md#fx-40) (`later`) | collapsed iterations (a) never, or (b) can share cache entries | (b): it follows the key derivation as corrected | Q-FX-17 |
-| [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | only matters to an HTTP run-and-wait adapter, which comes later | Q-FX-12 |
-| [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28) (`later` parts) | stream classification; dynamic-import rewrite reach | the corrected readings, when those features land | Q-WR-15, Q-WR-16 |
-| [OR-11](../semantics/oracle.md#or-11), [OR-14](../semantics/oracle.md#or-14), [OR-V3](../semantics/oracle.md#or-v3), [OR-V8](../semantics/oracle.md#or-v8) | identity encoding for compared steps | decided in [0011](0011-differential-testing.md): typed segments, an occurrence suffix for repeated module ids, the escape character escaped | Q-OR-17 |
-| [OR-15](../semantics/oracle.md#or-15), [OR-V9](../semantics/oracle.md#or-v9) | whether the probe catalogue fills the fixture format | the format is adopted; the catalogue is rebuilt as executable fixtures (milestone E3b) | Q-OR-16 |
+| Finding | Readings | Default until recorded, and why | Settled by | Recorded in, gating |
+|---|---|---|---|---|
+| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | (b): it agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10) | Q-FX-15, case FX-V6/a | E3c, gating N1b (the discriminating case runs in a failure handler) |
+| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | (b): it is the confirmed [JE-9](../semantics/expressions.md#je-9) rule | Q-CF-16, cases CF-V6/a,b | E3a, gating B2a and B2b |
+| [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | (b): the correction traces the decoder | Q-FX-19, cases FX-33/c–g | E3c, gating N1b |
+| [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | (b): the correction traces that a break clears the stop, not the failure | Q-CF-14, case CF-12/f | E3d, gating N3a and N3b |
+| [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`) | Q-FX-16, case FX-42/h | E3b, gating PF2 |
+| [OF-3](../semantics/openflow.md#of-3) / [OF-V5](../semantics/openflow.md#of-v5) | one or two form selections | not applicable: both readings agree on the successful lite deployment, which is the reference configuration | Q-OF-11 | none needed |
+| [CF-8](../semantics/control-flow.md#cf-8) | how far the raw-submission no-collapse rule reaches, and whether the stored form actually selected (lite or full) decides nested collapse | not applicable: windmill-lite never runs raw submissions and always reads the lite form (§1) | Q-CF-15 | none needed |
+| [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | re-evaluation itself is not contested; (b) for the outcome | Q-FX-11 | E3e, gating the `later` milestone that implements `skip_expr` |
+| [FX-40](../semantics/execution.md#fx-40) | collapsed iterations (a) never, or (b) can share cache entries | (b): it follows the key derivation as corrected | Q-FX-17 | E3d, gating N4 |
+| [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | only matters to an HTTP adapter | Q-FX-12 | E3e, gating F7b |
+| [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28) (`later` parts) | stream classification; dynamic-import rewrite reach | the corrected readings, when those features land | Q-WR-15, Q-WR-16 | E3e, gating the `later` milestones for them |
+| [OR-11](../semantics/oracle.md#or-11), [OR-14](../semantics/oracle.md#or-14), [OR-V3](../semantics/oracle.md#or-v3), [OR-V8](../semantics/oracle.md#or-v8) | identity encoding for compared steps | decided in [0011](0011-differential-testing.md): typed segments, an occurrence suffix for repeated module ids, the escape character escaped | Q-OR-17 | a design decision; K1's encoder tests |
+| [OR-15](../semantics/oracle.md#or-15), [OR-V9](../semantics/oracle.md#or-v9) | whether the probe catalogue fills the fixture format | the format is adopted; the catalogue is rebuilt as executable fixtures | Q-OR-16 | E3e |
 
 ### 7. Policy questions the reference left to the design
 

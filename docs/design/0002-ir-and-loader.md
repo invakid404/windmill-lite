@@ -190,8 +190,9 @@ Some hosts must replace call sites whose targets windmill-lite cannot run,
 for example a subflow that suspends. Runtime interception alone cannot help:
 the loader would reject the flow before any hook ran. So the build takes a
 **host contract** as a second input, next to the sync folder: a file that
-lists the bundle's **roots** (the flows and scripts the host will run) and
-its **provided sites**, each a selector ([0008](0008-host-hooks.md)) with
+lists the bundle's **roots** (the flows and scripts the host will run, and
+every by-path target that steps dispatch locally with `runScript*` or
+`runFlow*`, since no static path reaches those) and its **provided sites**, each a selector ([0008](0008-host-hooks.md)) with
 the form of its provider (a static value, or a named provider the host
 registers at run time) and `mandatory: true`.
 
@@ -210,13 +211,23 @@ registers at run time) and `mandatory: true`.
 5. A mandatory provider cannot decline. If it returns *decline* anyway, the
    run latches `provider_declined` (H5) and fails closed.
 
-Policy case: a synthetic root calls a by-path subflow that contains
-`suspend`, at a site the host contract provides. With the provider
-registered, the run succeeds with the provider's value and the root's
-orchestration around the site (its `stop_after_if`) applies to it; without
-the contract entry, load fails with `unsupported_feature`/`suspend` naming
-the path; with the entry but no registered provider, `wl.Open` fails with
-`missing_provider`.
+Policy case, in two parts, because they need different milestones:
+
+- **Compile time** (A5's gate): a synthetic root calls a by-path subflow
+  that contains `suspend`. Without the contract entry, load fails with
+  `unsupported_feature`/`suspend` naming the path. With it, the subflow is
+  not loaded, the IR holds a `Provided` module with the site's original
+  envelope, and a mandatory selector that matches two sites fails with
+  `ambiguous_selector`.
+- **Run time** (F2a's gate, after `wl.Open` exists): with the provider
+  registered, the run succeeds with the provider's value and the root's
+  `stop_after_if` applies to it; with no registered provider, `wl.Open` fails
+  with `missing_provider`; a provider that declines fails the run with
+  `provider_declined`.
+
+A dispatch at run time to a path that is not a root fails the dispatching
+step with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>`
+([0007](0007-platform-interface.md)).
 
 ### Validation
 
@@ -252,13 +263,16 @@ Decisions:
    version and the default `format`, the build uses the CLI's documented
    defaults and records the esbuild version in the manifest (semantics
    request 2, README). A `customBundler` entry is refused at load
-   (`unsupported_feature`).
+   (`unsupported_feature`). The windmill-lite-specific transforms (the
+   host-provided-module shims and the env rewrite) are the same single
+   implementation the Bun path uses ([0010](0010-packaging.md)).
 2. **Runtime.** CJS and ESM codebase bundles run in the Bun harness;
    running CJS on Bun's CommonJS loader instead of Node is deviation D13. A
    Node harness class was weighed and rejected: host mode needs steps in the
    host's Bun process, and CE cannot record codebase behaviour either way.
-   Cases for D13 run the same esbuild CJS bundle under Node and under the Bun
-   harness and compare results, error objects and module-load failures
+   Cases for D13 (milestone C2b, which needs the Bun harness runtime) run the
+   same esbuild CJS bundle under Node and under the Bun harness and compare
+   results, error objects and module-load failures
    (`__dirname`, `require` of JSON and of the bundle's own files, `module.exports`
    shapes).
 3. **Assets.** `assets[{from,to}]` are extracted once per harness process
