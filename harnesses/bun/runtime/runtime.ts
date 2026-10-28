@@ -13,8 +13,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   Assembler,
-  decode,
   decodeAssembled,
+  decodeFrame,
   FrameReader,
   type Health,
   type Message,
@@ -73,6 +73,7 @@ export class Runtime {
   private sender: Sender;
   private welcomed = false;
   private stopped = false;
+  private byeSent = false;
   private invocations = new Map<string, Invocation>();
   private modules = new Map<string, Promise<Record<string, unknown>>>();
   private heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -103,7 +104,7 @@ export class Runtime {
     if (this.stopped) return;
     try {
       for (const payload of this.reader.push(data)) {
-        let m = decode(payload);
+        let m = decodeFrame(payload, this.assembler.maxMessage);
         if (m.t === "part") {
           const full = this.assembler.add(m);
           if (!full) continue;
@@ -204,7 +205,14 @@ export class Runtime {
     if (this.invocations.has(m.id)) throw new ProtocolError("unexpected_message", `invocation ${JSON.stringify(m.id)} is already in flight`);
     const inv: Invocation = { id: m.id, abandoned: false, controller: new AbortController() };
     this.invocations.set(m.id, inv);
-    this.run(m).then((o) => this.finish(inv, o));
+    // Nothing that goes wrong while one invocation ends may end the
+    // process: it would take every co-resident invocation with it.
+    this.run(m)
+      .then((o) => this.finish(inv, o))
+      .catch((e) => {
+        this.diag(`windmill-lite harness: invocation ${JSON.stringify(inv.id)}: ${describe(e)}`);
+        this.finish(inv, { outcome: "escaped", tail: "", exit_code: 1 });
+      });
   }
 
   /** The skeleton step runner. */
@@ -219,22 +227,22 @@ export class Runtime {
     }
     const fn = mod[m.entry];
     if (typeof fn !== "function") {
-      return { outcome: "error", body: errorBody(new Error(`${m.entry} function is missing`)) };
+      return caught(new Error(`${m.entry} function is missing`));
     }
     let value: unknown;
     try {
       value = await fn(m.args);
     } catch (e) {
       if (e === null || e === undefined) return { outcome: "escaped", tail: "", exit_code: 1 };
-      return { outcome: "error", body: errorBody(e) };
+      return caught(e);
     }
     let body: string | undefined;
     try {
       body = JSON.stringify(value ?? null);
     } catch (e) {
-      return { outcome: "error", body: errorBody(e) };
+      return caught(e);
     }
-    if (body === undefined) return { outcome: "error", body: errorBody(new TypeError("the result has no JSON form")) };
+    if (body === undefined) return caught(new TypeError("the result has no JSON form"));
     return { outcome: "ok", body };
   }
 
@@ -259,7 +267,7 @@ export class Runtime {
   /** Reports how the entrypoint call ended: as the result, or, for an
    * abandoned invocation, as the late frame that settles it. */
   private finish(inv: Invocation, o: Outcome) {
-    if (this.stopped || this.invocations.get(inv.id) !== inv) return;
+    if (this.stopped || this.byeSent || this.invocations.get(inv.id) !== inv) return;
     this.invocations.delete(inv.id);
     let msg: Outgoing;
     if (!inv.abandoned) {
@@ -280,13 +288,20 @@ export class Runtime {
     }
   }
 
+  /** bye is the last frame: heartbeats stop, everything queued goes out
+   * first, and nothing is sent after it. */
   private drain() {
-    this.send({ t: "bye" });
-    this.sender.whenFlushed(() => this.stop(EXIT.ok));
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
+    this.sender.whenFlushed(() => {
+      this.send({ t: "bye" });
+      this.byeSent = true;
+      this.sender.whenFlushed(() => this.stop(EXIT.ok));
+    });
   }
 
   private send(m: Outgoing) {
-    if (!this.stopped) this.sender.send(m);
+    if (!this.stopped && !this.byeSent) this.sender.send(m);
   }
 
   private protocolError(e: unknown) {
@@ -309,17 +324,29 @@ function rawBody(o: Outcome): Record<string, unknown> {
   return { outcome: o.outcome, body: new Raw(o.body) };
 }
 
-/** The error object of a caught throw: message, name and stack, the first
- * fields of WR-18's shape; step_id and extra are milestone C3a's. Fields a
- * value does not have are left out, as JSON.stringify leaves them. */
-function errorBody(e: unknown): string {
-  const x = e as { message?: unknown; name?: unknown; stack?: unknown };
-  return JSON.stringify({ message: x.message, name: x.name, stack: x.stack });
+/** The outcome of a caught throw: an error with message, name and stack,
+ * the first fields of WR-18's shape (step_id and extra are milestone
+ * C3a's); fields a value does not have are left out, as JSON.stringify
+ * leaves them. When that object cannot be built or serialised (a throwing
+ * getter, a BigInt or a cycle in it), the failure escapes the error shaping,
+ * as in WR-19. */
+function caught(e: unknown): Outcome {
+  try {
+    const x = e as { message?: unknown; name?: unknown; stack?: unknown };
+    const body = JSON.stringify({ message: x.message, name: x.name, stack: x.stack });
+    return { outcome: "error", body };
+  } catch (inner) {
+    return { outcome: "escaped", tail: describe(inner), exit_code: 1 };
+  }
 }
 
 function describe(e: unknown): string {
-  if (e instanceof Error) return e.stack ?? `${e.name}: ${e.message}`;
-  return String(e);
+  try {
+    if (e instanceof Error) return e.stack ?? `${e.name}: ${e.message}`;
+    return String(e);
+  } catch {
+    return "(an error that cannot be printed)";
+  }
 }
 
 /** The module of an inventory id: scripts/bun/<id>.mjs in the bundle

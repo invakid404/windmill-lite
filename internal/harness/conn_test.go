@@ -86,8 +86,8 @@ func TestSmallFramesOvertakeLargeMessages(t *testing.T) {
 // Two part streams take turns, one part frame each.
 func TestPartStreamsTakeTurns(t *testing.T) {
 	c, peer := connPair(t)
-	// Hold the writer back with a first large message, so both streams are
-	// queued before their turns start.
+	// Queue both streams under the lock, so neither starts before the
+	// other is queued.
 	c.mu.Lock()
 	c.streams = append(c.streams,
 		&outStream{id: "1", payload: mustEncode(t, bigResult("a", 3*PartChunk))},
@@ -97,6 +97,75 @@ func TestPartStreamsTakeTurns(t *testing.T) {
 	got := strings.Join(readTypes(t, peer, 6), " ")
 	if got != "part:1 part:2 part:1 part:2 part:1 part:2" {
 		t.Fatalf("frames %s", got)
+	}
+}
+
+// Messages about one invocation keep their order: a cancel queued behind a
+// large invoke, and a second large message about it, wait for the first
+// stream's last part, while frames about other invocations do not.
+func TestFramesAboutOneInvocationKeepOrder(t *testing.T) {
+	c, peer := connPair(t)
+	args := jsonval.FromProducer([]byte(`{"data":"` + strings.Repeat("y", 3*PartChunk) + `"}`))
+	for _, m := range []Message{
+		Invoke{ID: "i1", Run: "r", Script: "s", Entry: "main", Args: args, Env: map[string]string{}, Boundary: "bun"},
+		Cancel{ID: "i1", Reason: "timeout"},
+		bigResult("i1", 2*PartChunk),
+		Log{ID: "i1", Lines: []string{"after"}},
+		Cancel{ID: "i2", Reason: "timeout"},
+		Ping{ID: "e1"},
+	} {
+		if err := c.send(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &frameStream{r: peer, asm: newAssembler(DefaultMaxMessage)}
+	var mine, all []string
+	for len(mine) < 4 {
+		m := r.next(t)
+		id := invocationOf(m)
+		all = append(all, m.Type()+":"+id)
+		if id == "i1" {
+			mine = append(mine, m.Type())
+		}
+	}
+	if got := strings.Join(mine, " "); got != "invoke cancel result log" {
+		t.Fatalf("messages about i1 in order %s; all: %v", got, all)
+	}
+	if all[0] != "cancel:i2" && all[1] != "cancel:i2" {
+		t.Fatalf("a frame about another invocation was held back: %v", all)
+	}
+}
+
+type frameStream struct {
+	r   io.Reader
+	asm *assembler
+}
+
+func (f *frameStream) next(t *testing.T) Message {
+	t.Helper()
+	for {
+		p, err := readFrame(f.r, MaxFrame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := Decode(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		part, ok := m.(Part)
+		if !ok {
+			return m
+		}
+		full, done, err := f.asm.add(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if done {
+			if m, err = decodeAssembled(full); err != nil {
+				t.Fatal(err)
+			}
+			return m
+		}
 	}
 }
 

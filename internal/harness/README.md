@@ -42,15 +42,23 @@ milestone C1 fixed the details they left open.
 - **Canonical envelopes.** `t` first, then the table's field order, strings
   escaped as `JSON.stringify` escapes them, integers in decimal. Raw values
   (`args`, `body`) are spliced in byte for byte and never re-encoded.
-  `Decode` accepts any key order and ignores unknown fields.
+- **Decoding** follows the same rules as the Bun codec. Keys match exactly
+  and in any order, and only the message type's own fields are read. A null
+  field is absent, except a raw value. An integer is a number with an
+  integral value within ±(2^53−1), however it is spelled.
 - **Part streams.** A message over `MaxFrame` goes as `part` frames whose
   `chunk` is padded base64 of `PartChunk` (785,664) payload bytes, under a
   stream id of its own. The writer sends every queued whole frame before the
   next part frame and gives part streams turns, so a `cancel` or a `pong`
   waits behind at most one part frame.
+- **Order per invocation.** A message about an invocation (`invoke`,
+  `cancel`, `result`, `late`, `log`) queued while a part stream about the
+  same invocation is open waits for that stream's last part, so a `cancel`
+  never overtakes the large `invoke` it cancels.
 - **Limits.** `DefaultMaxMessage` is 512 MiB; `ProcessConfig.MaxMessage`
-  lowers it and the welcome passes it on. An invocation whose `invoke` would
-  exceed it is not dispatched.
+  lowers it and the welcome passes it on. It applies to whole frames and to
+  reassembled messages. An invocation whose `invoke` would exceed it is not
+  dispatched.
 - **Protocol errors.** A malformed frame, a broken part stream, a frame in
   the wrong direction or one about an invocation in the wrong state is a
   `ProtocolError`. The `Process` then kills its harness.
@@ -58,8 +66,10 @@ milestone C1 fixed the details they left open.
 ## Spawned processes
 
 `Spawn` starts the harness with one end of a socketpair as fd 3 and stdin
-on `/dev/null`. stdout and stderr go to `ProcessConfig.Diagnostics` as
-lines prefixed `harness pid <pid> stdout:` or `stderr:`. Each process gets
+on `/dev/null`. stdout and stderr are pipes the engine reads itself, so the
+harness's exit is seen at once even when a child of it keeps them open.
+They go to `ProcessConfig.Diagnostics` as lines prefixed
+`harness pid <pid> stdout:` or `stderr:`. Each process gets
 a private working directory (mode 0700) under `WorkRoot`, removed when it
 exits. Its environment is `ProcessConfig.Env`, or `BaseEnv()`: the part of
 WR-22's base set that needs no later milestone.
@@ -71,7 +81,8 @@ WR-22's base set that needs no later milestone.
 `bundle_mismatch`, `pid_mismatch`) and `Spawn` returns a `*HandshakeError`.
 The pid check refuses a wrapper that forks the harness, which the
 watchdog's signal would otherwise miss. An accepted harness gets the
-module-state mode, `heartbeat_ms` and `max_message`.
+module-state mode, `heartbeat_ms` and `max_message`. `Spawn` refuses a
+heartbeat that is not shorter than `KillAfter`, and negative values.
 
 ## Invocations and settlement
 
@@ -85,8 +96,12 @@ module-state mode, `heartbeat_ms` and `max_message`.
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
 
-Reporter calls for one invocation happen on the connection's reader
-goroutine, in the order the contract fixes. `log` frames feed an
+Reporter calls for one invocation run in the order the contract fixes, one
+at a time, on a goroutine of their own; `Settled(not_started)` runs on the
+caller's before `Execute` returns. The connection's reader never runs a
+Reporter, so a slow Reporter neither delays other invocations nor looks like
+silence to the watchdog, and a Reporter may call `Execute`. A process stops
+taking invocations as soon as its exit or the end of its stream is seen. `log` frames feed an
 invocation's tail (the last `TailLength`, 600, characters) while it is in
 flight and become late output afterwards. The last `RecentLate` (4,096)
 settled invocations per process keep receiving late output of work they
@@ -118,14 +133,16 @@ module-state mode.
 - **Cap.** `Cap` bounds invocations in flight per process (deviation D15);
   abandoned ones do not count. None by default.
 - **Tainting.** An abandoned invocation taints its process: it gets no new
-  invocations and does not count toward `Max`. It returns to service when
-  its abandoned invocations have settled, or, once nothing else is in
+  invocations and does not count toward `Max`. Once nothing else is in
   flight in it, it is drained (killed after `RecycleTimeout`, 5 s) and
-  replaced.
+  replaced. If its abandoned invocations settle first, it returns to
+  service when the pool is below `Max` without it; otherwise it is surplus
+  and leaves once idle.
 - **Replacement.** A process that dies is replaced up to `Min`; a failed
   start is logged and retried by the next `Execute`.
 - **Close.** It refuses new invocations, waits for those in flight until
-  its context ends, then drains every process.
+  its context ends, then drains every process, including one that finishes
+  starting afterwards.
 
 ## Tests
 
@@ -142,8 +159,11 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   `watchdog/finite-cpu` in warm mode, and the pool rules above.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
-  outcomes fixed before the call ends, late output, protocol violations.
-- `conn_test.go` checks the writer's ordering and the exchange matcher.
+  outcomes fixed before the call ends, late output, protocol violations, an
+  exit while a child holds the socket, a slow start, a slow or re-entrant
+  Reporter.
+- `conn_test.go` checks the writer's ordering rules and the exchange
+  matcher.
 
 The Bun tests need the pinned Bun: set `WL_BUN` to its executable. Without
 it they skip, unless `WL_REQUIRE_BUN` is set, as CI sets it.

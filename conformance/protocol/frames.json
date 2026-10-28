@@ -330,6 +330,24 @@
       "payload": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{\"b\" : 1, \"1\": 2.50, \"a\":1e2},\"env\":{},\"boundary\":\"bun\"}"
     },
     {
+      "case": "keys-exact",
+      "title": "keys match exactly: other spellings are unknown fields",
+      "message_text": "{\"t\":\"cancel\",\"ID\":\"x\",\"id\":\"i1\",\"Reason\":\"later\",\"reason\":\"timeout\"}",
+      "payload": "{\"t\":\"cancel\",\"id\":\"i1\",\"reason\":\"timeout\"}"
+    },
+    {
+      "case": "integer-spellings",
+      "title": "an integer is an integral number, however it is spelled",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h1\",\"in_flight\":0.0,\"abandoned\":1e0,\"errors\":-0,\"lag_ms\":2.0e0,\"rss\":1E3}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h1\",\"in_flight\":0,\"abandoned\":1,\"errors\":0,\"lag_ms\":2,\"rss\":1000}"
+    },
+    {
+      "case": "foreign-fields-ignored",
+      "title": "fields of another outcome or message type are not read",
+      "message_text": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"exit_code\":\"x\",\"tail\":5,\"lines\":[null],\"settled\":true}",
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"settled\":true}"
+    },
+    {
       "case": "split-result",
       "title": "a message longer than the frame limit goes as a part stream",
       "message": {
@@ -680,6 +698,93 @@
         "{\"t\":\"part\",\"id\":\"1\",\"seq\":0,\"last\":true,\"chunk\":\"eyJ0Ijo=\"}"
       ],
       "error": "invalid_json"
+    },
+    {
+      "case": "type-key-case",
+      "title": "t matches exactly",
+      "frames": [
+        "{\"T\":\"bye\"}"
+      ],
+      "error": "missing_type"
+    },
+    {
+      "case": "field-key-case",
+      "title": "field names match exactly",
+      "frames": [
+        "{\"t\":\"cancel\",\"id\":\"i1\",\"Reason\":\"timeout\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "integer-unsafe",
+      "title": "an integer beyond 2^53-1",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":9007199254740992,\"last\":true,\"chunk\":\"eA==\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "integer-string",
+      "title": "an integer written as a string",
+      "frames": [
+        "{\"t\":\"part\",\"id\":\"1\",\"seq\":\"0\",\"last\":true,\"chunk\":\"eA==\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "lines-null",
+      "title": "a null among log lines",
+      "frames": [
+        "{\"t\":\"log\",\"id\":\"i1\",\"lines\":[\"a\",null]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "env-null",
+      "title": "a null env value",
+      "frames": [
+        "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{\"A\":null},\"boundary\":\"bun\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "byte-order-mark",
+      "title": "a payload starting with a byte order mark",
+      "bytes_hex": "0000000eefbbbf7b2274223a22627965227d",
+      "error": "invalid_json"
+    },
+    {
+      "case": "type-constructor",
+      "title": "a type named like an object property",
+      "frames": [
+        "{\"t\":\"constructor\"}"
+      ],
+      "error": "unknown_type"
+    },
+    {
+      "case": "type-proto",
+      "title": "a type named __proto__",
+      "frames": [
+        "{\"t\":\"__proto__\"}"
+      ],
+      "error": "unknown_type"
+    },
+    {
+      "case": "type-tostring",
+      "title": "a type named toString",
+      "frames": [
+        "{\"t\":\"toString\"}"
+      ],
+      "error": "unknown_type"
+    },
+    {
+      "case": "whole-frame-over-limit",
+      "title": "a whole frame larger than a lowered message limit",
+      "frames": [
+        "{\"t\":\"bye\"}"
+      ],
+      "max_message": 8,
+      "error": "message_too_large"
     }
   ]
 }

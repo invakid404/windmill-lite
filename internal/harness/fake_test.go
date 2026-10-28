@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,11 +48,14 @@ func fakeHarness(mode string) int {
 		fmt.Fprintln(os.Stderr, "fake: fd 3:", err)
 		return 70
 	}
+	var sendMu sync.Mutex
 	send := func(m Message) {
 		p, err := Encode(m)
 		if err != nil {
 			panic(err)
 		}
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		if _, err := nc.Write(appendFrame(nil, p)); err != nil {
 			os.Exit(71)
 		}
@@ -72,6 +77,8 @@ func fakeHarness(mode string) int {
 		return 9
 	case "bad-pid":
 		pid++
+	case "slow-hello":
+		time.Sleep(time.Second)
 	}
 	send(Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid})
 	w := recv().(Welcome)
@@ -91,6 +98,24 @@ func fakeHarness(mode string) int {
 		for {
 			recv()
 		}
+	case "exit-leaving-child":
+		// A child keeps the socket and stdout open after this process
+		// exits, so the engine sees no end of stream for a while.
+		child := exec.Command("/bin/sleep", "3")
+		child.Stdout = os.Stdout
+		child.ExtraFiles = []*os.File{f}
+		if err := child.Start(); err != nil {
+			return 72
+		}
+		time.Sleep(50 * time.Millisecond)
+		return 5
+	case "heartbeat-and-answer":
+		go func() {
+			for i := 1; ; i++ {
+				send(Ping{ID: fmt.Sprintf("h%d", i), Health: &Health{}})
+				time.Sleep(heartbeat)
+			}
+		}()
 	}
 	for {
 		m := recv()
@@ -121,6 +146,9 @@ func fakeHarness(mode string) int {
 			send(Log{ID: inv.ID, Lines: []string{"last line"}})
 			time.Sleep(50 * time.Millisecond)
 			return 5
+		case "heartbeat-and-answer":
+			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			send(Late{ID: inv.ID, Kind: LateError, Body: jsonval.FromProducer([]byte(`{"message":"timer"}`))})
 		default:
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 		}
@@ -339,5 +367,149 @@ func TestPoolConfigValidation(t *testing.T) {
 	// The key may leave the class and runtime to the process template.
 	if _, err := NewPool(PoolConfig{Process: cfg}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A process that has exited takes no new invocation, even while a child of
+// it keeps the socket open and the end of the stream has not been seen: the
+// invocation is not dispatched, rather than failing as if it had run.
+func TestNoDispatchToAnExitedProcess(t *testing.T) {
+	cfg, _ := fakeConfig(t, "exit-leaving-child")
+	p := spawn(t, cfg)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		p.mu.Lock()
+		ending := p.ending
+		p.mu.Unlock()
+		if ending {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the exit was not noticed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case <-p.Done():
+		t.Fatal("the test needs the stream to be still open")
+	default:
+	}
+	rec := newRecorder()
+	if _, err := execute(t, p, newInvocation("x", `{}`, rec), 2*time.Second); !errors.Is(err, errUnavailable) {
+		t.Fatalf("got %v, want the process unavailable", err)
+	}
+	if got := rec.log(); got != "settled not_started" {
+		t.Fatalf("reporter calls %q", got)
+	}
+	<-p.Done()
+	if st := p.ExitStatus(); st.Code != 5 {
+		t.Fatalf("exit status %v", st)
+	}
+}
+
+// A process that finishes starting after Close gave up waiting is drained,
+// not left running.
+func TestPoolCloseDuringStart(t *testing.T) {
+	cfg, _ := fakeConfig(t, "slow-hello")
+	root := cfg.WorkRoot
+	pool, err := NewPool(PoolConfig{Process: cfg, RecycleTimeout: 300 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go pool.Start(context.Background())
+	time.Sleep(100 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := pool.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close: %v", err)
+	}
+	// The process's private directory goes when it exits.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		entries, _ := os.ReadDir(root)
+		if len(entries) == 0 && len(pool.Stats()) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("still running after Close: %d working directories, %+v", len(entries), pool.Stats())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Reporter calls run away from the connection's reader: a Reporter that
+// blocks neither stalls other invocations nor looks like silence to the
+// watchdog.
+func TestSlowReporterDoesNotStallTheConnection(t *testing.T) {
+	cfg, diag := fakeConfig(t, "heartbeat-and-answer")
+	cfg.KillAfter = 400 * time.Millisecond
+	cfg.Heartbeat = 50 * time.Millisecond
+	p := spawn(t, cfg)
+	slow := &blockingReporter{recorder: newRecorder(), release: make(chan struct{})}
+	if out, err := execute(t, p, newInvocation("x", `{}`, slow), 2*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	// Its late error now blocks in Late; the connection keeps going.
+	time.Sleep(time.Second)
+	if out, err := execute(t, p, newInvocation("x", `{}`, newRecorder()), 2*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("second invocation: %+v, %v", out, err)
+	}
+	select {
+	case <-p.Done():
+		t.Fatalf("killed while a Reporter was busy: %s", diag.String())
+	default:
+	}
+	close(slow.release)
+}
+
+type blockingReporter struct {
+	*recorder
+	release chan struct{}
+}
+
+func (b *blockingReporter) Late(l engine.Late) {
+	<-b.release
+	b.recorder.Late(l)
+}
+
+// A Reporter may call the executor, for example to start a run when one
+// settles.
+func TestReporterMayCallTheExecutor(t *testing.T) {
+	cfg, _ := fakeConfig(t, "ok")
+	p := spawn(t, cfg)
+	inner := make(chan engine.StepOutcome, 1)
+	rep := &reentrantReporter{recorder: newRecorder(), call: func() {
+		out, _ := execute(t, p, newInvocation("x", `{}`, newRecorder()), 2*time.Second)
+		inner <- out
+	}}
+	if out, err := execute(t, p, newInvocation("x", `{}`, rep), 2*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	if out := <-inner; out.Kind != engine.OutcomeOK {
+		t.Fatalf("the Execute inside Settled got %+v", out)
+	}
+}
+
+type reentrantReporter struct {
+	*recorder
+	call func()
+}
+
+func (r *reentrantReporter) Settled(k engine.SettleKind) {
+	r.call()
+	r.recorder.Settled(k)
+}
+
+func TestSpawnConfigValidation(t *testing.T) {
+	for name, edit := range map[string]func(*ProcessConfig){
+		"heartbeat not shorter than killAfter": func(c *ProcessConfig) { c.KillAfter, c.Heartbeat = time.Second, time.Second },
+		"negative heartbeat":                   func(c *ProcessConfig) { c.Heartbeat = -1 },
+		"negative message limit":               func(c *ProcessConfig) { c.MaxMessage = -1 },
+	} {
+		cfg, _ := fakeConfig(t, "ok")
+		edit(&cfg)
+		if _, err := Spawn(context.Background(), cfg); err == nil {
+			t.Errorf("%s: no error", name)
+		}
 	}
 }

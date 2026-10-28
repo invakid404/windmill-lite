@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -184,8 +185,8 @@ func TestBunCancelAbandonsAndSettlesLate(t *testing.T) {
 	ctx, cancel := context.WithTimeoutCause(context.Background(), 50*time.Millisecond, engine.CancelTimeout)
 	defer cancel()
 	start := time.Now()
-	_, err := p.Execute(ctx, newInvocation("sleep", `{"ms":400}`, rec))
-	if !errors.Is(err, engine.CancelTimeout) || time.Since(start) > 300*time.Millisecond {
+	_, err := p.Execute(ctx, newInvocation("sleep", `{"ms":1500}`, rec))
+	if !errors.Is(err, engine.CancelTimeout) || time.Since(start) > time.Second {
 		t.Fatalf("got %v after %s", err, time.Since(start))
 	}
 	if in, ab := p.Load(); in != 0 || ab != 1 {
@@ -195,14 +196,65 @@ func TestBunCancelAbandonsAndSettlesLate(t *testing.T) {
 	if err != nil || h == nil || h.Abandoned != 1 || h.InFlight != 0 {
 		t.Fatalf("pong %+v, %v", h, err)
 	}
-	if k := rec.waitSettled(t, 3*time.Second); k != engine.SettleCompleted {
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
 		t.Fatalf("settled %s", k)
 	}
-	if got := rec.log(); got != "late result final=true 400; settled completed" {
+	if got := rec.log(); got != "late result final=true 1500; settled completed" {
 		t.Fatalf("reporter calls %q", got)
 	}
 	if in, ab := p.Load(); in != 0 || ab != 0 {
 		t.Fatalf("load after settlement %d, %d", in, ab)
+	}
+}
+
+// A cancel queued while a large invoke is still being written follows its
+// last part, so the harness knows the invocation when the cancel arrives
+// and abandons it. Ahead of the invoke it would name an unknown invocation
+// and be ignored, and the harness would report the call as in flight.
+func TestBunCancelDuringLargeInvoke(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	inv := newInvocation("sleep", `{"ms":1500,"pad":"`+strings.Repeat("y", 24<<20)+`"}`, rec)
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Execute(ctx, inv)
+		done <- err
+	}()
+	// Cancel as soon as it is dispatched, while its parts are still going
+	// out.
+	for in, _ := p.Load(); in == 0; in, _ = p.Load() {
+		time.Sleep(50 * time.Microsecond)
+	}
+	cancel(engine.CancelCanceled)
+	if err := <-done; !errors.Is(err, engine.CancelCanceled) {
+		t.Fatalf("got %v", err)
+	}
+	// A ping is about no invocation, so it may overtake the invoke; ask
+	// until the harness has the invocation.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h, err := p.Ping(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.InFlight+h.Abandoned == 1 {
+			if h.Abandoned != 1 {
+				t.Fatalf("the harness runs the invocation as in flight: %+v", h)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the harness never had the invocation: %+v", h)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if k := rec.waitSettled(t, 10*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s", k)
+	}
+	if got := rec.log(); got != "late result final=true 1500; settled completed" {
+		t.Fatalf("reporter calls %q", got)
 	}
 }
 
@@ -435,42 +487,64 @@ func TestBunPoolRecyclesATaintedProcess(t *testing.T) {
 	}
 }
 
-// A tainted process with other work in flight keeps it, gets no new
-// invocations (a replacement takes them), and returns to service once its
-// abandoned invocation settles.
+// A tainted process with other work in flight keeps it and gets no new
+// invocations (a new process takes them). Once its abandoned invocation
+// settles it returns to service when the pool has room below Max, and
+// leaves once idle when it has not.
 func TestBunPoolTaintedProcessReturnsToService(t *testing.T) {
-	cfg, _ := bunConfig(t)
-	pool := newPool(t, PoolConfig{Process: cfg})
-	first := pidOf(t, pool, "a")
-	long := make(chan engine.StepOutcome, 1)
-	go func() {
-		out, _ := execute(t, pool, newInvocation("sleep", `{"ms":1500}`, newRecorder()), 10*time.Second)
-		long <- out
-	}()
-	time.Sleep(100 * time.Millisecond)
-	rec := newRecorder()
-	ctx, cancel := context.WithTimeoutCause(context.Background(), 50*time.Millisecond, engine.CancelTimeout)
-	defer cancel()
-	if _, err := pool.Execute(ctx, newInvocation("sleep", `{"ms":300}`, rec)); !errors.Is(err, engine.CancelTimeout) {
-		t.Fatalf("got %v", err)
-	}
-	if other := pidOf(t, pool, "b"); other == first {
-		t.Fatalf("a new invocation went to the tainted process %d", first)
-	}
-	if k := rec.waitSettled(t, 3*time.Second); k != engine.SettleCompleted {
-		t.Fatalf("settled %s", k)
-	}
-	untainted := false
-	for _, s := range pool.Stats() {
-		if s.PID == first {
-			untainted = !s.Tainted && !s.Retiring
-		}
-	}
-	if !untainted {
-		t.Fatalf("process %d did not return to service: %+v", first, pool.Stats())
-	}
-	if out := <-long; out.Kind != engine.OutcomeOK {
-		t.Fatalf("the co-resident invocation got %+v", out)
+	for _, tc := range []struct {
+		max  int
+		back bool
+	}{{2, true}, {1, false}} {
+		t.Run(fmt.Sprintf("max %d", tc.max), func(t *testing.T) {
+			cfg, _ := bunConfig(t)
+			pool := newPool(t, PoolConfig{Process: cfg, Max: tc.max})
+			first := pidOf(t, pool, "a")
+			long := make(chan engine.StepOutcome, 1)
+			go func() {
+				out, _ := execute(t, pool, newInvocation("sleep", `{"ms":1500}`, newRecorder()), 10*time.Second)
+				long <- out
+			}()
+			time.Sleep(100 * time.Millisecond)
+			rec := newRecorder()
+			ctx, cancel := context.WithTimeoutCause(context.Background(), 50*time.Millisecond, engine.CancelTimeout)
+			defer cancel()
+			if _, err := pool.Execute(ctx, newInvocation("sleep", `{"ms":300}`, rec)); !errors.Is(err, engine.CancelTimeout) {
+				t.Fatalf("got %v", err)
+			}
+			if other := pidOf(t, pool, "b"); other == first {
+				t.Fatalf("a new invocation went to the tainted process %d", first)
+			}
+			if k := rec.waitSettled(t, 3*time.Second); k != engine.SettleCompleted {
+				t.Fatalf("settled %s", k)
+			}
+			var st *ProcessStats
+			for _, s := range pool.Stats() {
+				if s.PID == first {
+					st = &s
+				}
+			}
+			if st == nil || st.Tainted || st.Surplus != !tc.back {
+				t.Fatalf("process %d after its taint cleared: %+v", first, pool.Stats())
+			}
+			if out := <-long; out.Kind != engine.OutcomeOK {
+				t.Fatalf("the co-resident invocation got %+v", out)
+			}
+			if tc.back {
+				return
+			}
+			// The surplus process leaves once idle; the pool is back to Max.
+			deadline := time.Now().Add(5 * time.Second)
+			for len(pool.Stats()) != 1 {
+				if time.Now().After(deadline) {
+					t.Fatalf("still %+v", pool.Stats())
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if pool.Stats()[0].PID == first {
+				t.Fatal("the surplus process stayed and the other left")
+			}
+		})
 	}
 }
 
@@ -567,11 +641,11 @@ func TestBunPoolCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			execute(t, pool, newInvocation("sleep", `{"ms":300}`, newRecorder()), 10*time.Second)
+			execute(t, pool, newInvocation("sleep", `{"ms":500}`, newRecorder()), 10*time.Second)
 		}()
 	}
 	wg.Wait()
-	if d := time.Since(start); d < 600*time.Millisecond {
+	if d := time.Since(start); d < time.Second {
 		t.Fatalf("two capped invocations took %s, want them one after the other", d)
 	}
 	// Without the cap they run at once.
@@ -582,11 +656,11 @@ func TestBunPoolCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			execute(t, free, newInvocation("sleep", `{"ms":300}`, newRecorder()), 10*time.Second)
+			execute(t, free, newInvocation("sleep", `{"ms":500}`, newRecorder()), 10*time.Second)
 		}()
 	}
 	wg.Wait()
-	if d := time.Since(start); d > 550*time.Millisecond {
+	if d := time.Since(start); d > 950*time.Millisecond {
 		t.Fatalf("two uncapped invocations took %s", d)
 	}
 }

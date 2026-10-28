@@ -166,13 +166,14 @@ type Process struct {
 	helloCh    chan Hello
 	hello      Hello
 	invs       map[string]*invocation
-	recent     recentReporters
+	recent     recentInvocations
 	inFlight   int
 	abandoned  int
 	pingSeq    uint64
 	pings      map[string]chan *Health
 	health     *Health
 	bye        bool
+	ending     bool // the reader stopped or the process exited
 	killReason string
 	readErr    error
 	status     ExitStatus
@@ -206,6 +207,11 @@ type invocation struct {
 	state   invState
 	tail    tail
 	outcome chan engine.StepOutcome // buffered, receives exactly one value
+	// calls runs the invocation's Reporter calls and its outcome delivery,
+	// one at a time and in order, away from the connection's reader: a slow
+	// Reporter neither stalls the frames of other invocations nor looks
+	// like silence to the watchdog.
+	calls serial
 }
 
 // Spawn starts a harness process and completes the handshake. On success
@@ -238,6 +244,13 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 		}
 	}
 	p.heartbeat = max(p.heartbeat, time.Millisecond)
+	switch {
+	case cfg.Heartbeat < 0 || cfg.MaxMessage < 0:
+		return nil, errors.New("harness: Heartbeat and MaxMessage cannot be negative")
+	case p.killAfter > 0 && p.heartbeat >= p.killAfter:
+		// An idle harness would look silent between two heartbeats.
+		return nil, fmt.Errorf("harness: heartbeat %s must be shorter than the watchdog's killAfter %s", p.heartbeat, p.killAfter)
+	}
 	if p.maxMessage == 0 || p.maxMessage > DefaultMaxMessage {
 		p.maxMessage = DefaultMaxMessage
 	}
@@ -272,19 +285,40 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	}
 	cmd.Dir = dir
 	cmd.ExtraFiles = []*os.File{child} // fd 3 in the child
+	// stdout and stderr are pipes of the engine's own, read by its own
+	// goroutines, so Wait returns as soon as the harness exits, even while
+	// a child of it still holds them open.
 	p.stdio = &lineWriter{diag: p.diag, keep: 20}
-	cmd.Stdout = p.stdio.stream("stdout")
-	cmd.Stderr = p.stdio.stream("stderr")
-	// Wait returns this long after the process exits even if a child of it
-	// still holds stdout or stderr open.
-	cmd.WaitDelay = time.Second
-	if err := cmd.Start(); err != nil {
+	outR, outW, err := os.Pipe()
+	if err != nil {
 		parent.Close()
 		child.Close()
 		os.RemoveAll(dir)
+		return nil, fmt.Errorf("harness: stdout pipe: %w", err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		outR.Close()
+		outW.Close()
+		parent.Close()
+		child.Close()
+		os.RemoveAll(dir)
+		return nil, fmt.Errorf("harness: stderr pipe: %w", err)
+	}
+	cmd.Stdout, cmd.Stderr = outW, errW
+	err = cmd.Start()
+	child.Close()
+	outW.Close()
+	errW.Close()
+	if err != nil {
+		outR.Close()
+		errR.Close()
+		parent.Close()
+		os.RemoveAll(dir)
 		return nil, fmt.Errorf("harness: start %s: %w", cfg.Path, err)
 	}
-	child.Close()
+	go copyLines(outR, p.stdio.stream("stdout"))
+	go copyLines(errR, p.stdio.stream("stderr"))
 	p.cmd = cmd
 	p.pid = cmd.Process.Pid
 	p.diag.pid.Store(int64(p.pid))
@@ -300,6 +334,7 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 		cmd.Wait()
 		p.mu.Lock()
 		p.status = exitStatus(cmd.ProcessState)
+		p.ending = true
 		p.mu.Unlock()
 		close(p.waitDone)
 		nc.SetReadDeadline(time.Now().Add(exitReadGrace))
@@ -415,15 +450,16 @@ func (p *Process) handleMessage(m Message) error {
 		p.mu.Unlock()
 		return nil
 	}
+	var target *invocation
 	var calls []func()
 	var err error
 	switch m := m.(type) {
 	case Result:
-		calls, err = p.onResult(m)
+		target, calls, err = p.onResult(m)
 	case Late:
-		calls, err = p.onLate(m)
+		target, calls, err = p.onLate(m)
 	case Log:
-		calls = p.onLog(m)
+		target, calls = p.onLog(m)
 	case Ping:
 		// A pong that cannot be sent means the conn is closing, which the
 		// reader reports on its own.
@@ -445,18 +481,18 @@ func (p *Process) handleMessage(m Message) error {
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())
 	}
 	p.mu.Unlock()
-	for _, f := range calls {
-		f()
+	if target != nil {
+		target.calls.do(calls...)
 	}
 	return err
 }
 
-// onResult handles a result frame; it returns the Reporter calls and
-// deliveries to make once p.mu is released.
-func (p *Process) onResult(r Result) ([]func(), error) {
+// onResult handles a result frame. It returns the invocation and the
+// Reporter calls and deliveries to queue for it once p.mu is released.
+func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 	inv := p.invs[r.ID]
 	if inv == nil {
-		return nil, protoErr(CodeUnexpected, "result for invocation %q, which is not in flight", r.ID)
+		return nil, nil, protoErr(CodeUnexpected, "result for invocation %q, which is not in flight", r.ID)
 	}
 	switch inv.state {
 	case invPending:
@@ -469,7 +505,7 @@ func (p *Process) onResult(r Result) ([]func(), error) {
 		} else {
 			inv.state = invFixed
 		}
-		return append(calls, func() { inv.outcome <- out }), nil
+		return inv, append(calls, func() { inv.outcome <- out }), nil
 	case invAbandoned:
 		l := lateOf(r)
 		calls := []func(){func() { inv.report.Late(l) }}
@@ -478,17 +514,17 @@ func (p *Process) onResult(r Result) ([]func(), error) {
 			p.settleLocked(inv)
 			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) }, p.notifyFunc())
 		}
-		return calls, nil
+		return inv, calls, nil
 	default:
-		return nil, protoErr(CodeUnexpected, "second result for invocation %q", r.ID)
+		return nil, nil, protoErr(CodeUnexpected, "second result for invocation %q", r.ID)
 	}
 }
 
-func (p *Process) onLate(l Late) ([]func(), error) {
+func (p *Process) onLate(l Late) (*invocation, []func(), error) {
 	late := engine.Late{Kind: engine.LateKind(l.Kind), Body: l.Body, Final: l.Settled}
 	if inv := p.invs[l.ID]; inv != nil {
 		if inv.state == invPending {
-			return nil, protoErr(CodeUnexpected, "late frame for invocation %q, which has no outcome", l.ID)
+			return nil, nil, protoErr(CodeUnexpected, "late frame for invocation %q, which has no outcome", l.ID)
 		}
 		calls := []func(){func() { inv.report.Late(late) }}
 		if l.Settled {
@@ -499,41 +535,41 @@ func (p *Process) onLate(l Late) ([]func(), error) {
 			}
 			p.settleLocked(inv)
 		}
-		return calls, nil
+		return inv, calls, nil
 	}
-	if rep, ok := p.recent.get(l.ID); ok {
+	if inv, ok := p.recent.get(l.ID); ok {
 		if l.Settled {
-			return nil, protoErr(CodeUnexpected, "invocation %q settled twice", l.ID)
+			return nil, nil, protoErr(CodeUnexpected, "invocation %q settled twice", l.ID)
 		}
-		return []func(){func() { rep.Late(late) }}, nil
+		return inv, []func(){func() { inv.report.Late(late) }}, nil
 	}
 	p.diag.printf("dropped a late %s for unknown invocation %q", l.Kind, l.ID)
-	return nil, nil
+	return nil, nil, nil
 }
 
-func (p *Process) onLog(l Log) []func() {
-	if inv := p.invs[l.ID]; inv != nil {
-		if inv.state == invPending {
-			for _, line := range l.Lines {
-				inv.tail.add(line)
-			}
-			return nil
+func (p *Process) onLog(l Log) (*invocation, []func()) {
+	inv := p.invs[l.ID]
+	if inv != nil && inv.state == invPending {
+		for _, line := range l.Lines {
+			inv.tail.add(line)
 		}
-		late := engine.Late{Kind: engine.LateLog, Body: linesValue(l.Lines)}
-		return []func(){func() { inv.report.Late(late) }}
+		return nil, nil
 	}
-	if rep, ok := p.recent.get(l.ID); ok {
-		late := engine.Late{Kind: engine.LateLog, Body: linesValue(l.Lines)}
-		return []func(){func() { rep.Late(late) }}
+	if inv == nil {
+		var ok bool
+		if inv, ok = p.recent.get(l.ID); !ok {
+			return nil, nil
+		}
 	}
-	return nil
+	late := engine.Late{Kind: engine.LateLog, Body: linesValue(l.Lines)}
+	return inv, []func(){func() { inv.report.Late(late) }}
 }
 
 // settleLocked moves inv from the in-flight table to the recent ones,
 // which keep receiving late output of work it left running.
 func (p *Process) settleLocked(inv *invocation) {
 	delete(p.invs, inv.id)
-	p.recent.add(inv.id, inv.report)
+	p.recent.add(inv.id, inv)
 }
 
 func (p *Process) notifyFunc() func() {
@@ -548,6 +584,11 @@ func (p *Process) notifyFunc() func() {
 // stream, on a read or protocol error, or when the socket is closed. It
 // waits for the process to exit and then fails what is still in flight.
 func (p *Process) readerDone(err error) {
+	// Nothing new is dispatched from here on: the process is ending, even
+	// if its exit takes a moment to observe.
+	p.mu.Lock()
+	p.ending = true
+	p.mu.Unlock()
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrDeadlineExceeded) {
 		p.mu.Lock()
 		if p.readErr == nil {
@@ -575,7 +616,7 @@ func (p *Process) readerDone(err error) {
 	status := p.status
 	invs := p.invs
 	p.invs = map[string]*invocation{}
-	p.recent = recentReporters{limit: p.recent.limit}
+	p.recent = recentInvocations{limit: p.recent.limit}
 	p.inFlight, p.abandoned = 0, 0
 	for id, ch := range p.pings {
 		close(ch)
@@ -592,15 +633,17 @@ func (p *Process) readerDone(err error) {
 	slices.Sort(ids)
 	for _, id := range ids {
 		inv := invs[id]
-		inv.report.Settled(engine.SettleProcessExited)
+		calls := []func(){func() { inv.report.Settled(engine.SettleProcessExited) }}
 		if inv.state == invPending {
-			inv.outcome <- engine.StepOutcome{
+			out := engine.StepOutcome{
 				Kind:     engine.OutcomeEscaped,
 				Tail:     inv.tail.String(),
 				ExitCode: status.Code,
 				Signal:   status.Signal,
 			}
+			calls = append(calls, func() { inv.outcome <- out })
 		}
+		inv.calls.do(calls...)
 	}
 	os.RemoveAll(p.dir)
 	close(p.exited)
@@ -659,7 +702,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation) (engine.StepO
 	}
 	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan engine.StepOutcome, 1)}
 	p.mu.Lock()
-	if p.state != stateServing || p.killReason != "" {
+	if p.state != stateServing || p.killReason != "" || p.ending {
 		p.mu.Unlock()
 		return engine.StepOutcome{}, notDispatched, errUnavailable
 	}
@@ -667,7 +710,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation) (engine.StepO
 		p.mu.Unlock()
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q is already in flight", inv.ID)
 	}
-	if err := p.conn.sendPayload(payload); err != nil {
+	if err := p.conn.sendPayload(payload, inv.ID); err != nil {
 		p.mu.Unlock()
 		if errors.Is(err, net.ErrClosed) {
 			return engine.StepOutcome{}, notDispatched, errUnavailable
@@ -844,8 +887,9 @@ func (p *Process) Hello() Hello {
 	return p.hello
 }
 
-// Done is closed when the process has exited and everything in flight in
-// it has been failed or settled.
+// Done is closed when the process has exited and every invocation in
+// flight in it has been failed or settled; their Reporter calls may still
+// be running on their own goroutines.
 func (p *Process) Done() <-chan struct{} { return p.exited }
 
 // ExitStatus returns how the process ended; it is meaningful once Done is
@@ -929,6 +973,13 @@ func exitStatus(ps *os.ProcessState) ExitStatus {
 		return ExitStatus{Code: -1, Signal: signalName(ws.Signal())}
 	}
 	return ExitStatus{Code: ps.ExitCode()}
+}
+
+// copyLines forwards one of the process's output pipes until every writer
+// has closed it.
+func copyLines(r *os.File, w io.Writer) {
+	defer r.Close()
+	io.Copy(w, r)
 }
 
 // socketpair returns the two ends of a stream socketpair, both

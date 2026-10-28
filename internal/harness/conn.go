@@ -17,6 +17,9 @@ import (
 //     and takes part streams in turn, one part frame each. A small frame
 //     (cancel, pong, a short result) therefore waits behind at most one
 //     part frame on the wire, never behind a whole large message.
+//   - Messages about one invocation keep their order: one queued behind a
+//     part stream about the same invocation waits until that stream has
+//     sent its last part. A cancel never overtakes its own large invoke.
 //   - The reader reassembles part streams and hands each message to
 //     onMessage, in arrival order, on the reader goroutine. It records when
 //     it last received a frame, which is what the watchdog measures; that
@@ -35,6 +38,7 @@ type conn struct {
 	mu         sync.Mutex
 	small      [][]byte // whole frames, length prefix included
 	streams    []*outStream
+	latest     map[string]*outStream // the last stream about each invocation
 	closed     bool
 	nextStream uint64
 	wake       chan struct{}
@@ -42,9 +46,19 @@ type conn struct {
 
 type outStream struct {
 	id      string
+	about   string // the invocation the message is about, if any
 	payload []byte
 	off     int
 	seq     int
+	// after holds what was queued about the same invocation while this
+	// stream was open, in order: whole frames, or a stream that has not
+	// started.
+	after []queued
+}
+
+type queued struct {
+	frame  []byte
+	stream *outStream
 }
 
 type connConfig struct {
@@ -96,10 +110,29 @@ func (c *conn) send(m Message) error {
 	if err != nil {
 		return err
 	}
-	return c.sendPayload(payload)
+	return c.sendPayload(payload, invocationOf(m))
 }
 
-func (c *conn) sendPayload(payload []byte) error {
+// invocationOf returns the invocation a message is about, for the
+// ordering rule, or "" for one that is about none.
+func invocationOf(m Message) string {
+	switch m := m.(type) {
+	case Invoke:
+		return m.ID
+	case Cancel:
+		return m.ID
+	case Result:
+		return m.ID
+	case Late:
+		return m.ID
+	case Log:
+		return m.ID
+	}
+	return ""
+}
+
+// sendPayload queues a payload; about is the invocation it is about, or "".
+func (c *conn) sendPayload(payload []byte, about string) error {
 	if int64(len(payload)) > c.maxMessage {
 		return protoErr(CodeMessageTooLarge, "%s message of %d bytes exceeds %d", typeOf(payload), len(payload), c.maxMessage)
 	}
@@ -108,17 +141,53 @@ func (c *conn) sendPayload(payload []byte) error {
 	if c.closed {
 		return net.ErrClosed
 	}
+	var q queued
 	if len(payload) <= c.maxFrame {
-		c.small = append(c.small, appendFrame(make([]byte, 0, 4+len(payload)), payload))
+		q.frame = appendFrame(make([]byte, 0, 4+len(payload)), payload)
 	} else {
 		c.nextStream++
-		c.streams = append(c.streams, &outStream{id: strconv.FormatUint(c.nextStream, 10), payload: payload})
+		q.stream = &outStream{id: strconv.FormatUint(c.nextStream, 10), about: about, payload: payload}
+	}
+	if held := c.latest[about]; about != "" && held != nil {
+		held.after = append(held.after, q)
+	} else {
+		c.enqueueLocked(q)
+	}
+	if q.stream != nil && about != "" {
+		if c.latest == nil {
+			c.latest = map[string]*outStream{}
+		}
+		c.latest[about] = q.stream
 	}
 	select {
 	case c.wake <- struct{}{}:
 	default:
 	}
 	return nil
+}
+
+func (c *conn) enqueueLocked(q queued) {
+	if q.frame != nil {
+		c.small = append(c.small, q.frame)
+	} else {
+		c.streams = append(c.streams, q.stream)
+	}
+}
+
+// finishLocked releases what waited behind a stream that sent its last
+// part: whole frames up to the next stream, which starts and keeps the
+// rest behind it.
+func (c *conn) finishLocked(s *outStream) {
+	if c.latest[s.about] == s {
+		delete(c.latest, s.about)
+	}
+	for i, q := range s.after {
+		c.enqueueLocked(q)
+		if q.stream != nil {
+			q.stream.after = append(q.stream.after, s.after[i+1:]...)
+			return
+		}
+	}
 }
 
 func (c *conn) writeLoop() {
@@ -154,6 +223,8 @@ func (c *conn) writeLoop() {
 			c.streams = c.streams[1:]
 			if s.off < len(s.payload) {
 				c.streams = append(c.streams, s)
+			} else {
+				c.finishLocked(s)
 			}
 			bufs = net.Buffers{frame}
 		}
@@ -177,7 +248,7 @@ func (c *conn) readLoop() {
 			return
 		}
 		c.lastRecv.Store(int64(time.Since(c.born)))
-		m, err := Decode(payload)
+		m, err := decodeFrame(payload, c.maxMessage)
 		if err == nil {
 			if p, ok := m.(Part); ok {
 				full, done, aerr := asm.add(p)
@@ -213,7 +284,7 @@ func (c *conn) close() {
 		return
 	}
 	c.closed = true
-	c.small, c.streams = nil, nil
+	c.small, c.streams, c.latest = nil, nil, nil
 	c.mu.Unlock()
 	select {
 	case c.wake <- struct{}{}:

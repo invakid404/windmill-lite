@@ -73,6 +73,7 @@ type Pool struct {
 	cfg PoolConfig
 
 	mu       sync.Mutex
+	bg       sync.WaitGroup // drains of processes that started after Close
 	members  []*member
 	starting int
 	spawning *spawnAttempt
@@ -82,12 +83,18 @@ type Pool struct {
 }
 
 type member struct {
-	p        *Process
-	active   int
+	p      *Process
+	active int
+	// tainted: it has unsettled abandoned invocations. surplus: its taint
+	// cleared while the pool already had Max processes serving without it.
+	// Either way it takes no new invocations and leaves once idle.
 	tainted  bool
+	surplus  bool
 	retiring bool
 	gone     bool
 }
+
+func (m *member) inService() bool { return !m.tainted && !m.surplus && !m.retiring && !m.gone }
 
 type spawnAttempt struct {
 	done chan struct{}
@@ -247,7 +254,7 @@ func (pl *Pool) acquire(ctx context.Context, run string) (*member, error) {
 // candidates.
 func (pl *Pool) pickLocked(run string) (*member, bool) {
 	usable := func(m *member) bool {
-		return !m.tainted && !m.retiring && !m.gone && (pl.cfg.Cap == 0 || m.active < pl.cfg.Cap)
+		return m.inService() && (pl.cfg.Cap == 0 || m.active < pl.cfg.Cap)
 	}
 	lags := func(m *member) bool { return pl.cfg.LagThreshold > 0 && m.p.Lag() > pl.cfg.LagThreshold }
 	if a, ok := pl.affinity.get(run); ok && usable(a) && !lags(a) {
@@ -274,7 +281,7 @@ func (pl *Pool) pickLocked(run string) (*member, bool) {
 func (pl *Pool) inServiceLocked() int {
 	n := 0
 	for _, m := range pl.members {
-		if !m.tainted && !m.retiring && !m.gone {
+		if m.inService() {
 			n++
 		}
 	}
@@ -297,9 +304,17 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 	pl.starting--
 	att.err = err
 	if err == nil {
-		// A process that finished starting after Close is drained by Close,
-		// which waits for every start.
-		pl.members = append(pl.members, &member{p: p})
+		if pl.closed {
+			// Close may have stopped waiting for this start already; it waits
+			// for this drain as long as its context lasts.
+			pl.bg.Add(1)
+			go func() {
+				defer pl.bg.Done()
+				drainWithin(p, pl.cfg.RecycleTimeout)
+			}()
+		} else {
+			pl.members = append(pl.members, &member{p: p})
+		}
 	} else {
 		// The caller that wanted this process gets err; a replacement
 		// nobody waits for is only logged, and the next Execute tries again.
@@ -359,14 +374,22 @@ func (pl *Pool) processChanged(p *Process) {
 	}
 }
 
-// reviewLocked applies the taint rules of ADR 0004 §Cancellation item 4.
+// reviewLocked applies the taint rules of ADR 0004 §Cancellation item 4,
+// and keeps a process whose taint cleared from taking the pool past Max.
 func (pl *Pool) reviewLocked(m *member) {
 	if m.retiring || m.gone {
 		return
 	}
 	_, abandoned := m.p.Load()
-	m.tainted = abandoned > 0
-	if m.tainted && m.active == 0 {
+	switch {
+	case abandoned > 0:
+		m.tainted = true
+	case m.tainted:
+		// While tainted, m does not count as serving.
+		m.surplus = pl.inServiceLocked() >= pl.cfg.Max
+		m.tainted = false
+	}
+	if (m.tainted || m.surplus) && m.active == 0 {
 		m.retiring = true
 		if !pl.closed {
 			for pl.inServiceLocked()+pl.starting < pl.cfg.Min {
@@ -421,6 +444,18 @@ func (pl *Pool) Close(ctx context.Context) error {
 		}()
 	}
 	wg.Wait()
+	bgDone := make(chan struct{})
+	go func() {
+		pl.bg.Wait()
+		close(bgDone)
+	}()
+	select {
+	case <-bgDone:
+	case <-ctx.Done():
+		if err == nil {
+			err = context.Cause(ctx)
+		}
+	}
 	return err
 }
 
@@ -430,6 +465,7 @@ type ProcessStats struct {
 	Active    int
 	Abandoned int
 	Tainted   bool
+	Surplus   bool
 	Retiring  bool
 	Lag       time.Duration
 	Health    *Health
@@ -443,7 +479,7 @@ func (pl *Pool) Stats() []ProcessStats {
 	for _, m := range pl.members {
 		_, ab := m.p.Load()
 		out = append(out, ProcessStats{
-			PID: m.p.PID(), Active: m.active, Abandoned: ab, Tainted: m.tainted, Retiring: m.retiring,
+			PID: m.p.PID(), Active: m.active, Abandoned: ab, Tainted: m.tainted, Surplus: m.surplus, Retiring: m.retiring,
 			Lag: m.p.Lag(), Health: m.p.Health(),
 		})
 	}

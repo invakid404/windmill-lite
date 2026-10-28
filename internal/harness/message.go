@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -392,74 +393,16 @@ const (
 	OutcomeEmpty   = "empty"
 )
 
-// wire is the union of every message's fields, so a payload is decoded in
-// one pass. Pointer and RawMessage fields tell an absent field from a zero
-// one.
-type wire struct {
-	T        *string            `json:"t"`
-	ID       *string            `json:"id"`
-	Proto    *int               `json:"proto"`
-	Harness  *wireHarness       `json:"harness"`
-	Runtime  *string            `json:"runtime"`
-	Caps     *wireCaps          `json:"caps"`
-	Bundle   *string            `json:"bundle"`
-	PID      *int               `json:"pid"`
-	Engine   *string            `json:"engine"`
-	Config   *wireConfig        `json:"config"`
-	Reject   *wireReject        `json:"reject"`
-	Run      *string            `json:"run"`
-	Site     *string            `json:"site"`
-	Script   *string            `json:"script"`
-	Entry    *string            `json:"entry"`
-	Args     json.RawMessage    `json:"args"`
-	Env      *map[string]string `json:"env"`
-	Boundary *string            `json:"boundary"`
-	Outcome  *string            `json:"outcome"`
-	Body     json.RawMessage    `json:"body"`
-	Tail     *string            `json:"tail"`
-	ExitCode *int               `json:"exit_code"`
-	Settled  *bool              `json:"settled"`
-	Kind     *string            `json:"kind"`
-	Reason   *string            `json:"reason"`
-	Lines    *[]string          `json:"lines"`
-	Seq      *int               `json:"seq"`
-	Last     *bool              `json:"last"`
-	Chunk    *string            `json:"chunk"`
-
-	InFlight  *int   `json:"in_flight"`
-	Abandoned *int   `json:"abandoned"`
-	Errors    *int   `json:"errors"`
-	LagMS     *int64 `json:"lag_ms"`
-	RSS       *int64 `json:"rss"`
-}
-
-type wireHarness struct {
-	Kind    *string `json:"kind"`
-	Version *string `json:"version"`
-}
-
-type wireCaps struct {
-	Fetch  *bool `json:"fetch"`
-	Native *bool `json:"native"`
-	Fresh  *bool `json:"fresh"`
-	Host   *bool `json:"host"`
-}
-
-type wireConfig struct {
-	ModuleState *string `json:"module_state"`
-	HeartbeatMS *int    `json:"heartbeat_ms"`
-	MaxMessage  *int64  `json:"max_message"`
-}
-
-type wireReject struct {
-	Code    *string `json:"code"`
-	Message *string `json:"message"`
-}
-
 // Decode parses one frame payload into its message. Field order and
 // insignificant whitespace in the envelope do not matter; raw values (args,
-// body) keep their bytes exactly. Unknown fields are ignored, so a later
-// protocol revision can add optional ones.
+// body) keep their bytes exactly. Keys match exactly, as JavaScript reads
+// them, and only the fields of the message's own type are read; others are
+// ignored, so a later protocol revision can add optional ones.
+//
+// Decoding follows the same rules as the Bun harness's codec: a field that
+// is null counts as absent, except a raw value, which may be JSON null; an
+// integer field holds a JSON number with an integral value within
+// ±(2^53-1), whatever its spelling (1, 1.0 and 1e0 are one integer).
 func Decode(payload []byte) (Message, error) {
 	if !utf8.Valid(payload) {
 		return nil, protoErr(CodeInvalidUTF8, "payload is not valid UTF-8")
@@ -471,94 +414,80 @@ func Decode(payload []byte) (Message, error) {
 		}
 		return nil, protoErr(CodeInvalidJSON, "payload is not JSON")
 	}
-	var w wire
-	if err := json.Unmarshal(payload, &w); err != nil {
-		var te *json.UnmarshalTypeError
-		if errors.As(err, &te) {
-			if te.Field == "t" {
-				return nil, protoErr(CodeMissingType, "object has no string field t")
-			}
-			return nil, protoErr(CodeBadField, "field %q has the wrong type", te.Field)
-		}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, protoErr(CodeInvalidJSON, "%v", err)
 	}
-	if w.T == nil {
+	var t string
+	if raw, ok := fields["t"]; !ok || json.Unmarshal(raw, &t) != nil || raw[0] != '"' {
 		return nil, protoErr(CodeMissingType, "object has no string field t")
 	}
-	d := decoder{w: &w}
+	var derr error
+	d := &decoder{t: t, f: fields, err: &derr}
 	var m Message
-	switch *w.T {
+	switch t {
 	case TypeHello:
-		h := Hello{
-			Proto:   d.int("proto", w.Proto),
-			Runtime: d.str("runtime", w.Runtime),
-			Bundle:  d.str("bundle", w.Bundle),
-			PID:     d.int("pid", w.PID),
+		h := Hello{Proto: d.int("proto")}
+		if hd := d.object("harness"); hd != nil {
+			h.Harness = HarnessInfo{Kind: hd.str("kind"), Version: hd.str("version")}
 		}
-		if d.need("harness", w.Harness != nil) {
-			h.Harness = HarnessInfo{Kind: d.str("harness.kind", w.Harness.Kind), Version: d.str("harness.version", w.Harness.Version)}
+		h.Runtime = d.str("runtime")
+		if cd := d.object("caps"); cd != nil {
+			h.Caps = Caps{Fetch: cd.bool("fetch"), Native: cd.bool("native"), Fresh: cd.bool("fresh"), Host: cd.bool("host")}
 		}
-		if d.need("caps", w.Caps != nil) {
-			h.Caps = Caps{
-				Fetch:  d.bool("caps.fetch", w.Caps.Fetch),
-				Native: d.bool("caps.native", w.Caps.Native),
-				Fresh:  d.bool("caps.fresh", w.Caps.Fresh),
-				Host:   d.bool("caps.host", w.Caps.Host),
-			}
-		}
+		h.Bundle = d.str("bundle")
+		h.PID = d.int("pid")
 		m = h
 	case TypeWelcome:
-		wm := Welcome{Proto: d.int("proto", w.Proto), Engine: d.str("engine", w.Engine), Bundle: d.str("bundle", w.Bundle)}
+		wm := Welcome{Proto: d.int("proto"), Engine: d.str("engine"), Bundle: d.str("bundle")}
+		config, reject := d.present("config"), d.present("reject")
 		switch {
-		case w.Config != nil && w.Reject != nil:
+		case config && reject:
 			d.fail(CodeBadField, "welcome has both config and reject")
-		case w.Config != nil:
-			wm.Config = &WelcomeConfig{
-				ModuleState: d.str("config.module_state", w.Config.ModuleState),
-				HeartbeatMS: d.int("config.heartbeat_ms", w.Config.HeartbeatMS),
-				MaxMessage:  d.int64("config.max_message", w.Config.MaxMessage),
+		case config:
+			if cd := d.object("config"); cd != nil {
+				wm.Config = &WelcomeConfig{ModuleState: cd.str("module_state"), HeartbeatMS: cd.int("heartbeat_ms"), MaxMessage: cd.int64("max_message")}
 			}
-		case w.Reject != nil:
-			wm.Reject = &Reject{Code: d.str("reject.code", w.Reject.Code), Message: d.str("reject.message", w.Reject.Message)}
+		case reject:
+			if rd := d.object("reject"); rd != nil {
+				wm.Reject = &Reject{Code: rd.str("code"), Message: rd.str("message")}
+			}
 		default:
 			d.fail(CodeMissingField, "welcome has neither config nor reject")
 		}
 		m = wm
 	case TypeInvoke:
-		inv := Invoke{
-			ID:       d.str("id", w.ID),
-			Run:      d.str("run", w.Run),
-			Site:     d.str("site", w.Site),
-			Script:   d.str("script", w.Script),
-			Entry:    d.str("entry", w.Entry),
-			Args:     d.raw("args", w.Args),
-			Boundary: d.str("boundary", w.Boundary),
+		m = Invoke{
+			ID:       d.str("id"),
+			Run:      d.str("run"),
+			Site:     d.str("site"),
+			Script:   d.str("script"),
+			Entry:    d.str("entry"),
+			Args:     d.raw("args"),
+			Env:      d.env("env"),
+			Boundary: d.str("boundary"),
 		}
-		if d.need("env", w.Env != nil) {
-			inv.Env = *w.Env
-		}
-		m = inv
 	case TypeResult:
-		r := Result{ID: d.str("id", w.ID), Outcome: d.str("outcome", w.Outcome), Settled: d.bool("settled", w.Settled)}
+		r := Result{ID: d.str("id"), Outcome: d.str("outcome"), Settled: d.bool("settled")}
 		switch r.Outcome {
 		case OutcomeOK, OutcomeError:
-			r.Body = d.raw("body", w.Body)
+			r.Body = d.raw("body")
 		case OutcomeEscaped:
-			r.Tail = d.str("tail", w.Tail)
-			r.ExitCode = d.int("exit_code", w.ExitCode)
+			r.Tail = d.str("tail")
+			r.ExitCode = d.int("exit_code")
 		case OutcomeEmpty:
 		default:
 			d.fail(CodeBadField, "result outcome %q", r.Outcome)
 		}
 		m = r
 	case TypeLate:
-		l := Late{ID: d.str("id", w.ID), Kind: d.str("kind", w.Kind), Settled: d.bool("settled", w.Settled)}
+		l := Late{ID: d.str("id"), Kind: d.str("kind"), Settled: d.bool("settled")}
 		switch l.Kind {
 		case LateResult, LateLog:
-			l.Body = d.raw("body", w.Body)
+			l.Body = d.raw("body")
 		case LateError:
-			if w.Body != nil {
-				l.Body = jsonval.FromProducer(w.Body)
+			if d.present("body") {
+				l.Body = d.raw("body")
 			}
 		default:
 			d.fail(CodeBadField, "late kind %q", l.Kind)
@@ -568,7 +497,7 @@ func Decode(payload []byte) (Message, error) {
 		}
 		m = l
 	case TypeCancel:
-		c := Cancel{ID: d.str("id", w.ID), Reason: d.str("reason", w.Reason)}
+		c := Cancel{ID: d.str("id"), Reason: d.str("reason")}
 		switch c.Reason {
 		case "timeout", "canceled", "run_ended":
 		default:
@@ -576,18 +505,14 @@ func Decode(payload []byte) (Message, error) {
 		}
 		m = c
 	case TypeLog:
-		l := Log{ID: d.str("id", w.ID)}
-		if d.need("lines", w.Lines != nil) {
-			l.Lines = *w.Lines
-		}
-		m = l
+		m = Log{ID: d.str("id"), Lines: d.strings("lines")}
 	case TypePing:
-		m = Ping{ID: d.str("id", w.ID), Health: d.health()}
+		m = Ping{ID: d.str("id"), Health: d.health()}
 	case TypePong:
-		m = Pong{ID: d.str("id", w.ID), Health: d.health()}
+		m = Pong{ID: d.str("id"), Health: d.health()}
 	case TypePart:
-		p := Part{ID: d.str("id", w.ID), Seq: d.int("seq", w.Seq), Last: d.bool("last", w.Last)}
-		if c := d.str("chunk", w.Chunk); d.err == nil {
+		p := Part{ID: d.str("id"), Seq: d.int("seq"), Last: d.bool("last")}
+		if c := d.str("chunk"); derr == nil {
 			// The decoder skips line breaks, which canonical base64 has
 			// none of.
 			chunk, err := base64.StdEncoding.Strict().DecodeString(c)
@@ -605,10 +530,10 @@ func Decode(payload []byte) (Message, error) {
 	case TypeBye:
 		m = Bye{}
 	default:
-		return nil, protoErr(CodeUnknownType, "message type %q", *w.T)
+		return nil, protoErr(CodeUnknownType, "message type %q", t)
 	}
-	if d.err != nil {
-		return nil, d.err
+	if derr != nil {
+		return nil, derr
 	}
 	return m, nil
 }
@@ -620,65 +545,157 @@ const (
 	LateLog    = "log"
 )
 
+// decoder reads the fields of one object. It keeps the first error.
 type decoder struct {
-	w   *wire
-	err error
+	t      string // the message type, for error messages
+	prefix string // "config." and the like for a nested object
+	f      map[string]json.RawMessage
+	err    *error // shared with nested decoders
 }
 
 func (d *decoder) fail(code, format string, args ...any) {
-	if d.err == nil {
-		d.err = protoErr(code, format, args...)
+	if *d.err == nil {
+		*d.err = protoErr(code, format, args...)
 	}
 }
 
-func (d *decoder) need(name string, present bool) bool {
-	if !present {
-		d.fail(CodeMissingField, "%s %s", *d.w.T, name)
-	}
-	return present
+// present reports whether a field is there and not null.
+func (d *decoder) present(name string) bool {
+	raw, ok := d.f[name]
+	return ok && string(raw) != "null"
 }
 
-func (d *decoder) str(name string, v *string) string {
-	if d.need(name, v != nil) {
-		return *v
+// field returns a required field's text, or nil after recording that it
+// is missing. A null field counts as missing.
+func (d *decoder) field(name string) json.RawMessage {
+	if !d.present(name) {
+		d.fail(CodeMissingField, "%s %s%s", d.t, d.prefix, name)
+		return nil
 	}
-	return ""
+	return d.f[name]
 }
 
-func (d *decoder) int(name string, v *int) int {
-	if d.need(name, v != nil) {
-		return *v
-	}
-	return 0
+func (d *decoder) badType(name string) {
+	d.fail(CodeBadField, "field %q has the wrong type", d.prefix+name)
 }
 
-func (d *decoder) int64(name string, v *int64) int64 {
-	if d.need(name, v != nil) {
-		return *v
+func (d *decoder) str(name string) string {
+	raw := d.field(name)
+	var s string
+	if raw != nil && (raw[0] != '"' || json.Unmarshal(raw, &s) != nil) {
+		d.badType(name)
 	}
-	return 0
+	return s
 }
 
-func (d *decoder) bool(name string, v *bool) bool {
-	if d.need(name, v != nil) {
-		return *v
+// maxSafeInteger is 2^53-1, the largest integer every harness's JSON reader
+// represents exactly.
+const maxSafeInteger = 1<<53 - 1
+
+func (d *decoder) int64(name string) int64 {
+	raw := d.field(name)
+	if raw == nil {
+		return 0
+	}
+	if c := raw[0]; c != '-' && (c < '0' || c > '9') {
+		d.badType(name)
+		return 0
+	}
+	f, err := strconv.ParseFloat(string(raw), 64)
+	if err != nil || f != math.Trunc(f) || math.Abs(f) > maxSafeInteger {
+		d.badType(name)
+		return 0
+	}
+	return int64(f)
+}
+
+func (d *decoder) int(name string) int { return int(d.int64(name)) }
+
+func (d *decoder) bool(name string) bool {
+	raw := d.field(name)
+	switch string(raw) {
+	case "true":
+		return true
+	case "false", "":
+	default:
+		d.badType(name)
 	}
 	return false
 }
 
-func (d *decoder) raw(name string, v json.RawMessage) jsonval.Value {
-	if d.need(name, v != nil) {
-		return jsonval.FromProducer(v)
+// raw returns a raw value: any JSON value, null included, byte for byte.
+func (d *decoder) raw(name string) jsonval.Value {
+	raw, ok := d.f[name]
+	if !ok {
+		d.fail(CodeMissingField, "%s %s%s", d.t, d.prefix, name)
+		return jsonval.Value{}
 	}
-	return jsonval.Value{}
+	return jsonval.FromProducer(raw)
+}
+
+// object returns a decoder for a nested object, or nil.
+func (d *decoder) object(name string) *decoder {
+	raw := d.field(name)
+	if raw == nil {
+		return nil
+	}
+	var f map[string]json.RawMessage
+	if raw[0] != '{' || json.Unmarshal(raw, &f) != nil {
+		d.badType(name)
+		return nil
+	}
+	return &decoder{t: d.t, prefix: d.prefix + name + ".", f: f, err: d.err}
+}
+
+// strings decodes an array of strings; a null element is a wrong type.
+func (d *decoder) strings(name string) []string {
+	raw := d.field(name)
+	if raw == nil {
+		return nil
+	}
+	var elems []json.RawMessage
+	if raw[0] != '[' || json.Unmarshal(raw, &elems) != nil {
+		d.badType(name)
+		return nil
+	}
+	out := make([]string, len(elems))
+	for i, e := range elems {
+		if e[0] != '"' || json.Unmarshal(e, &out[i]) != nil {
+			d.badType(name)
+			return nil
+		}
+	}
+	return out
+}
+
+// env decodes an object of strings; a null value is a wrong type.
+func (d *decoder) env(name string) map[string]string {
+	raw := d.field(name)
+	if raw == nil {
+		return nil
+	}
+	var vals map[string]json.RawMessage
+	if raw[0] != '{' || json.Unmarshal(raw, &vals) != nil {
+		d.badType(name)
+		return nil
+	}
+	out := make(map[string]string, len(vals))
+	for k, v := range vals {
+		var s string
+		if v[0] != '"' || json.Unmarshal(v, &s) != nil {
+			d.badType(name)
+			return nil
+		}
+		out[k] = s
+	}
+	return out
 }
 
 // health decodes the optional health group: all five fields or none.
 func (d *decoder) health() *Health {
-	w := d.w
 	n := 0
-	for _, present := range []bool{w.InFlight != nil, w.Abandoned != nil, w.Errors != nil, w.LagMS != nil, w.RSS != nil} {
-		if present {
+	for _, k := range []string{"in_flight", "abandoned", "errors", "lag_ms", "rss"} {
+		if d.present(k) {
 			n++
 		}
 	}
@@ -686,10 +703,10 @@ func (d *decoder) health() *Health {
 		return nil
 	}
 	return &Health{
-		InFlight:  d.int("in_flight", w.InFlight),
-		Abandoned: d.int("abandoned", w.Abandoned),
-		Errors:    d.int("errors", w.Errors),
-		LagMS:     d.int64("lag_ms", w.LagMS),
-		RSS:       d.int64("rss", w.RSS),
+		InFlight:  d.int("in_flight"),
+		Abandoned: d.int("abandoned"),
+		Errors:    d.int("errors"),
+		LagMS:     d.int64("lag_ms"),
+		RSS:       d.int64("rss"),
 	}
 }

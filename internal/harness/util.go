@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"unicode/utf8"
-
-	"github.com/invakid404/windmill-lite/internal/engine"
 )
 
 // TailLength is how many characters of an invocation's log the engine
@@ -109,31 +107,70 @@ func (s *streamWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// recentReporters remembers the reporters of the last settled invocations,
-// so late output of work they left running (D9) still reaches their runs.
-type recentReporters struct {
+// recentInvocations remembers the last settled invocations, so late output
+// of work they left running (D9) still reaches their runs, through their
+// own call queues.
+type recentInvocations struct {
 	limit int
-	m     map[string]engine.Reporter
+	m     map[string]*invocation
 	order []string
 }
 
-func (r *recentReporters) add(id string, rep engine.Reporter) {
+func (r *recentInvocations) add(id string, inv *invocation) {
 	if r.m == nil {
-		r.m = map[string]engine.Reporter{}
+		r.m = map[string]*invocation{}
 	}
 	if _, ok := r.m[id]; !ok {
 		r.order = append(r.order, id)
 	}
-	r.m[id] = rep
+	r.m[id] = inv
 	for len(r.order) > r.limit {
 		delete(r.m, r.order[0])
 		r.order = r.order[1:]
 	}
 }
 
-func (r *recentReporters) get(id string) (engine.Reporter, bool) {
-	rep, ok := r.m[id]
-	return rep, ok
+func (r *recentInvocations) get(id string) (*invocation, bool) {
+	inv, ok := r.m[id]
+	return inv, ok
+}
+
+// serial runs functions one at a time, in the order they were queued, on a
+// goroutine that exists only while there is work.
+type serial struct {
+	mu      sync.Mutex
+	queue   []func()
+	running bool
+}
+
+func (s *serial) do(fs ...func()) {
+	if len(fs) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.queue = append(s.queue, fs...)
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
+	s.running = true
+	s.mu.Unlock()
+	go s.run()
+}
+
+func (s *serial) run() {
+	for {
+		s.mu.Lock()
+		if len(s.queue) == 0 {
+			s.running = false
+			s.mu.Unlock()
+			return
+		}
+		f := s.queue[0]
+		s.queue = s.queue[1:]
+		s.mu.Unlock()
+		f()
+	}
 }
 
 // signalName returns the conventional name of a signal, as in

@@ -259,7 +259,7 @@ func readAll(stream []byte, maxFrame int, maxMessage int64) ([]Message, error) {
 		if err != nil {
 			return out, err
 		}
-		m, err := Decode(payload)
+		m, err := decodeFrame(payload, maxMessage)
 		if err != nil {
 			return out, err
 		}

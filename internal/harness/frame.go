@@ -119,6 +119,16 @@ func (a *assembler) add(p Part) ([]byte, bool, error) {
 	return s.buf, true, nil
 }
 
+// decodeFrame decodes a whole frame's payload, which counts against the
+// message limit like a reassembled one (a host may lower the limit below
+// MaxFrame).
+func decodeFrame(payload []byte, maxMessage int64) (Message, error) {
+	if int64(len(payload)) > maxMessage {
+		return nil, protoErr(CodeMessageTooLarge, "frame of %d bytes exceeds the message limit of %d", len(payload), maxMessage)
+	}
+	return Decode(payload)
+}
+
 // decodeAssembled decodes a reassembled payload, which must be a whole
 // message and not another part.
 func decodeAssembled(payload []byte) (Message, error) {

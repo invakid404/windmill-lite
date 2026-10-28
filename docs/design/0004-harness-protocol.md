@@ -47,7 +47,11 @@ step without failing the others.
    below, strings escaped exactly as JavaScript's `JSON.stringify` escapes
    them, integers in decimal; readers accept any order. Go and every harness
    therefore write the same bytes for the same message, which the shared
-   golden frames in `conformance/protocol/` check on both sides.
+   golden frames in `conformance/protocol/` check on both sides. Readers
+   also decode alike: keys match exactly, only the fields of the message's
+   own type are read, a null field counts as absent (except a raw value,
+   which may be JSON null), and an integer field holds a number with an
+   integral value within ±(2^53−1), however it is spelled.
 3. A message larger than 1 MiB is sent as a sequence of `part` frames of at
    most 1 MiB each, so `cancel`, `platform_reply` and other small frames are
    not stuck behind a large result. The largest message accepted is 512 MiB,
@@ -62,6 +66,11 @@ step without failing the others.
    - A sender queues whole frames ahead of part frames and gives its part
      streams turns, one part frame each, so a small frame waits behind at
      most one part frame.
+   - Messages about one invocation (`invoke`, `cancel`, `result`, `late`,
+     `log`) keep their order: one queued while a part stream about the same
+     invocation is open waits for that stream's last part. A `cancel` never
+     reaches a harness before the large `invoke` it cancels, and a `late`
+     frame never reaches the engine before the large `result` it follows.
    - A frame over 1 MiB, a part stream out of order and a message over the
      limit are protocol errors, as is any frame that does not decode. A
      protocol error ends the connection; the engine then kills the harness,
@@ -307,7 +316,9 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Processes that are tainted or being recycled (§Cancellation and deadlines
   item 4) do not count toward the maximum: they are leaving the pool, and a
   replacement takes the new invocations, so one abandoned step does not
-  stall a pool of one.
+  stall a pool of one. A tainted process whose abandoned invocations settle
+  returns to service only if the pool is below its maximum without it;
+  otherwise it takes no new invocations and leaves once idle.
 
 ### Host mode
 
@@ -481,8 +492,10 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   engine), `heartbeat_ms` and `max_message` in the welcome, and the
   harness's own heartbeat pings, so that the watchdog measures silence from
   received frames (review item cl P4-3, which also asked for the pid
-  check above). It also decided that a tainted process does not count
-  toward the pool's maximum (§Pooling).
+  check above). It also fixed the decoding rules both sides share, the
+  ordering of messages about one invocation, and that a tainted process
+  does not count toward the pool's maximum and does not take it past the
+  maximum when it returns (§Pooling).
 
 ## Spec IDs relied on
 

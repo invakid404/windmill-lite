@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,8 +106,12 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-// recorder is a Reporter that records its calls in order.
+// recorder is a Reporter that records its calls in order. A call made
+// while another is still running is recorded as "CONCURRENT", which breaks
+// every expected call log: the executor must never call one invocation's
+// Reporter from two goroutines at once.
 type recorder struct {
+	busy    atomic.Int32
 	mu      sync.Mutex
 	calls   []string
 	late    []engine.Late
@@ -115,7 +120,20 @@ type recorder struct {
 
 func newRecorder() *recorder { return &recorder{settled: make(chan engine.SettleKind, 4)} }
 
+func (r *recorder) enter() func() {
+	if r.busy.Add(1) != 1 {
+		r.mu.Lock()
+		r.calls = append(r.calls, "CONCURRENT")
+		r.mu.Unlock()
+	}
+	// A short pause widens the window in which an overlapping call would
+	// be seen.
+	time.Sleep(time.Millisecond)
+	return func() { r.busy.Add(-1) }
+}
+
 func (r *recorder) Late(l engine.Late) {
+	defer r.enter()()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, fmt.Sprintf("late %s final=%v %s", l.Kind, l.Final, l.Body))
@@ -123,12 +141,14 @@ func (r *recorder) Late(l engine.Late) {
 }
 
 func (r *recorder) Warning(w engine.Warning) {
+	defer r.enter()()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, "warning "+w.Code)
 }
 
 func (r *recorder) Settled(k engine.SettleKind) {
+	defer r.enter()()
 	r.mu.Lock()
 	r.calls = append(r.calls, "settled "+string(k))
 	r.mu.Unlock()

@@ -21,7 +21,9 @@ export class ProtocolError extends Error {
 }
 
 const encoder = new TextEncoder();
-const strictDecoder = new TextDecoder("utf-8", { fatal: true });
+// ignoreBOM keeps a leading byte order mark, which JSON.parse then
+// refuses, as the Go decoder does.
+const strictDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** A raw JSON value, spliced into an envelope byte for byte. */
 export class Raw {
@@ -84,7 +86,7 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
 
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
-  const order = FIELDS[m.t];
+  const order = Object.hasOwn(FIELDS, m.t) ? FIELDS[m.t] : undefined;
   if (!order) throw new ProtocolError("unknown_type", `message type ${JSON.stringify(m.t)}`);
   let s = '{"t":' + JSON.stringify(m.t);
   for (const k of order) {
@@ -192,7 +194,8 @@ export function decode(payload: Uint8Array): Message {
   if (!o || typeof o !== "object" || Array.isArray(o)) throw new ProtocolError("not_object", "payload is not a JSON object");
   const m = o as Message;
   if (typeof m.t !== "string") throw new ProtocolError("missing_type", "object has no string field t");
-  const req = REQUIRED[m.t];
+  // Own properties only: "constructor" or "__proto__" is not a type.
+  const req = Object.hasOwn(REQUIRED, m.t) ? REQUIRED[m.t] : undefined;
   if (!req) throw new ProtocolError("unknown_type", `message type ${JSON.stringify(m.t)}`);
   for (const [k, c] of Object.entries(req)) checkField(m.t, m, k, c);
   switch (m.t) {
@@ -245,7 +248,27 @@ export function decode(payload: Uint8Array): Message {
       if (m.seq < 0) throw new ProtocolError("bad_field", "negative part seq");
       break;
   }
-  return m;
+  return own(m);
+}
+
+/** The message with only the fields its type has, as Go's decoder keeps
+ * them: unknown fields, and fields of another outcome, are dropped. */
+function own(m: Message): Message {
+  const out: Message = { t: m.t };
+  for (const k of FIELDS[m.t]) {
+    if (m[k] === undefined) continue;
+    if (m.t === "result" && (k === "body" ? !["ok", "error"].includes(m.outcome) : (k === "tail" || k === "exit_code") && m.outcome !== "escaped")) continue;
+    if ((m.t === "ping" || m.t === "pong") && k !== "id" && m.in_flight === undefined) continue;
+    const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;
+    if (nested && m[k] !== null) {
+      const o: Record<string, unknown> = {};
+      for (const n of nested) if (m[k][n] !== undefined) o[n] = m[k][n];
+      out[k] = o;
+    } else if (m[k] !== null || ["args", "body"].includes(k)) {
+      out[k] = m[k];
+    }
+  }
+  return out;
 }
 
 /** Splits a byte stream into frame payloads. */
@@ -306,6 +329,15 @@ export class Assembler {
   }
 }
 
+/** Decodes a whole frame's payload, which counts against the message
+ * limit like a reassembled one (a host may lower the limit below a frame). */
+export function decodeFrame(payload: Uint8Array, maxMessage: number): Message {
+  if (payload.length > maxMessage) {
+    throw new ProtocolError("message_too_large", `frame of ${payload.length} bytes exceeds the message limit of ${maxMessage}`);
+  }
+  return decode(payload);
+}
+
 /** Decodes a reassembled payload, which must not be another part. */
 export function decodeAssembled(payload: Uint8Array): Message {
   const m = decode(payload);
@@ -318,7 +350,7 @@ export function decodeAll(payloads: Uint8Array[], maxMessage = DEFAULT_MAX_MESSA
   const asm = new Assembler(maxMessage);
   const out: Message[] = [];
   for (const p of payloads) {
-    const m = decode(p);
+    const m = decodeFrame(p, maxMessage);
     if (m.t !== "part") {
       out.push(m);
       continue;
@@ -329,12 +361,22 @@ export function decodeAll(payloads: Uint8Array[], maxMessage = DEFAULT_MAX_MESSA
   return out;
 }
 
+/** The messages that are about one invocation, by their id. */
+const ABOUT_INVOCATION = new Set(["invoke", "cancel", "result", "late", "log"]);
+
+type OutStream = { id: string; about?: string; payload: Uint8Array; off: number; seq: number; after: Queued[] };
+type Queued = { frame: Uint8Array } | { stream: OutStream };
+
 /** Queues frames for a socket that may accept fewer bytes than offered.
  * Whole frames go before the next part frame, and part streams take turns,
- * so a small frame never waits behind a whole large message. */
+ * so a small frame never waits behind a whole large message. Messages about
+ * one invocation keep their order: one queued behind an open part stream
+ * about the same invocation waits until that stream's last part, so a late
+ * frame or a log never overtakes its own large result. */
 export class Sender {
   private small: Uint8Array[] = [];
-  private streams: { id: string; payload: Uint8Array; off: number; seq: number }[] = [];
+  private streams: OutStream[] = [];
+  private latest = new Map<string, OutStream>();
   private current: Uint8Array | null = null;
   private nextStream = 0;
   private flushed: (() => void)[] = [];
@@ -354,8 +396,15 @@ export class Sender {
       throw new ProtocolError("message_too_large", `${m.t} message of ${payload.length} bytes exceeds ${this.maxMessage}`);
     }
     if (this.closed) return;
-    if (payload.length <= this.maxFrame) this.small.push(frame(payload));
-    else this.streams.push({ id: String(++this.nextStream), payload, off: 0, seq: 0 });
+    const about = ABOUT_INVOCATION.has(m.t) && typeof m.id === "string" ? m.id : undefined;
+    const q: Queued =
+      payload.length <= this.maxFrame
+        ? { frame: frame(payload) }
+        : { stream: { id: String(++this.nextStream), about, payload, off: 0, seq: 0, after: [] } };
+    const held = about === undefined ? undefined : this.latest.get(about);
+    if (held) held.after.push(q);
+    else this.enqueue(q);
+    if ("stream" in q && about !== undefined) this.latest.set(about, q.stream);
     this.flush();
   }
 
@@ -386,6 +435,25 @@ export class Sender {
     else this.flushed.push(cb);
   }
 
+  private enqueue(q: Queued) {
+    if ("frame" in q) this.small.push(q.frame);
+    else this.streams.push(q.stream);
+  }
+
+  /** Releases what waited behind a finished stream: whole frames up to the
+   * next stream, which starts and keeps the rest behind it. */
+  private finish(s: OutStream) {
+    if (s.about !== undefined && this.latest.get(s.about) === s) this.latest.delete(s.about);
+    for (let i = 0; i < s.after.length; i++) {
+      const q = s.after[i];
+      this.enqueue(q);
+      if ("stream" in q) {
+        q.stream.after.push(...s.after.slice(i + 1));
+        return;
+      }
+    }
+  }
+
   private next(): Uint8Array | null {
     if (this.small.length === 1) return this.small.shift()!;
     if (this.small.length > 1) {
@@ -400,6 +468,7 @@ export class Sender {
     s.off = end;
     s.seq++;
     if (s.off < s.payload.length) this.streams.push(s);
+    else this.finish(s);
     return f;
   }
 }
