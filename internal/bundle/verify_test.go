@@ -263,6 +263,23 @@ func TestTreeDigest(t *testing.T) {
 			t.Errorf("through a link: %s, %v", got, err)
 		}
 	}
+	// A link below the root, to a file or to a directory, is refused: Bun
+	// loads through it, and a digest that skipped it would stay the same
+	// while what it points to changes.
+	outside := t.TempDir()
+	if err := writeFile(filepath.Join(outside, "frame.ts"), []byte("export {};\n")); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"frame.ts": filepath.Join(outside, "frame.ts"), "linked": outside} {
+		tree := t.TempDir()
+		copyTree(t, dir, tree)
+		if err := os.Symlink(target, filepath.Join(tree, name)); err != nil {
+			t.Skip(err)
+		}
+		if _, err := TreeDigest(tree); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+			t.Errorf("a link %s below the root: %v", name, err)
+		}
+	}
 	write("lib/b.ts", "export const b = 2;\n")
 	if got, _ := TreeDigest(dir); got == want {
 		t.Error("a new file did not change the digest")
@@ -347,6 +364,34 @@ func TestVerifyArchiveEntries(t *testing.T) {
 	// leading "./": still the same bundle.
 	if _, err := Verify(write(append(files, entry{ManifestFile, string(manifest), tar.TypeReg})), VerifyOptions{Release: manifest}); err != nil {
 		t.Errorf("reordered archive: %v", err)
+	}
+	// Ordinary directory headers, the root's included, are fine.
+	withDirs := append([]entry{{"./", "", tar.TypeDir}, {"scripts", "", tar.TypeDir}, {"./scripts/bun/", "", tar.TypeDir}}, files...)
+	if _, err := Verify(write(append(withDirs, entry{ManifestFile, string(manifest), tar.TypeReg})), VerifyOptions{Digest: Digest(manifest)}); err != nil {
+		t.Errorf("directory headers: %v", err)
+	}
+	// Directory entries are checked as files are, and the entries must form
+	// one tree: extracting a directory named ir.json would replace the
+	// file the manifest authenticates. Each holds against a release
+	// manifest and an expected digest, the directory before or after the
+	// file.
+	irDir := entry{"ir.json/", "", tar.TypeDir}
+	for name, entries := range map[string][]entry{
+		"a directory over a file, after it":   append(slices.Clone(files), irDir),
+		"a directory over a file, before it":  append([]entry{irDir}, files...),
+		"a directory named like the manifest": append(slices.Clone(files), entry{ManifestFile, "", tar.TypeDir}),
+		"a directory that escapes":            append(slices.Clone(files), entry{"../outside/", "", tar.TypeDir}),
+		"an absolute directory":               append(slices.Clone(files), entry{"/absolute-dir/", "", tar.TypeDir}),
+		"a directory that is not clean":       append(slices.Clone(files), entry{"scripts//bun/", "", tar.TypeDir}),
+		"a file below a file":                 append(slices.Clone(files), entry{"ir.json/x", "{}\n", tar.TypeReg}),
+		"a directory below a file":            append(slices.Clone(files), entry{"ir.json/sub/", "", tar.TypeDir}),
+	} {
+		p := write(append(entries, entry{ManifestFile, string(manifest), tar.TypeReg}))
+		for _, opts := range []VerifyOptions{{Release: manifest}, {Digest: Digest(manifest)}} {
+			if _, err := Verify(p, opts); err == nil {
+				t.Errorf("%s: accepted", name)
+			}
+		}
 	}
 	for name, extra := range map[string]entry{
 		"a repeated entry":    {"ir.json", "{}\n", tar.TypeReg},

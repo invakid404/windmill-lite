@@ -116,10 +116,12 @@ func (s *sourceFS) inventory() (map[string]string, error) {
 
 // TreeDigest is the digest of a directory tree: the Digest of the
 // canonical JSON object that maps the slash path of every regular file
-// under dir to its Digest. Directories named node_modules, files and
+// under dir to its Digest. Directories named node_modules, and files and
 // directories whose name starts with "." (.DS_Store, an editor's swap
-// file) and anything that is neither a regular file nor a directory are
-// left out. The manifest records the harness runtime's tree digest.
+// file), are left out. Anything else below dir that is neither a regular
+// file nor a directory, a symbolic link above all, is refused: a link
+// would let what the runtime loads change without the digest. dir itself
+// may be a link. The manifest records the harness runtime's tree digest.
 func TreeDigest(dir string) (string, error) {
 	dir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
@@ -133,14 +135,20 @@ func TreeDigest(dir string) (string, error) {
 		if p == dir {
 			return nil
 		}
-		if d.IsDir() {
-			if d.Name() == "node_modules" || d.Name()[0] == '.' {
+		if d.Name() == "node_modules" || d.Name()[0] == '.' {
+			if d.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() || d.Name()[0] == '.' {
+		if d.IsDir() {
 			return nil
+		}
+		if !d.Type().IsRegular() {
+			// Bun loads through a link as through the file, so a digest
+			// that skipped it would not change with what runs.
+			rel, _ := filepath.Rel(dir, p)
+			return fmt.Errorf("bundle: %s: %s is a symbolic link or another file that is not regular; a harness runtime must hold its files itself", dir, filepath.ToSlash(rel))
 		}
 		data, err := os.ReadFile(p)
 		if err != nil {

@@ -242,7 +242,8 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - **Manifest.** Beyond the table above, it records the expression
     engine's stack limit ([0003](0003-semantics-placement.md)), the
     host-provided modules in registration order, and the harness runtime
-    as the digest of its directory tree. Its deviations are the program's,
+    as the digest of its directory tree, which refuses a symbolic link
+    below the runtime's directory. Its deviations are the program's,
     those of the module-state mode (D1, D2, D9 to D11 in `warm`) and those
     every bundle has (D3, D8, D14).
   - **Source inventory.** It lists the files the build read: what the
@@ -257,7 +258,9 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     secrets.
   - **Archive.** A `.wlb` is a tar file with `manifest.json` first, then the
     listed files in path order, with fixed headers, so one bundle gives one
-    archive, byte for byte.
+    archive, byte for byte. Reading one, `verify` accepts only regular files
+    and directories with clean relative names that form one tree, so an
+    archive that verifies extracts to the tree its manifest lists.
   - **`verify`** checks the files against a release manifest when given one
     (and the bundle's own manifest must then be its bytes), otherwise
     against the bundle's own: alone, that proves a bundle intact, not that

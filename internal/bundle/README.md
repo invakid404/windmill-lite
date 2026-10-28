@@ -92,6 +92,9 @@ module-state mode, the engine version, the Bun version, the harness
 runtime, and any built file. `TreeDigest(dir)` is the digest of the
 canonical JSON object that maps the slash path of every regular file under
 `dir` (skipping `node_modules` and names that start with `.`) to its digest.
+It refuses a symbolic link below `dir`, or any other file that is not
+regular: Bun loads through a link, so a digest that skipped one would not
+change with what runs. `dir` itself may be a link.
 
 ## Build
 
@@ -140,9 +143,14 @@ recomputes the digest of every file, and checks them against a manifest:
 `VerifyOptions.Release`, a release manifest, when given (and the bundle's
 own manifest must then be the same bytes), otherwise the bundle's own.
 `VerifyOptions.Digest` pins the bundle digest. The artifact must hold
-exactly the listed files, as regular files; an archive's entries must have
-clean relative names, each once (directory entries are skipped, the order
-does not matter). Differences come back together as a `*MismatchError`. A
+exactly the listed files, as regular files. An archive's entries must be
+regular files, each named once, or directories, all with clean relative
+names (a leading `./` and a directory's trailing `/` aside), and they must
+form one tree, as extraction would make it: no name may be both a file and
+a directory, and nothing may lie below a file, whatever the order of the
+entries. Otherwise extracting a verified archive could replace a file the
+manifest lists with a directory. Differences come back together as a
+`*MismatchError`. A
 bundle checked only against its own manifest proves it is intact, not that
 it is the one released: a changed file with a manifest rewritten to match
 passes alone and fails against the release manifest or digest.
@@ -302,7 +310,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestManifestDeviations` need
   no Bun: they cover a changed, extra or missing file, a symbolic link, a
   forgery whose own manifest matches, archive entries that repeat or escape,
-  and the canonical form.
+  directory entries that collide with a file or lie below one (before or
+  after it, against a release manifest and a digest), ordinary directory
+  headers, links below a harness runtime's directory, and the canonical
+  form.
 - `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
   support module and generated shims in `testdata/`; `go test ./internal/bundle -run
   Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.

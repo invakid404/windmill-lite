@@ -236,8 +236,11 @@ func readTree(dir string) ([]byte, map[string]string, error) {
 const maxManifest = 64 << 20
 
 // readArchive reads a .wlb archive: the manifest's bytes and the digest of
-// every other entry. Entries must be regular files (directories are
-// skipped) with clean relative names, each named once.
+// every other entry. Entries must be regular files, each named once, or
+// directories, all with clean relative names (a leading "./" and a
+// directory's trailing "/" aside). Together they must form one tree, as
+// extraction would make it: no name is both a file and a directory, and
+// nothing lies below a file, whatever the order of the entries.
 func readArchive(path string) ([]byte, map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -246,6 +249,7 @@ func readArchive(path string) ([]byte, map[string]string, error) {
 	defer f.Close()
 	var manifest []byte
 	found := map[string]string{}
+	files, dirs := map[string]bool{}, map[string]bool{}
 	tr := tar.NewReader(f)
 	for {
 		hdr, err := tr.Next()
@@ -256,15 +260,28 @@ func readArchive(path string) ([]byte, map[string]string, error) {
 			return nil, nil, fmt.Errorf("bundle: %s: %w", path, err)
 		}
 		name := strings.TrimPrefix(hdr.Name, "./")
-		if hdr.Typeflag == tar.TypeDir {
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			name = strings.TrimSuffix(name, "/")
+			if name == "" || name == "." {
+				continue // the archive's root
+			}
+			if !cleanRel(name) {
+				return nil, nil, fmt.Errorf("bundle: %s: directory entry %q does not have a clean relative name", path, hdr.Name)
+			}
+			dirs[name] = true
 			continue
+		case tar.TypeReg:
+		default:
+			return nil, nil, fmt.Errorf("bundle: %s: entry %q is neither a regular file nor a directory", path, hdr.Name)
 		}
-		if hdr.Typeflag != tar.TypeReg || !cleanRel(name) {
-			return nil, nil, fmt.Errorf("bundle: %s: entry %q is not a regular file with a clean relative name", path, hdr.Name)
+		if !cleanRel(name) {
+			return nil, nil, fmt.Errorf("bundle: %s: entry %q does not have a clean relative name", path, hdr.Name)
 		}
-		if _, dup := found[name]; dup || (name == ManifestFile && manifest != nil) {
+		if files[name] {
 			return nil, nil, fmt.Errorf("bundle: %s: entry %q appears twice", path, name)
 		}
+		files[name] = true
 		if name == ManifestFile {
 			if manifest, err = io.ReadAll(io.LimitReader(tr, maxManifest+1)); err != nil {
 				return nil, nil, err
@@ -280,5 +297,33 @@ func readArchive(path string) ([]byte, map[string]string, error) {
 		}
 		found[name] = "sha256:" + hex.EncodeToString(h.Sum(nil))
 	}
+	if err := oneTree(files, dirs); err != nil {
+		return nil, nil, fmt.Errorf("bundle: %s: %w", path, err)
+	}
 	return manifest, found, nil
+}
+
+// oneTree checks that an archive's file and directory entries form one
+// tree: extracting a directory where a file is, or a file where a
+// directory or another file's ancestor is, would replace or lose an entry.
+func oneTree(files, dirs map[string]bool) error {
+	var names []string
+	for n := range files {
+		names = append(names, n)
+	}
+	for n := range dirs {
+		if files[n] {
+			return fmt.Errorf("%q is both a file and a directory", n)
+		}
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		for i := strings.LastIndexByte(n, '/'); i > 0; i = strings.LastIndexByte(n[:i], '/') {
+			if files[n[:i]] {
+				return fmt.Errorf("%q lies below the file %q", n, n[:i])
+			}
+		}
+	}
+	return nil
 }
