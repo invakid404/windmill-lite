@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/openflow"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
@@ -49,7 +50,8 @@ func ErrStubUnsupported(file, step, reason string) *Refusal {
 // would not be stubbed: a script in another language, a Bun script with
 // the native annotation, a rawscript whose content is written in
 // flow.yaml rather than in a file, a step whose target is a hub path or
-// is not in the tree, and AI-agent steps; a retry on a subflow, loop or
+// is not in the tree, a script step pinned by hash, a flowscript step,
+// and AI-agent steps; a retry on a subflow, loop or
 // branch step, whose failed attempts' inner sites a table cannot address;
 // and a source StubSource refuses.
 func StubTree(src, dst string) (*StubReport, error) {
@@ -59,6 +61,10 @@ func StubTree(src, dst string) (*StubReport, error) {
 	if _, err := os.Lstat(dst); err == nil {
 		return nil, fmt.Errorf("oracle: stub output %s already exists", dst)
 	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	created, err := outsideTree(src, dst)
+	if err != nil {
 		return nil, err
 	}
 	folder, err := syncfolder.Open(src)
@@ -120,27 +126,84 @@ func StubTree(src, dst string) (*StubReport, error) {
 			case *openflow.PathScript, *openflow.PathFlow:
 				// The target must be an item of this tree, so that it is
 				// stubbed (or walked) too: a hub path or a workspace item
-				// outside the tree would run its real body.
+				// outside the tree would run its real body. A script step
+				// pinned by hash runs that deployed version, never the
+				// stub pushed at its path (OF-14).
+				if ps, ok := v.(*openflow.PathScript); ok && ps.Hash != nil {
+					return nil, ErrStubUnsupported(fl.File, step, "the script step is pinned by hash, which selects a deployed version of the script rather than the stub pushed at its path (OF-14)")
+				}
 				if _, err := folder.Target(p, m); err != nil {
 					return nil, ErrStubUnsupported(fl.File, step, err.Error())
 				}
+			case *openflow.FlowScript:
+				return nil, ErrStubUnsupported(fl.File, step, "a flowscript step refers to a stored script that the tree has no source for")
 			case *openflow.AIAgent:
 				return nil, ErrStubUnsupported(fl.File, step, "AI-agent steps are out of scope")
 			}
 		}
 	}
-	if err := CopyTree(src, dst); err != nil {
+	// On a failure, remove what this call created: dst and any parent
+	// directory it had to make, nothing that existed before.
+	fail := func(err error) (*StubReport, error) {
+		_ = os.RemoveAll(created)
 		return nil, err
+	}
+	if err := CopyTree(src, dst); err != nil {
+		return fail(err)
 	}
 	rep := &StubReport{}
 	for file, s := range stubs {
 		if err := os.WriteFile(filepath.Join(dst, filepath.FromSlash(file)), []byte(s), 0o644); err != nil {
-			return nil, err
+			return fail(err)
 		}
 		rep.Files = append(rep.Files, file)
 	}
 	sort.Strings(rep.Files)
 	return rep, nil
+}
+
+// outsideTree refuses an output directory that would lie inside the tree
+// it copies, by canonical paths (symbolic links in dst's existing parents
+// resolved): the copy would walk into itself. It returns the first
+// component of dst that does not exist yet, the directory a failed copy
+// removes.
+func outsideTree(src, dst string) (created string, err error) {
+	srcCanon, err := filepath.Abs(src)
+	if err == nil {
+		srcCanon, err = filepath.EvalSymlinks(srcCanon)
+	}
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(dst)
+	if err != nil {
+		return "", err
+	}
+	// Walk up to the nearest existing ancestor of dst, resolve it, and put
+	// the missing components back.
+	existing, missing := abs, []string{}
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			break
+		}
+		missing = append([]string{filepath.Base(existing)}, missing...)
+		existing = parent
+	}
+	base, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", err
+	}
+	dstCanon := filepath.Join(append([]string{base}, missing...)...)
+	if rel, err := filepath.Rel(srcCanon, dstCanon); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("oracle: stub output %s is inside the sync tree %s, which the copy would walk into", dst, src)
+	}
+	return filepath.Join(existing, missing[0]), nil
 }
 
 // stubbable returns why a script cannot be stubbed, or "".

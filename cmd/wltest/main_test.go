@@ -56,8 +56,15 @@ func TestStub(t *testing.T) {
 		t.Fatalf("stdout %q stderr %q", stdout.String(), stderr.String())
 	}
 	data, err := os.ReadFile(filepath.Join(out, "f/wl_stub/notify.flow/post.ts"))
-	if err != nil || !strings.Contains(string(data), "export async function main(to: string, team: string) {") {
+	if err != nil || !strings.Contains(string(data), "async function main(to: string, team: string) {}") || !strings.Contains(string(data), "export { __wlMain as main };") {
 		t.Fatalf("stub %s %v", data, err)
+	}
+	// An output inside the tree is refused before anything is written.
+	if code := run(context.Background(), []string{"stub", "--out", "../../conformance/flows/stub/scopes/windmill/out", "../../conformance/flows/stub/scopes/windmill"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "is inside the sync tree") {
+		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+	if _, err := os.Stat("../../conformance/flows/stub/scopes/windmill/out"); err == nil {
+		t.Fatal("the refused output was written")
 	}
 
 	tree := t.TempDir()

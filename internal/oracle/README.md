@@ -163,10 +163,15 @@ which it finds with [internal/syncfolder](../syncfolder/README.md). It
 refuses (`stub_unsupported`, with the file or step and the reason) a tree
 in which an executed script would keep its real body: another language, the
 `native` annotation, a rawscript whose content is written in `flow.yaml`, a
-step whose target is a hub path or not in the tree, an AI-agent step, a
-retry on a subflow, loop or branch step (a failed attempt's inner steps
+step whose target is a hub path or not in the tree, a script step pinned by
+hash (it runs that deployed version, not the stub pushed at its path,
+[OF-14](../../docs/semantics/openflow.md#of-14)), a `flowscript` step, an
+AI-agent step, a retry on a subflow, loop or branch step (a failed attempt's inner steps
 are walked under `r:<k>`, which a table does not address), and a source
-`StubSource` refuses. The CLI then runs `generate-metadata` in the copy,
+`StubSource` refuses. The output must not lie inside the tree (canonical
+paths, so a symbolic link in its parents counts), and a copy that fails
+removes the output and any parent directory it made. The CLI then runs
+`generate-metadata` in the copy,
 since its locks and `wmill-lock.yaml` still describe the originals, and
 `CheckStubSignatures` requires every path script's generated schema to
 equal the original's (`stub_signature_changed` otherwise): the CLI derives
@@ -175,10 +180,15 @@ what Windmill's parser reads. Inline scripts have no schema; for them the
 scanner's cases and the arguments each recorded call shows are the
 evidence. The deployment report lists the stubbed files.
 
-**The stub.** `StubSource` keeps `main`'s parameter list verbatim, because
-Windmill binds arguments by the names its parser finds there
-([WR-6](../../docs/semantics/languages.md#wr-6),
-[WR-7](../../docs/semantics/languages.md#wr-7)), and every top-level type
+**The stub.** `StubSource` keeps `main`'s declaration with its parameter
+list verbatim, because Windmill's parser finds a `function main`
+declaration, exported or not, and binds arguments by the names it finds
+there ([WR-6](../../docs/semantics/languages.md#wr-6),
+[WR-7](../../docs/semantics/languages.md#wr-7)). That `main` is declared
+with an empty body and never called, so its parameter defaults never run;
+the module exports `__wlMain` under the name `main`, which the wrapper calls
+with the bound arguments and in whose scope no user parameter (one named
+`Array`, say) can shadow what it uses. It also keeps every top-level type
 alias and interface verbatim, because the parser resolves local aliases to
 decide which parameters are hydrated as `Date`
 ([WR-8](../../docs/semantics/languages.md#wr-8),
@@ -187,7 +197,7 @@ the code runs. It also keeps the `npm`, `nodejs`, `nobundling` and
 `sandbox` flags of the leading comment block, first in the stub, since they
 decide how Windmill runs the script
 ([WR-31](../../docs/semantics/languages.md#wr-31)). Imports, top-level code
-and the body are dropped. The body
+and the body are dropped. The exported function
 POSTs `{root, root_flow, flow, job, step, args}` (the job identities of
 [OR-29](../../docs/semantics/oracle.md#or-29) and the arguments it received,
 in parameter order) to `$WL_EFFECT_SINK/replay`, then returns the outcome's
@@ -197,12 +207,12 @@ members as own properties, which the Bun wrapper stores under `extra`
 [WR-18](../../docs/semantics/languages.md#wr-18)); a refused call is thrown
 as an `Error` naming the refusal. The scan is a small lexer that tracks
 bracket depth, so text in strings, comments, templates and regular
-expressions never counts as code. It refuses a script without an exported
-`function main` declaration (an arrow `main` gets no arguments from
-Windmill), a default-exported, generic, generator or overloaded `main`, a
-`preprocessor`, and a parameter default (in a destructuring pattern too)
-that names a binding the stub drops, or `process`, `Bun` or `globalThis`,
-through which a default could reach a system. At the top level, `type` and
+expressions never counts as code. It refuses a script without a `function
+main` declaration (an arrow `main` gets no arguments from Windmill), one
+that is neither exported where it is declared nor through an export list
+(`export { main }`, `export { other as main }`), one re-exported from
+another module, a default-exported, generic, generator or overloaded
+`main`, and a `preprocessor`. At the top level, `type` and
 a name on one line before `=` or `<`, and `interface` and a name, are
 always a declaration; a type alias ends at `;` or at a line that does not
 continue it (one starting with `|`, `&`, `?`, `:`, `.` or `=>`, or
@@ -292,8 +302,10 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |
 | `TestSinkGroupsByOuterRoot`, `TestSinkKeepsConcurrentRunsApart`, `TestSinkRoutesReplayCalls` | OR-16/c; two open runs each keep their own effects (OR-V6/a); `/replay` goes to the replay service | — |
 | `TestStubSourceCases`, `TestStubSourceGolden` | the stub of each source keeps `main`'s parameter list and the type declarations verbatim and drops the rest, and stubbing is idempotent; or the source is refused with its reason; one whole stub pinned | `testdata/stub/sources.json`, `testdata/stub/book.stub.ts` |
-| `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`; the schema check | `conformance/flows/stub` |
+| `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`, the hash-pinned script step and the `flowscript` step among them; the schema check | `conformance/flows/stub` |
 | `TestStubRunsOnBun` | a generated stub on the pinned Bun (`WL_BUN`) against the real replay service: the request it sends (identities, the hydrated `Date` as its JSON), an error outcome thrown with its name, message and own property, a result returned with its member order, a refusal thrown | `conformance/flows/stub/collapsed` |
+| `TestStubIsolationOnBun` | stubs on the pinned Bun with `fetch` recorded: a default that would call a service or name a dropped binding never runs, and a parameter or destructured binding named `Array` cannot reach the stub's code; the replay call is the only request. Each original runs through the same driver first, to show the recorder sees what a default does | — |
+| `TestStubTreeKeepsItsOutputOutsideTheTree` | an output inside the tree, directly or through a symbolic link, is refused with the tree unchanged; a failed copy removes its output and the parents it made | — |
 | `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
 | `TestCheckReplay`, `TestCheckOverlap` | each failure of `checkReplay`; a group's root jobs in flight together | — |
 | `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes the stub fixtures job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; runs `r` and `t` run together and keep apart; `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |

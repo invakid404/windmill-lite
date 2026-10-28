@@ -113,6 +113,8 @@ func TestStubTreeRefuses(t *testing.T) {
 		{"a hub script step", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: h\n      value:\n        type: script\n        path: hub/1/x\n        input_transforms: {}\n")}, "hub path"},
 		{"a script step outside the tree", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: script\n        path: f/elsewhere/s\n        input_transforms: {}\n")}, "f/elsewhere/s"},
 		{"a subflow outside the tree", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: flow\n        path: f/elsewhere/w\n        input_transforms: {}\n")}, "f/elsewhere/w"},
+		{"a script step pinned by hash", map[string]string{"f/x/a.ts": okScript, "f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: script\n        path: f/x/a\n        hash: '0000000000000001'\n        input_transforms: {}\n")}, "pinned by hash"},
+		{"a flowscript step", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: flowscript\n        id: 42\n        input_transforms: {}\n")}, "flowscript step"},
 		{"a retried loop", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules: []\n      retry: {constant: {attempts: 1, seconds: 0}}\n")}, "a retry on a subflow, loop or branch step"},
 	}
 	for _, c := range cases {
@@ -276,4 +278,155 @@ func run2(t *testing.T, bun, dir, sink string) string {
 		t.Fatalf("bun: %v", err)
 	}
 	return string(out)
+}
+
+// TestStubTreeKeepsItsOutputOutsideTheTree refuses an output directory
+// inside the tree it copies, also through a symbolic link in its parents,
+// before writing anything, and removes the output and the parents it made
+// when the copy fails.
+func TestStubTreeKeepsItsOutputOutsideTheTree(t *testing.T) {
+	src := writeTree(t, map[string]string{"f/x/a.ts": okScript})
+	before := listTree(t, src)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(src, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, dst := range []string{
+		filepath.Join(src, "stubbed"),
+		filepath.Join(src, "f", "x", "deeper", "stubbed"),
+		filepath.Join(link, "stubbed"),
+	} {
+		if _, err := StubTree(src, dst); err == nil || !strings.Contains(err.Error(), "is inside the sync tree") {
+			t.Fatalf("%s: got %v", dst, err)
+		}
+		if after := listTree(t, src); after != before {
+			t.Fatalf("%s: the tree changed:\n%s\nwas\n%s", dst, after, before)
+		}
+	}
+	// A sibling whose name starts like the tree's is outside it.
+	if _, err := StubTree(src, src+"-stubbed"); err != nil {
+		t.Fatal(err)
+	}
+
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable files")
+	}
+	bad := writeTree(t, map[string]string{"f/x/a.ts": okScript, "f/x/notes.txt": "n"})
+	if err := os.Chmod(filepath.Join(bad, "f/x/notes.txt"), 0); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(t.TempDir(), "new")
+	if _, err := StubTree(bad, filepath.Join(parent, "a", "out")); err == nil {
+		t.Fatal("a copy of an unreadable file succeeded")
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a failed copy left %s: %v", parent, err)
+	}
+}
+
+func listTree(t *testing.T, dir string) string {
+	t.Helper()
+	var b strings.Builder
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		b.WriteString(rel + "\n")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// TestStubIsolationOnBun runs stubs on the pinned Bun with fetch replaced
+// by a recorder: the declared main is never called, so a parameter default
+// that would call a service or name a dropped binding never runs, and a
+// parameter named Array cannot reach the stub's own code. The only request
+// is the replay call, which carries the arguments as main received them.
+// Each original runs through the same driver first, to show the recorder
+// sees what a default does.
+func TestStubIsolationOnBun(t *testing.T) {
+	bun := os.Getenv("WL_BUN")
+	if bun == "" {
+		if os.Getenv("WL_REQUIRE_BUN") != "" {
+			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
+		}
+		t.Skip("WL_BUN is not set; it names the pinned Bun " + BunVersion)
+	}
+	const replay = "http://replay.invalid"
+	for _, c := range []struct {
+		name, src, args string
+		original, stub  string
+	}{
+		{
+			name:     "a ternary default that calls fetch",
+			src:      `export async function main(x = (true ? fetch : null)("https://synthetic.invalid", {method: "POST"})) { return "original" }`,
+			args:     `[]`,
+			original: `{"calls":["https://synthetic.invalid"],"args":[],"result":"original"}`,
+			stub:     `{"calls":["http://replay.invalid/replay"],"args":[[]],"result":7}`,
+		},
+		{
+			name:     "a ternary default that names a dropped binding",
+			src:      "const LIMIT = 5;\nexport async function main(x = true ? LIMIT : 0) { return x }",
+			args:     `[]`,
+			original: `{"calls":[],"args":[],"result":5}`,
+			stub:     `{"calls":["http://replay.invalid/replay"],"args":[[]],"result":7}`,
+		},
+		{
+			name:     "a parameter named Array",
+			src:      `export async function main(Array: string) { return Array }`,
+			args:     `["value"]`,
+			original: `{"calls":[],"args":[],"result":"value"}`,
+			stub:     `{"calls":["http://replay.invalid/replay"],"args":[["value"]],"result":7}`,
+		},
+		{
+			name:     "a destructured binding named Array",
+			src:      `export async function main({ Array }: { Array: string }) { return Array }`,
+			args:     `[{"Array":"v"}]`,
+			original: `{"calls":[],"args":[],"result":"v"}`,
+			stub:     `{"calls":["http://replay.invalid/replay"],"args":[[{"Array":"v"}]],"result":7}`,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			stub, err := StubSource(c.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, run := range []struct{ label, source, want string }{{"original", c.src, c.original}, {"stub", stub, c.stub}} {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "main.ts"), []byte(run.source), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				driver := `const calls = [];
+globalThis.fetch = async (url, init) => {
+  calls.push({ url: String(url), body: init && init.body ? JSON.parse(init.body) : null });
+  return new Response('{"result":7}', { status: 200 });
+};
+process.env.WL_EFFECT_SINK = "` + replay + `";
+const m = await import("./main.ts");
+let out;
+try { out = { result: await m.main(...` + c.args + `) }; } catch (e) { out = { error: String(e) }; }
+console.log(JSON.stringify({ calls: calls.map((x) => x.url), args: calls.filter((x) => x.body).map((x) => x.body.args ?? null), ...out }));
+`
+				if err := os.WriteFile(filepath.Join(dir, "driver.ts"), []byte(driver), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				cmd := exec.Command(bun, "run", "driver.ts")
+				cmd.Dir = dir
+				cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+				var stderr bytes.Buffer
+				cmd.Stderr = &stderr
+				out, err := cmd.Output()
+				if err != nil {
+					t.Fatalf("%s: bun: %v\n%s", run.label, err, stderr.String())
+				}
+				if got := strings.TrimSpace(string(out)); got != run.want {
+					t.Errorf("%s: %s\nwant %s", run.label, got, run.want)
+				}
+			}
+		})
+	}
 }

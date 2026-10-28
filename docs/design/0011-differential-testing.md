@@ -217,25 +217,32 @@ on windmill-lite, once the container and retry milestones they exercise have
 merged.
 
 **The stub (chosen by E4a).** A stub keeps what Windmill's signature parser
-reads and nothing that runs: `main`'s parameter list verbatim, since
-arguments bind by the names found there ([WR-6](../semantics/languages.md#wr-6),
-[WR-7](../semantics/languages.md#wr-7)), and every top-level type alias and
-interface verbatim, since local aliases decide `Date` hydration
-([WR-8](../semantics/languages.md#wr-8), [WR-V3](../semantics/languages.md#wr-v3))
-and types are erased before code runs. It also keeps the leading block's
+reads and nothing that runs: `main`'s declaration with its parameter list
+verbatim, since the parser finds a `function main` declaration, exported or
+not, and binds arguments by the names found there
+([WR-6](../semantics/languages.md#wr-6), [WR-7](../semantics/languages.md#wr-7)),
+and every top-level type alias and interface verbatim, since local aliases
+decide `Date` hydration ([WR-8](../semantics/languages.md#wr-8),
+[WR-V3](../semantics/languages.md#wr-v3)) and types are erased before code
+runs. The declared `main` is never called, so its parameter defaults never
+run; the module exports a generated function under the name `main`, which
+the wrapper calls with the arguments that list binds, and which no
+parameter of the user's can shadow. It also keeps the leading block's
 `npm`, `nodejs`, `nobundling` and `sandbox` flags, which decide how Windmill
 runs the script ([WR-31](../semantics/languages.md#wr-31)). Imports,
 top-level code and the body are dropped. Only Bun scripts and `!inline` Bun rawscripts are stubbed; the
 generator refuses a tree in which some executed script would keep its body
 (another language, the `native` annotation, content written in
-`flow.yaml`, a hub or out-of-tree target, an AI-agent step), a retry on a
-subflow, loop or branch step (the walk puts a failed attempt's inner steps
-under `r:<k>`, which a table does not address), and a script whose
-signature it cannot keep (no exported `function main` declaration, a
-default-exported, generic, generator or overloaded `main`, a
-`preprocessor`, a parameter default naming a dropped binding or `process`,
-`Bun` or `globalThis`). `wltest stub` writes the stubbed copy to a new
-directory, never in place. Because the copy's metadata still describes the
+`flow.yaml`, a hub or out-of-tree target, a script step pinned by hash,
+which selects a deployed version rather than the stub pushed at its path
+([OF-14](../semantics/openflow.md#of-14)), a `flowscript` step, an
+AI-agent step), a retry on a subflow, loop or branch step (the walk puts a
+failed attempt's inner steps under `r:<k>`, which a table does not
+address), and a script whose `main` Windmill would not call as the stub's
+(no `function main` declaration, one not exported directly or through an
+export list, a re-exported, default-exported, generic, generator or
+overloaded `main`, a `preprocessor`). `wltest stub` writes the stubbed copy
+to a new directory outside the tree, never in place. Because the copy's metadata still describes the
 originals, `record` runs the CLI's `generate-metadata` in it and requires
 every path script's generated schema to equal the original's: the CLI
 derives the schema from the signature, so this checks on the oracle that the

@@ -116,9 +116,10 @@
     "refuse": "no exported function declaration main"
   },
   {
-    "name": "a main declared without export",
+    "name": "a main exported through an export list",
     "source": "function main(x) {}\nexport { main };",
-    "refuse": "not exported where it is declared"
+    "params": "x",
+    "keep": []
   },
   {
     "name": "a default-exported main",
@@ -146,14 +147,16 @@
     "refuse": "preprocessor"
   },
   {
-    "name": "a default that names a dropped binding",
+    "name": "a default that names a dropped binding is kept, and never runs",
     "source": "const LIMIT = 10;\nexport async function main(limit = LIMIT) {}",
-    "refuse": "names LIMIT"
+    "params": "limit = LIMIT",
+    "keep": []
   },
   {
-    "name": "a parameter named like the stub's helper",
+    "name": "a parameter named like the stub's helpers is out of their scope",
     "source": "export async function main(__wlReplay: number) {}",
-    "refuse": "collides with the stub's helper"
+    "params": "__wlReplay: number",
+    "keep": []
   },
   {
     "name": "an unterminated string",
@@ -216,24 +219,28 @@
     "keep": []
   },
   {
-    "name": "a default inside a pattern that names a dropped binding",
+    "name": "a default inside a pattern is kept, and never runs",
     "source": "const LIMIT = 3;\nexport async function main({ a = LIMIT }: { a?: number }) {}",
-    "refuse": "names LIMIT"
+    "params": "{ a = LIMIT }: { a?: number }",
+    "keep": []
   },
   {
-    "name": "a default that calls through globalThis",
+    "name": "a default that calls through globalThis is kept, and never runs",
     "source": "export async function main(x = globalThis.fetch(\"http://private.invalid/\")) {}",
-    "refuse": "names globalThis"
+    "params": "x = globalThis.fetch(\"http://private.invalid/\")",
+    "keep": []
   },
   {
-    "name": "a default that reads process",
+    "name": "a default that reads process is kept, and never runs",
     "source": "export async function main(x = process.env.X) {}",
-    "refuse": "names process"
+    "params": "x = process.env.X",
+    "keep": []
   },
   {
-    "name": "a default that spawns through Bun",
+    "name": "a default that spawns through Bun is kept, and never runs",
     "source": "export async function main(x = Bun.spawnSync([\"id\"])) {}",
-    "refuse": "names Bun"
+    "params": "x = Bun.spawnSync([\"id\"])",
+    "keep": []
   },
   {
     "name": "the annotation flags of the leading block are kept (WR-31)",
@@ -260,5 +267,45 @@
     "params": "n: number",
     "keep": [],
     "annotations": []
+  },
+  {
+    "name": "a ternary default that calls fetch is kept, and never runs",
+    "source": "export async function main(x = (true ? fetch : null)(\"https://synthetic.invalid\", {method: \"POST\"})) { return x }",
+    "params": "x = (true ? fetch : null)(\"https://synthetic.invalid\", {method: \"POST\"})",
+    "keep": []
+  },
+  {
+    "name": "a ternary default that names a dropped binding is kept, and never runs",
+    "source": "const LIMIT = 5; export async function main(x = true ? LIMIT : 0) { return x }",
+    "params": "x = true ? LIMIT : 0",
+    "keep": []
+  },
+  {
+    "name": "a parameter named Array",
+    "source": "export async function main(Array: string) { return Array }",
+    "params": "Array: string",
+    "keep": []
+  },
+  {
+    "name": "a destructured binding named Array",
+    "source": "export async function main({ Array }: { Array: string }) { return Array }",
+    "params": "{ Array }: { Array: string }",
+    "keep": []
+  },
+  {
+    "name": "main exported under its name from another local",
+    "source": "function main(a: number) {}\nconst run = (a: number) => a;\nexport { run as main };",
+    "params": "a: number",
+    "keep": []
+  },
+  {
+    "name": "a main declared and never exported",
+    "source": "function main(x) {}\nexport { other };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "a main re-exported from another module",
+    "source": "function main(x) {}\nexport { main } from \"./elsewhere\";",
+    "refuse": "re-exported from another module"
   }
 ]

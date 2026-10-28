@@ -72,9 +72,11 @@ bin/wltest stub --out <dir> <sync tree>
 ```
 
 Copies the sync tree (the directory of its `wmill.yaml`) to `<dir>`, which
-must not exist, with the source of every Bun script and every `!inline`
-Bun rawscript replaced by a stub that keeps `main`'s parameter list and the
-type declarations, and asks the replay service for its outcome
+must not exist and must not lie inside the tree (symbolic links resolved),
+with the source of every Bun script and every `!inline` Bun rawscript
+replaced by a stub that keeps `main`'s declaration with its parameter list
+and the type declarations, never calls it, and exports a function under
+the name `main` that asks the replay service for its outcome
 ([ADR 0011](../../docs/design/0011-differential-testing.md) stub mode). It
 prints one `stubbed <file>` line per replaced source. The copy's metadata
 still describes the originals, so run `npx -y windmill-cli@1.767.0
