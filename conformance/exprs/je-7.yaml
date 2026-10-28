@@ -5,39 +5,39 @@ scope: core
 flow_input: '{"n":12345678901234567890,"a.b":"lit","a":{"b":"nested"}}'
 cases:
   - spec: JE-7/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a top-level key keeps full precision
     expr: flow_input.n
     expect: {value: '12345678901234567890'}
   - spec: JE-7/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: arithmetic goes through JavaScript and rounds
     expr: flow_input.n + 0
     expect: {value: '12345678901234567000'}
   - spec: JE-7/c
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: a dotted text is looked up as one literal key first
     expr: flow_input.a.b
     expect: {value: '"lit"'}
   - spec: JE-7/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: bracket form
     expr: 'flow_input["a"]'
     expect: {value: '{"b":"nested"}'}
   - spec: JE-7/e
-    provenance: source-derived
+    provenance: oracle-observed
     title: a missing direct key gives null, and x is present
     expr: flow_input.missing
     expect: {value: 'null'}
   - spec: JE-7/f
-    provenance: source-derived
+    provenance: oracle-observed
     title: a missing direct key of an empty input gives null
     flow_input: '{}'
     expr: flow_input.absent
     expect: {value: 'null'}
   - spec: JE-7/g
-    provenance: source-derived
+    provenance: oracle-observed
     title: a missing intermediate throws on the JavaScript path
     flow_input: '{}'
     expr: flow_input.absent.child

@@ -1,15 +1,22 @@
-# JE-48: the stack limit is quickjs-ng's built-in 1 MiB. The cases bracket
-# the limit; none locates it (Q-JE-11).
+# JE-48: the stack limit is quickjs-ng's built-in 1 MiB. The catalogue's
+# cases bracket the limit with depths 1 000 and 1 000 000, but on the oracle
+# depth 1 000 already overflows, and the catalogue's catchable-RangeError
+# case evaluates to null (both reported to the semantics team, Q-JE-11). The
+# depth-bracket case brackets the limit lower; none locates it.
 finding: JE-48
 scope: later
 cases:
   - spec: JE-48/a
-    provenance: source-derived
-    title: a recursion of depth 1 000 fits
+    provenance: oracle-observed
+    title: a recursion of depth 1 000 overflows on the oracle
+    note: the catalogue expects 1000
     expr: '(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()'
-    expect: {value: '1000'}
+    expect:
+      error:
+        name: ExecutionErr
+        contains: ['QuickJS evaluation error: Error: Maximum call stack size exceeded']
   - spec: JE-48/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: a recursion of depth 1 000 000 overflows
     expr: '(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000000); })()'
     expect:
@@ -17,12 +24,19 @@ cases:
         name: ExecutionErr
         contains: ['QuickJS evaluation error: Error: Maximum call stack size exceeded']
   - spec: JE-48/c
-    provenance: source-derived
-    title: the overflow is a catchable RangeError
+    provenance: oracle-observed
+    title: catching the overflow evaluates to null on the oracle
+    note: the catalogue expects ["RangeError","Maximum call stack size exceeded"]; the oracle's null is not explained by the reference
     expr: '(() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()'
-    expect: {value: '["RangeError","Maximum call stack size exceeded"]'}
-  - spec: JE-48/d
+    expect: {value: 'null'}
+  - spec: JE-48
+    variant: depth-bracket
     provenance: source-derived
+    title: which of four recursion depths fit, each caught on its own
+    expr: '[10, 100, 300, 600].map(k => { const f = n => n === 0 ? 0 : 1 + f(n - 1); try { return f(k); } catch (e) { return e instanceof RangeError ? "RangeError" : typeof e; } })'
+    expect: {value: '[10,100,300,600]'}
+  - spec: JE-48/d
+    provenance: oracle-observed
     title: stringifying deeply nested JSON overflows
     expr: '(() => { let v = []; for (let i = 0; i < 100000; i++) v = [v]; return JSON.stringify(v).length; })()'
     expect:

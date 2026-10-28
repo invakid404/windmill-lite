@@ -1,19 +1,19 @@
-summary: "JE-16/d: raw key order, with integer-like keys first"
+summary: 'JE-16/d: raw key order, with integer-like keys first'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_shortcuts/keys10
         input_transforms: {}
+        path: f/wl_je_shortcuts/keys10
     - id: b
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: javascript
-            expr: "Object.keys(previous_result)"
+            expr: Object.keys(previous_result)
+        path: f/wl_je_shortcuts/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

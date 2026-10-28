@@ -6,7 +6,7 @@
 id: cf/cf-19
 spec: [CF-19/a, CF-19/b, CF-19/c, CF-V6/a, CF-19, JE-9/g, CF-V6/b]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle:
   workers: 1

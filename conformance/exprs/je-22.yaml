@@ -4,7 +4,7 @@ finding: JE-22
 scope: core
 cases:
   - spec: JE-22/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: input transforms have no result
     expr: result
     expect:

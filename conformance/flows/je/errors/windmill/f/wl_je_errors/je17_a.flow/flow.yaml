@@ -1,23 +1,23 @@
-summary: "JE-17/a: a failure module reads the step error"
+summary: 'JE-17/a: a failure module reads the step error'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_errors/fail
         input_transforms:
           msg:
             type: static
             value: boom
+        path: f/wl_je_errors/fail
   failure_module:
     id: failure
     value:
       type: script
-      path: f/wl_je_errors/echo
       input_transforms:
         x:
           type: javascript
           expr: error.message
+      path: f/wl_je_errors/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

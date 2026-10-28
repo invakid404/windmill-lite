@@ -269,6 +269,22 @@ merged.
 - Milestone E2 chose that escape and the container sites above. It also
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.
+- Recording batch E3a lifted expression cases as this record says: one
+  generated fixture per expression file, whose tree (one flow per case,
+  each a single step that runs a sink script returning `null`, so the
+  recorded argument is the observation) lives only for the session and gets
+  its metadata from the CLI before each push; the recordings are committed
+  under `conformance/exprs/recorded/`. Runs gained `claims` (partial
+  assertions in the catalogue's terms, such as a message's prefix),
+  `delays` (lower bounds on a sleep, read from provenance timings, which are
+  never compared) and `unit` cases, all checked against the committed
+  recordings by Go tests rather than by `record`, so a contradicted claim
+  still leaves its recording to inspect.
+- E3a met two oracle facts the reference does not state. CE refuses a third
+  workspace besides `admins`, so a session deletes each fixture's workspace
+  once its runs are recorded, and a fresh workspace per fixture still holds.
+  A completed `branchall`'s flow-status entry has no `branchall` field, so
+  the walker takes `b:<n>` segments from the fixture's definition.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
 - Disputed findings get settled by recordings, early, through a reviewed

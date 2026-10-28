@@ -22,7 +22,7 @@ spec:
   - JE-42/h
   - JE-V3/a
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle:
   workers: 1

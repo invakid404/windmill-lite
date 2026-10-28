@@ -18,7 +18,7 @@ spec:
   - JE-49/b
   - JE-49/c
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle:
   workers: 1

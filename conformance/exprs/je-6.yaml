@@ -5,12 +5,12 @@ scope: core
 flow_input: '{"n":12345678901234567890}'
 cases:
   - spec: JE-6/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: the shortcut keeps full precision
     expr: previous_result
     expect: {value: '{"n":12345678901234567890}'}
   - spec: JE-6/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: JavaScript rounds the same value
     expr: previous_result.n
     expect: {value: '12345678901234567000'}

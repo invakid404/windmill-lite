@@ -1,16 +1,19 @@
 # internal/oracle
 
 **Current state:** implemented (milestone E2 of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers `internal/oracle/`, its vendored `openapi/` directory and its
-`testdata/`. The package is the oracle harness of
-[ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
-fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
-only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
-and the [oracle workflow](../../.github/workflows/oracle.yml). The OR-20
-smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke))
-is recorded by that workflow. Comparing windmill-lite against a recording
-(`wltest check`, milestone E1) and stub mode (E4a) do not exist yet.
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md), with the
+changes recording batch E3a needed). This README covers `internal/oracle/`,
+its vendored `openapi/` directory and its `testdata/`. The package is the
+oracle harness of [ADR 0011](../../docs/design/0011-differential-testing.md):
+it records flow fixtures, and expression cases lifted into generated flows,
+on an unmodified Windmill CE `v1.767.0`, which runs in public CI only,
+through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
+and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
+records the OR-20 smoke fixture
+([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)) and
+the fixtures and expression cases of batch E3a. Comparing windmill-lite
+against a recording (`wltest check`, milestone E1) and stub mode (E4a) do not
+exist yet.
 
 ## A session
 
@@ -39,13 +42,20 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    session has, and a run whose committed recording names another oracle
    version, image or CLI than the pins (`recording_identity_mismatch`,
    [OR-V5](../../docs/semantics/oracle.md#or-v5)/b), before anything is
-   deployed; to re-record against a new pin, delete the recording. Create a fresh workspace `wl-<6 hex>-<n>`; optionally run
-   `folder add-missing` and `generate-metadata` in the fixture's sync tree
-   (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)); push a
-   copy of the tree with the CLI; apply `setup.yaml` after the push
+   deployed; to re-record against a new pin, delete the recording. Create a
+   fresh workspace `wl-<6 hex>-<n>`; optionally run `folder add-missing` and
+   `generate-metadata` in the fixture's sync tree (the drift gate of
+   [OR-8](../../docs/semantics/oracle.md#or-8)), and always for a generated
+   tree, which has no committed metadata; push a copy of the tree with the
+   CLI; apply `setup.yaml` after the push
    ([OR-31](../../docs/semantics/oracle.md#or-31)); pass the deployment gate
    ([OR-9](../../docs/semantics/oracle.md#or-9)) and check each deployed
-   flow's module ids against the tree (OR-8/b).
+   flow's module ids against the tree (OR-8/b). Once the fixture's runs are
+   recorded, delete its workspace: CE refuses a third workspace besides
+   `admins` ("You have reached the maximum number of workspaces (2 outside
+   of default workspace 'admins') without an enterprise license", observed by
+   batch E3a; OR-6 does not state the limit), so a workspace that cannot be
+   deleted ends the session.
 5. **Per run.** Pre-assign the root job id, open the sink for it, submit
    asynchronously and poll `get_result_maybe` until completion, never
    `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
@@ -110,7 +120,7 @@ from generated ones and to name collapsed bodies.
 | a module with a job (a script, a subflow by path) | `m:<id>`: the job's status (canceled, else skipped, else success or failure; [OR-V2](../../docs/semantics/oracle.md#or-v2)), its stored args and result, the module's own status where it differs, its `skipped` flag. A subflow's modules are below it, `m:sub/m:x`. |
 | a module without a job | `m:<id>`, `not_run`, nothing fetched. |
 | a module with a nil job | its entry type, with `ran: false` (an empty `branchone` branch, a failed predicate). |
-| a loop or `branchall` (`flow_jobs`, even empty) | `m:<id>`: status from the entry type, the children's results in index order as its result, `ran: false` with no children. Child `n` is `i:<n>` (or `b:<n>`): a child flow's modules are below it; a collapsed iteration is the body module's own job at `i:<n>/m:<body>`, the path a non-collapsed iteration gives. |
+| a loop or `branchall` (`flow_jobs`, even empty) | `m:<id>`: status from the entry type, the children's results in index order as its result, `ran: false` with no children. Child `n` is `i:<n>` (or `b:<n>` for a `branchall`, which the fixture's definition tells, since a completed `branchall`'s entry has no `branchall` field): a child flow's modules are below it; a collapsed iteration is the body module's own job at `i:<n>/m:<body>`, the path a non-collapsed iteration gives. |
 | a `branchone` | `m:<id>`: the chosen body's status and result and `branch_chosen`; the body's modules are under `b:<n>` or `b:default`. |
 | a failed attempt | `<module>/r:<k>`, in `failed_retries` order. |
 | the failure or preprocessor module | `s:failure`, `s:preprocessor`, kept only when the flow defines one. |
@@ -121,9 +131,12 @@ A container module records no args: its job's args are Windmill's
 body jobs get no record of their own, but their ids map to `i:<n>` and
 `b:<n>` for placeholders. A flow status that does not match the fixture's
 module list is an error, not an observation. These rules follow the shapes
-oracle run 1 recorded, as the reference describes them; only the
-sequential and failure shapes of the smoke fixture are recorded by this
-milestone, and the recording batches E3a to E3e confirm the rest.
+oracle run 1 recorded, as the reference describes them. The smoke fixture
+recorded the sequential and failure shapes; batch E3a recorded loops
+(sequential, collapsed, parallel, nested, while), `branchone`, `branchall`,
+retries, failure modules and subflows by path, and the walk cases hold the
+shape it found that the reference does not describe (the completed
+`branchall` entry).
 
 ## Normalisation and comparison
 
@@ -186,3 +199,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestSinkGroupsByOuterRoot` | OR-16/c | — |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
+| `TestSessionDeletesEachWorkspace` | three fixtures in one session on a fake oracle that, like CE, refuses a third workspace: each workspace is deleted after its runs | the smoke fixture |
+| `TestExprFilesLift`, `TestBatchFixturesDecode` | every expression file lifts into flows that the walker reads back as their cases describe them; every flow fixture's tree decodes and holds its runs' targets | `conformance/exprs`, `conformance/flows` |
+| `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings`, `TestUnitCasesMatchRecordings` | the committed recordings of the recording batches against what their cases say: claims and delays hold, a recorded case is `oracle-observed`, an expected evaluator text has the recorded argument as its stored form, and each unit case's expression, previous id and context texts match its flow and recording | `conformance/exprs`, `conformance/flows` |
+| `TestBatchCoverage` | every JE case of the catalogue, and every CF-19 and CF-V6 case, is an expression case, a flow fixture's run, or deferred with a reason and a milestone | `conformance/exprs/deferred.yaml` |

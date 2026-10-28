@@ -4,7 +4,7 @@ scope: later
 flow_input: '{"n":5}'
 cases:
   - spec: JE-14/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a trailing line comment fails
     expr: 'flow_input.n // the count'
     expect:
@@ -12,7 +12,7 @@ cases:
         name: ExecutionErr
         contains: ['QuickJS evaluation error:']
   - spec: JE-14/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: a block comment is fine
     expr: 'flow_input.n /* the count */'
     expect: {value: '5'}

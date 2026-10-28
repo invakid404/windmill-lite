@@ -4,16 +4,16 @@ value:
     - id: p
       value:
         type: script
-        path: f/wl_je_shortcuts/pair
         input_transforms: {}
+        path: f/wl_je_shortcuts/pair
     - id: q
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: static
             value: 0
+        path: f/wl_je_shortcuts/echo
       timeout:
         type: javascript
         expr: results.p

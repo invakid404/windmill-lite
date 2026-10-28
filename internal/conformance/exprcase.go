@@ -78,7 +78,11 @@ type ExprFile struct {
 	FlowEnv   *string `json:"flow_env,omitempty"`
 	// Slow marks cases that need a generous time allowance (the
 	// catalogue's slow tag); the recorder records slow files last.
-	Slow  bool       `json:"slow,omitempty"`
+	Slow bool `json:"slow,omitempty"`
+	// Mask lists JSON Pointers into every case's observation whose values
+	// are replaced by <masked> (OR-14 item 8): text the oracle writes
+	// with timestamps or host names, which no two runs share.
+	Mask  []string   `json:"mask,omitempty"`
 	Note  string     `json:"note,omitempty"`
 	Cases []ExprCase `json:"cases"`
 }
@@ -133,6 +137,10 @@ type ExprExpect struct {
 	FlowError *MessageMatch `json:"flow_error,omitempty"`
 	// Skipped is whether the skip_if predicate skipped the step.
 	Skipped *bool `json:"skipped,omitempty"`
+	// Status is the run's status where it is not the one the expectation
+	// implies (success for a value or a skip, failure for an error): a
+	// run the oracle canceled.
+	Status string `json:"status,omitempty"`
 }
 
 // contextualKeys are case keys that would give an expression a context
@@ -219,6 +227,11 @@ func (f *ExprFile) check() error {
 			return err
 		}
 	}
+	for _, p := range f.Mask {
+		if _, err := SplitPointer(p); err != nil {
+			return err
+		}
+	}
 	seen := make(map[string]bool)
 	for i := range f.Cases {
 		c := &f.Cases[i]
@@ -298,6 +311,11 @@ func (c *ExprCase) check() error {
 	default:
 		return fmt.Errorf("case %s: key_order %q is not loose or strict", c.Spec, e.KeyOrder)
 	}
+	switch e.Status {
+	case "", string(RunSuccess), string(RunFailure), string(RunCanceled), string(RunSkipped):
+	default:
+		return fmt.Errorf("case %s: expect.status %q is not a run status", c.Spec, e.Status)
+	}
 	if e.Skipped != nil && c.SiteOrDefault() != SiteSkipIf {
 		return fmt.Errorf("case %s: expect.skipped needs a skip_if site", c.Spec)
 	}
@@ -345,8 +363,13 @@ func (f *ExprFile) CaseScope(c *ExprCase) string {
 // of its generated flow.
 func (c *ExprCase) Claims() []Claim {
 	step := "/steps/" + Module(ExprStep).String()
-	status := func(s string) Claim { return Claim{At: "/status", Equals: jsonText(s)} }
 	e := c.Expect
+	status := func(s string) Claim {
+		if e.Status != "" {
+			s = e.Status
+		}
+		return Claim{At: "/status", Equals: jsonText(s)}
+	}
 	switch {
 	case e.Value != nil:
 		return []Claim{
@@ -414,6 +437,7 @@ func LiftExprFile(f *ExprFile, dir string) (*Fixture, error) {
 		Tree:       filepath.Join(dir, SyncTreeDir),
 		RecordedIn: filepath.Join(filepath.Dir(f.Path), RecordedDir, stem),
 		Generated:  true,
+		Compare:    CompareSpec{Mask: append([]string(nil), f.Mask...)},
 	}
 	files := map[string]string{
 		"wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\n",

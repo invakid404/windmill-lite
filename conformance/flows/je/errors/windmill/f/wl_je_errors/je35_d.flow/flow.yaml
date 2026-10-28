@@ -1,20 +1,20 @@
-summary: "JE-35/d: route (c), first pickup of a nested flow"
+summary: 'JE-35/d: route (c), first pickup of a nested flow'
 value:
   modules:
     - id: S
       value:
         type: flow
-        path: f/wl_je_errors/je35_sub
         input_transforms: {}
+        path: f/wl_je_errors/je35_sub
       continue_on_error: true
     - id: T
       value:
         type: script
-        path: f/wl_je_errors/echo
         input_transforms:
           x:
             type: javascript
             expr: results.S
+        path: f/wl_je_errors/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

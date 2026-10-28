@@ -36,7 +36,7 @@ spec:
   - JE-V6/a
   - JE-V6/b
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun, python3]
 oracle:
   workers: 1

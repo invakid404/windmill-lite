@@ -316,6 +316,18 @@ transforms distinguish the stored value from the carried `EarlyStopError`).
 An expression case that names a predecessor, a handler or a container fails
 validation with `contextual_case_needs_flow_fixture`.
 
+A recorded argument cannot tell JE-8's two routes apart: the job API stores
+every argument as jsonb, which reorders keys, so `{"b":1,"a":2}` comes back
+as `{"a":2,"b":1}` whichever route produced it. The example is therefore
+checked twice. At unit level, a flow fixture's run restates the
+expression with its context (the previous id, the previous result's
+producer text, the stored texts a database read returns) and the exact
+evaluator output, and a test ties that context and output to the
+recording through their stored forms. On the oracle, the same read sits at
+the `timeout` site, a site with a results context whose parse error quotes
+the evaluated text, so the producer's key order is observable in the run's
+error, with the database route (a step in between) as its control.
+
 - **One comparator.** Every expectation is compared once, in Go. The
   harness's own tests (`bun test`) are fast developer checks against golden
   frames that the Go run writes; they never gate a merge, so the outcome
@@ -368,6 +380,13 @@ validation with `contextual_case_needs_flow_fixture`.
   a sync folder has no run to observe, and the loader is Go only. A load
   case may also cite only its finding, for a case that extends the
   catalogue.
+- The expression level took its format with recording batch E3a: one
+  `conformance/exprs/<finding>.yaml` per finding, each case's expected value
+  at the recorded argument (point O2 of the catalogue's notation), with the
+  evaluator's own text (O1) where it matters, and its recordings under
+  `conformance/exprs/recorded/`. Flow fixtures restate their expressions as
+  unit cases with their recorded context, for B2a and B2b, and the JE-8
+  example has the oracle discriminator above (review item cx R16).
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that

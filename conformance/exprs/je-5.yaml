@@ -3,13 +3,13 @@ finding: JE-5
 scope: core
 cases:
   - spec: JE-5/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: surrounding whitespace is trimmed before evaluation
     flow_input: '{"n":5}'
     expr: "\n  flow_input.n \n"
     expect: {value: '5'}
   - spec: JE-5/b
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: the site message quotes the untrimmed text
     expr: ' nope '

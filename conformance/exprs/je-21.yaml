@@ -5,7 +5,7 @@ finding: JE-21
 scope: core
 cases:
   - spec: JE-21/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: the full message structure for an unknown global
     expr: nope
     expect:

@@ -1,22 +1,22 @@
-summary: "JE-49/b: depth 128 fails before any JavaScript runs"
+summary: 'JE-49/b: depth 128 fails before any JavaScript runs'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_sites/nest
         input_transforms:
           k:
             type: static
             value: 128
+        path: f/wl_je_sites/nest
     - id: b
       value:
         type: script
-        path: f/wl_je_sites/sink
         input_transforms:
           x:
             type: javascript
             expr: previous_result.length
+        path: f/wl_je_sites/sink
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

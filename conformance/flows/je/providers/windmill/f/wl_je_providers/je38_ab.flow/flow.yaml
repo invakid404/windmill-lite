@@ -1,25 +1,25 @@
-summary: "JE-38/a, b: flow_env values, resolved"
+summary: 'JE-38/a, b: flow_env values, resolved'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_providers/echo
         input_transforms:
           x:
             type: javascript
             expr: flow_env.K
+        path: f/wl_je_providers/echo
     - id: b
       value:
         type: script
-        path: f/wl_je_providers/echo
         input_transforms:
           x:
             type: javascript
             expr: flow_env.S
+        path: f/wl_je_providers/echo
   flow_env:
     K: v
-    S: "$var:f/wl_je_providers/v"
+    S: $var:f/wl_je_providers/v
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

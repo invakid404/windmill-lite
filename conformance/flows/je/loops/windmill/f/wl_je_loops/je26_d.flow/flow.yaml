@@ -1,33 +1,36 @@
-summary: "JE-26/d: all_iters includes the iteration just completed"
+summary: 'JE-26/d: all_iters includes the iteration just completed'
 value:
   modules:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: static
-          value: [10, 20, 30]
-        skip_failures: false
-        parallel: false
         modules:
           - id: h
             value:
               type: script
-              path: f/wl_je_loops/echo
               input_transforms:
                 x:
                   type: static
                   value: 0
+              path: f/wl_je_loops/echo
           - id: i
             value:
               type: script
-              path: f/wl_je_loops/echo
               input_transforms:
                 x:
                   type: javascript
                   expr: flow_input.iter.value
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 10
+            - 20
+            - 30
+        parallel: false
+        skip_failures: false
       stop_after_if:
-        expr: "all_iters.length >= 2"
+        expr: all_iters.length >= 2
         skip_if_stopped: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

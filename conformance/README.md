@@ -1,14 +1,17 @@
 # conformance
 
-**Current state:** five levels of the shared conformance suite exist: the
+**Current state:** six levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the harness protocol cases in
-`protocol/`, and the first flow fixture in `flows/`, the oracle smoke
-fixture, which `wltest record` records on the Windmill CE oracle. This
-README covers `conformance/`. Nothing runs the flow fixtures on
-windmill-lite yet (`wltest check`, milestone E1), and the step and
-expression levels that [0003](../docs/design/0003-semantics-placement.md)
-defines have no cases or runners yet.
+`protocol/`, the flow fixtures in `flows/`, and the context-free expression
+cases in `exprs/`. `wltest record` records the flow fixtures and the
+expression cases on the Windmill CE oracle, and the recordings of
+recording batch E3a (the expression cases of the JE catalogue, and CF-19
+and CF-V6) are committed. This README covers `conformance/`. Nothing runs
+the flow fixtures or the expression cases on windmill-lite yet (`wltest
+check`, milestone E1; the expression pipeline, B2a and B2b), and the step
+level that [0003](../docs/design/0003-semantics-placement.md) defines has no
+cases or runner yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -24,9 +27,9 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | one fixture, `flows/oracle/smoke`; recorded on the oracle by `wltest record` |
+| flow | `flows/<area>/<case>/` | in use; recorded on the oracle by `wltest record`; their recordings are held to their claims by `go test ./internal/oracle` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
-| expr | `exprs/<case>.yaml` | not yet |
+| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
 
 ## Flow fixtures
 
@@ -40,11 +43,121 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8, JE-9, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
+| `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
+| `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. |
+| `flows/je/waits` | `sleep`, `timeout` and `retry_if` sites and retried arguments: JE-22/a–b, JE-28, JE-29/a, JE-32, JE-V2. |
+| `flows/je/loops` | For-loop cases: JE-9/e–f, JE-19/a and c, JE-26/d, JE-27 on loops, JE-30, JE-36/a–c and e, JE-37/a, JE-38/c, JE-39/a, JE-40, JE-V1. |
+| `flows/je/branches` | `branchone`, `branchall` and while-loop cases: JE-24/a, JE-27 on `branchall`, JE-31, JE-36/d and f. |
+| `flows/je/scopes` | Cross-scope cases: JE-19/b and d, JE-38/d. |
+| `flows/je/providers` | Variable helpers, `flow_env` resolution and `$var:` resolution: JE-20, JE-38/a–b, JE-41, JE-42, JE-V3/a. |
+| `flows/cf/cf-19` | `results` lookups across containers, CF-19/a–c, and the contested CF-V6/a–b of [Q-CF-16](../docs/semantics/control-flow.md#q-cf-16). |
+
+A run says what the catalogue expects of it in `claims`, `delays` and
+`unit` (see [Claims and unit cases](#claims-and-unit-cases)) and leaves the
+whole observation to its recording, because most expectations are partial:
+an error message's prefix, one argument. The fixtures of recording batch E3a
+are `oracle-observed`; where a recording differs from the catalogue's
+source-derived expectation, the run's comment says so.
 
 The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
 ([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
 it on every recording and fails on any change.
+
+## Expression cases
+
+An expression case ([0003](../docs/design/0003-semantics-placement.md)) is
+context-free: an input transform or the `skip_if` predicate of a flow's
+first step, whose only bound values are `flow_input` and `flow_env`. At
+module 0, `previous_result` is the flow input
+([JE-36](../docs/semantics/expressions.md#je-36)) and the previous id is
+`""` ([JE-8](../docs/semantics/expressions.md#je-8)), so a case may use them
+too. Each `exprs/<finding>.yaml` holds the cases of one finding:
+
+```yaml
+finding: JE-7
+scope: core
+flow_input: '{"n":12345678901234567890,"a.b":"lit","a":{"b":"nested"}}'
+cases:
+  - spec: JE-7/a
+    provenance: oracle-observed
+    title: a top-level key keeps full precision
+    expr: flow_input.n
+    expect: {value: '12345678901234567890'}
+```
+
+File fields: `finding`, `scope`, the defaults `flow_input` and `flow_env`
+(JSON object texts), `slow` (the recorder records slow files last), `note`,
+`cases`. Case fields:
+
+| Field | Meaning |
+|---|---|
+| `spec`, `variant` | the catalogue case, or the finding with a `variant` for a case beyond the catalogue |
+| `provenance`, `scope` | as for the other levels; a recorded case is `oracle-observed` |
+| `site` | `transform` (the default, a `javascript` input transform `x`), `static` (a `static` transform) or `skip_if` |
+| `expr`, `static` | the expression text, or the static value's JSON text |
+| `flow_input`, `flow_env` | the run's arguments and the flow's `flow_env`, as JSON object texts |
+| `expect.value` | argument `x` as the job API records it (point O2 of the [notation](../docs/semantics/conformance.md#je-notation): jsonb, before `$var:` resolution), as JSON text; `key_order: strict` compares member order |
+| `expect.text` | the evaluator's exact output (point O1), which the oracle cannot observe; its stored form must be `expect.value` |
+| `expect.error` | the step's error object, when the expression fails the step: `name`, and `message` exactly or `prefix` with `contains` and `not_contains` |
+| `expect.flow_error` | the run's error object, when a predicate fails the flow at its first pickup ([JE-35](../docs/semantics/expressions.md#je-35) route (b)) |
+| `expect.skipped` | whether `skip_if` skipped the step |
+
+A case that names a predecessor, a handler or a container (a key such as
+`previous_result`, `results` or `failure_module`, or another site) is
+refused with `contextual_case_needs_flow_fixture`: it is a flow fixture.
+
+**Lifting.** `wltest record` lifts each file into a generated fixture
+([0011](../docs/design/0011-differential-testing.md)): one flow
+`f/wl_expr/<case>` per case, whose one module, `b`, runs the sink script
+`f/wl_expr/sink` with the expression as its input `x` (or as its `skip_if`,
+with `x` static `null`), and one run with the case's flow input. The sink
+returns `null`, so the observation shows what the expression produced, not
+what Bun made of it. The generated tree is never committed; the recorder
+writes its metadata with the CLI before each push. The recordings are
+`exprs/recorded/<finding>/<case>.json`.
+
+`exprs/deferred.yaml` lists the JE, CF-19 and CF-V6 catalogue cases that
+recording batch E3a encodes neither here nor as a flow fixture, and those
+it records only in part, each with the reason and where it is checked.
+
+## Claims and unit cases
+
+Runs of flow fixtures, and the runs lifted from expression cases, carry
+three kinds of assertion beyond `expect`. `go test ./internal/oracle` checks
+them against the committed recordings; the recorder does not, so a
+contradicted claim still leaves its recording to inspect.
+
+- **`claims`**: a JSON Pointer `at` into the observation, in its canonical
+  encoding (a step field left to its canonical absence is absent), and one
+  of `equals` (a JSON value, with `key_order: strict` if member order
+  counts), a string match (`prefix`, `contains`, `not_contains`), `length`
+  (of an array) or `absent`.
+- **`delays`**: `from` and `to` sites and `at_least_ms`, a lower bound on the
+  time from one job's completion to the next one's start, read from the
+  recording's provenance, since timings are never compared
+  ([JE-28](../docs/semantics/expressions.md#je-28)).
+- **`unit`**: the run's expressions restated at unit level for the
+  expression milestones: the `site` and `input` (an input transform's name,
+  or `skip_if`, `stop_after_if`, `timeout`, `sleep`), the `expr`, the
+  `context` the evaluation sees (`previous_id`, `previous_result` as the
+  producer text held in memory, `flow_input`, and `results`, the stored
+  texts a database read returns), and the expected `text` or `error`. A
+  test ties each one to its flow and recording: the expression is the one
+  at the site, the previous id is the module before it, the stored forms of
+  the context's texts are the recorded results, and at an input transform
+  the stored form of the expected text is the recorded argument.
+
+**The JE-8 discriminator.** The key-order example of
+[0003](../docs/design/0003-semantics-placement.md) cannot be told apart in a
+recorded argument, because the job API stores arguments as jsonb, which
+reorders keys (review item cx R16). `flows/je/shortcuts` keeps it as a unit
+case (`je8-order-transform`: the evaluator returns the producer text
+`{"b":1,"a":2}`, whose stored form is the recorded `{"a":2,"b":1}`), and
+observes it on the oracle at the `timeout` site, whose parse error quotes the
+evaluated text (`je8-order-timeout`, with the database route as its control
+in `je8-order-timeout-db`).
 
 ## OpenFlow decode cases
 

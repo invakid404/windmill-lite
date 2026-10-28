@@ -1,17 +1,17 @@
-summary: "JE-V2/a: transforms are not re-evaluated on retry"
+summary: 'JE-V2/a: transforms are not re-evaluated on retry'
 value:
   modules:
     - id: b
       value:
         type: script
-        path: f/wl_je_waits/setfail
         input_transforms:
           v:
             type: static
             value: f/wl_je_waits/retry_a
           x:
             type: javascript
-            expr: "variable(\"f/wl_je_waits/retry_a\")"
+            expr: variable("f/wl_je_waits/retry_a")
+        path: f/wl_je_waits/setfail
       retry:
         constant:
           attempts: 1

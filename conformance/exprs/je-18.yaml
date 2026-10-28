@@ -4,18 +4,18 @@ finding: JE-18
 scope: core
 cases:
   - spec: JE-18/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: an absent step
     note: the text is a qualifying JE-9 line, so the path lookup answers it
     expr: results.nonexistent
     expect: {value: 'null'}
   - spec: JE-18/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: nullish coalescing on an absent step
     expr: 'results.nonexistent ?? "d"'
     expect: {value: '"d"'}
   - spec: JE-18/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: optional chaining on an absent step
     expr: 'results.nonexistent?.v ?? "n"'
     expect: {value: '"n"'}

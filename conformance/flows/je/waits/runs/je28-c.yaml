@@ -1,9 +1,13 @@
-# JE-28/c: the reference configuration also appends a virtual b-v identity
-# step after a final sleep (OF-17); the recording shows which holds.
-spec: [JE-28/c]
+# JE-28/c: recorded, the last module's sleep is evaluated: the deployed flow
+# ends in the virtual b-v identity step that a final sleep gets (OF-17), so
+# a next module starts and the invalid sleep fails the flow. The catalogue
+# expects no delay and no error (reported to the semantics team).
+spec: [JE-28/c, OF-17]
 target: f/wl_je_waits/je28_c
 claims:
   - at: /status
-    equals: success
-  - at: /result
-    equals: 2
+    equals: failure
+  - at: /result/error/name
+    equals: InternalError
+  - at: /result/error/message
+    prefix: "Expected a number value, had error instead: ExecutionErr(\"Error during evaluation of expression `nope`:\\nQuickJS evaluation error: Error: nope is not defined"

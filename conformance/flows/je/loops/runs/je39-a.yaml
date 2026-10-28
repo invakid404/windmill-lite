@@ -1,7 +1,11 @@
-spec: [JE-39/a]
+# JE-39/a: the body is collapsed, so the transform error carries the prefix
+# of JE-23, and the failed loop's result, the array of its iteration
+# results, is the flow's result.
+spec: [JE-39/a, JE-23]
 target: f/wl_je_loops/je39_a
 claims:
   - at: /status
     equals: failure
-  - at: /result/error/message
+  - at: /result/0/error/message
+    prefix: "could not transform input using an expr: Error during isolated evaluation of expression `iter.value`:\n"
     contains: ["iter is not defined"]

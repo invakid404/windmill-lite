@@ -7,12 +7,12 @@ scope: later
 flow_input: '{"seed":4}'
 cases:
   - spec: JE-8/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: the empty previous id at module 0
     expr: 'results[""]'
     expect: {value: '{"seed":4}'}
   - spec: JE-8/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: an invalid-JavaScript spelling still matches
     expr: 'results.'
     expect: {value: '{"seed":4}'}

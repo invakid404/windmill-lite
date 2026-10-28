@@ -4,36 +4,38 @@ value:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: static
-          value: [1, 2]
-        skip_failures: false
-        parallel: false
         modules:
           - id: s
             value:
               type: script
-              path: f/wl_je_loops/echo
               input_transforms:
                 x:
                   type: javascript
-                  expr: "flow_input.iter.value * 10"
+                  expr: flow_input.iter.value * 10
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
     - id: b_e
       value:
         type: script
-        path: f/wl_je_loops/echo
         input_transforms:
           x:
             type: javascript
-            expr: "results.l[1]"
+            expr: results.l[1]
+        path: f/wl_je_loops/echo
     - id: b_f
       value:
         type: script
-        path: f/wl_je_loops/echo
         input_transforms:
           x:
             type: javascript
             expr: results.l.foo
+        path: f/wl_je_loops/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

@@ -5,7 +5,7 @@ finding: JE-17
 scope: core
 cases:
   - spec: JE-17/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: an empty object is truthy
     flow_input: '{}'
     expr: error.name

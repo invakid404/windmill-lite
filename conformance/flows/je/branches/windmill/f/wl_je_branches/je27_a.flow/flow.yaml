@@ -1,40 +1,46 @@
-summary: "JE-27/a on branchall: the predicate sees the array of branch results"
+summary: 'JE-27/a on branchall: the predicate sees the array of branch results'
 value:
   modules:
     - id: ba
       value:
         type: branchall
-        parallel: false
         branches:
           - modules:
               - id: s
                 value:
                   type: script
-                  path: f/wl_je_branches/echo
                   input_transforms:
                     x:
                       type: static
                       value: 1
+                  path: f/wl_je_branches/echo
+            expr: ''
+            parallel: true
+            skip_failure: true
           - modules:
               - id: t
                 value:
                   type: script
-                  path: f/wl_je_branches/echo
                   input_transforms:
                     x:
                       type: static
                       value: 2
+                  path: f/wl_je_branches/echo
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: false
       stop_after_all_iters_if:
-        expr: "result.length === 2"
+        expr: result.length === 2
         skip_if_stopped: true
     - id: c
       value:
         type: script
-        path: f/wl_je_branches/echo
         input_transforms:
           x:
             type: static
             value: 3
+        path: f/wl_je_branches/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

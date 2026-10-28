@@ -1,30 +1,30 @@
-summary: "JE-18/d: a forward reference"
+summary: 'JE-18/d: a forward reference'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: static
             value: 1
+        path: f/wl_je_shortcuts/echo
     - id: b
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: javascript
             expr: results.c
+        path: f/wl_je_shortcuts/echo
     - id: c
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: static
             value: 3
+        path: f/wl_je_shortcuts/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

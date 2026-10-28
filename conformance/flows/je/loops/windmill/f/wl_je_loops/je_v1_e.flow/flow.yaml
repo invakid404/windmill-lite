@@ -1,34 +1,36 @@
-summary: "JE-V1/e: the loop adds no iter of its own"
+summary: 'JE-V1/e: the loop adds no iter of its own'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_loops/echo
         input_transforms:
           x:
             type: static
             value: 1
+        path: f/wl_je_loops/echo
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: static
-          value: [1, 2]
-        skip_failures: false
-        parallel: true
         modules:
           - id: s
             value:
               type: script
-              path: f/wl_je_loops/echo
               input_transforms:
                 x:
                   type: javascript
                   expr: flow_input.iter.value
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: true
         parallelism:
           type: javascript
           expr: flow_input.iter.value
+        skip_failures: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

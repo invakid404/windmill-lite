@@ -1,14 +1,14 @@
-summary: "JE-V2/c: a retry after a failed transform runs with an empty map"
+summary: 'JE-V2/c: a retry after a failed transform runs with an empty map'
 value:
   modules:
     - id: b
       value:
         type: script
-        path: f/wl_je_waits/echo
         input_transforms:
           x:
             type: javascript
             expr: nope
+        path: f/wl_je_waits/echo
       retry:
         constant:
           attempts: 1

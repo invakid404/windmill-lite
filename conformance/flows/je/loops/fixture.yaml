@@ -29,7 +29,7 @@ spec:
   - JE-V1/d
   - JE-V1/e
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle:
   workers: 1

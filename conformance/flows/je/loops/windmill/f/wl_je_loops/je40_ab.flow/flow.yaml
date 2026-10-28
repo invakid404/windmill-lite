@@ -1,31 +1,34 @@
-summary: "JE-40/a, b: a template literal is JavaScript; the same text as a static value is literal"
+summary: 'JE-40/a, b: a template literal is JavaScript; the same text as a
+  static value is literal'
 value:
   modules:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: static
-          value: [p, q]
-        skip_failures: false
-        parallel: false
         modules:
           - id: t
             value:
               type: script
-              path: f/wl_je_loops/echo
               input_transforms:
                 x:
                   type: javascript
-                  expr: "`Item ${flow_input.iter.index}`"
+                  expr: '`Item ${flow_input.iter.index}`'
+              path: f/wl_je_loops/echo
           - id: u
             value:
               type: script
-              path: f/wl_je_loops/echo
               input_transforms:
                 x:
                   type: static
-                  value: "`Item ${flow_input.iter.index}`"
+                  value: '`Item ${flow_input.iter.index}`'
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - p
+            - q
+        parallel: false
+        skip_failures: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

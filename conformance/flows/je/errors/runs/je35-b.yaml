@@ -1,3 +1,7 @@
+# JE-35/b: recorded, the message is wrapped twice and carries two location
+# suffixes ("Error: Error: QuickJS evaluation error: … @worker_flow.rs:…
+# @worker.rs:…"), where the catalogue expects one "Error: " and one suffix
+# (reported to the semantics team).
 spec: [JE-35/b]
 target: f/wl_je_errors/je35_b
 claims:
@@ -6,4 +10,5 @@ claims:
   - at: /result/error/name
     equals: Anyhow
   - at: /result/error/message
-    prefix: "Error: QuickJS evaluation error: Error: nope is not defined"
+    prefix: "Error: Error: QuickJS evaluation error: Error: nope is not defined"
+    contains: [" @worker_flow.rs:", " @worker.rs:"]

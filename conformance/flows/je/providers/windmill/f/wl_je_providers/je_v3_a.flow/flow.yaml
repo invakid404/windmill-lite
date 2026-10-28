@@ -1,14 +1,14 @@
-summary: "JE-V3/a: three observation points of one argument"
+summary: 'JE-V3/a: three observation points of one argument'
 value:
   modules:
     - id: b
       value:
         type: script
-        path: f/wl_je_providers/echo
         input_transforms:
           x:
             type: static
-            value: "$var:f/wl_je_providers/s"
+            value: $var:f/wl_je_providers/s
+        path: f/wl_je_providers/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

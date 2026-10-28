@@ -1,25 +1,25 @@
-summary: "JE-29/a: a fractional timeout fails the i32 parse"
+summary: 'JE-29/a: a fractional timeout fails the i32 parse'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_waits/echo
         input_transforms:
           x:
             type: static
             value: 1
+        path: f/wl_je_waits/echo
     - id: b
       value:
         type: script
-        path: f/wl_je_waits/echo
         input_transforms:
           x:
             type: static
             value: 2
+        path: f/wl_je_waits/echo
       timeout:
         type: javascript
-        expr: "1.5"
+        expr: '1.5'
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

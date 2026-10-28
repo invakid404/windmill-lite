@@ -1,8 +1,9 @@
 // The first attempt of a retried step (JE-V2): while variable v holds
 // "first", set it to "second" and throw. A later attempt sets it back to
-// "first", so the next run starts from the same state, and returns x.
+// "first", so the next run starts from the same state, and returns x. Bun
+// jobs get the API base as BASE_URL (WR-22).
 export async function main(v: string, x: any) {
-  const base = `${process.env.BASE_INTERNAL_URL}/api/w/${process.env.WM_WORKSPACE}/variables`;
+  const base = `${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables`;
   const headers = { Authorization: `Bearer ${process.env.WM_TOKEN}`, "Content-Type": "application/json" };
   const set = async (value: string) => {
     const r = await fetch(`${base}/update/${v}`, { method: "POST", headers, body: JSON.stringify({ value }) });

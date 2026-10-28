@@ -1,22 +1,22 @@
-summary: "JE-V6/a, b: the exact spelling decides memory or database"
+summary: 'JE-V6/a, b: the exact spelling decides memory or database'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_shortcuts/big53
         input_transforms: {}
+        path: f/wl_je_shortcuts/big53
     - id: b
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: javascript
             expr: results.a.n
-          "y":
+          y:
             type: javascript
-            expr: "(results.a.n)"
+            expr: (results.a.n)
+        path: f/wl_je_shortcuts/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

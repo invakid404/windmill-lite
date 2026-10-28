@@ -1,9 +1,10 @@
 # cmd/wltest
 
 **Current state:** one verb, `record` (milestone E2 of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers the `wltest` command in this directory. `check` (E1), `diff` and
-`stub` (E4a) print that they are not implemented and exit 2.
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
+E3a added expression files). This README covers the `wltest` command in
+this directory. `check` (E1), `diff` and `stub` (E4a) print that they are not
+implemented and exit 2.
 
 `wltest` is windmill-lite's conformance and oracle runner
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
@@ -11,7 +12,10 @@ flow fixtures (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
 loaded by [internal/conformance](../../internal/conformance/README.md)) on
 the pinned Windmill CE `v1.767.0` oracle through
 [internal/oracle](../../internal/oracle/README.md), and writes
-`recorded/<run>.json` with provenance.
+`recorded/<run>.json` with provenance. It also takes expression-case files
+(`conformance/exprs/<finding>.yaml`), lifts each into a generated one-step
+flow fixture in a temporary directory, and writes its recordings to
+`conformance/exprs/recorded/<finding>/<case>.json`.
 
 ## Usage
 
@@ -20,8 +24,13 @@ go build -o bin/wltest ./cmd/wltest
 bin/wltest record [flags] <fixture or directory>...
 ```
 
-Each argument is a fixture directory (one holding `fixture.yaml`) or a
-directory searched for them. It needs Docker, which pulls the CE image
+Each argument is a fixture directory (one holding `fixture.yaml`), an
+expression-case file, or a directory searched for both: a `.yaml` file in a
+directory named `exprs`, other than `deferred.yaml`, is an expression-case
+file. Flow fixtures are recorded first, then the expression files, with
+files marked `slow` last, so that what a slow case leaves running on the
+oracle (the spinning evaluation of [JE-2](../../docs/semantics/expressions.md#je-2))
+cannot slow the others. It needs Docker, which pulls the CE image
 (1,373 MB compressed on amd64, [OR-2](../../docs/semantics/oracle.md#or-2))
 and Postgres, and `npx` on `PATH` to run `windmill-cli@1.767.0`. Pulls are
 refused without enough free disk ([OR-30](../../docs/semantics/oracle.md#or-30)).
@@ -31,11 +40,11 @@ The oracle runs in public CI; see
 | Flag | Default | Meaning |
 |---|---|---|
 | `--check` | off | Fail when a run has no committed recording or its observation differs from it, and never write into a fixture. |
-| `--out DIR` | — | Write new and changed recordings to `DIR/<fixture path>/recorded/` instead of in place. |
+| `--out DIR` | — | Write new and changed recordings under `DIR`, at their committed path (`DIR/<fixture path>/recorded/`, `DIR/conformance/exprs/recorded/<finding>/`), instead of in place. |
 | `--raw DIR` | — | Write the raw API captures of every run to `DIR`. |
 | `--report FILE` | — | Write the session report: disk readings, pulls, images, boot times, CLI version, deployments, memory peaks, teardown. |
 | `--repeat N` | 1 | Run each run `N` times and require equal observations. |
-| `--regenerate-metadata` | off | Run `folder add-missing` and `generate-metadata` in each fixture's sync tree, in place, before pushing; CI then diffs the tree ([OR-8](../../docs/semantics/oracle.md#or-8)). |
+| `--regenerate-metadata` | off | Run `folder add-missing` and `generate-metadata` in each fixture's sync tree, in place, before pushing; CI then diffs the tree ([OR-8](../../docs/semantics/oracle.md#or-8)). A generated tree always gets them. |
 | `--workers N` | 1 | Worker containers, 1 or 2 ([OR-5](../../docs/semantics/oracle.md#or-5)). |
 | `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must report exactly `1.767.0` (a pre-release such as `1.767.0-beta` is refused). |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |

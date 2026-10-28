@@ -1,23 +1,23 @@
-summary: "JE-17/b: a non-error previous result"
+summary: 'JE-17/b: a non-error previous result'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: static
             value:
               ok: true
+        path: f/wl_je_shortcuts/echo
     - id: b
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: javascript
             expr: error
+        path: f/wl_je_shortcuts/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

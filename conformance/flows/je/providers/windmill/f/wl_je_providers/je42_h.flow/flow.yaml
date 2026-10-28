@@ -1,15 +1,13 @@
-summary: "JE-42/h: the depth guard is not limited to strings"
+summary: 'JE-42/h: the depth guard is not limited to strings'
 value:
   modules:
     - id: b
       value:
         type: script
-        path: f/wl_je_providers/echo
         input_transforms:
           x:
             type: static
             value:
-              m: "$var:f/wl_je_providers/s"
               deep:
                 k:
                   k:
@@ -61,6 +59,8 @@ value:
                                                                                                               k:
                                                                                                                 k:
                                                                                                                   k: 1
+              m: $var:f/wl_je_providers/s
+        path: f/wl_je_providers/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

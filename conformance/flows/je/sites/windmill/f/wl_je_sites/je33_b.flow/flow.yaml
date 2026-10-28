@@ -1,15 +1,15 @@
-summary: "JE-33/b: result is the string \"{}\""
+summary: 'JE-33/b: result is the string "{}"'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_sites/echo
         input_transforms:
           x:
             type: static
             value: 1
-  skip_expr: "typeof result"
+        path: f/wl_je_sites/echo
+  skip_expr: typeof result
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

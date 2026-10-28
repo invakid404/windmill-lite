@@ -6,7 +6,7 @@ finding: JE-24
 scope: core
 cases:
   - spec: JE-24/b
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: statement mode yields a non-boolean
     site: skip_if
@@ -16,14 +16,14 @@ cases:
       flow_error:
         contains: ['Expected a boolean value, found: "null"']
   - spec: JE-24/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: a trailing newline rescues a line comment
     site: skip_if
     flow_input: '{"n":5}'
     expr: "flow_input.n > 3 // big\n"
     expect: {skipped: true}
   - spec: JE-24/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: without it the predicate is a syntax error
     site: skip_if
     flow_input: '{"n":5}'

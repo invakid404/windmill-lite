@@ -4,8 +4,8 @@ value:
     - id: S
       value:
         type: flow
-        path: f/wl_je_scopes/je38_sub
         input_transforms: {}
+        path: f/wl_je_scopes/je38_sub
   flow_env:
     K: parent
 schema:

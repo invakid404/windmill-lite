@@ -1,0 +1,135 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      "`Item ${flow_input.iter.index}`",
+      "`Item ${flow_input.iter.index}`"
+    ],
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          "`Item ${flow_input.iter.index}`",
+          "`Item ${flow_input.iter.index}`"
+        ]
+      },
+      "m:l/i:0/m:t": {
+        "status": "success",
+        "args": {
+          "x": "Item 0"
+        },
+        "result": "Item 0"
+      },
+      "m:l/i:0/m:u": {
+        "status": "success",
+        "args": {
+          "x": "`Item ${flow_input.iter.index}`"
+        },
+        "result": "`Item ${flow_input.iter.index}`"
+      },
+      "m:l/i:1/m:t": {
+        "status": "success",
+        "args": {
+          "x": "Item 1"
+        },
+        "result": "Item 1"
+      },
+      "m:l/i:1/m:u": {
+        "status": "success",
+        "args": {
+          "x": "`Item ${flow_input.iter.index}`"
+        },
+        "result": "`Item ${flow_input.iter.index}`"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261028122124-26f0815a80f0",
+      "revision": "26f0815a80f02157e8983b953fbcd0ce89af2700",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40687124625"
+    },
+    "recorded_at": "2026-10-28T12:23:55Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34331"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 406,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-28T12:23:55.478545Z",
+          "started_at": "2026-10-28T12:23:55.502104Z",
+          "completed_at": "2026-10-28T12:23:55.750800Z",
+          "duration_ms": 249
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-28T12:23:55.504320Z",
+          "started_at": "2026-10-28T12:23:55.508174Z",
+          "completed_at": "2026-10-28T12:23:55.602856Z",
+          "duration_ms": 95
+        },
+        "m:l/i:0/m:t": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:55.510970Z",
+          "started_at": "2026-10-28T12:23:55.513058Z",
+          "completed_at": "2026-10-28T12:23:55.532474Z",
+          "duration_ms": 16
+        },
+        "m:l/i:0/m:u": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:55.537001Z",
+          "started_at": "2026-10-28T12:23:55.583529Z",
+          "completed_at": "2026-10-28T12:23:55.600734Z",
+          "duration_ms": 14
+        },
+        "m:l/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-10-28T12:23:55.604873Z",
+          "started_at": "2026-10-28T12:23:55.652914Z",
+          "completed_at": "2026-10-28T12:23:55.748404Z",
+          "duration_ms": 95
+        },
+        "m:l/i:1/m:t": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:55.657223Z",
+          "started_at": "2026-10-28T12:23:55.659341Z",
+          "completed_at": "2026-10-28T12:23:55.675412Z",
+          "duration_ms": 14
+        },
+        "m:l/i:1/m:u": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:55.679555Z",
+          "started_at": "2026-10-28T12:23:55.729636Z",
+          "completed_at": "2026-10-28T12:23:55.746202Z",
+          "duration_ms": 14
+        }
+      }
+    }
+  }
+}

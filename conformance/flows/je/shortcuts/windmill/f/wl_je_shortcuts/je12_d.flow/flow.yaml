@@ -1,31 +1,31 @@
-summary: "JE-12/d: results inside a non-async callback is a syntax error"
+summary: 'JE-12/d: results inside a non-async callback is a syntax error'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: static
             value:
               v: 3
+        path: f/wl_je_shortcuts/echo
     - id: m
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: static
             value: 0
+        path: f/wl_je_shortcuts/echo
     - id: b
       value:
         type: script
-        path: f/wl_je_shortcuts/echo
         input_transforms:
           x:
             type: javascript
-            expr: "[1].map(i => results.a.v)"
+            expr: '[1].map(i => results.a.v)'
+        path: f/wl_je_shortcuts/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

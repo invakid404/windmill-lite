@@ -6,7 +6,7 @@ finding: JE-44
 scope: core
 cases:
   - spec: JE-44/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: exponents are expanded
     flow_input: '{"n":1e3}'
     expr: flow_input.n

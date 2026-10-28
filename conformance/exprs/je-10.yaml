@@ -3,23 +3,23 @@ finding: JE-10
 scope: core
 cases:
   - spec: JE-10/a
-    provenance: source-derived
+    provenance: oracle-observed
     scope: later
     title: computed access cannot reach an unmentioned name
     expr: 'globalThis["flow_" + "input"]'
     expect: {value: 'null'}
   - spec: JE-10/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: flow_env defaults to an empty object
     expr: flow_env
     expect: {value: '{}'}
   - spec: JE-10/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: results is a lexical binding
     expr: typeof results
     expect: {value: '"object"'}
   - spec: JE-10/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: results is not a globalThis property
     note: the trailing results is not followed by . or [", so it is not rewritten (JE-12)
     expr: typeof globalThis.results

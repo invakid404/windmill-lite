@@ -4,32 +4,32 @@ scope: core
 flow_input: '{"n":5,"s":"a;b"}'
 cases:
   - spec: JE-13/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a trailing semicolon selects statement mode
     expr: 'flow_input.n;'
     expect: {value: 'null'}
   - spec: JE-13/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: a leading await selects statement mode
     expr: 'await Promise.resolve(1)'
     expect: {value: 'null'}
   - spec: JE-13/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: a semicolon in a regex literal selects statement mode
     expr: '/;/.test(flow_input.s)'
     expect: {value: 'null'}
   - spec: JE-13/d
-    provenance: source-derived
+    provenance: oracle-observed
     title: a semicolon inside quotes does not
     expr: 'flow_input.s.split(";")'
     expect: {value: '["a","b"]'}
   - spec: JE-13/e
-    provenance: source-derived
+    provenance: oracle-observed
     title: a leading brace is an object literal
     expr: '{a: 1}'
     expect: {value: '{"a":1}'}
   - spec: JE-13/f
-    provenance: source-derived
+    provenance: oracle-observed
     title: statement mode returns the return value
     expr: 'let y = flow_input.n * 2; return y + 1'
     expect: {value: '11'}

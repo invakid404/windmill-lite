@@ -1,26 +1,26 @@
-summary: "JE-28/a: a fractional value delays the next job in milliseconds"
+summary: 'JE-28/a: a fractional value delays the next job in milliseconds'
 value:
   modules:
     - id: a
       value:
         type: script
-        path: f/wl_je_waits/echo
         input_transforms:
           x:
             type: static
             value:
               s: 1.5
+        path: f/wl_je_waits/echo
       sleep:
         type: javascript
         expr: result.s
     - id: b
       value:
         type: script
-        path: f/wl_je_waits/echo
         input_transforms:
           x:
             type: static
             value: 2
+        path: f/wl_je_waits/echo
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

@@ -4,7 +4,7 @@
 id: je/scopes
 spec: [JE-19/b, JE-38/d, JE-19/d]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle:
   workers: 1

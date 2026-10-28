@@ -4,7 +4,7 @@ finding: JE-3
 scope: later
 cases:
   - spec: JE-3/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a null throw is reported as out of memory
     expr: '(() => { throw null })()'
     expect:
