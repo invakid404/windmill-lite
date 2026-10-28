@@ -105,5 +105,7 @@ An invocation settles when its entrypoint call can run no more code, and
   calls `OnRunSettled` and releases what step code can reach (ADR 0004 host
   mode item 5).
 - **Tests.** `settle_test.go` drives a fake executor through completion,
-  abandonment with a late end, a non-final late error, a process exit and a
-  never-dispatched invocation.
+  abandonment with a late end, a non-final late error, a process exit, a
+  never-dispatched invocation, and an `escaped` outcome fixed while the call
+  is still pending, which settles only when the call ends or its process
+  exits.
