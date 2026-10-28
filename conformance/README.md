@@ -17,7 +17,8 @@ flows, milestone E1). The tests of the expression pipeline
 expression cases and the flow fixtures' unit cases through its shortcuts
 and textual stages on a fake engine; what the engine computes waits for
 B2b. The step cases in `steps/` run on windmill-lite's Bun harness through
-`wltest check` (milestone C3a).
+`wltest check` (milestone C3a), in `warm` and, since milestone C3b, in
+`fresh` mode.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -476,8 +477,9 @@ which it expects their results.
 A step file holds the step cases of one finding, or of a deviation of
 [ADR 0001](../docs/design/0001-equivalence-contract.md) §5 that has none
 (`d9.yaml`, `d11.yaml`, `d12.yaml`), and is named after it in lower case.
-Each case is one Bun script and the runs that one harness process serves
-in order, so a later run sees what an earlier one left in memory (D1). A
+Each case is one Bun script and its runs, in order: in `warm` mode one
+harness process serves them all, so a later run sees what an earlier one
+left in memory (D1); in `fresh` mode each run has a process of its own. A
 run's observation is the step's **stored** value,
 `{"status": "success" | "failure", "result": …}`: the result, or the
 failure value ([WR-21](../docs/semantics/languages.md#wr-21)).
@@ -508,9 +510,10 @@ cases:
 | `deviation` | the deviation whose two readings the case's `by_mode` gives |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
 | `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |
-| `runs[].late`, `settled` | what the invocation reports after its outcome before it settles (`kind`, `final`, `body`), compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
-| `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9); none when absent |
-| `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own; `fresh` is checked from milestone C3b |
+| `runs[].late`, `settled` | what the invocation reports after its outcome (`kind`, `final`, `body`), up to the end of the case, so a late report of work it left running after it settled counts too, compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
+| `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9): `unattributed_error`, and `left_behind`, which reports what it still had when it settled; none when absent |
+| `runs[].left` | the counts of the `left_behind` warning by kind (`timeout`, `interval`, `immediate`, `fetch`, `child`), compared when given |
+| `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own |
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step

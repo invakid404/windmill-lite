@@ -516,6 +516,14 @@ function originOf(input: RequestInfo | URL): string | undefined {
 
 type TimerFn = (...args: any[]) => any;
 
+// The timer functions as Bun has them; bound copies lose the properties
+// util.promisify reads, so the wrappers copy those from these.
+const bunTimers = {
+  setTimeout: globalThis.setTimeout,
+  setInterval: globalThis.setInterval,
+  setImmediate: globalThis.setImmediate,
+} as unknown as Record<string, Record<symbol, unknown>>;
+
 /** The timer functions as Bun has them, before the fence wraps them. The
  * runtime's own timers use these, since its code may run in an
  * invocation's context. */
@@ -578,7 +586,7 @@ export function installTimers() {
     live.set(h, end);
     if (!Number.isNaN(id)) live.set(id, end);
   };
-  const wrap = (real: TimerFn, kind: string, clear: (h: any) => void, once: boolean): TimerFn => {
+  const wrap = (name: string, real: TimerFn, kind: string, clear: (h: any) => void, once: boolean): TimerFn => {
     const w = function (fn: unknown, ...rest: unknown[]) {
       if (typeof fn !== "function" || workOf() === undefined) return real(fn, ...rest);
       // A timeout or an immediate fires once: it is unregistered first.
@@ -593,28 +601,28 @@ export function installTimers() {
       return h;
     };
     // util.promisify(setTimeout) reads this, as on Bun's own functions.
-    const custom = (real as unknown as Record<symbol, unknown>)[Symbol.for("nodejs.util.promisify.custom")];
+    const custom = bunTimers[name][Symbol.for("nodejs.util.promisify.custom")];
     if (custom !== undefined) Object.defineProperty(w, Symbol.for("nodejs.util.promisify.custom"), { value: custom });
-    Object.defineProperty(w, "name", { value: real.name });
+    Object.defineProperty(w, "name", { value: name });
     return w;
   };
-  const unwrap = (real: TimerFn): TimerFn =>
+  const unwrap = (name: string, real: TimerFn): TimerFn =>
     Object.defineProperty(
       function (h: unknown) {
         forget(h);
         return real(h);
       },
       "name",
-      { value: real.name },
+      { value: name },
     ) as TimerFn;
   const r = realTimers;
   const fenced = {
-    setTimeout: wrap(r.setTimeout, "timeout", r.clearTimeout, true),
-    setInterval: wrap(r.setInterval, "interval", r.clearInterval, false),
-    setImmediate: wrap(r.setImmediate, "immediate", r.clearImmediate, true),
-    clearTimeout: unwrap(r.clearTimeout),
-    clearInterval: unwrap(r.clearInterval),
-    clearImmediate: unwrap(r.clearImmediate),
+    setTimeout: wrap("setTimeout", r.setTimeout, "timeout", r.clearTimeout, true),
+    setInterval: wrap("setInterval", r.setInterval, "interval", r.clearInterval, false),
+    setImmediate: wrap("setImmediate", r.setImmediate, "immediate", r.clearImmediate, true),
+    clearTimeout: unwrap("clearTimeout", r.clearTimeout),
+    clearInterval: unwrap("clearInterval", r.clearInterval),
+    clearImmediate: unwrap("clearImmediate", r.clearImmediate),
   };
   Object.assign(globalThis, fenced);
   Object.assign(require("node:timers"), fenced);

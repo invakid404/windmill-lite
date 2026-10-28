@@ -1,0 +1,131 @@
+{
+  "case": "platform-left-behind",
+  "title": "a platform call still waiting for its answer when the invocation settles is reported and aborted, and the answer that comes later is dropped",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-2"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#per-invocation-identity-logs-and-environment",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": false,
+          "fresh": true,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912,
+          "facade": "http://127.0.0.1:9"
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "platform-left",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "BASE_URL": "http://127.0.0.1:9",
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "platform",
+        "id": "p1",
+        "inv": "i1",
+        "method": "GET",
+        "url": "http://127.0.0.1:9/api/w/ws1/left",
+        "headers": {}
+      }
+    },
+    {
+      "expect": {
+        "t": "warning",
+        "id": "i1",
+        "code": "left_behind",
+        "message": "left at settlement: 1 fetch",
+        "left": {
+          "fetch": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": "done",
+        "settled": true
+      }
+    },
+    {
+      "expect": {
+        "t": "late",
+        "id": "i1",
+        "kind": "error",
+        "body": {
+          "message": "the call ended: AbortError",
+          "name": "Error",
+          "stack": "<string>",
+          "step_id": "a"
+        },
+        "settled": false
+      }
+    },
+    {
+      "send": {
+        "t": "platform_reply",
+        "id": "p1",
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain"
+        },
+        "body": "YW5zd2Vy"
+      }
+    },
+    {
+      "quiet_ms": 200
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

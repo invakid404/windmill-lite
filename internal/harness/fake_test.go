@@ -456,7 +456,9 @@ func TestPoolCloseDuringStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	go pool.Start(context.Background())
-	time.Sleep(100 * time.Millisecond)
+	// Closed once the process has started, which it shows by its private
+	// directory, and while it has not said hello (FU2: no timing sleep).
+	waitFor(t, "the process to start", func() bool { entries, _ := os.ReadDir(root); return len(entries) == 1 })
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	if err := pool.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {

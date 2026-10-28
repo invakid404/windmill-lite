@@ -103,7 +103,7 @@ exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm] [--bun PATH] [--repo DIR] [-v] <step file or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh] [--bun PATH] [--repo DIR] [-v] <step file or directory>...
 ```
 
 Runs the step cases of `conformance/steps` ([ADR 0003](../../docs/design/0003-semantics-placement.md),
@@ -112,11 +112,12 @@ windmill-lite. For each file it writes the cases' scripts and
 host-provided modules into a sync folder in a temporary directory, builds
 them with the [Bun build helper](../../harnesses/bun/build/README.md)
 (`bundle.BuildBun`) into one bundle, whose `manifest.json` lists the
-host-provided modules in registration order, and runs each case in a
-harness process of its own ([internal/harness](../../internal/harness/README.md)),
-its runs in order through the protocol: that is the `warm` configuration,
-in which module state and `globalThis` survive from one run to the next
-(D1). Each run's entrypoint is `engine.Entrypoint`'s, its job variables the
+host-provided modules in registration order, and runs each case's runs in
+order through the protocol ([internal/harness](../../internal/harness/README.md)).
+In the `warm` configuration a case's runs share a harness process of its
+own, in which module state and `globalThis` survive from one run to the
+next (D1); in `fresh` each run has a process of its own, which ends with
+it, as a Windmill job's does. Each run's entrypoint is `engine.Entrypoint`'s, its job variables the
 core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the case's
 `step_id`, default `a`) or of a script job (`step_id: ""`), and its
 outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
@@ -125,20 +126,24 @@ settlement (at most 10 s), since an outcome fixed early (an intercepted
 `process.exit`) comes before the call ends: its warnings are those
 collected until then, and its late reports are compared when the case
 states them. A run whose call must not settle says `settled: pending` and
-is observed for 500 ms instead.
+is observed for 500 ms instead. A run's late reports are compared at the
+end of its case, so that a late report of work it left running after it
+settled, which the D9 fence must stop, fails the case. `left` compares the
+counts of the run's `left_behind` warning.
 
 It prints `pass` or `fail`, the case and its file, then each difference,
 and a summary; it exits 1 when a case failed or a file is invalid, and 2
-for usage errors. `--mode` is `warm` only: `fresh` is milestone C3b's, host
-mode F3b's. `--bun` defaults to `WL_BUN`, then `bun`; the build refuses any
+for usage errors. `--mode` is `warm` (the default) or `fresh`; host mode is
+F3b's. `--bun` defaults to `WL_BUN`, then `bun`; the build refuses any
 Bun but the pin. `--repo` defaults to the nearest directory up from the
 working directory that holds `harnesses/bun`, whose build helper needs its
 dependencies installed (`bun install --frozen-lockfile` in
 `harnesses/bun/build`). `-v` prints the harness's diagnostics of a failed
 case.
 
-`go test ./cmd/wltest` runs the suite (`TestStepSuite`, milestone C3a's
-exit gate), checks that a wrong expectation of each kind fails
+`go test ./cmd/wltest` runs the suite in both modes (`TestStepSuite`, the
+exit gate of milestones C3a and C3b), checks that a wrong expectation of
+each kind fails, in both modes
 (`TestStepCheckerReportsDifferences`), and that every catalogue case of a
 finding with a step file is a step case or deferred (`TestStepCatalogue`).
 The Bun tests need `WL_BUN`; without it they skip, unless `WL_REQUIRE_BUN`

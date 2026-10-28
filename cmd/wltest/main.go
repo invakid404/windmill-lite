@@ -52,7 +52,8 @@ recordings with provenance. Run wltest record -h for its flags.
 stub copies a sync tree to <dir> with every Bun script body replaced by a
 replay stub (ADR 0011).
 check runs step-case files (conformance/steps) on windmill-lite's Bun
-harness and compares each step's stored value with the case's. Run
+harness, in warm mode or with --mode fresh in one process per run, and
+compares each step's stored value with the case's. Run
 wltest check -h for its flags. Flow fixtures in check, and diff, are not
 implemented yet.
 `
