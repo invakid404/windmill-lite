@@ -11,9 +11,12 @@ recording batches E3c (flow execution errors), E3b (flow execution core)
 and E3d (loops, branches and the result cache), the stub-mode acceptance
 cases, and those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
-Nothing runs the flow fixtures or the expression cases on windmill-lite yet
-(`wltest check`, milestone E1; the expression pipeline, B2a and B2b), and
-the step level that [0003](../docs/design/0003-semantics-placement.md)
+Nothing runs the flow fixtures on windmill-lite yet (`wltest check`,
+milestone E1). The tests of the expression pipeline
+([internal/expr](../internal/expr/README.md), milestone B2a) run the
+expression cases and the flow fixtures' unit cases through its shortcuts
+and textual stages on a fake engine; what the engine computes waits for
+B2b. The step level that [0003](../docs/design/0003-semantics-placement.md)
 defines has no cases or runner yet.
 
 The suite pins each implementation to the

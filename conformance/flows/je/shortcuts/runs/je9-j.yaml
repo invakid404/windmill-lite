@@ -8,3 +8,16 @@ claims:
     contains: ["Expected a boolean value, found: \"7\""]
   - at: /steps/m:c/status
     equals: not_run
+unit:
+  - spec: JE-9/j
+    site: m:c
+    input: skip_if
+    expr: "true ||\nresults.a\n"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "7"
+    expect:
+      text: "7"
+    note: "the evaluator's text; the strict boolean check of the skip_if site turns it into the flow's error (JE-24)"

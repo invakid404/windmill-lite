@@ -1,0 +1,155 @@
+{
+  "finding": "JE-7",
+  "cases": [
+    {
+      "spec": "JE-7/a",
+      "provenance": "oracle-observed",
+      "title": "a top-level key returns the member's text, with full precision",
+      "recorded": {"exprs": "je-7", "case": "je-7-a"},
+      "site": "input_transform",
+      "text": "flow_input.n",
+      "expect": {
+        "shortcut": {"flow_key": {"env": false, "key": "n"}},
+        "binds": ["flow_input"],
+        "route": "flow_key",
+        "text": "12345678901234567890"
+      }
+    },
+    {
+      "spec": "JE-7/b",
+      "provenance": "oracle-observed",
+      "title": "everything after the dot is the key, so arithmetic misses and reaches the engine",
+      "recorded": {"exprs": "je-7", "case": "je-7-b"},
+      "site": "input_transform",
+      "text": "flow_input.n + 0",
+      "expect": {
+        "shortcut": {"flow_key": {"env": false, "key": "n + 0"}},
+        "code": "flow_input.n + 0",
+        "route": "engine",
+        "bound": {"flow_input": "{\"a\":{\"b\":\"nested\"},\"n\":12345678901234567890,\"a.b\":\"lit\"}"},
+        "results_lookup": false
+      }
+    },
+    {
+      "spec": "JE-7/c",
+      "provenance": "oracle-observed",
+      "title": "a dotted text is one literal key",
+      "recorded": {"exprs": "je-7", "case": "je-7-c"},
+      "site": "input_transform",
+      "text": "flow_input.a.b",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "a.b"}}, "route": "flow_key", "text": "\"lit\""}
+    },
+    {
+      "spec": "JE-7/d",
+      "provenance": "oracle-observed",
+      "title": "bracket form",
+      "recorded": {"exprs": "je-7", "case": "je-7-d"},
+      "site": "input_transform",
+      "text": "flow_input[\"a\"]",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "a"}}, "route": "flow_key", "text": "{\"b\":\"nested\"}"}
+    },
+    {
+      "spec": "JE-7/e",
+      "provenance": "oracle-observed",
+      "title": "a missing key misses, and JavaScript gives null",
+      "recorded": {"exprs": "je-7", "case": "je-7-e"},
+      "site": "input_transform",
+      "text": "flow_input.missing",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "missing"}}, "route": "engine", "results_lookup": false}
+    },
+    {
+      "spec": "JE-7/f",
+      "provenance": "oracle-observed",
+      "title": "a missing key of an empty input misses",
+      "recorded": {"exprs": "je-7", "case": "je-7-f"},
+      "site": "input_transform",
+      "text": "flow_input.absent",
+      "expect": {"route": "engine", "bound": {"flow_input": "{}"}}
+    },
+    {
+      "spec": "JE-7/g",
+      "provenance": "oracle-observed",
+      "title": "a missing intermediate is a key that misses, and JavaScript throws",
+      "recorded": {"exprs": "je-7", "case": "je-7-g"},
+      "site": "input_transform",
+      "text": "flow_input.absent.child",
+      "expect": {
+        "shortcut": {"flow_key": {"env": false, "key": "absent.child"}},
+        "code": "flow_input.absent.child",
+        "route": "engine",
+        "bound": {"flow_input": "{}"}
+      }
+    },
+    {
+      "spec": "JE-7",
+      "variant": "stored-member",
+      "provenance": "source-derived",
+      "title": "the member's text is a slice of the scope's flow input, verbatim",
+      "note": "the scope holds the flow input's stored text here, as the harness gives it; whether Windmill's text for a member read from the database is jsonb's spaced output is open (docs/design/README.md request 8)",
+      "site": "input_transform",
+      "text": "flow_input.o",
+      "context": {"previous_id": "", "flow_input": "{\"o\": {\"zz\": 1, \"y\": 1.50e1}}"},
+      "expect": {"route": "flow_key", "text": "{\"y\":15.0,\"zz\":1}"}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "flow-env-dot",
+      "provenance": "source-derived",
+      "title": "flow_env.<key> reads the flow env",
+      "site": "input_transform",
+      "text": "flow_env.region",
+      "context": {"previous_id": "", "flow_env": "{\"region\":\"eu\"}"},
+      "expect": {"shortcut": {"flow_key": {"env": true, "key": "region"}}, "binds": ["flow_env"], "route": "flow_key", "text": "\"eu\""}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "flow-env-bracket",
+      "provenance": "source-derived",
+      "title": "flow_env[\"<key>\"] reads the flow env",
+      "site": "input_transform",
+      "text": "flow_env[\"region\"]",
+      "context": {"previous_id": "", "flow_env": "{\"region\":\"eu\"}"},
+      "expect": {"shortcut": {"flow_key": {"env": true, "key": "region"}}, "route": "flow_key", "text": "\"eu\""}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "no-flow-env",
+      "provenance": "source-derived",
+      "title": "without a flow env the key misses, and the engine sees {}",
+      "site": "input_transform",
+      "text": "flow_env.region",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "bound": {"flow_env": "{}"}}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "empty-bracket-key",
+      "provenance": "source-derived",
+      "title": "the bracket form needs a non-empty key",
+      "site": "input_transform",
+      "text": "flow_input[\"\"]",
+      "context": {"previous_id": "", "flow_input": "{\"\":1}"},
+      "expect": {"shortcut": {}, "route": "engine"}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "dot-form-empty-key",
+      "provenance": "source-derived",
+      "title": "the dot form takes everything after the dot as the key, even nothing",
+      "note": "the reference asks for a non-empty key only in the bracket form; this case reads the dot form literally (docs/design/README.md request 8)",
+      "site": "input_transform",
+      "text": "flow_input.",
+      "context": {"previous_id": "", "flow_input": "{\"\":1}"},
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": ""}}, "route": "flow_key", "text": "1"}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "longer-name",
+      "provenance": "source-derived",
+      "title": "the text must start with flow_input and a dot",
+      "site": "input_transform",
+      "text": "flow_inputs.x",
+      "expect": {"shortcut": {}, "binds": ["flow_input"]}
+    }
+  ]
+}

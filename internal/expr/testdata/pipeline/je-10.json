@@ -1,0 +1,101 @@
+{
+  "finding": "JE-10",
+  "cases": [
+    {
+      "spec": "JE-10/a",
+      "provenance": "oracle-observed",
+      "title": "a name the text never spells is not bound",
+      "recorded": {"exprs": "je-10", "case": "je-10-a"},
+      "site": "input_transform",
+      "text": "globalThis[\"flow_\" + \"input\"]",
+      "expect": {"shortcut": {}, "binds": [], "code": "globalThis[\"flow_\" + \"input\"]", "route": "engine", "bound": {}, "results_lookup": false}
+    },
+    {
+      "spec": "JE-10/b",
+      "provenance": "oracle-observed",
+      "title": "flow_env is bound to {} when the flow has none",
+      "recorded": {"exprs": "je-10", "case": "je-10-b"},
+      "site": "input_transform",
+      "text": "flow_env",
+      "expect": {"shortcut": {}, "binds": ["flow_env"], "route": "engine", "bound": {"flow_env": "{}"}}
+    },
+    {
+      "spec": "JE-10/c",
+      "provenance": "oracle-observed",
+      "title": "results is bound when the text spells it",
+      "recorded": {"exprs": "je-10", "case": "je-10-c"},
+      "site": "input_transform",
+      "text": "typeof results",
+      "expect": {"binds": ["result", "results"], "code": "typeof results", "route": "engine", "bound": {}, "results_lookup": true}
+    },
+    {
+      "spec": "JE-10/d",
+      "provenance": "oracle-observed",
+      "title": "a trailing results is bound but not rewritten",
+      "recorded": {"exprs": "je-10", "case": "je-10-d"},
+      "site": "input_transform",
+      "text": "typeof globalThis.results",
+      "expect": {"binds": ["result", "results"], "code": "typeof globalThis.results", "route": "engine", "results_lookup": true}
+    },
+    {
+      "spec": "JE-10",
+      "variant": "no-flow-input",
+      "provenance": "source-derived",
+      "title": "at a site with no flow input, flow_input is bound to null",
+      "site": "input_transform",
+      "text": "flow_input",
+      "context": {"previous_id": "a", "previous_result": "1"},
+      "expect": {"shortcut": {}, "binds": ["flow_input"], "route": "engine", "bound": {"flow_input": "null"}}
+    },
+    {
+      "spec": "JE-10",
+      "variant": "substring",
+      "provenance": "source-derived",
+      "title": "a name is bound when it appears as a substring",
+      "site": "input_transform",
+      "text": "my_flow_input_count",
+      "context": {"previous_id": "a", "previous_result": "1", "flow_input": "{\"k\":1}"},
+      "expect": {"binds": ["flow_input"], "route": "engine", "bound": {"flow_input": "{\"k\":1}"}}
+    },
+    {
+      "spec": "JE-10",
+      "variant": "error-binds-previous-result",
+      "provenance": "source-derived",
+      "title": "error binds previous_result, which it is derived from (JE-17)",
+      "site": "input_transform",
+      "text": "error.message",
+      "context": {"previous_id": "a", "previous_result": "{\"error\":{\"message\":\"m\"}}"},
+      "expect": {"binds": ["error", "previous_result"], "route": "engine", "bound": {"previous_result": "{\"error\":{\"message\":\"m\"}}"}, "results_lookup": false}
+    },
+    {
+      "spec": "JE-10",
+      "variant": "spelling-binds-previous-result",
+      "provenance": "source-derived",
+      "title": "a spelling of the previous id inside a longer text binds previous_result",
+      "site": "input_transform",
+      "text": "Object.keys(results.a)",
+      "context": {"previous_id": "a", "previous_result": "{\"b\":1}"},
+      "expect": {"binds": ["result", "results"], "code": "Object.keys((await results.a))", "route": "engine", "bound": {"previous_result": "{\"b\":1}"}, "results_lookup": true}
+    },
+    {
+      "spec": "JE-10",
+      "variant": "computed-read",
+      "provenance": "source-derived",
+      "title": "a computed read of the previous id binds nothing more, so it reads storage",
+      "note": "the reading 0001 §6 records for FX-V6 (Q-FX-15): with no binding trigger the lookup is the database's",
+      "site": "input_transform",
+      "text": "results[flow_input.k]",
+      "context": {"previous_id": "a", "previous_result": "{\"b\":1}", "flow_input": "{\"k\":\"a\"}"},
+      "expect": {"binds": ["flow_input", "result", "results"], "code": "results[flow_input.k]", "route": "engine", "bound": {"flow_input": "{\"k\":\"a\"}"}, "results_lookup": true}
+    },
+    {
+      "spec": "JE-10",
+      "variant": "context-names",
+      "provenance": "source-derived",
+      "title": "every context name the text spells is a candidate, sorted",
+      "site": "input_transform",
+      "text": "[resumes, approvers, started_at, flow_job_id, all_iters, WM_SCHEDULED_FOR]",
+      "expect": {"binds": ["WM_SCHEDULED_FOR", "all_iters", "approvers", "flow_job_id", "resume", "resumes", "started_at"]}
+    }
+  ]
+}

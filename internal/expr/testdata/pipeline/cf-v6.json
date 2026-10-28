@@ -1,0 +1,23 @@
+{
+  "finding": "CF-V6",
+  "cases": [
+    {
+      "spec": "CF-V6/a",
+      "provenance": "oracle-observed",
+      "title": "a qualifying line of a multiline text answers by itself (Q-CF-16, recorded as the line-anchored reading)",
+      "recorded": {"fixture": "cf/cf-19", "run": "cf-v6-a", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a\n+ 100",
+      "expect": {"shortcut": {"previous_id": "a\n+ 100", "results_path": {"step": "a"}}, "route": "results_path", "text": "7"}
+    },
+    {
+      "spec": "CF-V6/b",
+      "provenance": "oracle-observed",
+      "title": "on one line the text is no path and the engine adds",
+      "recorded": {"fixture": "cf/cf-19", "run": "cf-v6-b", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a + 100",
+      "expect": {"shortcut": {"previous_id": "a + 100"}, "code": "(await results.a) + 100", "route": "engine", "results_lookup": true}
+    }
+  ]
+}

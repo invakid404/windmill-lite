@@ -1,0 +1,23 @@
+{
+  "finding": "JE-V6",
+  "cases": [
+    {
+      "spec": "JE-V6/a",
+      "provenance": "oracle-observed",
+      "title": "a longer path of the previous step is a JE-9 database read",
+      "recorded": {"fixture": "je/shortcuts", "run": "je-v6", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a.n",
+      "expect": {"shortcut": {"previous_id": "a.n", "results_path": {"step": "a", "segments": ["n"]}}, "route": "results_path", "text": "9007199254740993"}
+    },
+    {
+      "spec": "JE-V6/b",
+      "provenance": "oracle-observed",
+      "title": "the same path in parentheses reaches the engine, with previous_result bound for the proxy",
+      "recorded": {"fixture": "je/shortcuts", "run": "je-v6", "at": "m:b", "input": "y"},
+      "site": "input_transform",
+      "text": "(results.a.n)",
+      "expect": {"shortcut": {}, "code": "((await results.a).n)", "route": "engine", "bound": {"previous_result": "{\"n\": 9007199254740993}"}, "results_lookup": true}
+    }
+  ]
+}

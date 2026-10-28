@@ -1,0 +1,343 @@
+{
+  "finding": "JE-9",
+  "cases": [
+    {
+      "spec": "JE-9/a",
+      "provenance": "oracle-observed",
+      "title": "a null intermediate gives null",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-a", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a.b.c",
+      "expect": {
+        "shortcut": {"previous_id": "a.b.c", "results_path": {"step": "a", "segments": ["b", "c"]}},
+        "route": "results_path",
+        "text": "null"
+      }
+    },
+    {
+      "spec": "JE-9/b",
+      "provenance": "oracle-observed",
+      "title": "the same path in parentheses reaches the engine",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-b", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "(results.a.b.c)",
+      "expect": {"shortcut": {}, "code": "((await results.a).b.c)", "route": "engine", "bound": {}, "results_lookup": true}
+    },
+    {
+      "spec": "JE-9/c",
+      "provenance": "oracle-observed",
+      "title": "a final .length declines the shortcut",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-c", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a.length",
+      "expect": {
+        "shortcut": {"previous_id": "a.length", "results_path": {"step": "a", "segments": ["length"], "declines": true}},
+        "code": "(await results.a).length",
+        "route": "engine",
+        "results_lookup": true
+      }
+    },
+    {
+      "spec": "JE-9/d",
+      "provenance": "oracle-observed",
+      "title": "a missing step gives null",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-d", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.nope.x",
+      "expect": {
+        "shortcut": {"previous_id": "nope.x", "results_path": {"step": "nope", "segments": ["x"]}},
+        "route": "results_path",
+        "text": "null"
+      }
+    },
+    {
+      "spec": "JE-9/e",
+      "provenance": "oracle-observed",
+      "title": "an index selects a loop child's result",
+      "recorded": {"fixture": "je/loops", "run": "je9-ef", "at": "m:b_e", "input": "x"},
+      "site": "input_transform",
+      "text": "results.l[1]",
+      "expect": {
+        "shortcut": {"previous_id": "l[1]", "results_path": {"step": "l", "index": "1"}},
+        "code": "(await results.l)[1]",
+        "route": "results_path",
+        "text": "20"
+      }
+    },
+    {
+      "spec": "JE-9/f",
+      "provenance": "oracle-observed",
+      "title": "a non-numeric first element on a loop gives null",
+      "recorded": {"fixture": "je/loops", "run": "je9-ef", "at": "m:b_f", "input": "x"},
+      "site": "input_transform",
+      "text": "results.l.foo",
+      "expect": {"shortcut": {"previous_id": "l.foo", "results_path": {"step": "l", "segments": ["foo"]}}, "route": "results_path", "text": "null"}
+    },
+    {
+      "spec": "JE-9/g",
+      "provenance": "oracle-observed",
+      "title": "a matching first line discards the rest",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-g", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a\n+ 100",
+      "expect": {
+        "shortcut": {"previous_id": "a\n+ 100", "results_path": {"step": "a"}},
+        "code": "(await results.a)\n+ 100",
+        "route": "results_path",
+        "text": "7"
+      }
+    },
+    {
+      "spec": "JE-9/h",
+      "provenance": "oracle-observed",
+      "title": "a later matching line also fires the shortcut",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-h", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "100 +\nresults.a",
+      "expect": {"shortcut": {"results_path": {"step": "a"}}, "route": "results_path", "text": "7"}
+    },
+    {
+      "spec": "JE-9/i",
+      "provenance": "oracle-observed",
+      "title": "an indented line never qualifies",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-i", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "100 +\n  results.a",
+      "expect": {"shortcut": {}, "code": "100 +\n  (await results.a)", "route": "engine", "results_lookup": true}
+    },
+    {
+      "spec": "JE-9/j",
+      "provenance": "oracle-observed",
+      "title": "a predicate's line can hand it a non-boolean",
+      "note": "the strict boolean check that turns 7 into the flow's error is the site's (JE-24)",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-j", "at": "m:c", "input": "skip_if"},
+      "site": "skip_if",
+      "text": "true ||\nresults.a\n",
+      "expect": {
+        "trimmed": "Boolean(true ||\nresults.a\n)",
+        "shortcut": {"results_path": {"step": "a"}},
+        "route": "results_path",
+        "text": "7"
+      }
+    },
+    {
+      "spec": "JE-9/k",
+      "provenance": "oracle-observed",
+      "title": "a predicate served by the shortcut",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-k", "at": "m:c", "input": "skip_if"},
+      "site": "skip_if",
+      "text": "false ||\nresults.a.flag\n",
+      "expect": {"shortcut": {"results_path": {"step": "a", "segments": ["flag"]}}, "route": "results_path", "text": "true"}
+    },
+    {
+      "spec": "JE-9/l",
+      "provenance": "oracle-observed",
+      "title": "only the first matching line is inspected: its .length declines the whole shortcut",
+      "recorded": {"fixture": "je/shortcuts", "run": "je9-l", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a.length\nresults.a",
+      "expect": {
+        "shortcut": {"previous_id": "a.length\nresults.a", "results_path": {"step": "a", "segments": ["length"], "declines": true}},
+        "code": "(await results.a).length\n(await results.a)",
+        "route": "engine"
+      }
+    },
+    {
+      "spec": "JE-9",
+      "variant": "order-timeout-db",
+      "provenance": "oracle-observed",
+      "title": "the database route answers jsonb's text, spaces included, which the timeout site's error quotes",
+      "note": "the control of the JE-8 key-order example (review item cx R16)",
+      "recorded": {"fixture": "je/shortcuts", "run": "je8-order-timeout-db", "at": "m:q", "input": "timeout"},
+      "site": "timeout",
+      "text": "results.p",
+      "expect": {"shortcut": {"previous_id": "p", "results_path": {"step": "p"}}, "route": "results_path", "text": "{\"a\": 2, \"b\": 1}"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "optional-before-step",
+      "provenance": "source-derived",
+      "title": "results?. before the step id qualifies",
+      "site": "input_transform",
+      "text": "results?.a.b",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"b\": 1}"}},
+      "expect": {"shortcut": {"previous_id": "a.b", "results_path": {"step": "a", "segments": ["b"]}}, "route": "results_path", "text": "1"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "index-then-segment",
+      "provenance": "source-derived",
+      "title": "an index right after the step id, then segments",
+      "site": "input_transform",
+      "text": "results.a[0].b",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "[{\"b\": \"x\"}]"}},
+      "expect": {"shortcut": {"previous_id": "a[0].b", "results_path": {"step": "a", "index": "0", "segments": ["b"]}}, "route": "results_path", "text": "\"x\""}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "digit-segment",
+      "provenance": "source-derived",
+      "title": "a digit-only segment indexes an array, though it is not JavaScript",
+      "site": "input_transform",
+      "text": "results.a.0",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "[5, 6]"}},
+      "expect": {"route": "results_path", "text": "5"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "index-on-object",
+      "provenance": "source-derived",
+      "title": "#> takes an index as a key on an object",
+      "site": "input_transform",
+      "text": "results.a[0]",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"0\": \"zero\"}"}},
+      "expect": {"route": "results_path", "text": "\"zero\""}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "leading-zeros",
+      "provenance": "source-derived",
+      "title": "#> reads an index with leading zeros as its number",
+      "site": "input_transform",
+      "text": "results.a[01]",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "[7, 8]"}},
+      "expect": {"route": "results_path", "text": "8"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "out-of-range",
+      "provenance": "source-derived",
+      "title": "an index past the end gives null",
+      "site": "input_transform",
+      "text": "results.a[5]",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "[1]"}},
+      "expect": {"route": "results_path", "text": "null"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "index-overflow",
+      "provenance": "source-derived",
+      "title": "an index beyond int4 gives null",
+      "site": "input_transform",
+      "text": "results.a[2147483648]",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "[1]"}},
+      "expect": {"route": "results_path", "text": "null"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "scalar-intermediate",
+      "provenance": "source-derived",
+      "title": "a path through a scalar gives null, where JavaScript gives undefined",
+      "site": "input_transform",
+      "text": "results.a.b.c",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"b\": 5}"}},
+      "expect": {"route": "results_path", "text": "null"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "database-text",
+      "provenance": "source-derived",
+      "title": "the answer is jsonb's text output: a space after each : and , outside strings",
+      "site": "input_transform",
+      "text": "results.a.b",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"b\":[1,{\"d\":null,\"c\":\"x, y: z\"}]}"}},
+      "expect": {"route": "results_path", "text": "[1, {\"c\": \"x, y: z\", \"d\": null}]"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "stored-order",
+      "provenance": "source-derived",
+      "title": "the whole result in jsonb order",
+      "site": "input_transform",
+      "text": "results.a",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"bbb\": 1, \"a\": 2}"}},
+      "expect": {"route": "results_path", "text": "{\"a\": 2, \"bbb\": 1}"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "length-not-last",
+      "provenance": "source-derived",
+      "title": "length declines only as the last segment",
+      "site": "input_transform",
+      "text": "results.a.length.x",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"length\": {\"x\": 3}}"}},
+      "expect": {"shortcut": {"previous_id": "a.length.x", "results_path": {"step": "a", "segments": ["length", "x"]}}, "route": "results_path", "text": "3"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "index-then-length",
+      "provenance": "source-derived",
+      "title": "a final length after an index declines",
+      "site": "input_transform",
+      "text": "results.a[0].length",
+      "expect": {"shortcut": {"previous_id": "a[0].length", "results_path": {"step": "a", "index": "0", "segments": ["length"], "declines": true}}}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "step-named-length",
+      "provenance": "source-derived",
+      "title": "a step id length is no segment, so it does not decline",
+      "note": "the reference declines when the last .segment part is length; a step id is not one (docs/design/README.md request 8)",
+      "site": "input_transform",
+      "text": "results.length",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"length": "4"}},
+      "expect": {"shortcut": {"previous_id": "length", "results_path": {"step": "length"}}, "route": "results_path", "text": "4"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "first-line-wins",
+      "provenance": "source-derived",
+      "title": "the first qualifying line answers, not a later one",
+      "site": "input_transform",
+      "text": "results.a\nresults.b",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "1", "b": "2"}},
+      "expect": {"route": "results_path", "text": "1"}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "optional-after-step",
+      "provenance": "source-derived",
+      "title": "optional chaining after the step id does not qualify",
+      "site": "input_transform",
+      "text": "results.a?.b",
+      "expect": {"shortcut": {"previous_id": "a?.b"}}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "index-after-segment",
+      "provenance": "source-derived",
+      "title": "an index anywhere but right after the step id does not qualify",
+      "site": "input_transform",
+      "text": "results.a.b[0]",
+      "expect": {"shortcut": {"previous_id": "a.b[0]"}}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "carriage-return",
+      "provenance": "source-derived",
+      "title": "lines end at a newline, so a carriage return stays on the line and it does not qualify",
+      "site": "input_transform",
+      "text": "results.a\r\n+ 1",
+      "expect": {"shortcut": {"previous_id": "a\r\n+ 1"}}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "predicate-last-line",
+      "provenance": "source-derived",
+      "title": "a predicate's last line ends with the wrapper's ), so it does not qualify",
+      "site": "skip_if",
+      "text": "true ||\nresults.a",
+      "expect": {"trimmed": "Boolean(true ||\nresults.a)", "shortcut": {}}
+    },
+    {
+      "spec": "JE-9",
+      "variant": "no-results-context",
+      "provenance": "source-derived",
+      "title": "a site without a results context reaches the engine",
+      "site": "sleep",
+      "text": "results.a.b",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"b\": 1}"}},
+      "expect": {"route": "engine", "results_lookup": false}
+    }
+  ]
+}

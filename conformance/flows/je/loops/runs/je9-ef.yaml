@@ -7,3 +7,26 @@ claims:
     equals: 20
   - at: /steps/m:b_f/args/x
     equals: null
+unit:
+  - spec: JE-9/e
+    site: m:b_e
+    input: x
+    expr: "results.l[1]"
+    context:
+      previous_id: l
+      previous_result: "[10, 20]"
+      results:
+        l: "[10, 20]"
+    expect:
+      text: "20"
+  - spec: JE-9/f
+    site: m:b_f
+    input: x
+    expr: results.l.foo
+    context:
+      previous_id: b_e
+      previous_result: "20"
+      results:
+        l: "[10, 20]"
+    expect:
+      text: "null"
