@@ -70,7 +70,8 @@ directories:
 | a script source, `P.<ext>` for an extension of SY-3, and `P.script.yaml` | script `P` |
 | `P.resource.yaml`, `P.variable.yaml` | resource or variable `P` |
 | `<name>.resource-type.yaml`, at the root only | resource type `name` |
-| `P.script.lock`, `*.resource.file.*`, `*.fileset/`, files inside a flow folder | read through the item that refers to them |
+| `P.script.lock` and the files inside a flow folder | read through the item that refers to them |
+| `*.resource.file.*`, `*.fileset/` | the data of file and fileset resources, which are refused (below), so never read |
 
 Schedules, triggers, native triggers, folder metadata, apps, raw apps, users,
 groups, settings, the encryption key, workspace dependency files, datatable
@@ -264,5 +265,5 @@ pull request lists them as open questions.
   negated pattern matches exactly what the pattern does not.
 - `native_test.go` covers the annotation's spelling and position rules.
 - `syncfolder_test.go` covers root discovery, symbolic links, configuration
-  errors, error text, `Check`, concurrent reads, and lock-reference white
-  space.
+  errors, error text, `Check`, duplicate and JSON-mode data files,
+  concurrent reads, and lock-reference white space.
