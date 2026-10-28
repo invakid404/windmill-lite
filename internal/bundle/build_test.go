@@ -104,11 +104,12 @@ func TestBuildFixture(t *testing.T) {
 		t.Errorf("files %q, want %q", got, wantFiles)
 	}
 	// The sources: what the compiler read, the scripts the bundles inline
-	// and the host-provided module. Not the folder's other files.
+	// and the host-provided module. Not the folder's other files, and not
+	// the secret's.
 	wantSources := []string{
 		"c_settings.resource-type.yaml", "f/app/format.ts", "f/app/main.flow/flow.yaml",
 		"f/app/main.flow/greet.ts", "f/app/region.variable.yaml", "f/app/report.ts",
-		"f/app/settings.resource.yaml", "f/app/token.variable.yaml", "f/shared/ctx.ts", "wmill.yaml",
+		"f/app/settings.resource.yaml", "f/shared/ctx.ts", "wmill.yaml",
 	}
 	if got := sortedKeys(m.Sources); !slices.Equal(got, wantSources) {
 		t.Errorf("sources %q, want %q", got, wantSources)
@@ -305,7 +306,10 @@ func TestDigestFollowsInputs(t *testing.T) {
 		{"the host-provided module", edit("f/shared/ctx.ts", "", "export const version = 1;\n"), true},
 		{"a lock", write("f/app/report.script.lock", "{}\n//bun.lock\n<empty>"), true},
 		{"a resource", edit("f/app/settings.resource.yaml", "retries: 3", "retries: 4"), true},
-		{"a secret variable", edit("f/app/token.variable.yaml", "synthetic-not", "other-synthetic-not"), true},
+		{"the host-provided module's metadata", write("f/shared/ctx.script.yaml", "summary: the shared context\n"), true},
+		// A secret's file is not a source: its digest would let a reader of
+		// the manifest test guesses of a plain-text value.
+		{"a secret variable", edit("f/app/token.variable.yaml", "synthetic-not", "other-synthetic-not"), false},
 		{"the contract", func(c *Config, _ string) { c.Contract = append(c.Contract, "provided: []\n"...) }, false},
 		{"the contract's roots", func(c *Config, _ string) {
 			c.Contract = []byte("roots:\n  - script: f/app/report\n  - flow: f/app/main\nhost_modules: [f/shared/ctx.ts]\n")
@@ -379,6 +383,7 @@ func TestBuildRefusesUnbuilt(t *testing.T) {
 		files    map[string]string
 		contract string
 		item     string
+		kind     string
 		message  string
 	}{
 		"codebase script": {
@@ -388,6 +393,16 @@ func TestBuildRefusesUnbuilt(t *testing.T) {
 				"f/app/plain.ts": "export async function main() { return 2; }\n",
 			},
 			item: "script f/cb/entry", message: "unsupported: codebase script",
+		},
+		"host-provided module that does not read": {
+			files: map[string]string{
+				"wmill.yaml":            "defaultTs: bun\n",
+				"f/app/plain.ts":        "export async function main() { return 2; }\n",
+				"f/app/ctx.ts":          "export const store = new Map();\n",
+				"f/app/ctx.script.yaml": "timeout: soon\n",
+			},
+			contract: "roots: [{script: f/app/plain}]\nhost_modules: [f/app/ctx.ts]\n",
+			item:     "host module f/app/ctx.ts", kind: "load", message: "timeout",
 		},
 		"host-provided package": {
 			files: map[string]string{
@@ -413,7 +428,11 @@ func TestBuildRefusesUnbuilt(t *testing.T) {
 				t.Fatalf("Build: %v", err)
 			}
 			p := be.Problems[0]
-			if p.Item != c.item || p.Kind != ProblemUnsupportedFeature || !strings.Contains(p.Message, c.message) {
+			kind := c.kind
+			if kind == "" {
+				kind = ProblemUnsupportedFeature
+			}
+			if p.Item != c.item || p.Kind != kind || !strings.Contains(p.Message, c.message) {
 				t.Errorf("problem %+v", p)
 			}
 			if _, err := os.Stat(cfg.Out); !errors.Is(err, fs.ErrNotExist) {

@@ -46,7 +46,8 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 
 `assets/` (codebase assets, C2b) and `plugins/` (host plugins, F2c) arrive
 with their milestones. A secret variable is never written: its value in a
-folder is ciphertext, and the host supplies secrets (PF2).
+folder is ciphertext (or plain text, with `plainSecrets`), and the host
+supplies secrets (PF2).
 
 ## The manifest and the bundle digest
 
@@ -79,10 +80,12 @@ path.
 **Sources.** The build reads the folder through a file system that records
 every file read: `wmill.yaml`, the flows and scripts the roots reach with
 their metadata, locks and `!inline` files, and the data files. It adds the
-workspace scripts that bundles inline and each host-provided module's file
-and lock, which the Bun helper reads itself. Files the build does not read,
-such as a script nothing reaches, are not inputs. A secret variable's file
-is read, so it is a source, though its value is not written.
+workspace scripts that bundles inline and each host-provided module's
+file, metadata and lock, which the Bun helper reads itself. Files the build
+does not read, such as a script nothing reaches, are not inputs. Nor is a
+secret variable's file: with `plainSecrets` it holds the value in plain
+text, and its digest in a shipped manifest would let anyone test guesses of
+the value.
 
 **What changes the digest:** any source, a lock, the contract, the
 module-state mode, the engine version, the Bun version, the harness
@@ -99,7 +102,8 @@ canonical JSON object that maps the slash path of every regular file under
    compiler's errors come back as they are;
 2. reads `data/`;
 3. resolves the contract's `host_modules`: each must be the file of a Bun
-   script of the folder (`f/shared/ctx.ts`), whose path becomes its id;
+   script of the folder (`f/shared/ctx.ts`), whose path becomes its id; a
+   script that fails to read is refused with its load error;
 4. runs `BuildBun` for every script of the inventory, with every `.ts`
    script of the folder available to workspace imports;
 5. checks each script's metadata: workflow-as-code by any detection path is
@@ -287,13 +291,15 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   the fixture in other directories, with other work and output
   directories, give one digest, one manifest and one archive, byte for
   byte. `TestDigestFollowsInputs` changes each input in turn (a flow's
-  `stop_after_if`, scripts, the host-provided module, a lock, data, the
-  contract, the mode, the engine version, the harness runtime) and checks
-  that the digest changes, and that a file the build does not read leaves
-  it alone. `TestBuildOutput`, `TestBuildRefusesUnbuilt` and
-  `TestBuildCompileErrors` cover the output directory and the refusals.
+  `stop_after_if`, scripts, the host-provided module and its metadata, a
+  lock, data, the contract, the mode, the engine version, the harness
+  runtime) and checks that the digest changes, and that a secret's file and
+  a file the build does not read leave it alone. `TestBuildOutput`,
+  `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
+  directory and the refusals.
 - `TestVerify`, `TestVerifyArchiveEntries`, `TestWriteArchive`,
-  `TestParseManifest`, `TestCanonicalize` and `TestManifestDeviations` need
+  `TestParseManifest`, `TestTreeDigest`, `TestCanonicalize` and
+  `TestManifestDeviations` need
   no Bun: they cover a changed, extra or missing file, a symbolic link, a
   forgery whose own manifest matches, archive entries that repeat or escape,
   and the canonical form.

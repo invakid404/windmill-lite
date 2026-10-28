@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -82,7 +83,9 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		cfg.Out = *out
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// The helper runs in a process group of its own, so a signal to this
+	// process does not reach it: cancelling the build ends it.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	res, err := bundle.Build(ctx, cfg)
 	if res != nil {

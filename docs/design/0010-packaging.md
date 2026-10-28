@@ -247,11 +247,14 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     every bundle has (D3, D8, D14).
   - **Source inventory.** It lists the files the build read: what the
     compiler read through a recording file system, the workspace scripts
-    the bundles inline, and each host-provided module's file and lock. A
-    file nothing reaches is not an input, so editing it leaves the digest.
+    the bundles inline, and each host-provided module's file, metadata and
+    lock. A file nothing reaches is not an input, so editing it leaves the
+    digest. Nor is a secret variable's file: with `plainSecrets` its digest
+    would let a reader of the manifest test guesses of the value.
   - **`data/`** holds one JSON file per kind: resources, resource types,
     and variables without secrets, whose values a folder holds as
-    ciphertext; the host supplies secrets.
+    ciphertext or, with `plainSecrets`, plain text; the host supplies
+    secrets.
   - **Archive.** A `.wlb` is a tar file with `manifest.json` first, then the
     listed files in path order, with fixed headers, so one bundle gives one
     archive, byte for byte.

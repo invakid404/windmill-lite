@@ -219,13 +219,56 @@ func TestParseManifest(t *testing.T) {
 		"another format":      edit(func(m *Manifest) { m.Format = 2 }),
 		"a path that escapes": edit(func(m *Manifest) { m.Files["../x"] = Digest(nil) }),
 		"the manifest itself": edit(func(m *Manifest) { m.Files[ManifestFile] = Digest(nil) }),
-		"an unknown field":    bytes.Replace(good, []byte(`"format": 1,`), []byte(`"extra": 1,`+"\n  "+`"format": 1,`), 1),
-		"indented otherwise":  bytes.ReplaceAll(good, []byte("  "), []byte("\t")),
-		"not JSON":            []byte("format: 1\n"),
+		"a host-provided module without its copy": edit(func(m *Manifest) {
+			m.HostModules = []HostModuleEntry{{Key: "f/a/ctx.ts", ID: "f/a/ctx"}}
+		}),
+		"a host-provided module id that escapes": edit(func(m *Manifest) {
+			m.HostModules = []HostModuleEntry{{Key: "x", ID: "../x"}}
+			m.Files["scripts/bun/provided/../x.mjs"] = Digest(nil)
+		}),
+		"an unknown field":   bytes.Replace(good, []byte(`"format": 1,`), []byte(`"extra": 1,`+"\n  "+`"format": 1,`), 1),
+		"indented otherwise": bytes.ReplaceAll(good, []byte("  "), []byte("\t")),
+		"not JSON":           []byte("format: 1\n"),
 	} {
 		if _, _, err := ParseManifest(data); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestTreeDigest(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, text string) {
+		if err := writeFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("main.ts", "export {};\n")
+	write("lib/a.ts", "export const a = 1;\n")
+	want, err := TreeDigest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dot-files, dot-directories and node_modules are not the runtime.
+	write(".DS_Store", "x")
+	write("lib/.a.ts.swp", "x")
+	write(".cache/x", "x")
+	write("node_modules/p/index.js", "x")
+	if got, _ := TreeDigest(dir); got != want {
+		t.Errorf("ignored files changed the digest: %s, want %s", got, want)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err == nil {
+		if got, err := TreeDigest(link); err != nil || got != want {
+			t.Errorf("through a link: %s, %v", got, err)
+		}
+	}
+	write("lib/b.ts", "export const b = 2;\n")
+	if got, _ := TreeDigest(dir); got == want {
+		t.Error("a new file did not change the digest")
+	}
+	if _, err := TreeDigest(t.TempDir()); err == nil {
+		t.Error("an empty directory has a digest")
 	}
 }
 

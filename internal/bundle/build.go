@@ -130,10 +130,14 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, err
 	}
 	res.Program = prog
-	data, err := readData(folder)
+	data, secrets, err := readData(folder)
 	if err != nil {
 		return nil, err
 	}
+	// A secret's file holds its value in plain text when wmill.yaml sets
+	// plainSecrets; a digest of it in a shipped manifest would let anyone
+	// test guesses of the value. It is not a source.
+	src.forget(secrets)
 
 	// What the Bun build needs: every Bun script of the folder, which
 	// workspace imports resolve to, and the host-provided modules. Reading
@@ -146,6 +150,14 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	for _, key := range prog.Contract.HostModules {
 		p, ok := byFile[key]
 		if !ok {
+			// A script of the folder that fails to read says why; anything
+			// else is a package.
+			if path, _, _ := strings.Cut(key, "."); strings.HasSuffix(key, ".ts") {
+				if _, err := folder.Script(path); err != nil {
+					problems = append(problems, ItemProblem{"host module " + key, Problem{"load", err.Error()}})
+					continue
+				}
+			}
 			problems = append(problems, ItemProblem{"host module " + key, Problem{ProblemUnsupportedFeature,
 				"unsupported: host-provided module " + key + ": it is not the file of a Bun script of the folder, " +
 					"and host-provided packages are not supported yet"}})
@@ -364,14 +376,16 @@ func folderScripts(f *syncfolder.Folder) (map[string]*syncfolder.Script, map[str
 	return scripts, byFile
 }
 
-// addScriptSources records a script's source file and lock file.
+// addScriptSources records a script's source, metadata and lock files.
 func addScriptSources(src *sourceFS, scripts map[string]*syncfolder.Script, p string) error {
 	s := scripts[p]
-	if err := src.add(s.File); err != nil {
-		return err
-	}
-	if s.LockFile != "" {
-		return src.add(s.LockFile)
+	for _, f := range []string{s.File, s.MetadataFile, s.LockFile} {
+		if f == "" {
+			continue
+		}
+		if err := src.add(f); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -420,8 +434,9 @@ func scriptProblems(name string, s *ir.Script, meta *ScriptMeta, listed map[stri
 // readData reads the data the bundle carries (ADR 0010, data/): every
 // resource and resource type the folder keeps, and every variable but
 // secrets, which a bundle never holds. Each kind is one file, an object
-// keyed by path (a resource type by name).
-func readData(f *syncfolder.Folder) (map[string]any, error) {
+// keyed by path (a resource type by name). It also returns the files of
+// the secrets.
+func readData(f *syncfolder.Folder) (map[string]any, []string, error) {
 	var errs []error
 	resources := map[string]*syncfolder.Resource{}
 	for _, p := range f.Paths(syncfolder.KindResource) {
@@ -442,28 +457,32 @@ func readData(f *syncfolder.Folder) (map[string]any, error) {
 		types[p] = t
 	}
 	variables := map[string]*syncfolder.Variable{}
+	var secrets []string
 	for _, p := range f.Paths(syncfolder.KindVariable) {
 		v, err := f.Variable(p)
 		var se *syncfolder.Error
 		switch {
 		case errors.As(err, &se) && se.Kind == syncfolder.ErrFiltered:
+			// A secret that wmill.yaml's skipSecrets filters out.
+			secrets = append(secrets, se.File)
 			continue
 		case err != nil:
 			errs = append(errs, err)
 			continue
 		case v.IsSecret:
+			secrets = append(secrets, v.File)
 			continue
 		}
 		variables[p] = v
 	}
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		return nil, nil, errors.Join(errs...)
 	}
 	return map[string]any{
 		"resources.json":      resources,
 		"resource_types.json": types,
 		"variables.json":      variables,
-	}, nil
+	}, secrets, nil
 }
 
 func writeJSON(path string, v any) error {

@@ -230,13 +230,14 @@ jobs:
           WL_QUICKJS_LOAD: "1"
           WL_QUICKJS_LOAD_SECONDS: "1"
         run: |
+          set -o pipefail
           CGO_ENABLED=1 go test -c -o "$RUNNER_TEMP/quickjs-glibc.test" ./internal/expr/quickjs
           CGO_ENABLED=1 go test -c -tags wl_libc_malloc -o "$RUNNER_TEMP/quickjs-glibc-malloc.test" ./internal/expr/quickjs
           cd internal/expr/quickjs
           for build in "musl, mimalloc (release):quickjs" "musl, musl malloc:quickjs-musl-malloc" \
                        "glibc, mimalloc:quickjs-glibc" "glibc, glibc malloc:quickjs-glibc-malloc"; do
             echo "### ${{ matrix.arch }}: ${build%%:*}" | tee -a "$GITHUB_STEP_SUMMARY"
-            "$RUNNER_TEMP/${build##*:}.test" -test.run '^TestPoolUnderLoad$' -test.count=1 | grep -v '^\(PASS\|ok\)' | tee -a "$GITHUB_STEP_SUMMARY"
+            "$RUNNER_TEMP/${build##*:}.test" -test.run '^TestPoolUnderLoad$' -test.count=1 | { grep -v '^\(PASS\|ok\)' || true; } | tee -a "$GITHUB_STEP_SUMMARY"
           done
 
   jsonb:

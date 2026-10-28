@@ -79,6 +79,17 @@ func (s *sourceFS) add(name string) error {
 	return nil
 }
 
+// forget drops files from the record: inputs whose digest the manifest
+// must not carry.
+func (s *sourceFS) forget(names []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, n := range names {
+		delete(s.read, n)
+		delete(s.opened, n)
+	}
+}
+
 // inventory returns the digest of every file recorded.
 func (s *sourceFS) inventory() (map[string]string, error) {
 	s.mu.Lock()
@@ -105,23 +116,30 @@ func (s *sourceFS) inventory() (map[string]string, error) {
 
 // TreeDigest is the digest of a directory tree: the Digest of the
 // canonical JSON object that maps the slash path of every regular file
-// under dir to its Digest. Directories named node_modules and those whose
-// name starts with "." are left out, and so is anything that is neither a
-// regular file nor a directory. The manifest records the harness runtime's
-// tree digest.
+// under dir to its Digest. Directories named node_modules, files and
+// directories whose name starts with "." (.DS_Store, an editor's swap
+// file) and anything that is neither a regular file nor a directory are
+// left out. The manifest records the harness runtime's tree digest.
 func TreeDigest(dir string) (string, error) {
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
 	files := map[string]string{}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		if p == dir {
+			return nil
+		}
 		if d.IsDir() {
-			if p != dir && (d.Name() == "node_modules" || d.Name()[0] == '.') {
+			if d.Name() == "node_modules" || d.Name()[0] == '.' {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() {
+		if !d.Type().IsRegular() || d.Name()[0] == '.' {
 			return nil
 		}
 		data, err := os.ReadFile(p)

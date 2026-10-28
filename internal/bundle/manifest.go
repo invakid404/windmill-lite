@@ -153,6 +153,11 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 			return nil, "", fmt.Errorf("bundle: %s lists the file %q", ManifestFile, p)
 		}
 	}
+	for _, h := range m.HostModules {
+		if _, ok := m.Files["scripts/bun/provided/"+h.ID+".mjs"]; !ok || !validID(h.ID) {
+			return nil, "", fmt.Errorf("bundle: %s lists the host-provided module %q (%s) without its bundled copy", ManifestFile, h.Key, h.ID)
+		}
+	}
 	return &m, Digest(data), nil
 }
 
