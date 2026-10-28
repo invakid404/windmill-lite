@@ -441,8 +441,10 @@ encoder; both codecs then check every case unless `sides` limits it.
 
 **`exchanges/<case>.json`** are transcripts that the Go tests play against
 the real harness, on the synthetic bundle in `protocol/bundle/` (a
-`manifest.json` whose SHA-256 is the bundle digest, and one module per
-script under `scripts/bun/`). Each step does one thing:
+`manifest.json` whose SHA-256 is the bundle digest, and per script under
+`scripts/bun/` a module written by hand, which takes named parameters, and
+the `.meta.json` signature the build helper would record for it, by which
+the harness binds its arguments). Each step does one thing:
 
 | Step | Meaning |
 |---|---|
