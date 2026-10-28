@@ -199,7 +199,8 @@ read from and written to `conformance/exprs/recorded/<finding>/`.
 strictly: unknown keys are refused, as is a file not named after its
 finding, a case whose spec cites a finding without a variant, a run that
 checks nothing, a `by_mode` without both `warm` and `fresh` or without the
-case's `deviation`, and two cases of one file that give one path two
+case's `deviation`, a `left` without `left_behind` among its `warnings` or
+with a count below 1, and two cases of one file that give one path two
 sources (a file's scripts share one bundle). Only `bun` has a language
 directory. `FindStepFiles` finds the files below its roots, `deferred.yaml`
 aside, and `IsStepFile` tells one by its path. The format is described in
@@ -211,8 +212,8 @@ the case's own `stack` and `mask` pointers on both sides, and
 `/result/error/stack` (`DefaultStepStack`) on a side whose status is
 `failure`, since a successful result is data, compares with `Compare` and the case's
 `unordered` and `strict_key_order`, and checks the claims. A run's `late`,
-`settled` and `warnings` are the runner's to check, since only it sees the
-invocation's Reporter.
+`settled`, `warnings` and `left` are the runner's to check, since only it
+sees the invocation's Reporter.
 
 ## Claims
 

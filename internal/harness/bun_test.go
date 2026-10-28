@@ -753,12 +753,19 @@ func TestBunFreshEndsWithTheProcess(t *testing.T) {
 		}
 	})
 	t.Run("close kills what is left", func(t *testing.T) {
+		// A pool of its own, so no process of the subtests above is still
+		// leaving it.
+		pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
 		rec := newRecorder()
 		go pool.Execute(context.Background(), freshInvocation("never", `{}`, rec))
-		waitFor(t, "the fresh invocation", func() bool {
+		waitFor(t, "the fresh invocation in flight", func() bool {
 			pool.mu.Lock()
 			defer pool.mu.Unlock()
-			return len(pool.fresh) == 1
+			for p := range pool.fresh {
+				n, _ := p.Load()
+				return n == 1
+			}
+			return false
 		})
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
