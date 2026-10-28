@@ -205,7 +205,8 @@ func (s *slot) eval(j *job) reply {
 	return r
 }
 
-// runAttempt binds j's input, runs its program and reads its outcome back.
+// runAttempt binds j's input, runs its preludes and program and reads the
+// outcome back.
 // When the attempt ends first it may return anything; eval replaces it.
 func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 	C.wl_begin(s.c)
@@ -219,9 +220,12 @@ func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 			return reply{err: s.failure(rc)}
 		}
 	}
-	bc := j.prog.bc
-	if rc := C.wl_start(s.c, (*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(bc))), C.size_t(len(bc))); rc != C.WL_OK {
-		return reply{err: s.failure(rc)}
+	// Each prelude's completion value is kept only until the next script
+	// replaces it; the program's is the evaluation's.
+	for _, p := range append(j.preludes, j.prog) {
+		if rc := C.wl_start(s.c, (*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(p.bc))), C.size_t(len(p.bc))); rc != C.WL_OK {
+			return reply{err: s.failure(rc)}
+		}
 	}
 
 	done := make(chan struct{})

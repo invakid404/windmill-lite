@@ -14,7 +14,9 @@ interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [0003](0003-semantics-placement.md) in
 [internal/expr/quickjs](../../internal/expr/quickjs/README.md), milestone
 B2a the textual stages and shortcuts of its expression pipeline in
-[internal/expr](../../internal/expr/README.md), on a fake engine, milestone
+[internal/expr](../../internal/expr/README.md), milestone B2b that
+pipeline's program, serialisation and error texts on the engine, held to
+recording batch E3a's expression cases and to the budget gate, milestone
 C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, milestone C3a its Bun step runtime core (Windmill's wrapper rules,
@@ -104,6 +106,7 @@ each record):
 | Fresh runtime setup | 221 µs in wazero, 84 µs native | 0003 |
 | Bounded pool (wazero prototype), 8 slots, 8 callers with pauses, 4 KB | 120 µs p50, 260 µs p95 | 0003 |
 | Native pool (milestone B1a), 8 slots, 8 callers with pauses, by bound value | 4 KB: 95 µs p50, 152 µs p95; 64 KB: 350 µs, 539 µs; 256 KB: 1.32 ms, 2.10 ms | 0003 |
+| The budget gate through the pipeline (milestone B2b), a predicate over a results value read from the database, 8 slots, 8 callers with pauses | 4 KB: 121 µs p50, 223 µs p95, 437 µs p99; 64 KB: 313 µs, 449 µs, 573 µs; 256 KB: 1.02 ms, 1.65 ms, 1.84 ms; all inside the gate | 0003 |
 | Static musl engine's pool (milestone F4), 8 callers back to back, CPU per evaluation, musl's `malloc` against mimalloc | `linux/arm64`: 2.27 ms and 189 µs at 4 KB, 12.9 ms and 1.46 ms at 256 KB; `linux/amd64`: 1.74 ms and 340 µs, 8.45 ms and 2.82 ms; glibc's `malloc`: 261 µs, 1.69 ms, 433 µs, 3.04 ms | 0003 |
 | Normalising walk versus native JSON round trip in Bun | faster, but not equivalent (top-level functions and symbols, own `__proto__` keys) | 0005 |
 | Fresh module state per invocation in one process | 0.6–2.1 ms for 0.3–1.3 MB bundles; re-importing leaks module records | 0006 |
@@ -275,7 +278,10 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      precedes it, so another kind of quote inside a string is text.
    - JE-13 and [JE-14](../semantics/expressions.md#je-14): whether the
      wrapper is an `async function` or an async arrow, which `arguments`
-     tells apart. Read as a function.
+     tells apart. Read as a function. Milestone B2b found it settled by
+     E3a's recorded stacks, which place the code at column 28 in
+     expression mode and 21 in statement mode: the opening is
+     `(async function() { return ` or `(async function() { `.
    - JE-9: where a line ends. Read as at `\n` only, so a line with a
      trailing `\r` or space does not qualify.
    - JE-12: whether a `["…"]` read spans lines. Read as no, as a regular
@@ -289,6 +295,39 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      Two oracle runs would settle it: `timeout: flow_input.o` with `o` an
      object, and `timeout: results.l` right after a loop `l`, whose parse
      errors quote the text.
+9. **The expression program's unstated details** (milestone B2b). Each is
+   decided by the reading named here and pinned by a test in
+   `internal/expr`; [internal/expr](../../internal/expr/README.md) says
+   where:
+   - [JE-21](../semantics/expressions.md#je-21) ([Q-JE-1](../semantics/expressions.md#q-je-1)):
+     the text of a thrown value that is not an `Error`. The reference gives
+     the engine's debug form; windmill-lite writes the value's string form.
+     An oracle run of `throw "s"`, `throw 1` and `throw {}` would settle
+     the primitives; an object's form may not be reproducible.
+   - [JE-17](../semantics/expressions.md#je-17): whether "or else" in an
+     entry's tag (`error.step_id`, else the position) and text
+     (`error.message`, else `error.name`) means a nullish or a falsy test.
+     Read as nullish.
+   - [JE-49](../semantics/expressions.md#je-49): the position quoted for
+     `flow_input` and for a member of `flow_env`, which Windmill
+     re-serialises (read as counted in the compact text), and which value
+     is reported when several are too deep (read as `flow_input`, then the
+     context values by name, then `flow_env`'s members by key).
+   - [JE-10](../semantics/expressions.md#je-10): whether the lexical
+     `results` and `error` are constants or can be assigned. Read as
+     constants.
+   - [JE-16](../semantics/expressions.md#je-16): whether a `__proto__` key
+     of a context value becomes an own property (as `JSON.parse` makes it)
+     or the object's prototype. Read as an own property.
+   - [JE-15](../semantics/expressions.md#je-15): what Windmill does when
+     the user's code replaces `JSON.stringify` so that the value's text is
+     not JSON. windmill-lite fails the evaluation with its own text.
+   - [JE-48](../semantics/expressions.md#je-48) and
+     [JE-1](../semantics/expressions.md#je-1): the overflow depth and the
+     transcendental `Math` digits depend on the engine's build, deviations
+     D16 and D17 of [0001](0001-equivalence-contract.md). Which C library
+     and compiler flags the CE image's engine was built with would say
+     whether a calibration could retire them.
 
 ## Changing the design
 

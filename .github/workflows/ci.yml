@@ -122,6 +122,15 @@ jobs:
           WL_QUICKJS_LOAD_SECONDS: "1"
         run: go test -count=1 -run '^TestPoolUnderLoad$' -v ./internal/expr/quickjs
 
+      - name: Report the expression budget gate
+        # ADR 0003's budget gate, measured through the whole pipeline
+        # (internal/expr, milestone B2b). Report only: the gate holds on the
+        # benchmark machine; CI's shared runners show the trend.
+        env:
+          WL_EXPR_BUDGET: report
+          WL_EXPR_BUDGET_SECONDS: "1"
+        run: go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr
+
       - name: Test repository scripts
         # Unit tests for the Renovate auto-ack helpers in scripts/.
         run: python3 -m unittest discover -s scripts -v
@@ -213,6 +222,19 @@ jobs:
         run: |
           (cd internal/expr && "$RUNNER_TEMP/expr.test" -test.v -test.count=1)
           (cd internal/expr/quickjs && "$RUNNER_TEMP/quickjs.test" -test.v -test.count=1)
+
+      - name: Report the expression budget gate from the static engine
+        # Report only (review item cl R3-2): ADR 0003's budget gate through
+        # the pipeline, from the shipped static musl build. The table goes
+        # to the job summary.
+        env:
+          WL_EXPR_BUDGET: report
+          WL_EXPR_BUDGET_SECONDS: "1"
+        run: |
+          set -o pipefail
+          cd internal/expr
+          echo "### ${{ matrix.arch }}: expression budget gate (static, musl, mimalloc)" | tee -a "$GITHUB_STEP_SUMMARY"
+          "$RUNNER_TEMP/expr.test" -test.run '^TestBudgetGate$' -test.count=1 | { grep -v '^\(PASS\|ok\)' || true; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Start the engine on an empty base
         # An image FROM scratch holds only the engine and a bundle it built:
