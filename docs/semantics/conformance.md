@@ -3419,9 +3419,22 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `x = Promise.resolve({k: 1})`
   - **Expect:** `{"k":1}`
   - **Recorded:** [`exprs/je-15.yaml`](../../conformance/exprs/je-15.yaml) case `JE-15/i`, oracle run 40687124625.
-- **JE-15/j** · source-derived · later · a replaced `JSON.stringify` supplies the result text unchecked ([Q-JE-14](expressions.md#q-je-14))
-  - **Given:** two runs: `x = (JSON.stringify = () => "7", 1)`; and `x = (JSON.stringify = () => 5, 1)` (no `;`, so expression mode)
-  - **Expect:** O2 `x` = `7` in the first run (the replacement's string is the result text) and `null` in the second (a result that is not a string reads as `null`). Neither evaluation fails.
+- **JE-15/j** · source-derived · later · a replaced `JSON.stringify` supplies the result text, after promise adoption and the host-string conversion ([Q-JE-14](expressions.md#q-je-14))
+  - **Given:** five runs, each in expression mode (no `;`):
+    1. `x = (JSON.stringify = () => "7", 1)`;
+    2. `x = (JSON.stringify = () => 5, 1)`;
+    3. `x = (JSON.stringify = () => Promise.resolve("7"), 1)`;
+    4. `x = (JSON.stringify = () => Promise.reject(new Error("serializer failed")), 1)`;
+    5. `x = (JSON.stringify = () => "\ud800", 1)`, with the backslash written in the expression text, so that the engine builds a string holding an unpaired surrogate.
+  - **Expect:**
+    1. O2 `x` = `7`: the replacement's string is the result text.
+    2. `null`: a value that is not a string reads as `null`.
+    3. `7`: the returned promise is adopted before the value is read.
+    4. `b` fails as an uncaught throw of `new Error("serializer failed")` does ([JE-21](expressions.md#je-21)): its message carries `QuickJS evaluation error: Error: serializer failed`.
+    5. `null`: the string does not convert to UTF-8.
+
+    Runs 1, 2, 3 and 5 do not fail.
+  - **Correction 2026-10-28 (validation round 3):** the case had only runs 1 and 2, and its rule read the replacement's immediate return value. Runs 3 to 5 cover what happens after that return, through the awaited promise and the host-string conversion ([JE-15](expressions.md#je-15)).
 
 <a id="je-16"></a>
 ### JE-16 · Context values arrive as converted JSON

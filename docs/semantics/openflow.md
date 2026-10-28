@@ -1769,11 +1769,13 @@ differ, the CLI's on-disk form is what a loader sees.
 
     In the `__mod` layout (`later`) any module file also selects its script.
   - So on a plain `wmill sync push` into an empty workspace, a script is
-    deployed exactly when its content file passes, and a flow when any kept
-    file of its folder other than a lock passes, whether or not the flow
-    refers to that file; the push then loads the folder's own `flow.yaml`. A
-    flow whose only passing files are locks is not deployed. An item none of
-    whose files pass is neither pushed nor deleted.
+    deployed exactly when its content file passes, and a flow when a kept
+    file of its folder passes that none of the added-file exclusions above
+    skips, whether or not the flow refers to that file; the push then loads
+    the folder's own `flow.yaml`. A flow whose only passing files are
+    excluded ones (a lock, an `extra.script.yaml`, or in JSON mode an
+    `extra.script.json`) is not deployed. An item none of whose files pass
+    is neither pushed nor deleted.
 - **Evidence:** `cli/src/commands/sync/sync.ts:1541-1594` (each entry is
   tested on its own), `:1637-1652`, `:2630-2635` (directories), `:4453-4500`
   (a changed file: no such exclusion), `:4604-4650` (a new file;
@@ -1798,6 +1800,11 @@ differ, the CLI's on-disk form is what a loader sees.
   folder that the exclusions do not skip selects the flow, including a file
   the flow never refers to; the push then loads the real `flow.yaml`.
   SY-17/c covers an unreferenced `extra.yaml`.
+- **Revision 2026-10-28 (validation round 3):** the summary after the table
+  still said any kept file "other than a lock" selects a new flow. It now
+  refers to all of the added-file exclusions, as the table does, so a new
+  `extra.script.yaml` (or `.script.json` in JSON mode) inside the folder
+  does not select it either (`sync.ts:4618-4625`). No case changes.
 
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
