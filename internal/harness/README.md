@@ -138,7 +138,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 | `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
 | fresh mode: ctx ends first | `context.Cause(ctx)`, after killing the process | later: `Settled(process_exited)`, nothing late |
-| fresh mode: the process exits 0 before a result (`process.exit(0)`) | `empty` ([WR-V2](../../docs/semantics/languages.md#wr-v2)) | `Settled(process_exited)` first |
+| fresh mode: the process exits 0 before a result (`process.exit(0)`), over a connection that never failed | `empty` ([WR-V2](../../docs/semantics/languages.md#wr-v2)) | `Settled(process_exited)` first |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
 | host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
 
@@ -213,7 +213,8 @@ each `Execute`, which serves that invocation in a working directory of its
 own and exits once it has reported the outcome; one that outlives its
 outcome by 5 s is killed. When the engine stops waiting first, the process
 is killed and the invocation settles with it. `Close` waits for the fresh
-processes until its context ends and kills the rest. None of the rules
+processes until its context ends and kills the rest; one that finishes
+starting after `Close` is killed before it runs anything. None of the rules
 below apply to it. The rest of this section is about warm pools.
 
 - **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes;
@@ -291,8 +292,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   that ends nothing, cancel and late settlement, limits,
   the working directory, the watchdog case `watchdog/finite-cpu` in warm
   and fresh mode, fresh pools (a process and a directory per invocation,
-  a kill on cancel, an exit with the step's code, Close), and the pool
-  rules above. The late work of `TestBunWorkAfterTheResultIsLate` comes
+  a kill on cancel, results of 200 KB and 3 MB and a long log before an
+  exit, all written before the process ends, an exit with the step's
+  code, Close), output of a module's own work after its loading
+  invocation settled, and the pool rules above. The late work of `TestBunWorkAfterTheResultIsLate` comes
   from continuations of a `Bun.sleep`, which the fence cannot stop, since
   it clears the timers a step leaves behind. A step that must still run when the test
   acts is a `gate` fixture step, which reports that it has started and ends
