@@ -57,9 +57,80 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      - name: Measure the expression pool under load
+        # Prints latency percentiles of the native QuickJS-ng pool
+        # (internal/expr/quickjs, milestone B1a). Report only: it sets no
+        # threshold; the budget gate is milestone B2b's.
+        env:
+          WL_QUICKJS_LOAD: "1"
+          WL_QUICKJS_LOAD_SECONDS: "1"
+        run: go test -count=1 -run '^TestPoolUnderLoad$' -v ./internal/expr/quickjs
+
       - name: Test repository scripts
         # Unit tests for the Renovate auto-ack helpers in scripts/.
         run: python3 -m unittest discover -s scripts -v
+
+  static-linux:
+    # The Linux engine is one static binary, built with zig cc against musl
+    # (ADR 0003). This job builds the expression engine's tests that way for
+    # each Linux architecture, checks that the binary is static, and runs it
+    # on a runner of that architecture.
+    name: Static Linux engine (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-linux-musl
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+
+      - name: Build the engine tests as a static binary
+        env:
+          CGO_ENABLED: "1"
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CC: zig cc -target ${{ matrix.target }}
+        run: go test -c -o "$RUNNER_TEMP/quickjs.test" -ldflags '-linkmode=external -extldflags=-static' ./internal/expr/quickjs
+
+      - name: Check that the binary is static
+        run: |
+          bin="$RUNNER_TEMP/quickjs.test"
+          file "$bin"
+          if readelf --program-headers "$bin" | grep -q INTERP; then
+            echo "the binary names a program interpreter" >&2
+            exit 1
+          fi
+          if readelf --dynamic "$bin" | grep -q NEEDED; then
+            echo "the binary needs shared libraries" >&2
+            exit 1
+          fi
+
+      - name: Run the engine tests from the static binary
+        # The tests read testdata/ and the semantics reference by relative
+        # paths, so they run from the package directory.
+        working-directory: internal/expr/quickjs
+        run: '"$RUNNER_TEMP/quickjs.test" -test.v -test.count=1'
 
   jsonb:
     # ADR 0005 checks the jsonb canonicaliser (internal/jsonval) against

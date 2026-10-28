@@ -1,0 +1,113 @@
+{
+  "finding": "JE-2",
+  "cases": [
+    {
+      "spec": "JE-2/a",
+      "provenance": "source-derived",
+      "deviation": "D8",
+      "slow": true,
+      "title": "a CPU-bound loop reaches the 20 s attempt limit and is interrupted",
+      "note": "One attempt at the default limit. The three attempts and the 5 s pauses, and the message, are the pipeline's (B2b).",
+      "given": {
+        "expr": "(() => { while (true) {} })()"
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
+      "spec": "JE-2",
+      "variant": "never-settling-promise",
+      "provenance": "source-derived",
+      "title": "a Promise that never settles ends at the attempt limit",
+      "given": {
+        "expr": "new Promise(() => {})",
+        "limits": {
+          "attempt_ms": 200
+        }
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
+      "spec": "JE-2",
+      "variant": "uncatchable",
+      "provenance": "policy",
+      "deviation": "D8",
+      "title": "a program cannot catch the interrupt",
+      "given": {
+        "expr": "(() => { for (;;) { try { for (;;) {} } catch (e) {} finally {} } })()",
+        "limits": {
+          "attempt_ms": 200
+        }
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
+      "spec": "JE-2",
+      "variant": "job-loop",
+      "provenance": "policy",
+      "deviation": "D8",
+      "title": "a program that keeps queueing jobs is interrupted between jobs",
+      "given": {
+        "expr": "(async () => { for (;;) await null; })()",
+        "limits": {
+          "attempt_ms": 200
+        }
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
+      "spec": "JE-2",
+      "variant": "regexp-backtracking",
+      "provenance": "policy",
+      "deviation": "D8",
+      "title": "catastrophic regular-expression backtracking is interrupted",
+      "given": {
+        "expr": "/^(a+)+$/.test(\"a\".repeat(64) + \"b\")",
+        "limits": {
+          "attempt_ms": 200
+        }
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
+      "spec": "JE-2",
+      "variant": "deep-recursion-loop",
+      "provenance": "policy",
+      "deviation": "D8",
+      "title": "a loop of caught stack overflows is interrupted",
+      "given": {
+        "expr": "(() => { const f = () => f(); for (;;) { try { f(); } catch (e) {} } })()",
+        "limits": {
+          "attempt_ms": 200
+        }
+      },
+      "expect": {
+        "error": "attempt_timeout"
+      }
+    },
+    {
+      "spec": "JE-2",
+      "variant": "within-limit",
+      "provenance": "source-derived",
+      "title": "a program that finishes inside the limit is not interrupted",
+      "given": {
+        "expr": "(() => { let n = 0; for (let i = 0; i < 1e5; i++) n += i; return n; })()",
+        "limits": {
+          "attempt_ms": 5000
+        }
+      },
+      "expect": {
+        "value": "4999950000"
+      }
+    }
+  ]
+}
