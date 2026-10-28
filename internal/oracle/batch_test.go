@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -61,6 +63,11 @@ type batch struct {
 		Pointer   string          `json:"pointer"`
 		Observed  json.RawMessage `json:"observed"`
 	} `json:"contradictions"`
+	// Gates, when the batch has them, name for every run of its fixtures
+	// (<fixture directory>/<run>) the milestone whose exit gate runs it:
+	// the one that implements the last feature the run's flow needs, which
+	// needs the batch merged (ADR 0012).
+	Gates map[string]string `json:"gates,omitempty"`
 }
 
 // TestRecordingBatches holds each recording batch to its row of ADR 0012:
@@ -71,7 +78,10 @@ type batch struct {
 // derived from the catalogue fails the Go CI and not only the next oracle
 // run; the catalogue's prefix-only assertions hold on the recorded text;
 // and each catalogue claim the oracle contradicted is listed with the value
-// it recorded instead.
+// it recorded instead. The batch is a milestone of ADR 0012 and covers the
+// findings its row names as ranges ("FX-6 to FX-10") and the cases it
+// names ("FX-42/h"), and a batch with gates gives every run one that needs
+// the batch merged.
 func TestRecordingBatches(t *testing.T) {
 	// spec: OR-15, OR-19, OR-V5/b
 	root := repoRoot(t)
@@ -83,6 +93,15 @@ func TestRecordingBatches(t *testing.T) {
 	inCatalogue := map[string]bool{}
 	for _, m := range caseLine.FindAllSubmatch(catalogue, -1) {
 		inCatalogue[string(m[1])] = true
+	}
+
+	design, err := os.ReadFile(filepath.Join(root, "docs/design/0012-layout-and-milestones.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := readMilestones(design)
+	if plan["N1a"] == nil || plan["PF2"] == nil || plan["Id"] != nil {
+		t.Fatalf("read %d milestones from ADR 0012", len(plan))
 	}
 
 	paths, err := filepath.Glob("testdata/batches/*.json")
@@ -104,7 +123,13 @@ func TestRecordingBatches(t *testing.T) {
 			if err := dec.Decode(&b); err != nil {
 				t.Fatal(err)
 			}
+			row := plan[b.Batch]
+			if row == nil {
+				t.Fatalf("batch %q is not a milestone of ADR 0012", b.Batch)
+			}
+			checkBatchRow(t, b, row.title, inCatalogue)
 			checkBatch(t, root, b, inCatalogue)
+			checkBatchGates(t, root, b, plan)
 		})
 	}
 }
@@ -313,4 +338,133 @@ func pointerString(o conformance.Observation, pointer string) (string, error) {
 		return "", fmt.Errorf("not a string: %v", v)
 	}
 	return s, nil
+}
+
+// milestone is one row of ADR 0012's milestone table.
+type milestone struct {
+	title string   // the Milestone cell, without bold markers
+	needs []string // the milestone ids of the Needs merged cell
+}
+
+// readMilestones reads ADR 0012's milestone table: a row is a line of six
+// cells whose first cell is a milestone id, not the header or the rule.
+func readMilestones(design []byte) map[string]*milestone {
+	plan := map[string]*milestone{}
+	idCell := regexp.MustCompile(`^[A-Z][0-9A-Za-z]*$`)
+	for _, line := range strings.Split(string(design), "\n") {
+		if !strings.HasPrefix(line, "| ") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) != 6 {
+			continue
+		}
+		id := strings.TrimSpace(cells[0])
+		if id == "Id" || !idCell.MatchString(id) {
+			continue
+		}
+		plan[id] = &milestone{
+			title: strings.ReplaceAll(strings.TrimSpace(cells[1]), "**", ""),
+			needs: strings.Fields(strings.NewReplacer(",", " ", "*", " ").Replace(cells[2])),
+		}
+	}
+	return plan
+}
+
+// needsMerged reports whether milestone id needs batch merged, directly or
+// through the milestones it needs.
+func needsMerged(plan map[string]*milestone, id, batch string) bool {
+	seen := map[string]bool{}
+	var walk func(string) bool
+	walk = func(m string) bool {
+		if seen[m] || plan[m] == nil {
+			return false
+		}
+		seen[m] = true
+		for _, n := range plan[m].needs {
+			if n == batch || walk(n) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(id)
+}
+
+// checkBatchRow requires the batch to cover what its ADR 0012 row names:
+// each finding of an "X-n to X-m" range that has catalogue cases is one of
+// its findings, and each "X-n/l" case is one of its cases or a case of one
+// of its findings. A batch may cover more, as E3c does with FX-10/a.
+func checkBatchRow(t *testing.T, b batch, title string, inCatalogue map[string]bool) {
+	t.Helper()
+	findings := map[string]bool{}
+	for _, f := range b.Findings {
+		findings[f] = true
+	}
+	hasCases := func(f string) bool {
+		for c := range inCatalogue {
+			if strings.HasPrefix(c, f+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, r := range regexp.MustCompile(`\b([A-Z]+)-([0-9]+) to ([A-Z]+)-([0-9]+)\b`).FindAllStringSubmatch(title, -1) {
+		lo, _ := strconv.Atoi(r[2])
+		hi, _ := strconv.Atoi(r[4])
+		if r[1] != r[3] || lo > hi {
+			t.Errorf("row range %q is not one prefix, ascending", r[0])
+			continue
+		}
+		for n := lo; n <= hi; n++ {
+			if f := fmt.Sprintf("%s-%d", r[1], n); hasCases(f) && !findings[f] {
+				t.Errorf("the row of %s names %s (%s), which is not one of the batch's findings", b.Batch, f, r[0])
+			}
+		}
+	}
+	for _, c := range regexp.MustCompile(`\b([A-Z]+-V?[0-9]+)/[a-z]\b`).FindAllStringSubmatch(title, -1) {
+		if !findings[c[1]] && !slices.Contains(b.Cases, c[0]) {
+			t.Errorf("the row of %s names %s, which is not one of the batch's cases", b.Batch, c[0])
+		}
+	}
+}
+
+// checkBatchGates requires, of a batch with gates, a gate for every run of
+// its fixtures and none for anything else, each a milestone of ADR 0012
+// that needs the batch merged.
+func checkBatchGates(t *testing.T, root string, b batch, plan map[string]*milestone) {
+	t.Helper()
+	if len(b.Gates) == 0 {
+		return
+	}
+	runs := map[string]bool{}
+	for _, dir := range b.Fixtures {
+		f, err := conformance.LoadFixture(filepath.Join(root, filepath.FromSlash(dir)))
+		if err != nil {
+			continue // checkBatch reports it
+		}
+		for _, r := range f.Runs {
+			runs[dir+"/"+r.Name] = true
+		}
+	}
+	var names []string
+	for name := range runs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if b.Gates[name] == "" {
+			t.Errorf("run %s has no gate", name)
+		}
+	}
+	for name, gate := range b.Gates {
+		switch {
+		case !runs[name]:
+			t.Errorf("gate for %s, which is not a run of the batch", name)
+		case plan[gate] == nil:
+			t.Errorf("%s: gate %q is not a milestone of ADR 0012", name, gate)
+		case !needsMerged(plan, gate, b.Batch):
+			t.Errorf("%s: gate %s does not need %s merged, so it cannot run the recording", name, gate, b.Batch)
+		}
+	}
 }

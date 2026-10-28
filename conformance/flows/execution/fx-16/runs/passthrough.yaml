@@ -1,0 +1,9 @@
+# FX-16/b: the identity's args are {previous_result: [1]}, so it returns [1].
+spec: [FX-16/b]
+target: f/wl_fx16/passthrough
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:a": {status: success, args: {}, result: [1]}
+    "m:b": {status: success, args: {previous_result: [1]}, result: [1]}

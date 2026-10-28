@@ -1,0 +1,14 @@
+summary: FX-18/a a mocked step does not run
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      mock:
+        enabled: true
+        return_value:
+          m: 1

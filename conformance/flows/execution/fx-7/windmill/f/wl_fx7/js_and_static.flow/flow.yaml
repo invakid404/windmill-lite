@@ -1,0 +1,25 @@
+summary: FX-7/a a JavaScript and a static transform
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input.n * 2
+          y:
+            type: static
+            value:
+              - 1
+              - s
+        lock: '!inline a.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    n:
+      type: number
+  required: []

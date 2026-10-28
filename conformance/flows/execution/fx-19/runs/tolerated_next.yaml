@@ -1,0 +1,11 @@
+# FX-19/e: continue_on_error with a failure module: the cursor advances, b
+# runs, and the handler is not reached for this stop.
+spec: [FX-19/e]
+target: f/wl_fx19/tolerated_next
+expect:
+  status: success
+  result: 4
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 3}
+    "m:b": {status: success, args: {}, result: 4}
+    "s:failure": {status: not_run}

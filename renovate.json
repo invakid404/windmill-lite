@@ -6,18 +6,34 @@
   "packageRules": [
     {
       "description": "Bun follows the Bun of the pinned Windmill image (WR-3, ADR 0001); it moves only with the semantics pin.",
-      "matchPackageNames": ["bun"],
+      "matchPackageNames": [
+        "bun"
+      ],
       "allowedVersions": "1.3.10"
     },
     {
       "description": "The jsonb test image follows the oracle's PostgreSQL major; only digest and patch updates within 16.",
-      "matchPackageNames": ["postgres"],
+      "matchPackageNames": [
+        "postgres"
+      ],
       "allowedVersions": "<17"
     },
     {
       "description": "The Windmill oracle image is the semantics pin (v1.767.0); it is never bumped by Renovate.",
-      "matchPackageNames": ["/windmill-labs\\/windmill/"],
+      "matchPackageNames": [
+        "/windmill-labs\\/windmill/"
+      ],
       "enabled": false
+    },
+    {
+      "description": "The oracle workflow's Node runs the pinned windmill-cli@1.767.0 (OR-8); its major moves only with the oracle pin.",
+      "matchFileNames": [
+        ".github/workflows/oracle.yml"
+      ],
+      "matchPackageNames": [
+        "node"
+      ],
+      "allowedVersions": "<23"
     }
   ]
 }

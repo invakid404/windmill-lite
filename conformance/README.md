@@ -6,13 +6,14 @@ sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
 harness protocol cases in `protocol/`, the flow fixtures in `flows/`, and
 the context-free expression cases in `exprs/`. `wltest record` records the
 flow fixtures and the expression cases on the Windmill CE oracle: the
-oracle smoke fixture, the fixtures of recording batch E3c (flow execution
-errors), and those of recording batch E3a (the expression cases of the JE
-catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
-Nothing runs the flow fixtures or the expression cases on windmill-lite yet
-(`wltest check`, milestone E1; the expression pipeline, B2a and B2b), and
-the step level that [0003](../docs/design/0003-semantics-placement.md)
-defines has no cases or runner yet.
+oracle smoke fixture, the fixtures of recording batches E3c (flow execution
+errors) and E3b (flow execution core), and those of recording batch E3a
+(the expression cases of the JE catalogue, and CF-19 and CF-V6). This
+README covers `conformance/`. Nothing runs the flow fixtures or the
+expression cases on windmill-lite yet (`wltest check`, milestone E1; the
+expression pipeline, B2a and B2b), and the step level that
+[0003](../docs/design/0003-semantics-placement.md) defines has no cases or
+runner yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -45,6 +46,18 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/execution/fx-6` | [FX-6](../docs/semantics/execution.md#fx-6): step 0 sees the flow input; the step after a tolerated failure sees the wrapped error; a retry re-derives `previous_result` as the string `"{}"`. |
+| `flows/execution/fx-7` | [FX-7](../docs/semantics/execution.md#fx-7): JavaScript and static transforms, `params`, `undefined`, an unbound `result`. |
+| `flows/execution/fx-8` | [FX-8](../docs/semantics/execution.md#fx-8): `result` and `previous_result` in `stop_after_if`; no `results` in `sleep`. |
+| `flows/execution/fx-9` | [FX-9](../docs/semantics/execution.md#fx-9): one `skip_if` per value the rule lists. |
+| `flows/execution/fx-10` | [FX-10](../docs/semantics/execution.md#fx-10): a failure module reads an error-stopped step three ways; unknown and not-yet-run ids; which engine reads of the preceding id use memory, without a failure module ([Q-FX-15](../docs/semantics/execution.md#q-fx-15)). |
+| `flows/execution/fx-16` | [FX-16](../docs/semantics/execution.md#fx-16): identity with direct input, and as a passthrough. |
+| `flows/execution/fx-17` | [FX-17](../docs/semantics/execution.md#fx-17): a skipped step's passthrough; a step skipped only on its retry; no `stop_after_if` on a skipped step. |
+| `flows/execution/fx-18` | [FX-18](../docs/semantics/execution.md#fx-18) (`later`): a mocked step; `stop_after_if` on the mock value; a false `skip_if` beside a mock. |
+| `flows/execution/fx-19` | [FX-19](../docs/semantics/execution.md#fx-19): the clean stops, the error-stop's value, and its matrix of retry, `continue_on_error` and the failure module. |
+| `flows/execution/fx-20` | [FX-20](../docs/semantics/execution.md#fx-20): a clean stop and an error-stop in a `branchone` body. |
+| `flows/execution/fx-21` | [FX-21](../docs/semantics/execution.md#fx-21): a throwing `stop_after_if`, with and without a failure module. |
+| `flows/execution/fx-42` | [FX-42](../docs/semantics/execution.md#fx-42)/h ([Q-FX-16](../docs/semantics/execution.md#q-fx-16)): the arguments file after `$jsonvar:` resolution, and what a JavaScript consumer sees of it. |
 | `flows/execution/fx-12` … `fx-38`, `fx-v6` | Recording batch E3c (ADR 0012): the catalogue cases of [FX-12](../docs/semantics/execution.md#fx-12) to [FX-15](../docs/semantics/execution.md#fx-15) and [FX-30](../docs/semantics/execution.md#fx-30) to [FX-38](../docs/semantics/execution.md#fx-38) (FX-36's executor part), FX-V6/a and FX-10/a. Covered: error values, chaining errors, `continue_on_error`, the failure module (what it sees, its retry, `recover`, inside loop bodies), the preprocessor, final-result selection, `early_return` and cancellation. One fixture per finding, `fx-12-deno` for the Deno case. Each run's `expect` states the catalogue's expectation. It holds the recorded value instead where the catalogue asserts only a prefix of a text, says nothing about a field, or is contradicted by the oracle: one case, FX-34/a's handler id, listed in the batch manifest and in [0001](../docs/design/0001-equivalence-contract.md) §6. The batch's coverage, deferrals and prefix checks are in `internal/oracle/testdata/batches/e3c.json` ([internal/oracle](../internal/oracle/README.md)). |
 | `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
@@ -68,6 +81,18 @@ The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
 ([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
 it on every recording and fails on any change.
+
+Each E3b run's `expect` was written from the reference before the oracle
+first ran it. Where the oracle disagreed, the run's `note` says what was
+predicted, what was recorded, and in which oracle runs.
+
+### Recording batches
+
+The E3b rows above are recording batch E3b of
+[0012](../docs/design/0012-layout-and-milestones.md), the flow-execution
+core. Its manifest, with each run's gate, is
+`internal/oracle/testdata/batches/e3b.json`, described in
+[internal/oracle](../internal/oracle/README.md#recording-batches).
 
 ## Expression cases
 
@@ -171,7 +196,6 @@ case (`je8-order-transform`: the evaluator returns the producer text
 observes it on the oracle at the `timeout` site, whose parse error quotes the
 evaluated text (`je8-order-timeout`, with the database route as its control
 in `je8-order-timeout-db`).
-
 ## OpenFlow decode cases
 
 A decode case gives a flow `value` as JSON and the decision of Windmill's

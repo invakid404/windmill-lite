@@ -1,0 +1,10 @@
+# FX-16/a: the identity's args are the flow input {x: 1}, which has no
+# previous_result field, so it returns {}.
+spec: [FX-16/a]
+target: f/wl_fx16/direct_input
+args: {x: 1}
+expect:
+  status: success
+  result: {}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: {}}
