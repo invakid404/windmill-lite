@@ -14,9 +14,12 @@ interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [internal/expr/quickjs](../../internal/expr/quickjs/README.md), milestone
 C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
-harness, and milestone E2 the oracle harness of
+harness, milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
-[internal/oracle](../../internal/oracle/README.md); nothing runs flows yet.
+[internal/oracle](../../internal/oracle/README.md), and recording batch E3a
+the oracle recordings of the JE expression cases and of CF-19 and CF-V6,
+which settled the CF-V6 row of [0001](0001-equivalence-contract.md) §6;
+nothing runs flows yet.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -126,6 +129,9 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    observable. Answered by [JE-48](../semantics/expressions.md#je-48):
    QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
    records in the manifest ([0003](0003-semantics-placement.md)).
+   Recording batch E3a found the reference's bracket wrong on the oracle: a
+   recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
+   fit than the reference implies; request 5 asks why.
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
@@ -135,6 +141,29 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
+
+5. **Recorded differences from the reference (batch E3a).** These oracle
+   recordings differ from the reference's source-derived expectations; the
+   cases now expect what the oracle did and cite the recording
+   (`conformance/exprs`, `conformance/flows/je`). The reference should say
+   which rule produces each, and where a reading is not settled:
+   - JE-48/a, above: the stack depth that fits. The catalogue's JE-48 cases
+     also hold a `;`, so they run in statement mode
+     ([JE-13](../semantics/expressions.md#je-13)) and JE-48/c gives `null`;
+     the batch adds semicolon-free variants;
+   - JE-28/c: the last module's `sleep` is evaluated, because the deployed
+     flow ends in the `-v` identity of [OF-17](../semantics/openflow.md#of-17),
+     so an invalid final `sleep` fails the flow;
+   - JE-35/b: at the first pickup of a root flow, a predicate error is
+     `Error: Error: QuickJS evaluation error: …` with two location suffixes;
+   - JE-2/a: a root flow's first transform that times out three times is
+     canceled after 60 s by the monitor of flows hanging between two steps,
+     before the timeout error surfaces;
+   - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
+     where JE-33 says it completes successfully;
+   - CE allows two workspaces besides `admins`, which
+     [OR-6](../semantics/oracle.md#or-6) does not state, and a completed
+     `branchall`'s flow-status entry has no `branchall` field.
 
 ## Changing the design
 

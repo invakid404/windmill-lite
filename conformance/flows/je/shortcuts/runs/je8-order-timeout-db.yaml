@@ -6,8 +6,7 @@ claims:
   - at: /status
     equals: failure
   - at: /result/error/message
-    contains: ["Value was:"]
-    not_contains: ["{\"b\":1,\"a\":2}"]
+    contains: ["Value was: {\"a\": 2, \"b\": 1}"]
 unit:
   - spec: JE-9
     site: m:q

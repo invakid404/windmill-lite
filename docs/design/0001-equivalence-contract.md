@@ -218,7 +218,7 @@ switch through a change to this record, naming the reason.
 | Finding | Readings | Default until recorded, and why | Settled by | Recorded in, gating |
 |---|---|---|---|---|
 | [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | (b): it agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10) | Q-FX-15, case FX-V6/a | E3c, gating N1b (the discriminating case runs in a failure handler) |
-| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | (b): it is the confirmed [JE-9](../semantics/expressions.md#je-9) rule | Q-CF-16, cases CF-V6/a,b | E3a, gating B2a and B2b |
+| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | **Recorded: (b).** CF-V6/a (`results.a`, a newline, `+ 100`, with `a` returning 7) gives 7 on the oracle, and its single-line control CF-V6/b gives 107; JE-9/g to JE-9/i agree. The default was (b), so nothing changes | Q-CF-16, cases CF-V6/a,b (oracle run 40687124625) | E3a, gating B2a and B2b |
 | [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | (b): the correction traces the decoder | Q-FX-19, cases FX-33/c–g | E3c, gating N1b |
 | [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | (b): the correction traces that a break clears the stop, not the failure | Q-CF-14, case CF-12/f | E3d, gating N3a and N3b |
 | [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`) | Q-FX-16, case FX-42/h | E3b, gating PF2 |
@@ -268,6 +268,15 @@ switch through a change to this record, naming the reason.
 - §5a gained the sync-folder restriction, and §3 the JSON-mode and `later`
   sync-folder rows, when milestone A4 implemented the loader of
   [0002](0002-ir-and-loader.md).
+- Recording batch E3a settled the CF-19 / CF-V6 row of §6 on the oracle:
+  the direct lookup is line-anchored, the default it replaces. Its cases are
+  `conformance/flows/cf/cf-19` and the expression cases of
+  `conformance/exprs`. The batch also recorded behaviour that differs from
+  the reference's source-derived expectations without touching a contested
+  rule (the JE-48 stack bracket, the final `sleep` of JE-28/c, the JE-35/b
+  envelope, the JE-2/a timeout); those cases now expect what the oracle did,
+  and the differences are open for the semantics team, as §6 step 3 and
+  [0011](0011-differential-testing.md) describe.
 
 ## Spec IDs relied on
 

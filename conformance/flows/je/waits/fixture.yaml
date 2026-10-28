@@ -4,7 +4,7 @@
 id: je/waits
 spec: [JE-22/a, JE-22/b, JE-28/a, JE-28/b, JE-28/c, JE-29/a, JE-32/a, JE-32/b, JE-V2/a, JE-V2/b, JE-V2/c]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle:
   workers: 1

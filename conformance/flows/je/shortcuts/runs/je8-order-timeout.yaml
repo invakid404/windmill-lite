@@ -8,7 +8,7 @@ claims:
   - at: /status
     equals: failure
   - at: /result/error/message
-    contains: ["{\"b\":1,\"a\":2}"]
+    contains: ["Value was: {\"b\":1,\"a\":2}"]
 unit:
   - spec: JE-8
     site: m:q
