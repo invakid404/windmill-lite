@@ -152,8 +152,13 @@ harness, which is (a) with its duplication.
      that they start on an empty base.
    - **Stack.** QuickJS-ng's maximum stack size is pinned to its built-in
      default of 1 MiB and recorded in the manifest, because stack-overflow
-     depth is observable; semantics request 3 (README) asks which value
-     Windmill's embedding uses, and the pin follows the answer.
+     depth is observable. Semantics request 3 (README) is answered by
+     [JE-48](../semantics/expressions.md#je-48): Windmill's embedding never
+     sets a stack size, so it runs on that default, measured from where each
+     call enters the engine. Evaluations run on threads that the engine
+     creates with stacks well above the limit (at least 8 MiB), because a
+     thread the Go runtime creates gets the C library's default stack, which
+     is 128 KiB on musl and would end before the engine's limit.
 4. **Every evaluation gets a fresh runtime and context**, as in Windmill
    ([JE-1](../semantics/expressions.md#je-1)). Reusing a runtime with a fresh
    context was weighed and rejected: leftover garbage would count against
@@ -220,8 +225,9 @@ one returns, which is the shape of runs that interleave evaluations with
 step I/O (the paced row of the pool table above). Back-to-back load is
 measured and reported beside it but not gated: it saturates the CPU by
 design, and the wazero numbers above show it at about four times the paced
-latency. The native pool has not been measured under load yet; B1a measures
-it, and B2b may not merge on the wazero figures:
+latency. B1a measured the native pool under these loads (the table after
+the gate, below); B2b may not merge on the wazero figures, nor on B1a's,
+which bind values without the pipeline's wrapper:
 
 | Bound value | p95 | p99 |
 |---|---|---|
@@ -301,11 +307,15 @@ validation with `contextual_case_needs_flow_fixture`.
 - Host code that must run in the harness (interceptors that call step code,
   scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
   not through a harness-side interpreter.
+- Milestone B1a measured the native pool under load and recorded it under
+  the budget gate, and moved evaluations onto threads the engine creates,
+  because the stack limit of JE-48 needs more stack than musl gives the Go
+  runtime's threads.
 - The decode level was added with milestone A3. A flow value's accept or
   reject decision has no run to observe, so it fits none of the three run
   levels, and the decoder is Go only, so no harness reads these cases.
 
 ## Spec IDs relied on
 
-FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, WR-6 to WR-21,
+FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, JE-48, WR-6 to WR-21,
 OR-15, and the conformance catalogue's notation and provenance rules.

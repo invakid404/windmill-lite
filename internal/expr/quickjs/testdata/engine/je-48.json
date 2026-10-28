@@ -1,0 +1,153 @@
+{
+  "finding": "JE-48",
+  "cases": [
+    {
+      "spec": "JE-48/a",
+      "provenance": "source-derived",
+      "title": "a recursion of depth 1 000 fits",
+      "given": {
+        "expr": "(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()"
+      },
+      "expect": {
+        "value": "1000"
+      }
+    },
+    {
+      "spec": "JE-48/b",
+      "provenance": "source-derived",
+      "title": "a recursion of depth 1 000 000 overflows",
+      "given": {
+        "expr": "(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000000); })()"
+      },
+      "expect": {
+        "exception": {
+          "thrown": "error",
+          "name": "RangeError",
+          "message": "Maximum call stack size exceeded"
+        }
+      }
+    },
+    {
+      "spec": "JE-48/c",
+      "provenance": "source-derived",
+      "title": "the overflow is a catchable RangeError",
+      "given": {
+        "expr": "(() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()"
+      },
+      "expect": {
+        "value": "[\"RangeError\",\"Maximum call stack size exceeded\"]"
+      }
+    },
+    {
+      "spec": "JE-48/d",
+      "provenance": "source-derived",
+      "title": "stringifying deeply nested JSON overflows",
+      "given": {
+        "expr": "(() => { let v = []; for (let i = 0; i < 100000; i++) v = [v]; return JSON.stringify(v).length; })()"
+      },
+      "expect": {
+        "exception": {
+          "thrown": "error",
+          "name": "RangeError",
+          "message": "Maximum call stack size exceeded"
+        }
+      }
+    },
+    {
+      "spec": "JE-48",
+      "variant": "entry-from-job",
+      "provenance": "source-derived",
+      "title": "a recursion after an await gets the full stack again",
+      "note": "The limit is measured from where each call enters the engine, here the job loop.",
+      "given": {
+        "expr": "(async () => { await null; const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()"
+      },
+      "expect": {
+        "value": "1000"
+      }
+    },
+    {
+      "spec": "JE-48",
+      "variant": "json-parse",
+      "provenance": "source-derived",
+      "title": "parsing deeply nested JSON overflows",
+      "given": {
+        "expr": "JSON.parse(\"[\".repeat(100000) + \"]\".repeat(100000))"
+      },
+      "expect": {
+        "exception": {
+          "thrown": "error",
+          "name": "RangeError",
+          "message": "Maximum call stack size exceeded"
+        }
+      }
+    },
+    {
+      "spec": "JE-48",
+      "variant": "json-parse-bound",
+      "provenance": "source-derived",
+      "title": "a deeply nested bound value overflows when the program parses it",
+      "note": "JE-49's 127-level check before binding is the pipeline's; the engine itself only has the stack limit.",
+      "given": {
+        "expr": "JSON.parse(deep).length",
+        "strings": [
+          {
+            "name": "deep",
+            "gen": {
+              "open": "[",
+              "close": "]",
+              "count": 100000
+            }
+          }
+        ]
+      },
+      "expect": {
+        "exception": {
+          "thrown": "error",
+          "name": "RangeError",
+          "message": "Maximum call stack size exceeded"
+        }
+      }
+    },
+    {
+      "spec": "JE-48",
+      "variant": "nested-source",
+      "provenance": "source-derived",
+      "title": "source nested too deeply fails to compile with the same RangeError",
+      "given": {
+        "source_gen": {
+          "open": "(",
+          "close": ")",
+          "inner": "1",
+          "count": 100000
+        }
+      },
+      "expect": {
+        "compile_exception": {
+          "thrown": "error",
+          "name": "RangeError",
+          "message": "Maximum call stack size exceeded"
+        }
+      }
+    },
+    {
+      "spec": "JE-48",
+      "variant": "pinned-size-applies",
+      "provenance": "policy",
+      "title": "the stack size is the configured one: depth 1 000 overflows at 64 KiB",
+      "given": {
+        "expr": "(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()",
+        "limits": {
+          "stack_bytes": 65536
+        }
+      },
+      "expect": {
+        "exception": {
+          "thrown": "error",
+          "name": "RangeError",
+          "message": "Maximum call stack size exceeded"
+        }
+      }
+    }
+  ]
+}

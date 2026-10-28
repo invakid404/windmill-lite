@@ -108,9 +108,9 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    refines those settings but does not hold C2b.
 3. **The expression engine's stack limit**: which maximum stack size
    Windmill's QuickJS-ng embedding uses, since stack-overflow depth is
-   observable. Until it is answered, windmill-lite pins QuickJS-ng's built-in
-   default of 1 MiB and records it in the manifest
-   ([0003](0003-semantics-placement.md)).
+   observable. Answered by [JE-48](../semantics/expressions.md#je-48):
+   QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
+   records in the manifest ([0003](0003-semantics-placement.md)).
 
 ## Changing the design
 

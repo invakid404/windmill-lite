@@ -64,8 +64,8 @@ func TestSiteKindText(t *testing.T) {
 }
 
 func TestDefaultLimitsAreWindmills(t *testing.T) {
-	// spec: JE-2 (20 s per attempt), JE-3 (128 MiB); ADR 0003 pins the
-	// stack at QuickJS-ng's default of 1 MiB until semantics request 3.
+	// spec: JE-2 (20 s per attempt), JE-3 (128 MiB), JE-48 (QuickJS-ng's
+	// default stack of 1 MiB).
 	l := DefaultLimits()
 	if l.MemoryMB != 128 || l.Attempt != 20*time.Second || l.StackBytes != 1<<20 {
 		t.Fatalf("DefaultLimits() = %+v", l)

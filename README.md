@@ -12,19 +12,23 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Two milestones have landed: the OpenFlow decoder in
-[internal/openflow](internal/openflow/README.md) (A3), which no command uses
-yet, and K1, the shared types and interfaces under `internal/` that later
-milestones implement and code against, which define no runnable component.
+Three milestones have landed, and no command uses them yet: the OpenFlow
+decoder in [internal/openflow](internal/openflow/README.md) (A3); K1, the
+shared types and interfaces under `internal/` that later milestones implement
+and code against; and the QuickJS-ng expression engine in
+[internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
-public domain under the [Unlicense](LICENSE), except for the Apache-2.0 files
-vendored from Windmill under `internal/openflow/schema/`, which keep their
-licence ([NOTICE](internal/openflow/schema/NOTICE)).
+public domain under the [Unlicense](LICENSE), except for vendored files that
+keep their own licences: the Apache-2.0 files from Windmill under
+`internal/openflow/schema/` ([NOTICE](internal/openflow/schema/NOTICE)) and
+the MIT-licensed QuickJS-ng sources under `internal/expr/quickjs/quickjs-ng/`
+([NOTICE](internal/expr/quickjs/quickjs-ng/NOTICE)).
 
 ## Quick start
 
-Requires Go 1.27.3 or later (the `go` directive in `go.mod`).
+Requires Go 1.27.3 or later (the `go` directive in `go.mod`) and a C
+compiler, because the expression engine is C source built through cgo.
 
 ```sh
 go run ./cmd/windmill-lite    # prints: windmill-lite (devel)
@@ -38,7 +42,8 @@ go test -race ./...
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, stored text and the NUL flag. The canonicaliser is not implemented yet. |
-| [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. No implementation yet. |
+| [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. The pipeline is not implemented yet. |
+| [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary: the site-path encoder with its negative tests, run and step statuses, and the observation types. |
 | [conformance](conformance/README.md) | The shared conformance cases. Today only the OpenFlow decode cases exist. |
