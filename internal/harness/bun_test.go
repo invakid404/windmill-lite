@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -464,6 +465,59 @@ func pidOf(t *testing.T, x engine.StepExecutor, run string) int {
 	return info.PID
 }
 
+// gate is an invocation of the gate fixture step, which creates the file
+// started and then runs until the test opens the gate, whatever happens to
+// the invocation meanwhile.
+type gate struct{ started, release string }
+
+// newGate returns a gate with its files in dir, which it opens when the
+// test ends. dir must be made before the pool, so that it outlives the
+// pool: a step still held at a failure then ends before the pool closes.
+func newGate(t *testing.T, dir, name string) gate {
+	g := gate{started: filepath.Join(dir, name+".started"), release: filepath.Join(dir, name+".release")}
+	t.Cleanup(func() { os.WriteFile(g.release, nil, 0o600) })
+	return g
+}
+
+func (g gate) invocation(rep engine.Reporter) engine.Invocation {
+	args, _ := json.Marshal(map[string]string{"started": g.started, "release": g.release})
+	return newInvocation("gate", string(args), rep)
+}
+
+// startedWithin reports whether the step has started, waiting up to d.
+func (g gate) startedWithin(d time.Duration) bool {
+	for deadline := time.Now().Add(d); ; time.Sleep(2 * time.Millisecond) {
+		if _, err := os.Stat(g.started); err == nil {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
+}
+
+func (g gate) open(t *testing.T) {
+	t.Helper()
+	if err := os.WriteFile(g.release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// statsRecorder is a recorder that also takes the pool's stats when the
+// invocation settles, from inside the Reporter call.
+type statsRecorder struct {
+	*recorder
+	pool *Pool
+	// atSettled is written before Settled is recorded, so it is safe to read
+	// after waitSettled.
+	atSettled []ProcessStats
+}
+
+func (r *statsRecorder) Settled(k engine.SettleKind) {
+	r.atSettled = r.pool.Stats()
+	r.recorder.Settled(k)
+}
+
 // ADR 0004 §Cancellation item 4: an abandoned invocation taints its
 // process, which gets no new invocations; with nothing else in flight it
 // is drained and replaced, which settles the abandoned call.
@@ -490,44 +544,67 @@ func TestBunPoolRecyclesATaintedProcess(t *testing.T) {
 // A tainted process with other work in flight keeps it and gets no new
 // invocations (a new process takes them). Once its abandoned invocation
 // settles it returns to service when the pool has room below Max, and
-// leaves once idle when it has not.
+// leaves once idle when it has not. The pool applies the settlement before
+// the invocation's Reporter hears of it. Gate steps report that they have
+// started and end when the test opens them, and lag routing is off, so no
+// check depends on timing.
 func TestBunPoolTaintedProcessReturnsToService(t *testing.T) {
 	for _, tc := range []struct {
 		max  int
 		back bool
 	}{{2, true}, {1, false}} {
 		t.Run(fmt.Sprintf("max %d", tc.max), func(t *testing.T) {
+			gates := t.TempDir()
 			cfg, _ := bunConfig(t)
-			pool := newPool(t, PoolConfig{Process: cfg, Max: tc.max})
+			pool := newPool(t, PoolConfig{Process: cfg, Max: tc.max, LagThreshold: -1})
 			first := pidOf(t, pool, "a")
-			long := make(chan engine.StepOutcome, 1)
+			long := newGate(t, gates, "long")
+			longOut := make(chan engine.StepOutcome, 1)
 			go func() {
-				out, _ := execute(t, pool, newInvocation("sleep", `{"ms":1500}`, newRecorder()), 10*time.Second)
-				long <- out
+				out, _ := execute(t, pool, long.invocation(newRecorder()), 30*time.Second)
+				longOut <- out
 			}()
-			time.Sleep(100 * time.Millisecond)
-			rec := newRecorder()
-			ctx, cancel := context.WithTimeoutCause(context.Background(), 50*time.Millisecond, engine.CancelTimeout)
-			defer cancel()
-			if _, err := pool.Execute(ctx, newInvocation("sleep", `{"ms":300}`, rec)); !errors.Is(err, engine.CancelTimeout) {
+			if !long.startedWithin(10 * time.Second) {
+				t.Fatal("the co-resident step did not start")
+			}
+			// The step is abandoned only once it runs in the harness.
+			held := newGate(t, gates, "held")
+			rec := &statsRecorder{recorder: newRecorder(), pool: pool}
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			go func() {
+				if held.startedWithin(10 * time.Second) {
+					cancel(engine.CancelTimeout)
+				} else {
+					cancel(errors.New("the step to abandon did not start"))
+				}
+			}()
+			if _, err := pool.Execute(ctx, held.invocation(rec)); !errors.Is(err, engine.CancelTimeout) {
 				t.Fatalf("got %v", err)
 			}
 			if other := pidOf(t, pool, "b"); other == first {
 				t.Fatalf("a new invocation went to the tainted process %d", first)
 			}
-			if k := rec.waitSettled(t, 3*time.Second); k != engine.SettleCompleted {
+			held.open(t)
+			if k := rec.waitSettled(t, 10*time.Second); k != engine.SettleCompleted {
 				t.Fatalf("settled %s", k)
 			}
 			var st *ProcessStats
-			for _, s := range pool.Stats() {
+			for _, s := range rec.atSettled {
 				if s.PID == first {
 					st = &s
 				}
 			}
-			if st == nil || st.Tainted || st.Surplus != !tc.back {
-				t.Fatalf("process %d after its taint cleared: %+v", first, pool.Stats())
+			if st == nil || st.Tainted || st.Abandoned != 0 || st.Retiring || st.Surplus != !tc.back {
+				t.Fatalf("process %d when its abandoned invocation settled: %+v", first, rec.atSettled)
 			}
-			if out := <-long; out.Kind != engine.OutcomeOK {
+			// Routing agrees: run a goes back to its process only if that
+			// process returned to service.
+			if again := pidOf(t, pool, "a"); (again == first) != tc.back {
+				t.Fatalf("run a went to process %d; the formerly tainted one is %d", again, first)
+			}
+			long.open(t)
+			if out := <-longOut; out.Kind != engine.OutcomeOK {
 				t.Fatalf("the co-resident invocation got %+v", out)
 			}
 			if tc.back {

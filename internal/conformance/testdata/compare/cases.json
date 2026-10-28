@@ -107,6 +107,54 @@
       "differences": []
     },
     {
+      "name": "loose key order: repeated elements match in any member order",
+      "spec": ["OR-13", "OR-23"], "provenance": "policy",
+      "options": {"unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"b": 2, "a": 1}, 0, {"a": 1, "b": 2}, 0]},
+      "want": {"status": "success", "result": [0, {"a": 1, "b": 2}, 0, {"b": 2, "a": 1}]},
+      "differences": []
+    },
+    {
+      "name": "strict key order: each member order of a repeated element counts on its own",
+      "spec": ["OR-14", "OR-23/b"], "provenance": "policy",
+      "options": {"strict_key_order": true, "unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"a": 1, "b": 2}, {"a": 1, "b": 2}]},
+      "want": {"status": "success", "result": [{"b": 2, "a": 1}, {"a": 1, "b": 2}]},
+      "differences": ["/result: [{\"a\":1,\"b\":2},{\"a\":1,\"b\":2}] != [{\"b\":2,\"a\":1},{\"a\":1,\"b\":2}]"]
+    },
+    {
+      "name": "unordered elements keep numbers by their JSON text",
+      "spec": ["OR-14", "OR-23/b"], "provenance": "policy",
+      "options": {"unordered": ["/result"]},
+      "got": {"status": "success", "result": [1, 1.0]},
+      "want": {"status": "success", "result": [1, 1]},
+      "differences": ["/result: [1,1.0] != [1,1]"]
+    },
+    {
+      "name": "an unordered string element never equals a number with the same digits",
+      "spec": ["OR-23/b"], "provenance": "policy",
+      "options": {"unordered": ["/result"]},
+      "got": {"status": "success", "result": ["1", 1]},
+      "want": {"status": "success", "result": [1, 1]},
+      "differences": ["/result: [\"1\",1] != [1,1]"]
+    },
+    {
+      "name": "arrays inside unordered elements stay ordered unless a pointer names them",
+      "spec": ["OR-23"], "provenance": "policy",
+      "options": {"unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"values": [2, 1]}, {"values": [1, 2]}]},
+      "want": {"status": "success", "result": [{"values": [1, 2]}, {"values": [1, 2]}]},
+      "differences": ["/result: [{\"values\":[2,1]},{\"values\":[1,2]}] != [{\"values\":[1,2]},{\"values\":[1,2]}]"]
+    },
+    {
+      "name": "subset and unordered: an element may hold extra members",
+      "spec": ["OR-15", "OR-23"], "provenance": "policy",
+      "options": {"subset": true, "unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"a": 1, "b": 2}, {"c": 3, "d": 4}]},
+      "want": {"status": "success", "result": [{"c": 3}, {"a": 1}]},
+      "differences": []
+    },
+    {
       "name": "subset and unordered: an early broad match is reassigned",
       "spec": ["OR-15", "OR-23"], "provenance": "policy",
       "options": {"subset": true, "unordered": ["/result"]},
