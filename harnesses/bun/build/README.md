@@ -26,9 +26,12 @@ The request and response types are in `protocol.ts`. A request is `scan`,
 host-provided modules, writes their shims, then sends the build. `parse`
 (`Builder.parseEntry`) is for codebase scripts: for each entry it reports
 what its source records (annotations and bundler target, workflow-as-code
-markers, the packages it imports, its exports and the signature of each,
-as Windmill parses a codebase script's content) and installs, bundles and
-writes nothing. A request it cannot serve
+markers, the packages it imports) and a signature for each export of its
+bundle, whose names the Go build reads from esbuild and sends as the
+entry's `exports` (without them, the source's own exports are scanned).
+As for any Bun script, a function the source declares gets its
+parameters and an export it does not declare gets none. It installs,
+bundles and writes nothing. A request it cannot serve
 at all (unreadable, another Bun) exits with code 2 and an `error` in the
 response. A problem with one script or module is reported against it, and
 the rest are still built.

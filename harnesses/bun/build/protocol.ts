@@ -28,6 +28,9 @@ export type EntryRequest = {
   file?: string;
   content?: string;
   deps?: string;
+  // parse only: the export names of a codebase script's bundle, which the
+  // Go build reads from esbuild; absent, the source's own are scanned.
+  exports?: string[];
 };
 
 export type Request = {

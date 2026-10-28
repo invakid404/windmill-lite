@@ -298,8 +298,11 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     and run-time `require` of relative paths agree with Windmill's; a
     spawned harness extracts `assets/` there before any module loads (in
     host mode, F3a). The metadata records `bundler: "esbuild"` and the
-    `format`; the signatures come from the Bun helper's parse of the
-    source, as Windmill parses a codebase script's content.
+    `format`; the signatures cover every export of the bundle (those an
+    entry re-exports with `export *` included), each with the parameters
+    the Bun helper parses from the entry's own source, as Windmill parses
+    a codebase script's content, or none when the source does not declare
+    it.
   - **Refusals:** several output files (`unsupported_feature`), an asset
     that leaves the working directory or does not read (`invalid_asset`),
     and a `format` other than `cjs` and `esm` ([0001](0001-equivalence-contract.md) §5a).

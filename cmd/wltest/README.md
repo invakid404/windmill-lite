@@ -135,8 +135,10 @@ harness as any other's. With `--node` (default `WL_NODE`; empty skips
 it), each run of a **CommonJS** codebase case also runs on Node, as
 Windmill runs such a bundle (deviation D13,
 [WR-50](../../docs/semantics/languages.md#wr-50)): in a fresh job
-directory holding the bundle as `main.js` beside a `package.json` of `{}`,
-the entry's assets at their paths, its metadata and arguments, and
+directory laid out in Windmill's order: a placeholder `package.json` of
+`{}`, then the bundle as `main.js` and the entry's assets at their paths,
+so an asset named `package.json` replaces the placeholder and its `type`
+decides how Node loads `main.js`; then its metadata, its arguments and
 `noderun.mjs`, run as `node --preserve-symlinks noderun.mjs <entry>`. The
 driver applies the harness's own wrapper rules (`harnesses/bun/runtime/wrapper.ts`,
 transpiled for Node by the pinned Bun) in the harness's order and writes

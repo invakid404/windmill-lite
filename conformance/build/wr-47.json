@@ -260,6 +260,69 @@
           }
         ]
       }
+    },
+    {
+      "spec": "WR-47",
+      "variant": "wildcard-reexport",
+      "provenance": "policy",
+      "title": "exports an entry re-exports with export * get signatures, empty unless the entry declares them",
+      "note": "The metadata covers the bundle's exports, which esbuild links through export *, so a re-exported main is callable (c2b review 1, finding 2). Windmill parses only the script's content (WR-6, WR-7): a function the entry declares gets its parameters, and one it re-exports gets an empty list, never the dependency's.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/lib.ts": "export function main(x: number) { return x + 1; }\nexport function other() { return \"other\"; }\n",
+          "f/cb/wild.ts": "export * from \"./lib\";\nexport function own(a: number, when: Date) { return a; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/wild": {
+            "format": "cjs",
+            "exports": [
+              "main",
+              "other",
+              "own"
+            ],
+            "signatures": {
+              "main": {
+                "params": []
+              },
+              "other": {
+                "params": []
+              },
+              "own": {
+                "params": [
+                  {
+                    "name": "a",
+                    "date": false
+                  },
+                  {
+                    "name": "when",
+                    "date": true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/wild",
+              "args": [
+                1
+              ],
+              "result": 2
+            },
+            {
+              "entry": "f/cb/wild",
+              "export": "other",
+              "result": "other"
+            }
+          ]
+        }
+      }
     }
   ]
 }

@@ -65,3 +65,43 @@ cases:
     runs:
       - args: '{"_ENTRYPOINT_OVERRIDE":"other","ccc":3,"a":1,"10":0,"bb":2}'
         expect: {status: success, result: [0, 3, 1, 2]}
+  - spec: WR-6
+    variant: codebase-wildcard-cjs
+    provenance: policy
+    title: a codebase script's main that its entry re-exports with export * is called, with no parameters bound, in CommonJS
+    note: >-
+      The entry declares no main, so its signature is an empty parameter
+      list (WR-6, WR-7): main gets no arguments, and an override to a
+      re-exported function with arguments gets the values of the
+      non-underscore keys (WR-V1). The bundle is CommonJS, so the runs
+      also hold on Node (D13) (c2b review 1, finding 2).
+    codebase: {relative_path: f/wl_step}
+    files:
+      f/wl_step/cb_wildcard_lib.ts: |
+        export function main(x?: number) { return ["main", x ?? "no argument"]; }
+        export function helper(x: number) { return ["helper", x]; }
+    path: f/wl_step/cb_wildcard_cjs
+    script: |
+      export * from "./cb_wildcard_lib";
+    runs:
+      - args: '{"x":1}'
+        expect: {status: success, result: [main, no argument]}
+      - args: '{"x":5,"_ENTRYPOINT_OVERRIDE":"helper"}'
+        expect: {status: success, result: [helper, 5]}
+  - spec: WR-6
+    variant: codebase-wildcard-esm
+    provenance: policy
+    title: a codebase script's main that its entry re-exports with export * is called, with no parameters bound, in ES module output
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/cb_wildcard_lib.ts: |
+        export function main(x?: number) { return ["main", x ?? "no argument"]; }
+        export function helper(x: number) { return ["helper", x]; }
+    path: f/wl_step/cb_wildcard_esm
+    script: |
+      export * from "./cb_wildcard_lib";
+    runs:
+      - args: '{"x":1}'
+        expect: {status: success, result: [main, no argument]}
+      - args: '{"x":5,"_ENTRYPOINT_OVERRIDE":"helper"}'
+        expect: {status: success, result: [helper, 5]}

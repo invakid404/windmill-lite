@@ -9,9 +9,13 @@
 # sides differ only in the runtime and its module loader. A run's own
 # check holds on both; `node` gives what Node shows where the two differ.
 # The differences found: the runtime itself is visible (globalThis.Bun,
-# process.versions.bun), and the default export of a module built from
-# ES module source is the module's default on Bun but the whole exports
-# object on Node.
+# process.versions.bun); the default export of a module built from ES
+# module source is the module's default on Bun but the whole exports
+# object on Node; and a package.json asset declaring "type": "module"
+# makes Node load the CommonJS bundle as an ES module, which fails, while
+# the harness loads it as CommonJS (wr-50.yaml, in a bundle of its own,
+# since that asset also changes how Bun imports the default export of
+# every CommonJS module in the working directory it is in).
 finding: D13
 scope: core
 cases:
@@ -187,3 +191,25 @@ cases:
       - args: '{}'
         expect: {status: success, result: [string, string, function]}
         node: {expect: {status: success, result: [undefined, string, function]}}
+  - spec: WR-50
+    variant: package-json-asset
+    provenance: source-derived
+    title: an asset named package.json replaces the placeholder, and the script reads it
+    note: >-
+      The worker writes a placeholder package.json of {} first, then
+      unpacks main.js and the assets, so an asset of that name replaces
+      it (WR-50). wltest check's Node side lays out the job directory in
+      that order (c2b review 1, finding 3); the harness extracts the
+      asset into its working directory.
+    codebase:
+      relative_path: f/wl_step
+      assets: [{from: f/wl_step/pkg/package.json, to: package.json}]
+    files:
+      f/wl_step/pkg/package.json: '{"tag": "kept"}'
+    path: f/wl_step/cb_package_json
+    script: |
+      import { readFileSync } from "node:fs";
+      export function main() { return JSON.parse(readFileSync("package.json", "utf8")).tag ?? null; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: kept}

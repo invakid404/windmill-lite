@@ -202,14 +202,22 @@ CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
   esbuild through a plugin that only maps paths: the support module and
   the shims load from its `windmill-lite` namespace, so no bundle names a
   file outside the folder and the output does not depend on where it was
-  built. The binding name is chosen as the Bun helper chooses it (`spells`
-  applies the same rule). `//native` and `//nodejs` scripts are not
+  built. esbuild calls the plugin concurrently, one call per import
+  being resolved, so what it records is kept under a lock. The binding
+  name is chosen as the Bun helper chooses it (`spells` applies the same
+  rule). `//native` and `//nodejs` scripts are not
   rewritten.
 - **Metadata.** The helper's `parse` op reads each source for its
-  annotations, workflow-as-code markers, packages, exports and signatures,
-  as Windmill parses a codebase script's content (WR-6, WR-7). The
-  metadata adds `bundler: "esbuild"`, the `format`, the host-provided
-  modules used and esbuild's metafile inputs.
+  annotations, workflow-as-code markers and packages, and records a
+  signature for each export of the bundle: the export names come from the
+  metafile of an ES module build of the same entry (`bundleExports`; a
+  CommonJS bundle's `module.exports` takes the same names), so a function
+  the entry re-exports with `export *` is callable. A function the entry
+  source declares gets its parameters, as Windmill parses a codebase
+  script's content (WR-6, WR-7); one it does not declare gets an empty
+  list, never a dependency's parameters. The metadata adds
+  `bundler: "esbuild"`, the `format`, the host-provided modules used and
+  esbuild's metafile inputs.
 - **Output.** `scripts/bun/<id>.cjs` for CommonJS (or `.mjs`) and its
   `.meta.json`; every asset at `assets/<to>`. esbuild's warnings (such as an
   empty `import.meta` in CommonJS output) are build warnings,
@@ -410,7 +418,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   skips. `TestCLIOptionsFollowWR47` is its documented fallback, run
   everywhere: the options `CLIOptions` gives, option by option, are WR-47's
   table, and `go.mod` pins esbuild at the CLI's version.
-  `TestSpells` checks the binding-name collision rule.
+  `TestSpells` checks the binding-name collision rule, and
+  `TestBuildCodebaseConcurrentHostImports` builds 64 modules that each
+  import a listed folder module and a listed package, which esbuild
+  resolves concurrently (run under `-race` in CI), and runs the bundle.
 - `TestBuildIsReproducible`, `TestMetaFile`, `TestBuildLocks`,
   `TestBuildRefusesAnotherBun`, `TestBuildIgnoresNodeEnv`,
   `TestBuildRefusesAncestorPackages`, `TestHelperRefusesPathsOutsideTheFolder`,

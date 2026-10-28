@@ -424,10 +424,13 @@ export class Builder {
 
   // What a codebase script's source records, which esbuild bundles in Go
   // (C2b): its annotations and bundler target, the workflow-as-code
-  // markers, the packages it imports, and the signature of each export of
-  // the source itself, as Windmill parses the script's content (WR-6, WR-7;
-  // SY-8 sends the source with the bundle). Nothing is installed, bundled
-  // or written.
+  // markers, the packages it imports, and a signature for each export of
+  // its bundle (e.exports, which the Go build reads from esbuild, or the
+  // source's own exports without it). As for any Bun script, a function the
+  // source declares gets its parameters, as Windmill parses the script's
+  // content (WR-6, WR-7; SY-8 sends the source with the bundle), and an
+  // export it does not declare, such as one `export *` brings in, gets none.
+  // Nothing is installed, bundled or written.
   parseEntry(e: EntryRequest): EntryResult {
     const source = e.file !== undefined ? this.readFolder(e.file) : (e.content ?? "");
     const meta: Record<string, unknown> = { path: e.path };
@@ -440,7 +443,7 @@ export class Builder {
     const annotations = parseAnnotations(source);
     let exports: string[];
     try {
-      exports = sourceScanner.scan(source).exports;
+      exports = e.exports ?? sourceScanner.scan(source).exports;
     } catch (err) {
       return { meta, error: { kind: "parse_failed", message: buildMessage(err) } };
     }

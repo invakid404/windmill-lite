@@ -521,10 +521,16 @@ cases:
 codebase case on Node as well, as Windmill runs such a bundle
 ([WR-30](../docs/semantics/languages.md#wr-30),
 [WR-50](../docs/semantics/languages.md#wr-50)): in a job directory of its
-own holding the bundle as `main.js` beside a `package.json` of `{}` and the
-entry's assets, with the harness's own wrapper rules, so that the two sides
-differ only in the runtime and its module loader. `d13.yaml` holds the
-differential: where Node and the Bun harness agree, and where they differ.
+own laid out in Windmill's order (a placeholder `package.json` of `{}`,
+then the bundle as `main.js` and the entry's assets, so that an asset named
+`package.json` replaces the placeholder), with the harness's own wrapper
+rules, so that the two sides differ only in the runtime and its module
+loader. `d13.yaml` holds the differential: where Node and the Bun harness
+agree, and where they differ. `wr-50.yaml` holds the one case whose
+`package.json` asset declares `"type": "module"`, in a bundle of its own:
+the harness extracts every asset of a step file's bundle into its working
+directory (D10), and such a file there also makes Bun import the default
+export of every CommonJS module beside it as Node does.
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step

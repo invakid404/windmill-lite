@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/evanw/esbuild/pkg/api"
@@ -185,6 +186,50 @@ func (s *CodebaseSettings) CLIBundle(root, file string) (map[string][]byte, erro
 	return out, nil
 }
 
+// bundleExports returns the export names of a codebase script's bundle:
+// what its entry exports, including what it re-exports with export *, as
+// esbuild links the modules. A CommonJS bundle's module.exports takes the
+// same names, so they are read from the metafile of an ES module build of
+// the same entry, whose output lists them. It returns nil when that build
+// fails, which the real build then reports.
+//
+// The helper records a signature for each: the entry source's own
+// parameter list for a function it declares, and none (an empty list) for
+// a name it does not declare, such as one export * brings in. A
+// dependency's declarations are never read as the entry's: Windmill parses
+// only the script's content (WR-6, WR-7).
+func (s *CodebaseSettings) bundleExports(root, file string) []string {
+	o, err := s.CLIOptions(root, file)
+	if err != nil {
+		return nil
+	}
+	o.Format, o.Target, o.Engines, o.Metafile = api.FormatESModule, api.ESNext, nil, true
+	r := api.Build(o)
+	if len(r.Errors) > 0 {
+		return nil
+	}
+	var mf struct {
+		Outputs map[string]struct {
+			EntryPoint string   `json:"entryPoint"`
+			Exports    []string `json:"exports"`
+		} `json:"outputs"`
+	}
+	if json.Unmarshal([]byte(r.Metafile), &mf) != nil {
+		return nil
+	}
+	for _, out := range mf.Outputs {
+		if out.EntryPoint != "" {
+			names := slices.Clone(out.Exports)
+			if names == nil {
+				names = []string{}
+			}
+			slices.Sort(names)
+			return names
+		}
+	}
+	return nil
+}
+
 // CodebaseScript is one codebase script to bundle (SY-8).
 type CodebaseScript struct {
 	// ID names its files in the bundle, as BunScript.ID does:
@@ -336,7 +381,13 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 		req.RequireBun = harness.PinnedBun
 	}
 	for _, e := range cfg.Entries {
-		req.Entries = append(req.Entries, helperEntry{ID: e.ID, Path: e.Path, File: e.File})
+		h := helperEntry{ID: e.ID, Path: e.Path, File: e.File}
+		// The signatures cover what the bundle exports, re-exports through
+		// export * included (c2b review 1, finding 2).
+		if s, err := ParseCodebaseSettings(e.Settings); err == nil {
+			h.Exports = s.bundleExports(cfg.Folder, e.File)
+		}
+		req.Entries = append(req.Entries, h)
 	}
 	resp, err := runHelper(ctx, &bc, &req)
 	if err != nil {
@@ -530,9 +581,14 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 		}
 		byFile[p] = m.Key
 	}
+	// esbuild runs the plugin's callbacks concurrently, one per import
+	// being resolved, so what they record is kept under a lock.
+	var mu sync.Mutex
 	used := map[string]bool{}
 	shimPath := func(key string) api.OnResolveResult {
+		mu.Lock()
 		used[key] = true
+		mu.Unlock()
 		return api.OnResolveResult{Path: "host/" + key, Namespace: pluginNamespace}
 	}
 	o.Plugins = []api.Plugin{{Name: "windmill-lite", Setup: func(b api.PluginBuild) {
@@ -619,6 +675,7 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 	for _, w := range r.Warnings {
 		warnings = append(warnings, esbuildMessage(w))
 	}
+	// The build has returned, so no callback runs any more.
 	keys := make([]string, 0, len(used))
 	for k := range used {
 		keys = append(keys, k)

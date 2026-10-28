@@ -486,30 +486,40 @@ func (sc *stepChecker) runNode(ctx context.Context, c *conformance.StepCase, r *
 		return conformance.Observation{}, err
 	}
 	defer os.RemoveAll(job)
+	// The job directory in Windmill's order (WR-50): the placeholder
+	// package.json first, then the bundle as main.js and the entry's
+	// assets at their paths, as a tar unpacks, so an asset named
+	// package.json replaces the placeholder and its type decides how Node
+	// loads main.js (c2b review 1, finding 3). The runner's own files come
+	// last.
 	scripts := filepath.Join(out, "scripts", "bun", filepath.FromSlash(id))
-	files := map[string]string{
-		"main.js":        scripts + ".cjs",
-		"meta.json":      scripts + ".meta.json",
-		"wl-wrapper.mjs": wrapper,
+	if err := writeJobFile(job, "package.json", []byte("{}\n")); err != nil {
+		return conformance.Observation{}, err
 	}
+	type jobFile struct{ to, from string }
+	files := []jobFile{{"main.js", scripts + ".cjs"}}
 	var settings struct {
 		Assets []bundle.Asset `json:"assets"`
 	}
 	json.Unmarshal(c.Codebase, &settings)
 	for _, a := range settings.Assets {
-		files[a.To] = filepath.Join(out, "assets", filepath.FromSlash(a.To))
+		files = append(files, jobFile{a.To, filepath.Join(out, "assets", filepath.FromSlash(a.To))})
 	}
-	for to, from := range files {
-		b, err := os.ReadFile(from)
+	files = append(files, jobFile{"meta.json", scripts + ".meta.json"}, jobFile{"wl-wrapper.mjs", wrapper})
+	for _, f := range files {
+		b, err := os.ReadFile(f.from)
 		if err != nil {
 			return conformance.Observation{}, err
 		}
-		if err := writeJobFile(job, to, b); err != nil {
+		if err := writeJobFile(job, f.to, b); err != nil {
 			return conformance.Observation{}, err
 		}
 	}
-	for name, b := range map[string][]byte{"package.json": []byte("{}\n"), "noderun.mjs": nodeDriver, "args.json": []byte(r.Args)} {
-		if err := writeJobFile(job, name, b); err != nil {
+	for _, f := range []struct {
+		name string
+		data []byte
+	}{{"noderun.mjs", nodeDriver}, {"args.json", []byte(r.Args)}} {
+		if err := writeJobFile(job, f.name, f.data); err != nil {
 			return conformance.Observation{}, err
 		}
 	}
