@@ -98,7 +98,8 @@ Recording batches E3a to E3e record them on the oracle (E3e holds the
 contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
-keeps both readings.
+keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
+and FX-33 (Q-FX-19), both for the stated default; 0001 §6 gives the results.
 
 ## Requests to the semantics team
 
