@@ -50,6 +50,7 @@ func (d ExecDocker) Run(ctx context.Context, env []string, args ...string) ([]by
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	ownProcessGroup(cmd) // docker compose runs as a child plugin
 	cmd.Env = append(dockerEnv(os.Environ()), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

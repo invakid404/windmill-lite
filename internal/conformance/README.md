@@ -218,8 +218,12 @@ number text and duplicate elements:
   `StrictKeyOrder` compares member order inside values, never in the
   observation's own fields;
 - arrays in order, except at `Unordered` pointers, which compare as
-  multisets ([OR-23](../../docs/semantics/oracle.md#or-23)); their elements
-  compare as values, with the same key-order policy;
+  multisets ([OR-23](../../docs/semantics/oracle.md#or-23)): the elements
+  are matched one to one by a maximum bipartite matching, so in subset mode
+  a broad expected element never takes the only match of a narrower one.
+  Each expected element is compared at its own index, so strict key order
+  applies inside it and unordered pointers below it (for example
+  `/result/0/values`) still hold;
 - numbers by their JSON text;
 - a step field one side leaves to its canonical absence and the other spells
   out is expanded first, so the two spellings compare equal;

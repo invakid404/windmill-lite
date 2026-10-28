@@ -185,7 +185,7 @@ func (c *comparer) compare(path []string, got, want *jnode) {
 		c.compareObjects(path, got, want)
 	case kindArray:
 		if c.unordered[JoinPointer(path)] {
-			if !multisetEqual(path, got.elems, want.elems, c.opt) {
+			if !c.multisetEqual(path, got.elems, want.elems) {
 				c.add(path, got, want)
 			}
 			return
@@ -249,38 +249,62 @@ func sameKeyOrder(a, b *jnode) bool {
 }
 
 // multisetEqual reports whether got and want, the elements of the array at
-// path, hold the same elements with the same multiplicity. Element equality
-// is an equivalence, so a greedy matching decides it. Elements are compared
-// as values below path, with the same options.
-func multisetEqual(path []string, got, want []*jnode, opt CompareOptions) bool {
-	if len(got) != len(want) {
+// path, hold the same elements with the same multiplicity (OR-23/b). Each
+// expected element is compared at its own path, path/<j>, with the same
+// options, so strict key order applies inside it and unordered pointers
+// below it still hold. The elements are matched one to one by a maximum
+// bipartite matching: in subset mode element equality is not symmetric,
+// so a greedy choice could take the only match of a later element.
+func (c *comparer) multisetEqual(path []string, got, want []*jnode) bool {
+	n := len(want)
+	if len(got) != n {
 		return false
 	}
-	used := make([]bool, len(got))
-	for _, w := range want {
-		found := false
-		for i, g := range got {
-			if !used[i] && nodesEqual(path, g, w, opt) {
-				used[i] = true
-				found = true
-				break
+	// eq[j][i]: 0 unknown, 1 equal, 2 different.
+	eq := make([][]byte, n)
+	for j := range eq {
+		eq[j] = make([]byte, n)
+	}
+	equal := func(j, i int) bool {
+		if eq[j][i] == 0 {
+			eq[j][i] = 2
+			if c.nodesEqual(append(append([]string(nil), path...), fmt.Sprint(j)), got[i], want[j]) {
+				eq[j][i] = 1
 			}
 		}
-		if !found {
+		return eq[j][i] == 1
+	}
+	owner := make([]int, n) // owner[i]: the expected element matched to got[i], or -1
+	for i := range owner {
+		owner[i] = -1
+	}
+	var augment func(j int, seen []bool) bool
+	augment = func(j int, seen []bool) bool {
+		for i := 0; i < n; i++ {
+			if seen[i] || !equal(j, i) {
+				continue
+			}
+			seen[i] = true
+			if owner[i] < 0 || augment(owner[i], seen) {
+				owner[i] = j
+				return true
+			}
+		}
+		return false
+	}
+	for j := 0; j < n; j++ {
+		if !augment(j, make([]bool, n)) {
 			return false
 		}
 	}
 	return true
 }
 
-// nodesEqual compares two elements of the array at path. The element's
-// path carries the placeholder token "*", which no index has, so the
-// element is a value (strict key order applies to it) and no unordered
-// pointer matches below it.
-func nodesEqual(path []string, a, b *jnode, opt CompareOptions) bool {
-	c := comparer{opt: opt, unordered: map[string]bool{}}
-	c.compare(append(append([]string(nil), path...), "*"), a, b)
-	return len(c.diffs) == 0
+// nodesEqual compares an actual element with the expected element at path.
+func (c *comparer) nodesEqual(path []string, a, b *jnode) bool {
+	sub := comparer{opt: c.opt, unordered: c.unordered}
+	sub.compare(path, a, b)
+	return len(sub.diffs) == 0
 }
 
 // SplitPointer splits an RFC 6901 JSON Pointer into its reference tokens.

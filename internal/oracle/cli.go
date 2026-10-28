@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -64,6 +65,7 @@ func (c CLI) run(ctx context.Context, dir string, args []string) error {
 		return fmt.Errorf("oracle: no CLI command")
 	}
 	cmd := exec.CommandContext(ctx, c.Command[0], args...)
+	ownProcessGroup(cmd)
 	cmd.Dir = dir
 	cmd.Env = c.env()
 	var stderr bytes.Buffer
@@ -102,6 +104,7 @@ func (c CLI) Version(ctx context.Context) (string, error) {
 	}
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, c.Command[0], append(append([]string(nil), c.Command[1:]...), "--version")...)
+	ownProcessGroup(cmd)
 	cmd.Env = c.env()
 	cmd.Dir = c.Home
 	cmd.Stdout = &out
@@ -110,10 +113,27 @@ func (c CLI) Version(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("oracle: %s --version: %w", strings.Join(c.Command, " "), err)
 	}
 	v := strings.TrimSpace(out.String())
-	if !strings.Contains(v, CLIVersion) {
-		return v, refusal("cli_version_mismatch", "want", jsonString(CLIVersion), "got", jsonString(v))
+	if got := reportedVersion(v); got != CLIVersion {
+		return v, refusal("cli_version_mismatch", "want", jsonString(CLIVersion), "got", jsonString(got))
 	}
 	return v, nil
+}
+
+// versionToken is a version as a CLI prints it: three numbers and any
+// pre-release or build suffix.
+var versionToken = regexp.MustCompile(`(?:^|[^0-9A-Za-z.])v?([0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*)`)
+
+// reportedVersion returns the version the --version output reports: the
+// first version on its first line that has one. The CLI prints "CLI
+// version: 1.767.0" and may add an "outdated, latest is …" notice on a
+// later line, which is not its version. It returns "" when there is none.
+func reportedVersion(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if m := versionToken.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+	}
+	return ""
 }
 
 // AddMissingFolders runs `folder add-missing --yes` in a sync tree. It

@@ -143,3 +143,12 @@ func TestImageIdentity(t *testing.T) {
 		t.Error("the pinned digest under another repository passed")
 	}
 }
+
+// TestDockerEnvDropsTopologyVariables: variables that would change the
+// compose topology never reach docker (OR-4, OR-5).
+func TestDockerEnvDropsTopologyVariables(t *testing.T) {
+	got := dockerEnv([]string{"PATH=/bin", "COMPOSE_PROFILES=workers2", "COMPOSE_FILE=x.yml", "DOCKER_DEFAULT_PLATFORM=linux/arm64", "DOCKER_HOST=unix:///x", "HOME=/h"})
+	if want := []string{"PATH=/bin", "DOCKER_HOST=unix:///x", "HOME=/h"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

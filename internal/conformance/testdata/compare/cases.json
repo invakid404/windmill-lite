@@ -107,6 +107,54 @@
       "differences": []
     },
     {
+      "name": "subset and unordered: an early broad match is reassigned",
+      "spec": ["OR-15", "OR-23"], "provenance": "policy",
+      "options": {"subset": true, "unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"a": 1, "b": 2}, {"a": 1}]},
+      "want": {"status": "success", "result": [{"a": 1}, {"a": 1, "b": 2}]},
+      "differences": []
+    },
+    {
+      "name": "subset and unordered: the same expectation in the other order",
+      "spec": ["OR-15", "OR-23"], "provenance": "policy",
+      "options": {"subset": true, "unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"a": 1}, {"a": 1, "b": 2}]},
+      "want": {"status": "success", "result": [{"a": 1}, {"a": 1, "b": 2}]},
+      "differences": []
+    },
+    {
+      "name": "subset and unordered: multiplicity still counts",
+      "spec": ["OR-15", "OR-23/b"], "provenance": "policy",
+      "options": {"subset": true, "unordered": ["/result"]},
+      "got": {"status": "success", "result": [{"a": 1, "b": 2}, {"c": 3}]},
+      "want": {"status": "success", "result": [{"a": 1}, {"a": 1, "b": 2}]},
+      "differences": ["/result: [{\"a\":1,\"b\":2},{\"c\":3}] != [{\"a\":1},{\"a\":1,\"b\":2}]"]
+    },
+    {
+      "name": "a nested unordered pointer holds inside an unordered element",
+      "spec": ["OR-23"], "provenance": "policy",
+      "options": {"unordered": ["/result", "/result/0/values"]},
+      "got": {"status": "success", "result": [{"values": [2, 1]}]},
+      "want": {"status": "success", "result": [{"values": [1, 2]}]},
+      "differences": []
+    },
+    {
+      "name": "a nested unordered pointer follows the expected element when the outer elements are reordered",
+      "spec": ["OR-23"], "provenance": "policy",
+      "options": {"unordered": ["/result", "/result/1/values"]},
+      "got": {"status": "success", "result": [{"k": "y", "values": [2, 1]}, {"k": "x", "values": [1, 2]}]},
+      "want": {"status": "success", "result": [{"k": "x", "values": [1, 2]}, {"k": "y", "values": [1, 2]}]},
+      "differences": []
+    },
+    {
+      "name": "the nested pointer applies only to the element it names",
+      "spec": ["OR-23"], "provenance": "policy",
+      "options": {"unordered": ["/result", "/result/1/values"]},
+      "got": {"status": "success", "result": [{"k": "x", "values": [2, 1]}, {"k": "y", "values": [1, 2]}]},
+      "want": {"status": "success", "result": [{"k": "x", "values": [1, 2]}, {"k": "y", "values": [1, 2]}]},
+      "differences": ["/result: [{\"k\":\"x\",\"values\":[2,1]},{\"k\":\"y\",\"values\":[1,2]}] != [{\"k\":\"x\",\"values\":[1,2]},{\"k\":\"y\",\"values\":[1,2]}]"]
+    },
+    {
       "name": "numbers compare by their JSON text",
       "spec": ["OR-14", "OR-13"], "provenance": "policy",
       "got": {"status": "success", "result": 1.0},

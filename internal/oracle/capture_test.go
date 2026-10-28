@@ -109,3 +109,45 @@ func TestReplayRecordedCaptures(t *testing.T) {
 		})
 	}
 }
+
+// TestCommittedRecordingsNameThePinnedOracle: every recording committed
+// under conformance/flows was made on the pinned oracle with the pinned
+// loader (OR-V5/b), so a recording of another reference fails the Go CI,
+// not only the next oracle run.
+func TestCommittedRecordingsNameThePinnedOracle(t *testing.T) {
+	// spec: OR-V5/b, OR-15
+	dirs, err := conformance.FindFixtures("../../conformance/flows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordings := 0
+	for _, d := range dirs {
+		f, err := conformance.LoadFixture(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range f.Runs {
+			if r.Recorded == nil {
+				continue
+			}
+			recordings++
+			if err := CheckRecordingIdentity(r.Recorded.Provenance); err != nil {
+				t.Errorf("%s run %s: %v", d, r.Name, err)
+			}
+		}
+	}
+	if recordings == 0 {
+		t.Fatal("no committed recordings")
+	}
+	for _, bad := range []string{
+		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.767.0-beta"}}`,
+		`{"oracle":{"version":"CE v1.767.0 ","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
+		`{"oracle":{"version":"CE v1.767.0","image":"` + WindmillRepo + `:1.767.0","cli":"` + CLIPackage + `"}}`,
+		`{"oracle":{"version":null,"image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`,
+		`not json`,
+	} {
+		if err := CheckRecordingIdentity(json.RawMessage(bad)); err == nil {
+			t.Errorf("accepted %s", bad)
+		}
+	}
+}

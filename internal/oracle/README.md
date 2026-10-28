@@ -23,17 +23,23 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    5 GiB left after the estimated need; a watchdog aborts the pull below
    5 GiB, nothing resumes, and a settled reading below 5 GiB after the pull
    removes the images it pulled. Then require each image's `RepoDigests` to
-   carry its pinned digest ([OR-1](../../docs/semantics/oracle.md#or-1)).
+   carry its pinned digest ([OR-1](../../docs/semantics/oracle.md#or-1)),
+   and, whether or not anything was pulled, at least 5 GiB free before the
+   oracle starts; images that were already present stay.
 2. **Start.** Start the effect sink, write `compose.yaml` (Postgres on tmpfs
    and the CE image in standalone mode, pinned by digest, never pulled by
    compose, ports on `127.0.0.1`; [OR-4](../../docs/semantics/oracle.md#or-4))
    and `docker compose up -d`. A two-worker session enables the `workers2`
-   profile ([OR-5](../../docs/semantics/oracle.md#or-5)).
+   profile ([OR-5](../../docs/semantics/oracle.md#or-5)). The disk watchdog
+   covers the start and the rest of the session.
 3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.767.0`,
    then for a healthy status with enough workers; log in as the seeded
    superadmin ([OR-6](../../docs/semantics/oracle.md#or-6)).
 4. **Per fixture.** Refuse a fixture that needs more workers than the
-   session has. Create a fresh workspace `wl-<6 hex>-<n>`; optionally run
+   session has, and a run whose committed recording names another oracle
+   version, image or CLI than the pins (`recording_identity_mismatch`,
+   [OR-V5](../../docs/semantics/oracle.md#or-v5)/b), before anything is
+   deployed; to re-record against a new pin, delete the recording. Create a fresh workspace `wl-<6 hex>-<n>`; optionally run
    `folder add-missing` and `generate-metadata` in the fixture's sync tree
    (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)); push a
    copy of the tree with the CLI; apply `setup.yaml` after the push
@@ -53,6 +59,9 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    exposes them, `docker compose down -v`, and require that no container,
    volume or network with the project label is left (OR-18/a). Teardown
    always runs, and the disk watchdog stops the session below 5 GiB.
+   Docker and CLI commands run in a process group of their own, killed as a
+   whole when the session is canceled, so a launcher such as `npx` cannot
+   leave the CLI running and block the teardown.
 
 Every refusal is a `*Refusal` whose text is the JSON the reference gives it,
 for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
@@ -66,7 +75,8 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `Capture` records exchanges for replay. |
-| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. |
+| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. |
+| `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml`, the deployment gate and the deployed-module check. |
 | `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root, and answers anything else with `{"error":"foreign_effect"}`. |
 | `walk.go` | The walker ([OR-11](../../docs/semantics/oracle.md#or-11)). |
@@ -166,7 +176,9 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | Test | What it checks | Cases |
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
-| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, `--out` kept inside its directory, and the refusals of OR-1/b, OR-5/a, OR-30/a, OR-30/c, OR-V5/b and a stale session | the smoke fixture |
+| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
+| `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
+| `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
 | `TestReplayRecordedCaptures` | the raw API captures of the CI recording, replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28 | `testdata/captures/` |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |

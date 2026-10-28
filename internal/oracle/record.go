@@ -64,6 +64,7 @@ type Session struct {
 	measure       FreeSpace
 	settle        time.Duration
 	minRunTimeout time.Duration
+	runWatch      time.Duration
 }
 
 func (s *Session) base() string {
@@ -148,6 +149,9 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	if s.settle == 0 {
 		s.settle = 30 * time.Second
 	}
+	if s.runWatch == 0 {
+		s.runWatch = 10 * time.Second
+	}
 	if s.minRunTimeout == 0 {
 		s.minRunTimeout = 60 * time.Second // OR-10: never less than 60 s
 	}
@@ -168,6 +172,16 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	}
 	if err := s.pull(ctx, rep); err != nil {
 		return rep, err
+	}
+	// Whether or not anything was pulled, the oracle starts only with the
+	// reserve free (OR-30 steps 6 and 7); images that were already present
+	// stay.
+	free, err := s.measure()
+	if err != nil {
+		return rep, err
+	}
+	if free < Reserve {
+		return rep, ErrDiskFloor("start", free, Reserve)
 	}
 
 	tmp, err := os.MkdirTemp("", "wltest-")
@@ -194,12 +208,13 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	}
 	compose := Compose{Docker: s.Docker, File: file, Workers: s.Workers, Env: []string{"WL_EFFECT_SINK=" + sinkURL}}
 	s.logf("starting the oracle (%d worker container(s))", s.Workers)
-	upAt := time.Now()
-	if err := compose.Up(ctx); err != nil {
-		_ = s.teardown(compose, rep)
-		return rep, err
-	}
-	runErr := Watch(ctx, "run", s.measure, 10*time.Second, func(ctx context.Context) error {
+	// The watchdog covers the start as well as the session (OR-30 step 7);
+	// teardown runs whatever happened.
+	runErr := Watch(ctx, "run", s.measure, s.runWatch, func(ctx context.Context) error {
+		upAt := time.Now()
+		if err := compose.Up(ctx); err != nil {
+			return err
+		}
 		return s.session(ctx, rep, fixtures, tmp, sinkURL, &sink, upAt)
 	})
 	if err := s.teardown(compose, rep); err != nil && runErr == nil {
@@ -367,17 +382,33 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 			}
 			continue
 		}
+		// A run whose committed recording was made on another oracle or
+		// with another loader is refused before anything is deployed or
+		// run, whatever its observation says (OR-V5/b).
+		var runs []conformance.Run
+		for _, r := range f.Runs {
+			if r.Recorded != nil {
+				if err := CheckRecordingIdentity(r.Recorded.Provenance); err != nil {
+					rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeRefused, Error: err.Error()})
+					continue
+				}
+			}
+			runs = append(runs, r)
+		}
+		if len(runs) == 0 {
+			continue
+		}
 		ws := fmt.Sprintf("wl-%s-%d", short, i+1)
 		s.logf("fixture %s: workspace %s", name, ws)
 		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
 		rep.Session.Deployments[name] = dep
 		if err != nil {
-			for _, r := range f.Runs {
+			for _, r := range runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
 			}
 			continue
 		}
-		for _, r := range f.Runs {
+		for _, r := range runs {
 			rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
 		}
 	}
@@ -661,6 +692,43 @@ type Provenance struct {
 	Repeats        int               `json:"repeats"`
 	Timings        RunTimings        `json:"timings"`
 	ForeignEffects int               `json:"foreign_effects,omitempty"`
+}
+
+// CheckRecordingIdentity requires a recording's provenance to name the
+// pinned reference: oracle.version CE v1.767.0, oracle.image the pinned
+// image and digest, oracle.cli windmill-cli@1.767.0 (OR-15, OR-V5/b). A
+// missing, malformed or different identity is refused with
+// recording_identity_mismatch. Dates, timings, the host and the other
+// provenance fields are never checked.
+func CheckRecordingIdentity(provenance json.RawMessage) error {
+	var p struct {
+		Oracle *struct {
+			Version *string `json:"version"`
+			Image   *string `json:"image"`
+			CLI     *string `json:"cli"`
+		} `json:"oracle"`
+	}
+	if err := json.Unmarshal(provenance, &p); err != nil || p.Oracle == nil {
+		return refusal("recording_identity_mismatch", "field", jsonString("oracle"), "got", jsonString(string(provenance)))
+	}
+	for _, f := range []struct {
+		name string
+		got  *string
+		want string
+	}{
+		{"oracle.version", p.Oracle.Version, OracleVersion},
+		{"oracle.image", p.Oracle.Image, WindmillImage},
+		{"oracle.cli", p.Oracle.CLI, CLIPackage},
+	} {
+		got := "(absent)"
+		if f.got != nil {
+			got = *f.got
+		}
+		if got != f.want {
+			return refusal("recording_identity_mismatch", "field", jsonString(f.name), "got", jsonString(got), "want", jsonString(f.want))
+		}
+	}
+	return nil
 }
 
 // OracleProvenance identifies the oracle and the loader (OR-1, OR-2, OR-8).

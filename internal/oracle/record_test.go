@@ -27,21 +27,27 @@ import (
 const fakeCLIFlag = "--wltest-fake-cli"
 
 // TestFakeCLI is the fake wmill CLI. It does nothing unless re-executed
-// with fakeCLIFlag: then it logs its arguments to the file named after the
-// flag and prints a version.
+// with fakeCLIFlag, a log file and a hang marker ("-" for none): then it
+// logs its arguments, prints a version for --version, and, with a marker,
+// creates the marker and hangs on sync push.
 func TestFakeCLI(t *testing.T) {
 	args := os.Args
 	for i, a := range args {
-		if a != fakeCLIFlag || i+1 >= len(args) {
+		if a != fakeCLIFlag || i+2 >= len(args) {
 			continue
 		}
+		cli := strings.Join(args[i+3:], " ")
 		f, err := os.OpenFile(args[i+1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err == nil {
-			fmt.Fprintln(f, strings.Join(args[i+2:], " "))
+			fmt.Fprintln(f, cli)
 			f.Close()
 		}
-		if strings.Contains(strings.Join(args[i+2:], " "), "--version") {
-			fmt.Println(CLIVersion)
+		if strings.Contains(cli, "--version") {
+			fmt.Println("CLI version: " + CLIVersion)
+		}
+		if marker := args[i+2]; marker != "-" && strings.Contains(cli, "sync push") {
+			_ = os.WriteFile(marker, nil, 0o644)
+			time.Sleep(time.Minute)
 		}
 		os.Exit(0)
 	}
@@ -332,7 +338,7 @@ func newRig(t *testing.T) *sessionRig {
 func (r *sessionRig) session(free uint64) *Session {
 	return &Session{
 		Docker:       r.docker,
-		CLI:          CLI{Command: []string{os.Args[0], "-test.run=^TestFakeCLI$", "--", fakeCLIFlag, r.cliLog}},
+		CLI:          CLI{Command: []string{os.Args[0], "-test.run=^TestFakeCLI$", "--", fakeCLIFlag, r.cliLog, "-"}},
 		SinkListen:   "127.0.0.1:0",
 		Repeat:       2,
 		RunTimeout:   time.Minute,
@@ -419,7 +425,7 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 	if err := json.Unmarshal(rec["effects"].Provenance, &prov); err != nil {
 		t.Fatal(err)
 	}
-	if prov.Oracle.Version != OracleVersion || prov.Oracle.Image != WindmillImage || prov.Oracle.CLI != CLIPackage || prov.Oracle.CLIVersion != CLIVersion ||
+	if prov.Oracle.Version != OracleVersion || prov.Oracle.Image != WindmillImage || prov.Oracle.CLI != CLIPackage || prov.Oracle.CLIVersion != "CLI version: "+CLIVersion ||
 		prov.Repeats != 2 || prov.Workers != 1 || prov.ForeignEffects != 1 || prov.Env["LISTEN_NEW_EVENTS_INTERVAL_SEC"] != "1" ||
 		!strings.HasPrefix(prov.Env["WL_EFFECT_SINK"], "http://host.docker.internal:") || prov.Timings.Jobs["m:a"].Kind != "script" {
 		t.Fatalf("provenance %+v", prov)
@@ -545,13 +551,26 @@ func TestSessionRefusals(t *testing.T) {
 			t.Fatalf("got %v; calls %q", err, rig.docker.calls)
 		}
 	})
-	t.Run("OR-V5/b: an image without the pinned digest fails the preflight", func(t *testing.T) {
-		// spec: OR-V5/b
+	t.Run("OR-1: an image without the pinned digest fails the preflight", func(t *testing.T) {
 		rig := newRig(t)
 		rig.docker.digests[WindmillImage] = []string{WindmillRepo + "@sha256:0e743cd6"}
 		_, err := rig.session(20*GiB).Run(ctx, []*conformance.Fixture{rig.load(t)})
 		if code(err) != "oracle_image_mismatch" || rig.docker.called("compose") != 0 {
 			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("OR-30: cached images below the floor never start the oracle", func(t *testing.T) {
+		rig := newRig(t)
+		for _, im := range Images {
+			rig.docker.present[im.Ref] = true
+		}
+		_, err := rig.session(4*GiB).Run(ctx, []*conformance.Fixture{rig.load(t)})
+		var r *Refusal
+		if !errors.As(err, &r) || r.Error() != `{"error":"disk_floor_reached","phase":"start","free_gib":4.0,"floor_gib":5}` {
+			t.Fatalf("got %v", err)
+		}
+		if rig.docker.called("compose") != 0 || rig.docker.called("pull") != 0 || rig.docker.called("image rm") != 0 {
+			t.Fatalf("calls %q", rig.docker.calls)
 		}
 	})
 	t.Run("OR-18: an earlier session that was not torn down", func(t *testing.T) {
@@ -644,5 +663,91 @@ func TestSessionOutDirStaysInside(t *testing.T) {
 		if r.Outcome != OutcomeFailed || !strings.Contains(r.Error, "is outside") || r.Wrote != "" {
 			t.Fatalf("%+v", r)
 		}
+	}
+}
+
+// TestSessionRefusesARecordingOfAnotherOracle is OR-V5/b: a committed
+// recording whose oracle identity does not match the pin is refused before
+// anything runs, whatever its observation says.
+func TestSessionRefusesARecordingOfAnotherOracle(t *testing.T) {
+	// spec: OR-V5/b
+	rig := newRig(t)
+	ctx := context.Background()
+	if _, err := rig.session(20*GiB).Run(ctx, []*conformance.Fixture{rig.load(t)}); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range []struct {
+		name, provenance, field string
+	}{
+		{"another version", `{"oracle":{"version":"EE v1.766.0","image":"` + WindmillImage + `","cli":"` + CLIPackage + `"}}`, "oracle.version"},
+		{"another image", `{"oracle":{"version":"CE v1.767.0","image":"ghcr.io/windmill-labs/windmill-ee:1.767.0@sha256:0e743cd6","cli":"` + CLIPackage + `"}}`, "oracle.image"},
+		{"another CLI", `{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `","cli":"windmill-cli@1.766.0"}}`, "oracle.cli"},
+		{"no CLI", `{"oracle":{"version":"CE v1.767.0","image":"` + WindmillImage + `"}}`, "oracle.cli"},
+		{"no oracle", `{"recorded_at":"2026-10-28T00:00:00Z"}`, "oracle"},
+		{"not an object", `[]`, "oracle"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := rig.load(t)
+			for i := range f.Runs {
+				f.Runs[i].Recorded.Provenance = json.RawMessage(c.provenance)
+			}
+			before := rig.oracle.runs
+			// Check mode for every variant; record mode, which would
+			// otherwise rewrite the recording, for the first.
+			modes := []bool{true}
+			if n == 0 {
+				modes = append(modes, false)
+			}
+			for _, check := range modes {
+				s := rig.session(20 * GiB)
+				s.Check = check
+				rep, err := s.Run(ctx, []*conformance.Fixture{f})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, r := range rep.Runs {
+					if r.Outcome != OutcomeRefused || !strings.Contains(r.Error, `"error":"recording_identity_mismatch","field":"`+c.field+`"`) || !r.Failed(check) || r.Wrote != "" {
+						t.Fatalf("check %v: %+v", check, r)
+					}
+				}
+			}
+			if rig.oracle.runs != before {
+				t.Fatalf("a refused recording still ran %d runs", rig.oracle.runs-before)
+			}
+			if log, _ := os.ReadFile(rig.cliLog); strings.Count(string(log), "sync push") != 1 {
+				t.Fatalf("a refused fixture was pushed:\n%s", log)
+			}
+		})
+	}
+}
+
+// TestSessionKillsAHungCLIAndTearsDown: when the disk falls below the floor
+// during a CLI push that never returns, the CLI is killed, the session
+// returns promptly with the refusal, and the stack is torn down (OR-18,
+// OR-30 step 7).
+func TestSessionKillsAHungCLIAndTearsDown(t *testing.T) {
+	rig := newRig(t)
+	marker := filepath.Join(t.TempDir(), "pushing")
+	s := rig.session(0)
+	s.CLI.Command[len(s.CLI.Command)-1] = marker
+	s.measure = func() (uint64, error) {
+		if _, err := os.Stat(marker); err == nil {
+			return 4 * GiB, nil
+		}
+		return 20 * GiB, nil
+	}
+	s.runWatch = 20 * time.Millisecond
+	start := time.Now()
+	_, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	elapsed := time.Since(start)
+	var r *Refusal
+	if !errors.As(err, &r) || r.Code != "disk_floor_reached" {
+		t.Fatalf("got %v", err)
+	}
+	if elapsed > 20*time.Second {
+		t.Fatalf("the session took %s to stop", elapsed)
+	}
+	if rig.docker.calledWith(" down -v") != 1 || rig.docker.up {
+		t.Fatalf("calls %q", rig.docker.calls)
 	}
 }
