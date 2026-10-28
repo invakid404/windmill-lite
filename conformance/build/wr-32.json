@@ -1,13 +1,13 @@
 {
   "finding": "WR-32",
-  "note": "The wrapper scan that selects Windmill's workflow-as-code wrapper. windmill-lite records it (workflow_as_code.wrapper) and its loader refuses such scripts (ADR 0001 §3); windmill-client here is a synthetic stand-in package.",
+  "note": "The wrapper scan that selects Windmill's workflow-as-code wrapper. windmill-lite records it (workflow_as_code.wrapper) and its build refuses such scripts (ADR 0001 §3, the variant refused); windmill-client here is a synthetic stand-in package.",
   "cases": [
     {
       "spec": "WR-32/a",
       "provenance": "source-derived",
       "title": "misselection by a bare workflow import",
       "part": "build",
-      "rest_in": "A5 refuses the script at load (unsupported_feature workflow_as_code) where Windmill fails the job with No workflow() entrypoint found",
+      "rest_in": "the build refuses the script (unsupported_feature, unsupported: workflow_as_code; the variant refused) where Windmill fails the job with No workflow() entrypoint found",
       "given": {
         "source": "import { workflow } from \"windmill-client\"; export async function main() { return 1; }",
         "dependencies": {"windmill-client": "1.767.0"},
@@ -50,6 +50,24 @@
         "packages": {"windmill-client@1.767.0": {"index.js": "export const getVariable = () => null;\n"}}
       },
       "expect": {"workflow_as_code": {"wrapper": false, "parsed": false, "substring": false}}
+    },
+    {
+      "spec": "WR-32",
+      "variant": "refused",
+      "provenance": "policy",
+      "title": "the build refuses a script the wrapper scan selects",
+      "note": "WR-32's design note: windmill-lite refuses a script that matches the wrapper predicate rather than run it as a plain script (ADR 0001 §3). A type-only import of windmill-client is enough for the line scan and needs no package.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/case/wrapped.ts": "import type { workflow } from \"windmill-client\";\nexport async function main() { return 1; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {"item": "script f/case/wrapped", "kind": "unsupported_feature", "contains": ["unsupported: workflow_as_code"]}
+        ]
+      }
     }
   ]
 }

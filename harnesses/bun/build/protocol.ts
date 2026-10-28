@@ -55,6 +55,9 @@ export type HostModuleResult = {
   exports?: string[];
   host_modules?: string[];
   packages?: string[];
+  // The workspace scripts the bundled copy inlined, by Windmill path (build
+  // only).
+  imports?: string[];
 };
 
 export type EntryResult = {

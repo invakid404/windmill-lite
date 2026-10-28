@@ -138,6 +138,58 @@
           ]
         }
       }
+    },
+    {
+      "spec": "WR-26",
+      "variant": "no-lock",
+      "provenance": "policy",
+      "title": "a script that imports a package and has no lock is refused, where Windmill would infer its dependencies",
+      "note": "ADR 0002, validation 5: windmill-lite installs packages only from a lock and does not infer or generate one (Q-OF-5), so the build refuses a bundled script whose own source imports a package without a lock, a path script and an inline step alike. The bundler also fails to resolve the package.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/case/main.ts": "import { tag } from \"fixture-pkg\";\nexport async function main() { return tag; }\n",
+          "f/case/flow.flow/flow.yaml": "summary: an inline step without a lock\nvalue:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"import { tag } from 'fixture-pkg';\\nexport async function main() { return tag; }\\n\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {"item": "script f/case/main", "kind": "bundle_failed", "contains": ["fixture-pkg"]},
+          {"item": "script f/case/main", "kind": "missing_lock", "contains": ["fixture-pkg", "no lock"]},
+          {"item": "f/case/flow step 'a' (script inline-", "kind": "bundle_failed", "contains": ["fixture-pkg"]},
+          {"item": "f/case/flow step 'a' (script inline-", "kind": "missing_lock", "contains": ["fixture-pkg", "no lock"]}
+        ]
+      }
+    },
+    {
+      "spec": "WR-26",
+      "variant": "no-lock-allowed",
+      "provenance": "policy",
+      "title": "no lock is not an error by itself: built-in modules, type-only imports and an empty lock file build",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/case/builtins.ts": "import { join } from \"node:path\";\nimport type { Tag } from \"fixture-pkg\";\nexport async function main() { return join(\"a\", \"b\"); }\n",
+          "f/case/empty.ts": "export async function main() { return 1; }\n",
+          "f/case/empty.script.lock": ""
+        }
+      },
+      "expect": {"build_problems": []}
+    },
+    {
+      "spec": "WR-26",
+      "variant": "lock-in-folder",
+      "provenance": "policy",
+      "title": "a path script's lock file installs its package",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/case/main.ts": "import { tag } from \"fixture-pkg@1.2.3\";\nexport async function main() { return tag; }\n"
+        },
+        "locks": {"f/case/main.ts": {"fixture-pkg": "1.2.3"}},
+        "packages": {"fixture-pkg@1.2.3": {"index.js": "export const tag = \"from fixture-pkg\";\n"}}
+      },
+      "expect": {"build_problems": []}
     }
   ]
 }

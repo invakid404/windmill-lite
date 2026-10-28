@@ -1,0 +1,3 @@
+value: synthetic-not-a-secret-value
+is_secret: true
+description: A synthetic secret; a bundle never holds it
