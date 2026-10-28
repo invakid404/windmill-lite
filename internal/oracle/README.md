@@ -19,10 +19,10 @@ see [Stub mode](#stub-mode)), and the expression cases of batch E3a, which
 ([conformance](../../conformance/README.md#expression-cases)). E3c extended
 the session and the walker (below), E3b the walker and the batch test, E3d
 the walker and added the API deployment (below), and E3a the session and
-its own batch tests. Comparing windmill-lite's flow runs against their
-recordings (flow fixtures in `wltest check`, milestone E1; the command runs
-only step cases so far) and stub mode on windmill-lite (E4b) do not exist
-yet.
+its own batch tests. `wltest check` compares windmill-lite's flow runs
+with each run's `expect` or recording (milestone E1,
+[cmd/wltest](../../cmd/wltest/README.md)); stub mode on windmill-lite (E4b)
+does not exist yet.
 
 ## A session
 
