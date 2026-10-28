@@ -242,7 +242,9 @@ func describe(p conformance.SitePath) string {
 // list walks one module list.
 func (s *walkState) list(base conformance.SitePath, entries []FlowStatusModule, def flowDef) error {
 	user := entries
-	if n := len(entries); n >= 2 && generated(entries, def) {
+	if emptyFlow(entries, def) {
+		user = nil
+	} else if n := len(entries); n >= 2 && generated(entries, def) {
 		user = entries[:n-1]
 		if g := entries[n-1]; g.Job != nil && *g.Job != nilJob {
 			s.w.IDs[*g.Job] = base.Child(conformance.Module(g.ID))
@@ -273,6 +275,15 @@ func (s *walkState) list(base conformance.SitePath, entries []FlowStatusModule, 
 		}
 	}
 	return nil
+}
+
+// emptyFlow reports the status of a flow the fixture defines with no
+// modules: it completes with its input (FX-3) and one Success entry with a
+// nil job, which is no module of the flow (its id was failure on oracle run
+// 40684856123).
+func emptyFlow(entries []FlowStatusModule, def flowDef) bool {
+	return def.known && len(def.modules) == 0 && len(entries) == 1 &&
+		entries[0].Type == "Success" && entries[0].Job != nil && *entries[0].Job == nilJob
 }
 
 // generated applies the OR-V7 test to the last entry of a list: it is
@@ -482,6 +493,10 @@ func (s *walkState) container(site conformance.SitePath, e FlowStatusModule, def
 		case *openflow.WhileLoop:
 			bodies = [][]openflow.Module{v.Modules}
 		case *openflow.BranchAll:
+			// A completed branchall entry need not carry the branchall
+			// field (oracle run 40684856123), so the fixture's definition
+			// decides.
+			branchAll = true
 			for _, b := range v.Branches {
 				bodies = append(bodies, b.Modules)
 			}

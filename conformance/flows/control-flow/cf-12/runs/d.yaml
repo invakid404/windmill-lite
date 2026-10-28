@@ -5,4 +5,10 @@ target: f/cf12/branchone_stop
 expect:
   status: success
   result: 2
-  steps: {"m:n": {status: not_run}}
+  steps:
+    "m:br":
+      status: success
+      result: 2
+      branch_chosen: {type: default}
+    "m:br/b:default/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:n": {status: not_run, ran: false}

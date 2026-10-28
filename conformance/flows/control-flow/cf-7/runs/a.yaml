@@ -4,4 +4,36 @@ spec: [CF-7/a]
 target: f/cf7/parallelism_two
 expect:
   status: failure
-  result: [1, {error: {name: Error, message: two}}, 3, 4]
+  result:
+    - 1
+    - error:
+        name: Error
+        stack: "<stack>"
+        message: two
+        step_id: b
+    - 3
+    - 4
+  steps:
+    "m:l":
+      status: failure
+      result:
+        - 1
+        - error:
+            name: Error
+            stack: "<stack>"
+            message: two
+            step_id: b
+        - 3
+        - 4
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b":
+      status: failure
+      args: {x: 2}
+      result:
+        error:
+          name: Error
+          stack: "<stack>"
+          message: two
+          step_id: b
+    "m:l/i:2/m:b": {status: success, args: {x: 3}, result: 3}
+    "m:l/i:3/m:b": {status: success, args: {x: 4}, result: 4}

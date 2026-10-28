@@ -7,7 +7,6 @@
 id: control-flow/cf-13
 spec: [CF-13, CF-13/a, CF-13/b, CF-13/c, CF-V2/a]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
-compare: {mode: subset}

@@ -1,8 +1,24 @@
 # FX-40/d, rawscript body without an explicit path, identical arguments in
-# both iterations: both readings expect no sharing, so iteration 1 runs.
+# both iterations. Both drafted readings expected no sharing. Recorded:
+# iteration 1 returns iteration 0's result. On the deployed flow the body
+# runs as flowscript jobs whose paths end in /loop-0 and /loop-1 but which
+# carry one script_hash (the raw captures show both), so the key does not
+# follow the path.
 spec: [FX-40/d, Q-FX-17]
 target: f/fx40/d_raw
 expect:
   status: success
+  result: ["<job:m:l/i:0/m:b>", "<job:m:l/i:0/m:b>"]
   steps:
-    "m:l/i:1/m:b": {status: success, result: "<job:m:l/i:1/m:b>"}
+    "m:l":
+      status: success
+      result: ["<job:m:l/i:0/m:b>", "<job:m:l/i:0/m:b>"]
+    "m:l/i:0/m:b":
+      status: success
+      args: {v: "<job:>"}
+      result: "<job:m:l/i:0/m:b>"
+    "m:l/i:1/m:b":
+      status: success
+      args: {v: "<job:>"}
+      result: "<job:m:l/i:0/m:b>"
+    "m:n": {status: success, args: {}, result: "<job:>"}

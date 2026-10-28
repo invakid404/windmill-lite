@@ -1,7 +1,21 @@
 # CF-13/b: an evaluation error becomes an EarlyStopError.
 spec: [CF-13/b]
 target: f/cf13/all_iters_error
-note: "The catalogue asserts that the message contains stop_after_all_iters_if; the recording holds the exact message."
+note: "The catalogue asserts that the message contains stop_after_all_iters_if; batches/e3d.json checks the recorded prefix. The loop fails with its array as its result and carries the error, which is the flow result."
 expect:
   status: failure
-  result: {error: {name: EarlyStopError}}
+  result:
+    error:
+      name: EarlyStopError
+      message: "Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'\n    at eval_script:1:7\n @worker_flow.rs:2451:11"
+  steps:
+    "m:l":
+      status: failure
+      result: [1, 2]
+      carried:
+        error:
+          name: EarlyStopError
+          message: "Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'\n    at eval_script:1:7\n @worker_flow.rs:2451:11"
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:n": {status: not_run, ran: false}

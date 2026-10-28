@@ -4,4 +4,13 @@ target: f/cf14/empty_branch
 expect:
   status: success
   result: {"n": 5}
-  steps: {"m:s": {status: success, args: {x: {"n": 5}}}}
+  steps:
+    "m:a": {status: success, args: {}, result: {"n": 5}}
+    "m:br":
+      status: success
+      ran: false
+      branch_chosen: {type: default}
+    "m:s":
+      status: success
+      args: {x: {"n": 5}}
+      result: {"n": 5}

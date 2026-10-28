@@ -6,5 +6,24 @@ expect:
   status: success
   result: H
   steps:
-    "m:s1": {status: failure, result: H}
-    "m:s2": {status: success, result: H}
+    "m:n": {status: success, args: {}, result: "<job:>"}
+    "m:s1":
+      status: failure
+      args: {v: "<job:>"}
+      result: H
+    "m:s1/m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          name: Error
+          stack: "<stack>"
+          message: x
+          step_id: a
+    "m:s1/s:failure": {status: success, args: {}, result: H}
+    "m:s2":
+      status: success
+      args: {v: "<job:>"}
+      result: H
+    "m:s2/m:a": {status: not_run, ran: false}
+    "m:s2/s:failure": {status: not_run, ran: false}

@@ -1,34 +1,44 @@
-summary: "CF-2/a: an empty iterator"
+summary: 'CF-2/a: an empty iterator'
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        content: "!inline a.ts"
+        content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
         language: bun
     - id: l
       value:
         type: forloopflow
-        iterator: {type: javascript, expr: results.a}
-        skip_failures: false
-        parallel: false
         modules:
           - id: b
             value:
               type: rawscript
-              content: "!inline b.ts"
+              content: '!inline b.ts'
               input_transforms:
-                x: {type: javascript, expr: flow_input.iter.value}
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline b.lock'
               language: bun
+        iterator:
+          type: javascript
+          expr: results.a
+        parallel: false
+        skip_failures: false
     - id: s
       value:
         type: rawscript
-        content: "!inline s.ts"
-        input_transforms: {x: {type: javascript, expr: results.l}}
+        content: '!inline s.ts'
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.l
+        lock: '!inline s.lock'
         language: bun
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

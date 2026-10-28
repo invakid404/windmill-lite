@@ -1,17 +1,23 @@
-summary: "CF-15/d: a branchall with no branches"
+summary: 'CF-15/d: a branchall with no branches'
 value:
   modules:
     - id: ba
-      value: {type: branchall, branches: []}
-      stop_after_if: {expr: "true", skip_if_stopped: false}
-    - id: "n"
+      value:
+        type: branchall
+        branches: []
+        parallel: true
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+    - id: n
       value:
         type: rawscript
-        content: "!inline n.ts"
+        content: '!inline n.ts'
         input_transforms: {}
+        lock: '!inline n.lock'
         language: bun
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

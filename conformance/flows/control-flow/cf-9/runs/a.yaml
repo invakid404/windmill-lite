@@ -6,3 +6,16 @@ args: {z: 1}
 expect:
   status: success
   result: [{z: 1, iter: {index: 0, value: 5}}]
+  steps:
+    "m:a": {status: success, args: {}, result: 100}
+    "m:l":
+      status: success
+      result: [{z: 1, iter: {index: 0, value: 5}}]
+    "m:l/i:0/m:b":
+      status: success
+      args: {x: {z: 1, iter: {index: 0, value: 5}}}
+      result: {z: 1, iter: {index: 0, value: 5}}
+    "m:l/i:0/m:c":
+      status: success
+      args: {x: {z: 1, iter: {index: 0, value: 5}}}
+      result: {z: 1, iter: {index: 0, value: 5}}

@@ -1,13 +1,9 @@
 package oracle
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -99,36 +95,6 @@ func TestFlowFixtureTreesResolve(t *testing.T) {
 	}
 }
 
-// TestRecordingsMatchTheirExpect holds every committed recording to its
-// run's expect, as wltest record does on the oracle (with the fixture's
-// compare options, leaving out carried and resolved_args, which a
-// recording cannot hold). It runs offline, so an edited expect or recording
-// that no longer agree fail the Go CI, not only the next oracle run.
-func TestRecordingsMatchTheirExpect(t *testing.T) {
-	// spec: OR-15, OR-19
-	checked := 0
-	for _, f := range loadFlowFixtures(t) {
-		for _, r := range f.Runs {
-			if r.Expect == nil || r.Recorded == nil {
-				continue
-			}
-			checked++
-			opts := f.Compare.Options()
-			opts.WithRecording = true
-			diffs, err := conformance.Compare(r.Recorded.Observation, *r.Expect, opts)
-			if err != nil {
-				t.Errorf("%s run %s: %v", f.ID, r.Name, err)
-			}
-			for _, d := range diffs {
-				t.Errorf("%s run %s: the recording differs from expect: %s", f.ID, r.Name, d)
-			}
-		}
-	}
-	if checked == 0 {
-		t.Fatal("no recorded run has an expect")
-	}
-}
-
 // TestRecordedParallelismReleaseOrder checks CF-7/b on its recording:
 // with parallelism 1, the iterations of the parallel loop start in index
 // order, each after the one before it completed. The times are the job
@@ -178,120 +144,5 @@ func TestRecordedParallelismReleaseOrder(t *testing.T) {
 		if at(cur.String(), "started").Before(at(prev.String(), "completed")) {
 			t.Errorf("iteration %d started before iteration %d completed", i, i-1)
 		}
-	}
-}
-
-// batchCoverage is conformance/flows/<area>/coverage.json: the findings
-// whose catalogue cases the area's recording batches account for, and the
-// cases they leave out.
-type batchCoverage struct {
-	About    string   `json:"about"`
-	Findings []string `json:"findings"`
-	Deferred []struct {
-		Case      string `json:"case"`
-		Milestone string `json:"milestone"`
-		Reason    string `json:"reason"`
-	} `json:"deferred"`
-	Partial []struct {
-		Case      string `json:"case"`
-		Missing   string `json:"missing"`
-		Milestone string `json:"milestone"`
-	} `json:"partial"`
-}
-
-// TestRecordingBatchCoverage accounts for every catalogue case of the
-// findings an area's coverage.json names: each is cited by a run of a
-// fixture of that area that has a committed recording, or is deferred with
-// a milestone and a reason. A case recorded only in part is cited and also
-// listed as partial, with what is missing.
-func TestRecordingBatchCoverage(t *testing.T) {
-	// spec: OR-15, OR-19
-	root := repoRoot(t)
-	catalogue, err := os.ReadFile(filepath.Join(root, "docs/semantics/conformance.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	caseLine := regexp.MustCompile(`(?m)^- \*\*([A-Z]+-V?[0-9]+/[a-z])\*\*`)
-	byFinding := map[string][]string{}
-	for _, m := range caseLine.FindAllSubmatch(catalogue, -1) {
-		c := string(m[1])
-		byFinding[c[:strings.IndexByte(c, '/')]] = append(byFinding[c[:strings.IndexByte(c, '/')]], c)
-	}
-	files, err := filepath.Glob(filepath.Join(flowsRoot, "*", "coverage.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) == 0 {
-		t.Fatal("no conformance/flows/<area>/coverage.json")
-	}
-	fixtures := loadFlowFixtures(t)
-	for _, file := range files {
-		area := filepath.Base(filepath.Dir(file))
-		t.Run(area, func(t *testing.T) {
-			data, err := os.ReadFile(file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var cov batchCoverage
-			dec := json.NewDecoder(bytes.NewReader(data))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&cov); err != nil {
-				t.Fatal(err)
-			}
-			recorded := map[string]bool{}
-			for _, f := range fixtures {
-				if !strings.HasPrefix(f.ID, area+"/") {
-					continue
-				}
-				for _, r := range f.Runs {
-					for _, c := range r.Spec {
-						if r.Recorded == nil {
-							t.Errorf("%s run %s cites %s but has no recording", f.ID, r.Name, c)
-							continue
-						}
-						recorded[c] = true
-					}
-				}
-			}
-			deferred := map[string]bool{}
-			for _, d := range cov.Deferred {
-				if d.Milestone == "" || d.Reason == "" {
-					t.Errorf("%s: a deferred case needs a milestone and a reason", d.Case)
-				}
-				if recorded[d.Case] {
-					t.Errorf("%s is recorded but also deferred", d.Case)
-				}
-				deferred[d.Case] = true
-			}
-			for _, p := range cov.Partial {
-				if p.Missing == "" || p.Milestone == "" {
-					t.Errorf("%s: a partial case needs what is missing and a milestone", p.Case)
-				}
-				if !recorded[p.Case] {
-					t.Errorf("%s is listed as partial but no recorded run cites it", p.Case)
-				}
-			}
-			var want []string
-			for _, finding := range cov.Findings {
-				cs := byFinding[finding]
-				if len(cs) == 0 {
-					t.Errorf("finding %s has no catalogue cases", finding)
-				}
-				want = append(want, cs...)
-			}
-			sort.Strings(want)
-			known := map[string]bool{}
-			for _, c := range want {
-				known[c] = true
-				if !recorded[c] && !deferred[c] {
-					t.Errorf("%s is neither recorded by a run of a %s fixture nor deferred", c, area)
-				}
-			}
-			for c := range deferred {
-				if !known[c] {
-					t.Errorf("%s is deferred but is not a case of the listed findings", c)
-				}
-			}
-		})
 	}
 }

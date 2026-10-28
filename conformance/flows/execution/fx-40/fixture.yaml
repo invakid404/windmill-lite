@@ -19,8 +19,7 @@ spec:
   - Q-FX-6
   - Q-FX-5
 scope: later
-provenance: disputed
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
-compare: {mode: subset}
-note: "FX-40 is DISPUTED (Q-FX-17): the d runs discriminate. \"Run twice\" in the catalogue is done inside one run, by calling the cached flow twice, so that the oracle's repeated runs stay comparable."
+note: "FX-40 is DISPUTED (Q-FX-17): the d runs discriminate. Recorded: collapsed iterations share an entry in all three d runs, reading (b) and the default of ADR 0001 section 6, including the rawscript body without an explicit path, which the correction expected not to share. \"Run twice\" in the catalogue is done inside one run, by calling the cached flow twice, so that the oracle's repeated runs stay comparable."

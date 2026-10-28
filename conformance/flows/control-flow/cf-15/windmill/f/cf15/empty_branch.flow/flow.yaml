@@ -1,21 +1,31 @@
-summary: "CF-15/f: an empty branch"
+summary: 'CF-15/f: an empty branch'
 value:
   modules:
     - id: ba
       value:
         type: branchall
-        parallel: true
         branches:
           - modules: []
+            expr: ''
+            parallel: true
+            skip_failure: true
           - modules:
               - id: b1
                 value:
                   type: rawscript
-                  content: "!inline b1.ts"
+                  content: '!inline b1.ts'
                   input_transforms: {}
+                  lock: '!inline b1.lock'
                   language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
-  properties: {k: {type: number}}
-  required: [k]
+  properties:
+    k:
+      type: number
+  required:
+    - k

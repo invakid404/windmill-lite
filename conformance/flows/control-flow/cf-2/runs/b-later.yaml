@@ -3,5 +3,13 @@
 spec: [CF-2/b]
 target: f/cf2/object_iterator_later
 args: {o: {p: 1}}
-note: "The catalogue asserts only the message substring; the error name depends on the route (CF-2, CF-23)."
-expect: {status: failure}
+note: "Recorded as route 3: name InternalError with the plain message. The catalogue asserts only the message substring; the error name depends on the route (CF-2, CF-23)."
+expect:
+  status: failure
+  result:
+    error:
+      name: InternalError
+      message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:l": {status: not_run, ran: false}

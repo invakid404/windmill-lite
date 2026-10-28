@@ -5,4 +5,6 @@ target: f/cf15/zero_branches
 expect:
   status: success
   result: []
-  steps: {"m:n": {status: not_run}}
+  steps:
+    "m:ba": {status: success, ran: false, result: []}
+    "m:n": {status: not_run, ran: false}

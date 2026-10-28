@@ -4,4 +4,31 @@ spec: [CF-15/c]
 target: f/cf15/sequential_fail
 expect:
   status: failure
-  result: [[1, 2], {error: {name: Error, message: b}}]
+  result:
+    - [1, 2]
+    - error:
+        name: Error
+        stack: "<stack>"
+        message: b
+        step_id: b1
+  steps:
+    "m:a": {status: success, args: {}, result: [1]}
+    "m:ba":
+      status: failure
+      result:
+        - [1, 2]
+        - error:
+            name: Error
+            stack: "<stack>"
+            message: b
+            step_id: b1
+    "m:ba/b:0/m:b0": {status: success, args: {x: [1]}, result: [1, 2]}
+    "m:ba/b:1/m:b1":
+      status: failure
+      args: {}
+      result:
+        error:
+          name: Error
+          stack: "<stack>"
+          message: b
+          step_id: b1

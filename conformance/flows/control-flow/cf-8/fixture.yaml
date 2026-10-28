@@ -7,8 +7,7 @@
 id: control-flow/cf-8
 spec: [CF-8, CF-8/a, CF-8/b, CF-8/c]
 scope: core
-provenance: disputed
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
-compare: {mode: subset}
 note: "CF-8 is DISPUTED only for raw submissions (Q-CF-15). These runs are by path, the reference configuration, where both sides agree; the raw-submission halves and CF-8/d are not recorded (ADR 0001 section 6: none needed)."

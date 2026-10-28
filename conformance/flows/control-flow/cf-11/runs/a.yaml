@@ -5,4 +5,11 @@ target: f/cf11/all_iters
 expect:
   status: success
   result: [1, 2]
-  steps: {"m:l": {status: success, result: [1, 2]}}
+  steps:
+    "m:l": {status: success, result: [1, 2]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:n":
+      status: success
+      args: {x: [1, 2]}
+      result: [1, 2]

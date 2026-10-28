@@ -4,3 +4,25 @@ target: f/cf3/nested
 expect:
   status: success
   result: [[[a, 0], [a, 1]], [[b, 0], [b, 1]]]
+  steps:
+    "m:outer":
+      status: success
+      result: [[[a, 0], [a, 1]], [[b, 0], [b, 1]]]
+    "m:outer/i:0/m:inner": {status: success, result: [[a, 0], [a, 1]]}
+    "m:outer/i:0/m:inner/i:0/m:c":
+      status: success
+      args: {x: [a, 0]}
+      result: [a, 0]
+    "m:outer/i:0/m:inner/i:1/m:c":
+      status: success
+      args: {x: [a, 1]}
+      result: [a, 1]
+    "m:outer/i:1/m:inner": {status: success, result: [[b, 0], [b, 1]]}
+    "m:outer/i:1/m:inner/i:0/m:c":
+      status: success
+      args: {x: [b, 0]}
+      result: [b, 0]
+    "m:outer/i:1/m:inner/i:1/m:c":
+      status: success
+      args: {x: [b, 1]}
+      result: [b, 1]

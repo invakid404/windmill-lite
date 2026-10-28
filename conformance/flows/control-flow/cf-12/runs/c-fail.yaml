@@ -1,6 +1,6 @@
-# CF-12/c, skip_failures false (contested, Q-CF-14): the expectation is
-# reading (b), the default of ADR 0001 section 6: the loop fails, the flow
-# fails with the loop's array and the next step does not run.
+# CF-12/c, skip_failures false (contested, Q-CF-14). Recorded: reading (b),
+# the default of ADR 0001 section 6: the loop fails, the flow fails with the
+# loop's array and the next step does not run.
 spec: [CF-12/c, Q-CF-14]
 target: f/cf12/no_handler_fail
 expect:
@@ -10,4 +10,11 @@ expect:
     "m:l":
       status: failure
       result: [{error: {name: EarlyStopError, message: halt}}]
-    "m:n": {status: not_run}
+    "m:l/i:0/m:b":
+      status: success
+      module: failure
+      args: {x: 1}
+      result: 1
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:l/i:0/m:c": {status: not_run, ran: false}
+    "m:n": {status: not_run, ran: false}

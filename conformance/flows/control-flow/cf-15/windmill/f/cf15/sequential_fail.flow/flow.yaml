@@ -1,41 +1,59 @@
-summary: "CF-15/c: a sequential branchall"
+summary: 'CF-15/c: a sequential branchall'
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        content: "!inline a.ts"
+        content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
         language: bun
     - id: ba
       value:
         type: branchall
-        parallel: false
         branches:
           - modules:
               - id: b0
                 value:
                   type: rawscript
-                  content: "!inline b0.ts"
-                  input_transforms: {x: {type: javascript, expr: results.a}}
+                  content: '!inline b0.ts'
+                  input_transforms:
+                    x:
+                      type: javascript
+                      expr: results.a
+                  lock: '!inline b0.lock'
                   language: bun
-          - skip_failure: false
-            modules:
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
               - id: b1
                 value:
                   type: rawscript
-                  content: "!inline b1.ts"
+                  content: '!inline b1.ts'
                   input_transforms: {}
+                  lock: '!inline b1.lock'
                   language: bun
+            expr: ''
+            parallel: true
+            skip_failure: false
           - modules:
               - id: b2
                 value:
                   type: rawscript
-                  content: "!inline b2.ts"
-                  input_transforms: {x: {type: javascript, expr: results.a}}
+                  content: '!inline b2.ts'
+                  input_transforms:
+                    x:
+                      type: javascript
+                      expr: results.a
+                  lock: '!inline b2.lock'
                   language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

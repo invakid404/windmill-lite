@@ -9,4 +9,10 @@ expect:
     "m:ba":
       status: success
       result: [{error: {name: EarlyStopError, message: halt}}]
-    "m:n": {status: not_run}
+    "m:ba/b:0/m:b0":
+      status: success
+      module: failure
+      args: {}
+      result: 7
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:n": {status: not_run, ran: false}

@@ -7,7 +7,6 @@
 id: control-flow/cf-9
 spec: [CF-9, CF-9/a, CF-9/b]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
-compare: {mode: subset}

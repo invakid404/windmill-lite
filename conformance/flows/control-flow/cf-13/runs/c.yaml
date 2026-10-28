@@ -2,4 +2,9 @@
 # iterator, so the flow continues.
 spec: [CF-13/c, CF-V2/a]
 target: f/cf13/all_iters_empty
-expect: {status: success, result: after}
+expect:
+  status: success
+  result: after
+  steps:
+    "m:l": {status: success, ran: false, result: []}
+    "m:n": {status: success, args: {}, result: after}

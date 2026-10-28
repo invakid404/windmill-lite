@@ -3,4 +3,9 @@
 spec: [CF-15/f, Q-CF-4]
 target: f/cf15/empty_branch
 args: {k: 1}
-expect: {status: success, result: [{k: 1}, 1]}
+expect:
+  status: success
+  result: [{k: 1}, 1]
+  steps:
+    "m:ba": {status: success, result: [{k: 1}, 1]}
+    "m:ba/b:1/m:b1": {status: success, args: {}, result: 1}

@@ -6,7 +6,9 @@ expect:
   status: success
   result: mid
   steps:
+    "m:a": {status: success, args: {}, result: {"n": 5}}
     "m:br":
       status: success
       result: mid
       branch_chosen: {type: branch, branch: 1}
+    "m:br/b:1/m:c2": {status: success, args: {}, result: mid}

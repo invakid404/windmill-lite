@@ -6,8 +6,11 @@ expect:
   status: success
   result: [0, 1, 2]
   steps:
-    "m:w": {status: success, result: [0, 1, 2]}
     "m:n":
       status: success
       args: {x: [0, 1, 2]}
       result: [0, 1, 2]
+    "m:w": {status: success, result: [0, 1, 2]}
+    "m:w/i:0/m:b": {status: success, args: {x: 0}, result: 0}
+    "m:w/i:1/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:w/i:2/m:b": {status: success, args: {x: 2}, result: 2}

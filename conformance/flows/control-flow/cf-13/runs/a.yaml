@@ -5,4 +5,8 @@ target: f/cf13/all_iters_skip
 expect:
   status: skipped
   result: [1, 2]
-  steps: {"m:n": {status: not_run}}
+  steps:
+    "m:l": {status: success, skipped: true, result: [1, 2]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:n": {status: not_run, ran: false}

@@ -14,8 +14,7 @@ spec:
   - CF-15/f
   - Q-CF-4
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
-compare: {mode: subset}
 note: "CF-15/e is given as CF-12/e and recorded in control-flow/cf-12 (runs e-skip and e-fail)."
