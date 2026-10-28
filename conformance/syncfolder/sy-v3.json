@@ -1,0 +1,170 @@
+{
+  "finding": "SY-V3",
+  "cases": [
+    {
+      "spec": "SY-V3/a",
+      "variant": "space",
+      "provenance": "source-derived",
+      "title": "recognised form \"// native\"",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "// native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": true,
+                "/language": "bunnative"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3/a",
+      "variant": "value",
+      "provenance": "source-derived",
+      "title": "recognised form \"//native=false\"",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "//native=false\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": true,
+                "/language": "bunnative"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3/b",
+      "variant": "indented",
+      "provenance": "source-derived",
+      "title": "unrecognised form \" //native\"",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": " //native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": false,
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3/b",
+      "variant": "case",
+      "provenance": "source-derived",
+      "title": "unrecognised form \"//Native\"",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "//Native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": false,
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3/b",
+      "variant": "space-before-equals",
+      "provenance": "source-derived",
+      "title": "unrecognised form \"//native =true\"",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "//native =true\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": false,
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3/c",
+      "provenance": "source-derived",
+      "title": "after code",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "import { x } from './y';\n//native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": false,
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "title": "blank lines and ordinary comments before it",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "\n   \n// a comment\n\r\n//nobundling\n//   native   \nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/native": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

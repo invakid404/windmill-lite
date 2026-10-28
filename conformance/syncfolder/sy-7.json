@@ -1,0 +1,363 @@
+{
+  "finding": "SY-7",
+  "cases": [
+    {
+      "spec": "SY-7/a",
+      "provenance": "source-derived",
+      "title": "both files present",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.inline_script.ts": "export async function main() {\n  return 'inline';\n}\n",
+          "f/x.flow/a.inline_script.lock": "{\"dependencies\":{}}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n",
+                "/flow/value/modules/0/value/lock": "{\"dependencies\":{}}\n",
+                "/flow/value/modules/0/value/language": "bun",
+                "/inline/0/content_file": "f/x.flow/a.inline_script.ts",
+                "/inline/0/lock_file": "f/x.flow/a.inline_script.lock"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7/b",
+      "provenance": "source-derived",
+      "title": "lock file missing",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.inline_script.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": ""
+              },
+              "absent": [
+                "/inline/0/lock_file"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7/c",
+      "provenance": "source-derived",
+      "note": "the CLI says Cannot push flow <path>: missing inline script file(s): ...",
+      "title": "content file missing",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.inline_script.lock": "{}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "error": {
+                "kind": "missing_inline_file",
+                "contains": [
+                  "missing inline script file(s)",
+                  "f/x.flow/a.inline_script.ts"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7/d",
+      "provenance": "source-derived",
+      "title": "subfolder path",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"!inline sub/a.ts\"\n        input_transforms: {}\n",
+          "f/x.flow/sub/a.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n",
+                "/inline/0/content_file": "f/x.flow/sub/a.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7/e",
+      "provenance": "source-derived",
+      "policy": "ADR 0002: references that leave the sync root are refused",
+      "note": "the CLI would read it",
+      "title": "escaping path",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"!inline ../../../etc/x\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "error": {
+                "kind": "path_escape",
+                "contains": [
+                  "../../../etc/x"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "the fallback name <module id>.<after the first dot>",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline renamed.inline_script.ts'\n        lock: '!inline renamed.inline_script.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.inline_script.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n",
+                "/flow/value/modules/0/value/lock": "",
+                "/inline/0/content_file": "f/x.flow/a.inline_script.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "a path inside the root but outside the flow folder",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline ../shared/a.ts'\n        input_transforms: {}\n",
+          "f/shared/a.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/inline/0/content_file": "f/shared/a.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "a leading / is joined to the flow folder",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline /sub/a.ts'\n        input_transforms: {}\n",
+          "f/x.flow/sub/a.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/inline/0/content_file": "f/x.flow/sub/a.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "the language comes from the module, never the file name",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: deno\n        content: '!inline a.py'\n        input_transforms: {}\n",
+          "f/x.flow/a.py": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/language": "deno"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "every rawscript, depth first, then failure and preprocessor",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: loop\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: inner\n            value: {type: rawscript, language: bun, content: '!inline inner.ts', input_transforms: {}}\n    - id: br\n      value:\n        type: branchone\n        branches:\n          - expr: 'true'\n            modules:\n              - id: b1\n                value: {type: rawscript, language: bun, content: '!inline b1.ts', input_transforms: {}}\n        default:\n          - id: d1\n            value: {type: rawscript, language: bun, content: '!inline d1.ts', input_transforms: {}}\n  failure_module:\n    id: failure\n    value: {type: rawscript, language: bun, content: '!inline failure.ts', input_transforms: {}}\n  preprocessor_module:\n    id: preprocessor\n    value: {type: rawscript, language: bun, content: '!inline preprocessor.ts', input_transforms: {}}\n",
+          "f/x.flow/inner.ts": "// inner\n",
+          "f/x.flow/b1.ts": "// b1\n",
+          "f/x.flow/d1.ts": "// d1\n",
+          "f/x.flow/failure.ts": "// failure\n",
+          "f/x.flow/preprocessor.ts": "// preprocessor\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/inline": [
+                  {
+                    "module": "inner",
+                    "content_file": "f/x.flow/inner.ts"
+                  },
+                  {
+                    "module": "b1",
+                    "content_file": "f/x.flow/b1.ts"
+                  },
+                  {
+                    "module": "d1",
+                    "content_file": "f/x.flow/d1.ts"
+                  },
+                  {
+                    "module": "failure",
+                    "content_file": "f/x.flow/failure.ts"
+                  },
+                  {
+                    "module": "preprocessor",
+                    "content_file": "f/x.flow/preprocessor.ts"
+                  }
+                ],
+                "/flow/value/failure_module/value/content": "// failure\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "every missing file is reported at once",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: loop\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: inner\n            value: {type: rawscript, language: bun, content: '!inline inner.ts', input_transforms: {}}\n    - id: br\n      value:\n        type: branchone\n        branches:\n          - expr: 'true'\n            modules:\n              - id: b1\n                value: {type: rawscript, language: bun, content: '!inline b1.ts', input_transforms: {}}\n        default:\n          - id: d1\n            value: {type: rawscript, language: bun, content: '!inline d1.ts', input_transforms: {}}\n  failure_module:\n    id: failure\n    value: {type: rawscript, language: bun, content: '!inline failure.ts', input_transforms: {}}\n  preprocessor_module:\n    id: preprocessor\n    value: {type: rawscript, language: bun, content: '!inline preprocessor.ts', input_transforms: {}}\n",
+          "f/x.flow/inner.ts": "//\n",
+          "f/x.flow/d1.ts": "//\n",
+          "f/x.flow/preprocessor.ts": "//\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "error": {
+                "kind": "missing_inline_file",
+                "contains": [
+                  "f/x.flow/b1.ts (module b1), f/x.flow/failure.ts (module failure)"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "policy",
+      "policy": "ADR 0001 §5a: text files must be UTF-8",
+      "title": "an inline file that is not UTF-8",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        input_transforms: {}\n"
+        },
+        "hex_files": {
+          "f/x.flow/a.ts": "2f2f20ff0a"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "error": {
+                "kind": "invalid_text",
+                "contains": [
+                  "not valid UTF-8"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "policy",
+      "title": "content that names no file",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline'\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "error": {
+                "kind": "missing_inline_file",
+                "contains": [
+                  "names no file"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

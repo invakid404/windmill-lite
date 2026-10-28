@@ -1,0 +1,196 @@
+{
+  "finding": "SY-6",
+  "cases": [
+    {
+      "spec": "SY-6/a",
+      "provenance": "source-derived",
+      "title": "default folder suffix",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "at": {
+                "/dir": "f/a/x.flow",
+                "/file": "f/a/x.flow/flow.yaml",
+                "/flow/summary": "one step",
+                "/flow/value/modules/0/id": "a"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-6/b",
+      "provenance": "source-derived",
+      "title": "wrong suffix style",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnonDottedPaths: true\n",
+          "f/a/x.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "flow_layout",
+                "contains": [
+                  "1 flow folder(s) using the .flow format",
+                  "f/a/x.flow"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "flow_layout"
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "title": "nonDottedPaths: true selects __flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnonDottedPaths: true\n",
+          "f/a/x__flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "at": {
+                "/dir": "f/a/x__flow"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "title": "__flow under the default style",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x__flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/y__flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "flow_layout",
+                "contains": [
+                  "2 flow folder(s) using the __flow format",
+                  "f/a/x__flow, f/a/y__flow"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "policy",
+      "title": "a flow folder without flow.yaml",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/flow.json": "{}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "flow_layout",
+                "contains": [
+                  "no flow.yaml"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "OF-2's path check, through A3's decoder",
+      "title": "flow.yaml is decoded as Windmill decodes it",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: script\n        path: x/y\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "invalid_flow",
+                "contains": [
+                  "step 'a' references 'x/y'"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "title": "YAML errors carry the file and position",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/flow.yaml": "value:\n  modules: [\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "yaml",
+                "contains": [
+                  "f/a/x.flow/flow.yaml:",
+                  "yaml_syntax"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

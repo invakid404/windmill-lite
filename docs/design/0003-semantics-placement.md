@@ -240,7 +240,8 @@ remedy needs its own record.
 Every Windmill rule is single-sourced in one implementation, so the suite's
 job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
-as hand-written YAML and JSON, at three run levels and one decode level:
+as hand-written YAML and JSON, at three run levels, one decode level and
+one load level:
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
@@ -248,6 +249,7 @@ as hand-written YAML and JSON, at three run levels and one decode level:
 | step | `conformance/steps/<lang>/<case>.yaml` | one script, its arguments, environment and boundary mode, the expected **stored** result or error (Windmill-observable terms), and the expected platform calls | Go `wltest check`, driving the real harness through the protocol; the oracle via a generated one-step flow |
 | expr | `conformance/exprs/<case>.yaml` | a **context-free** expression: an input transform or predicate of a flow's first step, with `flow_input` and `flow_env` as its only bound values (producer text; the stored form is derived with `jsonval`), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
 | decode | `conformance/openflow/<finding>.json` | an OpenFlow flow value as JSON and the effective decoder's decision: the rejection's message substrings, or parts of the accepted value's decoded form ([OF-2](../semantics/openflow.md#of-2)) | Go `internal/openflow` tests; on the oracle, a create-flow request once [Q-OF-2](../semantics/openflow.md#q-of-2) is recorded |
+| load | `conformance/syncfolder/<finding>.json` | a sync folder as a map of files and what the loader makes of it: whether it opens, the items it lists or filters out, and parts of the records it reads or their errors ([SY-1](../semantics/openflow.md#sy-1) to [SY-15](../semantics/openflow.md#sy-15)) | Go `internal/syncfolder` tests |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
 reproduce an expression whose meaning depends on what ran before it: a
@@ -304,8 +306,13 @@ validation with `contextual_case_needs_flow_fixture`.
 - The decode level was added with milestone A3. A flow value's accept or
   reject decision has no run to observe, so it fits none of the three run
   levels, and the decoder is Go only, so no harness reads these cases.
+- The load level was added with milestone A4, for the same reasons: reading
+  a sync folder has no run to observe, and the loader is Go only. A load
+  case may also cite only its finding, for a case that extends the
+  catalogue.
 
 ## Spec IDs relied on
 
 FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, WR-6 to WR-21,
-OR-15, and the conformance catalogue's notation and provenance rules.
+OR-15, SY-1 to SY-15, and the conformance catalogue's notation and
+provenance rules.

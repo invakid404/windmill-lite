@@ -1,0 +1,185 @@
+{
+  "finding": "SY-V1",
+  "cases": [
+    {
+      "spec": "SY-V1/a",
+      "provenance": "source-derived",
+      "title": "embedded content leaves the lock literal",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: 'export function main() {}'\n        lock: '!inline a.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.lock": "never read\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "!inline a.lock",
+                "/flow/value/modules/0/value/content": "export function main() {}",
+                "/inline": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V1/b",
+      "provenance": "source-derived",
+      "note": "the file name is the token !inline, which does not exist",
+      "title": "one leading space",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        lock: ' !inline a.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.ts": "export async function main() {\n  return 'inline';\n}\n",
+          "f/x.flow/a.lock": "never read\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "",
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n"
+              },
+              "absent": [
+                "/inline/0/lock_file"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V1/c",
+      "provenance": "source-derived",
+      "note": "the file name is empty, which names the flow folder itself",
+      "title": "two leading spaces",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        lock: '  !inline a.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.ts": "export async function main() {\n  return 'inline';\n}\n",
+          "f/x.flow/a.lock": "never read\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": ""
+              },
+              "absent": [
+                "/inline/0/lock_file"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V1/d",
+      "provenance": "source-derived",
+      "title": "well-formed directives",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        lock: '!inline a.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.ts": "export async function main() {\n  return 'inline';\n}\n",
+          "f/x.flow/a.lock": "lock\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n",
+                "/flow/value/modules/0/value/lock": "lock\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V1",
+      "provenance": "source-derived",
+      "title": "the path is the second token only",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts trailing words'\n        lock: '!inline a.lock and more'\n        input_transforms: {}\n",
+          "f/x.flow/a.ts": "export async function main() {\n  return 'inline';\n}\n",
+          "f/x.flow/a.lock": "lock\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n",
+                "/flow/value/modules/0/value/lock": "lock\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V1",
+      "provenance": "source-derived",
+      "note": "the trimmed string starts with !inline and the space-separated second token is a.lock",
+      "title": "a lock directive after a tab",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        lock: \"\\t!inline a.lock\"\n        input_transforms: {}\n",
+          "f/x.flow/a.ts": "export async function main() {\n  return 'inline';\n}\n",
+          "f/x.flow/a.lock": "lock\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "lock\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V1",
+      "provenance": "source-derived",
+      "title": "a lock without the space is literal",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        lock: '!inlinea.lock'\n        input_transforms: {}\n",
+          "f/x.flow/a.ts": "export async function main() {\n  return 'inline';\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "!inlinea.lock"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

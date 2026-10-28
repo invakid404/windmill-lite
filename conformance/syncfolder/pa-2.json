@@ -1,0 +1,30 @@
+{
+  "finding": "PA-2",
+  "cases": [
+    {
+      "spec": "PA-2/a",
+      "provenance": "source-derived",
+      "title": "tag and quoted forms are equivalent",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: rawscript, language: bun, content: !inline a.inline_script.ts, input_transforms: {}}\n    - id: b\n      value: {type: rawscript, language: bun, content: '!inline b.inline_script.ts', input_transforms: {}}\n",
+          "f/x.flow/a.inline_script.ts": "// a\n",
+          "f/x.flow/b.inline_script.ts": "// b\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "// a\n",
+                "/flow/value/modules/1/value/content": "// b\n"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

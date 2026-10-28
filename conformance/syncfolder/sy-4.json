@@ -1,0 +1,179 @@
+{
+  "finding": "SY-4",
+  "cases": [
+    {
+      "spec": "SY-4/a",
+      "provenance": "source-derived",
+      "title": "metadata record",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.lock": "{\"lockfileVersion\":1}\n",
+          "f/a/x.script.yaml": "summary: s\nkind: script\nschema:\n  type: object\n  properties:\n    n:\n      type: number\n  required: []\nlock: '!inline f/a/x.script.lock'\ntimeout: 30\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/timeout": 30,
+                "/metadata/summary": "s",
+                "/metadata/kind": "script",
+                "/language": "bun",
+                "/lock": "{\"lockfileVersion\":1}\n",
+                "/lock_file": "f/a/x.script.lock",
+                "/metadata/schema": {
+                  "type": "object",
+                  "properties": {
+                    "n": {
+                      "type": "number"
+                    }
+                  },
+                  "required": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-4",
+      "provenance": "source-derived",
+      "title": "no metadata file gets the CLI's defaults",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.lock": "lock\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/summary": "",
+                "/metadata/description": "",
+                "/metadata/kind": "script",
+                "/lock": "lock\n",
+                "/lock_file": "f/a/x.script.lock"
+              },
+              "absent": [
+                "/metadata_file"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-4",
+      "provenance": "source-derived",
+      "title": "extra hand-written keys are ignored",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: s\nlanguage: python3\nis_template: true\ntag: gpu\nmy_note: hi\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/language": "bun",
+                "/metadata/raw/my_note": "hi"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-4",
+      "provenance": "policy",
+      "title": "a key of the wrong type",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: s\ntimeout: '30'\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "f/a/x.script.yaml:2",
+                  "timeout must be an integer"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-4",
+      "provenance": "policy",
+      "title": "an unknown kind",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "kind: job\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "kind must be one of"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-4",
+      "provenance": "source-derived",
+      "note": "the CLI sends the JavaScript number 30",
+      "title": "a timeout written as 30.0 is 30",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "timeout: 30.0\nkind: preprocessor\nenvs: [A, B]\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/timeout": 30,
+                "/metadata/kind": "preprocessor",
+                "/metadata/envs": [
+                  "A",
+                  "B"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

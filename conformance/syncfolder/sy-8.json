@@ -1,0 +1,239 @@
+{
+  "finding": "SY-8",
+  "cases": [
+    {
+      "spec": "SY-8/a",
+      "provenance": "source-derived",
+      "title": "first match wins",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n    includes: ['f/a/**']\n  - relative_path: ../shared\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/z.py": "def main():\n    pass\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 0,
+                "/codebase/relative_path": "../lib"
+              }
+            },
+            "f/b/y": {
+              "at": {
+                "/codebase/index": 1,
+                "/codebase/relative_path": "../shared"
+              }
+            },
+            "f/a/z": {
+              "at": {
+                "/codebase": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8/b",
+      "provenance": "source-derived",
+      "title": "Bun-only bundling",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/y.deno.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/z.fetch.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 0
+              }
+            },
+            "f/a/y": {
+              "at": {
+                "/codebase": null
+              }
+            },
+            "f/a/z": {
+              "at": {
+                "/codebase": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "an exclude vetoes the only entry",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ./lib\n    includes: ['**/*.ts']\n    excludes: ['f/b/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 0
+              }
+            },
+            "f/b/y": {
+              "at": {
+                "/codebase": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "an exclude passes to the next entry",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ./lib\n    excludes: ['f/b/**']\n  - relative_path: ./other\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 0
+              }
+            },
+            "f/b/y": {
+              "at": {
+                "/codebase/index": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "a native Bun script is still selected",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n",
+          "f/a/x.ts": "//native\nexport async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/language": "bunnative",
+                "/codebase/index": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "under defaultTs: deno, .bun.ts is the Bun file",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: deno\ncodebases:\n  - relative_path: ../lib\n    includes: ['f/**/*.ts']\n",
+          "f/a/x.bun.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/y.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 0
+              }
+            },
+            "f/a/y": {
+              "at": {
+                "/codebase": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "the entry's settings are kept for the bundler",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n    format: esm\n    external: [pg]\n    assets: [{from: a.txt, to: b.txt}]\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/settings": {
+                  "relative_path": "../lib",
+                  "format": "esm",
+                  "external": [
+                    "pg"
+                  ],
+                  "assets": [
+                    {
+                      "from": "a.txt",
+                      "to": "b.txt"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "policy",
+      "note": "a reading: the reference says an entry with no includes selects every candidate, and SY-V2 tells an empty list from an absent one",
+      "title": "an empty includes list selects nothing",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n    includes: []\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase": null
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

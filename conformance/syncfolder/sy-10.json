@@ -1,0 +1,141 @@
+{
+  "finding": "SY-10",
+  "cases": [
+    {
+      "spec": "SY-10/a",
+      "provenance": "source-derived",
+      "title": "plain resource",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/cfg.resource.yaml": "resource_type: x\nvalue:\n  host: h\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource": [
+            "f/a/cfg"
+          ]
+        },
+        "items": {
+          "resource": {
+            "f/a/cfg": {
+              "at": {
+                "/value": {
+                  "host": "h"
+                },
+                "/resource_type": "x"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-10",
+      "provenance": "source-derived",
+      "title": "references in values stay literal",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/cfg.resource.yaml": "resource_type: x\ndescription: d\nvalue:\n  password: $var:f/a/pw\n  inner: $res:f/a/other\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "resource": {
+            "f/a/cfg": {
+              "at": {
+                "/value": {
+                  "password": "$var:f/a/pw",
+                  "inner": "$res:f/a/other"
+                },
+                "/description": "d"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-10",
+      "provenance": "source-derived",
+      "title": "resource types at the root",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "x.resource-type.yaml": "description: a type\nformat_extension: json\nschema:\n  type: object\n",
+          "f/a/y.resource-type.yaml": "schema: {}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource_type": [
+            "x"
+          ]
+        },
+        "items": {
+          "resource_type": {
+            "x": {
+              "at": {
+                "/description": "a type",
+                "/format_extension": "json",
+                "/schema": {
+                  "type": "object"
+                },
+                "/is_fileset": false
+              }
+            }
+          }
+        },
+        "warnings": [
+          "f/a/y.resource-type.yaml is ignored"
+        ]
+      }
+    },
+    {
+      "spec": "SY-10",
+      "provenance": "policy",
+      "scope": "later",
+      "title": "file and fileset resources are later scope",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/f.resource.yaml": "resource_type: t\nvalue:\n  content: '!inline f/a/f.resource.file.json'\n",
+          "f/a/f.resource.file.json": "{}\n",
+          "f/a/s.resource.yaml": "resource_type: s\nvalue: '!inline_fileset f/a/s.fileset'\n",
+          "f/a/s.fileset/a.txt": "a\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource": [
+            "f/a/f",
+            "f/a/s"
+          ],
+          "script": []
+        },
+        "items": {
+          "resource": {
+            "f/a/f": {
+              "error": {
+                "kind": "unsupported_feature",
+                "contains": [
+                  "unsupported: file resource"
+                ]
+              }
+            },
+            "f/a/s": {
+              "error": {
+                "kind": "unsupported_feature",
+                "contains": [
+                  "unsupported: fileset resource"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
