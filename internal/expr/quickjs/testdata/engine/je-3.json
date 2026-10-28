@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "JE-3/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "a null throw keeps its kind, which the pipeline reads as out of memory",
       "note": "The engine reports the throw; the memory-limit message is the pipeline's (B2b).",
       "given": {

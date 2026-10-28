@@ -129,7 +129,7 @@ func loadCaseFiles(t *testing.T) []caseFile {
 				t.Fatalf("%s: case %s does not belong to finding %s", p, c.Spec, f.Finding)
 			}
 			switch c.Provenance {
-			case "source-derived", "policy", "disputed":
+			case "source-derived", "oracle-observed", "policy", "disputed":
 			default:
 				t.Fatalf("%s: case %s has provenance %q", p, c.Spec, c.Provenance)
 			}

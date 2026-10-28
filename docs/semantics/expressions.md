@@ -33,7 +33,7 @@ O1 is not the only point where pre-database values matter: a later step can comp
 
 ## Summary for the design
 
-1. **One engine, one textual pipeline** ([JE-1](#je-1), [JE-5](#je-5), [JE-11](#je-11) to [JE-15](#je-15), [JE-24](#je-24)). Expressions that reach the engine run on QuickJS-ng (rquickjs 0.11.0) in a fresh runtime per evaluation, with no `Intl`, `atob`, `URL` or `console` (source-derived, [Q-JE-2](#q-je-2)). Behaviour comes from a fixed pipeline: predicates are wrapped untrimmed in `Boolean(…)`; the text is trimmed; the shortcuts are tried in the order JE-6 → JE-7 → JE-8 → JE-9; the `variable`/`resource`/`flow_user_state` and `results` rewrites are applied; expression or statement mode is chosen; the value is serialised as `JSON.stringify(x ?? null)`. Shortcuts return before any engine starts, so the engine limits (20 s per attempt, up to 3 attempts, 128 MiB of heap, quickjs-ng's default 1 MiB of native stack; [JE-2](#je-2), [JE-3](#je-3), [JE-48](#je-48)) do not apply to them. Context values nested deeper than 127 levels fail before the engine runs ([JE-49](#je-49)).
+1. **One engine, one textual pipeline** ([JE-1](#je-1), [JE-5](#je-5), [JE-11](#je-11) to [JE-15](#je-15), [JE-24](#je-24)). Expressions that reach the engine run on QuickJS-ng (rquickjs 0.11.0) as strict-mode global scripts ([JE-50](#je-50)) in a fresh runtime per evaluation, with no `Intl`, `atob`, `URL` or `console` (oracle-observed) but with `queueMicrotask`, `performance` and `DOMException`, and with the C library's `Math` digits (glibc on the CE image). The engine's job queue is drained before the result is read, and a job that throws is ignored ([JE-51](#je-51)). Behaviour comes from a fixed pipeline: predicates are wrapped untrimmed in `Boolean(…)`; the text is trimmed; the shortcuts are tried in the order JE-6 → JE-7 → JE-8 → JE-9; the `variable`/`resource`/`flow_user_state` and `results` rewrites are applied; expression or statement mode is chosen; the value is serialised as `JSON.stringify(x ?? null)`. Shortcuts return before any engine starts, so the engine limits (20 s per attempt, up to 3 attempts, 128 MiB of heap, quickjs-ng's default 1 MiB of native stack; [JE-2](#je-2), [JE-3](#je-3), [JE-48](#je-48)) do not apply to them. On the pinned oracle a simple recursion of depth 600 fits in that stack and one of depth 1 000 overflows; frame sizes, and so the depth that fits, depend on the engine's build. A transition that keeps evaluating for 60 s can be canceled by the server's zombie-flow monitor before the timeout error surfaces. Context values nested deeper than 127 levels fail before the engine runs ([JE-49](#je-49)).
 2. **Shortcut dispatch is semantics, not optimisation** ([JE-6](#je-6) to [JE-9](#je-9), [JE-V6](#je-v6)). JE-6 to JE-8 return stored JSON verbatim. JE-9 inspects only the first line that matches its pattern: it can discard the rest of the expression, turns misses into `null` where JavaScript would throw, and can hand a predicate a non-boolean. The exact spelling decides whether a read comes from memory, from the database or from JavaScript: `results.a.n` reads the database even when `a` is the previous step.
 3. **`results` handling is textual and lazy** ([JE-10](#je-10), [JE-12](#je-12), [JE-18](#je-18)). Only names written in the text are bound. `results['a']` and computed keys stay Promises, and `results` inside a nested non-async function is a syntax error.
 4. **Scopes differ per site** ([JE-22](#je-22), [JE-V1](#je-v1), [JE-33](#je-33), [JE-39](#je-39)). `sleep`, `retry_if` and `skip_expr` have no `results`; stop predicates get `results` only if their text names it; input transforms have no `result`, and `params` is always `{}`; `parallelism` sees the containing input unchanged, so an outer `iter` stays visible. No site binds `env`, and no `WM_*` name exists except `WM_SCHEDULED_FOR` in flow `skip_expr`.
@@ -41,10 +41,10 @@ O1 is not the only point where pre-database values matter: a later step can comp
 6. **`previous_result` is positional** ([JE-36](#je-36)). The first module of every flow job, and any module at index 0 (collapsed loops included), sees the job input. Collapsing applies to deployed sequential for-loops and to while loops (previews included), never to parallel loops. The re-fetch fallback produces the *string* `"{}"`.
 7. **Transforms run serially, once per step** ([JE-23](#je-23), [JE-V2](#je-v2), [JE-V5](#je-v5)). A step's transforms are evaluated one at a time, in unspecified order, each in its own runtime, stopping at the first error. Ordinary step retries reuse the recorded arguments without re-evaluating the transforms; collapsed loop bodies evaluate their transforms per iteration. Isolation does not make concurrent evaluation, a shared runtime or shared read caching behaviour-preserving.
 8. **Argument references are resolved per leaf step and per attempt** ([JE-41](#je-41), [JE-42](#je-42), [JE-V3](#je-v3)). `$var:`/`$res:` markers are resolved when a script job builds its arguments, into a map separate from the recorded arguments. Expressions see unresolved strings, except in `flow_env` ([JE-38](#je-38)). Recorded arguments, resolved arguments, child-job results and parent-flow errors are distinct observation points.
-9. **Errors take five routes** ([JE-35](#je-35), [JE-26](#je-26)): chaining after a child completed (`InternalError`, failure module not run); first pickup of a root flow (failure module runs); first pickup of a nested flow (the parent handles it); ordinary step failures; and an unrecoverable string-valued error from `stop_after_if`, while the child job stays successful. The message wrappers are part of the contract; the Rust location suffix must be normalised before comparing.
-10. **JSON boundaries depend on the read path** ([JE-16](#je-16), [JE-44](#je-44)). Reads from the database see `jsonb`: keys reordered, exponents expanded. The in-memory previous result keeps the producer's text, including `-0`, and its consequences are observable downstream. The top-level key order of `flow_input` and of script arguments comes from a hash map and is not stable.
+9. **Errors take five routes** ([JE-35](#je-35), [JE-26](#je-26)): chaining after a child completed (`InternalError`, failure module not run); first pickup of a root flow (failure module runs); first pickup of a nested flow (the parent handles it); ordinary step failures; and an unrecoverable string-valued error from `stop_after_if`, while the child job stays successful. The message wrappers are part of the contract: at a first pickup an evaluation error is named `Anyhow` and carries two `Error: ` prefixes and two Rust location suffixes, after a completed child one of each. The location suffixes must be normalised before comparing. The flow-level `skip_expr` ends a flow `skipped`, and a final module's `sleep` is evaluated, because of the virtual step after it ([JE-28](#je-28), [JE-33](#je-33)).
+10. **JSON boundaries depend on the read path** ([JE-16](#je-16), [JE-44](#je-44)). Reads from the database see `jsonb`: keys reordered, exponents expanded. The in-memory previous result keeps the producer's text, including `-0`, and its consequences are observable downstream. The text a shortcut returns follows the same split: a `flow_input` member and a previous result read back from storage come in `jsonb`'s spaced form, and a previous result after a loop or `branchall` is a compact array with re-printed numbers (JE-44's table). The top-level key order of `flow_input` and of script arguments comes from a hash map and is not stable.
 
-Every finding below is source-confirmed at its stated scope and confidence, except [JE-48](#je-48) and [JE-49](#je-49), which are `drafted` (written from the pinned source, not yet independently checked). No case in this area has been recorded on the oracle yet; [Q-JE-1](#q-je-1) to [Q-JE-11](#q-je-11) are pending checks, not passed tests.
+Every finding below is source-confirmed at its stated scope and confidence, except [JE-50](#je-50) to [JE-52](#je-52), which are `drafted` (written from the pinned source, not yet independently checked). Recording batch E3a (design record 0012) recorded every case of this area on the CE oracle except JE-16/c, JE-19/e and JE-V5/a, and three cases only in part (JE-28/a, JE-36/d, JE-V1/a); the recordings confirmed the source-derived expectations except JE-2/a, JE-28/c, JE-33/a–b, JE-35/b and JE-48/a and c, whose findings were corrected on 2026-10-28. The questions still open are listed at the end.
 
 ## Design notes (not Windmill behaviour)
 
@@ -58,80 +58,139 @@ Every finding below is source-confirmed at its stated scope and confidence, exce
 <a id="je-1"></a>
 ### JE-1 · QuickJS-ng evaluates every expression that reaches the engine
 
-**Scope:** core · **Confidence:** high (missing-API list and `console`: medium, source-derived) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for the names and digits batch E3a recorded; source-traced for the names it did not record: `queueMicrotask`, `performance`, `DOMException`, `WeakRef`, `FinalizationRegistry`, `Iterator`, `structuredClone`, [Q-JE-2](#q-je-2); the image's C library: source-traced, [Q-JE-16](#q-je-16)) · **Status:** confirmed; drafted (how the image links the C library's math functions)
 
 - **Rule:**
   - An expression that no shortcut ([JE-6](#je-6) to [JE-9](#je-9)) answers is evaluated by **QuickJS-ng**, embedded through the `rquickjs` crate at version `0.11.0`. That crate switched its base engine from Bellard's QuickJS to quickjs-ng in 0.9.0; its 0.11.0 changelog identifies quickjs-ng revision `be664ca1ccd86cbadf8df7348b8e15e77a32a1ba`.
   - No V8 or `deno_core` is involved. The `deno_core` runtime in `backend/windmill-runtime-nativets/` runs `nativets` scripts, not expressions ([JE-46](#je-46)).
-  - Each evaluation that reaches the engine builds a **new runtime and a new full context** and discards both afterwards. Nothing survives from one evaluation to the next: no globals, no prototype patches, no caches. Each input transform is its own evaluation ([JE-23](#je-23)).
+  - Each evaluation that reaches the engine builds a **new runtime and a new full context** and discards both afterwards. Nothing survives from one evaluation to the next: no globals, no prototype patches, no caches. Each input transform is its own evaluation ([JE-23](#je-23)). The code runs as a strict-mode global script ([JE-50](#je-50)).
   - The context gets **no host APIs** beyond what the evaluator installs: the context values, `flow_input`/`flow_env`, the helpers and `error` ([JE-10](#je-10), [JE-11](#je-11), [JE-17](#je-17), [JE-20](#je-20)).
-  - **Absent** (source-derived, [Q-JE-2](#q-je-2)): `Intl`, `atob`/`btoa`, `TextEncoder`/`TextDecoder`, `URL`/`URLSearchParams`, `fetch`, `setTimeout`, `process`, `require`, module imports, and `console`. `typeof console` is expected to be `"undefined"`, so a `console.log(...)` call fails.
-  - **Present:** the standard ECMAScript built-ins: `JSON`, `Math`, `Date`, `RegExp` (including lookbehind and named groups), `Map`/`Set`, `Proxy`, `Promise`, `BigInt`, the ES2023 array methods and `Object.groupBy`.
+  - **Absent** (oracle-observed): `console`, `Intl`, `atob`, `btoa`, `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams`, `fetch`, `setTimeout`, `process` and `require` all have `typeof` `"undefined"`, so a `console.log(...)` call fails. Module imports are unavailable, since the code is a script, not a module. `structuredClone` and `navigator` are absent too (source-traced: the engine does not define them).
+  - **Present:** the standard ECMAScript built-ins: `JSON`, `Math`, `Date`, `RegExp` (including lookbehind and named groups), `Map`/`Set`, `Proxy`, `Promise`, `BigInt`, the ES2023 array methods and `Object.groupBy` (oracle-observed). The full context also defines, beyond ECMAScript (source-traced): `queueMicrotask`, a global function that queues an engine job ([JE-51](#je-51)); `performance`, an object with `now()` (milliseconds since the context was created, so the clock restarts at every evaluation) and `timeOrigin`; `DOMException`; `WeakRef`; `FinalizationRegistry`; and `Iterator`.
+  - **Transcendental `Math` functions come from the C library.** quickjs-ng computes `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt` and `pow` by calling the function of the same name in the libm of the binary it is linked into. The CE image is built on Debian trixie with the GNU C library, so Windmill's values are **glibc's**: the `windmill` binary is built for the GNU/Linux target, the engine's calls into the C library's math functions stay dynamic, and at run time they resolve against the GNU C library of the runtime image, `debian:trixie-slim` ([JE-48](#je-48) gives the build). Which glibc version that is cannot be read from the source, because the base image is named by tag; the pinned image settles it ([Q-JE-16](#q-je-16)). Whether the same glibc version gives the same digits on another machine was not traced: glibc can pick CPU-specific variants of these functions at run time. Under another libm the last digit can differ: of the values batch E3a recorded, macOS's libm differs on `tan(1)`, `tan(1e10)`, `asin(0.3)`, `acos(0.3)`, `cosh(10)` and `atanh(0.5)`, and an fdlibm-derived libm (V8's, musl's) gives `Math.log(3)` as `1.0986122886681096` where Windmill gives `1.0986122886681098`. The recorded digits are the `math-*` cases of `conformance/exprs/je-1.yaml` (oracle run 40687124625, amd64).
   - **Build feature.** The CE and EE images are built with the `quickjs` feature (the `oss_core` feature group). A build without it fails every expression that *reaches the engine* with ``JavaScript expression evaluation requires the `quickjs` feature...``; expressions a shortcut answers still succeed.
-- **Evidence:** `backend/Cargo.lock:10294-10297` (rquickjs 0.11.0), `backend/Cargo.toml:614`; feature wiring `backend/Cargo.toml:126`, `:182-204`; fresh runtime and context `backend/windmill-jseval/src/lib.rs:435-437`, installed globals `:435-552`; fallback stub `:999-1018`; shortcut order `backend/windmill-worker/src/js_eval.rs:44-85`; missing APIs: the in-repository analysis `backend/QUICKJS_MIGRATION_ANALYSIS.md` (sections 2.3 and 7); engine provenance: the rquickjs changelog entry for 0.9.0 ("Switching to quickjs-ng from quickjs as base engine") and the [0.11.0 changelog](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/CHANGELOG.md).
+- **Evidence:** `backend/Cargo.lock:10294-10297` (rquickjs 0.11.0), `backend/Cargo.toml:614`; feature wiring `backend/Cargo.toml:126`, `:182-204`; fresh runtime and context `backend/windmill-jseval/src/lib.rs:435-437`, installed globals `:435-552`; fallback stub `:999-1018`; shortcut order `backend/windmill-worker/src/js_eval.rs:44-85`; missing APIs: the in-repository analysis `backend/QUICKJS_MIGRATION_ANALYSIS.md` (sections 2.3 and 7); engine provenance: the rquickjs changelog entry for 0.9.0 ("Switching to quickjs-ng from quickjs as base engine") and the [0.11.0 changelog](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/CHANGELOG.md). The full context: rquickjs 0.11.0 `core/src/context/async.rs:173-183` creates it with quickjs-ng's `JS_NewContext`, which in the copy rquickjs-sys 0.11.0 vendors (`quickjs/quickjs.c:2379-2403`) adds the standard intrinsics plus `WeakRef`, `DOMException` and `performance` (`:57508-57521`); `queueMicrotask` is in the global function list (`:52226-52231`). `Math` through libm: `quickjs.c:45277-45297` (each wrapper calls the C library function of the same name), `:13516-13529` (`pow`), the function table `:45299-45338`; the base image `Dockerfile:1` (`debian:trixie-slim`), used for the runtime stage at `:134`; the GNU/Linux target built without a static C runtime (`backend/.cargo/config.toml:4-10` sets only the linker; `Dockerfile:120` passes no `--target`). The recorded census and digits: the `absent-host-apis`, `present-built-ins` and `math-*` cases of `conformance/exprs/je-1.yaml`.
 - **Conformance:** [JE-1/a–e](conformance.md#je-1)
+- **Revision 2026-10-28 (oracle, batch E3a; source re-check):** the absent and present lists were source-derived; batch E3a recorded them, and they hold. Added the names the full context defines beyond ECMAScript (`queueMicrotask`, `performance`, `DOMException`, `WeakRef`, `FinalizationRegistry`, `Iterator`), which the finding did not list, the strict mode of [JE-50](#je-50), and the rule that transcendental `Math` values are the C library's (glibc on the CE image), with the digits E3a recorded.
+- **Revision 2026-10-28 (validation round 2, design request 9):** added how the image links those functions: dynamically, against the runtime image's glibc, whose version the source does not fix ([Q-JE-16](#q-je-16)). The reading behind deviation D16, that the digits are those of the engine build's C library, is confirmed.
 
 <a id="je-2"></a>
 ### JE-2 · An evaluation has a 20 s wall-clock limit, tried up to 3 times
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high (the limit, the retries, the message: source-traced; the monitor cancel: oracle-observed; which monitor branch a hanging first transform takes: medium) · **Status:** confirmed
 
 - **Rule:**
   - One evaluation attempt may run for **20 000 ms**. An attempt that does not finish in time fails with ``The expression evaluation `<expr>` took too long to execute (>20000ms)``, where `<expr>` is the trimmed text before any rewriting. For a predicate it is the `Boolean(...)`-wrapped text ([JE-5](#je-5), [JE-24](#je-24)).
   - On the worker path a timeout is retried: **up to 3 attempts in total, with a 5 s pause between attempts**, so about 70 s pass before the error surfaces. Only errors whose text contains `took too long` are retried; every other error surfaces at once.
-  - No interrupt handler is installed. A CPU-bound loop keeps its thread busy after the timeout fires, but the observable result is still the timeout error.
-  - A promise that never settles (for example `new Promise(() => {})`) also ends in this timeout.
+  - No interrupt handler is installed. A CPU-bound loop keeps its thread busy after the timeout fires; the evaluator still reports the timeout error.
+  - A promise that never settles (for example `new Promise(() => {})`) also ends in this timeout, and so does a chain of engine jobs that never empties ([JE-51](#je-51)).
   - The limit applies only to evaluations that reach the engine; a shortcut returns before any engine starts.
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:22`, `:303-328`; retry loop `backend/windmill-worker/src/js_eval.rs:81-107`.
+  - **The flow can be canceled before the timeout surfaces.** While the worker evaluates a flow's transition (the transforms and predicates of the next module), nothing refreshes the flow job's ping. The server's zombie-flow monitor checks running flow jobs (kinds `flow`, `flowpreview`, `flownode`, `singlestepflow`) whose last ping is older than `FLOW_ZOMBIE_TRANSITION_TIMEOUT` seconds (default **60**; read from the environment, any text accepted). It restarts such a flow when its first module is still waiting and the flow is not same-worker; otherwise it cancels it with canceler `monitor` and a reason that begins `Flow <id> (<base url>/run/<id>?workspace=<w>) was cancelled because it was hanging in between 2 steps. Last ping: …` and goes on with worker details. The monitor runs only in server mode (the oracle's standalone mode includes it) and can be disabled. Because 60 s is shorter than the three attempts' 70 s, an expression that times out on every attempt usually ends the flow as **canceled by the monitor**, not with the timeout error. On the oracle a root flow whose first module's transform loops forever was canceled after 60.1 s, before the third attempt ended. Which branch the monitor takes for a root flow hanging in its first transition, and why it canceled rather than restarted there, is not traced; the outcome also depends on timing (the monitor's period, the 60 s threshold against the 70 s of attempts).
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:22`, `:303-328`; retry loop `backend/windmill-worker/src/js_eval.rs:81-107`. The monitor: the threshold `backend/src/monitor.rs:174-177`, the scan `:4867-4890`, the restart branch `:4895-4943`, the cancel branch and its reason `:4944-5143`, `cancel_zombie_flow_job` with canceler `monitor` `:5174-5199`, the call in server mode and the `DISABLE_ZOMBIE_JOBS_MONITORING` switch `:185`, `:3058-3069`; a flow job's ping is refreshed when one of its children completes (`backend/windmill-queue/src/jobs.rs:1247-1262`) and during large pushes (`backend/windmill-worker/src/worker_flow.rs:4123-4134`), not during an evaluation. Recorded: case JE-2/a of `conformance/exprs/je-2.yaml` (oracle run 40688787344).
 - **Conformance:** [JE-2/a](conformance.md#je-2) (a slow fixture: allow at least 75 s).
-- **Design note (not Windmill behaviour):** windmill-lite should keep the message. Interrupting a runaway evaluation, or dropping the retries, would be a deviation from Windmill; if adopted, it must be listed in the equivalence contract.
+- **Design note (not Windmill behaviour):** windmill-lite should keep the message. Interrupting a runaway evaluation, or dropping the retries, would be a deviation from Windmill; if adopted, it must be listed in the equivalence contract. windmill-lite has no zombie-flow monitor; whether it reproduces the monitor's cancel is a design decision.
+- **Revision 2026-10-28 (oracle, batch E3a; source re-check):** JE-2/a expected the step to fail with the timeout message. On the oracle the flow was canceled by the zombie-flow monitor at 60 s, before the third attempt ended, so the message never surfaced. Added the monitor rule and the timing dependence; the attempt limit, the retries and the message are unchanged.
 
 <a id="je-3"></a>
 ### JE-3 · An evaluation is capped at 128 MiB of heap
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - An evaluation's heap is capped at **128 MiB**. The `QUICKJS_MEMORY_LIMIT_MB` environment variable (a positive integer, in MB) overrides the cap.
-  - Running out of memory produces ``The expression evaluation exceeded the memory limit of <N> MB. Reduce the amount of data handled in the expression, or raise the cap via the QUICKJS_MEMORY_LIMIT_MB environment variable.``
+  - An evaluation's heap is capped at **128 MiB**. The `QUICKJS_MEMORY_LIMIT_MB` environment variable overrides the cap.
+  - **How the variable is read.** Once per process, when the first flow evaluation needs the cap; a change takes effect only after a restart. The text must parse as an unsigned decimal integer: no surrounding whitespace, no fraction, no unit, an optional leading `+`. A missing variable, an unparsable value or `0` leaves the default. A value `N` gives `N × 1 048 576` bytes (so "MB" means MiB), saturating at the largest size the platform has instead of overflowing.
+  - Running out of memory produces ``The expression evaluation exceeded the memory limit of <N> MB. Reduce the amount of data handled in the expression, or raise the cap via the QUICKJS_MEMORY_LIMIT_MB environment variable.``, where `<N>` is the cap in bytes divided by 1 048 576, rounded down: the configured value, or `128`.
   - QuickJS signals an out-of-memory condition either as an `InternalError` whose text is exactly `out of memory`, or as a bare `null`/`undefined` throw. The evaluator treats both as out of memory. A user's explicit `throw null` or `throw undefined` therefore *also* produces this message. A user's `throw new Error("out of memory")` stays an ordinary error.
-  - Like [JE-2](#je-2), the cap applies only to evaluations that reach the engine.
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:331-364`, `:342-419`, `:366-421`; tests `:2837-2945`.
+  - Like [JE-2](#je-2), the cap applies only to evaluations that reach the engine. The variable governs flow evaluations only; the simple evaluator outside flows has a fixed 32 MiB cap ([JE-45](#je-45)).
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:331-364` (the default `:342`, the variable read once `:355-364`), `:366-421`; the cap passed to each evaluation `:292-293`, `:435-436`; tests `:2837-2945`. Recorded: case JE-3/a of `conformance/exprs/je-3.yaml` (oracle run 40687124625).
 - **Conformance:** [JE-3/a](conformance.md#je-3)
+- **Revision 2026-10-28 (source re-check):** the finding said only "a positive integer, in MB". Added how the variable is parsed (once per process; the default for missing, invalid or zero values; mebibytes; saturation), which `<N>` the message prints, and that it does not reach the simple evaluator. JE-3/a was recorded and holds.
 
 <a id="je-48"></a>
 ### JE-48 · The stack limit is quickjs-ng's built-in 1 MiB, measured from where the embedding enters the engine
 
-**Scope:** later · **Confidence:** high (source-traced through Windmill, rquickjs 0.11.0 and quickjs-ng `be664ca`; oracle pending, [Q-JE-11](#q-je-11)) · **Status:** drafted
+**Scope:** later · **Confidence:** high (the limit and the overflow behaviour: source-traced through Windmill, rquickjs 0.11.0 and quickjs-ng `be664ca`, and oracle-observed; why fewer than 1 000 frames fit on Windmill: medium; the CE image's engine build: source-traced, [Q-JE-16](#q-je-16)) · **Status:** confirmed; drafted (the CE image's engine build)
 
 - **Rule:**
   - **No stack setting.** Windmill's evaluator creates each runtime with a heap cap only ([JE-3](#je-3)). It never sets a maximum stack size, and no environment variable changes one: `QUICKJS_MEMORY_LIMIT_MB` affects the heap only. The simple evaluator outside flows ([JE-45](#je-45)) does the same.
   - **The value.** The limit is therefore quickjs-ng's compiled-in default, `JS_DEFAULT_STACK_SIZE` = **1 MiB** (1 048 576 bytes). rquickjs 0.11.0 does not change it when it creates a runtime. The rquickjs documentation of its stack setter claims a default of 256 KiB; that comment is stale and does not describe the pinned engine.
-  - **What it measures.** The limit is native (C) stack, not a count of JavaScript frames. The engine fails once the stack pointer has moved more than 1 MiB below a recorded top. With the `parallel` feature, which Windmill enables, rquickjs re-records that top every time it enters the engine for the evaluation, so each entry gets the full 1 MiB below the frame that entered.
+  - **What it measures.** The limit is native (C) stack, not a count of JavaScript frames. The engine fails once the stack pointer has moved more than 1 MiB below a recorded top. With the `parallel` feature, which Windmill enables, rquickjs re-records that top every time the evaluation's future is polled, so each poll gets the full 1 MiB below the frame that polls. The engine jobs that poll runs ([JE-51](#je-51)) share that budget; the few Rust and engine frames between the poll and the first JavaScript call are charged to it too.
   - **The thread.** An evaluation runs on a Tokio blocking-pool thread. Windmill sets no thread stack size and its image sets no `RUST_MIN_STACK`, so the thread has Rust's default of 2 MiB. The engine's 1 MiB limit is therefore reached before the thread's own stack runs out.
   - **What happens on overflow.** The engine throws a `RangeError` with the message `Maximum call stack size exceeded`. It is an ordinary exception:
     - caught inside the expression, it is a value like any other;
-    - uncaught, it fails the evaluation as [JE-21](#je-21) describes, so the text is `QuickJS evaluation error: Error: Maximum call stack size exceeded`, followed by any stack, and each site wraps it ([JE-23](#je-23) to [JE-35](#je-35)).
+    - uncaught, it fails the evaluation as [JE-21](#je-21) describes, so the text is `QuickJS evaluation error: Error: Maximum call stack size exceeded`, followed by the stack (its ten innermost frames, here all `at f (eval_script:…)`; see [JE-21](#je-21)), and each site wraps it ([JE-23](#je-23) to [JE-35](#je-35)).
+    - An expression that holds a `;` outside quotes runs in statement mode ([JE-13](#je-13)): an uncaught overflow still fails it, but a value the expression computes, a caught overflow included, is discarded and the result is `null`.
   - **Where the engine checks:** at every JavaScript call (calls into built-ins included), while parsing deeply nested source, while parsing or stringifying deeply nested JSON (`JSON.parse`, `JSON.stringify`, the final serialisation of [JE-15](#je-15) included), and while walking proxy chains and flattening nested arrays.
-  - **Depth is not portable.** How many nested calls fit in 1 MiB depends on the size of the engine's C frames, and so on the compiler, its flags and the CPU architecture. No fixture may assert an exact overflow depth: fixtures use one depth far below any plausible limit and one far above it.
-- **Evidence:** no stack setting `backend/windmill-jseval/src/lib.rs:435-437`, `:972-973`; the blocking thread `:296-327`; the runtime builder, without a thread stack size, `backend/src/main.rs:221-225`; rquickjs features `backend/Cargo.toml:614`; rquickjs 0.11.0 [`runtime/raw.rs:194-199`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/runtime/raw.rs#L194) (re-recording the top, `parallel` only), [`:251-257`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/runtime/raw.rs#L251) (the opt-in setter and its stale comment), [`context/async/future.rs:91`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/context/async/future.rs#L91) (the top re-recorded on each poll); quickjs-ng [quickjs.h @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.h) line 372 (the default) and [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) lines 1827-1832 (the check), 1888-1893 (the default applied when a runtime is created), 2589-2612 (limit = top minus size), 7351-7354 (the `RangeError`), 16425 (calls), 20938 (the parser), 21568 (the JSON tokenizer), 47165 and 47345 (the `JSON.parse` reviver and `JSON.stringify`). The quickjs-ng copy vendored in rquickjs-sys 0.11.0 differs from `be664ca` only by one added string-freeing helper and one promise-state constant, so its line numbers after line 4362 are 8 higher.
+  - **How many frames fit on Windmill** (oracle-observed, CE `v1.767.0` amd64). For the recursion `g(g, n) = n === 0 ? 0 : 1 + g(g, n - 1)` started from an arrow function, depths 10, 100, 300 and 600 fit, and a recursion of depth 1 000 of the same shape (`f = n => n === 0 ? 0 : 1 + f(n - 1)`) overflows. One such JavaScript call therefore takes more than about 1 KiB of C stack in Windmill's engine (1 MiB ÷ 1 000 ≈ 1 049 bytes), and at most about 1.7 KiB (1 MiB ÷ 600). The reason is the engine's build, not the limit (medium: the per-frame size was not measured): Windmill compiles quickjs-ng through rquickjs-sys's build script with the `cc` crate, under Cargo's release profile (optimisation level 3, which `cc` passes to the C compiler), with the build image's default C compiler, and **with assertions compiled in**, because the `disable-assertions` feature of rquickjs, which would define `NDEBUG`, is not enabled. The size of the interpreter's C frame for each JavaScript call follows from those choices.
+  - **The CE image's engine build** (source-traced, so far as the source fixes it). The published CE image is built from the repository's `Dockerfile` with only the build argument `features=ce`, for `linux/amd64` and `linux/arm64`, so the default base images apply. The engine is compiled in the builder stage, on the image tag `rust:1.97-slim-trixie` (Debian trixie), for the host's GNU/Linux target (no `--target` and no target override), by the `cc` crate 1.3.0 with no `CC` or `CFLAGS` set, so with the compiler the base image calls `cc`. The source fixes these flags: optimisation level 3, `_GNU_SOURCE` defined, `NDEBUG` not defined, and `cc`'s defaults for a release build (position-independent code, one section per function and per datum). The C code becomes a static library inside the `windmill` binary; the binary is stripped of debug information. The source does **not** fix which compiler `cc` is or its version, since the base images are named by tag, not by digest, and both GCC and Clang are installed in the builder; only the pinned image can tell ([Q-JE-16](#q-je-16)).
+  - **Depth depends on the build.** How many nested calls fit in 1 MiB depends on the size of the engine's C frames, and so on the compiler, its flags and the CPU architecture. The recordings above give Windmill's outcomes on the pinned oracle for these expressions: depths 10, 100, 300 and 600 fit, and the depth-1 000 expression overflows. They do not locate the exact limit.
+- **Evidence:** no stack setting `backend/windmill-jseval/src/lib.rs:435-437`, `:972-973`; the blocking thread `:296-327`; the runtime builder, without a thread stack size, `backend/src/main.rs:221-225`; rquickjs features `backend/Cargo.toml:614`; rquickjs 0.11.0 [`runtime/raw.rs:194-199`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/runtime/raw.rs#L194) (re-recording the top, `parallel` only), [`:251-257`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/runtime/raw.rs#L251) (the opt-in setter and its stale comment), [`context/async/future.rs:91`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/context/async/future.rs#L91) (the top re-recorded on each poll); quickjs-ng [quickjs.h @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.h) line 372 (the default) and [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) lines 1827-1832 (the check), 1888-1893 (the default applied when a runtime is created), 2589-2612 (limit = top minus size), 7351-7354 (the `RangeError`), 16425 (calls), 20938 (the parser), 21568 (the JSON tokenizer), 47165 and 47345 (the `JSON.parse` reviver and `JSON.stringify`). The quickjs-ng copy vendored in rquickjs-sys 0.11.0 differs from `be664ca` only by one added string-freeing helper and one promise-state constant, so its line numbers after line 4362 are 8 higher. The engine's build: rquickjs-sys 0.11.0 `build.rs:149-152` (`NDEBUG` only with `disable-assertions`), `:157-162` (the `cc` build); `disable-assertions` is off in rquickjs-core 0.11.0's `Cargo.toml:52-53` defaults and in Windmill's features `backend/Cargo.toml:614`; the release profile `backend/Cargo.toml:107-110` (no `opt-level`, so Cargo's default of 3); the build stage `Dockerfile:2`, `:24-26`, `:96-120` (no `CC` set, no `--target`), the strip `:125-127`, the binary copied into the runtime stage `:134`, `:142`, `:280`; the `cc` crate `backend/Cargo.lock:2292-2294`; no target override in `backend/.cargo/config.toml:1-24` (only linker settings); the published image's build `.github/workflows/docker-image.yml:86-100` (`features=ce`, both platforms). Recorded: cases JE-48/a–d and the `catchable` and `depth-bracket` variants of `conformance/exprs/je-48.yaml` (oracle runs 40687124625 and 40691336592).
 - **Conformance:** [JE-48/a–d](conformance.md#je-48)
-- **Design note (not Windmill behaviour):** pinning the same 1 MiB keeps the limit equal, but an engine compiled differently still overflows at a different depth. That is why the cases bracket the limit instead of locating it.
+- **Design note (not Windmill behaviour):** pinning the same 1 MiB keeps the limit equal, but an engine compiled differently still overflows at a different depth. windmill-lite's own engine, built at `-O2` with `NDEBUG`, overflows the depth-1 000 recursion only at 1 037 to 1 089 frames depending on the platform, so it succeeds where Windmill's recorded run fails. Whether windmill-lite must match that outcome, or lists it as a deviation, is a compatibility decision for the equivalence contract ([design record 0001](../design/0001-equivalence-contract.md)); this reference does not settle it. A portable smoke test that holds for both builds could check that depth 600 fits and that depth 1 000 000 overflows; that is a proposal, not Windmill behaviour. Calibrating windmill-lite's frames to Windmill's would need the same compiler, at the same version, with the flags the source fixes; the source does not name the compiler ([Q-JE-16](#q-je-16)).
+- **Revision 2026-10-28 (validation round 1):** the 2026-10-28 text added a "compatibility band" stating that a conforming engine may give either outcome between 600 and 1 000 000 and that no fixture may assert an overflow in that range. The source and recordings do not establish that, so it is removed: the rule keeps the 1 MiB limit, build-dependent frame sizes and the recorded outcomes (depths 10 to 600 fit, depth 1 000 overflows on the pinned oracle), and the smoke band moves to the design note as a proposal.
+- **Revision 2026-10-28 (oracle, batch E3a):** the finding was `drafted`; the independent check of its source trace passed, and batch E3a recorded its cases. Two corrections. (1) The finding called 1 000 "far below any plausible limit", and JE-48/a expected a recursion of depth 1 000 to fit; on the oracle it overflows, while depths up to 600 fit. Added how many frames fit on Windmill and the medium-confidence reason (the engine's build). (2) The catalogue's JE-48 expressions hold a `;`, so they run in statement mode: JE-48/c's caught value is discarded and the result is `null`; a semicolon-free variant returns `["RangeError","Maximum call stack size exceeded"]`. The 1 MiB limit, its measurement and the overflow message are unchanged.
+- **Revision 2026-10-28 (validation round 2, design request 9):** added what the source fixes about the CE image's engine build (base images, target, the `cc` crate and its flags, assertions on) and what it does not (the compiler and its version), with [Q-JE-16](#q-je-16) for the recording that settles it. The reading behind deviation D17, that the overflow depth follows the compiled engine's frames, is confirmed; a calibration is possible only once the compiler is known.
 
 <a id="je-49"></a>
 ### JE-49 · Context values nested deeper than 127 levels fail before evaluation
 
-**Scope:** later · **Confidence:** medium (the binding is source-traced; that a deep step result reaches the binding unchanged is not traced end to end; oracle pending, [Q-JE-11](#q-je-11)) · **Status:** drafted
+**Scope:** later · **Confidence:** high (source-traced and oracle-observed; the position and the order: source-traced) · **Status:** confirmed; drafted (which text the position counts in, and which value is reported)
 
 - **Rule:**
   - **Where the limit sits.** Before QuickJS runs, every bound context value is parsed from its JSON text into a Rust JSON tree and then converted ([JE-16](#je-16)). The parser is serde_json 1.0.151 without its `unbounded_depth` feature (no manifest in the workspace enables it). It allows at most **127 nested arrays or objects**: entering the 128th fails.
   - **Which values:** `previous_result` and `result`, `iter`, `params` and the other names of the transform context, each value of `flow_env`, and the whole `flow_input` object. For `flow_input` the outer object is the first level, so a key whose value is 127 levels deep already fails.
   - **What fails.** The evaluation fails with serde_json's text, `recursion limit exceeded at line <l> column <c>`, without the `QuickJS evaluation error: ` prefix, and each site wraps it as usual. No JavaScript runs.
+  - **Which text the position counts in** (source-traced). For a transform-context value (`previous_result`, `result`, `iter`, …) and for each member of `flow_env`, the line and column count in that value's own JSON text as it is held: the producer's text for an in-memory previous result, the stored text otherwise. `flow_input` is different: the evaluator first writes the whole input object out again, compactly (`{"<key>":<value>,…}`, no spaces between the outer keys), with each member's value copied in as its held text (from the database that is `jsonb`'s output, `{"a": 1}` with spaces), and parses that. Its position therefore counts from the outer `{` and includes the keys before the deep member, in the outer object's hash-map order ([JE-16](#je-16)), so with several keys it can change from run to run.
+  - **Which value is reported when several are too deep** (source-traced). The values are converted one at a time and the first failure ends the evaluation. The order is: the transform-context values the text names, in the transform context's hash-map order (not by name, and not stable between runs); then `previous_result` when only the `error` text or a previous-step spelling added it ([JE-10](#je-10)); then `flow_input`; then the members of `flow_env`, in its hash-map order.
   - **What does not fail.** A shortcut ([JE-6](#je-6) to [JE-9](#je-9)) returns stored JSON without parsing it, so `x = previous_result` passes a value of any depth through. Values built inside the expression have no such limit; only the stack limit ([JE-48](#je-48)) applies to them.
   - Depth counts containers: `[]` is depth 1 and `[[]]` depth 2.
-- **Evidence:** context parsing `backend/windmill-jseval/src/lib.rs:455-470` (`flow_input` re-serialised and parsed; transform-context values parsed), `:473-482` (`flow_env`); conversion `:825-862`; serde_json features `backend/Cargo.toml:435`; serde_json 1.0.151 [`src/de.rs:63`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L63) (the depth budget of 128), [`:1357-1387`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L1357) (the check), [`src/error.rs:384`](https://github.com/serde-rs/json/blob/v1.0.151/src/error.rs#L384) (the message) and [`:405-415`](https://github.com/serde-rs/json/blob/v1.0.151/src/error.rs#L405) (the position suffix).
+- **Evidence:** context parsing `backend/windmill-jseval/src/lib.rs:455-470` (`flow_input` re-serialised and parsed; transform-context values parsed), `:473-482` (`flow_env`); the order of the names converted `:267-284` (the transform context's keys first, then `previous_result`, then `flow_input`), the hash maps `:19`, `:236-238`; conversion `:825-862`; serde_json features `backend/Cargo.toml:435`; serde_json 1.0.151 [`src/de.rs:63`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L63) (the depth budget of 128), [`:1357-1387`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L1357) (the check), [`src/error.rs:384`](https://github.com/serde-rs/json/blob/v1.0.151/src/error.rs#L384) (the message) and [`:405-415`](https://github.com/serde-rs/json/blob/v1.0.151/src/error.rs#L405) (the position suffix). Recorded: runs `je49-a`, `je49-b` and `je49-c` of `conformance/flows/je/sites` (oracle run 40687124625).
 - **Conformance:** [JE-49/a–c](conformance.md#je-49)
 - **Design note (not Windmill behaviour):** an engine that parses context JSON inside JavaScript (`JSON.parse`) has no 127-level limit, so it accepts values that Windmill rejects. Reproducing JE-49 needs an explicit depth check before binding.
+- **Revision 2026-10-28 (oracle, batch E3a):** the finding was `drafted`, at medium confidence, because it was not traced that a 128-level step result reaches the binding unchanged. The independent check passed, and batch E3a recorded all three cases as stated: a Bun step's 128-level result reaches the binding and fails with `recursion limit exceeded at line 1 column 128`, without the `QuickJS evaluation error: ` prefix. No rule changed.
+- **Revision 2026-10-28 (validation round 2, design request 9):** added which text the reported position counts in and which value is reported when several are too deep. Two readings are corrected. (1) "Counted in the compact text" holds only for the outer object of `flow_input`: its members' values keep their held text, which from the database has `jsonb`'s spaces, and a member of `flow_env` counts in its own text. (2) The order is not `flow_input`, then the context values by name, then `flow_env`: it is the named context values in hash-map order, then `previous_result` when added by the `error` or previous-step trigger, then `flow_input`, then `flow_env`'s members in hash-map order. No case is added: whether a run can be given a `flow_input` or `flow_env` deep enough to reach the binding is not traced ([Q-JE-15](#q-je-15)).
+
+<a id="je-50"></a>
+### JE-50 · Expressions run as strict-mode global scripts
+
+**Scope:** core · **Confidence:** high (source-traced through Windmill and rquickjs 0.11.0; oracle pending, [Q-JE-12](#q-je-12)) · **Status:** drafted
+
+- **Rule:**
+  - The evaluator runs every piece of code it builds with rquickjs's default evaluation, which is a **global script** (not a module) with **strict mode forced**, under the file name `eval_script`. That covers the wrapped expression ([JE-13](#je-13)), the `error` set-up ([JE-17](#je-17)) and the helper set-ups ([JE-20](#je-20)). No `"use strict"` directive is needed or visible: the whole script, and every function it defines, is strict.
+  - Observable consequences, all ordinary ECMAScript strict-mode rules:
+    - `this` inside a plain function call is `undefined`, not the global object;
+    - assigning to an undeclared name throws a `ReferenceError` (`<name> is not defined`) instead of creating a global;
+    - `with`, legacy octal literals such as `010`, and `delete` of a plain name are syntax errors;
+    - assigning to a read-only property, or adding one to a frozen object, throws a `TypeError`.
+  - The simple evaluator outside flows ([JE-45](#je-45)) evaluates the same way.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:525`, `:544-552`, `:636`, `:662`, `:787`, `:800`, `:818` (each set-up evaluated with the default options), `:555-562` (the wrapped expression), `:988` (the simple evaluator); rquickjs 0.11.0 `core/src/context/ctx.rs:67-78` (the default options: global, strict), `:160-163` (`eval` uses them), `:180-201` (the file name `eval_script`); quickjs-ng's strict flag `quickjs/quickjs.c:34956` in rquickjs-sys 0.11.0.
+- **Conformance:** [JE-50/a](conformance.md#je-50)
+
+<a id="je-51"></a>
+### JE-51 · The engine's job queue is drained before the result is read, and a throwing job is ignored
+
+**Scope:** later · **Confidence:** high (source-traced through Windmill, rquickjs 0.11.0 and quickjs-ng; oracle pending, [Q-JE-12](#q-je-12)) · **Status:** drafted
+
+- **Rule:**
+  - The evaluation runs as a future that rquickjs polls. On each poll it first checks whether the expression's result promise has settled, and reads it if so. Otherwise it drives the pending host calls (the `variable`, `resource`, `flow_user_state` and `results` lookups, [JE-18](#je-18), [JE-20](#je-20)), then runs **every** queued engine job, in the order queued, including the jobs those jobs queue, until the queue is empty, and polls again.
+  - **Consequences:**
+    - Jobs the expression queues (promise reactions, `queueMicrotask` callbacks) run in first-in, first-out order, before the result is serialised whenever they were queued before the serialising reaction.
+    - The result is read only after the queue empties. A job chain that never ends (for example a callback that queues itself again) therefore keeps the evaluation from finishing, even after the value has settled, and it ends in the timeout of [JE-2](#je-2).
+    - A job whose function throws, as a `queueMicrotask` callback that throws does, is **dropped**: it neither fails the evaluation nor appears in any message, and the evaluation goes on. (A promise reaction never throws in this sense: an error inside it rejects the promise it belongs to.)
+    - No unhandled-rejection tracking is installed: a rejected promise that is not the expression's result does not fail the evaluation.
+- **Evidence:** the evaluation awaited inside rquickjs's `async_with!` `backend/windmill-jseval/src/lib.rs:451`, `:562-565`; rquickjs 0.11.0 `core/src/context/async/future.rs:107-150` (each poll: the result first, then the host-call scheduler, then every pending job until none is left; a job error is ignored), `core/src/value/promise.rs:186-215` (the result promise's future); quickjs-ng `JS_ExecutePendingJob` (`quickjs/quickjs.c:2041-2068` in rquickjs-sys 0.11.0: one job per call, an exception reported to the caller and not rethrown) and `queueMicrotask` (`:37737-37751`).
+- **Conformance:** [JE-51/a](conformance.md#je-51)
+
+<a id="je-52"></a>
+### JE-52 · Unpaired surrogates: results carry them escaped; an error message holding one is dropped
+
+**Scope:** later · **Confidence:** medium (source-traced through rquickjs 0.11.0 and quickjs-ng; oracle pending, [Q-JE-12](#q-je-12)) · **Status:** drafted
+
+- **Rule:**
+  - **Results.** A value leaves the engine only through the `JSON.stringify` of [JE-15](#je-15). quickjs-ng's `JSON.stringify` writes each unpaired surrogate code unit as a six-character escape with **lowercase** hex (`"\ud83d"`); a valid surrogate pair is written as the character itself. The evaluator's output text therefore never holds a raw lone surrogate. What happens when that text is then stored (as step arguments, through PostgreSQL `jsonb`) belongs to [execution](execution.md) ([FX-48](execution.md#fx-48)).
+  - **Error messages.** When an uncaught error's `message` holds an unpaired surrogate, the engine encodes it for the host as a three-byte sequence that is not valid UTF-8; rquickjs then fails to read the message and treats it as absent. The evaluator's text is `QuickJS evaluation error: Error:` followed directly by a newline and the stack ([JE-21](#je-21)): the message is **dropped**, and nothing of it reaches the step error.
+- **Evidence:** quickjs-ng's string quoting for JSON `quickjs/quickjs.c:13183-13248` in rquickjs-sys 0.11.0 (surrogates and control characters escaped as `\u` with four lowercase hex digits); the host encoding `:4238-4352` (unpaired surrogates kept as three-byte sequences); rquickjs 0.11.0 `core/src/value/string.rs:11-26` (a strict UTF-8 check on every string read), `core/src/value/exception.rs:73-78` (the message read, a failure giving none) and `:217-230` (the display without a message); the serialisation `backend/windmill-jseval/src/lib.rs:555-567`.
+- **Conformance:** [JE-52/a](conformance.md#je-52)
 
 <a id="je-4"></a>
 ### JE-4 · Reserved (unused)
@@ -145,61 +204,70 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-5"></a>
 ### JE-5 · Trimming, and what error messages quote
 
-**Scope:** core (evaluation); later (message spelling) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (evaluation); later (message spelling) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - **What is trimmed.** The evaluator removes leading and trailing whitespace, newlines included, from the text it evaluates. The shortcuts and the statement-mode detection ([JE-13](#je-13)) see the trimmed text.
+    - "Whitespace" is every character with the Unicode `White_Space` property, the set Rust's string trim removes: ASCII space, tab, `\n`, `\r`, vertical tab and form feed, and also U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000. A zero-width space (U+200B) and a byte order mark (U+FEFF) are not `White_Space` and stay.
   - **What messages quote.**
     - Site error messages (``Error during isolated evaluation of expression `…` ``, ``Error during evaluation of expression `…` `` and the predicate log lines) quote the expression **as written in the flow**, untrimmed.
     - The timeout message ([JE-2](#je-2)) quotes the trimmed text.
   - **Predicates are wrapped before trimming.** The text evaluated is `Boolean(` + the expression as written + `)`. Whitespace and newlines inside the wrapper survive; only the outside of the wrapper is trimmed ([JE-24](#je-24)).
-- **Evidence:** `backend/windmill-worker/src/js_eval.rs:36`; `backend/windmill-worker/src/worker_flow.rs:2451-2452`, `:2691-2694`, `:2763-2765`; `backend/windmill-jseval/src/lib.rs:243`, `:324-327`.
+- **Evidence:** `backend/windmill-worker/src/js_eval.rs:36` (the standard library's trim, defined by `White_Space`); `backend/windmill-worker/src/worker_flow.rs:2451-2452`, `:2691-2694`, `:2763-2765`; `backend/windmill-jseval/src/lib.rs:243`, `:324-327`, `:866` (statement detection trims again, a no-op).
 - **Conformance:** [JE-5/a, JE-5/b](conformance.md#je-5)
+- **Revision 2026-10-28 (source re-check, design request 8):** added which characters "whitespace" means. The reading windmill-lite's textual pipeline (B2a) took, Unicode `White_Space` as Rust's trim removes, is confirmed; nothing changes.
 
 <a id="je-6"></a>
 ### JE-6 · An exact context name returns the stored value verbatim
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - If the trimmed text is exactly the name of a value in the evaluation context, that value's stored JSON is returned unchanged.
   - The possible names depend on the site ([JE-22](#je-22)): `previous_result`, `result`, `params`, `resume`, `resumes`, `approvers`, `all_iters`, `started_at`, `flow_job_id`.
   - `flow_input` and `flow_env` are passed separately, not as context entries, so this shortcut does not apply to them; [JE-7](#je-7) does.
+  - "Unchanged" means the text the worker holds for that name. For `previous_result` that text depends on where the value came from ([JE-44](#je-44), the table of returned texts).
 - **Evidence:** `backend/windmill-worker/src/js_eval.rs:44-46`.
 - **Conformance:** [JE-6/a, JE-6/b](conformance.md#je-6)
 
 <a id="je-7"></a>
 ### JE-7 · A top-level `flow_input` or `flow_env` key returns the stored value verbatim
 
-**Scope:** core (plain keys); later (dotted-key quirk) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (plain keys); later (dotted-key quirk) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
-  - **Dot form.** If the text starts with `flow_input` followed by `.`, *everything after the first dot* is used as **one** key of the flow input. If the input has that key, its stored JSON is returned verbatim.
+  - **Dot form.** If the text starts with `flow_input` followed by `.`, *everything after the first dot* is used as **one** key of the flow input. If the input has that key, its stored JSON is returned verbatim. The key may be empty: `flow_input.` looks up the key `""`, and returns its value when the input has a key that is the empty string (otherwise the text goes to the engine, where it is a `SyntaxError`).
   - **Bracket form.** For `flow_input["…"]`, the text must end with `"]` and the key between the quotes must be non-empty.
   - `flow_env.<…>` and `flow_env["…"]` behave the same way against the flow env ([JE-38](#je-38)).
   - **On a miss**, the text is evaluated on the QuickJS path with ordinary JavaScript semantics. Only a missing **direct** property of an existing object yields `null` ([JE-15](#je-15)); `flow_input.absent.child` throws a `TypeError` and the step fails.
   - **Quirk:** `flow_input.a.b` first looks up a top-level key literally named `a.b`. Only if there is none does JavaScript evaluate `flow_input.a.b`.
   - The returned text is exactly the stored text, so a number like `12345678901234567890` keeps its full precision. JavaScript arithmetic on it does not ([JE-16](#je-16)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:117-163`; `backend/windmill-worker/src/js_eval.rs:48-52`, `:81-107`.
+  - **Which text that is.** The flow input is the flow job's arguments as decoded from its `jsonb` column, member by member without re-encoding. A member is therefore returned as PostgreSQL prints the stored `jsonb`: an object or array value has `": "` after each key and `", "` between members and items, its keys are in `jsonb` order, and its numbers are in `numeric`'s spelling ([JE-44](#je-44)). `flow_input.o` with `o` submitted as `{"b":1,"a":[1,2]}` returns `{"a": [1, 2], "b": 1}`, not a compact text.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:51-55` (the prefixes), `:117-163` (`:136-138` the dot form, with no emptiness check; `:139-150` the bracket form, whose key must be non-empty), `backend/windmill-worker/src/js_eval.rs:48-52`, `:81-107`; the flow input's source `backend/windmill-worker/src/worker_flow.rs:3186-3194`, its type and query `backend/windmill-queue/src/jobs.rs:2754-2758`, `:3231-3241` (the arguments decoded as raw text per member from `v2_job.args`).
 - **Conformance:** [JE-7/a–g](conformance.md#je-7)
+- **Revision 2026-10-28 (source re-check, design request 8):** windmill-lite's textual pipeline (B2a) took two readings here. (1) The dot form takes an empty key: confirmed. (2) A member read from storage is returned as a compact stored text: **corrected**. An object or array member comes back in `jsonb`'s printed form, with a space after each `:` and `,`; scalars agree with the compact reading. B2b's tests that pin a compact text for an object or array member of `flow_input` must change. Not yet recorded ([Q-JE-13](#q-je-13)).
 
 <a id="je-8"></a>
 ### JE-8 · The previous step's id returns `previous_result` verbatim
 
-**Scope:** core (named previous id); later (empty-id spellings) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (named previous id); later (empty-id spellings) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - When the site has a results context and its context holds `previous_result`, four spellings return `previous_result` verbatim: `results.<P>`, `results?.<P>`, `results["<P>"]` and `results?.["<P>"]`, where `<P>` is the previous id.
   - The text must be **exactly** one of these four. A longer path such as `results.a.n` is not one of them and goes to [JE-9](#je-9) ([JE-V6](#je-v6)).
   - **Empty previous id.** The spellings are built even when the previous id is empty. At the first module of a flow or body the previous id is `""`, so the exact texts `results[""]` and `results?.[""]` return `previous_result`, which is that flow job's input object ([JE-36](#je-36)). So do `results.` and `results?.`, which are not valid JavaScript.
   - On the QuickJS path, the `results` proxy compares against the same empty id, so `results[""]` inside a larger expression also yields `previous_result` ([JE-18](#je-18)).
-- **Evidence:** `backend/windmill-worker/src/js_eval.rs:54-72`; previous-id computation `backend/windmill-worker/src/worker_flow.rs:3658-3663`; proxy `backend/windmill-jseval/src/lib.rs:805-817`.
+  - **"Verbatim" means the producer's text** (oracle-observed). The shortcut returns the previous step's in-memory result text, in the producer's key order and spelling. Where that text is stored as step arguments it is `jsonb`-normalised ([JE-44](#je-44)), but a site that quotes the value keeps it: when a `timeout` of `results.p` (with `p` the previous step, returning `{"b":1,"a":2}`) fails the integer parse, the message ends `Value was: {"b":1,"a":2}`, while the same expression reaching `p` through the [JE-9](#je-9) lookup (another step in between) quotes the stored text, `Value was: {"a": 2, "b": 1}` ([JE-29](#je-29)).
+  - **"Verbatim" depends on where `previous_result` came from.** The producer's text holds only after an ordinary step whose job completed in the same transition. At other positions `previous_result` is a text the worker built, which the shortcut returns as it is ([JE-44](#je-44) gives the table): at the first module and in the preprocessor, a compact object of the flow arguments whose member values are `jsonb`'s printed text; after a loop or `branchall`, a compact array the worker rewrote from the stored child results; and when `previous_result` was read back from storage, `jsonb`'s printed text.
+- **Evidence:** `backend/windmill-worker/src/js_eval.rs:54-72`; previous-id computation `backend/windmill-worker/src/worker_flow.rs:3658-3663`; proxy `backend/windmill-jseval/src/lib.rs:805-817`; where `previous_result` comes from `backend/windmill-worker/src/worker_flow.rs:3324-3346`, `:3776-3792`, `:2299-2326`, `:6234-6264`. Recorded: runs `je8-a`, `je8-b`, `je8-order-transform`, `je8-order-timeout` and `je8-order-timeout-db` of `conformance/flows/je/shortcuts`, cases JE-8/c and JE-8/d of `conformance/exprs/je-8.yaml` (oracle run 40687124625).
 - **Conformance:** [JE-8/a–d](conformance.md#je-8)
+- **Revision 2026-10-28 (oracle, batch E3a):** added the recorded key-order discriminator: a quoting site shows the producer's text through this shortcut and the `jsonb` text through JE-9. The rule is unchanged.
+- **Revision 2026-10-28 (source re-check, design request 8):** added which text "verbatim" is at the positions where `previous_result` was not produced in memory. windmill-lite's textual pipeline (B2a) reads a value from storage as the compact stored text. That reading is **corrected** for the step after a loop or `branchall`, where numbers are re-printed ([JE-44](#je-44)), and for a `previous_result` read back from storage, which is spaced. B2b's tests that pin those texts must change. Not yet recorded ([Q-JE-13](#q-je-13)).
 
 <a id="je-9"></a>
 ### JE-9 · Simple `results` paths are served by a lenient database lookup
 
-**Scope:** core (shortcut and leniency); later (first-match `.length` decline) · **Confidence:** high (per-path `#>` edge cases: medium) · **Status:** confirmed
+**Scope:** core (shortcut and leniency); later (first-match `.length` decline) · **Confidence:** high (oracle-observed; per-path `#>` edge cases: medium) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - **Where it applies.** At every site with both an authenticated client and a results context: step input transforms, the loop iterator, `parallelism`, `timeout`, and predicates (`skip_if` and `branchone` always; `stop_after_if` and `stop_after_all_iters_if` when their text mentions `results`). It does not apply to `sleep`, `retry_if` or flow `skip_expr` (no results context) or to `suspend.user_groups_required` (no client). See [JE-22](#je-22).
@@ -213,6 +281,8 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - if its last segment is `length`, the whole shortcut declines and the text goes to QuickJS; later lines are **not** searched for another match;
     - otherwise the shortcut fires on that line: **all other text is ignored**, and no JavaScript runs.
   - Indented lines never qualify. The first line is never indented, because the text is trimmed.
+  - **Where a line ends.** Lines are split at `\n` only. A `\r` before the `\n` stays part of the line, and so does any trailing space or tab; since neither is a character the pattern allows, such a line does not qualify. Only the last line has its trailing whitespace removed, by the trim.
+  - **The `length` decline reads the last `.segment` only.** A step whose id is `length` (`results.length`, or `results.length.x`) is looked up like any other id; only a path whose final `.segment` is `length` (`results.a.length`, `results.length.length`) declines.
   - In a predicate, the shortcut's value goes to the strict boolean check ([JE-24](#je-24)).
   - **How it resolves.** The step's stored result is looked up through the "result by node id" lookup ([JE-19](#je-19) gives the resolution order). The path is then applied the way Postgres's `#>` operator applies a path to `jsonb`:
     - a missing step, a lookup failure, a missing key, a type mismatch or a `null` intermediate all give **`null`**, never an error;
@@ -220,19 +290,21 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - the returned text is the database's `jsonb` text ([JE-44](#je-44)).
   - **This lookup is more lenient than JavaScript.** With `a` returning `{}`, `results.a.b.c` gives `null` here, where JavaScript would throw. `results.nope.x` gives `null` where JavaScript would throw a `TypeError`. `results.a.0` is not valid JavaScript but resolves here.
   - It reads the database even when the step is the previous one ([JE-V6](#je-v6)).
-- **Evidence:** pattern and fallback `backend/windmill-jseval/src/lib.rs:73-75`, `:165-218` (first-match inspection `:184-197`); dispatch `backend/windmill-worker/src/js_eval.rs:74-79`; predicate wrapping `backend/windmill-worker/src/worker_flow.rs:2451-2466`; lookup `backend/windmill-queue/src/jobs.rs:4403-4461`, `:4711-4777`; endpoint `backend/windmill-common/src/client.rs:137-155`; test `backend/tests/worker.rs:5731-5778`.
+- **Evidence:** pattern and fallback `backend/windmill-jseval/src/lib.rs:73-75` (multi-line mode without CRLF mode, so `^` and `$` meet `\n` only), `:165-218` (first-match inspection `:184-197`; the decline tests the last segment of the path after the step id, `:170-178`); dispatch `backend/windmill-worker/src/js_eval.rs:74-79`; predicate wrapping `backend/windmill-worker/src/worker_flow.rs:2451-2466`; lookup `backend/windmill-queue/src/jobs.rs:4403-4461`, `:4711-4777`; endpoint `backend/windmill-common/src/client.rs:137-155`; test `backend/tests/worker.rs:5731-5778`.
 - **Conformance:** [JE-9/a–l](conformance.md#je-9)
-- **Note:** [CF-19](control-flow.md#cf-19) drafted a whole-expression form
-  of this shortcut. That dispute is tracked as
-  [Q-CF-16](control-flow.md#q-cf-16); [CF-V6](control-flow.md#cf-v6) states
-  the line-by-line reading that this finding gives.
+- **Revision 2026-10-28 (source re-check, design request 8):** added where a line ends and that a step id `length` does not decline. The readings windmill-lite's textual pipeline (B2a) took, lines ending at `\n` only and no decline for a step id `length`, are confirmed; nothing changes.
+- **Note:** [CF-19](control-flow.md#cf-19) once drafted a whole-expression
+  form of this shortcut. The oracle settled that dispute
+  ([Q-CF-16](control-flow.md#q-cf-16), answered) for the line-by-line
+  reading this finding gives, which [CF-V6](control-flow.md#cf-v6) and
+  CF-19's route 4 now state.
 
 ## C. The QuickJS path
 
 <a id="je-10"></a>
 ### JE-10 · Names are bound only if they appear in the expression text
 
-**Scope:** core (binding rule, `flow_env` default); later (computed access) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (binding rule, `flow_env` default); later (computed access, assignment) · **Confidence:** high (oracle-observed; assignment: source-traced) · **Status:** confirmed; drafted (which bindings can be assigned)
 
 - **Rule:**
   - A context value ([JE-22](#je-22)) is defined only if its name appears **as a substring** of the trimmed text. Substring matching makes this a superset: `results` also binds `result`.
@@ -241,29 +313,34 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
   - `previous_result` is additionally bound when the text contains `error` ([JE-17](#je-17)) or one of the previous-step spellings of [JE-8](#je-8).
   - A name the text never mentions literally is unavailable: computed access such as `globalThis["fl"+"ow_input"]` gives `undefined`.
   - **Two kinds of binding.** `results` and `error` are lexical global bindings, not properties of `globalThis`. Context values, `flow_input`, `flow_env` and the helper functions *are* `globalThis` properties.
+  - **Which can be assigned.** `results` is declared `const`: assigning to it (for example `results = 1`) throws a `TypeError` with the message `'results' is read-only`, so the evaluation fails with `QuickJS evaluation error: Error: 'results' is read-only`. `error` is declared with `let`, so the expression may assign to it. Context values, `flow_input`, `flow_env` and the helpers are ordinary writable global properties.
   - Values are copied in as fresh JavaScript values ([JE-16](#je-16)); mutating them affects nothing outside the evaluation.
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:257-290`, `:455-492`, `:494-526`, `:805-817`.
-- **Conformance:** [JE-10/a–d](conformance.md#je-10)
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:257-290`, `:455-492`, `:494-526` (`error` declared with `let`, `:497`), `:805-817` (`results` declared `const`, `:806`); the strict-mode assignment check on a read-only global binding, `quickjs/quickjs.c:10370-10401` and `:7337-7345` in rquickjs-sys 0.11.0.
+- **Conformance:** [JE-10/a–e](conformance.md#je-10)
+- **Revision 2026-10-28 (validation round 2, design request 9):** the finding did not say whether the two lexical bindings can be assigned. The reading that both are constants is half corrected: `results` is a constant, but `error` is a `let` binding and can be assigned. Added case JE-10/e (drafted, source-traced).
 
 <a id="je-11"></a>
 ### JE-11 · Calls to `variable(`, `resource(` and `flow_user_state(` are rewritten textually
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - Before evaluation, every occurrence of the character sequences `variable(`, `resource(` and `flow_user_state(` is rewritten so that the call is awaited: `F(args)` becomes `(await F(args))`.
   - The closing parenthesis is found by counting `(` and `)` from the call onwards. Parentheses inside string literals count too.
+    - **When they never balance**, the inserted `)` goes at the end of the text that follows the call.
+    - **The position is counted in characters but applied as a byte offset.** For text that is ASCII up to the insertion point the two agree, and the rules above hold exactly. Otherwise the `)` lands early, by the number of extra UTF-8 bytes in that stretch. `variable("é")` becomes `(await variable("é)")`, with the parenthesis inside the string, which leaves a parenthesis open and fails as a `SyntaxError`. If the early offset falls inside a multi-byte character, the rewrite panics in the worker instead of producing an evaluation error (`variable("éé")`; medium: the consequence of the panic for the job was not traced).
   - The rewrite is purely textual, not a JavaScript parse. It has no word boundary and no awareness of strings or comments:
     - `myvariable('x')` becomes `my(await variable('x'))`, which fails because `my` is not defined;
     - the text `"variable(x)"` inside a string literal is rewritten as well.
   - A rewritten call inside a non-`async` nested function is a syntax error (as in [JE-12](#je-12)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:81-115`, `:446-449`; tests `:1103-1116`.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:81-115` (`:101-113`: a character count used as the insertion offset; the standard library's string insert takes a byte offset and panics off a character boundary), `:446-449`; tests `:1103-1116`.
 - **Conformance:** [JE-11/a](conformance.md#je-11)
+- **Revision 2026-10-28 (source re-check, design request 8):** added where an unbalanced call ends, and the character-versus-byte offset. The reading windmill-lite's textual pipeline (B2a) took, that an unbalanced call ends at the end of the text, is confirmed for ASCII text. For non-ASCII text before the insertion point it is extended, not reversed: the parenthesis lands early or the rewrite panics, as above. Not yet recorded ([Q-JE-13](#q-je-13)).
 
 <a id="je-12"></a>
 ### JE-12 · `results.<id>` is rewritten textually into an awaited lookup
 
-**Scope:** core (single-quoted and computed keys, bare `results`); later (other consequences) · **Confidence:** high (exact nested-function diagnostic: medium, [Q-JE-1](#q-je-1)) · **Status:** confirmed
+**Scope:** core (single-quoted and computed keys, bare `results`); later (other consequences) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:** after [JE-11](#je-11), every match of this pattern is wrapped as `(await <match>)`: the characters `results`, optionally followed by `?`, followed by either `.` and one or more `[A-Za-z0-9_]`, or by `["…"]` (double quotes only, matched lazily). Observable consequences:
   1. **No word boundary.** `flow_input.results.x` becomes `flow_input.(await results.x)`, a syntax error. `my_results.x` becomes `my_(await results.x)`.
@@ -272,35 +349,40 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
      - used alone, the async wrapper adopts the Promise, so the value comes out right;
      - `results['a'].v` reads `.v` off a Promise and gives `null`;
      - `{y: results['a']}` gives `{"y":{}}`.
-  4. **A nested non-async function breaks.** If `results.x` appears inside a non-`async` function or arrow, the inserted `await` is a compile-time `SyntaxError` and the whole expression fails. `results.x.map(a => a.y)` is fine, because `results` is read outside the callback; `arr.map(a => results.x[a])` fails.
+  4. **A nested non-async function breaks.** If `results.x` appears inside a non-`async` function or arrow, the inserted `await` is a compile-time `SyntaxError` and the whole expression fails; quickjs-ng reads `await` there as a plain name, so the diagnostic is `Unexpected identifier 'results'` (oracle-observed, JE-12/d). `results.x.map(a => a.y)` is fine, because `results` is read outside the callback; `arr.map(a => results.x[a])` fails.
   5. **Bare `results`** (not followed by `.` or `["`) is the lookup proxy itself. `JSON.stringify` of it is `{}`, so `x = results` gives `{}`.
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:59-68`, `:92-95`, `:555-570`, `:805-817`; test `:1119-1132`.
+  6. **A `["…"]` read never spans lines.** The lazy match inside the brackets does not cross a newline, so it ends at the first `"]` on the same line. `results["a` followed by a newline and `"]` is not rewritten, and neither is any other bracket read whose closing `"]` is on a later line.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:59-68` (`:66`: the bracket alternative's `.` is not in dot-matches-newline mode), `:92-95`, `:555-570`, `:805-817`; test `:1119-1132`.
 - **Conformance:** [JE-12/a–e](conformance.md#je-12)
+- **Revision 2026-10-28 (source re-check, design request 8):** added consequence 6. The reading windmill-lite's textual pipeline (B2a) took, that a `["…"]` read does not span lines, is confirmed; nothing changes.
 
 <a id="je-13"></a>
 ### JE-13 · Expression mode or statement mode
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:** after the rewrites, the code is placed in an `async` function body. **Statement mode** is chosen when any of these holds:
-  - the text starts with `return ` or `return;`, or is exactly `return`;
+  - the text starts with `return ` or `return;`, or is exactly `return`. The space is a literal space: `return` followed by a newline or a tab matches none of these, so without a `;` such a text runs in expression mode as `return return…;` and fails as a `SyntaxError`;
   - the text starts with one of `const `, `let `, `var `, `if `, `if(`, `for `, `for(`, `while `, `while(`, `switch `, `switch(`, `try `, `try{`, `throw `, `function `, `class `, `async `, `await `;
-  - the text contains a `;` outside single, double and backtick quotes. The scan toggles a quote state on each unescaped quote character; it knows nothing about regex literals, comments or `${}` nesting.
+  - the text contains a `;` outside single, double and backtick quotes. The scan reads one character at a time. A quote character opens a quote of its own kind, or closes the quote of its kind that is open, but only when no quote of another kind is open and the character just before it is not a backslash. So a quote of another kind inside a string is plain text. The backslash test looks at the raw previous character, so a quote after an escaped backslash (`"\\"`) still counts as escaped and the string stays open. The scan knows nothing about regex literals, comments or `${}` nesting.
+
+  The wrapper is an `async function` expression called at once, not an async arrow, so the text sees that function's own (empty) `arguments` object.
 
   Then:
   - **Statement mode:** the text runs as the function body. The value is whatever it `return`s; with no `return` it is `undefined`, which becomes `null` ([JE-15](#je-15)).
   - **Expression mode:** the text is used as `return <text>;`. A leading `{` is therefore an **object literal**, not a block.
   - An empty text yields `null` ([JE-V4](#je-v4)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:554-559`, `:864-937`; tests `:1073-1100`, `:1466-1490`.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:554-559` (`:556`, `:558`: the `async function` wrapper), `:864-937` (`:872` the `return` forms; `:911-937` the quote scan, which tests the raw previous character at `:919`, `:922`, `:925`); tests `:1073-1100`, `:1466-1490`.
 - **Conformance:** [JE-13/a–f](conformance.md#je-13)
+- **Revision 2026-10-28 (source re-check, design request 8):** added the `return`-newline case, the exact quote rule and the wrapper's form. windmill-lite's textual pipeline (B2a) took three readings here, and all are confirmed: `return` followed by a newline does not select statement mode; a quote opens or closes its own kind unless a backslash precedes it, so another kind of quote inside a string is text; and the wrapper is a function, not an arrow. Nothing changes. The detail that an escaped backslash still escapes the next quote is new; it follows from the same rule.
 
 <a id="je-14"></a>
 ### JE-14 · A trailing `//` comment breaks a single-line direct expression
 
-**Scope:** later · **Confidence:** medium (source-read, not run) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - In both modes the code is wrapped on a single line, with the wrapper's own closing text after the user's text. In a one-line expression, a trailing `//` line comment comments out that closing text, and the expression fails with a `SyntaxError`.
+  - In both modes the code is wrapped on a single line, with the wrapper's own closing text after the user's text. The wrapper is an `async function` expression ([JE-13](#je-13)). In a one-line expression, a trailing `//` line comment comments out that closing text, and the expression fails with a `SyntaxError`.
   - Direct (non-predicate) expressions are trimmed before wrapping ([JE-5](#je-5)), so a trailing newline does not help them.
   - A `//` comment followed by more lines is fine, and `/* */` comments are fine.
   - Predicates differ: they are wrapped before trimming, so a trailing newline after the comment rescues them ([JE-24](#je-24)).
@@ -310,7 +392,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-15"></a>
 ### JE-15 · The returned value becomes JSON
 
-**Scope:** core · **Confidence:** high (`BigInt` and circular structures: medium) · **Status:** confirmed
+**Scope:** core; later (a replaced `JSON.stringify`) · **Confidence:** high (oracle-observed; circular structures: medium; a replaced `JSON.stringify`: source-traced) · **Status:** confirmed; drafted (a replaced `JSON.stringify`)
 
 - **Rule:**
   - The function's resolved value is serialised with `JSON.stringify(value ?? null)`, and the resulting text is the evaluation's result:
@@ -323,16 +405,26 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
   - A `BigInt` anywhere, or a circular structure, makes `JSON.stringify` throw, and the evaluation fails. The quickjs-ng text for the `BigInt` case is `BigInt are forbidden in JSON.stringify`.
   - A Promise returned at top level is awaited, because the `async` function adopts it.
   - The evaluator returns this JSON text as is (O1), with number text from QuickJS's `Number#toString`. It then goes into the job's recorded arguments (O2), may be resolved (O3, [JE-41](#je-41)) and is parsed by the script's runtime (O4).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:554-570`; tests `:1314-1322`, `:1649-1694`, `:2725-2745`; quickjs-ng message: [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) line 47499.
-- **Conformance:** [JE-15/a–i](conformance.md#je-15)
+  - **A replaced `JSON.stringify`.** The serialising call looks `JSON.stringify` up when it runs, so an expression that replaces it supplies the result text itself. That call is made inside a `.then` callback, and the evaluator awaits the promise the callback produces before it reads anything back. In order:
+    1. **What the replacement returns is adopted like any promise reaction's value.** A promise or any other thenable it returns is followed, so `x = (JSON.stringify = () => Promise.resolve("7"), 1)` ends with the string `"7"`, exactly as a synchronous `() => "7"` does.
+    2. **A rejection fails the evaluation.** A replacement that throws, or returns a promise that rejects (`() => Promise.reject(new Error("serializer failed"))`), fails the evaluation like any uncaught throw of that value ([JE-21](#je-21)).
+    3. **The fulfilled value must convert to a host string.** It is read as a JavaScript string, with no coercion, and its bytes must be valid UTF-8. A value that is not a string (`() => 5`), and a string holding an unpaired surrogate (`() => "\ud800"`, which the real `JSON.stringify` would have escaped, [JE-52](#je-52)), both fail that conversion. The result text is then `null`, and the evaluation does not fail.
+    4. **A string that converts is kept as the result text without any check** that it is JSON: `() => "7"` gives `7`, and `() => "not json"` gives the text `not json`.
+
+    Text that is not JSON is passed on as if it were. What fails then depends on the site: a predicate's boolean check reports it (`Expected a boolean value, found: …`, [JE-24](#je-24)), a site that parses a number or an array reports a parse error, and in an input transform the step's arguments hold text that is not JSON when they are stored; that storage outcome is not traced ([Q-JE-14](#q-je-14)).
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:554-570` (the serialising call inside `.then`, `:556`, `:558`; the resulting promise awaited and a rejection mapped to an evaluation error, `:562-565`; a fulfilled value that does not convert read as `null`, `:567-568`; the text kept without a check, `:570`), `backend/windmill-common/src/utils.rs:1051-1053` (the unchecked conversion of text into a raw JSON value); rquickjs 0.11.0 `core/src/value/convert/from.rs:39-43` (a host string is read only from a JavaScript string, then converted), `core/src/value/string.rs:11-25` (the engine's bytes must be valid UTF-8); quickjs-ng [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) lines 4318-4338 (inside the string-to-bytes conversion that starts at line 4238: an unpaired surrogate is written as its own code point, which is not UTF-8), 50594-50634 (a reaction's return value is passed to the promise's resolver), 50806-50859 (a callable `then` is followed rather than fulfilling with the object), 47499 (the `BigInt` message); tests `:1314-1322`, `:1649-1694`, `:2725-2745`.
+- **Conformance:** [JE-15/a–j](conformance.md#je-15)
+- **Revision 2026-10-28 (validation round 2, design request 9):** added what happens when the expression replaces `JSON.stringify`. The reading that the evaluation then fails with its own text is corrected: Windmill keeps a returned string unchecked and reads any other return as `null`, and only a later site check, or the arguments' storage, can fail. Added case JE-15/j and question Q-JE-14 (drafted, source-traced).
+- **Revision 2026-10-28 (validation round 3):** the replaced-`JSON.stringify` rule said every string a replacement returns passes through and every other return reads as `null`. That classified the replacement's immediate return value, but what counts is the value the awaited promise fulfils with, once it is converted to a host string. The rule now gives the four steps: a returned promise or thenable is adopted; a rejection fails the evaluation; a value that is not a string, or a string with an unpaired surrogate, reads as `null`; and only a string that converts is kept unchecked. JE-15/j gains three runs for those boundaries (drafted, source-traced; not recorded, [Q-JE-14](#q-je-14)).
 
 <a id="je-16"></a>
 ### JE-16 · Context values arrive as converted JSON
 
-**Scope:** core (key order, precision); later (negative zero) · **Confidence:** high (Python negative-zero token: medium) · **Status:** confirmed
+**Scope:** core (key order, precision); later (negative zero, `__proto__` keys) · **Confidence:** high (oracle-observed; the evaluator-level negative-zero token: medium, not recordable; `__proto__` keys: source-traced) · **Status:** confirmed; drafted (`__proto__` keys)
 
 - **Rule:**
   - Every context value is parsed from its JSON text and rebuilt as a JavaScript value. Strings, booleans, `null`, arrays and objects map one to one.
+  - **`__proto__` keys** (source-traced). Objects are rebuilt by the host, key by key, with ordinary property assignment, not by `JSON.parse`. A key named `__proto__` therefore goes through the inherited `__proto__` setter instead of becoming an own property: when its value is an object, that object becomes the rebuilt object's **prototype**; when it is `null`, the prototype is `null`; when it is a string, number or boolean, the key is dropped. In each case the rebuilt object has no own `__proto__` key: from the context value `{"__proto__":{"x":1}}`, `Object.keys(v)` is `[]`, `v.x` is `1`, and `JSON.stringify(v)` is `{}`. (`JSON.parse` of the same text would make an own property.)
   - **Key order from raw JSON.** A value converted from raw JSON text keeps that text's key order. As for any JavaScript object, integer-like keys enumerate first, in ascending order.
   - **Unstable outer order.** The outer keys of `flow_input` have **no stable order**: the flow input is held in a hash map with randomised iteration before it is serialised into the context. The same holds for `previous_result` at module 0 (which is that input) and for the top-level argument object a script receives. Nested values keep their stored order.
   - **Numbers.** Integers that fit in 32 bits become integers, every other number a double. In JavaScript terms numbers behave like `JSON.parse`: integers beyond 2^53 lose precision.
@@ -340,32 +432,34 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - A producer's raw result travels in memory to the next flow transition ([JE-44](#je-44)). A `-0` or `-0.0` token in it reaches the next step's expressions as negative zero, and any consequence computed from it is recorded normally (visible at O2 and O5).
     - A `jsonb` round trip stores the number as `0` (or `0.0`), so a read through the database sees no negative zero.
     - Bun's `JSON.stringify(-0)` emits `0`. A fixture producer must emit a negative-zero token, as Python's `json` output `-0.0` does ([languages](languages.md)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:455-462`, `:825-862`; `serde_json` with `preserve_order` `backend/Cargo.toml:435`; `backend/windmill-worker/src/common.rs:133-142`; raw forwarding `backend/windmill-worker/src/result_processor.rs:1490-1531`, `backend/windmill-worker/src/worker_flow.rs:1477-1488`, `:2086-2099`; the pinned serde_json 1.0.151 (`backend/Cargo.lock:11151`), [`src/de.rs:509-523`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L509); Python result serialisation `backend/windmill-worker/src/python_executor.rs:3287-3303`, `:984-987`, `:958-964`.
-- **Conformance:** [JE-16/a–f](conformance.md#je-16)
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:455-462`, `:825-862`; `serde_json` with `preserve_order` `backend/Cargo.toml:435`; `backend/windmill-worker/src/common.rs:133-142`; raw forwarding `backend/windmill-worker/src/result_processor.rs:1490-1531`, `backend/windmill-worker/src/worker_flow.rs:1477-1488`, `:2086-2099`; the pinned serde_json 1.0.151 (`backend/Cargo.lock:11151`), [`src/de.rs:509-523`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L509); Python result serialisation `backend/windmill-worker/src/python_executor.rs:3287-3303`, `:984-987`, `:958-964`. The rebuild of objects by assignment: `backend/windmill-jseval/src/lib.rs:854-860`; rquickjs 0.11.0 `core/src/value/object.rs:53-68` (a set is an ordinary property assignment); quickjs-ng's `__proto__` accessor on `Object.prototype`, `quickjs/quickjs.c:39023` in rquickjs-sys 0.11.0, whose setter (`:38861-38872`) changes the prototype for an object or `null` and ignores any other value.
+- **Conformance:** [JE-16/a–g](conformance.md#je-16)
 - **Note:** no fixture may assert the order of `Object.keys(flow_input)` or of a script's top-level argument keys.
+- **Revision 2026-10-28 (validation round 2, design request 9):** the finding did not say how a `__proto__` key is rebuilt. The reading that it becomes an own property, as `JSON.parse` makes it, is corrected: Windmill rebuilds objects by assignment, so the key sets the prototype (an object or `null`) or is dropped (any other value). Added case JE-16/g (drafted, source-traced).
 
 <a id="je-17"></a>
 ### JE-17 · The `error` helper variable
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; the falsy fallbacks: source-traced) · **Status:** confirmed; drafted (the falsy fallbacks of the entry text)
 
 - **Rule:** if the trimmed text contains the substring `error` anywhere (`flow_input.error_count` counts), a global `error` is defined before evaluation, derived from `previous_result` by this decision list:
   1. If `previous_result.error` is truthy, `error` is that value. This includes a string-valued error such as the one [JE-26](#je-26) produces.
   2. Otherwise, if `previous_result` is an array, collect the items that are objects with an own or inherited `error` key:
      - exactly one: `error` is that item's `.error`;
-     - more than one: `error = {name: "MultipleErrors", message: <joined>, errors: previous_result}`. `<joined>` joins one entry per collected item with `; `. Each entry is `[<tag>] <text>`, where `<tag>` is the item's `error.step_id`, or else the item's position *within the collected list*, and `<text>` is `error.message`, or else `error.name`;
+     - more than one: `error = {name: "MultipleErrors", message: <joined>, errors: previous_result}`. `<joined>` joins one entry per collected item with `; `. Each entry is `[<tag>] <text>`, where `<tag>` is the item's `error.step_id`, or else the item's position *within the collected list*, and `<text>` is `error.message`, or else `error.name`. Both "or else" tests are **falsy** tests, not nullish ones: a `step_id` of `""` or `0` gives the position, and a `message` of `""` gives the name. When both `message` and `name` are falsy, the text is that last value converted to a string (`[0] undefined` for an item whose `error` is `{}`);
      - none: `error = {name: "MultipleErrors", message: "Could not parse errors", errors: previous_result}`.
   3. Otherwise, if `previous_result` is truthy: `error = {name: "UnknownError", message: "Could not parse the error", error: previous_result}`.
   4. Otherwise: `error = {name: "UnknownError", message: "No error found"}`.
 
   The helper is meant for failure-module transforms and `retry_if`, but it is installed at every site whose text contains `error`.
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:273-279`, `:494-526`.
-- **Conformance:** [JE-17/a–c](conformance.md#je-17)
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:273-279`, `:494-526` (the entry text uses logical-or on the step id and on the message, `:506`).
+- **Conformance:** [JE-17/a–d](conformance.md#je-17)
+- **Revision 2026-10-28 (validation round 2, design request 9):** "or else" was not defined. It is a falsy test (`||`), not a nullish one, so the reading that an empty `step_id` or `message` is kept is corrected: an empty one falls back to the position or the name. Added case JE-17/d.
 
 <a id="je-18"></a>
 ### JE-18 · How a `results.<id>` read resolves on the QuickJS path
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:** `results` is a lazy proxy. Reading a string key `k` returns a Promise, which the rewrite ([JE-12](#je-12)) awaits; symbol keys give `undefined`. The decision list for `k`:
   1. **The previous step.** If `k` is the previous id ([JE-8](#je-8)) and `previous_result` is bound, return `previous_result` from memory, without any fetch. The textual binding of [JE-10](#je-10) always holds when the rewrite produced the read.
@@ -377,14 +471,15 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 - **Evidence:** proxy `backend/windmill-jseval/src/lib.rs:669-823` (fetch errors versus fallback `:695-750`, `:773-782`); context `backend/windmill-worker/src/worker_flow.rs:6155-6171`; modules with a job `backend/windmill-types/src/flow_status.rs:401-404`, `:454-458`; endpoints `backend/windmill-common/src/client.rs:118-155`.
 - **Conformance:** [JE-18/a–d](conformance.md#je-18)
 - **Note:** when `previous_result` is bound for a computed read of the
-  previous id (for example `results[flow_input.target]`) is disputed in
-  [FX-10](execution.md#fx-10) and tracked as
-  [Q-FX-15](execution.md#q-fx-15); see [JE-10](#je-10) for the binding rule.
+  previous id (for example `results[flow_input.target]`) is settled in
+  [FX-10](execution.md#fx-10) route 3 and [FX-V6](execution.md#fx-v6)
+  ([Q-FX-15](execution.md#q-fx-15), answered): any binding trigger of
+  [JE-10](#je-10) makes the read come from memory.
 
 <a id="je-19"></a>
 ### JE-19 · Which `results.<id>` a scope can see
 
-**Scope:** core (scope visibility); later (subflow-by-path, restart and completed-flow fallbacks) · **Confidence:** medium (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core (scope visibility); later (subflow-by-path, restart and completed-flow fallbacks) · **Confidence:** high (oracle-observed; the restarted-run fallback: medium, [Q-JE-8](#q-je-8)) · **Status:** confirmed
 
 - **Rule:** resolution through the API ([JE-9](#je-9) and step 3 of [JE-18](#je-18)) uses a per-scope map from node id to job. Each scope keeps its own map; every time a module finishes, its entry is written, overwriting the previous one.
   - **Scopes.** A top-level flow is its own scope. A subflow called by path (`flow` module) and every iteration of a parallel `forloopflow` each start a new scope. Sequential loops, while loops, `branchone` and `branchall` bodies share their enclosing scope.
@@ -413,7 +508,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-20"></a>
 ### JE-20 · The `variable()`, `resource()` and `flow_user_state()` helpers
 
-**Scope:** core (`variable`, `resource`); later (`flow_user_state`) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (`variable`, `resource`); later (`flow_user_state`) · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **`variable(path)`** resolves to the variable's value as a **string**, with secrets decrypted.
@@ -430,23 +525,36 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-21"></a>
 ### JE-21 · The evaluator's own error text
 
-**Scope:** core (prefix structure); later (exact engine text) · **Confidence:** medium (structure confirmed from dependency source; stack text and non-Error display pending) · **Status:** confirmed
+**Scope:** core (prefix structure); later (exact engine text) · **Confidence:** high (oracle-observed); the display of a thrown non-Error value: high (source-traced, [Q-JE-1](#q-je-1)) · **Status:** confirmed; drafted (the non-Error display)
 
 - **Rule:** a failing evaluation produces `QuickJS evaluation error: <caught>`, where `<caught>` takes one of these forms:
   - **A thrown `Error` object of any subclass:** `Error: <message>`, followed, when the engine has a stack, by a newline and the stack text. The subclass name (`TypeError`, `ReferenceError`, `SyntaxError`) is **not** printed: it is always `Error:`. Engine stack frames name the script `eval_script`.
-  - **A thrown non-Error value:** `Exception generated by quickjs: <engine debug form of the value>`, followed by a newline.
+  - **A thrown non-Error value** (anything but an object of the engine's `Error` class): `Exception generated by quickjs: <form>`, followed by a newline. `<form>` is rquickjs's debug form of the value: its type name, then the payload in the host language's debug notation. It is **not** the value's string form:
+
+    | Thrown | `<form>` |
+    |---|---|
+    | `"s"` (a string) | `String(Ok("s"))`: the payload is the result of reading the string, quoted and escaped in debug notation |
+    | `1` (an integer that fits in 32 bits) | `Int(1)` |
+    | `1.5`, `1e300`, `NaN` (other numbers) | `Float(1.5)`, `Float(1e300)`, `Float(NaN)` |
+    | `true` | `Bool(true)` |
+    | `10n` | `BigInt"BigInt"` |
+    | `{}`, `[1]`, a function, a class, a Promise, a Proxy, a Symbol, or an object that only looks like an error (`{message: "m"}`) | `Object(0x…)`, `Array(0x…)`, `Function(0x…)`, `Constructor(0x…)`, `Promise(0x…)`, `Proxy(0x…)`, `Symbol(0x…)`: the engine's memory address of the value, which differs between runs, so the text is not reproducible |
   - **A `null` or `undefined` throw:** the out-of-memory message of [JE-3](#je-3).
 
-  Engine messages on quickjs-ng revision `be664ca`: `<name> is not defined` for an unknown global, `cannot read property '<p>' of null` and `cannot read property '<p>' of undefined` for a property read on `null`/`undefined`, `BigInt are forbidden in JSON.stringify`. The exact stack text and the debug display of a thrown non-Error value are open ([Q-JE-1](#q-je-1)). Each site then wraps this text ([JE-23](#je-23) to [JE-35](#je-35)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:419`, `:939-942`; rquickjs 0.11.0 [`Exception` display](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/value/exception.rs#L217) and [`CaughtError` display](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/result.rs#L530); default script name `eval_script` in rquickjs `core/src/context/ctx.rs:190-195`; quickjs-ng [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) lines 7393, 7801-7803, 47499.
-- **Conformance:** [JE-21/a](conformance.md#je-21)
+  Engine messages on quickjs-ng revision `be664ca`: `<name> is not defined` for an unknown global, `cannot read property '<p>' of null` and `cannot read property '<p>' of undefined` for a property read on `null`/`undefined`, `BigInt are forbidden in JSON.stringify`, `not a function` for a call of a non-callable value, `Unexpected end of input`, `unexpected token in expression: '<token>'` and `Unexpected identifier '<name>'` for syntax errors. Each site then wraps this text ([JE-23](#je-23) to [JE-35](#je-35)).
+
+  **The stack text** (oracle-observed). After the message comes a newline, then one line per frame, each `    at ` (four spaces) followed by the frame, and a final newline. At most the ten innermost frames are listed: quickjs-ng's `Error.stackTraceLimit` starts at 10 in every context, and nothing in the evaluator changes it (a deep recursion shows exactly ten lines). A runtime error inside the wrapped code shows the wrapper's frames, `at <anonymous> (eval_script:1:<col>)` for the `async` function and `at <eval> (eval_script:1:<col>)` for the script, with the user's own named functions and native built-ins in between (`at f (eval_script:1:68)`, `at stringify (native)`). A syntax error shows a single frame without a name, `at eval_script:<line>:<col>`. Line and column numbers refer to the script the evaluator builds ([JE-13](#je-13)), not to the expression as written. The display of a thrown non-Error value above is source-traced; no recording holds one yet ([Q-JE-1](#q-je-1)).
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:419`, `:939-942`; rquickjs 0.11.0 [`Exception` display](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/value/exception.rs#L217) and [`CaughtError` display](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/result.rs#L530); default script name `eval_script` in rquickjs `core/src/context/ctx.rs:190-195`; quickjs-ng [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) lines 7393, 7801-7803, 47499; the frame limit `quickjs/quickjs.c:2372`, `:7005-7030` in rquickjs-sys 0.11.0. Recorded stack texts: cases JE-21/a, JE-14/a and JE-15/h of `conformance/exprs/`, and runs `je9-l` and `je12-d` of `conformance/flows/je/shortcuts` (oracle run 40687124625). The non-Error display: rquickjs 0.11.0 `core/src/result.rs:547-561` (a caught value is an exception only when it is an object of the `Error` class, `core/src/value/exception.rs:50-56`; anything else is kept as a plain value), `:530-540` (a plain value printed as `Exception generated by quickjs: ` plus its debug form and a newline), `core/src/value.rs:83-123` (the debug form: the type's name, then the payload), `:531-548` (the type names); the evaluator keeps that text after `QuickJS evaluation error: ` and turns only `null` and `undefined` into the memory message, `backend/windmill-jseval/src/lib.rs:381-421`.
+- **Conformance:** [JE-21/a, JE-21/b](conformance.md#je-21)
+- **Revision 2026-10-28 (validation round 2, design request 9):** the non-Error form was given only as "the engine debug form of the value". It is now traced through rquickjs 0.11.0 and given per type. This corrects the reading that the text is the value's string form (`s` for `throw "s"`): Windmill writes `Exception generated by quickjs: String(Ok("s"))`. Objects, arrays, functions and symbols print a memory address and cannot be reproduced. Added case JE-21/b; Q-JE-1 is re-scoped to the recording.
+- **Revision 2026-10-28 (oracle, batch E3a):** the stack text was open. Batch E3a recorded it for runtime and syntax errors, and the diagnostics for a non-callable value and for a rewritten `await` inside a non-async function (`Unexpected identifier 'results'`); added them. The prefix structure is unchanged.
 
 ## D. Expression sites and their scopes
 
 <a id="je-22"></a>
 ### JE-22 · Scope table
 
-**Scope:** core (all other rows); later (`parallelism`, `skip_expr` rows); out (`suspend.user_groups_required` row, AI-agent tool calls) · **Confidence:** high (`sleep` and `stop_after_if` result identity: medium) · **Status:** confirmed
+**Scope:** core (all other rows); later (`parallelism`, `skip_expr` rows); out (`suspend.user_groups_required` row, AI-agent tool calls) · **Confidence:** high (oracle-observed; `sleep` and `stop_after_if` result identity: medium) · **Status:** confirmed
 
 - **Rule:** these are the places where the flow engine evaluates JavaScript expressions during a flow run, with what each scope contains. In the table:
   - "both = X" means `result` and `previous_result` are both bound to X; P is defined in [JE-36](#je-36);
@@ -485,7 +593,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-v1"></a>
 ### JE-V1 · Parallel-loop `parallelism` is an expression site
 
-**Scope:** later · **Confidence:** high (outcome of `parallelism: 0` after enqueue: unknown) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed, except the concurrency cap of JE-V1/a; outcome of `parallelism: 0` after enqueue: unknown) · **Status:** confirmed
 
 - **Rule:**
   - A parallel `forloopflow` can supply `parallelism` as an input transform (`static` or `javascript`). A plain number, the older form, is accepted as a static value.
@@ -504,7 +612,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-23"></a>
 ### JE-23 · Step input transforms
 
-**Scope:** core · **Confidence:** high (retry after a failed transform: medium) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - Each key of `input_transforms` is evaluated **independently**, in an **unspecified order** (a hash map). Each evaluation that reaches QuickJS gets its own fresh runtime. Transforms cannot see each other: `params` is always the empty object `{}`.
@@ -529,7 +637,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-v2"></a>
 ### JE-V2 · Ordinary retries reuse the recorded transformed arguments
 
-**Scope:** core · **Confidence:** high (retry after a failed transform: medium, [Q-JE-4](#q-je-4)) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - When an ordinary step (a script or flow module) is retried, the new attempt's arguments are the failed attempt's **recorded** arguments (O2). Its input transforms are **not** re-evaluated, so `variable()`, `resource()` and `results` reads inside them are not repeated.
@@ -543,7 +651,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-v4"></a>
 ### JE-V4 · Missing transform payloads have defined defaults
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - `{"type":"static"}` without `value` gives `null`.
@@ -570,7 +678,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-24"></a>
 ### JE-24 · Predicates are wrapped as `Boolean(<expr>)`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Wrapping.** Every boolean site ([JE-22](#je-22)) wraps the predicate text **as written** (untrimmed) in `Boolean(` … `)`; only then is the whole trimmed ([JE-5](#je-5)) and sent through the same pipeline.
@@ -585,7 +693,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-25"></a>
 ### JE-25 · `skip_if`
 
-**Scope:** core · **Confidence:** high (error routing end to end: medium) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; error routing end to end: medium) · **Status:** confirmed
 
 - **Rule:**
   - **Order:** evaluated after the previous module's `sleep` has been scheduled and after `retry_if`, and before the module's input transforms. Scope per [JE-22](#je-22).
@@ -597,7 +705,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-26"></a>
 ### JE-26 · `stop_after_if`, and a throwing predicate fails the parent, not the child
 
-**Scope:** core · **Confidence:** high (paths; end to end: medium) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; paths; end to end: medium) · **Status:** confirmed
 
 - **Rule:**
   - **When evaluated:** only after a module **succeeds**. It is not evaluated:
@@ -620,7 +728,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-27"></a>
 ### JE-27 · `stop_after_all_iters_if`
 
-**Scope:** core · **Confidence:** high (empty-body path: medium) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; empty-body path: medium) · **Status:** confirmed
 
 - **Rule:**
   - **When evaluated:** when a loop or `branchall` module completes with at least one child. For a parallel module that is when its last child finishes; for a sequential `branchall`, only if no branch stopped early.
@@ -633,12 +741,12 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-28"></a>
 ### JE-28 · `sleep`
 
-**Scope:** core · **Confidence:** high (error routing: medium) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; error routing: medium) · **Status:** confirmed
 
 - **Rule:**
   - **When evaluated:** a module's `sleep` is evaluated when the **next** module is about to start. Its `result` is the sleeping module's own result. There is no `results` ([JE-22](#je-22)).
   - **The value delays when the next job runs, not evaluation:** the next module's `skip_if`, transforms and `timeout` are evaluated immediately, and only the job is scheduled later.
-  - **The last module's `sleep` is never evaluated,** because no next module starts. This also applies to the last module of a loop or branch body.
+  - **A last module's `sleep` is evaluated too,** because a module with a `sleep` is never last in the list that runs: Windmill appends the virtual identity step `<id>-v` after a final module that has a `sleep` or `suspend` ([OF-17](openflow.md#of-17)), and the `sleep` is evaluated when that step starts. The `sleep` then delays the end of the flow (or body), and an invalid value fails the flow with a chaining error (route (a) of [JE-35](#je-35)): on the oracle, a flow `[a, b]` whose last module `b` has `sleep: {type: javascript, expr: "nope"}` ran `b`, then failed with `InternalError` ``Expected a number value, had error instead: ExecutionErr("Error during evaluation of expression `nope`:\nQuickJS evaluation error: Error: nope is not defined…")``. The same applies to the last module of a loop or branch body, whose stored body gets the virtual step as well. Only a list without the virtual step would skip the final `sleep`; which forms lack it is [OF-V5](openflow.md#of-v5)'s question, and no deployed run the oracle recorded lacked it.
   - **Static values** are parsed as JSON. **JavaScript values** go through [JE-5](#je-5) to [JE-21](#je-21). The result is then interpreted:
     - a non-negative integer is that many **seconds**;
     - a JSON number with a fraction or exponent is `value × 1000` **milliseconds**, truncated; a negative fraction becomes `0`. A static `2.0` therefore counts as a float (2000 ms), while an expression returning `2.0` serialises to `2`;
@@ -646,30 +754,32 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - any other JSON fails with `Expected an integer, found: <debug form>`, for example `Expected an integer, found: Null` or `Expected an integer, found: String("5")`;
     - an evaluation error fails with ``Expected a number value, had error instead: ExecutionErr("Error during evaluation of expression `<expr>`:\n<evaluator error>")``. This is a debug form, so the newline appears escaped as `\n`.
   - **Failures** are flow-chaining failures, routed per [JE-35](#je-35).
-- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:3666-3714` (only the previous module's sleep is read, `:3666-3684`), `:2659-2708`; scheduling `:4403-4436`.
+- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:3666-3714` (only the previous module's sleep is read, `:3666-3684`), `:2659-2708`; scheduling `:4403-4436`; the virtual step `backend/windmill-types/src/flows.rs:1252-1280`, added to every stored module list at deploy (`backend/windmill-worker/src/worker_lockfiles.rs:1706`) and to raw and inline bodies at run time (`backend/windmill-worker/src/worker_flow.rs:5056`, `backend/windmill-queue/src/jobs.rs:5605`). Recorded: runs `je28-a`, `je28-b` and `je28-c` of `conformance/flows/je/waits` (oracle run 40687124625).
 - **Conformance:** [JE-28/a–c](conformance.md#je-28)
+- **Revision 2026-10-28 (oracle, batch E3a):** the finding said the last module's `sleep` is never evaluated, because no next module starts, and JE-28/c expected no delay and no error. That ignored [OF-17](openflow.md#of-17)'s virtual identity step: on the oracle the final `sleep` was evaluated when that step started, and its invalid expression failed the flow. Corrected the rule and JE-28/c.
 
 <a id="je-29"></a>
 ### JE-29 · `timeout`
 
-**Scope:** core · **Confidence:** high (error routing: medium) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; error routing: medium) · **Status:** confirmed
 
 - **Rule:**
   - The value must deserialise as a **32-bit signed integer** number of seconds.
   - **Error messages:**
     - a static value that fails: `Error parsing static value as i32: <serde error>`;
-    - a JavaScript result that fails: `Error parsing result as i32: <serde error>. Value was: <json>`;
+    - a JavaScript result that fails: `Error parsing result as i32: <serde error>. Value was: <json>`, where `<json>` is the evaluator's output text as it is, not re-serialised: a [JE-8](#je-8) shortcut quotes the producer's text (`Value was: {"b":1,"a":2}`), a [JE-9](#je-9) lookup the stored `jsonb` text with its spacing and key order (`Value was: {"a": 2, "b": 1}`), and JavaScript its `JSON.stringify` text (`Value was: 1.5`) (oracle-observed);
     - a negative value: `Timeout value cannot be negative`;
     - an evaluation error: ``Error during evaluation of expression `<expr>`:\n<evaluator error>``.
   - **Scope:** per [JE-22](#je-22), including `results`.
-  - **When evaluated:** at push time, after the transforms. Failures are flow-chaining failures, routed per [JE-35](#je-35).
-- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:4379-4399`, `:2659-2708`.
+  - **When evaluated:** at push time, after the transforms. Failures are flow-chaining failures, routed per [JE-35](#je-35): after a completed step the flow fails with `InternalError` and the message as above, without prefix or location suffix (oracle-observed).
+- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:4379-4399`, `:2659-2708`. Recorded: run `je29-a` of `conformance/flows/je/waits`, runs `je8-order-timeout` and `je8-order-timeout-db` of `conformance/flows/je/shortcuts` (oracle run 40687124625).
 - **Conformance:** [JE-29/a](conformance.md#je-29)
+- **Revision 2026-10-28 (oracle, batch E3a):** added that the `Value was:` part quotes the evaluator's text unchanged, which batch E3a recorded through both lookup routes, and the recorded chaining envelope. The rule is unchanged.
 
 <a id="je-30"></a>
 ### JE-30 · The `forloopflow` iterator
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - The expression must yield a JSON **array**. Otherwise the module fails with `Expected an array value in the iterator expression, found: <serde error>`, for example `invalid type: map, expected a sequence at line 1 column 0`. On a restart inside a loop the iterator is recomputed, and the message is `Expected an array value, found: …`.
@@ -683,7 +793,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-31"></a>
 ### JE-31 · `branchone` predicates
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - Branches are evaluated **in order**. The first predicate that is `true` wins, and later predicates are **not evaluated**. If none is true, `default` runs.
@@ -695,7 +805,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-32"></a>
 ### JE-32 · `retry_if` on a flow step
 
-**Scope:** core · **Confidence:** medium · **Status:** confirmed
+**Scope:** core · **Confidence:** medium (its cases oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **When evaluated:** after a failed attempt, before the next one is scheduled.
@@ -709,15 +819,16 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-33"></a>
 ### JE-33 · The flow-level `skip_expr`
 
-**Scope:** later · **Confidence:** high (`WM_SCHEDULED_FOR` format: medium, [Q-JE-7](#q-je-7)) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed; `WM_SCHEDULED_FOR` format: medium, [Q-JE-7](#q-je-7)) · **Status:** confirmed
 
 - **Rule:**
   - **When evaluated:** at step 0 of a flow whose value has `skip_expr` (root flows and flows called by path).
   - **Scope:** `flow_input`, `flow_env`, and `WM_SCHEDULED_FOR`, the job's scheduled time as a string of the form `YYYY-MM-DD HH:MM:SS[.ffffff] UTC`. `result` and `previous_result` are the JSON string `"{}"`. There is no `results`. `WM_SCHEDULED_FOR` is the only `WM_*` name any expression can read ([JE-39](#je-39)).
-  - If the predicate is true, the flow completes **successfully** with result `"stopped early"` (a string), as an early stop.
+  - If the predicate is true, the flow stops early as a stop with `skip_if_stopped` would ([FX-19](execution.md#fx-19), [FX-22](execution.md#fx-22)): it completes with status **`skipped`** (its job counts as successful) and result `"stopped early"` (a string). No module runs.
   - An error is logged as `Error evaluating flow skip_expr expression …` and is a flow-chaining failure ([JE-35](#je-35) path (b) for a root flow).
-- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:3280-3320` (the extra binding `:3289-3293`); `backend/windmill-common/src/variables.rs:273`; `openflow.openapi.yaml:92`; public docs <https://www.windmill.dev/docs/flows/early_stop#early-stop-for-flow>.
+- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:3280-3320` (the extra binding `:3289-3293`; the stop passed on as an early stop that skips, `:3309-3318`), `:670-679` (that override taken as an early stop with the skip flag set), `:1048`, `:1278`, `:2010` (an early stop with the skip flag marks the flow skipped); `backend/windmill-common/src/variables.rs:273`; `openflow.openapi.yaml:92`; public docs <https://www.windmill.dev/docs/flows/early_stop#early-stop-for-flow>. Recorded: runs `je33-a` and `je33-b` of `conformance/flows/je/sites` (oracle run 40687124625).
 - **Conformance:** [JE-33/a, JE-33/b](conformance.md#je-33)
+- **Revision 2026-10-28 (oracle, batch E3a):** the finding said the flow completes successfully. On the oracle it ends with status `skipped` (result `"stopped early"`), because the stop is passed on with the skip flag set; [FX-22](execution.md#fx-22) already said so. Corrected the rule and JE-33/a–b.
 
 <a id="je-34"></a>
 ### JE-34 · `suspend.user_groups_required`
@@ -734,7 +845,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-35"></a>
 ### JE-35 · Failure-module transforms, and where expression errors land
 
-**Scope:** core · **Confidence:** high (paths (a), (b) and the envelopes; path (c): medium; end to end pending, [Q-JE-3](#q-je-3)) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for routes (a) to (c) and their envelopes) · **Status:** confirmed
 
 - **Rule:**
   - **Failure-module scope.** The failure module's transforms see:
@@ -745,25 +856,27 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
   - **Error routes.**
     - **(a) Chaining after a child completed.** The error happens while the flow computes its next module after one of its children finished. This covers `skip_if`, `sleep`, `timeout`, the iterator, `parallelism` and step-start `retry_if` on any module started that way.
       - The flow job is completed directly with `{"error":{"message":"<error text>","name":"InternalError"}}`.
+      - The error text is the flow code's own (oracle-observed): a predicate or iterator evaluation error has one prefix and one suffix, `Error: QuickJS evaluation error: … @worker_flow.rs:<line>:<col>`; a typed error has neither, for example `Expected an integer, found: -1` or ``Error parsing result as i32: … Value was: 1.5``.
       - The flow's failure module is **not** run.
       - The log reads `Unexpected error during flow chaining:`.
     - **(b) First pickup of a root flow.** The error happens while starting the first module, when the root flow job is first handled; for example `skip_if` on module 0, flow `skip_expr`, or the iterator of a loop at module 0.
       - Ordinary job-error handling applies, with the error object `{"message":"<text>","name":"<error name>"}`.
-      - The name is `Anyhow` for predicate and iterator evaluation errors, whose message is `Error: QuickJS evaluation error: … @<rust location>`; it is `ExecutionErr` for typed errors such as the `sleep` and `timeout` checks.
+      - The error crosses the worker's job dispatch, which turns it into a generic error: the name is **`Anyhow`** for every error on this route, and the message gains an `Error: ` prefix and a location suffix ` @worker.rs:<line>:<col>`. A predicate or iterator evaluation error already carries one `Error: ` prefix and one suffix from the flow code, so it reads `Error: Error: QuickJS evaluation error: … @worker_flow.rs:<line>:<col> @worker.rs:<line>:<col>`, with **two** prefixes and two suffixes. A typed error, such as the boolean check of a predicate or the `timeout` checks, gets one of each: `Error: Expected a boolean value, found: "null" @worker.rs:<line>:<col>` (oracle-observed; see also [FX-15](execution.md#fx-15)).
       - The failure is applied to the root's own status, so the root's **failure module runs** if present. Without one, the final result is `{"error":{…}}` with that object.
     - **(c) First pickup of a nested flow.** The same kind of error, raised in a loop or branch body or in a subflow called by path.
-      - The nested job is completed with the error, and its **parent** is updated as if that child failed.
+      - The nested job is completed with the error, with the same envelope as route (b): name `Anyhow`, two prefixes and two suffixes for an evaluation error (oracle-observed for a subflow called by path). Its **parent** is updated as if that child failed.
       - The nested flow's own failure module is **not** run.
       - The parent then applies its own retry, `continue_on_error` or failure module.
     - **(d) Step failures:** input transforms ([JE-23](#je-23)), `branchone` predicates ([JE-31](#je-31)) and `stop_after_all_iters_if` ([JE-27](#je-27)) follow ordinary failure semantics.
     - **(e) Unrecoverable string error:** `stop_after_if` ([JE-26](#je-26)).
-- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:2086-2125`, `:1300-1340`, `:3732-3822`, `:3934-3955`; `backend/windmill-queue/src/jobs.rs:883-918`; `backend/windmill-worker/src/worker.rs:1706-1736`, `:3815-3841`; `backend/windmill-worker/src/result_processor.rs:1910-1978`.
+- **Evidence:** `backend/windmill-worker/src/worker_flow.rs:2086-2125`, `:1300-1340`, `:3732-3822`, `:3934-3955`; `backend/windmill-queue/src/jobs.rs:883-918`; `backend/windmill-worker/src/worker.rs:1706-1736`, `:3815-3841`; `backend/windmill-worker/src/result_processor.rs:1910-1978`. The envelopes: the generic error's display (`Error: ` before, ` @<location>` after) `backend/windmill-common/src/error.rs:73-74`, `:138-150`; a predicate's evaluation error becomes that error inside the flow code (`backend/windmill-worker/src/worker_flow.rs:2451-2460`, the boolean check `:2462-2467`); the flow handler returns an untyped error (`:2777-2793`), which the job dispatch turns into the generic error again (`backend/windmill-worker/src/worker.rs:3822-3840`). Recorded: runs `je35-a` to `je35-d` of `conformance/flows/je/errors`, cases JE-24/b and JE-24/d of `conformance/exprs/je-24.yaml` and runs `je28-b`, `je29-a`, `je30-b` and `je-v1-b` (oracle run 40687124625).
 - **Conformance:** [JE-35/a–d](conformance.md#je-35)
+- **Revision 2026-10-28 (oracle, batch E3a):** route (b) said a predicate's evaluation error reads `Error: QuickJS evaluation error: … @<rust location>`, and that typed errors are named `ExecutionErr`. On the oracle every route-(b) error is named `Anyhow` and gains a second `Error: ` prefix and a second location suffix from the job dispatch, so an evaluation error has two of each and a typed error one (JE-35/b, JE-24/b, JE-24/d); route (c) has the same envelope (JE-35/d). Added the recorded route-(a) texts. The routes and which failure module runs are unchanged and were recorded as stated.
 
 <a id="je-36"></a>
 ### JE-36 · What `previous_result` is at each position
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending, [Q-JE-5](#q-je-5)) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed; the preview while loop: pending, [Q-JE-5](#q-je-5)) · **Status:** confirmed
 
 - **Rule:** P, the value bound as `previous_result` (and as `result` at the sites that use P), is:
   1. **At the first module of a flow job:** that job's **input object**. Flow jobs are the root, a non-collapsed loop-iteration body (sequential *or* parallel), a branch body, and a subflow called by path.
@@ -788,7 +901,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-37"></a>
 ### JE-37 · What `flow_input` contains
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **A root flow:** its input arguments.
@@ -805,7 +918,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-38"></a>
 ### JE-38 · What `flow_env` contains
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Source.** `flow_env` comes from the flow value's `flow_env` map. When the flow has none and the job has a parent, it is inherited from the nearest enclosing scope, one scope at a time. This covers loop and branch bodies, subflows called by path, and imported flows alike.
@@ -820,7 +933,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-39"></a>
 ### JE-39 · Names that do not exist
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:** these names are **not** defined in any flow expression, so referencing them throws a `ReferenceError`: `env`, `process`, `iter` (use `flow_input.iter`), `WM_WORKSPACE`, `WM_JOB_ID` and every other `WM_*` name except `WM_SCHEDULED_FOR` in flow `skip_expr` ([JE-33](#je-33)), `wmill`, `step_id`, `job_id`. `all_iters` exists only in `stop_after_if` ([JE-26](#je-26)).
 - **Evidence:** the context maps of [JE-22](#je-22); installed scope `backend/windmill-jseval/src/lib.rs:455-552`; the only extra global `backend/windmill-worker/src/worker_flow.rs:3289-3293`.
@@ -831,7 +944,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-40"></a>
 ### JE-40 · Static values are copied verbatim, with no templating
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - A `type: static` transform value is copied verbatim. **The backend has no template interpolation of static strings:** `${…}` in a static string is literal text.
@@ -844,7 +957,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-41"></a>
 ### JE-41 · `$var:`, `$res:` and related strings are resolved per leaf step, at argument-build time
 
-**Scope:** core (resolution point); later (`$jsonvar:`, `$encrypted:`) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (resolution point); later (`$jsonvar:`, `$encrypted:`) · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Where:** strings that reference variables and resources are **not** resolved by the expression evaluator or by flow transforms. They are resolved when a **leaf step job** (a script) builds its arguments, just before it runs.
@@ -859,7 +972,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-v3"></a>
 ### JE-V3 · Recorded arguments and resolved arguments are distinct observation points
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - The job API's arguments are the arguments stored **before** leaf interpolation. Resolution produces a separate map or arguments file and does not update the job's arguments row.
@@ -871,7 +984,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-42"></a>
 ### JE-42 · The resolution rules
 
-**Scope:** core (`$var:`/`$res:` with nesting); later (other rules, depth guard) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (`$var:`/`$res:` with nesting); later (other rules, depth guard) · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   1. **Pre-check per argument.** A top-level argument is examined only if its JSON text contains `$var:`, `$jsonvar:`, `$res:` or `$encrypted:` *anywhere*. Arguments without any marker pass through untouched.
@@ -907,7 +1020,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-44"></a>
 ### JE-44 · Which reads go through `jsonb`
 
-**Scope:** core · **Confidence:** medium · **Status:** confirmed
+**Scope:** core · **Confidence:** medium (its cases oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - **What `jsonb` does.** Windmill stores job arguments and job results in Postgres `jsonb` columns, which normalise them:
@@ -926,13 +1039,28 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - `results.<previous id>` through the whole-result spellings of [JE-8](#je-8) or rule 1 of [JE-18](#je-18), which return P.
   - **Top-level key order** of `flow_input` and of a script's arguments is unstable ([JE-16](#je-16)); fixtures must not depend on it.
   - As a result, `Object.keys(previous_result)` and `Object.keys(results.<same step>)` can differ in order.
+  - **The text a shortcut returns.** [JE-6](#je-6) to [JE-9](#je-9) hand their value on as text, without the engine, so its exact spelling is observable wherever a site quotes it (the `Value was:` of [JE-29](#je-29)) and wherever it becomes a step's arguments. That text depends on how the value reached the worker:
+
+    | Value | Text |
+    |---|---|
+    | P after an ordinary step whose job completed in this transition | the producer's text, as the job returned it ([JE-8](#je-8), oracle-observed) |
+    | a member of `flow_input` ([JE-7](#je-7)) | PostgreSQL's printed form of the stored `jsonb`: `": "` after each key and `", "` between members and items, keys in `jsonb` order, numbers in `numeric`'s spelling |
+    | P at the first module of a flow or body, and in the preprocessor | a compact object the worker writes from the flow arguments: no spaces at the top level, top-level keys in an unstable order ([JE-16](#je-16)), each member value in `jsonb`'s printed form as in the row above |
+    | P after a loop or `branchall` | a compact array the worker writes after decoding each child's stored result: no spaces at any level, object keys in `jsonb` order (the decoder keeps insertion order), and numbers re-printed by the backend's JSON library. An integer that fits in 64 bits stays exact; any other number becomes the nearest double in its shortest form, so a stored `1.50` reads `1.5` (the spelling rules of [FX-42](execution.md#fx-42) rule 2) |
+    | P read back from storage: the re-fetch fallback ([JE-36](#je-36)), after a suspend or a restart from a step, and when a retry re-evaluates its predicates | that one job's stored result in `jsonb`'s printed form |
+    | a [JE-9](#je-9) lookup | `jsonb`'s printed form (oracle-observed, the discriminator of [JE-8](#je-8)) |
+    | P after an empty chosen branch | the JSON string `"{}"` ([OR-25](oracle.md#or-25)) |
+
+    A static or JavaScript transform that passes one of these values on stores it as the step's arguments, where `jsonb` normalises it again, so the difference shows only where a text is quoted or compared before storage.
 - **Evidence:** column types `backend/migrations/20220123221903_first.up.sql:130`, `:161-162`, `backend/migrations/20250201124431_v2_job.up.sql:31`; in-memory passing of the last result `backend/windmill-worker/src/worker_flow.rs:1477-1488`, `:2086-2099`; `backend/windmill-jseval/src/lib.rs:805-817`; `backend/windmill-worker/src/js_eval.rs:54-72`; [PostgreSQL JSON types](https://www.postgresql.org/docs/current/datatype-json.html) ("jsonb does not preserve white space, does not preserve the order of object keys, and does not keep duplicate object keys").
 - **Conformance:** [JE-44/a–c](conformance.md#je-44)
+- **Evidence (the text a shortcut returns):** the flow input decoded per member from `v2_job.args` `backend/windmill-queue/src/jobs.rs:2754-2758`, `:3231-3241`, and used as is `backend/windmill-worker/src/worker_flow.rs:3186-3194`; P at the first module `:3324-3331`, `:3779-3783` (the arguments written out again); P after a loop or `branchall` `:2299-2326` (each child's result decoded as a JSON value and the array written out again), used at `:1477-1488`, `:371`, `:695`; P read back from storage `:3333-3346`, `:3769-3792`, `:6234-6264` (one job's result decoded as raw text); the backend's JSON library with `preserve_order` and without `arbitrary_precision` `backend/Cargo.toml:435`. PostgreSQL prints `jsonb` with a space after `:` and `,` in its text output, which is also what its binary form carries after the version byte (outside Windmill; the spaced text is oracle-observed through JE-9).
+- **Revision 2026-10-28 (source re-check, design request 8):** added the table of returned texts. windmill-lite's textual pipeline (B2a) reads every value from storage as the compact stored text. That reading is **corrected**: a `flow_input` member and a `previous_result` read back from storage are spaced, and a `previous_result` after a loop or `branchall` is compact but has its numbers re-printed. Only the producer's text and the compact top level at the first module agree with the reading as it stands. B2b's tests that pin these texts must change. Not yet recorded ([Q-JE-13](#q-je-13)): two runs settle the first and fourth rows, `timeout: flow_input.o` with `o` an object, and `timeout: results.l` right after a loop `l` whose iterations return `1.50`; their parse errors quote the text.
 
 <a id="je-v6"></a>
 ### JE-V6 · The exact spelling, not the module id, decides memory or database
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:** whether an expression reads the in-memory previous result, the database path lookup or the JavaScript proxy depends on its **exact spelling**, tested in the dispatch order JE-6 → JE-7 → JE-8 → JE-9 → QuickJS:
   - **a whole-result spelling** of the previous step ([JE-8](#je-8)'s four forms) returns raw P from memory;
@@ -983,22 +1111,22 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 
 ## Open questions
 
-None of these blocks a source-derived core rule; they confirm exact text or end-to-end behaviour on a real Windmill v1.767.0.
+None of these blocks a source-derived core rule; they confirm exact text or end-to-end behaviour on a real Windmill v1.767.0. Recording batch E3a answered several of them on 2026-10-28; answered questions keep their numbers.
 
 <a id="q-je-1"></a>
-- **Q-JE-1** · affects [JE-12](#je-12), [JE-21](#je-21), [JE-9](#je-9) · What is the exact stack text appended after `Error: <message>`, the syntax diagnostic for a rewritten `await` inside a non-async function, the display of a thrown non-Error value (`throw "s"`, `throw {}`), and the non-callable diagnostic of case [JE-9/l](conformance.md#je-9)? *Settled by:* running those fixtures on the oracle and recording the step error messages; an equivalent offline check evaluates the same wrapped code with rquickjs 0.11.0 on quickjs-ng `be664ca` (both MIT-licensed), outside Windmill.
+- **Q-JE-1** · affects [JE-12](#je-12), [JE-21](#je-21), [JE-9](#je-9) · **Re-scoped 2026-10-28.** Batch E3a recorded the stack text appended after `Error: <message>`, the syntax diagnostic for a rewritten `await` inside a non-async function (`Unexpected identifier 'results'`, JE-12/d) and the non-callable diagnostic of [JE-9/l](conformance.md#je-9) (`not a function`); [JE-21](#je-21) now states them. Still open: the display of a thrown non-Error value, the `Exception generated by quickjs: …` form. **Re-scoped again 2026-10-28 (validation round 2):** the source now settles its form per type ([JE-21](#je-21)): `String(Ok("s"))`, `Int(1)`, `Float(1.5)`, `Bool(true)`, `BigInt"BigInt"`, and for objects, arrays, functions and symbols a type name with a memory address that no recording can reproduce. What remains is to record the primitive forms. *Settled by:* an oracle run of [JE-21/b](conformance.md#je-21) as an expression case (recording batch E3e), with `throw "s"`, `throw 1`, `throw 1.5` and `throw true`; a `throw {}` recorded beside them should match only `Exception generated by quickjs: Object(0x`.
 
 <a id="q-je-2"></a>
-- **Q-JE-2** · affects [JE-1](#je-1) · Which host APIs really exist: `typeof` of `console`, `Intl`, `atob`, `btoa`, `TextEncoder`, `URL`, `setTimeout`, `structuredClone`, `queueMicrotask`? The source-derived expectations are not yet evidence. *Settled by:* the same engine run as Q-JE-1, or one oracle fixture with a transform per name.
+- **Q-JE-2** · affects [JE-1](#je-1) · **Re-scoped 2026-10-28.** Batch E3a recorded `typeof` of `console`, `Intl`, `atob`, `btoa`, `TextEncoder`, `TextDecoder`, `URL`, `URLSearchParams`, `fetch`, `setTimeout`, `process` and `require`: all `"undefined"`, as [JE-1](#je-1) says (the `absent-host-apis` case of `conformance/exprs/je-1.yaml`). Still source-derived: `queueMicrotask`, `performance`, `DOMException`, `WeakRef`, `FinalizationRegistry` and `Iterator` present, `structuredClone` and `navigator` absent. *Settled by:* one oracle expression returning the `typeof` of each of these names.
 
 <a id="q-je-3"></a>
-- **Q-JE-3** · affects [JE-35](#je-35) · Do the end-to-end error envelopes and failure-module behaviour on routes (a), (b) and (c) match the source? *Settled by:* an oracle run of [JE-35/a–d](conformance.md#je-35), recording the parent's final result, each child row, and whether each failure module ran, as separate assertions.
+- **Q-JE-3** · affects [JE-35](#je-35) · **Answered 2026-10-28.** Batch E3a recorded [JE-35/a–d](conformance.md#je-35) (`conformance/flows/je/errors`): the routes and which failure module runs hold as traced; the route-(b) envelope has two `Error: ` prefixes and two location suffixes, and [JE-35](#je-35) and JE-35/b were corrected.
 
 <a id="q-je-4"></a>
-- **Q-JE-4** · affects [JE-V2](#je-v2), [JE-23](#je-23) · After an input-transform failure, does a retry run the script with an empty argument map? *Settled by:* an oracle run of [JE-V2/c](conformance.md#je-v2), recording both attempts' recorded arguments (O2) and outcomes (O5).
+- **Q-JE-4** · affects [JE-V2](#je-v2), [JE-23](#je-23) · **Answered 2026-10-28.** Yes: in the recording of [JE-V2/c](conformance.md#je-v2) (`conformance/flows/je/waits`, run `je-v2-c`) the first attempt failed with the transform error and the retry ran with `{}`.
 
 <a id="q-je-5"></a>
-- **Q-JE-5** · affects [JE-36](#je-36) · Are the `previous_result` values for collapsed and non-collapsed loops as traced, including a simple while loop in a **preview** run? *Settled by:* an oracle run of [JE-36/a–e](conformance.md#je-36), with the while-loop case run once through the flow-preview API and once as a deployed flow.
+- **Q-JE-5** · affects [JE-36](#je-36) · **Re-scoped 2026-10-28.** Batch E3a recorded [JE-36/a–f](conformance.md#je-36) on deployed flows, all as traced. Still open: the simple while loop of JE-36/d in a **preview** run. *Settled by:* running JE-36/d through the flow-preview API (recording batch E3e).
 
 <a id="q-je-6"></a>
 - **Q-JE-6** · affects [JE-V1](#je-v1) · What eventually happens to a parallel loop with `parallelism: 0` after every child is held at enqueue (held for 14 days, cancelled, or released by a monitor)? The initial hold is source-settled; a permanent stall is not asserted. *Settled by:* tracing the suspension timeout and monitor paths ([control flow](control-flow.md)), or an oracle run that observes the loop.
@@ -1013,7 +1141,21 @@ None of these blocks a source-derived core rule; they confirm exact text or end-
 - **Q-JE-9** · affects [JE-44](#je-44) · Does the `jsonb` key ordering (shorter keys first, then bytewise) hold for every key set the fixtures use? *Settled by:* Postgres alone (`SELECT '<json>'::jsonb`) on the oracle's Postgres version; no Windmill is needed.
 
 <a id="q-je-10"></a>
-- **Q-JE-10** · affects [JE-19](#je-19) · Does a subflow called by path that reads its caller's step id behave as traced (it reads the caller's result)? *Settled by:* the oracle run of [JE-19/d](conformance.md#je-19), using distinct ids.
+- **Q-JE-10** · affects [JE-19](#je-19) · **Answered 2026-10-28.** Yes: in the recording of [JE-19/d](conformance.md#je-19) (`conformance/flows/je/scopes`, run `je19-d`) the subflow's step read the caller's result `7`.
 
 <a id="q-je-11"></a>
-- **Q-JE-11** · affects [JE-48](#je-48), [JE-49](#je-49) · open (oracle) · Do the stack-overflow cases behave as traced at each site, with the message wrapped as JE-23 says? Does a 128-level step result reach the binding unchanged (JE-49/b) instead of failing earlier, on the producer's completion path or in the flow transition? *Settled by:* running [JE-48/a–d](conformance.md#je-48) and [JE-49/a–c](conformance.md#je-49) on the oracle and recording `b`'s error messages and outcomes. JE-48 can also be checked offline by evaluating the same wrapped code with rquickjs 0.11.0 on quickjs-ng `be664ca` (both MIT-licensed), outside Windmill.
+- **Q-JE-11** · affects [JE-48](#je-48), [JE-49](#je-49) · **Answered 2026-10-28.** Batch E3a recorded [JE-48/a–d](conformance.md#je-48) and [JE-49/a–c](conformance.md#je-49). The overflow message is wrapped as JE-23 says, and a 128-level step result reaches the binding unchanged. Two corrections followed: a recursion of depth 1 000 already overflows on Windmill (depths up to 600 fit), and the catalogue's JE-48 expressions run in statement mode, so JE-48/c gives `null`. Whether another engine build must reproduce the depth-1 000 overflow is left to the equivalence contract ([JE-48](#je-48)'s design note).
+
+<a id="q-je-12"></a>
+- **Q-JE-12** · affects [JE-50](#je-50), [JE-51](#je-51), [JE-52](#je-52) · open (oracle) · Do strict mode, the job-queue rules and the unpaired-surrogate rules hold end to end? *Settled by:* recording [JE-50/a](conformance.md#je-50), [JE-51/a](conformance.md#je-51) and [JE-52/a](conformance.md#je-52) as expression cases on the oracle, together with an expression whose job chain never ends after its value settled (expected: the timeout of JE-2, or the monitor cancel), and the evaluator output (O1) of `"\ud83d"` from an evaluator-level check with rquickjs 0.11.0 outside Windmill.
+<a id="q-je-13"></a>
+- **Q-JE-13** · affects [JE-7](#je-7), [JE-8](#je-8), [JE-11](#je-11), [JE-44](#je-44) · open (oracle) · Do the texts the shortcuts return for values that reached the worker from storage match the source trace, and what does a non-ASCII argument do to the call rewrite? *Settled by:* oracle runs, as flow fixtures, that quote the text through the `timeout` site's parse error ([JE-29](#je-29)): `timeout: flow_input.o` with `o` an object of two keys and a nested array (expected: `jsonb`'s spaced text); `timeout: results.l` right after a loop `l` whose iterations return `{"b":1.50,"a":1}` (expected: a compact array, `1.5`, keys `a` before `b`); and transforms `variable("f/é")` and `variable("f/éé")` against existing variables (expected: a `SyntaxError` for the first and a worker panic for the second, whose job-level outcome the recording shows).
+
+<a id="q-je-14"></a>
+- **Q-JE-14** · affects [JE-15](#je-15) · open (oracle) · When an input transform replaces `JSON.stringify` so that the evaluator's result text is not JSON, what does the step do when its arguments are stored? The source shows the text kept unchecked; the storage outcome is not traced. *Settled by:* recording [JE-15/j](conformance.md#je-15) together with a second transform `x = (JSON.stringify = () => "hello", 1)` on a step, recording the step's and the flow's status and error.
+
+<a id="q-je-15"></a>
+- **Q-JE-15** · affects [JE-49](#je-49) · open (oracle) · Can a run reach the binding with a `flow_input` or a `flow_env` member deep enough to trip the 127-level limit, or does an earlier parse (the run request, the deployment) refuse it first; and does the reported position then count as [JE-49](#je-49) says? *Settled by:* an oracle run starting a one-step flow with input `{"k": <127 nested arrays>}` and a transform `x = flow_input.k.length` (expected, if the input is accepted: `recursion limit exceeded at line 1 column 132`), and a deployed flow with a `flow_env` member 128 levels deep read by `x = flow_env.K.length`.
+
+<a id="q-je-16"></a>
+- **Q-JE-16** · affects [JE-1](#je-1), [JE-48](#je-48) · open (oracle) · Which C compiler, at which version, compiled the engine in the pinned CE image, and which glibc version does the runtime image ship? The source fixes the base image tags, the target, the `cc` crate's flags and that assertions are on ([JE-48](#je-48)), but not these. *Settled by:* an oracle run whose step prints `ldd --version` (the glibc version) and the compiler identifications in the `.comment` section of `/usr/src/app/windmill`, recorded on the pinned image digest (a Python step can read the ELF section without binutils; whether the build's `strip` kept that section is part of what the run shows). The engine's own compile flags beyond those the source fixes are only in the separate debug-information file of the build, not in the image.
