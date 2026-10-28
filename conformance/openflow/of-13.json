@@ -1,0 +1,12 @@
+{
+  "finding": "OF-13",
+  "cases": [
+    {
+      "spec": "OF-13/a",
+      "provenance": "source-derived",
+      "title": "unknown language rejects",
+      "given": {"modules": [{"id": "a", "value": {"type": "rawscript", "content": "export function main(){}", "language": "typescript"}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["unknown variant `typescript`"]}}
+    }
+  ]
+}

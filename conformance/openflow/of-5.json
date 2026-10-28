@@ -1,0 +1,74 @@
+{
+  "finding": "OF-5",
+  "cases": [
+    {
+      "spec": "OF-5/a",
+      "provenance": "source-derived",
+      "title": "skip_if_stopped is required",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "stop_after_if": {"expr": "true"}}]},
+      "expect": {"reject": {"contains": ["missing field `skip_if_stopped`"]}}
+    },
+    {
+      "spec": "OF-5/b",
+      "variant": "bare",
+      "provenance": "source-derived",
+      "title": "bare and object timeout are equivalent",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": 30}]},
+      "expect": {"accept": {"at": {"/modules/0/timeout": {"type": "static", "value": 30}}}}
+    },
+    {
+      "spec": "OF-5/b",
+      "variant": "object",
+      "provenance": "source-derived",
+      "title": "bare and object timeout are equivalent",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": {"type": "static", "value": 30}}]},
+      "expect": {"accept": {"at": {"/modules/0/timeout": {"type": "static", "value": 30}}}}
+    },
+    {
+      "spec": "OF-5/c",
+      "variant": "bare",
+      "provenance": "source-derived",
+      "title": "sleep needs an object",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "sleep": 5}]},
+      "expect": {"reject": {"kind": "flow_value", "contains": ["invalid type: integer `5`"]}}
+    },
+    {
+      "spec": "OF-5/c",
+      "variant": "object",
+      "provenance": "source-derived",
+      "title": "sleep needs an object",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "sleep": {"type": "static", "value": 5}}]},
+      "expect": {"accept": {"at": {"/modules/0/sleep": {"type": "static", "value": 5}}}}
+    },
+    {
+      "spec": "OF-5/d",
+      "provenance": "source-derived",
+      "deviation": "D6",
+      "note": "Windmill generates a random 6-character [A-Za-z0-9] id. windmill-lite derives the id from the module's position (deviation D6 of docs/design/0001), so the expectation here is windmill-lite's.",
+      "title": "missing id is generated",
+      "given": {"modules": [{"value": {"type": "identity"}}]},
+      "expect": {"accept": {"matches": {"/modules/0/id": "^wl[0-9a-f]{8}$"}}}
+    },
+    {
+      "spec": "OF-5/e",
+      "provenance": "source-derived",
+      "title": "timeout object value must be an integer",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": {"type": "static", "value": "30"}}]},
+      "expect": {"reject": {"kind": "flow_value"}}
+    },
+    {
+      "spec": "OF-5/f",
+      "provenance": "source-derived",
+      "title": "timeout expression is accepted",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "timeout": {"type": "javascript", "expr": "30"}}]},
+      "expect": {"accept": {"at": {"/modules/0/timeout": {"type": "javascript", "expr": "30"}}}}
+    },
+    {
+      "spec": "OF-5/g",
+      "provenance": "source-derived",
+      "title": "debounce alias",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "debouncing": {"custom_debounce_key": "k"}}]},
+      "expect": {"accept": {"at": {"/modules/0/debouncing/debounce_key": "k"}}}
+    }
+  ]
+}

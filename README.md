@@ -11,10 +11,13 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-No component of the design is implemented yet.
+One component of the design is implemented: the OpenFlow decoder in
+[internal/openflow](internal/openflow/README.md), which no command uses yet.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
-public domain under the [Unlicense](LICENSE).
+public domain under the [Unlicense](LICENSE), except for the Apache-2.0 files
+vendored from Windmill under `internal/openflow/schema/`, which keep their
+licence ([NOTICE](internal/openflow/schema/NOTICE)).
 
 ## Quick start
 
@@ -30,6 +33,8 @@ go test -race ./...
 | Path | What it covers |
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
+| [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
+| [conformance](conformance/README.md) | The shared conformance cases. Today only the OpenFlow decode cases exist. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |

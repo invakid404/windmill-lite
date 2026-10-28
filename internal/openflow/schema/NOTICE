@@ -1,0 +1,37 @@
+Vendored Apache-2.0 files from Windmill
+=======================================
+
+The files in this directory are copied, unmodified, from the Windmill
+repository (https://github.com/windmill-labs/windmill) at tag v1.767.0,
+commit 6de4ec0f665ad856002495c4d86269105ec28ad7:
+
+  openflow.openapi.yaml  the OpenFlow schema
+                         SHA-256 6e1a84317bff02fefdd0bfee7092dbc46ddb0f1120ce5e039c9ebf8094d138e3
+  LICENSE-APACHE         the Apache License, Version 2.0, as Windmill ships it
+                         SHA-256 a8954535368e7af09e498e8da177941b548f3b04352be3f1550da21162735fe0
+
+Copyright (c) 2022 Windmill Labs, Inc
+
+Windmill's root LICENSE file states: "The openapi files, including the
+OpenFlow spec is Apache 2.0 Licensed." The schema's own `info.license` is
+"Apache 2.0". These files are licensed under the Apache License, Version 2.0
+(see LICENSE-APACHE). They are not covered by the Unlicense that applies to
+the rest of windmill-lite.
+
+Windmill's NOTICE file at the same commit reads, verbatim:
+
+    Copyright (c) 2022  Windmill Labs, Inc
+
+    Source code in this repository is variously licensed under the Apache License
+    Version 2.0 or the GNU Affero General Public License. Please see
+    LICENSE for more information.
+
+    * For a copy of the Apache License Version 2.0, please see LICENSE-APACHE
+      as included in this repository's top-level directory.
+
+    * For a copy of the GNU Affero General Public License, please see LICENSE-ALPH
+      as included in this repository's top-level directory.
+
+windmill-lite uses openflow.openapi.yaml only as a test input: the
+schema-coverage test in ../coverage_test.go reads it and checks the Go
+decoder against it. No code is generated from it.

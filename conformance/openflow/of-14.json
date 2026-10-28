@@ -1,0 +1,41 @@
+{
+  "finding": "OF-14",
+  "scope": "later",
+  "cases": [
+    {
+      "spec": "OF-14/a",
+      "provenance": "source-derived",
+      "title": "16 digits",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "hash": "0000000000000001"}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/hash": "0000000000000001"}}}
+    },
+    {
+      "spec": "OF-14/b",
+      "provenance": "source-derived",
+      "title": "extra bytes ignored",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "hash": "0000000000000001ff"}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/hash": "0000000000000001"}}}
+    },
+    {
+      "spec": "OF-14/c",
+      "provenance": "source-derived",
+      "title": "upper case normalised",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "hash": "00000000000000AB"}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/hash": "00000000000000ab"}}}
+    },
+    {
+      "spec": "OF-14/d",
+      "provenance": "source-derived",
+      "title": "odd length",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "hash": "1"}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["Module 'a':"]}}
+    },
+    {
+      "spec": "OF-14/e",
+      "provenance": "source-derived",
+      "title": "fewer than 8 bytes",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "hash": "00000001"}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["did not decode to an u64"]}}
+    }
+  ]
+}

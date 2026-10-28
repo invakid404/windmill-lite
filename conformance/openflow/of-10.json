@@ -1,0 +1,61 @@
+{
+  "finding": "OF-10",
+  "cases": [
+    {
+      "spec": "OF-10/a",
+      "provenance": "source-derived",
+      "title": "static without value",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "input_transforms": {"x": {"type": "static"}}}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/input_transforms/x": {"type": "static", "value": null}}}}
+    },
+    {
+      "spec": "OF-10/b",
+      "provenance": "source-derived",
+      "title": "javascript without expr",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "input_transforms": {"x": {"type": "javascript"}}}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/input_transforms/x": {"type": "javascript", "expr": ""}}}}
+    },
+    {
+      "spec": "OF-10/c",
+      "provenance": "source-derived",
+      "title": "unsupported transform type",
+      "given": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/demo/s", "input_transforms": {"x": {"type": "jq", "expr": "."}}}}]},
+      "expect": {"reject": {"contains": ["got value: jq for field `type`, expected value: `static` or `javascript`"]}}
+    },
+    {
+      "spec": "OF-10/d",
+      "provenance": "source-derived",
+      "title": "bare parallelism",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []}, "modules": [], "parallel": true, "parallelism": 4}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/parallelism": {"type": "static", "value": 4}}}}
+    },
+    {
+      "spec": "OF-10/e",
+      "provenance": "source-derived",
+      "title": "parallelism out of range",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []}, "modules": [], "parallel": true, "parallelism": 70000}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["u16"]}}
+    },
+    {
+      "spec": "OF-10/f",
+      "provenance": "source-derived",
+      "title": "string sleep value decodes",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "sleep": {"type": "static", "value": "30"}}]},
+      "expect": {"accept": {"at": {"/modules/0/sleep": {"type": "static", "value": "30"}}}}
+    },
+    {
+      "spec": "OF-10/g",
+      "provenance": "source-derived",
+      "title": "unused value in a restricted slot is checked",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []}, "modules": [], "parallelism": {"type": "javascript", "expr": "2", "value": "unused"}}}]},
+      "expect": {"reject": {"kind": "module"}}
+    },
+    {
+      "spec": "OF-10/h",
+      "provenance": "source-derived",
+      "title": "restricted static without value",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []}, "modules": [], "parallelism": {"type": "static"}}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/parallelism": {"type": "static", "value": null}}}}
+    }
+  ]
+}

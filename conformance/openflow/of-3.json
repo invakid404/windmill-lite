@@ -1,0 +1,14 @@
+{
+  "finding": "OF-3",
+  "cases": [
+    {
+      "spec": "OF-3/e",
+      "provenance": "source-derived",
+      "part": "decode",
+      "note": "The decode half: the unknown key is ignored, so the value decodes exactly as {type: identity} does. That the step then behaves alike is the engine's case.",
+      "title": "harmless canonicalisation",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity", "extra": 7}}]},
+      "expect": {"accept": {"at": {"/modules/0/value": {"type": "identity"}}}}
+    }
+  ]
+}

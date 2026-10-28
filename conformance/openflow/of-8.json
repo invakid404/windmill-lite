@@ -1,0 +1,15 @@
+{
+  "finding": "OF-8",
+  "cases": [
+    {
+      "spec": "OF-8/a",
+      "provenance": "source-derived",
+      "scope": "later",
+      "part": "decode",
+      "note": "The catalogue expects flows/get after a push to lack the two fields. The typed while-loop has neither, so the decoded form drops them; recording the stored form on the oracle is Q-OF-1.",
+      "title": "while-loop parallel fields are dropped",
+      "given": {"modules": [{"id": "w", "value": {"type": "whileloopflow", "parallel": true, "parallelism": {"type": "static", "value": 2}, "skip_failures": false, "modules": [{"id": "s", "value": {"type": "identity"}}]}}]},
+      "expect": {"accept": {"at": {"/modules/0/value": {"type": "whileloopflow", "modules": [{"id": "s", "value": {"type": "identity"}}], "skip_failures": false}}}}
+    }
+  ]
+}
