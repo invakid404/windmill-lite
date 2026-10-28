@@ -167,7 +167,7 @@ export class Builder {
     for (let n = 1; n <= 20; n++) {
       const name = n === 1 ? base : `${base}_${n}`;
       const { bundled, inputs } = await this.bundleOnce(dir, entry, seeds, target, hosts, name);
-      if (!inputs.some((text) => text.includes(name))) return bundled;
+      if (!inputs.some((text) => spells(text, name))) return bundled;
     }
     throw new BuildProblem("bundle_failed", `every candidate name for ${base} occurs in the bundle's sources`);
   }
@@ -521,4 +521,19 @@ function normaliseMetafile(m: unknown, dir: string): Record<string, unknown> {
     return key === "path" || key === "entryPoint" ? rel(v) : v;
   };
   return walk(m ?? {}) as Record<string, unknown>;
+}
+
+// Whether text spells the identifier name, as written or through Unicode
+// escapes (`\u0075`, `\u{75}`), which an identifier may use for any of its
+// characters (c2a review 2, finding 6). Escapes are decoded everywhere, in
+// strings and comments too: a false match only moves the build to another
+// name.
+export function spells(text: string, name: string): boolean {
+  if (text.includes(name)) return true;
+  if (!text.includes("\\u")) return false;
+  const decoded = text.replace(/\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, braced: string | undefined, four: string | undefined) => {
+    const cp = parseInt(braced ?? four!, 16);
+    return cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+  });
+  return decoded.includes(name);
 }

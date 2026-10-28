@@ -1,7 +1,7 @@
-// Ends the harness process with args.code after args.ms, while the call is
-// pending. Milestone C3a intercepts process.exit; until then it ends the
-// process.
-export async function main(args) {
-  setTimeout(() => process.exit(args.code), args.ms ?? 0);
+// Calls process.exit(code) after ms, from a timer, while the call is
+// pending. The harness intercepts it (D11): the invocation's outcome is
+// fixed, and the process lives on.
+export async function main(ms, code) {
+  setTimeout(() => process.exit(code), ms ?? 0);
   return new Promise(() => {});
 }

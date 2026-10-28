@@ -163,8 +163,14 @@ function describe(p: Node): string {
   }
 }
 
-// The signature recorded for each export name (ADR 0002): the parameters of
-// the top-level function declaration of that name, or none.
+// The signature recorded for each name a job can call as its entrypoint
+// (ADR 0002): every export name, with the parameters of the top-level
+// function declaration of that name, or none; and every top-level function
+// declaration that no export names. Windmill's parser reads a declaration
+// whether it is exported or not (WR-7), so a job whose entrypoint is a
+// declaration that does not parse fails before it runs, even when the
+// module does not export it (WR-37); one that parses then fails at the
+// export check.
 export function signatures(p: Parsed, exports: string[]): Record<string, Signature> {
   const fns = functionDeclarations(p);
   const aliases = typeAliases(p);
@@ -173,6 +179,9 @@ export function signatures(p: Parsed, exports: string[]): Record<string, Signatu
   for (const name of exports) {
     const fn = fns.get(name);
     out[name] = fn === undefined ? { params: [] } : paramsOf(fn, aliases);
+  }
+  for (const [name, fn] of fns) {
+    if (!Object.hasOwn(out, name)) out[name] = paramsOf(fn, aliases);
   }
   return out;
 }

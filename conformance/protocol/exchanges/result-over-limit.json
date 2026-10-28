@@ -74,7 +74,9 @@
         "script": "echo",
         "entry": "main",
         "args": {
-          "still": "up"
+          "value": {
+            "still": "up"
+          }
         },
         "env": {},
         "boundary": "bun"

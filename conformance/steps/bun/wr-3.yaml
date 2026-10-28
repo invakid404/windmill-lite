@@ -1,0 +1,12 @@
+# WR-3: the runtime a step sees.
+finding: WR-3
+scope: core
+cases:
+  - spec: WR-3/a
+    provenance: source-derived
+    title: the runtime version is the pin
+    script: |
+      export function main() { return Bun.version; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "1.3.10"}

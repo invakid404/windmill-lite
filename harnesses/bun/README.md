@@ -1,9 +1,12 @@
 # harnesses/bun
 
-**Current state:** the runtime skeleton of milestone C1
+**Current state:** the runtime of milestone C1
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)), with what the
-walking skeleton (W1) added: the per-invocation context, the facade fetch,
-the process-level error handlers, host mode, and a minimal host SDK. This
+walking skeleton (W1) added (the per-invocation context, the facade fetch,
+the process-level error handlers, host mode, and a minimal host SDK) and
+the step runtime core of milestone C3a: Windmill's wrapper rules, the
+`process.exit` interception, the attribution of process-level errors, the
+per-invocation registry and the process scope. This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md) in W1's
@@ -31,9 +34,10 @@ cannot corrupt the protocol.
 
 | File | Contents |
 |---|---|
-| `runtime/main.ts` | Reads the bundle's digest, connects to fd 3, starts the runtime |
-| `runtime/runtime.ts` | The handshake, invocations, cancel, health, drain, platform calls, and host mode's runs |
-| `runtime/context.ts` | The per-invocation context: the environment view, the facade fetch, the process-level error handlers |
+| `runtime/main.ts` | Reads the bundle's digest, registers its host-provided modules, connects to fd 3, starts the runtime |
+| `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
+| `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
+| `runtime/context.ts` | The per-invocation context: the environment view, the facade fetch, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
 | `runtime/frame.ts` | The codec and the send queue: canonical envelopes, the decoding rules and error codes of the Go side, part streams, and the order of messages about one invocation |
 
 - **Handshake.** It sends `hello` with `Bun.version`, its pid, the SHA-256
@@ -41,15 +45,24 @@ cannot corrupt the protocol.
   host mode; `native` and `fresh` are false). It accepts only a warm
   welcome.
 - **Heartbeat.** After the welcome it sends a `ping` every `heartbeat_ms`
-  with its health: invocations in flight, abandoned ones, process-level
-  errors (always 0 until C3a installs handlers), the event loop's lag (how
-  late the heartbeat timer fired) and RSS. It answers the engine's pings
+  with its health: invocations in flight (those whose outcome is still
+  open), abandoned ones, the process-level errors no invocation owned, the
+  event loop's lag (how late the heartbeat timer fired) and RSS. It answers the engine's pings
   with the same.
 - **Invocations** run concurrently on the event loop, each inside its own
-  `AsyncLocalStorage` context with its id, run, environment and abort
-  signal. A script's module, `scripts/bun/<id>.mjs` in the bundle, is
-  imported once per process on its first invocation, inside that
-  invocation's context (warm module state).
+  `AsyncLocalStorage` context with its id, run, environment, abort signal
+  and resource registry. A script's module, `scripts/bun/<id>.mjs` in the
+  bundle, and its metadata, `<id>.meta.json`, are read once per process on
+  its first invocation, inside that invocation's context (warm module
+  state).
+- **Host-provided modules.** A harness the engine spawned registers the
+  bundle's copy of each, `scripts/bun/provided/<id>.mjs`, in the order of
+  the manifest's `host_modules`, before it greets the engine
+  ([ADR 0010](../../docs/design/0010-packaging.md), D12); a copy that fails
+  to load fails the start (exit code 4). `main.ts` makes the runtime
+  first, so every process-wide hook below (the process scope included) is
+  in place when the copies load. In host mode the host registers its own
+  instances instead.
 - **Cancel** abandons the invocation. When its call ends, the outcome goes
   out as the `late` frame that settles it.
 - **Drain** stops the heartbeat. Once everything queued has gone out, the
@@ -80,7 +93,13 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 
   Outside any invocation every name reads the process environment. W1's
   Q-WA-4 test in [internal/harness](../../internal/harness/README.md)
-  measures every channel.
+  measures every channel. A step's first write of a variable the process
+  has makes it an accessor too, so `Bun.env` reads the written value. A
+  write or delete through the original object itself (`Bun.env.X = …` in
+  code the build does not rewrite) is isolated only for a variable already
+  made an accessor; one the process does not have becomes the process's.
+  Isolating those is C3b's, with the rest of the per-invocation
+  environment.
 - **The facade fetch.** `globalThis.fetch` is wrapped: a request to the
   welcome's `facade` origin becomes a `platform` frame attributed to the
   invocation whose context made it, with its body's bytes, and its
@@ -90,14 +109,72 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 - **Process-level error handlers.** `uncaughtException` and
   `unhandledRejection` handlers that never exit
   ([ADR 0004](../../docs/design/0004-harness-protocol.md), the
-  shared-process failure model, item 1). Each error is written to stderr and
-  counted in health's `errors`. Attributing an error to the invocation whose
-  context raised it is C3a's; until then every one counts as unattributed.
+  shared-process failure model, item 1). Each error is written to stderr
+  and attributed through the context the handler runs in (item 2): on Bun
+  1.3.10 a throw from a timer keeps its invocation's context, and an
+  unhandled rejection or a microtask's throw has none.
+  - In a **running** invocation's context, the error fixes its outcome:
+    `escaped`, exit code 1
+    ([Q-WR-2](../../docs/semantics/languages.md#q-wr-2)), the error's text
+    as its tail, in a `result` frame with `settled` false; how the call
+    then ends is the `late` frame that settles it.
+  - In an invocation whose outcome is fixed, that was abandoned or that
+    has settled, it is a `late` error that settles nothing (D9).
+  - In **no** invocation's context it fails nothing (item 3): it is counted
+    in health's `errors`, and every invocation in flight gets a `warning`
+    frame with code `unattributed_error`, whose message is cut, ending in
+    `…`, to fit `max_message` (`fitString`).
 
-The fetch wrapper and the handlers are installed once per process and
-answer to the runtime that installed them last, so a host that connects
-again counts its errors and sends its facade calls on its current
-connection.
+  The handlers never throw: a failure to report an error is written to the
+  diagnostics, since a throw from one handler would reach the other, and
+  one thrown from there ends the process.
+- **`process.exit`** is replaced (item 6, D11). Inside an invocation the
+  call fixes its outcome, `empty` for status 0 and `escaped` with the
+  status otherwise, and throws a `ProcessExit` sentinel, so `finally`
+  blocks run and a `catch` can swallow it; the call's end is reported late,
+  and a sentinel that ends it gives a `late` error without a body. The
+  status is Bun's (`exitStatus`): a safe integer (within ±(2^53 − 1)), or
+  a string other than `""` that `Number` reads as one (`" "` is 0), modulo
+  256; no code means `process.exitCode`, or 0. A code Bun refuses makes
+  the call throw Bun's own `RangeError` or `TypeError` and fixes nothing:
+  the code is assigned to `process.exitCode`, which Bun checks the same
+  way and leaves unchanged when it refuses. `test/context.test.ts` checks
+  `exitStatus` against a real Bun's `process.exit` for each of 38 codes. A call from an
+  invocation whose outcome is already fixed, or that has settled, changes
+  nothing and is reported late. Outside every invocation it is the real
+  `process.exit`; the runtime and the host SDK exit through `exitProcess`,
+  the real one, since their own code may run in an invocation's context.
+  `process.reallyExit`, `process.abort` and signals still end the process.
+- **The registry.** Each context holds an `InvocationResources`: `track(kind,
+  release)` registers something the invocation started, and returns the
+  function that unregisters it once it ended by itself; the runtime calls
+  `settle()` when it queues the frame that settles the invocation (or when
+  the connection ends), which runs every release still pending, once, and
+  returns how many of each kind there were. Nothing registers yet:
+  milestone C3b's settle-time fence registers each timer and `fetch`
+  request an invocation starts, so nothing global is keyed by invocation,
+  and its leak report is these counts (`process._getActiveHandles()` lists
+  nothing on Bun 1.3.10).
+- **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
+  returns a runner for the caller's async context without the invocation's
+  store: every other store (a host's tenant scope) stays. A pooled client
+  or a host-provided module captures it at load and runs its factories
+  through it: their maintenance timers then belong to no invocation, are
+  never attributed to the step that happened to create the first client,
+  and C3b's fence never clears them; an error they throw is unattributed.
+  Loading outside every invocation is not enough: a function a module
+  exports runs in its caller's context, so a factory a step calls must
+  re-enter the captured scope (case `D12/pool-process-scope`, and
+  `D12/pool-without-scope` as its control). The API is published when `runtime/context.ts`
+  is evaluated: in a spawned harness before the bundle's host-provided
+  copies load, and in host mode as soon as the host imports the host SDK,
+  so a host imports the SDK before the modules of its own that capture the
+  scope.
+
+The fetch wrapper, the handlers and the `process.exit` interception are
+installed once per process and answer to the runtime that installed them
+last, so a host that connects again counts its errors and sends its facade
+calls on its current connection.
 
 ## Host mode and the host SDK
 
@@ -145,26 +222,62 @@ written by hand.
 
 ## The step runner
 
-**The step runner is a skeleton.** It calls the export named by `entry`
-with the argument object as its only parameter and serialises the value
-with `JSON.stringify(value ?? null)`.
+`run` applies Windmill's Bun wrapper rules (`wrapper.ts`) in the wrapper's
+order ([WR-2](../../docs/semantics/languages.md#wr-2)):
+
+1. **The signature.** The entrypoint's signature is what the build
+   recorded under its name in `<id>.meta.json`: for every export, and for
+   every top-level function declaration, exported or not, as Windmill's
+   parser reads them ([WR-7](../../docs/semantics/languages.md#wr-7))
+   ([ADR 0002](../../docs/design/0002-ir-and-loader.md)). One that did not
+   parse fails the step before its module loads, as Windmill's worker
+   fails the job before its process starts, with
+   [WR-37](../../docs/semantics/languages.md#wr-37)'s object, as an
+   `error` outcome. Metadata that cannot be read is `escaped`.
+2. **The module** loads; a failure to load or evaluate it is `escaped`
+   ([WR-19](../../docs/semantics/languages.md#wr-19)), on every invocation
+   of the script, and an intercepted `process.exit` during its evaluation
+   ends every invocation of it as that exit did.
+3. **The export** must be a function, or the step fails with `<entry>
+   function is missing` in the wrapper-catch shape
+   ([WR-7](../../docs/semantics/languages.md#wr-7),
+   [WR-12](../../docs/semantics/languages.md#wr-12)). An exported function
+   whose signature the bundle does not record is `escaped`: the bundle is
+   broken.
+4. **Binding** ([WR-6](../../docs/semantics/languages.md#wr-6)): with
+   parameters, each one's value by name, read as destructuring reads it
+   (a missing key gives `undefined`, `null` stays, extra keys are dropped,
+   nothing is coerced), a `Date` parameter hydrated by the truthiness rule
+   ([WR-8](../../docs/semantics/languages.md#wr-8)); with none, the values
+   of the non-underscore keys when the arguments carry
+   `_ENTRYPOINT_OVERRIDE` ([WR-V1](../../docs/semantics/languages.md#wr-v1)),
+   and no arguments otherwise. The engine chose the export from the same
+   argument (`engine.Entrypoint`).
+5. **The call** is awaited, after the BigInt patch is installed, and the
+   result serialised as `JSON.stringify(value ?? null)` with the
+   `undefined` replacer ([WR-13](../../docs/semantics/languages.md#wr-13),
+   [WR-14](../../docs/semantics/languages.md#wr-14)).
+6. **A throw** from the export check, the binding, the call or the
+   serialisation is printed to stderr and shaped as
+   [WR-18](../../docs/semantics/languages.md#wr-18)'s object: `message`,
+   `name`, `stack`, `step_id` from `WM_FLOW_STEP_ID` as the step sees it,
+   `extra` with the other own properties. When that object cannot be built
+   or serialised (`throw null`, a cycle in `extra`) the failure is
+   `escaped`, with the handler's error as its tail.
 
 | The call | Outcome |
 |---|---|
-| returns | `ok` with that text |
-| throws a value that is not `null` or `undefined` | `error` with `{message, name, stack}`, the fields the value has |
-| the export is not a function | `error` with `<entry> function is missing` |
-| the module fails to load or evaluate, or the call throws `null` or `undefined` | `escaped`, exit code 1 |
-| the error object cannot be built or serialised (a BigInt or a cycle in it, a throwing getter) | `escaped`, exit code 1; the process lives on |
+| returns | `ok` with the result's text |
+| throws, or its signature did not parse | `error` with the object above |
+| the module fails, `throw null`, an unserialisable error, an attributed process-level error | `escaped`, exit code 1, the error's text as the tail (its last 600 characters) |
+| calls `process.exit(n)` | `escaped` with exit code `n`, or `empty` for 0; the call goes on (D11) |
 | the result is larger than `max_message` | `escaped`, with a tail that says so, or with none when that frame does not fit either; if no frame fits, the harness exits with code 5 |
 
-Milestone C3a replaces this with Windmill's wrapper rules: binding by the
-recorded signature, `Date` hydration, the WR-13 replacer, the WR-18 error
-shape with `step_id` and `extra`, `process.exit` interception, and the
-attribution of process-level errors. Until then a `process.exit` ends the
-whole process, and the engine fails every invocation in it as escaped.
-Per-invocation logs and child-process wrapping (C3b) are not there either:
-the runtime sends no `log` frames.
+The engine maps each outcome to the value Windmill stores
+(`engine.StoreOutcome`, [internal/engine](../../internal/engine/README.md)).
+Per-invocation logs and child-process wrapping (C3b) are not here yet: the
+runtime sends no `log` frames, and an escaped outcome's tail is the error's
+text, not the step's last log lines.
 
 Exit codes: 0 after `bye` or when the engine's end closes, 2 for a rejected
 or unusable welcome, 3 for a protocol error by the engine, 4 when the
@@ -175,17 +288,22 @@ so the engine always learns how it ended, by that frame or by the exit.
 ## Tests
 
 `test/frames.test.ts` checks this codec against the golden frames that the
-Go tests write, `conformance/protocol/frames.json`. `test/sender.test.ts`
+Go tests write, `conformance/protocol/frames.json`. `test/wrapper.test.ts`
+checks the wrapper's rules, and `test/fit.test.ts` how a warning's message
+is cut to fit `max_message`. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation, partial writes and `whenFlushed`.
-`test/context.test.ts` checks the environment view's rules in one process,
+`test/context.test.ts` checks the environment view's rules in one process
+(a first write of a process variable included), the registry, the process
+scope and the exit status,
 and `test/host.test.ts` the SDK's refusals: the working directory and an
 engine that cannot start. `test/build.test.ts` checks the build helper's
 scans and parse. All are developer checks, run by CI's non-required
 `Bun harness checks` job. The merge gate is the Go side:
 [internal/harness](../../internal/harness/README.md) drives this runtime
 through every exchange in `conformance/protocol/exchanges/` and runs the
-Q-WA-4 test, [internal/bundle](../../internal/bundle/README.md) runs the
+Q-WA-4 test, [cmd/wltest](../../cmd/wltest/README.md) runs the step suite
+of `conformance/steps` through it, [internal/bundle](../../internal/bundle/README.md) runs the
 build helper, and [cmd/windmill-lite](../../cmd/windmill-lite/README.md)
 runs host mode end to end in a host compiled with `bun build --compile`.
 

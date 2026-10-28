@@ -1,0 +1,24 @@
+# WR-V2: an exit 0 with no result written fails completion with InternalErr.
+finding: WR-V2
+scope: core
+cases:
+  - spec: WR-V2/a
+    variant: flow-step
+    provenance: source-derived
+    title: process.exit(0) without a result, as a flow step, has no step_id
+    note: Windmill's message ends in a Rust location, which windmill-lite does not write (D14).
+    script: |
+      export function main() { process.exit(0); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
+  - spec: WR-V2/a
+    variant: script-job
+    provenance: source-derived
+    title: process.exit(0) without a result, as a script job
+    step_id: ""
+    script: |
+      export function main() { process.exit(0); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}

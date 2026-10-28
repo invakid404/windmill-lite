@@ -84,7 +84,7 @@ func TestBunEcho(t *testing.T) {
 	cfg, _ := bunConfig(t)
 	p := spawn(t, cfg)
 	rec := newRecorder()
-	out, err := execute(t, p, newInvocation("echo", `{"b":[1,2],"a":{"x":null},"1":"one"}`, rec), 5*time.Second)
+	out, err := execute(t, p, newInvocation("echo", `{"value":{"b":[1,2],"a":{"x":null},"1":"one"}}`, rec), 5*time.Second)
 	if err != nil || out.Kind != engine.OutcomeOK {
 		t.Fatalf("got %+v, %v", out, err)
 	}
@@ -120,8 +120,9 @@ func TestBunProcessDeathFailsEveryInFlightInvocation(t *testing.T) {
 		script, args string
 		code         int
 	}{
-		// Without C3a's interception, process.exit ends the process.
-		{"exit", `{"ms":100,"code":7}`, 7},
+		// process.reallyExit ends the process: the harness intercepts
+		// process.exit only (D11).
+		{"die", `{"ms":100,"code":7}`, 7},
 	} {
 		t.Run(tc.script, func(t *testing.T) {
 			cfg, _ := bunConfig(t)
@@ -153,6 +154,165 @@ func TestBunProcessDeathFailsEveryInFlightInvocation(t *testing.T) {
 				t.Fatalf("exit status %v", st)
 			}
 		})
+	}
+}
+
+// ADR 0004, the shared-process failure model, item 6 (D11): process.exit
+// fixes its own invocation's outcome and ends neither the process nor a
+// co-resident invocation. The exiting call never ends, so it settles only
+// with the process.
+func TestBunProcessExitEndsOnlyItsInvocation(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	p := spawn(t, cfg)
+	sleeper := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, _ := execute(t, p, newInvocation("sleep", `{"ms":400}`, newRecorder()), 5*time.Second)
+		sleeper <- out
+	}()
+	rec := newRecorder()
+	out, err := execute(t, p, newInvocation("exit", `{"ms":50,"code":7}`, rec), 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 7 || out.Signal != "" {
+		t.Fatalf("exiting invocation: %+v, %v", out, err)
+	}
+	if out := <-sleeper; out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "400" {
+		t.Fatalf("co-resident invocation: %+v", out)
+	}
+	if got := rec.log(); got != "" {
+		t.Fatalf("the exiting call settled: %q", got)
+	}
+	out, err = execute(t, p, newInvocation("exit-now", `{"code":0}`, newRecorder()), 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeEmpty {
+		t.Fatalf("process.exit(0): %+v, %v", out, err)
+	}
+	select {
+	case <-p.Done():
+		t.Fatalf("the process ended: %v", p.ExitStatus())
+	default:
+	}
+	p.Kill()
+	<-p.Done()
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
+	}
+}
+
+// ADR 0004, the shared-process failure model, items 2 and 3: an error
+// thrown from a timer of a pending call fails that invocation as escaped
+// with exit code 1 while the call goes on, and its return settles it late;
+// a rejection no invocation's context owns fails nothing and reaches every
+// invocation in flight as a warning.
+func TestBunProcessErrorAttribution(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	out, err := execute(t, p, newInvocation("timer-throw", `{"ms":30}`, rec), 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 1 || !strings.Contains(out.Tail, "from a timer") {
+		t.Fatalf("attributed error: %+v, %v", out, err)
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s", k)
+	}
+	if got := rec.log(); got != `late result final=true "done"; settled completed` {
+		t.Fatalf("reporter calls %q", got)
+	}
+
+	bystander := newRecorder()
+	done := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, _ := execute(t, p, newInvocation("sleep", `{"ms":400}`, bystander), 5*time.Second)
+		done <- out
+	}()
+	time.Sleep(50 * time.Millisecond)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	rejecter := newRecorder()
+	go p.Execute(ctx, newInvocation("detached-reject", `{"ms":20}`, rejecter))
+	if out := <-done; out.Kind != engine.OutcomeOK {
+		t.Fatalf("bystander: %+v", out)
+	}
+	if got := bystander.log(); got != "warning unattributed_error; settled completed" {
+		t.Fatalf("bystander's reporter calls %q", got)
+	}
+	cancel(engine.CancelCanceled)
+	h, err := p.Ping(context.Background())
+	if err != nil || h.Errors != 1 {
+		t.Fatalf("health %+v, %v; want one unattributed error", h, err)
+	}
+	if got := rejecter.log(); !strings.HasPrefix(got, "warning unattributed_error") {
+		t.Fatalf("rejecter's reporter calls %q", got)
+	}
+}
+
+// ADR 0004, the shared-process failure model, items 2 and 4 (D9, D11): an
+// error a timer throws, or a process.exit it calls, after the invocation
+// settled changes nothing: the outcome stands, the invocation does not
+// settle again, the error is a late error that settles nothing, and the
+// process serves the next invocation (c3a review 1, finding 8).
+func TestBunWorkAfterTheResultIsLate(t *testing.T) {
+	for _, tc := range []struct{ script, body string }{
+		{"late-throw", `"message":"after the result"`},
+		{"late-exit", `"name":"ProcessExit"`},
+	} {
+		t.Run(tc.script, func(t *testing.T) {
+			cfg, _ := bunConfig(t)
+			p := spawn(t, cfg)
+			rec := newRecorder()
+			out, err := execute(t, p, newInvocation(tc.script, `{"ms":20}`, rec), 5*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `"done"` {
+				t.Fatalf("got %+v, %v", out, err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for !strings.Contains(rec.log(), "late error") && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			got := rec.log()
+			if !strings.HasPrefix(got, "settled completed; late error final=false {") || strings.Count(got, "settled") != 1 || !strings.Contains(got, tc.body) {
+				t.Fatalf("reporter calls %q", got)
+			}
+			out, err = execute(t, p, newInvocation("sleep", `{"ms":1}`, newRecorder()), 5*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK {
+				t.Fatalf("the next invocation: %+v, %v", out, err)
+			}
+		})
+	}
+}
+
+// The handlers never throw, whatever the error (c3a review 1, finding 2): a
+// rejection whose text is longer than max_message still fails nothing, and
+// the co-resident invocation's warning carries as much of it as fits.
+func TestBunLongUnattributedErrorUnderASmallMessageLimit(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	cfg.MaxMessage = 1024
+	p := spawn(t, cfg)
+	bystander := newRecorder()
+	done := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, _ := execute(t, p, newInvocation("sleep", `{"ms":400}`, bystander), 5*time.Second)
+		done <- out
+	}()
+	time.Sleep(50 * time.Millisecond)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go p.Execute(ctx, newInvocation("detached-reject", `{"ms":20,"size":5000}`, newRecorder()))
+	if out := <-done; out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "400" {
+		t.Fatalf("bystander: %+v", out)
+	}
+	if got := bystander.log(); got != "warning unattributed_error; settled completed" {
+		t.Fatalf("bystander's reporter calls %q", got)
+	}
+	bystander.mu.Lock()
+	w := bystander.warnings
+	bystander.mu.Unlock()
+	if len(w) != 1 || !strings.HasPrefix(w[0].Message, "unhandledRejection: Error: xxxx") || !strings.HasSuffix(w[0].Message, "…") || len(w[0].Message) > 1024 {
+		t.Fatalf("warning %+v", w)
+	}
+	h, err := p.Ping(context.Background())
+	if err != nil || h.Errors != 1 {
+		t.Fatalf("health %+v, %v; want the one unattributed error", h, err)
+	}
+	select {
+	case <-p.Done():
+		t.Fatalf("the process ended: %v", p.ExitStatus())
+	default:
 	}
 }
 
@@ -695,7 +855,7 @@ func TestBunPoolReplacesADeadProcess(t *testing.T) {
 	cfg, _ := bunConfig(t)
 	pool := newPool(t, PoolConfig{Process: cfg})
 	first := pidOf(t, pool, "r")
-	out, err := execute(t, pool, newInvocation("exit", `{"code":3}`, newRecorder()), 5*time.Second)
+	out, err := execute(t, pool, newInvocation("die", `{"code":3}`, newRecorder()), 5*time.Second)
 	if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 3 {
 		t.Fatalf("got %+v, %v", out, err)
 	}

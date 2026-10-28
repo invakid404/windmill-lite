@@ -1,0 +1,32 @@
+# WR-V3: local aliases and parentheses take part in Date hydration, and
+# hydration is not recursive (conformance/build/wr-v3.json is the build
+# half).
+finding: WR-V3
+scope: core
+cases:
+  - spec: WR-V3/a
+    provenance: source-derived
+    title: a local alias is hydrated
+    script: |
+      type Timestamp = Date;
+      export function main(d: Timestamp) { return d.toISOString(); }
+    runs:
+      - args: '{"d":"2024-01-02T03:04:05Z"}'
+        expect: {status: success, result: "2024-01-02T03:04:05.000Z"}
+  - spec: WR-V3/b
+    provenance: source-derived
+    title: array elements are not hydrated
+    script: |
+      export function main(items: Date[]) { return items[0]; }
+    runs:
+      - args: '{"items":["2024-01-02"]}'
+        expect: {status: success, result: "2024-01-02"}
+  - spec: WR-V3/c
+    provenance: source-derived
+    title: no Date is manufactured for a missing input
+    script: |
+      type Timestamp = Date;
+      export function main(d: Timestamp) { return d === undefined; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}

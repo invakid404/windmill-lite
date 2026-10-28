@@ -1,0 +1,146 @@
+# WR-18: the error object the wrapper writes for a caught throw: message,
+# name and stack from the thrown value, step_id from WM_FLOW_STEP_ID, and
+# extra with its other own properties. WR-21 wraps it as {"error": …}.
+finding: WR-18
+scope: core
+cases:
+  - spec: WR-18/a
+    provenance: source-derived
+    title: a plain Error
+    script: |
+      export function main() { throw new Error("boom"); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a}}}
+  - spec: WR-18/b
+    provenance: source-derived
+    title: a subclass with a custom property keeps the name Error and puts the property in extra
+    script: |
+      class E extends Error { code: number; constructor(){ super("x"); this.code = 5; } }
+      export function main() { throw new E(); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: x, name: Error, stack: "<stack>", step_id: a, extra: {code: 5}}}}
+  - spec: WR-18/c
+    provenance: source-derived
+    title: a nested Error with no enumerable own properties serialises as {}
+    script: |
+      export function main() { throw new Error("outer", { cause: new Error("inner") }); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: outer, name: Error, stack: "<stack>", step_id: a, extra: {cause: {}}}}}
+  - spec: WR-18/d
+    provenance: source-derived
+    title: a thrown string gives an extra of indexed characters and its length
+    script: |
+      export function main() { throw "boom"; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {step_id: a, extra: {"0": b, "1": o, "2": o, "3": m, length: 4}}}}
+  - spec: WR-18/e
+    provenance: source-derived
+    title: a thrown plain object
+    script: |
+      export function main() { throw { code: 42, message: "m" }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: m, step_id: a, extra: {code: 42}}}}
+  - spec: WR-18/f
+    provenance: source-derived
+    title: a thrown number gives only step_id
+    script: |
+      export function main() { throw 7; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {step_id: a}}}
+  - spec: WR-18/g
+    variant: error
+    provenance: source-derived
+    title: outside a flow, a plain Error has no step_id
+    step_id: ""
+    script: |
+      export function main() { throw new Error("boom"); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>"}}}
+  - spec: WR-18/g
+    variant: subclass
+    provenance: source-derived
+    title: outside a flow, a subclass with a custom property
+    step_id: ""
+    script: |
+      class E extends Error { code: number; constructor(){ super("x"); this.code = 5; } }
+      export function main() { throw new E(); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: x, name: Error, stack: "<stack>", extra: {code: 5}}}}
+  - spec: WR-18/g
+    variant: cause
+    provenance: source-derived
+    title: outside a flow, a nested Error
+    step_id: ""
+    script: |
+      export function main() { throw new Error("outer", { cause: new Error("inner") }); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: outer, name: Error, stack: "<stack>", extra: {cause: {}}}}}
+  - spec: WR-18/g
+    variant: string
+    provenance: source-derived
+    title: outside a flow, a thrown string
+    step_id: ""
+    script: |
+      export function main() { throw "boom"; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {extra: {"0": b, "1": o, "2": o, "3": m, length: 4}}}}
+  - spec: WR-18/g
+    variant: object
+    provenance: source-derived
+    title: outside a flow, a thrown plain object
+    step_id: ""
+    script: |
+      export function main() { throw { code: 42, message: "m" }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: m, extra: {code: 42}}}}
+  - spec: WR-18/g
+    variant: number
+    provenance: source-derived
+    title: outside a flow, a thrown number gives an empty error object
+    step_id: ""
+    script: |
+      export function main() { throw 7; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {}}}
+  - spec: WR-18/h
+    provenance: source-derived
+    title: a nested Error's enumerable own properties survive
+    script: |
+      export function main() { const c: any = new Error("in"); c.code = 1; throw new Error("out", { cause: c }); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: out, name: Error, stack: "<stack>", step_id: a, extra: {cause: {code: 1}}}}}
+  - spec: WR-18
+    variant: undefined-fields
+    provenance: source-derived
+    title: fields holding undefined are left out, since the error is serialised without the replacer, but the BigInt patch applies
+    script: |
+      export function main() { throw { message: undefined, name: "N", big: 2n, u: undefined }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {name: N, step_id: a, extra: {big: "2"}}}}
+  - spec: WR-18
+    variant: step-id-written
+    provenance: policy
+    title: step_id is WM_FLOW_STEP_ID as the step sees it when it throws, a value it wrote included
+    note: >-
+      The reference says the wrapper reads the variable; that it reads it
+      when it builds the error, after the step ran, is this harness's
+      reading. Open question in the PR.
+    script: |
+      export function main() { process.env.WM_FLOW_STEP_ID = "renamed"; throw new Error("boom"); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, name: Error, stack: "<stack>", step_id: renamed}}}

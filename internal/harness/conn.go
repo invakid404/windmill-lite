@@ -129,6 +129,8 @@ func invocationOf(m Message) string {
 		return m.ID
 	case Log:
 		return m.ID
+	case Warning:
+		return m.ID
 	case RunRequest:
 		return "run:" + m.ID
 	case RunDone:

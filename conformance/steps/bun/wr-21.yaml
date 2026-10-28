@@ -1,0 +1,23 @@
+# WR-21: a failed script's error value is stored and passed on as
+# {"error": …}.
+finding: WR-21
+scope: core
+cases:
+  - spec: WR-21/a
+    provenance: source-derived
+    title: 'the usual {"error": …} wrapping'
+    script: |
+      export function main() { throw new TypeError("bad"); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: bad, name: TypeError, stack: "<stack>", step_id: a}}}
+  - spec: WR-21
+    variant: manual-failure-thrown
+    provenance: source-derived
+    title: a thrown ManualFailure-shaped object is still shaped by WR-18 first, so it is wrapped
+    note: WR-V5 applies only to a raw error value whose top-level error is named ManualFailure; the wrapper's object never is.
+    script: |
+      export function main() { throw { error: { name: "ManualFailure" }, k: 1 }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {step_id: a, extra: {error: {name: ManualFailure}, k: 1}}}}

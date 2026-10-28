@@ -1,0 +1,15 @@
+# WR-31: leading-comment annotations. The build half, which flag is read,
+# is conformance/build/wr-31.json; this is the run half.
+finding: WR-31
+scope: core
+cases:
+  - spec: WR-31/a
+    provenance: source-derived
+    title: a script with //nobundling after a blank first line runs, bundled as any other (D7)
+    script: |
+
+      // nobundling
+      export function main(){return 1}
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}

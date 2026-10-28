@@ -1,0 +1,37 @@
+# WR-1: Windmill runs every job in a fresh process, so nothing in memory
+# survives; a warm harness keeps module state and globalThis (D1, ADR 0006).
+# Each case's runs go to one process in warm mode; fresh mode (C3b) gives
+# each run its own.
+finding: WR-1
+scope: core
+cases:
+  - spec: WR-1/a
+    provenance: source-derived
+    title: module-level state; it survives between runs in warm mode only
+    deviation: D1
+    script: |
+      let n = 0; export function main() { return ++n; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: 1}}
+          fresh: {expect: {status: success, result: 1}}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: 2}}
+          fresh: {expect: {status: success, result: 1}}
+  - spec: WR-1/b
+    provenance: source-derived
+    title: globalThis; it survives between runs in warm mode only
+    deviation: D1
+    script: |
+      export function main() { globalThis.x = (globalThis.x ?? 0) + 1; return globalThis.x; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: 1}}
+          fresh: {expect: {status: success, result: 1}}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: 2}}
+          fresh: {expect: {status: success, result: 1}}

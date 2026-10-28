@@ -82,7 +82,9 @@
         "script": "echo",
         "entry": "main",
         "args": {
-          "n": 3
+          "value": {
+            "n": 3
+          }
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"
