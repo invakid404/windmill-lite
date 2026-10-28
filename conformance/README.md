@@ -42,21 +42,23 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
-| `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop fixtures (cf-2 to cf-9, cf-11, the loop runs of cf-12 and cf-13) gate N3a; cf-10, cf-14, cf-15 and the branch runs of cf-12 gate N3b. |
+| `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop runs (cf-2 to cf-8, cf-9 run `a`, cf-11, cf-13 and the loop runs of cf-12) gate N3a; the while and branch runs (cf-10, cf-9 run `b`, cf-14, cf-15 and the branch runs `d` and `e-*` of cf-12) gate N3b. |
 | `flows/execution/fx-40` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)). Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4. |
 
 `internal/oracle/testdata/batches/<batch>.json` names each batch's
 findings, fixtures and the cases it defers, and `TestRecordingBatches`
 holds every run of those fixtures to its recording and its recording to its
-`expect`. A fixture's tree is what `generate-metadata` wrote, so container
-defaults are explicit in it (the CLI writes them): the recordings show
-deployed flows, the reference configuration of
-[ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
+`expect`.
 
 The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
 ([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
-it on every recording and fails on any change.
+it on every recording and fails on any change. `generate-metadata` writes a
+container's defaults into `flow.yaml` (`skip_failures` and `parallel` on a
+loop, `parallel` on a `branchall`, and `skip_failure`, `parallel` and `expr`
+on each branch), so a field left out of a fixture's flow never reaches the
+oracle absent: the recordings show deployed flows, the reference
+configuration of [ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
 
 ## OpenFlow decode cases
 

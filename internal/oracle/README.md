@@ -41,7 +41,8 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    session has, and a run whose committed recording names another oracle
    version, image or CLI than the pins (`recording_identity_mismatch`,
    [OR-V5](../../docs/semantics/oracle.md#or-v5)/b), before anything is
-   deployed; to re-record against a new pin, delete the recording. Create a fresh workspace `wl-<6 hex>-<n>`, and delete it
+   deployed; to re-record against a new pin, delete the recording. Create
+   a fresh workspace `wl-<6 hex>-<n>`, and delete it
    (`DELETE /workspaces/delete/{id}`, [OR-6](../../docs/semantics/oracle.md#or-6))
    once the fixture's runs are done: CE refuses a third workspace besides
    `admins`, so a session holds at most one of its own; optionally run
@@ -127,8 +128,8 @@ A container module records no args: its job's args are Windmill's
 body jobs get no record of their own, but their ids map to `i:<n>` and
 `b:<n>` for placeholders. A flow status that does not match the fixture's
 module list is an error, not an observation. These rules follow the shapes
-oracle run 1 recorded, as the reference describes them. The recording
-batches confirmed them on the oracle and added the `branchall`, body
+oracle run 1 recorded, as the reference describes them. Recording batches
+E3c and E3d confirmed them on the oracle and added the `branchall`, body
 failure-module and empty-body rules: batch E3d recorded collapsed and
 child-flow loops at two depths, parallel loops, while loops, `branchone`
 and sequential and parallel `branchall` with empty branches, early stops

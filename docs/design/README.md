@@ -98,7 +98,8 @@ Recording batches E3a to E3e record them on the oracle (E3e holds the
 contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
-keeps both readings.
+keeps both readings. Batch E3d recorded CF-12 and FX-40 as reading (b), the
+default each already had (request 5 below).
 
 ## Requests to the semantics team
 
@@ -135,6 +136,24 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
+5. **Batch E3d's recordings**
+   ([conformance/flows/control-flow](../../conformance/flows/control-flow),
+   [conformance/flows/execution/fx-40](../../conformance/flows/execution/fx-40)):
+   the CF-2 to CF-15 and FX-40 cases they record can become
+   `oracle-observed`, and they answer
+   [Q-CF-14](../semantics/control-flow.md#q-cf-14) (reading (b)),
+   [Q-CF-4](../semantics/control-flow.md#q-cf-4) (both predictions hold),
+   [Q-FX-6](../semantics/execution.md#q-fx-6) (yes) and
+   [Q-FX-17](../semantics/execution.md#q-fx-17). Three observations go
+   beyond the reference's text. In FX-40/d, a deployed flow's inline
+   rawscript body without an explicit `path` also shares an entry between
+   collapsed iterations; it runs as `flowscript` jobs with one script hash,
+   though their paths end in `/loop-<index>`, and the correction expected
+   no sharing there. The pinned CLI's `generate-metadata` writes container
+   defaults into `flow.yaml`, as [CF-6](../semantics/control-flow.md#cf-6)
+   says `sync pull` does. CF-7/d fails at pickup, with name `Anyhow` and
+   the message `Error: Bad request: Cannot continue on same worker …` plus a
+   location. The design waits on none of this.
 
 ## Changing the design
 
