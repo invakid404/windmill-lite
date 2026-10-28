@@ -128,9 +128,14 @@ func TestWalkAgainstReference(t *testing.T) {
 			if stored(t, got) != stored(t, wt) {
 				t.Fatalf("case %d: walk(%s, %q) = %s, the reference %s", i, st, path, got, wt)
 			}
-			// jsonb's text output parses to the same value.
-			if stored(t, databaseText(got)) != stored(t, got) {
-				t.Fatalf("case %d: databaseText(%s) = %s parses differently", i, got, databaseText(got))
+			// jsonb's text output parses to the same value, with one space
+			// for each : and , that the decoded value has.
+			dt := databaseText(got)
+			if stored(t, dt) != stored(t, got) {
+				t.Fatalf("case %d: databaseText(%s) = %s parses differently", i, got, dt)
+			}
+			if len(dt) != len(got)+separators(want) {
+				t.Fatalf("case %d: databaseText(%s) = %s, want %d spaces", i, got, dt, separators(want))
 			}
 		}
 		if len(path) > 0 {
@@ -141,6 +146,25 @@ func TestWalkAgainstReference(t *testing.T) {
 			}
 		}
 	}
+}
+
+// separators counts the : and , of a decoded value's JSON text: one : per
+// member and one , between members or elements, nested ones included.
+func separators(v any) int {
+	n := 0
+	switch c := v.(type) {
+	case map[string]any:
+		n = 2*len(c) - 1
+		for _, x := range c {
+			n += separators(x)
+		}
+	case []any:
+		n = len(c) - 1
+		for _, x := range c {
+			n += separators(x)
+		}
+	}
+	return max(n, 0)
 }
 
 // genJSON writes a random JSON value with random spacing and duplicate

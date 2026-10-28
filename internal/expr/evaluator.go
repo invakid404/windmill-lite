@@ -35,6 +35,14 @@ type Scope struct {
 	// FlowInput is the current (sub)flow's input (JE-37), or the zero Value
 	// at a site with no flow input, where flow_input is bound to null
 	// (JE-10).
+	//
+	// The shortcuts answer these texts verbatim: JE-6 a context value's,
+	// JE-8 previous_result's, JE-7 a member of FlowInput or FlowEnv. A site
+	// can quote the answer (the timeout site's parse error does), so the
+	// form of each text is observable. ADR 0005's routing table says which
+	// text each value holds; whether a value read from the database (the
+	// flow input's members, previous_result after a loop) is in jsonb's
+	// spaced text output there is open (docs/design/README.md request 8).
 	FlowInput jsonval.Value
 	// FlowEnv is the resolved flow env (JE-38), or the zero Value when there
 	// is none, where flow_env is bound to {} (JE-10).

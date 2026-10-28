@@ -69,8 +69,10 @@ func (p *Pipeline) Prepare(exprs ...*Expr) {
 }
 
 // program returns the compiled program of source, compiling it on first
-// use. A compile error other than an *Exception (a closed engine, say) is
-// not kept, so a later call tries again.
+// use. Two callers that meet a new source at once may both compile it; the
+// programs are equivalent and the later one is kept. A compile error other
+// than an *Exception (a closed engine, say) is not kept, so a later call
+// tries again.
 func (p *Pipeline) program(source string) (Program, error) {
 	p.mu.Lock()
 	c, ok := p.programs[source]
@@ -97,25 +99,32 @@ func (p *Pipeline) program(source string) (Program, error) {
 //   - JE-6: the text is a context name the scope holds; its value verbatim.
 //   - JE-7: the text names a key that the flow input (or the flow env)
 //     has; the member's text verbatim.
-//   - JE-8: the text is a spelling of the previous id, and the scope has a
-//     results context and previous_result; previous_result verbatim.
+//   - JE-8: the whole text is one of the four spellings of the scope's
+//     previous id, and the scope has a results context and
+//     previous_result; previous_result verbatim.
 //   - JE-9: a line of the text is a results path that does not decline,
 //     and the scope has a results context; the path applied to the step's
 //     stored result as #> applies it, in jsonb's text output, or null when
 //     anything is missing. JE-9 needs an authenticated client too, but
 //     every site with a results context has one (JE-22), so the results
 //     context alone decides.
+//
+// A context that ends while a shortcut reads the results context (JE-9) is
+// reported as its cause, not as the lookup's null.
 func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, error) {
 	if err := context.Cause(ctx); err != nil {
 		return jsonval.Value{}, err
 	}
-	if e.Mode == 0 {
+	if e == nil || e.Mode == 0 {
 		return jsonval.Value{}, ErrNotCompiled
 	}
 	if s == nil {
 		s = &Scope{}
 	}
 	if v, r := shortcut(ctx, e, s); r != routeEngine {
+		if err := context.Cause(ctx); err != nil {
+			return jsonval.Value{}, err
+		}
 		return v, nil
 	}
 	prog, err := p.program(e.Source)
@@ -160,7 +169,7 @@ func shortcut(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, route) {
 			}
 		}
 	}
-	if id := sc.PreviousID; id != nil && *id == s.PreviousID && s.Results != nil {
+	if sc.PreviousID != nil && isSpelling(e.Trimmed, s.PreviousID) && s.Results != nil {
 		if v, ok := s.context("previous_result"); ok {
 			return v, routePreviousID
 		}

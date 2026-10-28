@@ -74,10 +74,11 @@ func flowKey(t string) *FlowKey {
 	return nil
 }
 
-// previousID returns the id that the text names when it is exactly one of
-// JE-8's spellings: results.<id>, results?.<id>, results["<id>"] or
+// previousID returns the id that the text names when it has the shape of
+// one of JE-8's spellings: results.<id>, results?.<id>, results["<id>"] or
 // results?.["<id>"]. The bracket forms are read first, so results?.["a"]
-// names a, not ["a"].
+// names a, not ["a"]; evaluation compares the whole text with the four
+// spellings of the previous id (isSpelling), so either id fires.
 func previousID(t string) *string {
 	for _, p := range []string{`results["`, `results?.["`} {
 		if rest, ok := strings.CutPrefix(t, p); ok {
@@ -94,15 +95,18 @@ func previousID(t string) *string {
 	return nil
 }
 
+// spellings returns JE-8's four spellings of id.
+func spellings(id string) []string {
+	return []string{"results." + id, "results?." + id, `results["` + id + `"]`, `results?.["` + id + `"]`}
+}
+
+// isSpelling reports whether t is exactly one of JE-8's spellings of id.
+func isSpelling(t, id string) bool { return slices.Contains(spellings(id), t) }
+
 // spellsPrevious reports whether t holds one of JE-8's spellings of the
 // previous id anywhere, which binds previous_result (JE-10).
 func spellsPrevious(t, id string) bool {
-	for _, s := range []string{"results." + id, "results?." + id, `results["` + id + `"]`, `results?.["` + id + `"]`} {
-		if strings.Contains(t, s) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(spellings(id), func(s string) bool { return strings.Contains(t, s) })
 }
 
 // resultsLine is JE-9's qualifying line: results or results?, a dot and a

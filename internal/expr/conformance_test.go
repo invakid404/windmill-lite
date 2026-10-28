@@ -116,7 +116,7 @@ type e3aCase struct {
 	provenance string
 	site       SiteKind
 	text       string
-	scope      func() *Scope
+	scope      func(t *testing.T) *Scope
 	// check judges a shortcut's answer against the recorded expectation.
 	check func(out jsonval.Value) error
 }
@@ -232,7 +232,7 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 				provenance: c.Provenance,
 				site:       site,
 				text:       *c.Expr,
-				scope:      func() *Scope { return siteScope(t, site, *c.Expr, ctx) },
+				scope:      func(t *testing.T) *Scope { return siteScope(t, site, *c.Expr, ctx) },
 				check:      exprsCheck(t, c.Expect),
 			})
 		}
@@ -251,6 +251,11 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 				site := unitSite(u.Input)
 				ctx := caseContext{PreviousID: *u.Context.PreviousID, PreviousResult: u.Context.PreviousResult, FlowInput: u.Context.FlowInput, Results: u.Context.Results}
 				if ctx.FlowInput == nil {
+					// A body's flow input is not the run's arguments
+					// (JE-37), so a unit case inside one must give it.
+					if at, err := conformance.ParseSitePath(u.Site); err != nil || len(at.Segments()) > 1 {
+						t.Fatalf("%s %s %s: a unit case inside a body needs context.flow_input", fx.ID, r.Name, u.Site)
+					}
 					args := string(r.ArgsOrEmpty())
 					ctx.FlowInput = &args
 				}
@@ -260,7 +265,7 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 					provenance: fx.Provenance,
 					site:       site,
 					text:       u.Expr,
-					scope:      func() *Scope { return siteScope(t, site, u.Expr, ctx) },
+					scope:      func(t *testing.T) *Scope { return siteScope(t, site, u.Expr, ctx) },
 					check:      unitCheck(u.Expect),
 				})
 			}
@@ -386,7 +391,7 @@ func TestPipelineCases(t *testing.T) {
 				if !strings.Contains(c.Spec, "/") && c.Variant == "" {
 					t.Fatalf("case %s cites a finding, not a catalogue case, so it needs a variant", c.Spec)
 				}
-				var scope func() *Scope
+				var scope func(t *testing.T) *Scope
 				var rec *e3aCase
 				switch {
 				case c.Recorded != nil && c.Context != nil:
@@ -399,12 +404,17 @@ func TestPipelineCases(t *testing.T) {
 					if rec.text != c.Text || rec.site != c.Site || rec.spec != c.Spec || rec.provenance != c.Provenance {
 						t.Fatalf("the case says %s %q at %v (%s); E3a recorded %s %q at %v (%s)", c.Spec, c.Text, c.Site, c.Provenance, rec.spec, rec.text, rec.site, rec.provenance)
 					}
+					// A restatement says which route answers, and a
+					// shortcut's text, so the gate cannot pass empty.
+					if w := c.Expect.Route; w == nil || (*w != "engine" && c.Expect.Text == nil) {
+						t.Fatal("a restated case gives its route, and a shortcut's text")
+					}
 					scope = rec.scope
 				case c.Context != nil:
 					if c.Provenance != "source-derived" {
 						t.Fatalf("a case that restates no recording is source-derived, not %s", c.Provenance)
 					}
-					scope = func() *Scope { return siteScope(t, c.Site, c.Text, *c.Context) }
+					scope = func(t *testing.T) *Scope { return siteScope(t, c.Site, c.Text, *c.Context) }
 				default:
 					if c.Provenance != "source-derived" {
 						t.Fatalf("a case that restates no recording is source-derived, not %s", c.Provenance)
@@ -420,11 +430,11 @@ func TestPipelineCases(t *testing.T) {
 				}
 				eng := &fakeEngine{}
 				p := NewPipeline(eng)
-				out, err := p.Eval(context.Background(), e, scope())
+				out, err := p.Eval(context.Background(), e, scope(t))
 				if err != nil {
 					t.Fatal(err)
 				}
-				_, r := shortcut(context.Background(), e, scope())
+				_, r := shortcut(context.Background(), e, scope(t))
 				call, called := eng.lastCall()
 				if called != (r == routeEngine) {
 					t.Fatalf("route %q, but the engine was called: %v", r, called)
@@ -506,10 +516,14 @@ func checkCompiled(t *testing.T, e *Expr, w pipelineExpect) {
 
 // TestPipelineCoverage holds the exit gate: every case of the gate's
 // findings that E3a recorded, as a context-free case or a unit case of a
-// flow fixture, is restated by exactly one pipeline case.
+// flow fixture, is restated by exactly one pipeline case; every catalogue
+// case of those findings that an E3a fixture, run or case cites is the spec
+// of a restatement, so a run without its unit case cannot drop out of the
+// gate; and every gate finding has a restatement.
 func TestPipelineCoverage(t *testing.T) {
 	e3a := loadE3a(t)
 	restated := map[string]string{}
+	restatedSpecs := map[string]bool{}
 	for _, f := range loadPipelineFiles(t) {
 		for _, c := range f.Cases {
 			if c.Recorded == nil {
@@ -520,13 +534,17 @@ func TestPipelineCoverage(t *testing.T) {
 				t.Errorf("%s is restated by %s and %s", k, prev, c.name())
 			}
 			restated[k] = c.name()
+			restatedSpecs[c.Spec] = true
 		}
+	}
+	inGate := func(spec string) bool {
+		finding, _, _ := strings.Cut(spec, "/")
+		return slices.Contains(gateFindings, finding)
 	}
 	n := 0
 	for _, k := range slices.Sorted(maps.Keys(e3a)) {
 		c := e3a[k]
-		finding, _, _ := strings.Cut(c.spec, "/")
-		if !slices.Contains(gateFindings, finding) {
+		if !inGate(c.spec) {
 			continue
 		}
 		n++
@@ -534,13 +552,47 @@ func TestPipelineCoverage(t *testing.T) {
 			t.Errorf("E3a case %s (%s) has no pipeline case", k, c.spec)
 		}
 	}
+	cited := map[string]string{}
+	dirs, err := conformance.FindFixtures(filepath.Join(conformanceRoot, "flows"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dirs {
+		fx, err := conformance.LoadFixture(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sp := range fx.Spec {
+			cited[sp] = fx.ID
+		}
+		for _, r := range fx.Runs {
+			for _, sp := range r.Spec {
+				cited[sp] = fx.ID + " " + r.Name
+			}
+		}
+	}
+	for _, c := range e3a {
+		cited[c.spec] = c.key
+	}
+	for _, sp := range slices.Sorted(maps.Keys(cited)) {
+		if inGate(sp) && strings.Contains(sp, "/") && !restatedSpecs[sp] {
+			t.Errorf("%s cites %s, which no pipeline case restates", cited[sp], sp)
+		}
+	}
+	for _, f := range gateFindings {
+		if !slices.ContainsFunc(slices.Collect(maps.Keys(restatedSpecs)), func(sp string) bool { return sp == f || strings.HasPrefix(sp, f+"/") }) {
+			t.Errorf("no pipeline case restates a case of %s", f)
+		}
+	}
 	t.Logf("%d E3a cases of the gate's findings, %d restated", n, len(restated))
 }
 
-// TestRecordedCasesThroughPipeline runs every expression E3a recorded, of
-// every finding, through the pipeline on the fake engine: whenever a
-// shortcut answers, its answer must be what the oracle recorded, so no
-// shortcut fires where Windmill ran JavaScript or failed.
+// TestRecordedCasesThroughPipeline runs every context-free case and every
+// unit case that E3a recorded, of every finding, through the pipeline on
+// the fake engine: whenever a shortcut answers, its answer must be what the
+// oracle recorded, so no shortcut fires where Windmill ran JavaScript or
+// failed. A flow fixture's expressions that no unit case restates are not
+// run here.
 func TestRecordedCasesThroughPipeline(t *testing.T) {
 	e3a := loadE3a(t)
 	shortcuts := map[route]int{}
@@ -548,7 +600,7 @@ func TestRecordedCasesThroughPipeline(t *testing.T) {
 		c := e3a[k]
 		e := Compile(c.site, c.text)
 		eng := &fakeEngine{}
-		out, err := NewPipeline(eng).Eval(context.Background(), e, c.scope())
+		out, err := NewPipeline(eng).Eval(context.Background(), e, c.scope(t))
 		if err != nil {
 			t.Errorf("%s: %v", k, err)
 			continue
@@ -557,7 +609,7 @@ func TestRecordedCasesThroughPipeline(t *testing.T) {
 			shortcuts[routeEngine]++
 			continue
 		}
-		_, r := shortcut(context.Background(), e, c.scope())
+		_, r := shortcut(context.Background(), e, c.scope(t))
 		shortcuts[r]++
 		if err := c.check(out); err != nil {
 			t.Errorf("%s (%s, %q): %v", k, c.spec, c.text, err)

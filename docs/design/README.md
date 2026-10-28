@@ -249,10 +249,10 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
      where JE-33 says it completes successfully.
 8. **The textual pipeline's unstated details** (milestone B2a). The
-   reference leaves these open; each is decided by the reading named here
-   and pinned by a source-derived case in `internal/expr/testdata/pipeline`
-   (the wrapper by `TestWrapperSingleLine`), so a different answer changes
-   one function:
+   reference leaves these open. Each is decided by the reading named here.
+   All but the last are pinned by a source-derived case in
+   `internal/expr/testdata/pipeline` (the wrapper by `TestWrapperSingleLine`),
+   so a different answer changes one function:
    - [JE-5](../semantics/expressions.md#je-5): which characters trimming
      removes. Read as Unicode White_Space, as Rust's `str::trim` removes.
    - [JE-7](../semantics/expressions.md#je-7): whether the dot form takes an
@@ -270,6 +270,19 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    - JE-13 and [JE-14](../semantics/expressions.md#je-14): whether the
      wrapper is an `async function` or an async arrow, which `arguments`
      tells apart. Read as a function.
+   - JE-9: where a line ends. Read as at `\n` only, so a line with a
+     trailing `\r` or space does not qualify.
+   - JE-12: whether a `["…"]` read spans lines. Read as no, as a regular
+     expression's `.` does not match a newline.
+   - JE-6 to JE-8 and [JE-44](../semantics/expressions.md#je-44): which text
+     the shortcuts return for a value read from the database (a member of
+     `flow_input`, `previous_result` after a loop or `branchall`): the
+     compact stored text or jsonb's spaced output. JE-9's is spaced
+     ([0005](0005-json-step-boundaries.md)). The windmill-lite engine
+     supplies these texts; the stored text is used until this is answered.
+     Two oracle runs would settle it: `timeout: flow_input.o` with `o` an
+     object, and `timeout: results.l` right after a loop `l`, whose parse
+     errors quote the text.
 
 ## Changing the design
 

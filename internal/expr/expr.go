@@ -201,8 +201,10 @@ type Shortcut struct {
 	// FlowKey is the key of JE-7's flow_input or flow_env forms.
 	FlowKey *FlowKey `json:"flow_key,omitempty"`
 	// PreviousID is the id that the text names when it is exactly one of
-	// JE-8's four spellings. It fires only if that id is the previous id,
-	// which may be "" (the first module of a flow or body).
+	// JE-8's four spellings, the bracket forms read first. It fires only if
+	// the text is a spelling of the previous id, which may be "" (the first
+	// module of a flow or body); the evaluator compares the whole text, so
+	// a text that spells two ids fires for either.
 	PreviousID *string `json:"previous_id,omitempty"`
 	// ResultsPath is JE-9's first qualifying line, or nil when no line
 	// qualifies.

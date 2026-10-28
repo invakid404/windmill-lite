@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
 var _ Evaluator = (*Pipeline)(nil)
@@ -26,9 +28,36 @@ func TestEvalChecksContextFirst(t *testing.T) {
 }
 
 func TestEvalNeedsACompiledExpr(t *testing.T) {
-	_, err := NewPipeline(&fakeEngine{}).Eval(context.Background(), &Expr{Site: SiteInputTransform, Text: "1"}, nil)
-	if !errors.Is(err, ErrNotCompiled) {
-		t.Fatalf("Eval of an uncompiled Expr: %v", err)
+	for _, e := range []*Expr{{Site: SiteInputTransform, Text: "1"}, nil} {
+		_, err := NewPipeline(&fakeEngine{}).Eval(context.Background(), e, nil)
+		if !errors.Is(err, ErrNotCompiled) {
+			t.Fatalf("Eval of %v: %v", e, err)
+		}
+	}
+}
+
+// cancellingResults ends the run's context while JE-9 reads it.
+type cancellingResults struct {
+	fakeResults
+	cancel context.CancelCauseFunc
+	cause  error
+}
+
+func (r *cancellingResults) Stored(context.Context, string) (jsonval.Value, bool) {
+	r.cancel(r.cause)
+	return jsonval.Value{}, false
+}
+
+// TestShortcutCanceled: a context that ends during JE-9's read is the
+// evaluation's error, not the lookup's null, which would otherwise be
+// recorded as a value.
+func TestShortcutCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	r := &cancellingResults{cancel: cancel, cause: errors.New("run canceled")}
+	v, err := NewPipeline(&fakeEngine{}).Eval(ctx, Compile(SiteInputTransform, "results.a.b"), &Scope{PreviousID: "m", Results: r})
+	if !errors.Is(err, r.cause) || !v.IsZero() {
+		t.Fatalf("Eval: %s, %v; want the cause", v, err)
 	}
 }
 

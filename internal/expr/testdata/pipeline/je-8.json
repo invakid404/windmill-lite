@@ -114,6 +114,17 @@
     },
     {
       "spec": "JE-8",
+      "variant": "unusual-id",
+      "provenance": "source-derived",
+      "title": "the whole text is compared with the four spellings, so a previous id [\"a\"] fires for results?.[\"a\"]",
+      "note": "module ids are never validated (OF-5); the text spells both a and [\"a\"]",
+      "site": "input_transform",
+      "text": "results?.[\"a\"]",
+      "context": {"previous_id": "[\"a\"]", "previous_result": "{\"k\": 2}"},
+      "expect": {"shortcut": {"previous_id": "a"}, "route": "previous_id", "text": "{\"k\": 2}"}
+    },
+    {
+      "spec": "JE-8",
       "variant": "other-id",
       "provenance": "source-derived",
       "title": "a spelling of another id misses; the bracket form is no JE-9 path, so the engine reads it",

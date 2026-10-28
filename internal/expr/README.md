@@ -27,8 +27,8 @@ calls `Compile`.
 
 ## The textual stages
 
-`Compile(site, text)` depends on the text alone; nothing in it depends on
-a run.
+`Compile(site, text)` depends on the site and the text alone; nothing in
+it depends on a run.
 
 1. **Wrap and trim** ([JE-5](../../docs/semantics/expressions.md#je-5),
    [JE-24](../../docs/semantics/expressions.md#je-24)). A predicate's text
@@ -43,7 +43,9 @@ a run.
      `flow_env["<key>"]` with a non-empty key (JE-7).
    - `PreviousID`: the id named by the text when the whole text is
      `results["<id>"]`, `results?.["<id>"]`, `results.<id>` or
-     `results?.<id>`, the bracket forms read first (JE-8).
+     `results?.<id>`, the bracket forms read first (JE-8). Evaluation
+     compares the whole text with the four spellings of the previous id, so
+     a text that spells two ids fires for either.
    - `ResultsPath`: the first line that is, alone and from column 0,
      `results` or `results?`, a dot and a step id of `[A-Za-z0-9_]`, an
      optional `[<digits>]`, then `.segment` parts. `Declines` when its last
@@ -86,20 +88,24 @@ Programs are kept by source text, one bundle's worth.
 `Eval(ctx, e, scope)` returns the context's cause if it has ended, and
 `ErrNotCompiled` for an `Expr` that `Compile` did not fill. It then tries
 the shortcuts in the order JE-6, JE-7, JE-8, JE-9. The first that fires
-answers:
+answers, unless the context ended while it read (JE-9's lookup), which
+gives the context's cause:
 
 | Shortcut | Fires when | Answer |
 |---|---|---|
 | JE-6 | the scope holds the context name | its text verbatim |
 | JE-7 | the flow input (or env) has the key | the member's text verbatim, from the scope's text |
-| JE-8 | the named id is the scope's previous id, and the scope has a results context and `previous_result` | `previous_result`'s text verbatim |
+| JE-8 | the whole text is a spelling of the scope's previous id, and the scope has a results context and `previous_result` | `previous_result`'s text verbatim |
 | JE-9 | the path does not decline and the scope has a results context | the path applied to the step's stored text as PostgreSQL's `#>` applies it, in jsonb's text output (a space after each `:` and `,`), or `null` for a missing step, key or index, a type mismatch or a null intermediate |
 
 JE-9 also needs an authenticated client, but every site with a results
 context has one ([JE-22](../../docs/semantics/expressions.md#je-22)), so the
-results context alone decides. The spaces of jsonb's text output are
-observable: the `timeout` site's parse error quotes them
-([ADR 0005](../../docs/design/0005-json-step-boundaries.md)).
+results context alone decides. A shortcut's text is observable: the
+`timeout` site's parse error quotes it, and E3a recorded jsonb's spaces in
+JE-9's answer ([ADR 0005](../../docs/design/0005-json-step-boundaries.md)).
+JE-6 to JE-8 answer the scope's texts as they are, so the form the engine
+puts there for a value read from the database is observable too, and is
+open (request 8).
 
 When no shortcut fires, the source runs on the engine with these bindings
 (JE-10):
@@ -192,11 +198,15 @@ the recorded expectation: the exact evaluator text of a unit case, or a
 context-free case's recorded argument as its stored form.
 
 - `TestPipelineCases` runs every case.
-- `TestPipelineCoverage` is the exit gate: every case of JE-5 to JE-14,
-  JE-V6 and CF-V6 that E3a recorded is restated exactly once.
-- `TestRecordedCasesThroughPipeline` runs every expression E3a recorded,
-  of every finding, on the fake engine. Wherever a shortcut answers, the
-  answer must be what the oracle recorded.
+- `TestPipelineCoverage` is the exit gate. Every case of JE-5 to JE-14,
+  JE-V6 and CF-V6 that E3a recorded is restated exactly once, and every
+  catalogue case of those findings that an E3a fixture or run cites is the
+  spec of a restatement. A restatement gives its route, and a shortcut's
+  text.
+- `TestRecordedCasesThroughPipeline` runs every context-free case and
+  every unit case that E3a recorded, of every finding, on the fake engine.
+  Wherever a shortcut answers, the answer must be what the oracle recorded.
+  A flow fixture's expressions that no unit case restates are not run.
 - `TestJE8KeyOrderExample` keeps the raw-text assertion of ADR 0003's JE-8
   example (review item cx R16). It also ties the text to the oracle's
   `timeout` errors, which quote the producer's key order from memory and
@@ -205,11 +215,13 @@ context-free case's recorded argument as its stored form.
   - the wrapper's lines (JE-14) and the predicate wrapping;
   - the IR's JSON form;
   - compile errors raised at evaluation, and compiling once;
+  - a context that ends during JE-9's lookup;
   - the engine's errors passing through;
   - the results lookup from memory or storage, and its errors;
   - the helpers;
   - concurrent use under `-race`.
-- `jsontext_test.go` checks the member lookup, the `#>` walk and jsonb's
-  text output against an `encoding/json` implementation, on generated
-  values. `FuzzCompile` and `FuzzJSONText` fuzz the stages and the
-  scanners.
+- `jsontext_test.go` checks the member lookup and the `#>` walk against
+  an `encoding/json` implementation, on generated values. jsonb's text
+  output is checked on fixed cases, and on generated values: it parses to
+  the same value, with one space per `:` and `,` of the decoded value.
+  `FuzzCompile` and `FuzzJSONText` fuzz the stages and the scanners.
