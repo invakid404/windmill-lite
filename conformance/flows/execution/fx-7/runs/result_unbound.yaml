@@ -1,9 +1,6 @@
 # FX-7/d: a bare result is an unbound identifier in a transform, so the step
 # fails before it runs with the pre-run error of FX-14: ExecutionErr, empty
-# args, no step_id. The reference asserts only the prefix and an engine
-# ReferenceError. Oracle run 40685013818 recorded the engine text: Windmill
-# renders the exception as "QuickJS evaluation error: Error: ...", with the
-# name Error rather than ReferenceError, followed by the engine's stack.
+# args, no step_id, and the engine's error after the prefix.
 spec: [FX-7/d, FX-14]
 target: f/wl_fx7/result_unbound
 expect:
@@ -14,3 +11,11 @@ expect:
       status: failure
       args: {}
       result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"}}
+note: >-
+  Corrected after recording. The reference asserts the prefix and an engine
+  ReferenceError, and the prediction guessed the engine text as
+  'ReferenceError: result is not defined'. The oracle renders the exception
+  as 'QuickJS evaluation error: Error: result is not defined', with the name
+  Error rather than ReferenceError, followed by the engine's stack. The
+  difference surfaced in oracle run 40685013818 and is recorded by run
+  40686049913.

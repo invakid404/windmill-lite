@@ -165,8 +165,10 @@ type fakeOracle struct {
 	n       int
 	runs    int
 	// workspaces are the live workspaces besides admins; like Community
-	// Edition, the fake refuses to create a third (OR-6).
+	// Edition, the fake refuses to create a third (observed by recording
+	// batch E3b).
 	workspaces map[string]bool
+	failDelete bool // deleting a workspace answers 500
 	created    []string
 	deleted    []string
 }
@@ -221,6 +223,10 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id, ok := strings.CutPrefix(p, "/workspaces/delete/"); ok && r.Method == http.MethodDelete {
+		if o.failDelete {
+			write(500, "internal error")
+			return
+		}
 		if !o.workspaces[id] {
 			write(404, "no such workspace")
 			return
@@ -537,7 +543,7 @@ func TestSessionUnstableObservation(t *testing.T) {
 // three only because each fixture's workspace is deleted before the next
 // is created (OR-6). The fake oracle refuses a third workspace as CE does.
 func TestSessionDeletesEachWorkspace(t *testing.T) {
-	// spec: OR-6/a
+	// spec: OR-6
 	rig := newRig(t)
 	fixtures := []*conformance.Fixture{rig.load(t)}
 	for _, name := range []string{"second", "third"} {
@@ -566,6 +572,25 @@ func TestSessionDeletesEachWorkspace(t *testing.T) {
 	o := rig.oracle
 	if len(o.created) != 3 || !slices.Equal(o.created, o.deleted) || len(o.workspaces) != 0 {
 		t.Fatalf("created %q, deleted %q, left %v", o.created, o.deleted, o.workspaces)
+	}
+}
+
+// TestSessionFailsWhenAWorkspaceCannotBeDeleted: a workspace left behind
+// would take one of Community Edition's two places, so the session stops
+// with the error after the fixture's runs, and still tears down.
+func TestSessionFailsWhenAWorkspaceCannotBeDeleted(t *testing.T) {
+	// spec: OR-6
+	rig := newRig(t)
+	rig.oracle.failDelete = true
+	rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err == nil || !strings.Contains(err.Error(), "deleting workspace wl-") || !strings.Contains(err.Error(), "HTTP 500") {
+		t.Fatalf("session error %v", err)
+	}
+	if len(rep.Runs) != 3 {
+		t.Fatalf("%d runs, want the fixture's 3 before the error: %+v", len(rep.Runs), rep.Runs)
+	}
+	if rig.docker.calledWith(" down -v") != 1 || rig.docker.up {
+		t.Fatalf("not torn down: docker calls %q", rig.docker.calls)
 	}
 }
 

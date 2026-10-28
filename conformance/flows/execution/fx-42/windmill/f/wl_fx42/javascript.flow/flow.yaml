@@ -9,8 +9,8 @@ value:
           o:
             type: static
             value:
-              a: 2
-              zz: 1
+              aaa: 1
+              zz: 2
           v:
             type: static
             value: $jsonvar:f/wl_fx42/numbers

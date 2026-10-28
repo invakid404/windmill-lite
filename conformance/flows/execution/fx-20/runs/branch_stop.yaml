@@ -1,8 +1,7 @@
 # FX-20/a: branchone takes its default body, whose step x stops cleanly
 # with skip_if_stopped; the stop propagates, so the parent flow is skipped
 # with x's result, and y never runs. br's own status entry carries the same
-# skipped flag ("with the same skipped flag"), as oracle run 40685013818
-# recorded; the prediction had left it out.
+# skipped flag.
 spec: [FX-20/a, FX-19]
 target: f/wl_fx20/branch_stop
 expect:
@@ -12,3 +11,7 @@ expect:
     "m:br": {status: skipped, skipped: true, branch_chosen: {type: default}, result: 1}
     "m:br/b:default/m:x": {status: success, skipped: true, args: {}, result: 1}
     "m:y": {status: not_run}
+note: >-
+  Corrected after recording. The prediction left br's skipped flag out; the
+  oracle sets it, as FX-20's 'with the same skipped flag' says. The flag
+  surfaced in oracle run 40685013818 and is recorded by run 40686049913.

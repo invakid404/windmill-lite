@@ -61,8 +61,8 @@ write, generated against the oracle and committed as written
 it on every recording and fails on any change.
 
 Each run's `expect` was written from the reference before the oracle first
-ran it. Where the oracle disagreed, the run's comments say what the
-reference predicted, what was recorded, and in which oracle run.
+ran it. Where the oracle disagreed, the run's `note` says what was
+predicted, what was recorded, and in which oracle runs.
 
 ### Recording batches
 
@@ -80,9 +80,11 @@ each, and the milestone whose exit gate runs it:
 | `cases[].gate` | the milestone that runs the case: the one that implements the last feature its flow needs |
 
 `TestRecordingBatches` in [internal/oracle](../internal/oracle/README.md)
-requires every case of the scope to be listed, every run to exist, cite its
-case and have a recording, the recording to meet the run's `expect`, and
-every run of a listed fixture to belong to a case.
+requires `row` to be the batch's row of 0012 and the scope to be the
+finding ranges and cases that row names, every case of the scope to be
+listed, every gate to need the batch merged, every run to exist, cite its
+case in its own `spec` and have a recording, the recording to meet the
+run's `expect`, and every run of a listed fixture to belong to a case.
 
 ## OpenFlow decode cases
 

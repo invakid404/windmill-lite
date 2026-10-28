@@ -1,9 +1,9 @@
 # FX-42/h (Q-FX-16): does $jsonvar: output keep the variable's spelling, or
 # only its key order with numbers re-serialised? The variable holds 1e3,
-# 1e21, an integer beyond 2^53 that fits in 64 bits, one beyond 64 bits,
-# 1.50e3, escapes and spaces, with its keys out of jsonb order. Run
-# args_file reads the job's arguments file (WR-5) as text, which shows the
-# spelling the resolver wrote; run javascript shows what a JavaScript
+# 1e21, an integer beyond 2^53 that fits in an unsigned 64-bit integer, one
+# beyond that, 1.50e3, escapes and spaces, with its keys out of jsonb order.
+# Run args_file reads the job's arguments file (WR-5) as text, which shows
+# the spelling the resolver wrote; run javascript shows what a JavaScript
 # consumer can see: the key order (FX-V5/a) and the parsed numbers, with a
 # static object argument as FX-42/g's jsonb-ordered contrast. Synthetic,
 # written for this repository from docs/semantics/conformance.md#fx-42.

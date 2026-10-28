@@ -51,7 +51,9 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    the maximum number of workspaces (2 outside of default workspace
    'admins') without an enterprise license", first met by recording batch
    E3b), so a session of more than two fixtures needs each one gone before
-   the next is created. A failure to delete fails the session.
+   the next is created. A failure to delete after a successful deployment
+   fails the session; after a failed deployment, when the workspace may not
+   exist, it is logged.
 5. **Per run.** Pre-assign the root job id, open the sink for it, submit
    asynchronously and poll `get_result_maybe` until completion, never
    `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
@@ -187,8 +189,8 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
 | `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
-| `TestSessionDeletesEachWorkspace` | a session of three fixtures records all of them against a fake that, like Community Edition, refuses a third workspace: each fixture's workspace is deleted before the next is created (OR-6) | three copies of the smoke fixture |
-| `TestRecordingBatches` | every recording batch manifest against the catalogue, ADR 0012's milestone ids, the fixtures and their recordings: each case of the batch's scope is listed with runs and a gate, each run cites its case, and its committed recording meets its `expect` | `conformance/flows/batches/*.json` |
+| `TestSessionDeletesEachWorkspace`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | a session of three fixtures records all of them against a fake that, like Community Edition, refuses a third workspace, because each fixture's workspace is deleted before the next is created; a deletion that fails stops the session after the fixture's runs, and the stack is still torn down | three copies of the smoke fixture |
+| `TestRecordingBatches` | every recording batch manifest against ADR 0012, the catalogue, the fixtures and their recordings: the manifest's row is the batch's row, whose finding ranges and single cases are its scope; each case of the scope is listed with runs and a gate that needs the batch merged; each run cites its case in its own spec, and its committed recording meets its `expect` | `conformance/flows/batches/*.json` |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
 | `TestReplayRecordedCaptures` | the raw API captures of oracle runs in CI, replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/`: the smoke fixture's two runs and batch E3b's 37 |

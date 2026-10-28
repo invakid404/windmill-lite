@@ -1,9 +1,7 @@
 # FX-21/a: evaluating the predicate throws, so the completion becomes an
 # unrecoverable failure whose error value is the evaluation error's display
 # string; continue_on_error does not apply, so b never runs. a's stored job
-# result stays 1 (FX-V2). The string is FX-21's "Error: QuickJS evaluation
-# error: ... @<location>", here with the engine's stack before the Rust
-# location, as oracle run 40685013818 recorded it.
+# result stays 1 (FX-V2).
 spec: [FX-21/a, FX-V2]
 target: f/wl_fx21/throwing_stop
 expect:
@@ -12,3 +10,13 @@ expect:
   steps:
     "m:a": {status: success, module: failure, args: {}, result: 1}
     "m:b": {status: not_run}
+note: >-
+  Corrected after recording. The prediction guessed the string as 'Error:
+  QuickJS evaluation error: TypeError: cannot read property 'x' of null'. The
+  oracle's string is FX-21's 'Error: QuickJS evaluation error: ...
+  @<location>' with the name Error, the engine's stack, and Windmill's Rust
+  location at the end. The difference surfaced in oracle run 40685013818 and
+  is recorded by run 40686049913. FX-21/a's catalogue entry has no <loc>
+  template, so the comparison rule of ADR 0011, which strips the oracle's
+  location only where a template carries <loc>, cannot strip it yet:
+  windmill-lite cannot match this recording until the reference adds one.
