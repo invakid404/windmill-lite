@@ -201,7 +201,15 @@ func (p *parser) restoreText(s string) string {
 func (p *parser) enter(n *yaml.Node) (func(), error) {
 	indent, flow := p.indent, p.flow
 	if n.Style&yaml.FlowStyle == 0 {
-		p.indent = n.Column - 1
+		// The library places a collection with a tag or an anchor at the
+		// property, which may be on an earlier line; its indentation is
+		// that of its content: the first key, '?' or '-'.
+		off, ok := p.offset(n.Line, n.Column)
+		if !ok {
+			return nil, errorAt(Unsupported, n, "cannot locate the collection in the source")
+		}
+		_, col := p.position(p.blockContent(off))
+		p.indent = col - 1
 	} else if !p.flow {
 		p.flow = true
 		if err := p.checkFlow(n); err != nil {
@@ -384,13 +392,16 @@ func (p *parser) properties(n *yaml.Node) (tag string, rest []byte, err error) {
 		return "", nil, err
 	}
 	// A node has at most two properties, a tag and an anchor, in either
-	// order.
+	// order. A further one belongs to the first key or item of a
+	// collection.
+	anchor := n.Anchor != ""
 	for range 2 {
 		switch {
-		case len(s) > 0 && s[0] == '&' && n.Anchor != "":
+		case len(s) > 0 && s[0] == '&' && anchor:
 			if s, err = p.name(n, s, '&', n.Anchor); err != nil {
 				return "", nil, err
 			}
+			anchor = false
 		case len(s) > 0 && s[0] == '!' && tag == "":
 			end := 1
 			for end < len(s) && !isSeparator(s[end]) {
@@ -403,6 +414,34 @@ func (p *parser) properties(n *yaml.Node) (tag string, rest []byte, err error) {
 		s = skipSeparation(s)
 	}
 	return tag, s, nil
+}
+
+// blockContent returns the offset where the content of the block collection
+// at off starts. Properties followed by a line break are the collection's
+// own and are skipped; properties followed by content on their line belong
+// to the first key or item, which starts with them.
+func (p *parser) blockContent(off int) int {
+	for {
+		t := p.src[off:]
+		if len(t) == 0 || (t[0] != '&' && t[0] != '!') {
+			return off
+		}
+		for len(t) > 0 && (t[0] == '&' || t[0] == '!') {
+			t = t[skipProperty(t, 0)+1:]
+			t = bytes.TrimLeft(t, " \t")
+		}
+		if len(t) > 0 && t[0] == '#' { // a comment ends the line
+			if i := bytes.IndexByte(t, '\n'); i >= 0 {
+				t = t[i:]
+			} else {
+				t = nil
+			}
+		}
+		if len(t) > 0 && t[0] != '\n' && t[0] != '\r' {
+			return off
+		}
+		off = len(p.src) - len(skipSeparation(t))
+	}
 }
 
 // name checks that s starts with sigil and name, followed by a character

@@ -1,6 +1,7 @@
 package yamlx
 
 import (
+	"bytes"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -23,8 +24,8 @@ import (
 //   - a '?' with nothing but whitespace before a ',': the two parsers
 //     pair the entries differently.
 //
-// Quoted scalars and comments are skipped. Both parsers read every other
-// use of the two characters alike.
+// Quoted scalars, also after a tag or an anchor, and comments are skipped.
+// Both parsers read every other use of the two characters alike.
 func (p *parser) checkFlow(n *yaml.Node) error {
 	_, s, err := p.properties(n)
 	if err != nil {
@@ -34,10 +35,11 @@ func (p *parser) checkFlow(n *yaml.Node) error {
 		return errorAt(Unsupported, n, "cannot locate the flow collection in the source")
 	}
 	const (
-		space  = iota // whitespace, or the start of the collection
-		opener        // '[', '{', ',' or an indicator
-		json          // the end of a quoted scalar or a flow collection
-		plain         // a character of a plain scalar
+		space    = iota // whitespace, or the start of the collection
+		opener          // '[', '{', ',' or an indicator
+		json            // the end of a quoted scalar or a flow collection
+		plain           // a character of a plain scalar
+		property        // a tag or an anchor, before a node's content
 	)
 	// raw classifies the previous character, last the previous one that
 	// is not whitespace.
@@ -57,6 +59,11 @@ func (p *parser) checkFlow(n *yaml.Node) error {
 		c := s[i]
 		start := raw == space || raw == opener // c starts a token
 		switch {
+		case (c == '!' || c == '&') && start && last != plain:
+			// A node's tag or anchor: the content after it, quoted or
+			// not, starts a token.
+			i = skipProperty(s, i)
+			raw, last = space, property
 		case (c == '"' || c == '\'') && start && last != plain:
 			// A quote after a space inside a plain scalar ([a 'b']) is
 			// part of the scalar.
@@ -103,6 +110,22 @@ func emptyKey(s []byte, i int) bool {
 		i++
 	}
 	return i < len(s) && s[i] == ','
+}
+
+// skipProperty returns the index of the last character of the tag or
+// anchor that starts at s[i]: a verbatim tag ends at its '>', any other
+// property at a separator or a flow indicator.
+func skipProperty(s []byte, i int) int {
+	if s[i] == '!' && i+1 < len(s) && s[i+1] == '<' {
+		if end := bytes.IndexByte(s[i:], '>'); end >= 0 {
+			return i + end
+		}
+		return len(s) - 1
+	}
+	for i+1 < len(s) && !isSeparator(s[i+1]) && !strings.ContainsRune(",[]{}", rune(s[i+1])) {
+		i++
+	}
+	return i
 }
 
 // skipQuoted returns the index of the quote that closes the quoted scalar

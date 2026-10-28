@@ -259,18 +259,21 @@ func blockScalarTab(src []byte, err error) (int, bool) {
 
 // isAutoBlockHeader reports whether a line ends with a block scalar header
 // that has no indentation indicator (|, >, |-, >+), before an optional
-// comment.
+// comment. Quoted scalars are skipped, so a '#' inside a quoted key does
+// not start a comment; a comment starts at a '#' after a space or a tab.
 func isAutoBlockHeader(line string) bool {
-	if i := strings.Index(line, " #"); i >= 0 {
-		line = line[:i]
+	code := line
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case c == '"' || c == '\'':
+			i = skipQuoted([]byte(line), i)
+		case c == '#' && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+			code, i = line[:i], len(line)
+		}
 	}
-	line = strings.TrimRight(line, " \t")
-	i := strings.LastIndexAny(line, " \t")
-	token := line[i+1:]
-	if i < 0 && !strings.HasPrefix(line, "|") && !strings.HasPrefix(line, ">") {
-		return false
-	}
-	switch token {
+	code = strings.TrimRight(code, " \t")
+	i := strings.LastIndexAny(code, " \t")
+	switch code[i+1:] {
 	case "|", ">", "|-", ">-", "|+", ">+":
 		return true
 	}

@@ -53,7 +53,7 @@ scalar itself.
 | Aliases | Resolved to the anchored value. An alias inside its own anchor, or before its anchor, is an error. |
 | Control and line-break characters | NEL, LS and PS (U+0085, U+2028, U+2029), DEL, the other C0 and C1 controls except tab, LF and CR, a U+FEFF after the start, U+FFFE and U+FFFF are ordinary characters, as the CLI's parser reads them. The YAML 1.1 parser underneath refuses them or reads them as line breaks, so yamlx hides them from it behind private-use characters the source does not use and puts them back in the parsed text. The CLI's writer emits DEL, LS, PS and U+FEFF unescaped. |
 | Documents | One per stream; a second document, even an empty one, is an error. A leading byte order mark is dropped. |
-| Block scalars | Literal and folded values are computed from the source with the CLI's rules, not taken from the library. An indentation indicator counts from the enclosing collection's column (0 at the root). A body without text is `""`, or under keep chomping as many line breaks as the body holds, and at least one when the body is not empty. Trailing blank lines indented beyond the first line of text are text. A last line that ends the file without a line break still gets one under clip and keep chomping. A first line of spaces and a tab, which the CLI's writer emits for text that starts with a tab, is read as the CLI reads it: the library refuses it, so yamlx hides that tab from it and parses again. |
+| Block scalars | Literal and folded values are computed from the source with the CLI's rules, not taken from the library. An indentation indicator counts from the column where the enclosing collection's content starts: its first key, `?` or `-`, after any tag or anchor of the collection on an earlier line (0 at the root). A body without text is `""`, or under keep chomping as many line breaks as the body holds, and at least one when the body is not empty. Trailing blank lines indented beyond the first line of text are text. A last line that ends the file without a line break still gets one under clip and keep chomping. A first line of spaces and a tab, which the CLI's writer emits for text that starts with a tab, is read as the CLI reads it: the library refuses it, so yamlx hides that tab from it and parses again. The header is found with quotes skipped, so a key such as `'a # b'` does not hide it, and a comment after it may follow a space or a tab. |
 
 ## Refusals
 
@@ -98,7 +98,9 @@ YAML 1.2 syntax that the YAML 1.1 parser rejects fails with the parser's
 own `yaml_syntax` error: for example the `\/` escape, a `\u` escape naming
 a lone surrogate, anchor names with characters other than letters, digits,
 `-` and `_`, a tab after a sequence indicator, a tab inside a block
-scalar's indentation after its first line, an empty implicit key (`: v`), a
+scalar's indentation after its first line, a block scalar line of spaces and
+a tab that does not reach past the enclosing collection's column, an empty
+implicit key (`: v`), a
 percent escape in a tag that is not UTF-8 (`!%C0`), and a top-level block
 scalar whose text starts at column 0.
 
