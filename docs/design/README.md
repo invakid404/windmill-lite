@@ -3,9 +3,12 @@
 **Current state:** first edition, proposed. Milestone A3 implements the
 OpenFlow decoder of [0002](0002-ir-and-loader.md) in
 [internal/openflow](../../internal/openflow/README.md), milestone A2 its YAML
-dialect in [internal/yamlx](../../internal/yamlx/README.md), and milestone K1
+dialect in [internal/yamlx](../../internal/yamlx/README.md), milestone K1
 the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
-interfaces under `internal/`); nothing runs flows yet. This README covers
+interfaces under `internal/`), and milestone B1a the QuickJS-ng engine of
+[0003](0003-semantics-placement.md) in
+[internal/expr/quickjs](../../internal/expr/quickjs/README.md); nothing runs
+flows yet. This README covers
 `docs/design/`: this index and the decision records it links. The records
 decide the architecture, the equivalence contract with Windmill `v1.767.0`,
 the Go package layout and the implementation milestones. They build on the
@@ -17,7 +20,8 @@ documentation, the Apache-2.0 parts of Windmill, and observed behaviour.
 Where a decision depends on a number, the number was measured with a
 throwaway prototype outside this repository, and the record states the
 hardware, versions and method. Milestone G1 turns those prototypes into
-in-repository benchmarks.
+in-repository benchmarks. The one exception so far is the native pool
+under load, measured by milestone B1a's own load test.
 
 ## The architecture in one paragraph
 

@@ -99,7 +99,8 @@ package, and `wl_quickjs.c` is the thin C layer that the Go slot loop calls.
 
 The C sources are built with `-O2 -DNDEBUG`. QuickJS-ng's assertions are
 off, because a program can reach one of them: the one in `JS_FreeRuntime`
-that checks for leaked objects, which the tracked heap now handles.
+that checks for leaked objects. The tracked heap handles those leaks
+instead.
 
 Building needs cgo and a C compiler: the system clang on macOS. The Linux
 release binaries are static, built with `zig cc` against musl. The `Static
@@ -131,8 +132,9 @@ architecture.
   interrupts, cancellation, `Close`, the arrival order of waiting callers,
   concurrent use under `-race`, and the overflow depth at the default
   stack, which they log for each platform and check against JE-48's
-  bracket. Every engine a test starts must end with no
-  leaked heap block, except in the test that makes QuickJS-ng leak.
+  bracket. An engine started through the tests' shared helper must end with
+  no leaked heap block; the one test that makes QuickJS-ng leak uses a
+  helper without that check.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
   report-only step.
