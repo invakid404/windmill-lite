@@ -349,10 +349,20 @@ func TestSpawnFailures(t *testing.T) {
 			t.Fatalf("got %v after %s", err, time.Since(start))
 		}
 	})
-	t.Run("fresh mode", func(t *testing.T) {
+	t.Run("fresh mode without the capability", func(t *testing.T) {
+		// The fake offers no fresh capability, so it cannot be a fresh
+		// process: it is refused in the handshake.
 		cfg, _ := fakeConfig(t, "ok")
 		cfg.ModuleState = engine.ModuleStateFresh
-		if _, err := Spawn(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "C3b") {
+		var he *HandshakeError
+		if _, err := Spawn(context.Background(), cfg); !errors.As(err, &he) || he.Code != RejectHarness || !strings.Contains(he.Message, "fresh capability") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("unknown module mode", func(t *testing.T) {
+		cfg, _ := fakeConfig(t, "ok")
+		cfg.ModuleState = "shared"
+		if _, err := Spawn(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), `unknown module-state mode "shared"`) {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -383,10 +393,11 @@ func TestPoolSpawnFailure(t *testing.T) {
 func TestPoolConfigValidation(t *testing.T) {
 	cfg, _ := fakeConfig(t, "ok")
 	for name, pc := range map[string]PoolConfig{
-		"min above max":     {Process: cfg, Min: 3, Max: 2},
-		"negative cap":      {Process: cfg, Cap: -1},
-		"key disagrees":     {Process: cfg, Key: Key{Class: "bun"}},
-		"fresh module mode": {Process: cfg, Key: Key{ModuleState: engine.ModuleStateFresh}},
+		"min above max":       {Process: cfg, Min: 3, Max: 2},
+		"negative cap":        {Process: cfg, Cap: -1},
+		"key disagrees":       {Process: cfg, Key: Key{Class: "bun"}},
+		"unknown module mode": {Process: cfg, Key: Key{ModuleState: "shared"}},
+		"modes disagree":      {Process: func() ProcessConfig { c := cfg; c.ModuleState = engine.ModuleStateWarm; return c }(), Key: Key{ModuleState: engine.ModuleStateFresh}},
 	} {
 		if _, err := NewPool(pc); err == nil {
 			t.Errorf("%s: no error", name)

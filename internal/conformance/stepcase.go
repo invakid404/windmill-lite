@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -129,21 +130,28 @@ type StepCheck struct {
 	// Claims are partial assertions about the observation, for what the
 	// catalogue states only in part (a name, a message prefix).
 	Claims []Claim `json:"claims,omitempty"`
-	// Late lists what the invocation reports after its outcome, in order,
-	// before it settles (an intercepted process.exit, D11); it is compared
-	// when Late or Settled is given. Settled is how it settles: completed,
-	// not_started or process_exited, or StepPending for a call that must
-	// still be running at the end of the observation window.
+	// Late lists what the invocation reports after its outcome, in order
+	// (an intercepted process.exit, D11, and anything later): all of it up
+	// to the end of the case, so a late report of work it left running
+	// after it settled counts too (D9). It is compared when Late or Settled
+	// is given. Settled is how it settles: completed, not_started or
+	// process_exited, or StepPending for a call that must still be running
+	// at the end of the observation window.
 	Late    []StepLate `json:"late,omitempty"`
 	Settled string     `json:"settled,omitempty"`
 	// Warnings lists the codes of the warnings the invocation gets while
 	// in flight (D9), all of them up to its settlement (or the end of the
 	// observation window): no warnings when empty.
 	Warnings []string `json:"warnings,omitempty"`
+	// Left is what the invocation's left_behind warning counts, by kind
+	// (timeout, interval, immediate, fetch, child): the work it still had
+	// when it settled, which the settle-time fence revoked (D9). It is
+	// compared when given, and needs left_behind in Warnings.
+	Left map[string]int `json:"left,omitempty"`
 }
 
 func (k *StepCheck) empty() bool {
-	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0
+	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0 && k.Left == nil
 }
 
 // StepPending is the Settled of a call that does not settle: the runner
@@ -394,8 +402,22 @@ func (k *StepCheck) check() error {
 	default:
 		return fmt.Errorf("settled %q is not completed, not_started, process_exited or pending", k.Settled)
 	}
+	if k.Left != nil {
+		if !slices.Contains(k.Warnings, StepLeftBehind) {
+			return fmt.Errorf("left counts a %s warning, which warnings does not list", StepLeftBehind)
+		}
+		for kind, n := range k.Left {
+			if n < 1 {
+				return fmt.Errorf("left %s is %d; a kind left behind counts at least 1", kind, n)
+			}
+		}
+	}
 	return nil
 }
+
+// StepLeftBehind is the code of the warning that reports what an
+// invocation left behind when it settled (D9).
+const StepLeftBehind = "left_behind"
 
 // IsStepFile reports whether path is a step-case file: a .yaml file, other
 // than deferred.yaml, in a language directory of a directory named steps.

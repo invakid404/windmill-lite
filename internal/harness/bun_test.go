@@ -26,10 +26,10 @@ func TestBunHandshake(t *testing.T) {
 	if h.Proto != ProtocolVersion || h.Harness.Kind != "bun" || h.Runtime != PinnedBun || h.Bundle != cfg.Bundle || h.PID != p.PID() {
 		t.Fatalf("hello %+v", h)
 	}
-	// The runtime intercepts facade fetches (W1); native, fresh and host
-	// are later milestones' or the host SDK's.
-	if h.Caps != (Caps{Fetch: true}) {
-		t.Fatalf("caps %+v, want fetch only", h.Caps)
+	// The runtime intercepts facade fetches (W1) and runs fresh mode
+	// (C3b); native and host are a later milestone's and the host SDK's.
+	if h.Caps != (Caps{Fetch: true, Fresh: true}) {
+		t.Fatalf("caps %+v, want fetch and fresh", h.Caps)
 	}
 }
 
@@ -481,7 +481,7 @@ func TestBunNotDispatched(t *testing.T) {
 	}{
 		"canceled before dispatch": {canceled, func(*engine.Invocation) {}, "context canceled"},
 		"native boundary":          {context.Background(), func(i *engine.Invocation) { i.Boundary = engine.BoundaryNative }, "no native boundary"},
-		"fresh mode":               {context.Background(), func(i *engine.Invocation) { i.ModuleState = engine.ModuleStateFresh }, "C3b"},
+		"fresh mode":               {context.Background(), func(i *engine.Invocation) { i.ModuleState = engine.ModuleStateFresh }, `module state "fresh", the process in "warm"`},
 		"invalid entrypoint":       {context.Background(), func(i *engine.Invocation) { i.Entry = "not-a-name" }, "not a valid name"},
 		"env not UTF-8":            {context.Background(), func(i *engine.Invocation) { i.Env = map[string]string{"X": "\xff"} }, "invalid_utf8"},
 	} {
@@ -554,25 +554,25 @@ func TestBunWorkingDirectoryAndStdio(t *testing.T) {
 	if out, err := execute(t, p, newInvocation("print", `{}`, newRecorder()), 5*time.Second); err != nil || string(out.Body.Producer()) != `"printed"` {
 		t.Fatalf("got %+v, %v", out, err)
 	}
-	// The lines arrive through pipes, asynchronously to the frames. Bun
-	// colours console.error because the base environment has FORCE_COLOR=1
-	// (WR-22), so the stderr line is matched around its escapes.
+	// What the step writes through console and process.stdout and
+	// process.stderr goes to its log frames (C3b); only Bun.stdout, which
+	// no invocation owns, reaches the process's stdout, through a pipe,
+	// asynchronously to the frames.
 	pid := strconv.Itoa(p.PID())
-	for _, want := range [][2]string{
-		{"harness pid " + pid + " stdout: ", "printed on stdout"},
-		{"harness pid " + pid + " stderr: ", "printed on stderr"},
-		{"harness pid " + pid + " stdout: ", `{"t":"result","id":"forged"`},
-	} {
-		deadline := time.Now().Add(2 * time.Second)
-		for !hasLine(diag.String(), want[0], want[1]) {
-			if time.Now().After(deadline) {
-				t.Fatalf("diagnostics lack a line %q…%q:\n%s", want[0], want[1], diag.String())
-			}
-			time.Sleep(10 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for !hasLine(diag.String(), "harness pid "+pid+" stdout: ", `{"t":"result","id":"forged-raw"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("diagnostics lack the Bun.stdout line:\n%s", diag.String())
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err := p.Drain(context.Background()); err != nil || !p.Bye() || p.ExitStatus().Code != 0 {
 		t.Fatalf("drain %v, bye %v, status %v", err, p.Bye(), p.ExitStatus())
+	}
+	for _, attributed := range []string{"printed on stdout", "printed on stderr", `"id":"forged",`} {
+		if strings.Contains(diag.String(), attributed) {
+			t.Fatalf("attributed output %q reached the process's streams:\n%s", attributed, diag.String())
+		}
 	}
 	if _, err := os.Stat(p.Dir()); !os.IsNotExist(err) {
 		t.Fatalf("working directory survives the process: %v", err)

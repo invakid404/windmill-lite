@@ -26,6 +26,11 @@ const (
 	DefaultLagThreshold   = 250 * time.Millisecond
 	DefaultRecycleTimeout = 5 * time.Second
 	defaultAffinity       = 4096
+	// freshExitGrace is how long a fresh process may outlive the outcome
+	// of its invocation before it is killed: the harness exits right after
+	// it reports the outcome, as Windmill's wrapper does after it writes
+	// the result (WR-2).
+	freshExitGrace = 5 * time.Second
 )
 
 // PoolConfig configures a Pool.
@@ -37,7 +42,9 @@ type PoolConfig struct {
 	// Min is how many processes the pool keeps serving; Max bounds them.
 	// Zero values mean one each: Bun steps are mostly asynchronous I/O and
 	// share one event loop. Processes that are tainted or being recycled
-	// do not count toward Max: they are leaving the pool.
+	// do not count toward Max: they are leaving the pool. A fresh pool
+	// starts one process per invocation and keeps none, so it uses neither,
+	// nor Cap, LagThreshold or RecycleTimeout.
 	Min, Max int
 	// Cap bounds the invocations in flight per process (deviation D15);
 	// zero means no cap, the default. Abandoned invocations never count.
@@ -57,7 +64,10 @@ type PoolConfig struct {
 var ErrPoolClosed = errors.New("harness: pool closed")
 
 // Pool runs invocations on a set of spawned harness processes. It
-// implements engine.StepExecutor.
+// implements engine.StepExecutor. A pool whose key is fresh
+// (engine.ModuleStateFresh, ADR 0006) starts one process for each
+// invocation, which ends with it, and is killed when the engine stops
+// waiting; the rules below are a warm pool's.
 //
 //   - Routing prefers the process the run used last (affinity), then the
 //     least-loaded one. A process whose event loop lags past LagThreshold
@@ -80,6 +90,8 @@ type Pool struct {
 	closed   bool
 	changed  chan struct{}
 	affinity runMap
+	// fresh holds a fresh pool's processes until they exit.
+	fresh map[*Process]struct{}
 }
 
 type member struct {
@@ -127,8 +139,8 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	if pc.ModuleState != cfg.Key.ModuleState {
 		return nil, fmt.Errorf("harness: pool key module state %q differs from the process's %q", cfg.Key.ModuleState, pc.ModuleState)
 	}
-	if cfg.Key.ModuleState != engine.ModuleStateWarm {
-		return nil, fmt.Errorf("harness: module-state mode %q is not implemented (fresh mode is milestone C3b)", cfg.Key.ModuleState)
+	if cfg.Key.ModuleState != engine.ModuleStateWarm && cfg.Key.ModuleState != engine.ModuleStateFresh {
+		return nil, fmt.Errorf("harness: unknown module-state mode %q", cfg.Key.ModuleState)
 	}
 	if cfg.Max == 0 {
 		cfg.Max = 1
@@ -145,13 +157,21 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	if cfg.RecycleTimeout == 0 {
 		cfg.RecycleTimeout = DefaultRecycleTimeout
 	}
-	pl := &Pool{cfg: cfg, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}}
-	pl.cfg.Process.notify = pl.processChanged
+	pl := &Pool{cfg: cfg, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
+	if !pl.isFresh() {
+		pl.cfg.Process.notify = pl.processChanged
+	}
 	return pl, nil
 }
 
-// Start spawns the pool's Min processes and waits for their handshakes.
+func (pl *Pool) isFresh() bool { return pl.cfg.Key.ModuleState == engine.ModuleStateFresh }
+
+// Start spawns the pool's Min processes and waits for their handshakes. A
+// fresh pool starts none ahead.
 func (pl *Pool) Start(ctx context.Context) error {
+	if pl.isFresh() {
+		return nil
+	}
 	pl.mu.Lock()
 	var atts []*spawnAttempt
 	for pl.inServiceLocked()+pl.starting < pl.cfg.Min && !pl.closed {
@@ -180,6 +200,9 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		inv.Report.Settled(engine.SettleNotStarted)
 		return engine.StepOutcome{}, fmt.Errorf("harness: invocation %q runs in module state %q, the pool in %q", inv.ID, ms, pl.cfg.Key.ModuleState)
 	}
+	if pl.isFresh() {
+		return pl.executeFresh(ctx, inv)
+	}
 	for {
 		m, err := pl.acquire(ctx, inv.Run)
 		if err != nil {
@@ -203,6 +226,55 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		}
 		return out, err
 	}
+}
+
+// executeFresh runs inv in a process of its own (ADR 0006): it starts one,
+// runs the invocation, and leaves it to exit, which it does right after it
+// reports the outcome; a process that outlives the outcome by
+// freshExitGrace is killed. When ctx ends first, exec kills the process.
+func (pl *Pool) executeFresh(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+	pl.mu.Lock()
+	if pl.closed {
+		pl.mu.Unlock()
+		inv.Report.Settled(engine.SettleNotStarted)
+		return engine.StepOutcome{}, ErrPoolClosed
+	}
+	pl.starting++
+	pl.mu.Unlock()
+	p, err := Spawn(ctx, pl.cfg.Process)
+	pl.mu.Lock()
+	pl.starting--
+	if err == nil {
+		pl.fresh[p] = struct{}{}
+	}
+	pl.broadcastLocked()
+	pl.mu.Unlock()
+	if err != nil {
+		inv.Report.Settled(engine.SettleNotStarted)
+		return engine.StepOutcome{}, err
+	}
+	go func() {
+		<-p.Done()
+		pl.mu.Lock()
+		delete(pl.fresh, p)
+		pl.broadcastLocked()
+		pl.mu.Unlock()
+	}()
+	out, d, err := p.exec(ctx, inv, nil)
+	switch d {
+	case notDispatched:
+		p.Kill()
+		inv.Report.Settled(engine.SettleNotStarted)
+	case completed:
+		go func() {
+			select {
+			case <-p.Done():
+			case <-time.After(freshExitGrace):
+				p.kill("a fresh process outlived its invocation's outcome")
+			}
+		}()
+	}
+	return out, err
 }
 
 func (pl *Pool) acquire(ctx context.Context, run string) (*member, error) {
@@ -429,7 +501,7 @@ func (pl *Pool) Close(ctx context.Context) error {
 	var err error
 	for err == nil {
 		pl.mu.Lock()
-		busy := pl.starting > 0
+		busy := pl.starting > 0 || len(pl.fresh) > 0
 		for _, m := range pl.members {
 			busy = busy || m.active > 0
 		}
@@ -447,6 +519,10 @@ func (pl *Pool) Close(ctx context.Context) error {
 	}
 	pl.mu.Lock()
 	members := append([]*member(nil), pl.members...)
+	fresh := make([]*Process, 0, len(pl.fresh))
+	for p := range pl.fresh {
+		fresh = append(fresh, p)
+	}
 	pl.mu.Unlock()
 	var wg sync.WaitGroup
 	for _, m := range members {
@@ -455,6 +531,12 @@ func (pl *Pool) Close(ctx context.Context) error {
 			defer wg.Done()
 			m.p.Drain(ctx)
 		}()
+	}
+	// A fresh process still running when ctx ended is killed: it is its
+	// invocation, which the engine no longer waits for.
+	for _, p := range fresh {
+		p.Kill()
+		<-p.Done()
 	}
 	wg.Wait()
 	bgDone := make(chan struct{})

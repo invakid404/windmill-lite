@@ -119,21 +119,203 @@ cases:
   - spec: D9
     variant: error-after-result
     provenance: source-derived
-    title: an error thrown from a timer after the result changes nothing; Windmill's exit came first (WR-2), and the warm process lives on
+    title: a timer that would throw after the result never fires; Windmill's exit cuts it off (WR-2), and in warm mode the settle-time fence clears it
     note: >-
-      The second run waits until the timer has thrown, which it sees only
-      in warm mode, where globalThis survives (D1). That the error reaches
-      the engine as a late error that settles nothing is
-      internal/harness's TestBunWorkAfterTheResultIsLate (c3a review 1,
-      finding 8).
+      The second run waits for a control timer that the first run started
+      through the process scope at the same moment and with the same delay,
+      which the fence leaves alone: once it has fired, the step's timer
+      would have fired too. In fresh mode neither fires, since the process
+      ended with the first run. Before the fence (C3a) the warm reading was
+      that the timer fired and its error was late. That no late report
+      arrives even after settlement is checked at the end of the case.
+    deviation: D9
+    script: |
+      const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 100 && !globalThis.wlControlFired; i++) await Bun.sleep(10);
+          return [globalThis.wlControlFired ?? false, globalThis.wlLateThrown ?? false];
+        }
+        setTimeout(() => { globalThis.wlLateThrown = true; throw new Error("late"); }, 10);
+        inProcess(() => setTimeout(() => { globalThis.wlControlFired = true; }, 10));
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: done}
+        warnings: [left_behind]
+        left: {timeout: 1}
+        settled: completed
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: [true, false]}}
+          fresh: {expect: {status: success, result: [false, false]}}
+  - spec: D9
+    variant: fence-timers
+    provenance: policy
+    title: every timeout, interval and immediate a step leaves pending is reported when it settles, and the fence clears them all
+    note: >-
+      The report is a left_behind warning just before the frame that
+      settles the invocation, in both modes: in fresh mode the process's
+      exit then cuts the work off, as on Windmill (WR-2). The second run
+      waits for a control timer of the process scope, which the fence leaves
+      alone, before it reads what fired.
+    deviation: D9
+    script: |
+      const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 100 && !globalThis.wlControlFired; i++) await Bun.sleep(10);
+          return [globalThis.wlControlFired ?? false, globalThis.wlFired ?? []];
+        }
+        const fired = (what) => () => { (globalThis.wlFired ??= []).push(what); };
+        setTimeout(fired("timeout"), 10);
+        setInterval(fired("interval"), 10);
+        setImmediate(fired("immediate"));
+        const kept = setTimeout(fired("cleared"), 10);
+        clearTimeout(kept);
+        setTimeout(() => {}, 0).unref();
+        inProcess(() => setTimeout(() => { globalThis.wlControlFired = true; }, 30));
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        note: The cleared timeout is not left behind; the unref'd one is.
+        expect: {status: success, result: done}
+        warnings: [left_behind]
+        left: {immediate: 1, interval: 1, timeout: 2}
+        settled: completed
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: [true, []]}}
+          fresh: {expect: {status: success, result: [false, []]}}
+  - spec: D9
+    variant: fence-node-timers
+    provenance: policy
+    title: the fence covers the timers of node:timers, which a step imports by name
+    deviation: D9
+    script: |
+      import { setTimeout as later, setInterval as every } from "node:timers";
+      export async function main(wait: boolean) {
+        if (wait) {
+          await Bun.sleep(100);
+          return globalThis.wlFired ?? [];
+        }
+        later(() => { (globalThis.wlFired ??= []).push("timeout"); }, 10);
+        every(() => { (globalThis.wlFired ??= []).push("interval"); }, 10);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: done}
+        warnings: [left_behind]
+        left: {interval: 1, timeout: 1}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: []}}
+          fresh: {expect: {status: success, result: []}}
+  - spec: D9
+    variant: fence-fetch
+    provenance: policy
+    title: a request a step leaves in flight is aborted when it settles, with an AbortError
+    note: >-
+      The module starts a local server whose handler never answers; the
+      step requests it and returns without awaiting the response. In fresh
+      mode the second run's process never made the request.
+    deviation: D9
+    script: |
+      const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Promise(() => {}) });
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 100 && globalThis.wlFetch === undefined && globalThis.wlRequested; i++) await Bun.sleep(10);
+          return globalThis.wlFetch ?? null;
+        }
+        globalThis.wlRequested = true;
+        fetch(server.url).then(() => "answered", (e) => e.name).then((r) => { globalThis.wlFetch = r; });
+        return "requested";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: requested}
+        warnings: [left_behind]
+        left: {fetch: 1}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: AbortError}}
+          fresh: {expect: {status: success, result: null}}
+  - spec: D9
+    variant: fence-log
+    provenance: policy
+    title: output that a step's work writes after it settled is dropped, though the work itself runs on
+    note: >-
+      The write comes from a continuation of a promise-based wait, which
+      the fence does not stop. No late report reaches the engine for the
+      first run up to the end of the case; the second run sees that the
+      continuation ran, in warm mode only.
     deviation: D9
     script: |
       export async function main(wait: boolean) {
         if (wait) {
-          for (let i = 0; i < 200 && !globalThis.wlLateThrown; i++) await Bun.sleep(10);
-          return globalThis.wlLateThrown ?? false;
+          for (let i = 0; i < 100 && !globalThis.wlLogged; i++) await Bun.sleep(10);
+          return globalThis.wlLogged ?? false;
         }
-        setTimeout(() => { globalThis.wlLateThrown = true; throw new Error("late"); }, 10);
+        console.log("before the result");
+        Bun.sleep(20).then(() => { console.log("after settlement"); process.stdout.write("again\n"); globalThis.wlLogged = true; });
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: done}
+        settled: completed
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: true}}
+          fresh: {expect: {status: success, result: false}}
+  - spec: D9
+    variant: module-evaluation
+    provenance: policy
+    title: a timer a step module starts while it evaluates belongs to the module, so it survives the invocation that loaded it and is not reported
+    note: >-
+      Module state outlives invocations in warm mode (D1), and a client a
+      module makes at load keeps its maintenance timers there: the fence
+      leaves them alone (ADR 0004, loading). In fresh mode the process ended
+      with the first run, and the second run's module is new.
+    deviation: D9
+    script: |
+      globalThis.wlTicks = 0;
+      setInterval(() => { globalThis.wlTicks++; }, 5);
+      export async function main(wait: boolean) {
+        if (!wait) {
+          globalThis.wlAtSettlement = globalThis.wlTicks;
+          return "loaded";
+        }
+        if (globalThis.wlAtSettlement === undefined) return false;
+        for (let i = 0; i < 100 && globalThis.wlTicks <= globalThis.wlAtSettlement; i++) await Bun.sleep(5);
+        return globalThis.wlTicks > globalThis.wlAtSettlement;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: loaded}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: true}}
+          fresh: {expect: {status: success, result: false}}
+  - spec: D9
+    variant: work-after-settlement
+    provenance: policy
+    title: a timer that a step's work starts after the step settled is cleared at once, so it never fires
+    deviation: D9
+    script: |
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 100 && !globalThis.wlScheduled; i++) await Bun.sleep(10);
+          await Bun.sleep(50);
+          return [globalThis.wlScheduled ?? false, globalThis.wlFired ?? false];
+        }
+        Bun.sleep(10).then(() => {
+          setTimeout(() => { globalThis.wlFired = true; }, 0);
+          globalThis.wlScheduled = true;
+        });
         return "done";
       }
     runs:
@@ -141,5 +323,5 @@ cases:
         expect: {status: success, result: done}
       - args: '{"wait":true}'
         by_mode:
-          warm: {expect: {status: success, result: true}}
-          fresh: {expect: {status: success, result: false}}
+          warm: {expect: {status: success, result: [true, false]}}
+          fresh: {expect: {status: success, result: [false, false]}}
