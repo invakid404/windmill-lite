@@ -264,8 +264,11 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   handshake rejections and the pid check, outcomes, process death (through
   `process.reallyExit`, which the harness does not intercept), a
   `process.exit` that ends only its invocation, the attribution of a
-  timer's error and the warning of an unattributed rejection, a detached
-  rejection that ends nothing, cancel and late settlement, limits,
+  timer's error and the warning of an unattributed rejection, one whose
+  text exceeds a small `MaxMessage` (the warning is cut, and the process
+  lives), work after the result reported as a late error that settles
+  nothing (a timer's throw and its `process.exit`), a detached rejection
+  that ends nothing, cancel and late settlement, limits,
   the working directory, the watchdog case `watchdog/finite-cpu` in warm
   mode, and the pool rules above. A step that must still run when the test
   acts is a `gate` fixture step, which reports that it has started and ends
