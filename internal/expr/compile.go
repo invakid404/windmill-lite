@@ -285,9 +285,12 @@ func rewriteResults(t string) string {
 // The wrapper of each mode (JE-13): an async function, called at once,
 // whose opening and closing text sit on the first and last line of the
 // code, so that a trailing // comment on the last line comments the
-// closing text out and the source does not compile (JE-14).
+// closing text out and the source does not compile (JE-14). Its text is
+// observable: the engine's stack frames give positions in it (JE-21), and
+// the opening text puts the code at column 21 in statement mode and 28 in
+// expression mode, the positions E3a's recorded stacks show.
 const (
-	wrapOpen           = "(async function () { "
+	wrapOpen           = "(async function() { "
 	wrapReturn         = "return "
 	wrapCloseExpr      = "; })()"
 	wrapCloseStatement = " })()"

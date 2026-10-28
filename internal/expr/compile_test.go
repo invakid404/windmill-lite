@@ -20,9 +20,9 @@ func TestWrapperSingleLine(t *testing.T) {
 		lastLine string
 	}{
 		// spec: JE-14/a — the comment is followed by the closing text.
-		{SiteInputTransform, "flow_input.n // the count", ModeExpression, "(async function () { return flow_input.n // the count; })()"},
+		{SiteInputTransform, "flow_input.n // the count", ModeExpression, "(async function() { return flow_input.n // the count; })()"},
 		// spec: JE-14 — statement mode alike.
-		{SiteInputTransform, "let y = 1; return y // c", ModeStatement, "(async function () { let y = 1; return y // c })()"},
+		{SiteInputTransform, "let y = 1; return y // c", ModeStatement, "(async function() { let y = 1; return y // c })()"},
 		// spec: JE-14 — a multi-line text keeps its lines; the closing
 		// text is on the last.
 		{SiteInputTransform, "1 +\n2 // c", ModeExpression, "2 // c; })()"},

@@ -60,12 +60,13 @@ type program struct {
 }
 
 type job struct {
-	ctx     context.Context
-	compile bool
-	source  string
-	prog    *program
-	in      expr.Input
-	reply   chan reply
+	ctx      context.Context
+	compile  bool
+	source   string
+	prog     *program
+	preludes []*program
+	in       expr.Input
+	reply    chan reply
 }
 
 type reply struct {
@@ -144,7 +145,7 @@ func (e *Engine) Compile(source string) (expr.Program, error) {
 // Eval runs p on a fresh runtime and context, as expr.Engine describes. Each
 // HostString becomes a writable, enumerable and configurable global property
 // holding its text as a string, and each HostFunc a global function of that
-// name. A host function converts its first argument with ToString (a missing
+// name. Each prelude's top level then runs, in order, before p's. A host function converts its first argument with ToString (a missing
 // one is "undefined"), returns a Promise, and calls Call on its own
 // goroutine with a context that ends with the attempt; at most 64 calls of
 // one evaluation run at once, and the rest wait in call order. The Promise
@@ -162,9 +163,15 @@ func (e *Engine) Compile(source string) (expr.Program, error) {
 // expr.ErrAttemptTimeout or context.Cause(ctx), whatever the program got to. The result text is UTF-8, except that an
 // unpaired surrogate comes back as its three-byte (WTF-8) form.
 func (e *Engine) Eval(ctx context.Context, p expr.Program, in expr.Input) ([]byte, error) {
-	prog, ok := p.(*program)
-	if !ok || prog == nil || prog.engine != e {
+	prog, ok := e.own(p)
+	if !ok {
 		return nil, errForeign
+	}
+	preludes := make([]*program, len(in.Preludes))
+	for i, pp := range in.Preludes {
+		if preludes[i], ok = e.own(pp); !ok {
+			return nil, errForeign
+		}
 	}
 	for _, f := range in.Funcs {
 		if f.Call == nil {
@@ -174,11 +181,17 @@ func (e *Engine) Eval(ctx context.Context, p expr.Program, in expr.Input) ([]byt
 	if ctx.Err() != nil {
 		return nil, context.Cause(ctx)
 	}
-	r, err := e.submit(ctx, &job{ctx: ctx, prog: prog, in: in})
+	r, err := e.submit(ctx, &job{ctx: ctx, prog: prog, preludes: preludes, in: in})
 	if err != nil {
 		return nil, err
 	}
 	return r.out, r.err
+}
+
+// own returns p as a program this Engine compiled.
+func (e *Engine) own(p expr.Program) (*program, bool) {
+	prog, ok := p.(*program)
+	return prog, ok && prog != nil && prog.engine == e
 }
 
 // Close stops the Engine. Callers still waiting for a slot get ErrClosed;
