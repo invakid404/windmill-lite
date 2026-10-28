@@ -260,6 +260,35 @@
           ]
         }
       }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "unicode-escaped-binding",
+      "provenance": "policy",
+      "title": "a binding that spells the rewrite's name through a Unicode escape moves the build to another name",
+      "note": "The script spells the rewrite's first two candidate names only through escapes, which an identifier may use for any character; the collision check decodes them (c2a review 2, finding 6). Without that, Bun.env would read the script's own binding.",
+      "given": {
+        "source": "export function main() {\n  const __windmill_lite_B\\u0075n = { env: { WL_CASE: \"local\" } };\n  const __windmill_lite_Bun_\\u{32} = { env: { WL_CASE: \"local2\" } };\n  return [Bun.env.WL_CASE, __windmill_lite_B\\u0075n.env.WL_CASE, __windmill_lite_Bun_\\u{32}.env.WL_CASE];\n}\n"
+      },
+      "expect": {
+        "bundle_contains": [
+          "__windmill_lite_Bun_3.env"
+        ],
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "result": [
+                "view",
+                "local",
+                "local2"
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }

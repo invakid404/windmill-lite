@@ -1,0 +1,119 @@
+{
+  "case": "exit-caught",
+  "title": "an intercepted process.exit fixes an escaped outcome with its code while the call goes on; a catch that swallows the sentinel returns, and that return settles the invocation late (D11)",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-4",
+    "WR-20"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#the-shared-process-failure-model",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "exit-caught",
+        "entry": "main",
+        "args": {
+          "code": 3
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "escaped",
+        "tail": "",
+        "exit_code": 3,
+        "settled": false
+      }
+    },
+    {
+      "expect": {
+        "t": "late",
+        "id": "i1",
+        "kind": "result",
+        "body": "after",
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i2",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {
+          "value": "the process lives on"
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i2",
+        "outcome": "ok",
+        "body": "the process lives on",
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

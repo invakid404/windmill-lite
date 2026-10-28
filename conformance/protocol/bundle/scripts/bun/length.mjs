@@ -1,4 +1,4 @@
-// Returns the length of args.data.
-export function main(args) {
-  return args.data.length;
+// Returns the length of data.
+export function main(data) {
+  return data.length;
 }

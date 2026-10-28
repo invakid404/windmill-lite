@@ -1,0 +1,80 @@
+# WR-12: the entrypoint override and the flow preprocessor step. The
+# engine selects the export from _ENTRYPOINT_OVERRIDE, which the flow
+# preprocessor step's arguments always carry (engine.Entrypoint); the
+# harness checks that it is a function and binds its arguments. With ADR
+# 0004's alternate-entrypoint case, these are milestone C3a's exit gate.
+finding: WR-12
+scope: core
+cases:
+  - spec: WR-12/a
+    provenance: source-derived
+    title: a declared preprocessor binds the flow input by name
+    note: >-
+      The step runs as module preprocessor, with the whole flow input and
+      _ENTRYPOINT_OVERRIDE "preprocessor"; that the engine sets
+      WM_FLOW_STEP_ID to preprocessor is the flow runner's (N1a).
+    step_id: preprocessor
+    script: |
+      export function preprocessor(a: number) { return { a: a * 2 }; }
+      export function main(a: number) { return a; }
+    runs:
+      - args: '{"a":2,"b":1,"_ENTRYPOINT_OVERRIDE":"preprocessor"}'
+        expect: {status: success, result: {a: 4}}
+  - spec: WR-12/b
+    provenance: source-derived
+    title: an arrow preprocessor receives the non-underscore values, integer-like keys ascending
+    step_id: preprocessor
+    script: |
+      export const preprocessor = (x, y) => ({ x, y });
+    runs:
+      - args: '{"2":"two","1":"one","_ENTRYPOINT_OVERRIDE":"preprocessor"}'
+        expect: {status: success, result: {x: one, y: two}}
+  - spec: WR-12/c
+    provenance: source-derived
+    title: an arrow preprocessor with non-integer keys receives them in an unspecified order
+    note: >-
+      The catalogue's preprocessor returns ({ x, y }) and accepts either
+      assignment; this one returns [x, y], so that the comparison can accept
+      both orders as a multiset.
+    step_id: preprocessor
+    script: |
+      export const preprocessor = (x, y) => [x, y];
+    compare: {unordered: [/result]}
+    runs:
+      - args: '{"b":1,"a":2,"_ENTRYPOINT_OVERRIDE":"preprocessor"}'
+        expect: {status: success, result: [1, 2]}
+  - spec: WR-12
+    variant: alternate-entrypoint
+    provenance: source-derived
+    title: an override names another export, which receives its arguments by its own signature, a Date hydrated
+    note: The case of ADR 0004, entrypoints, with WR-6 and WR-8.
+    script: |
+      export function main(when: string) { return "main"; }
+      export function alternate(when: Date, n: number) { return [when instanceof Date, when.toISOString(), n]; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"alternate","when":"2024-01-02T03:04:05Z","n":7}'
+        expect: {status: success, result: [true, "2024-01-02T03:04:05.000Z", 7]}
+      - args: '{"when":"2024-01-02T03:04:05Z"}'
+        expect: {status: success, result: main}
+  - spec: WR-12
+    variant: missing-override-export
+    provenance: source-derived
+    title: an override naming no exported function fails with <name> function is missing
+    script: |
+      export function main() { return 1; }
+      export const alternate = 1;
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"alternate"}'
+        expect: {status: failure, result: {error: {message: alternate function is missing, name: Error, stack: "<stack>", step_id: a}}}
+      - args: '{"_ENTRYPOINT_OVERRIDE":"other"}'
+        expect: {status: failure, result: {error: {message: other function is missing, name: Error, stack: "<stack>", step_id: a}}}
+  - spec: WR-12
+    variant: missing-preprocessor
+    provenance: source-derived
+    title: a flow preprocessor step whose script exports no preprocessor
+    step_id: preprocessor
+    script: |
+      export function main() { return 1; }
+    runs:
+      - args: '{"a":1,"_ENTRYPOINT_OVERRIDE":"preprocessor"}'
+        expect: {status: failure, result: {error: {message: preprocessor function is missing, name: Error, stack: "<stack>", step_id: preprocessor}}}

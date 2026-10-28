@@ -9,6 +9,8 @@ streams, spawned harness processes with their handshake and supervision,
 invocations through settlement, health, the watchdog, and pools. W1 added
 the platform frames, with a pluggable handler, and host mode, where the
 engine is the child of a Bun host that is also its harness (`AttachHost`).
+Milestone C3a added the `warning` frame, which hands an unattributed
+process-level error to every invocation in flight.
 `Pool` and `Process` implement `engine.StepExecutor`; their users are the
 walking skeleton's interpreter in
 [internal/engine](../engine/README.md) and its `windmill-lite host` command
@@ -25,9 +27,9 @@ Not here yet:
 - Host mode's completion (F3a): drain from the engine's side, the working
   directory checks on the engine's side, `onRunSettled` across the
   connection.
-- Mapping an outcome to Windmill's stored value (WR-20, WR-21, WR-V2), which
-  C3a and N1a do from the `engine.StepOutcome` this package returns.
-- Warnings for process-level errors no invocation owned (C3a).
+- Mapping an outcome to Windmill's stored value: `engine.StoreOutcome`
+  does it from the `engine.StepOutcome` this package returns
+  ([internal/engine](../engine/README.md)).
 
 ## Files
 
@@ -63,7 +65,7 @@ milestone C1 fixed the details they left open.
   next part frame and gives part streams turns, so a `cancel` or a `pong`
   waits behind at most one part frame.
 - **Order per invocation.** A message about an invocation (`invoke`,
-  `cancel`, `result`, `late`, `log`) queued while a part stream about the
+  `cancel`, `result`, `late`, `log`, `warning`) queued while a part stream about the
   same invocation is open waits for that stream's last part, so a `cancel`
   never overtakes the large `invoke` it cancels. Messages about one
   host-mode run (`run`, `run_done`, `run_cancel`) keep their order the same
@@ -76,6 +78,12 @@ milestone C1 fixed the details they left open.
   the wrong direction or one about an invocation in the wrong state is a
   `ProtocolError`. The `Process` then kills its harness; in host mode it
   ends the connection instead, and with it the engine.
+- **Warnings** (C3a). A process-level error that no invocation's context
+  raised reaches each invocation in flight as `warning`, with `id`, `code`
+  (`unattributed_error`) and `message` (its kind, text and stack), ahead
+  of the frame that settles it. The `Process` hands it to the
+  invocation's `Reporter.Warning`; one for an invocation that is not in
+  flight is dropped with a diagnostics line.
 - **Platform calls** (W1). When `ProcessConfig.Facade` names the facade's
   origin, the welcome carries it as `facade`, and the harness turns every
   fetch to that origin into a `platform` frame: `inv` (the invocation whose
@@ -125,7 +133,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 |---|---|---|
 | refused before dispatch (a bad entry name, the native boundary, fresh mode, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
 | `result` with `settled` true | the outcome | `Settled(completed)` first |
-| `result` with `settled` false | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
+| `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
 | host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
@@ -246,10 +254,21 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   platform answer.
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
-  the C1 exit gate: protocol golden tests on Bun 1.3.10.
+  the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture
+  bundle's scripts take named parameters, each with the `.meta.json`
+  signature the build helper would record; C3a added the transcripts of
+  an intercepted `process.exit` (`exit-caught`, `exit-zero`,
+  `exit-from-timer`), an attributed error, the unattributed warning and a
+  signature that did not parse.
 - `bun_test.go` runs `Process` and `Pool` against the real Bun harness:
-  handshake rejections and the pid check, outcomes, process death, a
-  detached rejection that ends nothing, cancel and late settlement, limits,
+  handshake rejections and the pid check, outcomes, process death (through
+  `process.reallyExit`, which the harness does not intercept), a
+  `process.exit` that ends only its invocation, the attribution of a
+  timer's error and the warning of an unattributed rejection, one whose
+  text exceeds a small `MaxMessage` (the warning is cut, and the process
+  lives), work after the result reported as a late error that settles
+  nothing (a timer's throw and its `process.exit`), a detached rejection
+  that ends nothing, cancel and late settlement, limits,
   the working directory, the watchdog case `watchdog/finite-cpu` in warm
   mode, and the pool rules above. A step that must still run when the test
   acts is a `gate` fixture step, which reports that it has started and ends

@@ -1,0 +1,74 @@
+# WR-13: the result is JSON.stringify(value ?? null, replacer), with the
+# undefined replacer and the BigInt patch.
+finding: WR-13
+scope: core
+cases:
+  - spec: WR-13/a
+    provenance: source-derived
+    title: standard serialisation plus the undefined replacer and the BigInt patch
+    script: |
+      export function main() { return { a: undefined, f() {}, n: 10n, d: new Date(Date.UTC(2024,0,2,3,4,5,6)), m: new Map([[1,2]]), u8: new Uint8Array([1,2]), x: [undefined, NaN, -0] }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {a: null, n: "10", d: "2024-01-02T03:04:05.006Z", m: {}, u8: {"0": 1, "1": 2}, x: [null, null, 0]}}
+  - spec: WR-13/b
+    provenance: source-derived
+    title: a top-level undefined becomes null
+    script: |
+      export function main() { return undefined; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: null}
+  - spec: WR-13/c
+    provenance: source-derived
+    title: a cyclic result fails the job with a TypeError
+    script: |
+      export function main() { const o: any = {}; o.self = o; return o; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-13/d
+    provenance: source-derived
+    title: a top-level function result fails the job with a TypeError
+    note: Its message on Bun 1.3.10, and whether Windmill fails it this way at all, are Q-WR-12's; only the name is checked.
+    script: |
+      export function main() { return () => 1; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+  - spec: WR-13
+    variant: falsy-kept
+    provenance: source-derived
+    title: false, 0 and the empty string are kept at the top level
+    script: |
+      export function main(v: unknown) { return v; }
+    runs:
+      - args: '{"v":false}'
+        expect: {status: success, result: false}
+      - args: '{"v":0}'
+        expect: {status: success, result: 0}
+      - args: '{"v":""}'
+        expect: {status: success, result: ""}
+  - spec: WR-13
+    variant: to-json-undefined
+    provenance: source-derived
+    title: an object whose toJSON returns undefined serialises as null, at any depth
+    script: |
+      export function main() { const u = { toJSON() { return undefined; } }; return { u, top: [u] }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {u: null, top: [null]}}
+  - spec: WR-13
+    variant: bigint-deep
+    provenance: source-derived
+    title: a BigInt anywhere in the result serialises as its decimal string
+    script: |
+      export function main() { return { a: [9007199254740993n, { b: -1n }] }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {a: ["9007199254740993", {b: "-1"}]}}

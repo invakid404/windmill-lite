@@ -1,0 +1,12 @@
+{
+  "signatures": {
+    "main": {
+      "params": [
+        {
+          "name": "shim",
+          "date": false
+        }
+      ]
+    }
+  }
+}

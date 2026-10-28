@@ -180,6 +180,10 @@ waits on an external gate except R1.
   the shared build transforms (the define table, its support module and the shim
   generator) in `internal/bundle`, which F4 extends with the bundle format,
   and the Bun build helper in `harnesses/bun/build`.
+- `conformance/steps/` holds the step cases, the level of
+  [0003](0003-semantics-placement.md) that milestone C3a gave its format
+  and its runner, `wltest check`; C3a runs them in `warm`, and C3b adds
+  `fresh`.
 - F4 added `windmill-lite selfcheck`, which starts the expression engine and
   runs a few probes, to the CLI: it is how its exit gate starts the static
   Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).

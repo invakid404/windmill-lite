@@ -1,0 +1,41 @@
+# WR-V1: an override with zero parsed parameters passes the non-internal
+# values (conformance/build/wr-v1.json is the build half).
+finding: WR-V1
+scope: core
+cases:
+  - spec: WR-V1/a
+    provenance: source-derived
+    title: a zero-parameter export reached by an override gets the non-underscore values
+    script: |
+      export function other() { return [...arguments]; }
+      export function main() { return 0; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"other","9":9,"2":2,"_hidden":7}'
+        expect: {status: success, result: [2, 9]}
+  - spec: WR-V1/b
+    provenance: source-derived
+    title: the same zero-parameter function as main, with no override, gets no arguments
+    script: |
+      export function main() { return [...arguments]; }
+    runs:
+      - args: '{"9":9,"2":2}'
+        expect: {status: success, result: []}
+  - spec: WR-V1
+    variant: override-main
+    provenance: source-derived
+    title: an override that names main still selects the fallback
+    note: Only the override's presence and the empty parameter list select it, whatever export it names.
+    script: |
+      export function main() { return [...arguments]; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"main","x":"y"}'
+        expect: {status: success, result: ["y"]}
+  - spec: WR-V1
+    variant: no-hydration
+    provenance: source-derived
+    title: the fallback hydrates nothing, since the parsed signature has no parameters
+    script: |
+      export const other = (when) => typeof when;
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"other","when":"2024-01-02T03:04:05Z"}'
+        expect: {status: success, result: string}

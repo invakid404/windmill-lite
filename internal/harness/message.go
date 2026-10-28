@@ -20,8 +20,9 @@ const ProtocolVersion = 1
 // Message types (the `t` field, ADR 0004). Milestone C1 implemented the
 // frames of spawned harnesses; the walking skeleton (W1) added
 // `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
-// and host mode's `run`/`run_done`/`run_cancel`. `host_call`/`host_reply`
-// (F2c) are refused as CodeUnknownType until their milestone.
+// and host mode's `run`/`run_done`/`run_cancel`; milestone C3a added
+// `warning`. `host_call`/`host_reply` (F2c) are refused as CodeUnknownType
+// until their milestone.
 const (
 	TypeHello         = "hello"
 	TypeWelcome       = "welcome"
@@ -30,6 +31,7 @@ const (
 	TypeLate          = "late"
 	TypeCancel        = "cancel"
 	TypeLog           = "log"
+	TypeWarning       = "warning"
 	TypePlatform      = "platform"
 	TypePlatformReply = "platform_reply"
 	TypeRun           = "run"
@@ -182,6 +184,21 @@ type Log struct {
 	Lines []string
 }
 
+// Warning is a process-level error that no invocation's context raised,
+// sent once for each invocation in flight when it happened (ADR 0004, the
+// shared-process failure model, item 3). It fails nothing.
+type Warning struct {
+	// ID is the invocation in flight.
+	ID string
+	// Code is WarningUnattributed.
+	Code    string
+	Message string
+}
+
+// WarningUnattributed is the code of a warning for a process-level error
+// that the harness could not attribute to any invocation.
+const WarningUnattributed = "unattributed_error"
+
 // PlatformRequest is a fetch to the platform facade that the harness
 // intercepted, attributed to the invocation whose context made it
 // (ADR 0004, ADR 0007). Body holds the request's bytes, which travel as
@@ -288,6 +305,7 @@ func (Result) Type() string          { return TypeResult }
 func (Late) Type() string            { return TypeLate }
 func (Cancel) Type() string          { return TypeCancel }
 func (Log) Type() string             { return TypeLog }
+func (Warning) Type() string         { return TypeWarning }
 func (PlatformRequest) Type() string { return TypePlatform }
 func (PlatformReply) Type() string   { return TypePlatformReply }
 func (RunRequest) Type() string      { return TypeRun }
@@ -404,6 +422,14 @@ func (m Log) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeLog)
 	e.str("id", m.ID)
 	e.strings("lines", m.Lines)
+	return e.end()
+}
+
+func (m Warning) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeWarning)
+	e.str("id", m.ID)
+	e.str("code", m.Code)
+	e.str("message", m.Message)
 	return e.end()
 }
 
@@ -632,6 +658,8 @@ func Decode(payload []byte) (Message, error) {
 		m = c
 	case TypeLog:
 		m = Log{ID: d.str("id"), Lines: d.strings("lines")}
+	case TypeWarning:
+		m = Warning{ID: d.str("id"), Code: d.str("code"), Message: d.str("message")}
 	case TypePlatform:
 		m = PlatformRequest{
 			ID:      d.str("id"),

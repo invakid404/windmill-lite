@@ -329,6 +329,59 @@
           }
         }
       }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "non-exported-rest",
+      "provenance": "source-derived",
+      "title": "a non-exported declaration is parsed too, so a rest parameter records the parse failure under its name",
+      "note": "The parser recognises a function main declaration whether it is exported or not; C3a fails such a job before its module loads (conformance/steps/bun/wr-7.yaml).",
+      "given": {
+        "source": "function main(...xs: number[]) { return xs.length; }\nexport const value = 1;\n"
+      },
+      "expect": {
+        "exports": [
+          "value"
+        ],
+        "signatures": {
+          "main": {
+            "error_contains": "parameter syntax unsupported: "
+          },
+          "value": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "non-exported-params",
+      "provenance": "source-derived",
+      "title": "a non-exported declaration that parses records its parameters; the module still does not export it",
+      "given": {
+        "source": "function main(a: Date) { return a; }\nfunction other(...xs) { return xs; }\nexport function used() { return main(new Date(0)); }\n"
+      },
+      "expect": {
+        "exports": [
+          "used"
+        ],
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": true
+              }
+            ]
+          },
+          "other": {
+            "error_contains": "parameter syntax unsupported: "
+          },
+          "used": {
+            "params": []
+          }
+        }
+      }
     }
   ]
 }

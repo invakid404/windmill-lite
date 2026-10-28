@@ -1,0 +1,64 @@
+# WR-19: failures that escape the wrapper's error shaping become WR-20's
+# log-tail error, with exit code 1 until Q-WR-2 is recorded.
+finding: WR-19
+scope: core
+cases:
+  - spec: WR-19/a
+    provenance: source-derived
+    title: a top-level module throw escapes; the exit code 1 is a prediction (Q-WR-2)
+    script: |
+      throw new Error("top");
+      export function main() {}
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+          - {at: /result/error/message, contains: [top]}
+          - {at: /result/error/exit_code, equals: 1}
+          - {at: /result/error/step_id, equals: a}
+      - args: '{}'
+        note: The module's evaluation failed, so every invocation of it fails the same way, as every Windmill job of it would.
+        claims:
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/exit_code, equals: 1}
+  - spec: WR-19
+    variant: throw-null
+    provenance: source-derived
+    title: throw null makes reading its message fail inside the handler, so it escapes (case (a); FX-47/b)
+    script: |
+      export function main() { throw null; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+          - {at: /result/error/exit_code, equals: 1}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-19
+    variant: throw-undefined
+    provenance: source-derived
+    title: throw undefined escapes too (case (a))
+    step_id: ""
+    script: |
+      export function main() { throw undefined; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/exit_code, equals: 1}
+          - {at: /result/error/step_id, absent: true}
+  - spec: WR-19
+    variant: unserialisable-extra
+    provenance: source-derived
+    title: an extra that cannot be serialised makes the handler fail, so the failure escapes (case (c))
+    script: |
+      export function main() { const e: any = new Error("cyclic"); e.self = e; throw e; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/exit_code, equals: 1}
+          - {at: /result/error/message, contains: [cyclic]}

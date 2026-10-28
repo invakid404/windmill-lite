@@ -6,13 +6,14 @@
 // it submits runs, and each invocation of a run re-enters the scope the
 // host had when it submitted it (H11).
 //
-// The step runner is milestone C1's skeleton: it loads a bundled module and
-// calls one export with the argument object. The walking skeleton (W1)
-// added the per-invocation environment, the facade fetch, handlers for
-// process-level errors and host mode. Binding by signature, Date hydration,
-// Windmill's result and error serialisation, process.exit interception,
-// error attribution, and per-invocation logs come with milestones C3a and
-// C3b.
+// The step runner applies Windmill's Bun wrapper rules (wrapper.ts,
+// milestone C3a): the entrypoint's signature from the bundle, binding and
+// Date hydration, the result and error serialisation, the missing-export
+// error, process.exit interception (D11) and the attribution of
+// process-level errors to the invocation whose context raised them. The
+// walking skeleton (W1) added the per-invocation environment, the facade
+// fetch, the process-level handlers and host mode. Per-invocation logs and
+// child-process wrapping come with milestone C3b.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import {
   Assembler,
   decodeAssembled,
   decodeFrame,
+  encode,
   FrameReader,
   type Health,
   type Message,
@@ -29,12 +31,34 @@ import {
   Raw,
   Sender,
 } from "./frame.ts";
-import { installEnvView, installFetch, installProcessHandlers, invocations, type PlatformAnswer, type PlatformCall, shadow } from "./context.ts";
+import {
+  current,
+  installEnvView,
+  installExit,
+  installFetch,
+  installProcessHandlers,
+  installProcessScope,
+  type InvocationContext,
+  InvocationResources,
+  invocations,
+  type PlatformAnswer,
+  type PlatformCall,
+  ProcessExit,
+  shadow,
+} from "./context.ts";
+import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 /** The protocol version this harness speaks. */
 export const PROTOCOL_VERSION = 1;
 /** The harness's own version; packaging (milestone F4) stamps it. */
 export const HARNESS_VERSION = "0.0.0-c1";
+/** How much of an escaped invocation's text its tail keeps: the last 600
+ * characters, as Windmill's log tail (WR-20). */
+export const TAIL_LENGTH = 600;
+/** The code of a warning frame for a process-level error that no
+ * invocation's context raised (ADR 0004, the shared-process failure model,
+ * item 3). */
+export const UNATTRIBUTED = "unattributed_error";
 
 /** Exit codes of the harness process. */
 export const EXIT = {
@@ -71,12 +95,19 @@ export type Options = {
   onWelcome?: () => void;
 };
 
+/** An invocation from invoke until the frame that settles it is queued:
+ * running while its outcome is open, fixed once an intercepted
+ * process.exit or an attributed process-level error has reported its
+ * outcome with the call still going on, abandoned once the engine
+ * canceled it. A fixed or abandoned invocation's end is reported late. */
 type Invocation = {
   id: string;
-  abandoned: boolean;
+  state: "running" | "fixed" | "abandoned";
   /** When the engine abandoned it (performance.now()). */
   abandonedAt?: number;
   controller: AbortController;
+  /** Its registry in its async-context store, settled with it. */
+  resources: InvocationResources;
 };
 
 /** A run's outcome, as run_done reports it. result is its JSON text. */
@@ -89,7 +120,8 @@ export type HostHealth = Health & { oldest_abandoned_ms: number };
 type Outcome =
   | { outcome: "ok"; body: string }
   | { outcome: "error"; body: string }
-  | { outcome: "escaped"; tail: string; exit_code: number };
+  | { outcome: "escaped"; tail: string; exit_code: number }
+  | { outcome: "empty" };
 
 export class Runtime {
   private reader = new FrameReader();
@@ -100,6 +132,7 @@ export class Runtime {
   private byeSent = false;
   private invocations = new Map<string, Invocation>();
   private modules = new Map<string, Promise<Record<string, unknown>>>();
+  private metas = new Map<string, Promise<unknown>>();
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private pingSeq = 0;
   private lagMs = 0;
@@ -115,14 +148,13 @@ export class Runtime {
     this.sender = new Sender((b) => opts.transport.write(b));
     this.diag = opts.diag ?? ((line) => process.stderr.write(line + "\n"));
     installEnvView();
+    installProcessScope();
     installFetch(
       () => this.facade,
       (c) => this.platformCall(c),
     );
-    installProcessHandlers((kind, e) => {
-      this.errors++;
-      this.diag(`windmill-lite harness: ${kind} that no invocation owns: ${describe(e)}`);
-    });
+    installProcessHandlers((kind, e) => this.onProcessError(kind, e));
+    installExit((c, status) => this.onExit(c, status));
   }
 
   /** Sends hello; the engine answers with welcome. */
@@ -252,10 +284,8 @@ export class Runtime {
     let oldest = 0;
     const now = performance.now();
     for (const inv of this.invocations.values()) {
-      if (!inv.abandoned) {
-        inFlight++;
-        continue;
-      }
+      if (inv.state === "running") inFlight++;
+      if (inv.state !== "abandoned") continue;
       abandoned++;
       oldest = Math.max(oldest, Math.round(now - (inv.abandonedAt ?? now)));
     }
@@ -264,11 +294,11 @@ export class Runtime {
 
   private invoke(m: Message) {
     if (this.invocations.has(m.id)) throw new ProtocolError("unexpected_message", `invocation ${JSON.stringify(m.id)} is already in flight`);
-    const inv: Invocation = { id: m.id, abandoned: false, controller: new AbortController() };
+    const inv: Invocation = { id: m.id, state: "running", controller: new AbortController(), resources: new InvocationResources() };
     this.invocations.set(m.id, inv);
     const env: Record<string, string> = Object.assign(Object.create(null), m.env);
     shadow(env);
-    const ctx = { id: m.id, run: m.run, env, signal: inv.controller.signal };
+    const ctx: InvocationContext = { id: m.id, run: m.run, env, signal: inv.controller.signal, resources: inv.resources };
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
     // submitted the run.
@@ -284,35 +314,54 @@ export class Runtime {
       });
   }
 
-  /** The skeleton step runner. */
+  /** Runs one invocation with the wrapper's rules, in the wrapper's order
+   * (WR-2). Its module's top-level code, and a failure to load it, come
+   * first; then the export is checked, the arguments are bound and
+   * hydrated, and the entrypoint is called and awaited, its result
+   * serialised. A throw from any of those is caught and shaped (WR-18). */
   private async run(m: Message): Promise<Outcome> {
+    let sig: Signature | undefined;
+    try {
+      sig = signatureOf(await this.meta(m.script), m.entry);
+    } catch (e) {
+      return escaped(`windmill-lite: cannot read the metadata of script ${JSON.stringify(m.script)}: ${describe(e)}`);
+    }
+    // Windmill's worker fails the job before its process starts when the
+    // entrypoint's signature does not parse (WR-7, WR-37), so the module
+    // never loads.
+    if (sig?.error !== undefined) return { outcome: "error", body: signatureErrorText(sig.error, stepId()) };
     let mod: Record<string, unknown>;
     try {
       mod = await this.load(m.script);
     } catch (e) {
       // A module that fails to load or evaluate escapes the wrapper
-      // (WR-19); its tail is the error's text until C3a attributes logs.
-      return { outcome: "escaped", tail: describe(e), exit_code: 1 };
+      // (WR-19); its tail is the error's text until C3b attributes logs.
+      // One that called process.exit while it evaluated ends as the exit
+      // did, for every invocation of it (D11).
+      if (e instanceof ProcessExit) return exited(e.status);
+      return escaped(describe(e));
     }
     const fn = mod[m.entry];
-    if (typeof fn !== "function") {
-      return caught(new Error(`${m.entry} function is missing`));
+    if (typeof fn === "function" && sig === undefined) {
+      return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
     }
     let value: unknown;
     try {
-      value = await fn(m.args);
+      // The export check happens where the wrapper makes it, after the
+      // import (ADR 0004, entrypoints), in the wrapper-catch shape.
+      if (typeof fn !== "function") throw new Error(`${m.entry} function is missing`);
+      const argv = bind(sig!.params!, m.args as Record<string, unknown>);
+      patchBigInt();
+      value = await fn(...argv);
     } catch (e) {
-      if (e === null || e === undefined) return { outcome: "escaped", tail: "", exit_code: 1 };
+      if (e instanceof ProcessExit) return exited(e.status);
       return caught(e);
     }
-    let body: string | undefined;
     try {
-      body = JSON.stringify(value ?? null);
+      return { outcome: "ok", body: resultText(value) };
     } catch (e) {
       return caught(e);
     }
-    if (body === undefined) return caught(new TypeError("the result has no JSON form"));
-    return { outcome: "ok", body };
   }
 
   /** Loads a script's bundled module once per process (warm module state,
@@ -320,16 +369,138 @@ export class Runtime {
   private load(script: string): Promise<Record<string, unknown>> {
     let p = this.modules.get(script);
     if (!p) {
-      p = scriptPath(this.opts.bundleDir, script).then((path) => import(pathToFileURL(path).href));
+      p = scriptPath(this.opts.bundleDir, script, ".mjs").then((path) => import(pathToFileURL(path).href));
       this.modules.set(script, p);
     }
     return p;
   }
 
+  /** Reads a script's metadata (scripts/bun/<id>.meta.json, ADR 0010)
+   * once per process: the signature of each of its exports, which the
+   * build recorded (ADR 0002). */
+  private meta(script: string): Promise<unknown> {
+    let p = this.metas.get(script);
+    if (!p) {
+      p = scriptPath(this.opts.bundleDir, script, ".meta.json").then((path) => Bun.file(path).json());
+      this.metas.set(script, p);
+    }
+    return p;
+  }
+
+  /** An intercepted process.exit (D11). In a running invocation it fixes
+   * the outcome: empty for status 0, since no result was written (WR-V2),
+   * escaped with the status otherwise. The call goes on until the sentinel
+   * ends it or is caught, and its end is reported late. In an invocation
+   * whose outcome is already fixed, that was abandoned, or that has
+   * settled, it changes nothing and is reported as a late error. */
+  private onExit(c: InvocationContext, status: number) {
+    const inv = c.resources.settled ? undefined : this.invocations.get(c.id);
+    if (inv?.state === "running") {
+      this.fix(inv, exited(status));
+      return;
+    }
+    this.lateError(c.id, new ProcessExit(status));
+  }
+
+  /** A process-level error (ADR 0004, the shared-process failure model).
+   * One raised in an invocation's context is attributed to it: a running
+   * invocation fails as escaped, with exit code 1 (Q-WR-2) and the error's
+   * text as its tail, while its call may go on; for any other, it is a
+   * late error, and its outcome stands (D9). One raised in no invocation's
+   * context fails nothing: it is counted in health, written to the
+   * diagnostics, and attached as a warning to every invocation in flight. */
+  private onProcessError(kind: string, e: unknown) {
+    // A handler must never throw: its exception would reach the other
+    // handler, and one thrown from there ends the process (Bun exits 7),
+    // which item 1 forbids.
+    try {
+      this.processError(kind, e);
+    } catch (err) {
+      try {
+        this.diag(`windmill-lite harness: could not report a ${kind}: ${describe(err)}`);
+      } catch {
+        // Nothing is left to report it to.
+      }
+    }
+  }
+
+  private processError(kind: string, e: unknown) {
+    const c = current();
+    if (c !== undefined) {
+      this.diag(`windmill-lite harness: ${kind} in invocation ${JSON.stringify(c.id)}: ${describe(e)}`);
+      const inv = c.resources.settled ? undefined : this.invocations.get(c.id);
+      if (inv?.state === "running") this.fix(inv, escaped(describe(e)));
+      else this.lateError(c.id, e);
+      return;
+    }
+    this.errors++;
+    this.diag(`windmill-lite harness: ${kind} that no invocation owns: ${describe(e)}`);
+    const message = `${kind}: ${describe(e)}`;
+    for (const inv of this.invocations.values()) this.sendWarning(inv.id, message);
+  }
+
+  /** Sends a warning, its message cut to fit max_message: the error's
+   * text can be as long as the step made it. A warning that cannot fit at
+   * all is only written to the diagnostics. It never throws. */
+  private sendWarning(id: string, message: string) {
+    const m = fitString({ t: "warning", id, code: UNATTRIBUTED, message: "" }, "message", message, this.sender.maxMessage);
+    if (m === undefined) {
+      this.diag(`windmill-lite harness: a warning for invocation ${JSON.stringify(id)} does not fit max_message`);
+      return;
+    }
+    try {
+      this.send(m);
+    } catch (err) {
+      this.diag(`windmill-lite harness: ${describe(err)}`);
+    }
+  }
+
+  /** Reports a running invocation's outcome while its call goes on: a
+   * result frame with settled false. The call's end is reported late. */
+  private fix(inv: Invocation, o: Outcome) {
+    if (this.stopped || this.byeSent) return;
+    inv.state = "fixed";
+    for (const msg of [
+      { t: "result", id: inv.id, ...rawBody(o), settled: false },
+      { t: "result", id: inv.id, outcome: "escaped", tail: "", exit_code: "exit_code" in o ? o.exit_code : 1, settled: false },
+    ]) {
+      try {
+        this.sender.send(msg);
+        return;
+      } catch (e) {
+        this.diag(`windmill-lite harness: ${e instanceof ProtocolError ? e.message : describe(e)}`);
+      }
+    }
+    this.stop(EXIT.unreportable);
+  }
+
+  /** Reports an error of an invocation whose outcome is already fixed, as
+   * a late error that settles nothing (D9). Its body is the error's WR-18
+   * object, or none when that cannot be built. */
+  private lateError(id: string, e: unknown) {
+    let body: Raw | undefined;
+    try {
+      body = new Raw(errorText(e, stepId()));
+    } catch {
+      body = undefined;
+    }
+    // One too large for max_message goes without its body.
+    for (const b of body === undefined ? [undefined] : [body, undefined]) {
+      try {
+        this.send({ t: "late", id, kind: "error", body: b, settled: false });
+        return;
+      } catch (err) {
+        this.diag(`windmill-lite harness: ${describe(err)}`);
+      }
+    }
+  }
+
+  /** Abandons a running invocation. A cancel that crossed the result of an
+   * invocation whose outcome is already fixed changes nothing. */
   private cancel(m: Message) {
     const inv = this.invocations.get(m.id);
-    if (!inv || inv.abandoned) return;
-    inv.abandoned = true;
+    if (inv?.state !== "running") return;
+    inv.state = "abandoned";
     inv.abandonedAt = performance.now();
     inv.controller.abort(m.reason);
   }
@@ -395,19 +566,22 @@ export class Runtime {
   }
 
   /** Reports how the entrypoint call ended: as the result, or, for an
-   * abandoned invocation, as the late frame that settles it. The invocation
-   * stays in flight until one such frame is queued. When the outcome is
-   * larger than max_message, a smaller frame that fits takes its place: an
-   * escaped result whose tail says why (milestone C3a decides the final
-   * mapping), then one with no tail; for an abandoned call, a late error
-   * without a body. If none fits, the connection ends, and the engine
-   * settles the invocation with the process. */
+   * invocation that was abandoned or whose outcome was fixed early, as the
+   * late frame that settles it. The invocation stays in flight until one
+   * such frame is queued. When the outcome is larger than max_message, a
+   * smaller frame that fits takes its place: an escaped result whose tail
+   * says why, then one with no tail; for a late end, a late error without
+   * a body. If none fits, the connection ends, and the engine settles the
+   * invocation with the process. A result above max_message is refused
+   * by the protocol's limit, not by Windmill's size limits, which are the
+   * engine's at completion (WR-15). */
   private finish(inv: Invocation, o: Outcome) {
     if (this.stopped || this.byeSent || this.invocations.get(inv.id) !== inv) return;
     for (const msg of this.terminalFrames(inv, o)) {
       try {
         this.sender.send(msg);
         this.invocations.delete(inv.id);
+        inv.resources.settle();
         return;
       } catch (e) {
         this.diag(`windmill-lite harness: ${e instanceof ProtocolError ? e.message : describe(e)}`);
@@ -418,7 +592,7 @@ export class Runtime {
   }
 
   private terminalFrames(inv: Invocation, o: Outcome): Outgoing[] {
-    if (inv.abandoned) {
+    if (inv.state !== "running") {
       const kind = o.outcome === "ok" ? "result" : "error";
       const full: Outgoing = { t: "late", id: inv.id, kind, body: "body" in o ? new Raw(o.body) : undefined, settled: true };
       return [full, { t: "late", id: inv.id, kind: "error", settled: true }];
@@ -456,7 +630,10 @@ export class Runtime {
     if (this.stopped) return;
     this.stopped = true;
     if (this.heartbeat) clearInterval(this.heartbeat);
-    for (const inv of this.invocations.values()) inv.controller.abort("harness_exit");
+    for (const inv of this.invocations.values()) {
+      inv.controller.abort("harness_exit");
+      inv.resources.settle();
+    }
     const lost = new Error("windmill-lite: the engine connection ended");
     for (const c of this.platformCalls.values()) c.reject(lost);
     for (const r of this.runs.values()) r.reject(lost);
@@ -468,25 +645,76 @@ export class Runtime {
   }
 }
 
-function rawBody(o: Outcome): Record<string, unknown> {
-  if (o.outcome === "escaped") return { outcome: o.outcome, tail: o.tail, exit_code: o.exit_code };
-  return { outcome: o.outcome, body: new Raw(o.body) };
+/** The message m with its string field set to as much of text, from the
+ * start, as keeps the message's canonical payload within limit bytes,
+ * ending in "…" when cut; undefined when not even an empty string fits. A
+ * cut never splits a surrogate pair. */
+export function fitString(m: Outgoing, field: string, text: string, limit: number): Outgoing | undefined {
+  const size = (t: string) => encode({ ...m, [field]: t }).length;
+  if (size(text) <= limit) return { ...m, [field]: text };
+  const cut = (k: number) => {
+    if (k > 0 && k < text.length && /[\uD800-\uDBFF]/.test(text[k - 1])) k--;
+    return text.slice(0, k) + "…";
+  };
+  if (size(cut(0)) > limit) return size("") <= limit ? { ...m, [field]: "" } : undefined;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (size(cut(mid)) <= limit) lo = mid;
+    else hi = mid - 1;
+  }
+  return { ...m, [field]: cut(lo) };
 }
 
-/** The outcome of a caught throw: an error with message, name and stack,
- * the first fields of WR-18's shape (step_id and extra are milestone
- * C3a's); fields a value does not have are left out, as JSON.stringify
- * leaves them. When that object cannot be built or serialised (a throwing
- * getter, a BigInt or a cycle in it), the failure escapes the error shaping,
- * as in WR-19. */
+function rawBody(o: Outcome): Record<string, unknown> {
+  switch (o.outcome) {
+    case "escaped":
+      return { outcome: o.outcome, tail: o.tail, exit_code: o.exit_code };
+    case "empty":
+      return { outcome: o.outcome };
+    default:
+      return { outcome: o.outcome, body: new Raw(o.body) };
+  }
+}
+
+/** An outcome that escaped the wrapper's error shaping (WR-19), with exit
+ * code 1 until Q-WR-2 is recorded, and the last TAIL_LENGTH characters of
+ * text as its tail. */
+function escaped(text: string, exitCode = 1): Outcome {
+  return { outcome: "escaped", tail: text.slice(-TAIL_LENGTH), exit_code: exitCode };
+}
+
+/** The outcome of process.exit(status): empty for 0, since no result was
+ * written (WR-V2); escaped with the status otherwise, with no tail, since
+ * Bun prints nothing. */
+function exited(status: number): Outcome {
+  return status === 0 ? { outcome: "empty" } : escaped("", status);
+}
+
+/** The outcome of a caught throw: an error with WR-18's object. The
+ * wrapper first prints the exception to stderr, so it reaches the logs.
+ * When the object cannot be built or serialised (null or undefined thrown,
+ * a throwing getter, a cycle in extra), the failure escapes the error
+ * shaping, as in WR-19. */
 function caught(e: unknown): Outcome {
   try {
-    const x = e as { message?: unknown; name?: unknown; stack?: unknown };
-    const body = JSON.stringify({ message: x.message, name: x.name, stack: x.stack });
-    return { outcome: "error", body };
-  } catch (inner) {
-    return { outcome: "escaped", tail: describe(inner), exit_code: 1 };
+    console.error(e);
+  } catch {
+    // Printing is for the logs; it never changes the outcome.
   }
+  try {
+    return { outcome: "error", body: errorText(e, stepId()) };
+  } catch (inner) {
+    return escaped(describe(inner));
+  }
+}
+
+/** The step id a wrapper error carries: WM_FLOW_STEP_ID as the invocation
+ * sees it, when it is not empty (WR-18). It is read through the
+ * environment view, in the invocation's context. */
+function stepId(): string | undefined {
+  return process.env.WM_FLOW_STEP_ID || undefined;
 }
 
 function describe(e: unknown): string {
@@ -498,13 +726,43 @@ function describe(e: unknown): string {
   }
 }
 
-/** The module of an inventory id: scripts/bun/<id>.mjs in the bundle
- * (ADR 0010). An id is one or more `/`-separated segments, none empty,
- * `.` or `..`. */
-async function scriptPath(bundleDir: string, script: string): Promise<string> {
-  const segs = script.split("/");
-  if (script === "" || segs.some((s) => s === "" || s === "." || s === ".." || s.includes("\\") || s.includes("\0"))) {
-    throw new Error(`invalid script id ${JSON.stringify(script)}`);
+/** A file of an inventory id: scripts/bun/<id><ext> in the bundle
+ * (ADR 0010), its module (.mjs) or its metadata (.meta.json). An id is one
+ * or more `/`-separated segments, none empty, `.` or `..`. */
+async function scriptPath(bundleDir: string, script: string, ext: string): Promise<string> {
+  return join(bundleDir, "scripts", "bun", ...idSegments(script)) + ext;
+}
+
+/** The segments of an inventory id or a host-provided module's id, which
+ * name files below the bundle. */
+function idSegments(id: string): string[] {
+  const segs = id.split("/");
+  if (id === "" || segs.some((s) => s === "" || s === "." || s === ".." || s.includes("\\") || s.includes("\0"))) {
+    throw new Error(`invalid script id ${JSON.stringify(id)}`);
   }
-  return join(bundleDir, "scripts", "bun", ...segs) + ".mjs";
+  return segs;
+}
+
+/** The registry of host-provided modules: a Map from the module's key, as
+ * the host contract names it, to its exports, which every shim reads
+ * (ADR 0010, D12). */
+export const HOST_MODULES = Symbol.for("windmill-lite.hostModules");
+
+/** Registers the bundle's own copies of its host-provided modules, for a
+ * harness the engine spawned: manifest.json lists them in registration
+ * order (host_modules, a module after those it imports), and each copy is
+ * scripts/bun/provided/<id>.mjs. They load before any step does, outside
+ * every invocation. In host mode the host registers its own instances
+ * instead (the host SDK). */
+export async function registerHostModules(bundleDir: string, manifest: unknown) {
+  const list = (manifest as { host_modules?: unknown } | null)?.host_modules;
+  if (list === undefined || list === null) return;
+  if (!Array.isArray(list)) throw new Error("manifest host_modules is not an array");
+  const g = globalThis as Record<symbol, unknown>;
+  const registry = (g[HOST_MODULES] ??= new Map<string, object>()) as Map<string, object>;
+  for (const h of list) {
+    if (!h || typeof h.key !== "string" || typeof h.id !== "string") throw new Error(`manifest host_modules entry ${JSON.stringify(h)} needs a key and an id`);
+    const path = join(bundleDir, "scripts", "bun", "provided", ...idSegments(h.id)) + ".mjs";
+    registry.set(h.key, await import(pathToFileURL(path).href));
+  }
 }

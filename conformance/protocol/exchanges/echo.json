@@ -49,14 +49,16 @@
         "script": "echo",
         "entry": "main",
         "args": {
-          "b": [
-            1,
-            2
-          ],
-          "a": {
-            "x": null
-          },
-          "1": "one"
+          "value": {
+            "b": [
+              1,
+              2
+            ],
+            "a": {
+              "x": null
+            },
+            "1": "one"
+          }
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"

@@ -11,9 +11,9 @@ const store = scopes.store;
 
 // Reads the host's scope before and after two waits, so that concurrent
 // runs interleave.
-export async function main(args) {
-  await Bun.sleep(args.delay);
+export async function main(delay) {
+  await Bun.sleep(delay);
   const before = store.getStore()?.tenant ?? null;
-  await Bun.sleep(args.delay);
+  await Bun.sleep(delay);
   return { tenant: store.getStore()?.tenant ?? null, before, job: process.env.WM_JOB_ID, run: process.env.WM_FLOW_JOB_ID };
 }

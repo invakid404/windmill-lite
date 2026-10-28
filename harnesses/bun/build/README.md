@@ -102,14 +102,16 @@ For each script the build:
    bundler renames a script's own top-level `Object`, `process`,
    `globalThis` and the like around its references. The define table's
    binding is the Go build's name, or that name with a suffix (`_2`, `_3`,
-   …) when an input of the bundle contains it, so no binding of a script or
-   a dependency can capture it. `//native` and `//nodejs` bundles are left
+   …) when an input of the bundle contains it, as written or through
+   Unicode escapes (`__windmill_lite_B\u0075n` spells it too; `spells`), so
+   no binding of a script or a dependency can capture it. `//native` and `//nodejs` bundles are left
    as written; their environment is the native boundary's (C3n). The Go build runs the helper without
    `NODE_ENV`, which `Bun.build` inlines, so every bundle reads
    `"development"` there. A bundle must be a single module; one that emits
    other files fails.
 5. **Records** the bundle's exports (`Bun.Transpiler().scan` of the output),
-   the signature of every export, the annotations, the target, the
+   the signature of every export and of every other top-level function
+   declaration, the annotations, the target, the
    workflow-as-code markers, the workspace scripts inlined, the packages the
    source imports, the host-provided modules used, and the metafile with
    paths relative to the dependency set's directory. It writes
@@ -136,7 +138,12 @@ which the parser's version has dropped.
   the source, so comments and strings never change them
   ([WR-39](../../../docs/semantics/languages.md#wr-39)). An export's
   parameters are those of the top-level function declaration of its name,
-  exported or not; any other export has none. Destructured objects are named
+  exported or not; any other export has none. A top-level function
+  declaration that no export names is recorded under its own name too,
+  because Windmill's parser reads a declaration whether it is exported or
+  not ([WR-7](../../../docs/semantics/languages.md#wr-7)): a job whose
+  entrypoint names one that does not parse fails before it runs, and the
+  harness checks the export only after the parse. Destructured objects are named
   `anon1`, `anon2`, …; a rest parameter or an array pattern records
   `parameter syntax unsupported: …` for that export. A parameter is marked
   `date` when its annotation is `Date`, a local alias of it (looked up by

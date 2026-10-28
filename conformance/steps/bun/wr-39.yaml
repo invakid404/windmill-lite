@@ -1,0 +1,31 @@
+# WR-39: the textual scans and the AST signature parse. The build halves
+# are conformance/build/wr-39.json; these are their runs.
+finding: WR-39
+scope: core
+cases:
+  - spec: WR-39/b
+    provenance: source-derived
+    title: a single-line block comment does not trigger the workflow-as-code scan, so the script runs
+    script: |
+      /* import { workflow } from "windmill-client" */
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}
+  - spec: WR-39/c
+    provenance: source-derived
+    title: a // comment line does not trigger it either
+    script: |
+      // import { workflow } from "windmill-client"
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}
+  - spec: WR-39/d
+    provenance: source-derived
+    title: comments do not affect the parsed signature, so b is bound
+    script: |
+      /* export function main(a: Date) {} */ export function main(b: number) { return b; }
+    runs:
+      - args: '{"b":2,"a":"x"}'
+        expect: {status: success, result: 2}

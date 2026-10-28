@@ -432,7 +432,16 @@ func TestHostWatchdog(t *testing.T) {
 		_, err := s.run("f/w1/two", "b", map[string]any{"ms": 20000}, nil)
 		other <- err
 	}()
-	time.Sleep(200 * time.Millisecond) // the second run is in flight
+	// The second run's step must be in flight before the spin blocks the
+	// host (W1 review, finding 2).
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if h := s.health(t); h.InFlight == 1 && h.Runs == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the second run's step is not in flight: %+v", s.health(t))
+		}
+	}
 	sent := time.Now()
 	spun := make(chan error, 1)
 	go func() {
@@ -462,8 +471,16 @@ func TestHostWatchdog(t *testing.T) {
 			line = l
 		}
 	}
+	// The run list ends where the invocations begin; it must name two
+	// distinct runs (W1 review, finding 2).
 	uuid := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`)
-	if !strings.Contains(line, fmt.Sprintf("sending SIGKILL to the host, pid %d", first.pid)) || len(uuid.FindAllString(strings.SplitN(line, "in-flight runs:", 2)[1], -1)) < 2 {
+	_, runs, _ := strings.Cut(line, "in-flight runs:")
+	runs, _, _ = strings.Cut(runs, "; invocations:")
+	distinct := map[string]bool{}
+	for _, id := range uuid.FindAllString(runs, -1) {
+		distinct[id] = true
+	}
+	if !strings.Contains(line, fmt.Sprintf("sending SIGKILL to the host, pid %d", first.pid)) || len(distinct) != 2 {
 		t.Fatalf("the engine's diagnostic line names the host and both runs; got %q", line)
 	}
 	s.waitReady(1)

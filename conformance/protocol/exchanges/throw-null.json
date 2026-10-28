@@ -1,6 +1,6 @@
 {
   "case": "throw-null",
-  "title": "throw null escapes the wrapper's error shaping",
+  "title": "throw null escapes the wrapper's error shaping: reading its message fails the handler, whose error is the tail (WR-19)",
   "provenance": "policy",
   "relies_on": [
     "WR-19",
@@ -60,7 +60,7 @@
         "t": "result",
         "id": "i1",
         "outcome": "escaped",
-        "tail": "",
+        "tail": "<string>",
         "exit_code": 1,
         "settled": true
       }

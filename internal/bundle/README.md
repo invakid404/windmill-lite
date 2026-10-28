@@ -185,8 +185,8 @@ own code. It is a module of its own, so the bundler links its references to
 globals, renaming a script's own top-level bindings of those names; nothing
 is inserted into a script's scope. A bundler replaces only free references
 with a define, and the build uses `__windmill_lite_Bun` only when no input
-of the bundle spells it (otherwise the name with a suffix), so no binding of
-a script can capture the rewrite. So an alias (`const B = Bun`),
+of the bundle spells it, as written or through Unicode escapes (otherwise
+the name with a suffix), so no binding of a script can capture the rewrite. So an alias (`const B = Bun`),
 destructuring (`const { env } = Bun`) and a dependency's reads all see the
 invocation's environment, and a local binding named `Bun` is left alone. What a define cannot see still reads the real environment:
 imports of the `bun` module (`import { env } from "bun"`), optional chaining
@@ -256,7 +256,7 @@ The bundle tree it writes:
 | Path | Content |
 |---|---|
 | `scripts/bun/<id>.mjs` | the bundled module |
-| `scripts/bun/<id>.meta.json` | its `ScriptMeta`: import base, target, annotations, workflow-as-code markers, exports, the signature of each export, the workspace scripts inlined, packages, host-provided modules used, the metafile |
+| `scripts/bun/<id>.meta.json` | its `ScriptMeta`: import base, target, annotations, workflow-as-code markers, exports, the signature of each export and of each other top-level function declaration, the workspace scripts inlined, packages, host-provided modules used, the metafile |
 | `scripts/bun/provided/<id>.mjs` | a host-provided module's bundled copy |
 | `scripts/bun/provided/shims/<id>.mjs` | its shim |
 

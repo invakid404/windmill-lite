@@ -1,0 +1,18 @@
+note: >-
+  Catalogue cases of the findings with a step file here that are not step
+  cases, each with the reason and where it is checked. The test in
+  cmd/wltest fails unless every catalogue case of such a finding is a step
+  case or listed here.
+deferred:
+  - spec: WR-21/b
+    reason: >-
+      later: a script that writes result.json itself and exits 1; the
+      harness reads no result file, since a warm process's working
+      directory is shared (D10)
+    expected_in: a later milestone that implements result files (L1)
+  - spec: WR-31/b
+    reason: a comment after code is not an annotation is a rule of the build, which records no flag; the script runs as any other
+    expected_in: C2a (conformance/build/wr-31.json)
+  - spec: WR-39/a
+    reason: the script the wrapper scan selects is refused at load, so it never runs
+    expected_in: A5 and C2a (conformance/build/wr-39.json, conformance/ir)

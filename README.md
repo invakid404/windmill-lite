@@ -15,7 +15,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Eighteen milestones have landed. F4 gives the
+Nineteen milestones have landed. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
@@ -40,14 +40,19 @@ end on the pinned Bun, in a spawned harness and in host mode, where a Bun
 program embeds the host SDK and starts `windmill-lite host` as its engine,
 from a test layout of its own rather than a built bundle. It is scaffolding
 that later milestones replace, built to test the process model first. It
-runs on two milestones no other command uses: the jsonb canonicaliser in
-[internal/jsonval](internal/jsonval/README.md) (A1), and C1, the harness
-protocol between the engine ([internal/harness](internal/harness/README.md))
-and a skeleton Bun harness ([harnesses/bun](harnesses/bun/README.md)), which
-runs one exported function of a bundled module per step but not yet with
-Windmill's wrapper rules. No command uses B2a and B2b yet: the expression
-pipeline in [internal/expr](internal/expr/README.md), whose textual stages
-and shortcuts (B2a) run on QuickJS-ng with Windmill's program around each
+runs on the jsonb canonicaliser in
+[internal/jsonval](internal/jsonval/README.md) (A1), which no other command
+uses, and on C1, the harness protocol between the engine
+([internal/harness](internal/harness/README.md)) and the Bun harness
+([harnesses/bun](harnesses/bun/README.md)), whose step runtime core, C3a,
+runs each step with Windmill's wrapper rules: binding and `Date` hydration
+by the signature the build recorded, the result and error shapes,
+`process.exit` interception and the attribution of process-level errors.
+`wltest check` (C3a) runs the step cases of
+[conformance/steps](conformance/README.md) through the same harness. No
+command uses B2a and B2b yet: the expression pipeline in
+[internal/expr](internal/expr/README.md), whose textual stages and
+shortcuts (B2a) run on QuickJS-ng with Windmill's program around each
 expression, its serialisation and its error texts (B2b), held to every
 expression that batch E3a recorded. The last six are the oracle's: E2, the oracle
 harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
@@ -114,7 +119,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | Path | What it covers |
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command: `build` writes a bundle from a sync folder, `verify` checks one against a manifest, `selfcheck` starts the expression engine, `host` serves host mode for the Bun host SDK with the walking skeleton, `version` prints its version. |
-| [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has two verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, and `stub`, which writes the stubbed copy of a sync tree. |
+| [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has three verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, `stub`, which writes the stubbed copy of a sync tree, and `check`, which runs the step cases on windmill-lite's Bun harness. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-15). |
@@ -122,14 +127,14 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names), the evaluator's shortcuts and bindings, and the program each expression runs as on QuickJS-ng: its preludes, serialisation, error texts, attempt retries and depth check; the expression suite against the E3a recordings and the budget gate. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a heap on vendored mimalloc, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
-| [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace; and the walking skeleton's interpreter, which runs one sequential flow and which N1a replaces. |
-| [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture and expression-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator; stub mode's replay table and replay service. |
+| [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace; the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; and the walking skeleton's interpreter, which runs one sequential flow and which N1a replaces. |
+| [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture, expression-case and step-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator; stub mode's replay table and replay service. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; stub mode's generator and the locator that finds a stub's site in a running job tree; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
-| [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, pools, platform calls, and host mode. It implements the step executor. |
+| [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, pools, platform calls, warnings, and host mode. It implements the step executor. |
 | [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base) and the Bun side of the build, which runs the Bun build helper. |
-| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol with the per-invocation environment and facade fetch, a skeleton step runner, and a minimal host SDK. |
+| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment and facade fetch, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the per-invocation registry and the process scope, and a minimal host SDK. |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, and the export scan of host-provided modules. |
-| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a) and the context-free expression cases, with their recordings. |
+| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, the Bun step cases, the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a) and the context-free expression cases, with their recordings. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |

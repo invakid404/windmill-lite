@@ -1,0 +1,31 @@
+# WR-23: the filesystem view: the working directory is private and
+# writable. In a warm process it is the process's, shared by its
+# invocations (D10, ADR 0004 failure model item 5).
+finding: WR-23
+scope: later
+cases:
+  - spec: WR-23/a
+    provenance: source-derived
+    title: the working directory is writable
+    script: |
+      export function main() { require("node:fs").writeFileSync("t.txt", "x"); return require("node:fs").readFileSync("t.txt", "utf8"); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: x}
+  - spec: WR-23
+    variant: shared-directory
+    provenance: policy
+    title: a file one run writes is there for the next run in warm mode, not in fresh mode
+    deviation: D10
+    script: |
+      import { existsSync, writeFileSync } from "node:fs";
+      export function main() { const seen = existsSync("left-behind.txt"); writeFileSync("left-behind.txt", "x"); return seen; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: false}}
+          fresh: {expect: {status: success, result: false}}
+      - args: '{}'
+        by_mode:
+          warm: {expect: {status: success, result: true}}
+          fresh: {expect: {status: success, result: false}}
