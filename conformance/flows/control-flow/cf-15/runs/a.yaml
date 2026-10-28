@@ -1,6 +1,6 @@
 # CF-15/a: parallel by default; a skippable failed branch keeps its error
-# entry. The branchall was written without parallel; generate-metadata writes
-# parallel: true before the push (batches/e3d.json, parts).
+# entry. The branchall is pushed without parallel, and branches 0 and 2
+# without skip_failure; the provenance shows what the API made of them.
 spec: [CF-15/a]
 target: f/cf15/parallel_skip
 expect:

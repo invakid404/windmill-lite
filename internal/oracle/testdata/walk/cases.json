@@ -2576,7 +2576,7 @@
       ],
       "failure_module": {
        "type": "Success",
-       "id": "failure-0-0",
+       "id": "failure",
        "job": "${fa}",
        "parent_module": "x"
       }
@@ -2624,7 +2624,7 @@
       ],
       "failure_module": {
        "type": "WaitingForPriorSteps",
-       "id": "failure-0-1"
+       "id": "failure"
       }
      },
      "args": {
@@ -2772,7 +2772,7 @@
       ],
       "failure_module": {
        "type": "Success",
-       "id": "failure-0-0",
+       "id": "failure",
        "job": "${fa}",
        "parent_module": "x"
       }
@@ -2820,7 +2820,7 @@
       ],
       "failure_module": {
        "type": "WaitingForPriorSteps",
-       "id": "failure-0-1"
+       "id": "failure"
       }
      },
      "args": {

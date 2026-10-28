@@ -1,8 +1,6 @@
-# CF-6/a: a loop written without skip_failures behaves as skip_failures true
-# on the deployed flow. The fixture was written without the field, but the
-# oracle workflow's generate-metadata writes skip_failures: true (and
-# parallel: false) into flow.yaml before the push, so the pushed value
-# already carries the default (batches/e3d.json, parts).
+# CF-6/a: a loop pushed without skip_failures behaves as skip_failures true
+# once the dependency job has succeeded. The provenance shows the value
+# submitted without the field and the value the API answers with it.
 spec: [CF-6/a]
 target: f/cf6/absent_skip
 expect:

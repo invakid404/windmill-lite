@@ -1,5 +1,5 @@
 {
-  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. TestRecordingBatches enforces it.",
+  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. CF-6, CF-15 and the hash-pinned FX-40/d runs are deployed through the API (oracle.deploy api), so their trees reach the server as written. TestRecordingBatches enforces it.",
   "batch": "E3d",
   "findings": [
     "CF-2",
@@ -36,13 +36,14 @@
     "conformance/flows/control-flow/cf-13",
     "conformance/flows/control-flow/cf-14",
     "conformance/flows/control-flow/cf-15",
-    "conformance/flows/execution/fx-40"
+    "conformance/flows/execution/fx-40",
+    "conformance/flows/execution/fx-40-hash"
   ],
   "deferred": [
     {
       "case": "CF-6/b",
       "milestone": "E3e",
-      "reason": "it reads the deployed flow back with wmill sync pull; the harness pushes and runs but has no pull read-back (OR-8 covers the push). The oracle workflow's generate-metadata already writes the materialized fields into flow.yaml before the push (CF-6/a's fixture)"
+      "reason": "it reads the deployed flow back with wmill sync pull, and the harness has no pull verb (OR-8 covers the push). CF-6/a's recording holds the value the API answers after the dependency job, which carries the materialized fields, and what generate-metadata writes for the same source"
     },
     {
       "case": "CF-6/c",
@@ -57,18 +58,6 @@
   ],
   "parts": [
     {
-      "case": "CF-6/a",
-      "part": "a forloop pushed without skip_failures",
-      "milestone": "none",
-      "reason": "the oracle workflow runs generate-metadata before the push and its drift gate requires the committed tree to be that output, which writes skip_failures: true and parallel: false; the recording shows the deployed default's behaviour, the reference configuration (ADR 0001 section 1)"
-    },
-    {
-      "case": "CF-15/a",
-      "part": "a branchall pushed without parallel",
-      "milestone": "none",
-      "reason": "as CF-6/a: generate-metadata writes parallel: true, and skip_failure: true, parallel: true and expr '' on every branch that lacks them, before the push"
-    },
-    {
       "case": "CF-8/a",
       "part": "the raw-submission comparison run ([-999,-998,-997])",
       "milestone": "none",
@@ -79,12 +68,6 @@
       "part": "the pending-dependency and raw-submission comparison runs ([[-999,-998,-997]])",
       "milestone": "none",
       "reason": "outside the reference configuration (ADR 0001 sections 1 and 6, Q-CF-15); the by-path run after a successful dependency job is recorded, with the outer body's job kind flownode in the provenance"
-    },
-    {
-      "case": "FX-40/d",
-      "part": "the hash-pinned script body",
-      "milestone": "N4",
-      "reason": "a flow pins a script by the hash the server assigns at deploy time, and the harness pushes one fixed tree; the runs d-raw, d-raw-path and d-script record the same question, whether the iteration's path is in the key"
     }
   ],
   "prefixes": [

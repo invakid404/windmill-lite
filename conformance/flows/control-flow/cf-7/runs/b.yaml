@@ -1,8 +1,9 @@
-# CF-7/b: parallelism 1 releases the iterations in index order. The start
-# times are in the recording's provenance; TestCF7bReleaseOrder checks them.
+# CF-7/b: parallelism 1 releases the iterations in index order. The
+# iteration child flows' times are in the recording's provenance;
+# TestRecordedParallelismReleaseOrder checks them.
 spec: [CF-7/b]
 target: f/cf7/parallelism_one
-note: "With the one worker of the reference session, iterations cannot overlap whatever the release order, so only the order of the start times discriminates."
+note: "The one worker serialises the iterations' scripts, not their child flows: without parallelism (run a) the child flows overlap, each starting before the previous one completed, while with parallelism 1 each starts after the previous one completed, in index order."
 expect:
   status: failure
   result:
