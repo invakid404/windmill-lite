@@ -184,7 +184,8 @@ type Log struct {
 
 // PlatformRequest is a fetch to the platform facade that the harness
 // intercepted, attributed to the invocation whose context made it
-// (ADR 0004, ADR 0007). Body is nil for a request without one.
+// (ADR 0004, ADR 0007). Body holds the request's bytes, which travel as
+// padded standard base64; it is nil for a request without a body.
 type PlatformRequest struct {
 	ID string
 	// Inv is the invocation the request is attributed to.
@@ -192,15 +193,16 @@ type PlatformRequest struct {
 	Method  string
 	URL     string
 	Headers map[string]string
-	Body    *string
+	Body    []byte
 }
 
-// PlatformReply answers a PlatformRequest with the same id.
+// PlatformReply answers a PlatformRequest with the same id. Status is a
+// final HTTP status, 200 to 599; Body is as in PlatformRequest.
 type PlatformReply struct {
 	ID      string
 	Status  int
 	Headers map[string]string
-	Body    *string
+	Body    []byte
 }
 
 // Run kinds of a run frame.
@@ -412,22 +414,25 @@ func (m PlatformRequest) appendPayload(b []byte) ([]byte, error) {
 	e.str("method", m.Method)
 	e.str("url", m.URL)
 	e.strMap("headers", m.Headers)
-	if m.Body != nil {
-		e.str("body", *m.Body)
-	}
+	e.bytes("body", m.Body)
 	return e.end()
 }
 
 func (m PlatformReply) appendPayload(b []byte) ([]byte, error) {
+	if !finalStatus(m.Status) {
+		return b, protoErr(CodeBadField, "platform_reply status %d", m.Status)
+	}
 	e := newEnvelope(b, TypePlatformReply)
 	e.str("id", m.ID)
 	e.int("status", int64(m.Status))
 	e.strMap("headers", m.Headers)
-	if m.Body != nil {
-		e.str("body", *m.Body)
-	}
+	e.bytes("body", m.Body)
 	return e.end()
 }
+
+// finalStatus reports whether a reply status is a final HTTP status, which
+// a fetch Response can carry.
+func finalStatus(s int) bool { return s >= 200 && s <= 599 }
 
 func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if m.Args.IsZero() {
@@ -634,11 +639,11 @@ func Decode(payload []byte) (Message, error) {
 			Method:  d.str("method"),
 			URL:     d.str("url"),
 			Headers: d.env("headers"),
-			Body:    d.optStr("body"),
+			Body:    d.optBytes("body"),
 		}
 	case TypePlatformReply:
-		r := PlatformReply{ID: d.str("id"), Status: d.int("status"), Headers: d.env("headers"), Body: d.optStr("body")}
-		if derr == nil && (r.Status < 100 || r.Status > 599) {
+		r := PlatformReply{ID: d.str("id"), Status: d.int("status"), Headers: d.env("headers"), Body: d.optBytes("body")}
+		if derr == nil && !finalStatus(r.Status) {
 			d.fail(CodeBadField, "platform_reply status %d", r.Status)
 		}
 		m = r
@@ -658,7 +663,8 @@ func Decode(payload []byte) (Message, error) {
 		if !slices.Contains(runStatuses, r.Status) && derr == nil {
 			d.fail(CodeBadField, "run_done status %q", r.Status)
 		}
-		if d.present("result") {
+		// A result of JSON null is a value: a flow may return null.
+		if _, ok := fields["result"]; ok {
 			r.Result = d.raw("result")
 		}
 		m = r
@@ -741,13 +747,22 @@ func (d *decoder) badType(name string) {
 	d.fail(CodeBadField, "field %q has the wrong type", d.prefix+name)
 }
 
-// optStr returns an optional string field, nil when it is absent or null.
-func (d *decoder) optStr(name string) *string {
+// optBytes returns an optional field of padded standard base64 bytes, nil
+// when it is absent or null and non-nil (maybe empty) when present.
+func (d *decoder) optBytes(name string) []byte {
 	if !d.present(name) {
 		return nil
 	}
 	s := d.str(name)
-	return &s
+	if *d.err != nil {
+		return nil
+	}
+	b, err := base64.StdEncoding.Strict().DecodeString(s)
+	if err != nil || strings.ContainsAny(s, "\r\n") {
+		d.fail(CodeBadChunk, "%s %s is not padded base64", d.t, name)
+		return nil
+	}
+	return append([]byte{}, b...)
 }
 
 func (d *decoder) str(name string) string {

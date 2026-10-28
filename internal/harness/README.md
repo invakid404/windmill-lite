@@ -78,9 +78,12 @@ milestone C1 fixed the details they left open.
   origin, the welcome carries it as `facade`, and the harness turns every
   fetch to that origin into a `platform` frame: `inv` (the invocation whose
   context made it), `method`, `url`, `headers` (an object of strings,
-  sorted) and an optional text `body`. `ProcessConfig.Platform` answers each
-  one on a goroutine of its own, and the reply goes back as
-  `platform_reply` with `status`, `headers` and an optional `body`.
+  sorted) and an optional `body`, the body's bytes in padded base64.
+  `ProcessConfig.Platform` answers each one on a goroutine of its own, and
+  the reply goes back as `platform_reply` with `status` (a final HTTP
+  status, 200 to 599), `headers` and an optional `body`. A handler that
+  panics or answers another status gets a 502 in its place, so one bad
+  answer never ends the harness.
 - **Runs** (W1, host mode). A host submits `run` with `id`, `kind` (`flow`
   or `script`), `path`, `args` (raw) and an optional raw `intercept`
   object, module ids to the results that stand in for them (H1's static
@@ -222,13 +225,16 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   bundled with the define rewrite, plus an unbundled dependency that reads
   `Bun.env`. Sixteen concurrent invocations per variant must each read their
   own variables through `process.env`, `Bun.env`, `import.meta.env`, a copy
-  of `process.env`, a variable they write, the dependency and the client's
-  call, whose platform frame must be attributed to them; in a process
-  without the variables and in one that has them. It needs
+  of `process.env`, a variable they write, a process variable half of them
+  delete, the dependency and the client's call, whose platform frame must
+  be attributed to them; in a process without the variables and in one that
+  has them. It needs
   `WL_WINDMILL_CLIENT`, a directory whose `node_modules` holds that client.
 - `host_test.go` plays a host on a socketpair: the handshake's parent check,
-  runs and their invocations, `run_cancel`, a lost host, and the watchdog,
-  which signals its parent and spares a pid that no longer is.
+  a host gone before its hello, runs and their invocations, `run_cancel`, a
+  lost host, and the watchdog, which signals its parent and spares a pid
+  that no longer is. It also checks the 502 that stands in for a bad
+  platform answer.
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
   the C1 exit gate: protocol golden tests on Bun 1.3.10.

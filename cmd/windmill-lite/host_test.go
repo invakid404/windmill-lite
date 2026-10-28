@@ -390,8 +390,8 @@ func TestHostNeverSettlingStep(t *testing.T) {
 		never <- res{r, err, time.Now()}
 	}()
 	go func() {
-		// Its first step waits past the other step's timeout of 1 s.
-		r, err := s.run("f/w1/two", "b", map[string]any{"ms": 1500}, nil)
+		// Its first step waits well past the other step's timeout of 1 s.
+		r, err := s.run("f/w1/two", "b", map[string]any{"ms": 2500}, nil)
 		other <- res{r, err, time.Now()}
 	}()
 	n, o := <-never, <-other
@@ -402,7 +402,7 @@ func TestHostNeverSettlingStep(t *testing.T) {
 	if d := n.at.Sub(start); d < 900*time.Millisecond || d > 3*time.Second {
 		t.Fatalf("the timeout fired after %v", d)
 	}
-	if o.e != nil || o.r.Status != "success" || string(o.r.Result) != `{"after":1500}` || !o.at.After(n.at) {
+	if o.e != nil || o.r.Status != "success" || string(o.r.Result) != `{"after":2500}` || !o.at.After(n.at) {
 		t.Fatalf("the other run: %+v, %v, done %v after the timeout", o.r, o.e, o.at.Sub(n.at))
 	}
 	r, err := s.run("f/w1/echo", "c", map[string]any{"x": "new"}, nil)

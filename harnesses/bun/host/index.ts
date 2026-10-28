@@ -47,9 +47,10 @@ export type ConnectOptions = {
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
   watchdog?: { killAfter: number };
-  /** Called when the connection to the engine ends. The default writes a
-   * line to stderr and exits with code 1, so that the host's supervisor
-   * restarts it: without its engine a host can run nothing. */
+  /** Called when the connection to the engine ends other than by close().
+   * The default writes a line to stderr and exits with code 1, so that the
+   * host's supervisor restarts it: without its engine a host can run
+   * nothing. */
   onEngineExit?: (status: { code: number | null; signal: string | null }) => void;
   /** Writes a diagnostic line; the default is stderr. */
   diag?: (line: string) => void;
@@ -82,8 +83,9 @@ export type Host = {
   /** Refuses new runs (HostError "draining") and waits for the runs in
    * flight, up to timeoutMs; the host may then exit (host mode item 3). */
   drain(timeoutMs: number): Promise<void>;
-  /** Ends the connection; the engine then exits. */
-  close(): void;
+  /** Ends the connection; resolves once the engine has exited. The host
+   * process lives on. */
+  close(): Promise<void>;
   /** The engine's process id. */
   readonly enginePid: number;
 };
@@ -113,18 +115,33 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // module takes it from the registry when it loads.
   register(o.hostModules);
   const diag = o.diag ?? ((line: string) => process.stderr.write(line + "\n"));
-  const manifest = await Bun.file(join(o.bundle, "manifest.json")).bytes();
+  let manifest: Uint8Array;
+  try {
+    manifest = await Bun.file(join(o.bundle, "manifest.json")).bytes();
+  } catch (e) {
+    throw new HostError("bundle", `cannot read the bundle manifest: ${(e as Error).message}`);
+  }
   const digest = "sha256:" + new Bun.CryptoHasher("sha256").update(manifest).digest("hex");
   const killAfter = o.watchdog?.killAfter ?? 30000;
   // The extra "pipe" is a socketpair on Bun 1.3.10: the child's fd 3.
   const child = spawn(o.engine, [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--kill-after", `${killAfter}ms`], {
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });
-  const sock = child.stdio[3] as Socket;
-  let inflight = 0;
-  let draining = false;
   let settle: { resolve: () => void; reject: (e: Error) => void };
   const ready = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
+  const started = new Promise<Error | undefined>((resolve) => {
+    child.once("spawn", () => resolve(undefined));
+    child.once("error", (e) => resolve(e));
+  });
+  const failed = await started;
+  const sock = child.stdio[3] as Socket | null;
+  if (failed || !sock) {
+    throw new HostError("engine_start", `${o.engine}: ${failed?.message ?? "no socket for file descriptor 3"}`);
+  }
+  child.on("error", (e) => diag(`windmill-lite: engine process: ${e.message}`));
+  let inflight = 0;
+  let draining = false;
+  let closing = false;
   let welcomed = false;
   const exited = new Promise<{ code: number | null; signal: string | null }>((resolve) =>
     child.on("exit", (code, signal) => resolve({ code, signal })),
@@ -135,8 +152,12 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     host: true,
     diag,
     transport: {
+      // Accepting nothing while the socket's buffer is full keeps the
+      // sender's order: a small frame waits behind at most one part frame
+      // (ADR 0004), not behind every part already handed to the socket.
       write: (b) => {
         if (sock.destroyed) return -1;
+        if (sock.writableNeedDrain) return 0;
         sock.write(b);
         return b.length;
       },
@@ -152,6 +173,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
         return;
       }
       exited.then((status) => {
+        if (closing) return;
         if (o.onEngineExit) return o.onEngineExit(status);
         diag(`windmill-lite: the engine exited (${status.signal ?? `code ${status.code}`}); exiting so that the supervisor restarts the host`);
         process.exit(1);
@@ -162,7 +184,6 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   sock.on("drain", () => runtime.onDrain());
   sock.on("close", () => runtime.onClose());
   sock.on("error", (e) => diag(`windmill-lite: engine socket: ${e.message}`));
-  child.on("error", (e) => settle.reject(new HostError("engine_start", e.message)));
   runtime.start();
   await ready;
 
@@ -170,13 +191,24 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     enginePid: child.pid ?? -1,
     run(path, args = {}, opts = {}) {
       if (draining) return Promise.reject(new HostError("draining", "the host is draining and takes no new runs"));
-      // Submitted synchronously, so the scope captured is the caller's.
-      const { id, done } = runtime.submit("flow", path, JSON.stringify(args), opts.intercept && JSON.stringify(opts.intercept));
+      let submitted;
+      try {
+        // Submitted synchronously, so the scope captured is the caller's.
+        submitted = runtime.submit("flow", path, JSON.stringify(args), opts.intercept && JSON.stringify(opts.intercept));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+      const { id, done } = submitted;
       inflight++;
-      opts.signal?.addEventListener("abort", () => runtime.cancelRun(id), { once: true });
+      const cancel = () => runtime.cancelRun(id);
+      if (opts.signal?.aborted) cancel();
+      else opts.signal?.addEventListener("abort", cancel, { once: true });
       return done
         .then((o): RunResult => ({ status: o.status, result: o.result === undefined ? undefined : JSON.parse(o.result) }))
-        .finally(() => inflight--);
+        .finally(() => {
+          inflight--;
+          opts.signal?.removeEventListener("abort", cancel);
+        });
     },
     health: () => ({ ...runtime.hostHealth(), runs: inflight, draining }),
     async drain(timeoutMs) {
@@ -184,6 +216,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       const deadline = performance.now() + timeoutMs;
       while (inflight > 0 && performance.now() < deadline) await Bun.sleep(Math.min(20, Math.max(1, deadline - performance.now())));
     },
-    close: () => sock.end(),
+    async close() {
+      closing = true;
+      sock.end();
+      await exited;
+    },
   };
 }

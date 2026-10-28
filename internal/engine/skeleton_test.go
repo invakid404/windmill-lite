@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -278,23 +279,97 @@ func TestSkeletonCancel(t *testing.T) {
 
 type settleHook struct {
 	NoHooks
-	ch chan *Trace
+	ch    chan *Trace
+	ended atomic.Bool
 }
 
-func (h *settleHook) OnRunSettled(t *Trace) { h.ch <- t }
-
-type latchAtStart struct{ NoHooks }
-
-func (latchAtStart) OnModuleStart(context.Context, Run, Site) error {
-	return errors.New("host says stop")
+func (h *settleHook) OnRunEnd(context.Context, *Trace) []Warning {
+	h.ended.Store(true)
+	return []Warning{{Code: "w", Message: "from OnRunEnd"}}
 }
 
-// H5: a latch outranks the step's outcome and starts nothing more.
+func (h *settleHook) OnRunSettled(t *Trace) {
+	if !h.ended.Load() {
+		t.Warnings = append(t.Warnings, Warning{Code: "order", Message: "OnRunSettled before OnRunEnd"})
+	}
+	h.ch <- t
+}
+
+// H9: OnRunEnd comes first, and OnRunSettled follows at once when nothing
+// was abandoned, with OnRunEnd's warnings in both traces.
+func TestSkeletonRunEndThenSettled(t *testing.T) {
+	h := &settleHook{ch: make(chan *Trace, 1)}
+	tr := run(t, skeleton(t, &fakeSteps{}, nil), "f/w1/echo", `{"x":1}`, h)
+	var settled *Trace
+	select {
+	case settled = <-h.ch:
+	default:
+		t.Fatal("OnRunSettled was not called by the end of the run")
+	}
+	if len(tr.Warnings) != 1 || len(settled.Warnings) != 1 || settled.Warnings[0].Code != "w" {
+		t.Fatalf("warnings: returned %+v, settled %+v", tr.Warnings, settled.Warnings)
+	}
+}
+
+type latchAt struct {
+	NoHooks
+	where string
+}
+
+func (h latchAt) OnModuleStart(context.Context, Run, Site) error {
+	if h.where == "start" {
+		return errors.New("host says stop")
+	}
+	return nil
+}
+
+func (h latchAt) Intercept(context.Context, Run, Site, jsonval.Value) (StepOutcome, bool, error) {
+	if h.where == "intercept" {
+		return StepOutcome{}, false, errors.New("host says stop")
+	}
+	return StepOutcome{}, false, nil
+}
+
+func (h latchAt) InvocationEnv(context.Context, Run, Site, map[string]string) error {
+	if h.where == "env" {
+		return errors.New("host says stop")
+	}
+	return nil
+}
+
+// H5: a hook that latches the run on the way to a module's launch stops
+// it there: the step never runs, nothing more starts, and the run ends
+// latched with the host's error.
 func TestSkeletonLatch(t *testing.T) {
-	f := &fakeSteps{}
-	tr := run(t, skeleton(t, f, nil), "f/w1/two", `{"ms":0}`, latchAtStart{})
-	if tr.Status != conformance.RunLatched || tr.Latched == nil || tr.Latched.Error() != "host says stop" || len(tr.Steps) != 1 {
-		t.Fatalf("status %s, latched %v, steps %d", tr.Status, tr.Latched, len(tr.Steps))
+	for _, where := range []string{"start", "intercept", "env"} {
+		f := &fakeSteps{}
+		tr := run(t, skeleton(t, f, nil), "f/w1/two", `{"ms":0}`, latchAt{where: where})
+		if tr.Status != conformance.RunLatched || tr.Latched == nil || tr.Latched.Error() != "host says stop" || len(tr.Steps) != 1 {
+			t.Fatalf("%s: status %s, latched %v, steps %d", where, tr.Status, tr.Latched, len(tr.Steps))
+		}
+		if got := f.scripts(); len(got) != 0 {
+			t.Fatalf("%s: launched %v after the latch", where, got)
+		}
+		if a := step(t, tr, "a"); a.Ran || a.Status != conformance.StepNotRun {
+			t.Fatalf("%s: step %+v", where, a)
+		}
+	}
+}
+
+// JE-15: a value JSON.stringify has no text for (a function, a symbol)
+// becomes null; JE-10: a name the text never mentions is not bound, so a
+// computed access to it reads undefined, which becomes null.
+func TestSkeletonUnserialisableAndUnmentioned(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "flows", "f"), 0o755)
+	os.WriteFile(filepath.Join(dir, "flows", "f", "x.flow.json"), []byte(`{"value":{"modules":[{"id":"a","value":{"type":"script","path":"f/w1/echo","input_transforms":{
+		"fn":{"type":"javascript","expr":"() => 1"},
+		"sym":{"type":"javascript","expr":"Symbol('s')"},
+		"computed":{"type":"javascript","expr":"globalThis['fl' + 'ow_input']"}}}}]}}`), 0o644)
+	s := skeleton(t, &fakeSteps{}, func(c *SkeletonConfig) { c.BundleDir = dir })
+	tr := run(t, s, "f/x", `{"k":1}`, nil)
+	if a := step(t, tr, "a"); tr.Status != conformance.RunSuccess || string(a.ResolvedArgs.Producer()) != `{"fn":null,"sym":null,"computed":null}` {
+		t.Fatalf("status %s, arguments %s, result %s", tr.Status, a.ResolvedArgs, tr.Result)
 	}
 }
 

@@ -41,7 +41,9 @@ import (
 // Every channel must read the invocation's own value, 16 of 16: direct
 // process.env, Bun.env and import.meta.env reads before and after awaits,
 // a copy of process.env ({...process.env}), a variable the step writes to
-// process.env and reads back after an await, the dependency's Bun.env
+// process.env and reads back after an await, a process variable that half
+// of the steps delete (gone for them, still there for the others), the
+// dependency's Bun.env
 // read, and the client call, whose platform frame must be attributed to
 // the invocation that made it and carry its variables, and whose answer
 // must reach that invocation.
@@ -78,7 +80,7 @@ func TestQWA4EnvView(t *testing.T) {
 			diag := &syncBuffer{}
 			p := spawn(t, ProcessConfig{
 				Path: path, Args: args, WorkRoot: t.TempDir(), Kind: "bun", Runtime: PinnedBun, Bundle: digest, Diagnostics: diag,
-				Env:    append(append(BaseEnv(), "BASE_URL="+facade), proc.env...),
+				Env:    append(append(BaseEnv(), "BASE_URL="+facade, "WL_QWA4_PROCESS=process"), proc.env...),
 				Facade: facade, Platform: f.handle,
 			})
 			var report []string
@@ -101,7 +103,7 @@ func TestQWA4EnvView(t *testing.T) {
 	}
 }
 
-var qwa4Channels = []string{"process.env", "Bun.env", "import.meta.env", "process.env copy", "process.env write", "dependency Bun.env", "client call", "after await"}
+var qwa4Channels = []string{"process.env", "Bun.env", "import.meta.env", "process.env copy", "process.env write", "process.env delete", "dependency Bun.env", "client call", "after await"}
 
 type qwa4Call struct {
 	workspace, job, token string
@@ -119,8 +121,7 @@ func (f *qwa4Facade) handle(_ context.Context, req PlatformRequest) PlatformRepl
 	// /api/w/<workspace>/jobs_u/get_root_job_id/<id>
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/api/w/"), "/")
 	if err != nil || len(parts) != 4 || parts[1] != "jobs_u" || parts[2] != "get_root_job_id" || req.Method != "GET" {
-		body := "unexpected " + req.Method + " " + req.URL
-		return PlatformReply{Status: 404, Headers: map[string]string{"content-type": "text/plain"}, Body: &body}
+		return PlatformReply{Status: 404, Headers: map[string]string{"content-type": "text/plain"}, Body: []byte("unexpected " + req.Method + " " + req.URL)}
 	}
 	f.mu.Lock()
 	f.calls[req.Inv] = qwa4Call{workspace: parts[0], job: parts[3], token: req.Headers["authorization"]}
@@ -128,8 +129,7 @@ func (f *qwa4Facade) handle(_ context.Context, req PlatformRequest) PlatformRepl
 	// The answer names the invocation the call was attributed to, so the
 	// step can check that its own call came back to it.
 	body, _ := json.Marshal("root-of-" + req.Inv)
-	s := string(body)
-	return PlatformReply{Status: 200, Headers: map[string]string{"content-type": "application/json"}, Body: &s}
+	return PlatformReply{Status: 200, Headers: map[string]string{"content-type": "application/json"}, Body: body}
 }
 
 func qwa4Run(t *testing.T, p *Process, f *qwa4Facade, variant string) map[string]int {
@@ -147,7 +147,7 @@ func qwa4Run(t *testing.T, p *Process, f *qwa4Facade, variant string) map[string
 				Run:    "run-" + variant,
 				Script: "qwa4/" + variant,
 				Entry:  "main",
-				Args:   jsonval.FromProducer(fmt.Appendf(nil, `{"delay":%d}`, (i*7)%16)),
+				Args:   jsonval.FromProducer(fmt.Appendf(nil, `{"delay":%d,"del":%t}`, (i*7)%16, i%2 == 0)),
 				Env: map[string]string{
 					"WM_JOB_ID":    fmt.Sprintf("job-%s-%d", variant, i),
 					"WM_WORKSPACE": fmt.Sprintf("ws-%d", i),
@@ -171,6 +171,7 @@ func qwa4Run(t *testing.T, p *Process, f *qwa4Facade, variant string) map[string
 		}
 		var got struct {
 			Process, Bun, Meta, Copy, Written, Dep, Root, After, AfterBun string
+			Kept                                                          *string
 		}
 		if err := json.Unmarshal(r.out.Body.Producer(), &got); err != nil {
 			t.Errorf("%s invocation %d: %s: %v", variant, r.i, r.out.Body, err)
@@ -186,6 +187,7 @@ func qwa4Run(t *testing.T, p *Process, f *qwa4Facade, variant string) map[string
 			"import.meta.env":    got.Meta == job,
 			"process.env copy":   got.Copy == job,
 			"process.env write":  got.Written == "wrote-"+job,
+			"process.env delete": (r.i%2 == 0) == (got.Kept == nil) && (got.Kept == nil || *got.Kept == "process"),
 			"dependency Bun.env": got.Dep == job,
 			// Attributed to this invocation, read its variables at call
 			// time, and the answer came back to it.
@@ -239,10 +241,11 @@ export async function main(args) {
   const meta = import.meta.env.WM_JOB_ID;
   const copy = { ...process.env }.WM_JOB_ID;
   process.env.WL_WRITTEN = "wrote-" + process.env.WM_JOB_ID;
+  if (args.del) delete process.env.WL_QWA4_PROCESS;
   const dep = jobId();
   const root = await wmill.getRootJobId();
   await Bun.sleep(args.delay);
-  return { process: process_, bun, meta, copy, written: process.env.WL_WRITTEN, dep, root, after: process.env.WM_JOB_ID, afterbun: Bun.env.WM_JOB_ID };
+  return { process: process_, bun, meta, copy, written: process.env.WL_WRITTEN, kept: Bun.env.WL_QWA4_PROCESS ?? null, dep, root, after: process.env.WM_JOB_ID, afterbun: Bun.env.WM_JOB_ID };
 }
 `
 	}

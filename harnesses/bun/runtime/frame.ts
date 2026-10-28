@@ -72,6 +72,8 @@ const NESTED: Record<string, readonly string[]> = {
 
 function value(v: unknown, nestedOrder?: readonly string[]): string {
   if (v instanceof Raw) return v.text;
+  // Bytes (a platform body) travel as padded standard base64.
+  if (v instanceof Uint8Array) return JSON.stringify(toBase64(v));
   if (typeof v === "number") {
     if (!Number.isSafeInteger(v)) throw new ProtocolError("bad_field", `number ${v} is not an integer`);
     return String(v);
@@ -119,11 +121,12 @@ function toBase64(b: Uint8Array): string {
   return Buffer.from(b.buffer, b.byteOffset, b.length).toString("base64");
 }
 
-/** Strict, padded standard base64; anything else is bad_chunk. */
-function fromBase64(s: string): Uint8Array {
+/** Strict, padded standard base64; anything else is bad_chunk. A part
+ * chunk must not be empty; a platform body may be. */
+function fromBase64(s: string, allowEmpty = false): Uint8Array {
   const b = Buffer.from(s, "base64");
-  if (s.length === 0 || b.length === 0 || b.toString("base64") !== s) {
-    throw new ProtocolError("bad_chunk", "part chunk is not non-empty padded base64");
+  if ((!allowEmpty && (s.length === 0 || b.length === 0)) || b.toString("base64") !== s) {
+    throw new ProtocolError("bad_chunk", allowEmpty ? "body is not padded base64" : "part chunk is not non-empty padded base64");
   }
   return new Uint8Array(b.buffer, b.byteOffset, b.length);
 }
@@ -249,11 +252,13 @@ export function decode(payload: Uint8Array): Message {
       if (!["timeout", "canceled", "run_ended"].includes(m.reason)) throw new ProtocolError("bad_field", `cancel reason ${JSON.stringify(m.reason)}`);
       break;
     case "platform":
-      if (m.body != null) checkField(m.t, m, "body", "string");
-      break;
     case "platform_reply":
-      if (m.status < 100 || m.status > 599) throw new ProtocolError("bad_field", `platform_reply status ${m.status}`);
-      if (m.body != null) checkField(m.t, m, "body", "string");
+      // A final HTTP status: a Response cannot be built for 1xx.
+      if (m.t === "platform_reply" && (m.status < 200 || m.status > 599)) throw new ProtocolError("bad_field", `platform_reply status ${m.status}`);
+      if (m.body != null) {
+        checkField(m.t, m, "body", "string");
+        m.body = fromBase64(m.body, true);
+      }
       break;
     case "run":
       if (!["flow", "script"].includes(m.kind)) throw new ProtocolError("bad_field", `run kind ${JSON.stringify(m.kind)}`);
@@ -302,16 +307,17 @@ function own(m: Message): Message {
       const o: Record<string, unknown> = {};
       for (const n of nested) if (m[k][n] !== undefined) o[n] = m[k][n];
       out[k] = o;
-    } else if (m[k] !== null || REQUIRED_RAW.has(`${m.t}.${k}`)) {
+    } else if (m[k] !== null || KEEP_NULL.has(`${m.t}.${k}`)) {
       out[k] = m[k];
     }
   }
   return out;
 }
 
-/** Raw fields that are required, and so may be JSON null; an optional raw
- * field (run's intercept, run_done's result) that is null is absent. */
-const REQUIRED_RAW = new Set(["invoke.args", "result.body", "late.body", "run.args"]);
+/** Raw fields whose JSON null is a value: the required ones, and
+ * run_done's result, since a flow may return null. Any other field that is
+ * null, run's intercept included, is absent. */
+const KEEP_NULL = new Set(["invoke.args", "result.body", "late.body", "run.args", "run_done.result"]);
 
 /** Splits a byte stream into frame payloads. */
 export class FrameReader {

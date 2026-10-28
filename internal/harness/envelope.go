@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/base64"
 	"slices"
 	"strconv"
 	"unicode/utf8"
@@ -73,6 +74,17 @@ func (e *envelope) strMap(k string, m map[string]string) {
 			e.pair(name, m[name])
 		}
 	})
+}
+
+// bytes writes b as padded standard base64, or nothing when b is nil.
+func (e *envelope) bytes(k string, b []byte) {
+	if b == nil {
+		return
+	}
+	e.key(k)
+	e.b = append(e.b, '"')
+	e.b = base64.StdEncoding.AppendEncode(e.b, b)
+	e.b = append(e.b, '"')
 }
 
 func (e *envelope) int(k string, v int64) {

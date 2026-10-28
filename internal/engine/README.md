@@ -151,8 +151,11 @@ C3a and F4 replace its parts.
   [FX-14](../../docs/semantics/execution.md#fx-14); C3a and N1a own the
   final mapping. The final result is stored as jsonb.
 - **Host signals.** `Start` and `Completion` decide the latch and
-  cancellation at every module; a canceled run ends with no result, and the
-  run settles (`OnRunSettled`) once its abandoned invocations have.
+  cancellation at every module, and a hook that latches the run on the way
+  to a launch (`OnModuleStart`, `Intercept`, `InvocationEnv`) stops the
+  module before it runs (H5). A canceled run ends with no result.
+  `OnRunEnd` sees the outcome first, and the run settles (`OnRunSettled`)
+  once its abandoned invocations have (H9).
   `StaticIntercepts` is H1's no-code form, a fixed result per module id.
 
 `testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step

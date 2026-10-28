@@ -507,8 +507,9 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   maximum when it returns (§Pooling).
 - Milestone W1, the walking skeleton, fixed what platform calls and host
   mode need on the wire. `platform` carries `headers` as an object of
-  strings and `body` as optional text, as does `platform_reply`, with an
-  integer `status`. The welcome's `facade` names the origin to intercept.
+  strings and an optional `body`, the body's bytes in padded base64 so that
+  binary uploads and downloads stay exact, as does `platform_reply`, whose
+  `status` is a final HTTP status (200 to 599). The welcome's `facade` names the origin to intercept.
   `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and an
   optional raw `intercept` (H1's static form, [0008](0008-host-hooks.md)),
   and `run_done` carries `status` and an optional raw `result`. These

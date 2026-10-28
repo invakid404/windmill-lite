@@ -21,6 +21,8 @@ export type InvocationContext = {
   /** The invocation's environment: its own copy, so a step's writes stay
    * with it. A null-prototype object, so any variable name is a plain key. */
   env: Record<string, string>;
+  /** Variables the step deleted: absent for it, whatever the process has. */
+  unset?: Set<string>;
   signal: AbortSignal;
 };
 
@@ -31,10 +33,23 @@ export function current(): InvocationContext | undefined {
   return invocations.getStore();
 }
 
-function ownVar(k: string | symbol): string | undefined {
+/** ABSENT: the current invocation deleted the variable. */
+const ABSENT = Symbol("absent");
+
+/** The current invocation's say on variable k: its value, ABSENT, or
+ * undefined when it has none and the process environment answers. */
+function ownVar(k: string | symbol): string | typeof ABSENT | undefined {
   const c = invocations.getStore();
-  if (c === undefined || typeof k !== "string" || !Object.hasOwn(c.env, k)) return undefined;
-  return c.env[k];
+  if (c === undefined || typeof k !== "string") return undefined;
+  if (Object.hasOwn(c.env, k)) return c.env[k];
+  return c.unset?.has(k) ? ABSENT : undefined;
+}
+
+/** A read through the view: the invocation's value, else the process's. */
+function read(k: string | symbol, fallback: () => unknown): unknown {
+  const v = ownVar(k);
+  if (v === ABSENT) return undefined;
+  return v !== undefined ? v : fallback();
 }
 
 // process.env, Bun.env and import.meta.env start out as one object.
@@ -57,31 +72,41 @@ const shadowed = new Set<string>();
  *    accessor that answers from the current invocation first.
  *
  * Outside any invocation every path reads the process environment, so a
- * host's own code sees no change. Writes inside an invocation go to its own
- * copy. Enumerating Bun.env lists only the process's variables. */
+ * host's own code sees no change. Writes and deletes inside an invocation
+ * go to its own copy and never reach the process environment. Enumerating
+ * Bun.env lists only the process's variables. */
 export function installEnvView() {
   if (envInstalled) return;
   envInstalled = true;
   const view = new Proxy(real, {
     get(t, k) {
-      const v = ownVar(k);
-      return v !== undefined ? v : Reflect.get(t, k);
+      return read(k, () => Reflect.get(t, k));
     },
     has(t, k) {
-      return ownVar(k) !== undefined || Reflect.has(t, k);
+      const v = ownVar(k);
+      return v === ABSENT ? false : v !== undefined || Reflect.has(t, k);
     },
     set(t, k, v) {
       const c = invocations.getStore();
       if (c && typeof k === "string") {
         c.env[k] = String(v);
+        c.unset?.delete(k);
         return true;
       }
-      return Reflect.set(t, k, v);
+      const ok = Reflect.set(t, k, v);
+      // A variable the host writes while invocations that set it are in
+      // flight must keep answering them from their own copies.
+      if (ok && typeof k === "string") shadow({ [k]: "" });
+      return ok;
     },
     deleteProperty(t, k) {
       const c = invocations.getStore();
-      if (c && typeof k === "string" && Object.hasOwn(c.env, k)) {
+      if (c && typeof k === "string") {
         delete c.env[k];
+        (c.unset ??= new Set()).add(k);
+        // Bun.env reads a variable the process has as its own property:
+        // make it an accessor, so it is gone for this invocation there too.
+        shadow({ [k]: "" });
         return true;
       }
       return Reflect.deleteProperty(t, k);
@@ -89,11 +114,15 @@ export function installEnvView() {
     ownKeys(t) {
       const keys = new Set(Reflect.ownKeys(t));
       const c = invocations.getStore();
-      if (c) for (const k of Object.keys(c.env)) keys.add(k);
+      if (c) {
+        for (const k of c.unset ?? []) keys.delete(k);
+        for (const k of Object.keys(c.env)) keys.add(k);
+      }
       return [...keys];
     },
     getOwnPropertyDescriptor(t, k) {
       const v = ownVar(k);
+      if (v === ABSENT) return undefined;
       if (v !== undefined) return { value: v, writable: true, enumerable: true, configurable: true };
       return Reflect.getOwnPropertyDescriptor(t, k);
     },
@@ -104,11 +133,11 @@ export function installEnvView() {
     real,
     new Proxy(proto ?? Object.prototype, {
       get(t, k, receiver) {
-        const v = ownVar(k);
-        return v !== undefined ? v : Reflect.get(t, k, receiver);
+        return read(k, () => Reflect.get(t, k, receiver));
       },
       has(t, k) {
-        return ownVar(k) !== undefined || Reflect.has(t, k);
+        const v = ownVar(k);
+        return v === ABSENT ? false : v !== undefined || Reflect.has(t, k);
       },
     }),
   );
@@ -125,13 +154,14 @@ export function shadow(env: Record<string, string>) {
     let base = d.value;
     Object.defineProperty(real, k, {
       get() {
-        const v = ownVar(k);
-        return v !== undefined ? v : base;
+        return read(k, () => base);
       },
       set(v) {
         const c = invocations.getStore();
-        if (c) c.env[k] = String(v);
-        else base = String(v);
+        if (c) {
+          c.env[k] = String(v);
+          c.unset?.delete(k);
+        } else base = String(v);
       },
       enumerable: true,
       configurable: true,
@@ -145,11 +175,16 @@ export type PlatformCall = {
   method: string;
   url: string;
   headers: Record<string, string>;
-  body?: string;
+  body?: Uint8Array;
 };
 
-export type PlatformAnswer = { status: number; headers: Record<string, string>; body?: string };
+export type PlatformAnswer = { status: number; headers: Record<string, string>; body?: Uint8Array };
 
+// The process-wide hooks are installed once and route to the runtime that
+// installed them last, so a host that reconnects counts its errors and
+// sends its facade calls on its current connection.
+let fetchRoute: { origin: () => string | undefined; call: (c: PlatformCall) => Promise<PlatformAnswer> } | undefined;
+let errorRoute: ((kind: string, e: unknown) => void) | undefined;
 let fetchInstalled = false;
 
 /** Wraps globalThis.fetch, before any step module loads: a request to the
@@ -159,17 +194,21 @@ let fetchInstalled = false;
  * the stock client captured at import (WA-31). origin() is read per call,
  * because the welcome names the facade after this is installed. */
 export function installFetch(origin: () => string | undefined, call: (c: PlatformCall) => Promise<PlatformAnswer>) {
+  fetchRoute = { origin, call };
   if (fetchInstalled) return;
   fetchInstalled = true;
   const inner = globalThis.fetch;
   const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const facade = origin();
+    const route = fetchRoute!;
+    const facade = route.origin();
     if (facade === undefined || originOf(input) !== facade) return inner(input, init);
     const inv = invocations.getStore();
     if (inv === undefined) throw new TypeError("windmill-lite: a platform call outside any invocation cannot be attributed");
     const req = new Request(input, init);
-    const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.text();
-    const a = await call({ inv: inv.id, method: req.method, url: req.url, headers: Object.fromEntries(req.headers), body });
+    req.signal.throwIfAborted();
+    // Bodies travel as bytes, so binary uploads and downloads stay exact.
+    const body = req.method === "GET" || req.method === "HEAD" ? undefined : new Uint8Array(await req.arrayBuffer());
+    const a = await route.call({ inv: inv.id, method: req.method, url: req.url, headers: Object.fromEntries(req.headers), body });
     return new Response(a.body ?? null, { status: a.status, headers: a.headers });
   };
   globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
@@ -193,8 +232,9 @@ let handlersInstalled = false;
  * to the invocation whose context raised it (item 2) is milestone C3a's;
  * until then every one is counted as unattributed. */
 export function installProcessHandlers(onError: (kind: string, e: unknown) => void) {
+  errorRoute = onError;
   if (handlersInstalled) return;
   handlersInstalled = true;
-  process.on("uncaughtException", (e) => onError("uncaughtException", e));
-  process.on("unhandledRejection", (e) => onError("unhandledRejection", e));
+  process.on("uncaughtException", (e) => errorRoute!("uncaughtException", e));
+  process.on("unhandledRejection", (e) => errorRoute!("unhandledRejection", e));
 }

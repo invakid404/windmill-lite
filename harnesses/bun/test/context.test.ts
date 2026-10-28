@@ -35,3 +35,28 @@ test("writes stay with the invocation; copies and enumeration include its variab
   expect(got).toEqual(["w", "inv", true, true]);
   expect(process.env.WL_CONTEXT_TEST_WRITE).toBeUndefined();
 });
+
+test("a delete stays with the invocation: the process and other invocations keep the variable", () => {
+  process.env.WL_CONTEXT_TEST_DEL = "process";
+  const got = inside({ WL_CONTEXT_TEST_OWNED: "inv" }, () => {
+    delete process.env.WL_CONTEXT_TEST_DEL;
+    delete process.env.WL_CONTEXT_TEST_OWNED;
+    return [process.env.WL_CONTEXT_TEST_DEL, Bun.env.WL_CONTEXT_TEST_DEL, "WL_CONTEXT_TEST_DEL" in process.env, process.env.WL_CONTEXT_TEST_OWNED, { ...process.env }.WL_CONTEXT_TEST_DEL];
+  });
+  expect(got).toEqual([undefined, undefined, false, undefined, undefined]);
+  expect(process.env.WL_CONTEXT_TEST_DEL).toBe("process");
+  expect(inside({}, () => process.env.WL_CONTEXT_TEST_DEL)).toBe("process");
+});
+
+test("a variable the process writes while an invocation has its own stays the invocation's", async () => {
+  const e = Object.assign(Object.create(null), { WL_CONTEXT_TEST_LATER: "inv" });
+  shadow(e);
+  const ctx = { id: "i", run: "r", env: e, signal: new AbortController().signal };
+  const read = invocations.run(ctx, async () => {
+    await Bun.sleep(5);
+    return [process.env.WL_CONTEXT_TEST_LATER, Bun.env.WL_CONTEXT_TEST_LATER];
+  });
+  process.env.WL_CONTEXT_TEST_LATER = "process";
+  expect(await read).toEqual(["inv", "inv"]);
+  expect(Bun.env.WL_CONTEXT_TEST_LATER).toBe("process");
+});

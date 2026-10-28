@@ -1,6 +1,6 @@
 {
   "case": "platform-fetch",
-  "title": "a fetch to the facade origin of the welcome becomes a platform frame attributed to its invocation, and the reply is its Response; any other fetch passes through",
+  "title": "a fetch to the facade origin of the welcome becomes a platform frame attributed to its invocation, with its body's bytes in base64, and the reply is its Response; any other fetch passes through",
   "provenance": "policy",
   "relies_on": [
     "WA-31",
@@ -72,7 +72,7 @@
         "headers": {
           "content-type": "application/json"
         },
-        "body": "{\"q\":[1,2]}"
+        "body": "eyJxIjpbMSwyXX0="
       }
     },
     {
@@ -83,7 +83,7 @@
         "headers": {
           "content-type": "application/json"
         },
-        "body": "{\"stored\":true}"
+        "body": "eyJzdG9yZWQiOnRydWV9"
       }
     },
     {

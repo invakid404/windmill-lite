@@ -370,3 +370,59 @@ func TestRunFramesNeedHostMode(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A host that goes away before its hello, or stays silent past the
+// handshake timeout, is an error of AttachHost, not a crash of the engine.
+func TestHostGoneBeforeHello(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		close bool
+	}{{"closes", true}, {"silent", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ec, hc := socketConns(t)
+			defer hc.Close()
+			if tc.close {
+				hc.Close()
+			}
+			_, err := AttachHost(context.Background(), HostConfig{
+				Conn: ec, Kind: "bun", Runtime: PinnedBun, Bundle: "b", Run: echoRun,
+				HandshakeTimeout: 200 * time.Millisecond, Diagnostics: &syncBuffer{},
+			})
+			if err == nil || !strings.Contains(err.Error(), "host") {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+}
+
+// One bad answer of a platform handler must not end the harness and every
+// invocation in it: a status no Response can carry, or a panic, becomes a
+// 502 the step's client sees.
+func TestPlatformAnswerGuardsTheHarness(t *testing.T) {
+	req := PlatformRequest{ID: "p1", Inv: "i"}
+	for name, h := range map[string]PlatformHandler{
+		"zero reply":  func(context.Context, PlatformRequest) PlatformReply { return PlatformReply{} },
+		"status 101":  func(context.Context, PlatformRequest) PlatformReply { return PlatformReply{Status: 101} },
+		"panic":       func(context.Context, PlatformRequest) PlatformReply { panic("boom") },
+		"no handler":  nil,
+		"good answer": func(context.Context, PlatformRequest) PlatformReply { return PlatformReply{Status: 204} },
+	} {
+		rep := platformAnswer(context.Background(), h, req)
+		want := 502
+		switch name {
+		case "no handler":
+			want = 501
+		case "good answer":
+			want = 204
+		}
+		if rep.ID != "p1" || rep.Status != want {
+			t.Errorf("%s: %+v, want status %d", name, rep, want)
+		}
+		if _, err := Encode(rep); err != nil {
+			t.Errorf("%s: the reply does not encode: %v", name, err)
+		}
+	}
+	if _, err := Encode(PlatformReply{ID: "p", Status: 0}); !IsProtocolError(err, CodeBadField) {
+		t.Fatalf("a reply with status 0 encoded: %v", err)
+	}
+}

@@ -110,6 +110,8 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		return nil, err
 	}
 	p.host = &hostSide{run: cfg.Run, getppid: cfg.getppid, signal: cfg.signal}
+	// The host's own stdout and stderr are not the engine's to read.
+	p.stdio = &lineWriter{diag: p.diag, keep: 20}
 	if p.host.getppid == nil {
 		p.host.getppid = os.Getppid
 	}

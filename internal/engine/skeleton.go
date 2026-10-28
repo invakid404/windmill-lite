@@ -83,6 +83,7 @@ type skelTransform struct {
 	static jsonval.Value // a static value, verbatim (JE-40)
 	text   string        // a javascript expression as written
 	source string        // its engine source
+	binds  []string      // the names its text mentions (JE-10)
 	ai     bool          // left out of the arguments (JE-23)
 }
 
@@ -204,7 +205,7 @@ func (s *Skeleton) compileModule(flowPath string, m openflow.Module) (skelModule
 			st.static = jsonval.FromProducer(nt.Transform.Value)
 		case openflow.JavaScript:
 			st.text = nt.Transform.Expr
-			st.source = transformSource(nt.Transform.Expr)
+			st.source, st.binds = transformSource(nt.Transform.Expr)
 			if _, err := s.program(st.source); err != nil {
 				var exc *expr.Exception
 				if !errors.As(err, &exc) {
@@ -238,25 +239,29 @@ func (s *Skeleton) program(source string) (expr.Program, error) {
 // at an input-transform site: the text trimmed (JE-5), in expression or
 // statement mode (JE-13), on one line with its wrapper (JE-14), the bound
 // names parsed from host strings (JE-10), and the value serialised as
-// JSON.stringify(value ?? null) (JE-15). The shortcuts and rewrites of JE-6
-// to JE-12 are left out.
-func transformSource(text string) string {
+// JSON.stringify(value ?? null), with null for a value JSON.stringify has
+// no text for (JE-15). It returns the source and the names to bind, which
+// are only those the text mentions. The shortcuts and rewrites of JE-6 to
+// JE-12 are left out.
+func transformSource(text string) (string, []string) {
 	t := strings.TrimSpace(text)
 	if t == "" {
-		return `Promise.resolve("null")`
+		return `Promise.resolve("null")`, nil
 	}
 	body := "return " + t + ";"
 	if statementMode(t) {
 		body = t
 	}
 	var b strings.Builder
+	var binds []string
 	for _, name := range []string{"flow_input", "previous_result", "params"} {
 		if strings.Contains(t, name) || (name == "previous_result" && strings.Contains(t, "error")) {
 			fmt.Fprintf(&b, "globalThis.%s = JSON.parse(globalThis.%s);\n", name, name)
+			binds = append(binds, name)
 		}
 	}
-	b.WriteString("(async function () { " + body + " })().then((v) => JSON.stringify(v ?? null))")
-	return b.String()
+	b.WriteString(`(async function () { ` + body + ` })().then((v) => JSON.stringify(v ?? null) ?? "null")`)
+	return b.String(), binds
 }
 
 // statementMode applies JE-13's test.
@@ -331,9 +336,16 @@ func (s *Skeleton) Run(ctx context.Context, r SkeletonRun) (*Trace, error) {
 	run.trace = Trace{RunID: id, Bundle: s.bundle, ModuleState: ModuleStateWarm}
 	run.settle = NewRunSettlement(func() { hooks.OnRunSettled(run.snapshot()) })
 	run.run(ctx)
-	run.settle.End()
+	// H9: OnRunEnd sees the outcome first; its warnings are part of the
+	// returned trace and of the one OnRunSettled receives, possibly at once
+	// from End when no invocation was abandoned.
 	t := run.snapshot()
-	t.Warnings = append(t.Warnings, hooks.OnRunEnd(ctx, t)...)
+	w := hooks.OnRunEnd(ctx, t)
+	run.mu.Lock()
+	run.trace.Warnings = append(run.trace.Warnings, w...)
+	run.mu.Unlock()
+	t.Warnings = append(t.Warnings, w...)
+	run.settle.End()
 	return t, nil
 }
 
@@ -440,12 +452,21 @@ func (r *skelRun) module(ctx context.Context, m skelModule, prev jsonval.Value, 
 	site.Script = m.script
 	rec := StepRecord{Site: site.Path, Start: time.Now()}
 	defer func() { rec.Duration = time.Since(rec.Start) }()
-	if err := r.hooks.OnModuleStart(ctx, r, site); err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
-	}
 	fail := func(result jsonval.Value, origin Origin) (StepRecord, bool) {
 		rec.Status, rec.Module, rec.Result, rec.Carried, rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, result, result, origin
 		return rec, false
+	}
+	// H5: a hook that latches the run on the way to the launch stops it;
+	// the module never runs, and the completion check ends the run latched.
+	notLaunched := func() (StepRecord, bool) {
+		rec.Status, rec.Module = conformance.StepNotRun, conformance.ModuleNotRun
+		return rec, false
+	}
+	if err := r.hooks.OnModuleStart(ctx, r, site); err != nil {
+		r.latch.Set(HookLatchError(ctx, err))
+	}
+	if r.latch.Err() != nil {
+		return notLaunched()
 	}
 	args, failed := r.args(ctx, m, prev)
 	if !failed.IsZero() {
@@ -461,6 +482,9 @@ func (r *skelRun) module(ctx context.Context, m skelModule, prev jsonval.Value, 
 	if err != nil {
 		r.latch.Set(HookLatchError(ctx, err))
 	}
+	if r.latch.Err() != nil {
+		return notLaunched()
+	}
 	origin := OriginUser
 	if ok {
 		rec.Hooks, origin = append(rec.Hooks, "H1"), OriginHost
@@ -468,6 +492,9 @@ func (r *skelRun) module(ctx context.Context, m skelModule, prev jsonval.Value, 
 		rec.Ran = true
 		out, err = r.invoke(ctx, m, site, args, timeout, idx)
 		switch {
+		case errors.Is(err, errNotLaunched):
+			rec.Ran = false
+			return notLaunched()
 		case errors.Is(err, CancelTimeout):
 			rec.Abandoned = true
 			limit := "job-specific duration limit"
@@ -514,7 +541,7 @@ func (r *skelRun) args(ctx context.Context, m skelModule, prev jsonval.Value) (j
 		}
 		v := t.static
 		if t.source != "" {
-			out, err := r.evaluate(ctx, t.source, prev)
+			out, err := r.evaluate(ctx, t, prev)
 			if err != nil {
 				return jsonval.Value{}, engineError("ExecutionErr", "Error during isolated evaluation of expression `"+t.text+"`:\n"+exceptionText(err))
 			}
@@ -533,17 +560,27 @@ func (r *skelRun) args(ctx context.Context, m skelModule, prev jsonval.Value) (j
 	return jsonval.FromProducer(b.Bytes()), jsonval.Value{}
 }
 
-// evaluate runs one transform's program with its bindings.
-func (r *skelRun) evaluate(ctx context.Context, source string, prev jsonval.Value) ([]byte, error) {
-	p, err := r.s.program(source)
+// errNotLaunched: a hook latched the run before the step launched.
+var errNotLaunched = errors.New("engine: the run latched before the step launched")
+
+// evaluate runs one transform's program with the names its text mentions
+// bound (JE-10); any other name is unavailable to it.
+func (r *skelRun) evaluate(ctx context.Context, t skelTransform, prev jsonval.Value) ([]byte, error) {
+	p, err := r.s.program(t.source)
 	if err != nil {
 		return nil, err
 	}
-	in := expr.Input{Strings: []expr.HostString{
-		{Name: "flow_input", Text: r.input.Producer()},
-		{Name: "previous_result", Text: prev.Producer()},
-		{Name: "params", Text: []byte("{}")}, // JE-23: transforms never see each other
-	}}
+	var in expr.Input
+	for _, name := range t.binds {
+		text := []byte("{}") // params: transforms never see each other (JE-23)
+		switch name {
+		case "flow_input":
+			text = r.input.Producer()
+		case "previous_result":
+			text = prev.Producer()
+		}
+		in.Strings = append(in.Strings, expr.HostString{Name: name, Text: text})
+	}
 	return r.s.js.Eval(ctx, p, in)
 }
 
@@ -593,6 +630,9 @@ func (r *skelRun) invoke(ctx context.Context, m skelModule, site Site, args json
 	}
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.latch.Set(HookLatchError(ctx, err))
+	}
+	if r.latch.Err() != nil {
+		return StepOutcome{}, errNotLaunched
 	}
 	inv.Report = r.settle.Track(&skelReporter{run: r, idx: idx})
 	stepCtx, cancel := context.WithCancelCause(ctx)

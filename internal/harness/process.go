@@ -415,10 +415,16 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 	select {
 	case h = <-p.helloCh:
 	case <-p.exited:
+		if p.host != nil {
+			return errors.New("harness: the host's connection ended before its hello")
+		}
 		return fmt.Errorf("harness exited before its hello (%s)%s", p.ExitStatus(), p.stdio.lastLines())
 	case <-timer.C:
 		p.kill("no hello within " + timeout.String())
 		<-p.exited
+		if p.host != nil {
+			return fmt.Errorf("harness: the host sent no hello within %s", timeout)
+		}
 		return fmt.Errorf("harness sent no hello within %s%s", timeout, p.stdio.lastLines())
 	case <-ctx.Done():
 		p.kill("handshake canceled")
@@ -796,22 +802,38 @@ func (p *Process) Execute(ctx context.Context, inv engine.Invocation) (engine.St
 }
 
 // onPlatform answers a platform request on a goroutine of its own, so a
-// slow facade never stalls the reader. It runs with p.mu held.
+// slow facade never stalls the reader. It runs with p.mu held. A handler
+// that panics or answers with a status no Response can carry gets a 502 in
+// its place: one bad answer must not end the harness and every invocation
+// in it.
 func (p *Process) onPlatform(req PlatformRequest) {
 	h := p.cfg.Platform
 	go func() {
-		var rep PlatformReply
-		if h == nil {
-			body := "windmill-lite: this engine serves no platform calls"
-			rep = PlatformReply{Status: 501, Headers: map[string]string{"content-type": "text/plain"}, Body: &body}
-		} else {
-			rep = h(p.life, req)
-		}
-		rep.ID = req.ID
+		rep := platformAnswer(p.life, h, req)
 		if err := p.conn.send(rep); err != nil && !errors.Is(err, net.ErrClosed) {
 			p.diag.printf("platform reply %q not sent: %v", req.ID, err)
 		}
 	}()
+}
+
+func platformAnswer(ctx context.Context, h PlatformHandler, req PlatformRequest) (rep PlatformReply) {
+	text := func(status int, msg string) PlatformReply {
+		return PlatformReply{ID: req.ID, Status: status, Headers: map[string]string{"content-type": "text/plain"}, Body: []byte(msg)}
+	}
+	if h == nil {
+		return text(501, "windmill-lite: this engine serves no platform calls")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			rep = text(502, fmt.Sprintf("windmill-lite: the platform handler failed: %v", r))
+		}
+	}()
+	rep = h(ctx, req)
+	rep.ID = req.ID
+	if !finalStatus(rep.Status) {
+		return text(502, fmt.Sprintf("windmill-lite: the platform handler answered status %d", rep.Status))
+	}
+	return rep
 }
 
 // exec runs inv. fixed, if not nil, is called once the engine stops waiting
