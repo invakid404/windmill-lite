@@ -322,7 +322,8 @@ end with no leaked heap block.
   end or before a Rust location suffix. Two cases differ by a named
   deviation and say what windmill-lite gives: the transcendental `Math`
   cases of JE-1 (review item cl R3-2), exact with glibc and within one
-  unit in the last place otherwise (D16), and JE-48/a (D17). JE-2/a is not
+  unit in the last place otherwise (D16; the static musl engines give all
+  30 values exactly, macOS's libm differs on 6), and JE-48/a (D17). JE-2/a is not
   run: the oracle canceled its run before the evaluator's text surfaced;
   `TestJE2OnEngine` runs the same expression with a short limit.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It

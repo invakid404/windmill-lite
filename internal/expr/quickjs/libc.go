@@ -1,6 +1,10 @@
 package quickjs
 
 /*
+// Any C library header defines __GLIBC__ on glibc; musl defines no macro
+// of its own.
+#include <stdlib.h>
+
 static const char *wl_libc(void)
 {
 #if defined(__GLIBC__)

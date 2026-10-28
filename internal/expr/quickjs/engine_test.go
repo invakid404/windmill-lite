@@ -3,9 +3,11 @@ package quickjs
 import (
 	"context"
 	"crypto/sha256"
+	"debug/elf"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"runtime"
@@ -483,13 +485,43 @@ func TestPreludes(t *testing.T) {
 	}
 }
 
+// TestCLibrary checks the C library's name against the binary: on Linux,
+// a binary with a glibc program interpreter is a glibc build, and one with
+// none is the static musl build.
 func TestCLibrary(t *testing.T) {
-	want := map[string]string{"darwin": "apple", "linux": "glibc or musl"}[runtime.GOOS]
 	got := CLibrary()
-	if want == "" || !strings.Contains(want, got) {
-		t.Errorf("CLibrary() = %q on %s", got, runtime.GOOS)
-	}
 	t.Logf("the engine's C library: %s", got)
+	switch runtime.GOOS {
+	case "darwin":
+		if got != "apple" {
+			t.Errorf("CLibrary() = %q on macOS", got)
+		}
+	case "linux":
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := elf.Open(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		want := "musl"
+		for _, p := range f.Progs {
+			if p.Type == elf.PT_INTERP {
+				interp, err := io.ReadAll(p.Open())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if want = "other"; strings.Contains(string(interp), "ld-linux") {
+					want = "glibc"
+				}
+			}
+		}
+		if got != want {
+			t.Errorf("CLibrary() = %q, but the binary's interpreter says %s", got, want)
+		}
+	}
 }
 
 func TestClose(t *testing.T) {
