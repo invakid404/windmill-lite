@@ -5,54 +5,61 @@ import (
 	"strconv"
 )
 
-// transformFieldNames are the members an input transform object may use.
-var transformFieldNames = []string{"type", "value", "expr"}
-
-var nullJSON = json.RawMessage("null")
-
 func gotTransformType(n *node, got string) error {
 	return &decodeError{n, "got value: " + got + " for field `type`, expected value: `static` or `javascript`"}
 }
 
+// nullValue is a static transform's value when none is given. Each call
+// returns its own bytes, so no two decoded values share storage.
+func nullValue() json.RawMessage {
+	return json.RawMessage("null")
+}
+
+// ordinary holds the members of an ordinary transform object.
+type ordinary struct {
+	typ   string
+	value json.RawMessage
+	expr  *string
+}
+
+var ordinaryFields = []field[ordinary]{
+	stringField("type", true, func(o *ordinary) *string { return &o.typ }),
+	{name: "value", decode: func(_ *decoder, n *node, o *ordinary) error {
+		o.value = raw(n)
+		return nil
+	}},
+	optStringField("expr", func(o *ordinary) **string { return &o.expr }),
+}
+
 // decodeTransform decodes an ordinary input transform (OF-10): step inputs,
-// `iterator`, `sleep` and `suspend.user_groups_required`. The `type` selects
-// which member is read: `static` reads `value` (absent means null) and
-// `javascript` reads `expr` (absent means ""); the other member is ignored.
+// `iterator`, `sleep` and `suspend.user_groups_required`. Its recognised
+// members are decoded first, whatever the `type`: `value` is any JSON and
+// `expr` a string or null. The `type` then selects the payload: `static`
+// keeps `value` (absent means null), `javascript` keeps `expr` (absent or
+// null means ""), and `ai` keeps neither.
 func decodeTransform(n *node) (InputTransform, error) {
-	if n.kind != kindObject {
-		return InputTransform{}, invalidType(n, "an input transform object")
-	}
-	typ, err := soleMember(n, "type")
-	if err != nil {
+	var o ordinary
+	if err := decodeStruct(nil, n, "an input transform object", ordinaryFields, &o); err != nil {
 		return InputTransform{}, err
 	}
-	if typ == nil {
-		return InputTransform{}, missingField(n, "type")
-	}
-	s, err := decodeString(typ)
-	if err != nil {
-		return InputTransform{}, err
-	}
-	switch s {
+	switch o.typ {
 	case "static":
-		t := InputTransform{Type: Static, Value: nullJSON}
-		v, err := soleMember(n, "value")
-		if v != nil {
-			t.Value = raw(v)
+		t := InputTransform{Type: Static, Value: o.value}
+		if t.Value == nil {
+			t.Value = nullValue()
 		}
-		return t, err
+		return t, nil
 	case "javascript":
 		t := InputTransform{Type: JavaScript}
-		e, err := soleMember(n, "expr")
-		if err != nil || e == nil || e.kind == kindNull {
-			return t, err
+		if o.expr != nil {
+			t.Expr = *o.expr
 		}
-		t.Expr, err = decodeString(e)
-		return t, err
+		return t, nil
 	case "ai":
 		return InputTransform{Type: AI}, nil
 	}
-	return InputTransform{}, gotTransformType(typ, s)
+	typ, _ := soleMember(n, "type")
+	return InputTransform{}, gotTransformType(typ, o.typ)
 }
 
 // soleMember returns the member named name, nil when absent, and an error
@@ -108,7 +115,7 @@ func decodeRestricted[I integer](n *node) (*InputTransform, error) {
 		}
 		switch r.typ {
 		case "static":
-			t := &InputTransform{Type: Static, Value: nullJSON}
+			t := &InputTransform{Type: Static, Value: nullValue()}
 			if r.value != nil {
 				t.Value = intJSON(*r.value)
 			}

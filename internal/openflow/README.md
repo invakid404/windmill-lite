@@ -24,13 +24,29 @@ What the package does not do:
 | `DecodeFlow(data)` | Decodes a flow document, the OpenFlow object of `flow.yaml`: `summary`, `description`, `value`, `schema` and `on_behalf_of_email`, plus the metadata field `timeout`. Other metadata keys are ignored, except that `ws_error_handler_muted: true` is rejected as Windmill CE does. |
 | `FlowValue`, `Module`, the value types | Decoded values. A module's `Value` is one of `*RawScript`, `*PathScript`, `*PathFlow`, `*ForLoop`, `*WhileLoop`, `*BranchOne`, `*BranchAll`, `*Identity`, `*AIAgent` and `*FlowScript`. |
 | `(*FlowValue).AllModules()` | Iterates over every module envelope in the traversal order below. |
-| `MarshalJSON` on `FlowValue` and `Flow` | Writes the *decoded form*: windmill-lite's JSON rendering of a decoded value, with the decoder's defaults written out. It decodes back to an equal value. It is not Windmill's stored full form. |
+| `MarshalJSON` on `FlowValue` and `Flow` | Writes the *decoded form*: windmill-lite's JSON rendering of a decoded value, with the decoder's defaults written out. It is a lossy projection, not Windmill's stored full form: see [The decoded form](#the-decoded-form). |
 | `*Error` | Every failure. `Kind` gives the stage, `Module` the module id the message names, and `Pointer` the offending input value as an RFC 6901 JSON Pointer. |
 | `ParseScriptHash`, `ScriptHash` | The `script.hash` format ([OF-14](../../docs/semantics/openflow.md#of-14)). |
 
 Static transform values, `flow_env` values, `schema`, mock return values and
 other free-form JSON are kept as the exact input text
 ([JE-40](../../docs/semantics/expressions.md#je-40)). Maps keep input order.
+Decoded values own their bytes: they are copies, so the caller may reuse its
+input buffer, and no two values share storage.
+
+## The decoded form
+
+The decoded form writes every default out, omits absent optional fields, and
+copies verbatim JSON as written. Conformance expectations address it with
+JSON Pointers.
+
+Writing defaults out loses whether a field was written. An absent
+`skip_failures` or branch `skip_failure` is rendered `true`, and a derived id
+as an ordinary id. Decoding the decoded form therefore gives the same
+decoded form, but not an equal model: `ForLoop.SkipFailures`,
+`Branch.SkipFailure` and `Module.IDDerived` are set where the original had
+them unset. Never decode it before a check that depends on presence, such as
+the compiler's `strict` option.
 
 ## Decode rules
 
@@ -42,7 +58,10 @@ server. Struct decoding follows the serde rules the effective decoder uses:
 2. **Recognised fields are type-checked on every kind.** A module value is
    decoded with every field any kind recognises, then `type` selects the kind,
    so a field the kind does not use can still reject the value
-   ([OF-V1](../../docs/semantics/openflow.md#of-v1)).
+   ([OF-V1](../../docs/semantics/openflow.md#of-v1)). Input transforms work
+   the same way: `value` and `expr` are decoded whatever the `type`, which
+   then selects the payload
+   ([OF-10](../../docs/semantics/openflow.md#of-10)).
 3. **A field given twice is an error**, also through an alias
    (`input_transform` for `input_transforms`, `custom_debounce_key` for
    `debounce_key`). A repeated map key keeps its first position and its last
@@ -113,9 +132,8 @@ quotes it, and are compared with Windmill by substring, as the reference does.
 Each is the smallest reading consistent with the reference; the milestone's
 pull request lists them as open questions.
 
-- An ordinary transform reads only the member its `type` uses: a `static`
-  transform ignores `expr`, a `javascript` one ignores `value`, and a null
-  `expr` counts as absent.
+- A null `expr` in an ordinary transform counts as absent, as it does in a
+  restricted slot.
 - In a restricted slot, a `type` other than `static` or `javascript`,
   including `ai`, is rejected with the ordinary transform's message.
 - Within one module, the value decodes first, then the retry check runs, then
@@ -130,8 +148,9 @@ pull request lists them as open questions.
 ## Tests
 
 - `conformance_test.go` runs the OpenFlow decode cases in
-  [`conformance/openflow`](../../conformance/README.md). Each accepted case
-  is also checked to round-trip through its decoded form. A second test
+  [`conformance/openflow`](../../conformance/README.md). For each accepted
+  case it also checks that the decoded form decodes to the same decoded
+  form. A second test
   reads the catalogue in `docs/semantics/conformance.md` and fails unless
   every OF case is either a decode case or listed in `deferred.json` with a
   reason, and unless every cited case exists with the catalogue's provenance.
@@ -143,8 +162,10 @@ pull request lists them as open questions.
   reason. It also checks that the vendored file is unmodified.
 - `decode_test.go`, `flow_test.go` and `json_test.go` cover the rules above,
   stage order, error pointers, derived ids, `DecodeFlow` and the parser.
-  `FuzzDecodeFlowValue` checks that decoding never panics and that accepted
-  input round-trips.
+  `TestDecodedValuesOwnTheirBytes` checks that no decoded value shares
+  storage with another, with a later decode or with the input.
+  `FuzzDecodeFlowValue` checks that decoding never panics and that the
+  decoded form of accepted input is stable.
 
 ```sh
 go test -race ./internal/openflow

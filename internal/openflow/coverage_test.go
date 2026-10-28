@@ -87,7 +87,7 @@ func coverageMap() map[string]schemaMapping {
 		"Retry.constant":    {decoded: fieldNames(constantRetryFields)},
 		"Retry.exponential": {decoded: fieldNames(exponentialRetryFields)},
 		"RetryIf":           {decoded: fieldNames(retryIfFields)},
-		"InputTransform":    {decoded: transformFieldNames},
+		"InputTransform":    {decoded: fieldNames(ordinaryFields)},
 		"FlowModuleValue": {
 			decoded: fieldNames(valueFieldTable),
 			ignored: map[string]string{"flow": "Identity's schema-only flag; the typed identity has no fields (OF-9)"},

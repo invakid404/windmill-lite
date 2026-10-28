@@ -108,9 +108,13 @@ func optional[V any](n *node, decode func(*node) (V, error)) (*V, error) {
 	return &v, nil
 }
 
-// raw returns a value's JSON text verbatim.
+// raw returns a copy of a value's JSON text, verbatim. Decoded values own
+// their bytes: they do not alias the caller's input, and each copy's
+// capacity ends at its length, so appending to one cannot overwrite another.
 func raw(n *node) json.RawMessage {
-	return json.RawMessage(n.raw)
+	out := make(json.RawMessage, len(n.raw))
+	copy(out, n.raw)
+	return out
 }
 
 func decodeStrings(n *node) ([]string, error) {

@@ -198,14 +198,14 @@ func TestCrossKindTypeChecks(t *testing.T) {
 
 func TestInputTransforms(t *testing.T) {
 	v := decodeOK(t, valueWith(`{"type":"script","path":"f/x","input_transforms":{
-		"s":{"type":"static","value": { "b" : [1.0, 1e2], "a": "é" } ,"expr":5},
-		"j":{"expr":"flow_input.x","type":"javascript","value":"ignored"},
+		"s":{"type":"static","value": { "b" : [1.0, 1e2], "a": "\u00e9" } ,"expr":"unused"},
+		"j":{"expr":"flow_input.x","type":"javascript","value":{"unused":[1]}},
 		"n":{"type":"javascript","expr":null},
-		"ai":{"type":"ai"}}}`))
+		"ai":{"type":"ai","value":1,"expr":"unused"}}}`))
 	ts := v.Modules[0].Value.(*PathScript).InputTransforms
-	// Static values are kept verbatim (JE-40); the member a type does not
-	// read is ignored.
-	if s, _ := ts.Get("s"); s.Type != Static || string(s.Value) != `{ "b" : [1.0, 1e2], "a": "é" }` {
+	// Static values are kept verbatim (JE-40). Every recognised member is
+	// type-checked, and the type then selects the payload.
+	if s, _ := ts.Get("s"); s.Type != Static || s.Expr != "" || string(s.Value) != `{ "b" : [1.0, 1e2], "a": "\u00e9" }` {
 		t.Errorf("static = %+v (%s)", s, s.Value)
 	}
 	if j, _ := ts.Get("j"); j.Type != JavaScript || j.Expr != "flow_input.x" || j.Value != nil {
@@ -214,14 +214,60 @@ func TestInputTransforms(t *testing.T) {
 	if n, _ := ts.Get("n"); n.Type != JavaScript || n.Expr != "" {
 		t.Errorf("javascript with null expr = %+v", n)
 	}
-	if a, _ := ts.Get("ai"); a.Type != AI {
+	if a, _ := ts.Get("ai"); a.Type != AI || a.Value != nil || a.Expr != "" {
 		t.Errorf("ai = %+v", a)
 	}
 	checkRejects(t, []rejectCase{
-		{"not an object", valueWith(`{"type":"script","path":"f/x","input_transforms":{"x":5}}`), ErrModule, "invalid type: integer `5`"},
+		// OF-10: recognised but unused members are still type-checked.
+		{"unused expr under static, envelope slot", identityWith(`,"sleep":{"type":"static","value":1,"expr":5}`), ErrFlowValue, "Invalid flow value: invalid type: integer `5`, expected a string"},
+		{"unused expr under ai, envelope slot", identityWith(`,"sleep":{"type":"ai","expr":5}`), ErrFlowValue, "Invalid flow value: invalid type: integer `5`, expected a string"},
+		{"unused expr under static, step input", valueWith(`{"type":"script","path":"f/x","input_transforms":{"x":{"type":"static","expr":false}}}`), ErrModule, "Module 'a': invalid type: boolean `false`, expected a string"},
+		{"unused expr under static, iterator", valueWith(`{"type":"forloopflow","iterator":{"type":"static","value":[],"expr":[]},"modules":[]}`), ErrModule, "Module 'a': invalid type: sequence, expected a string"},
+		{"unused expr, approval groups", identityWith(`,"suspend":{"user_groups_required":{"type":"static","expr":1}}`), ErrFlowValue, "expected a string"},
 		{"expr not a string", valueWith(`{"type":"script","path":"f/x","input_transforms":{"x":{"type":"javascript","expr":1}}}`), ErrModule, "expected a string"},
+		{"duplicate unused value", identityWith(`,"sleep":{"type":"javascript","expr":"1","value":1,"value":2}`), ErrFlowValue, "duplicate field `value`"},
+		{"duplicate unused expr", identityWith(`,"sleep":{"type":"static","expr":"a","expr":"b"}`), ErrFlowValue, "duplicate field `expr`"},
+		{"member checked before type", identityWith(`,"sleep":{"type":"jq","expr":5}`), ErrFlowValue, "invalid type: integer `5`, expected a string"},
+		{"not an object", valueWith(`{"type":"script","path":"f/x","input_transforms":{"x":5}}`), ErrModule, "invalid type: integer `5`"},
 		{"map not an object", valueWith(`{"type":"script","path":"f/x","input_transforms":[]}`), ErrModule, "expected a map"},
 	})
+}
+
+// Decoded values own their bytes: no value shares storage with another
+// value, with a later decode, or with the caller's input.
+func TestDecodedValuesOwnTheirBytes(t *testing.T) {
+	in := `{"modules":[{"id":"a","value":{"type":"identity"},"sleep":{"type":"static"},"timeout":{"type":"static"}}],"flow_env":{"x":123,"y":4}}`
+	input := []byte(in)
+	first, err := DecodeFlowValue(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &first.Modules[0]
+	// Defaults are not shared (OF-10/a, OF-V2/e).
+	copy(m.Sleep.Value, "true")
+	if string(m.Timeout.Value) != "null" {
+		t.Errorf("timeout changed to %s with the sleep's default", m.Timeout.Value)
+	}
+	if again := decodeOK(t, in); string(again.Modules[0].Sleep.Value) != "null" {
+		t.Errorf("a later decode returned %s for a default null", again.Modules[0].Sleep.Value)
+	}
+	// Raw values are copies, so overwriting the input changes nothing.
+	at := strings.Index(string(input), "123")
+	copy(input[at:], "456")
+	if got := string(first.FlowEnv[0].Value); got != "123" {
+		t.Errorf("flow_env value follows the caller's buffer: %s", got)
+	}
+	// Each copy's capacity ends at its length.
+	x := first.FlowEnv[0].Value
+	_ = append(x, '9')
+	if got := string(first.FlowEnv[1].Value); got != "4" {
+		t.Errorf("appending to one value overwrote another: %s", got)
+	}
+	for _, e := range first.FlowEnv {
+		if cap(e.Value) != len(e.Value) {
+			t.Errorf("%s: capacity %d, length %d", e.Name, cap(e.Value), len(e.Value))
+		}
+	}
 }
 
 func TestRestrictedTransforms(t *testing.T) {

@@ -234,3 +234,20 @@ func FuzzDecodeFlowValue(f *testing.F) {
 		assertRoundTrip(t, encoded)
 	})
 }
+
+// The decoded form is a projection: re-decoding it keeps the decoded form
+// but not the presence of defaulted fields.
+func TestDecodedFormIsAProjection(t *testing.T) {
+	v := decodeOK(t, `{"modules":[{"value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"modules":[]}},{"id":"b","value":{"type":"branchall","branches":[{"modules":[]}]}}]}`)
+	loop, branch := v.Modules[0].Value.(*ForLoop), v.Modules[1].Value.(*BranchAll).Branches[0]
+	if loop.SkipFailures != nil || branch.SkipFailure != nil || !v.Modules[0].IDDerived {
+		t.Fatal("the decoded model must record absence")
+	}
+	encoded, _ := v.MarshalJSON()
+	assertRoundTrip(t, encoded)
+	again := decodeOK(t, string(encoded))
+	loop, branch = again.Modules[0].Value.(*ForLoop), again.Modules[1].Value.(*BranchAll).Branches[0]
+	if loop.SkipFailures == nil || !*loop.SkipFailures || branch.SkipFailure == nil || !*branch.SkipFailure || again.Modules[0].IDDerived {
+		t.Fatal("the decoded form writes defaults and ids out; re-decoding sees them as written")
+	}
+}

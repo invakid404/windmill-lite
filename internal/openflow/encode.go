@@ -10,18 +10,27 @@ import (
 // object per type with the decoder's defaults written out, optional fields
 // omitted when absent, static values and other verbatim JSON copied as
 // written, maps in input order, and dropped fields (delete_after_use, the
-// while-loop parallel fields) left out. It is not Windmill's stored full
-// form, and it decodes back to an equal value. Conformance expectations
-// address it with JSON Pointers.
+// while-loop parallel fields) left out. Conformance expectations address it
+// with JSON Pointers. It is not Windmill's stored full form.
+//
+// It is a projection, not a lossless encoding of the model. Writing defaults
+// out loses whether a field was written: an absent `skip_failures` or branch
+// `skip_failure` is rendered `true`, and a derived id as an ordinary id. So
+// decoding the decoded form gives the same decoded form, but not an equal
+// model: ForLoop.SkipFailures, Branch.SkipFailure and Module.IDDerived are
+// set where the original had them unset. Never decode it before a check that
+// depends on presence, such as the compiler's strict option (Q-CF-13).
 
-// MarshalJSON renders the flow value in the decoded form.
+// MarshalJSON renders the flow value in the decoded form, a lossy
+// projection (see above).
 func (v *FlowValue) MarshalJSON() ([]byte, error) {
 	var e encoder
 	e.flowValue(v)
 	return e.buf, nil
 }
 
-// MarshalJSON renders the flow document in the decoded form.
+// MarshalJSON renders the flow document in the decoded form, a lossy
+// projection (see FlowValue.MarshalJSON).
 func (f *Flow) MarshalJSON() ([]byte, error) {
 	var e encoder
 	e.object(func(o *object) {
