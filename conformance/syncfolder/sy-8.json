@@ -214,6 +214,34 @@
     },
     {
       "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "codebase globs count UTF-16 code units",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ./one\n    includes: ['f/?.ts']\n  - relative_path: ./two\n    includes: ['f/??.ts']\n",
+          "f/a.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/😀.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a": {
+              "at": {
+                "/codebase/index": 0
+              }
+            },
+            "f/😀": {
+              "at": {
+                "/codebase/index": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
       "provenance": "policy",
       "note": "a reading: the reference says an entry with no includes selects every candidate, and SY-V2 tells an empty list from an absent one",
       "title": "an empty includes list selects nothing",

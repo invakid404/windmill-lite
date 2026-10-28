@@ -58,12 +58,38 @@
                 "/metadata/summary": "",
                 "/metadata/description": "",
                 "/metadata/kind": "script",
+                "/metadata/schema": {},
                 "/lock": "lock\n",
                 "/lock_file": "f/a/x.script.lock"
               },
               "absent": [
                 "/metadata_file"
               ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-4",
+      "provenance": "source-derived",
+      "note": "only a script without a metadata file gets the empty schema",
+      "title": "a metadata file without a schema",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: s\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/schema": null,
+                "/metadata/summary": "s"
+              }
             }
           }
         }

@@ -290,6 +290,58 @@
     {
       "spec": "SY-13",
       "provenance": "source-derived",
+      "note": "minimatch reads a character outside the Basic Multilingual Plane as two code units, so ?? matches it and ? does not; observed on minimatch 9.0.9 and 10.2.6",
+      "title": "globs count UTF-16 code units: includes",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/??.ts']\n",
+          "f/😀.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/😀"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "f/a"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "note": "? takes one code unit, so it excludes f/a.ts and not f/😀.ts; [😀] is a class of the character's two halves, so with * after it, it matches a name that starts with the character",
+      "title": "globs count UTF-16 code units: excludes",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nexcludes: ['f/?.ts', 'f/[😀]*']\n",
+          "f/😀.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b😀.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/b😀"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "f/a",
+            "f/😀"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
       "note": "minimatch's ** does not match a segment that starts with a dot",
       "title": "dot files and the dot rule",
       "given": {

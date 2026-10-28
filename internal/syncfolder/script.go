@@ -44,8 +44,8 @@ type Script struct {
 type ScriptMetadata struct {
 	Summary     string `json:"summary"`
 	Description string `json:"description"`
-	// Schema is the JSON Schema of main's arguments, verbatim; nil when
-	// absent.
+	// Schema is the JSON Schema of main's arguments, verbatim; nil when a
+	// metadata file has none, and `{}` when there is no metadata file.
 	Schema                 json.RawMessage `json:"schema"`
 	Kind                   ScriptKind      `json:"kind"`
 	Envs                   []string        `json:"envs"`
@@ -58,6 +58,10 @@ type ScriptMetadata struct {
 	// metadata file.
 	Raw json.RawMessage `json:"raw"`
 }
+
+// emptySchema is the schema of a script without metadata. SY-4 says only
+// "an empty schema"; this is the empty JSON Schema.
+const emptySchema = "{}"
 
 // ScriptKind is a script's `kind` (SY-4).
 type ScriptKind string
@@ -209,7 +213,10 @@ func (f *Folder) readMetadata(s *Script, file string) *Error {
 	md := &s.Metadata
 	md.Kind = ScriptKindScript
 	if file == "" {
-		// The CLI's defaults for a script without metadata (SY-4).
+		// The CLI's defaults for a script without metadata (SY-4): empty
+		// summary and description, kind script, an empty schema, and the
+		// lock from <p>.script.lock.
+		md.Schema = json.RawMessage(emptySchema)
 		lock, lockFile, err := f.readLockFile(s.Path + ".script.lock")
 		if err != nil {
 			return err

@@ -2,8 +2,10 @@ package syncfolder
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -14,6 +16,10 @@ import (
 //
 //   - `*` (any characters but `/`), `?` (one character), classes `[...]`
 //     with `!` or `^` negation and ranges, and `\` escapes;
+//   - characters are UTF-16 code units, as in minimatch's JavaScript
+//     regular expressions: `?` matches half of `😀`, which takes `??`, and
+//     the class `[😀]` holds its two halves, so it matches neither half
+//     alone nor the whole;
 //   - `**` as a whole segment: any number of segments;
 //   - brace expansion: `{a,b}` lists, nested, and `{x..y}` sequences;
 //   - a leading `!` negates the pattern, and a leading `#` makes it match
@@ -31,6 +37,9 @@ import (
 // braces that do not expand are refused with ErrGlob: minimatch versions
 // read some of them differently, minimatch reads others in ways a plain
 // matcher does not, and extglobs need a matcher that is not regular.
+//
+// Matching takes time polynomial in the pattern and the path: `*` runs
+// backtrack only to the last star, and `**` states are memoized.
 type glob struct {
 	source  string
 	negate  bool
@@ -58,20 +67,23 @@ const (
 	tokClass
 )
 
+// globTok is one token of a segment pattern. u is a literal's UTF-16 code
+// unit.
 type globTok struct {
 	kind  tokKind
-	r     rune
+	u     uint16
 	class *globClass
 }
 
+// globClass is a class of UTF-16 code units.
 type globClass struct {
 	negate bool
-	ranges [][2]rune
+	ranges [][2]uint16
 }
 
-// single reports a class of exactly one character (`[.]`, `[.-.]`), which
+// single reports a class of exactly one code unit (`[.]`, `[.-.]`), which
 // minimatch 9 and 10 read as that literal character.
-func (c *globClass) single() (rune, bool) {
+func (c *globClass) single() (uint16, bool) {
 	if c.negate || len(c.ranges) != 1 || c.ranges[0][0] != c.ranges[0][1] {
 		return 0, false
 	}
@@ -156,162 +168,242 @@ func compileSeg(s string) ([]globTok, error) {
 		// minimatch 9 and 10 compare such a segment's escapes as text.
 		return nil, fmt.Errorf("an escape in a segment that starts with `*` or `?`")
 	}
+	u := utf16.Encode([]rune(s))
 	var toks []globTok
-	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:])
+	for i := 0; i < len(u); i++ {
+		c := u[i]
 		switch {
-		case r == '\\':
-			if i+n >= len(s) {
+		case c == '\\':
+			if i+1 >= len(u) {
 				return nil, fmt.Errorf("a trailing backslash")
 			}
-			e, m := utf8.DecodeRuneInString(s[i+n:])
-			toks = append(toks, globTok{kind: tokLit, r: e})
-			i += n + m
-			continue
-		case strings.ContainsRune("@!+?*", r) && i+n < len(s) && s[i+n] == '(':
-			return nil, fmt.Errorf("an extglob %q", s[i:i+n+1])
-		case r == '?':
+			i++
+			toks = append(toks, globTok{kind: tokLit, u: u[i]})
+		case strings.ContainsRune("@!+?*", rune(c)) && i+1 < len(u) && u[i+1] == '(':
+			return nil, fmt.Errorf("an extglob %q", string(rune(c))+"(")
+		case c == '?':
 			toks = append(toks, globTok{kind: tokAny})
-		case r == '*':
+		case c == '*':
 			if len(toks) == 0 || toks[len(toks)-1].kind != tokStar {
 				toks = append(toks, globTok{kind: tokStar})
 			}
-		case r == '[':
-			c, m, ok, err := compileClass(s[i:])
+		case c == '[':
+			cl, n, ok, err := compileClass(u[i:])
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s in %q", err, s)
 			}
-			if ok {
-				if lit, single := c.single(); single {
-					toks = append(toks, globTok{kind: tokLit, r: lit})
-				} else {
-					toks = append(toks, globTok{kind: tokClass, class: c})
-				}
-				i += m
+			if !ok {
+				// An unclosed `[` is a literal character.
+				toks = append(toks, globTok{kind: tokLit, u: c})
 				continue
 			}
-			// An unclosed `[` is a literal character.
-			toks = append(toks, globTok{kind: tokLit, r: r})
+			if lit, single := cl.single(); single {
+				toks = append(toks, globTok{kind: tokLit, u: lit})
+			} else {
+				toks = append(toks, globTok{kind: tokClass, class: cl})
+			}
+			i += n - 1
 		default:
-			toks = append(toks, globTok{kind: tokLit, r: r})
+			toks = append(toks, globTok{kind: tokLit, u: c})
 		}
-		i += n
 	}
 	return toks, nil
 }
 
-// compileClass parses a class at the start of s. It returns ok false when
-// the class is not closed, in which case `[` is literal.
-func compileClass(s string) (*globClass, int, bool, error) {
+// compileClass parses a class at the start of u and returns its length in
+// code units. It returns ok false when the class is not closed, in which
+// case `[` is literal. A reversed range matches nothing.
+func compileClass(u []uint16) (*globClass, int, bool, error) {
 	c := &globClass{}
 	i := 1
-	if i < len(s) && (s[i] == '!' || s[i] == '^') {
+	if i < len(u) && (u[i] == '!' || u[i] == '^') {
 		c.negate = true
 		i++
 	}
 	first := true
-	for i < len(s) {
-		r, n := utf8.DecodeRuneInString(s[i:])
-		if r == ']' && !first {
-			return c, i + n, true, nil
+	for i < len(u) {
+		if u[i] == ']' && !first {
+			return c, i + 1, true, nil
 		}
-		if r == '[' && i+1 < len(s) && strings.IndexByte(":=.", s[i+1]) >= 0 {
-			return nil, 0, false, fmt.Errorf("a POSIX class in %q", s)
+		if u[i] == '[' && i+1 < len(u) && (u[i+1] == ':' || u[i+1] == '=' || u[i+1] == '.') {
+			return nil, 0, false, fmt.Errorf("a POSIX class")
 		}
 		first = false
-		if r == '\\' {
-			if i+n >= len(s) {
+		lo, ok := classUnit(u, &i)
+		if !ok {
+			return nil, 0, false, nil
+		}
+		hi := lo
+		if i+1 < len(u) && u[i] == '-' && u[i+1] != ']' {
+			i++
+			if hi, ok = classUnit(u, &i); !ok {
 				return nil, 0, false, nil
 			}
-			r, n = utf8.DecodeRuneInString(s[i+n:])
-			i++
 		}
-		i += n
-		lo, hi := r, r
-		if i+1 < len(s) && s[i] == '-' && s[i+1] != ']' {
-			h, m := utf8.DecodeRuneInString(s[i+1:])
-			if h == '\\' {
-				if i+1+m >= len(s) {
-					return nil, 0, false, nil
-				}
-				h, m = utf8.DecodeRuneInString(s[i+1+m:])
-				i++
-			}
-			hi = h
-			i += 1 + m
-		}
-		c.ranges = append(c.ranges, [2]rune{lo, hi})
+		c.ranges = append(c.ranges, [2]uint16{lo, hi})
 	}
 	return nil, 0, false, nil
 }
 
-func (c *globClass) has(r rune) bool {
+// classUnit reads one class member at u[*i], unescaping `\`.
+func classUnit(u []uint16, i *int) (uint16, bool) {
+	if u[*i] == '\\' {
+		if *i+1 >= len(u) {
+			return 0, false
+		}
+		*i++
+	}
+	c := u[*i]
+	*i++
+	return c, true
+}
+
+func (c *globClass) has(x uint16) bool {
 	for _, rg := range c.ranges {
-		if rg[0] <= r && r <= rg[1] {
+		if rg[0] <= x && x <= rg[1] {
 			return true
 		}
 	}
 	return false
 }
 
-func (c *globClass) matches(r rune) bool {
-	return c.has(r) != c.negate
+func (c *globClass) matches(x uint16) bool {
+	return c.has(x) != c.negate
 }
 
 // match reports whether the root-relative file path p matches.
 func (g *glob) match(p string) bool {
+	hit, _ := g.matchSteps(p)
+	return hit
+}
+
+// matchSteps is match, also returning the number of matching steps taken,
+// which the tests bound.
+func (g *glob) matchSteps(p string) (bool, int) {
 	if g.comment {
-		return false
+		return false, 0
 	}
 	parts := strings.Split(p, "/")
-	hit := false
+	units := make([][]uint16, len(parts))
+	steps, hit := 0, false
 	for _, alt := range g.alts {
-		if !alt.never && matchSegs(alt.segs, parts) {
-			hit = true
+		if alt.never {
+			continue
+		}
+		m := &segMatcher{segs: alt.segs, parts: parts, units: units,
+			memo: make([]int8, (len(alt.segs)+1)*(len(parts)+1))}
+		hit = m.at(0, 0)
+		steps += m.steps
+		if hit {
 			break
 		}
 	}
-	return hit != g.negate
+	return hit != g.negate, steps
 }
 
-func matchSegs(segs []globSeg, parts []string) bool {
-	if len(segs) == 0 {
-		return len(parts) == 0
+// segMatcher matches pattern segments against path segments, memoizing
+// each (pattern segment, path segment) state so that `**` runs do not
+// revisit them.
+type segMatcher struct {
+	segs  []globSeg
+	parts []string
+	units [][]uint16 // the parts as UTF-16, converted on first use
+	memo  []int8     // 0 unknown, 1 match, 2 no match
+	steps int
+}
+
+func (m *segMatcher) at(si, pi int) bool {
+	key := si*(len(m.parts)+1) + pi
+	if v := m.memo[key]; v != 0 {
+		return v == 1
 	}
-	if !segs[0].globstar {
-		return len(parts) > 0 && matchSeg(segs[0].toks, parts[0]) && matchSegs(segs[1:], parts[1:])
+	m.steps++
+	hit := m.compute(si, pi)
+	m.memo[key] = 2
+	if hit {
+		m.memo[key] = 1
 	}
-	if len(segs) == 1 {
+	return hit
+}
+
+func (m *segMatcher) compute(si, pi int) bool {
+	if si == len(m.segs) {
+		return pi == len(m.parts)
+	}
+	if seg := m.segs[si]; !seg.globstar {
+		return pi < len(m.parts) && m.segment(seg.toks, pi) && m.at(si+1, pi+1)
+	}
+	if si == len(m.segs)-1 {
 		// A trailing `**` matches one or more segments, none of them dotted.
-		if len(parts) == 0 {
+		if pi == len(m.parts) {
 			return false
 		}
-		for _, p := range parts {
+		for _, p := range m.parts[pi:] {
+			m.steps++
 			if strings.HasPrefix(p, ".") {
 				return false
 			}
 		}
 		return true
 	}
-	for i := 0; i <= len(parts); i++ {
-		if matchSegs(segs[1:], parts[i:]) {
+	for i := pi; i <= len(m.parts); i++ {
+		if m.at(si+1, i) {
 			return true
 		}
-		if i < len(parts) && strings.HasPrefix(parts[i], ".") {
+		if i < len(m.parts) && strings.HasPrefix(m.parts[i], ".") {
 			return false
 		}
 	}
 	return false
 }
 
-func matchSeg(toks []globTok, s string) bool {
+func (m *segMatcher) segment(toks []globTok, pi int) bool {
+	s := m.parts[pi]
 	if (s == "." || s == "..") && !allLiteral(toks) {
 		return false // wildcards never match these segments
 	}
 	if strings.HasPrefix(s, ".") && !leadingDotAllowed(toks) {
 		return false
 	}
-	return matchToks(toks, s)
+	if m.units[pi] == nil {
+		m.units[pi] = utf16.Encode([]rune(s))
+	}
+	return m.tokens(toks, m.units[pi])
+}
+
+// tokens matches one segment pattern against one path segment. Every token
+// but `*` takes exactly one code unit, so on a mismatch it is enough to
+// let the last `*` take one more unit; the steps are bounded by the
+// segment's length times the pattern's.
+func (m *segMatcher) tokens(toks []globTok, s []uint16) bool {
+	ti, si := 0, 0
+	star, mark := -1, 0
+	for si < len(s) {
+		m.steps++
+		if ti < len(toks) {
+			switch t := toks[ti]; {
+			case t.kind == tokStar:
+				star, mark = ti, si
+				ti++
+				continue
+			case t.kind == tokAny,
+				t.kind == tokLit && t.u == s[si],
+				t.kind == tokClass && t.class.matches(s[si]):
+				ti++
+				si++
+				continue
+			}
+		}
+		if star < 0 {
+			return false
+		}
+		mark++
+		ti, si = star+1, mark
+	}
+	for ti < len(toks) && toks[ti].kind == tokStar {
+		ti++
+	}
+	return ti == len(toks)
 }
 
 func allLiteral(toks []globTok) bool {
@@ -321,59 +413,20 @@ func allLiteral(toks []globTok) bool {
 
 // literal returns the text of a segment pattern made only of literals.
 func literal(toks []globTok) (string, bool) {
-	var b strings.Builder
+	u := make([]uint16, 0, len(toks))
 	for _, t := range toks {
 		if t.kind != tokLit {
 			return "", false
 		}
-		b.WriteRune(t.r)
+		u = append(u, t.u)
 	}
-	return b.String(), true
+	return string(utf16.Decode(u)), true
 }
 
 // leadingDotAllowed reports whether a segment pattern may match a segment
 // that starts with `.`: it must start with a literal `.`.
 func leadingDotAllowed(toks []globTok) bool {
-	return len(toks) > 0 && toks[0].kind == tokLit && toks[0].r == '.'
-}
-
-func matchToks(toks []globTok, s string) bool {
-	for len(toks) > 0 {
-		t := toks[0]
-		if t.kind == tokStar {
-			rest := toks[1:]
-			if len(rest) == 0 {
-				return true
-			}
-			for i := 0; i <= len(s); {
-				if matchToks(rest, s[i:]) {
-					return true
-				}
-				if i == len(s) {
-					break
-				}
-				_, n := utf8.DecodeRuneInString(s[i:])
-				i += n
-			}
-			return false
-		}
-		if s == "" {
-			return false
-		}
-		r, n := utf8.DecodeRuneInString(s)
-		switch t.kind {
-		case tokLit:
-			if r != t.r {
-				return false
-			}
-		case tokClass:
-			if !t.class.matches(r) {
-				return false
-			}
-		}
-		toks, s = toks[1:], s[n:]
-	}
-	return s == ""
+	return len(toks) > 0 && toks[0].kind == tokLit && toks[0].u == '.'
 }
 
 // braceExpand expands `{a,b}` lists and `{x..y[..step]}` sequences, left to
@@ -470,72 +523,107 @@ func matchBrace(s string, open int) (int, []int, error) {
 	return 0, nil, fmt.Errorf("a `{` without `}`")
 }
 
+// maxSafeInt is 2^53, beyond which JavaScript numbers, which minimatch's
+// brace expansion computes with, are not exact integers.
+const maxSafeInt = 1 << 53
+
 // sequence expands a `{x..y}` or `{x..y..step}` body: integers, padded with
-// zeros when either end is, or single ASCII letters.
+// zeros when either end is, or single ASCII letters. The step's sign is
+// ignored and 0 counts as 1; a step beyond the ends' distance gives the
+// start alone. Ends beyond 2^53, and a step beyond 2^53 that is not beyond
+// that distance, are refused, because JavaScript would round them.
 func sequence(body string) ([]string, bool, error) {
 	parts := strings.Split(body, "..")
 	if len(parts) != 2 && len(parts) != 3 {
 		return nil, false, nil
 	}
-	step := 1
+	step := uint64(1)
 	if len(parts) == 3 {
-		n, err := strconv.Atoi(parts[2])
-		if err != nil || !isInt(parts[2]) {
+		if !isInt(parts[2]) {
 			return nil, false, nil
 		}
-		if n < 0 {
-			n = -n
+		if step = absDigits(parts[2]); step == 0 {
+			step = 1
 		}
-		if n == 0 {
-			n = 1
-		}
-		step = n
 	}
 	x, y := parts[0], parts[1]
-	if isInt(x) && isInt(y) {
-		a, errA := strconv.Atoi(x)
-		b, errB := strconv.Atoi(y)
-		if errA != nil || errB != nil {
-			return nil, false, fmt.Errorf("a sequence out of range")
+	switch {
+	case isInt(x) && isInt(y):
+		a, okA := safeInt(x)
+		b, okB := safeInt(y)
+		if !okA || !okB {
+			return nil, false, fmt.Errorf("a sequence end beyond 2^53")
 		}
 		width := 0
 		if padded(x) || padded(y) {
 			width = max(len(x), len(y))
 		}
-		var out []string
-		for i := a; ; {
-			out = append(out, pad(i, width))
-			if len(out) > maxExpansions {
-				return nil, false, fmt.Errorf("more than %d brace expansions", maxExpansions)
-			}
-			if a <= b {
-				if i += step; i > b {
-					break
-				}
-			} else if i -= step; i < b {
-				break
-			}
-		}
-		return out, true, nil
-	}
-	if isLetter(x) && isLetter(y) {
-		a, b := int(x[0]), int(y[0])
-		var out []string
-		for i := a; ; {
-			if c := rune(i); c != '\\' {
-				out = append(out, string(c))
-			}
-			if a <= b {
-				if i += step; i > b {
-					break
-				}
-			} else if i -= step; i < b {
-				break
-			}
-		}
-		return out, true, nil
+		return expandSequence(a, b, step, func(i int64) (string, bool) { return pad(i, width), true })
+	case isLetter(x) && isLetter(y):
+		return expandSequence(int64(x[0]), int64(y[0]), step, func(i int64) (string, bool) {
+			return string(rune(i)), rune(i) != '\\'
+		})
 	}
 	return nil, false, nil
+}
+
+// expandSequence lists a, a±step, … up to b. The ends are within ±2^53,
+// so their distance and every offset fit in 64 bits.
+func expandSequence(a, b int64, step uint64, item func(int64) (string, bool)) ([]string, bool, error) {
+	var dist uint64
+	if a <= b {
+		dist = uint64(b - a)
+	} else {
+		dist = uint64(a - b)
+	}
+	if step > maxSafeInt && step <= dist {
+		return nil, false, fmt.Errorf("a sequence step beyond 2^53")
+	}
+	n := dist/step + 1
+	if n > maxExpansions {
+		return nil, false, fmt.Errorf("more than %d brace expansions", maxExpansions)
+	}
+	out := make([]string, 0, n)
+	for k := uint64(0); k < n; k++ {
+		off := int64(k * step)
+		i := a + off
+		if a > b {
+			i = a - off
+		}
+		if s, ok := item(i); ok {
+			out = append(out, s)
+		}
+	}
+	return out, true, nil
+}
+
+// absDigits is the absolute value of a decimal integer, saturated at the
+// largest uint64.
+func absDigits(s string) uint64 {
+	var v uint64
+	for i := 0; i < len(s); i++ {
+		if s[i] == '-' {
+			continue
+		}
+		d := uint64(s[i] - '0')
+		if v > (math.MaxUint64-d)/10 {
+			return math.MaxUint64
+		}
+		v = v*10 + d
+	}
+	return v
+}
+
+// safeInt parses a decimal integer within ±2^53.
+func safeInt(s string) (int64, bool) {
+	v := absDigits(s)
+	if v > maxSafeInt {
+		return 0, false
+	}
+	if strings.HasPrefix(s, "-") {
+		return -int64(v), true
+	}
+	return int64(v), true
 }
 
 func isInt(s string) bool {
@@ -556,12 +644,12 @@ func padded(s string) bool {
 	return len(s) > 1 && s[0] == '0'
 }
 
-func pad(i, width int) string {
+func pad(i int64, width int) string {
 	neg := i < 0
 	if neg {
 		i = -i
 	}
-	s := strconv.Itoa(i)
+	s := strconv.FormatInt(i, 10)
 	w := width
 	if neg {
 		w--

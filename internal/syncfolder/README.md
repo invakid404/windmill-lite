@@ -82,7 +82,10 @@ CLI's `wmill-lock.yaml` and `.wmillignore` are listed in `Skipped`
 [PA-1](../../docs/semantics/openflow.md#pa-1)). An override file is
 `<base>.<workspace>.<type>.yaml` for a workspace declared under `workspaces`
 or its deprecated spellings, matched in file-name form (`my.ws` is `my_ws`).
-Other files are ignored; a `.yaml` file whose type is unknown gets a warning.
+Other files are ignored; a `.yaml` file whose type is unknown gets a warning,
+and so does a file or folder whose name is not valid UTF-8, which is skipped:
+the CLI reads names as UTF-8 with replacement characters, and cannot open
+such a file again by that name.
 
 **Paths.** A flow, resource or variable path is its file's path without the
 folder marker or type suffix, dots and all. A script's path is what the CLI
@@ -116,8 +119,19 @@ syntax on which minimatch 9 and 10 agree: `*`, `?`, classes with `!` or `^`
 and ranges, `\` escapes, `**` segments, brace lists and sequences, a leading
 `!` (negation) and `#` (a comment, which matches nothing). A segment that
 starts with `.` is matched only by a pattern segment that starts with a
-literal `.` (a one-character class such as `[.]` counts). It refuses, with
-`unsupported_glob`:
+literal `.` (a one-character class such as `[.]` counts).
+
+Characters are UTF-16 code units, as in minimatch's JavaScript regular
+expressions. A character outside the Basic Multilingual Plane, such as `😀`,
+is two units: `?` matches half of it, so `f/?.ts` does not match `f/😀.ts`
+and `f/??.ts` does, and the class `[😀]` holds its two halves, so it matches
+neither half alone nor the whole. Matching takes time polynomial in the
+pattern and the path: a mismatch lets only the last `*` take one more unit,
+and `**` states are memoized.
+
+A sequence's step ignores its sign, counts 0 as 1, and gives only the start
+when it exceeds the distance between the ends, as minimatch does even for
+`{a..z..-9223372036854775808}`. It refuses, with `unsupported_glob`:
 
 - extglobs (`@(…)`, `!(…)`, `+(…)`, `?(…)`, `*(…)`) and POSIX classes;
 - segments that read as `.` or `..`, which minimatch 10 resolves as directory
@@ -126,7 +140,9 @@ literal `.` (a one-character class such as `[.]` counts). It refuses, with
   one), and an escape in a segment that starts with `*` or `?` (minimatch 9
   and 10 compare those as text);
 - braces that do not expand (`{}`, `{a}`, an unclosed `{`), `${`, and more
-  than 4096 expansions.
+  than 4096 expansions;
+- sequence ends beyond ±2^53, and a step beyond 2^53 that does not exceed
+  the ends' distance, which JavaScript would round.
 
 ## Scripts
 
@@ -140,7 +156,8 @@ literal `.` (a one-character class such as `[.]` counts). It refuses, with
   `delete_after_secs`, `restart_unless_cancelled` and `has_preprocessor` are
   type-checked; the whole file is also kept as JSON. Other keys are ignored. A
   script without metadata gets the CLI's defaults: empty summary and
-  description, kind `script`, and its lock from `P.script.lock`.
+  description, kind `script`, the empty schema `{}`, and its lock from
+  `P.script.lock`. A metadata file without `schema` has none (`null`).
 - **Lock** ([SY-5](../../docs/semantics/openflow.md#sy-5)): an `!inline
   <file>` reference relative to the root, whose missing file is the empty
   lock; any other string as written; a list of strings joined with `\n`; or
@@ -237,6 +254,8 @@ pull request lists them as open questions.
 - **Script lock references** use the inline-lock rule of SY-V1 (leading white
   space, then the second token).
 - **Text files** keep a byte order mark as U+FEFF.
+- **The empty schema** of a script without metadata is `{}`; SY-4 does not
+  give its text.
 - **Variables and resources** without `value` read as `""` and `null`.
 - Per-workspace overrides are recognised and skipped, never applied
   (SY-12 `later`).
@@ -261,8 +280,12 @@ pull request lists them as open questions.
   SYNCFOLDER_MINIMATCH="$D/node_modules/minimatch" go test -run TestMinimatchCrossCheck ./internal/syncfolder
   ```
 
-  `FuzzGlob` checks that compiling and matching never panic and that a
-  negated pattern matches exactly what the pattern does not.
+  `TestGlobMatchingIsBounded` checks a step bound on patterns that make a
+  backtracking matcher exponential, and `TestSequenceLimits` the sequence
+  ends and steps at the integer limits. `FuzzGlob` checks that compiling and
+  matching never panic, that a negated pattern matches exactly what the
+  pattern does not, and that on short inputs the matcher agrees with a plain
+  backtracking one.
 - `native_test.go` covers the annotation's spelling and position rules.
 - `syncfolder_test.go` covers root discovery, symbolic links, configuration
   errors, error text, `Check`, duplicate and JSON-mode data files,

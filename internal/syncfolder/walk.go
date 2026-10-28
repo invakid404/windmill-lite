@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"unicode/utf8"
 )
 
 // walker classifies the files of the folder (SY-1, SY-2, SY-6, SY-10 to
@@ -67,6 +68,12 @@ func (w *walker) list(dir string) (dirs, files []string, err error) {
 	}
 	for _, e := range ents {
 		p := path.Join(dir, e.Name())
+		if !utf8.ValidString(e.Name()) {
+			// The CLI reads names as UTF-8 with replacement characters,
+			// under which it cannot open the file again.
+			w.warn("%q is ignored: its name is not valid UTF-8", p)
+			continue
+		}
 		isDir := e.IsDir()
 		if e.Type()&fs.ModeSymlink != 0 {
 			st, err := fs.Stat(w.f.fsys, p)
