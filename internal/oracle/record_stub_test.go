@@ -38,8 +38,13 @@ func newStubRig(t *testing.T, name string) *stubRig {
 	if err := os.RemoveAll(filepath.Join(dir, "recorded")); err != nil {
 		t.Fatal(err)
 	}
+	f, err := conformance.LoadFixture(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d := newFakeDocker(t)
 	e := newFakeEngine(t, filepath.Join(dir, "windmill"), d)
+	e.holdGroups(f.Runs)
 	srv := httptest.NewServer(e)
 	t.Cleanup(func() {
 		e.wg.Wait()

@@ -43,10 +43,11 @@
         "id": "i1",
         "run": "r1",
         "site": "m:a",
-        "script": "sleep",
+        "script": "gate",
         "entry": "main",
         "args": {
-          "ms": 400
+          "started": "i1.started",
+          "release": "i1.release"
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"
@@ -60,10 +61,11 @@
         "id": "i2",
         "run": "r1",
         "site": "m:a",
-        "script": "sleep",
+        "script": "gate",
         "entry": "main",
         "args": {
-          "ms": 100
+          "started": "i2.started",
+          "release": "i2.release"
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"
@@ -100,20 +102,26 @@
       }
     },
     {
+      "release": "i2.release"
+    },
+    {
       "expect": {
         "t": "result",
         "id": "i2",
         "outcome": "ok",
-        "body": 100,
+        "body": "released",
         "settled": true
       }
+    },
+    {
+      "release": "i1.release"
     },
     {
       "expect": {
         "t": "result",
         "id": "i1",
         "outcome": "ok",
-        "body": 400,
+        "body": "released",
         "settled": true
       }
     },

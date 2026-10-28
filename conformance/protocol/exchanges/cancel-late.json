@@ -46,10 +46,11 @@
         "id": "i1",
         "run": "r1",
         "site": "m:a",
-        "script": "sleep",
+        "script": "gate",
         "entry": "main",
         "args": {
-          "ms": 1000
+          "started": "i1.started",
+          "release": "i1.release"
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"
@@ -85,14 +86,16 @@
       "quiet_ms": 100
     },
     {
+      "release": "i1.release"
+    },
+    {
       "expect": {
         "t": "late",
         "id": "i1",
         "kind": "result",
-        "body": 1000,
+        "body": "released",
         "settled": true
-      },
-      "within_ms": 3000
+      }
     },
     {
       "send": {

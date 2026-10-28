@@ -85,9 +85,11 @@ type ProcessConfig struct {
 	Diagnostics io.Writer
 
 	// notify is called, outside every lock, after an invocation is
-	// abandoned, after an abandoned invocation settles completed (before its
-	// Reporter hears Settled, so the pool's taint rules have run by then),
-	// and after the process exits. The pool sets it.
+	// abandoned and after an abandoned invocation settles completed, before
+	// its Reporter hears of either, and once the process has exited, before
+	// the Reporters of the invocations in it hear Settled(process_exited).
+	// So the pool's rules have run by the time a Reporter is told. The pool
+	// sets it.
 	notify func(*Process)
 }
 
@@ -218,10 +220,10 @@ type invocation struct {
 	// like silence to the watchdog.
 	calls serial
 	// fixed, if set, runs once when the engine stops waiting for the
-	// invocation: first in calls when its outcome is fixed, before any
-	// Reporter call, or when it is abandoned. A pool frees the
-	// invocation's slot there, so a Reporter that runs another step does
-	// not wait for its own.
+	// invocation: first in calls when its outcome is fixed or it is
+	// abandoned, before any Reporter call. A pool frees the invocation's
+	// slot there, so a Reporter that runs another step does not wait for
+	// its own.
 	fixed func()
 }
 
@@ -643,6 +645,10 @@ func (p *Process) readerDone(err error) {
 		delete(p.pings, id)
 	}
 	p.mu.Unlock()
+	// The pool drops the process before any Reporter hears
+	// Settled(process_exited), as it applies its taint rules before an
+	// abandoned invocation's Settled(completed).
+	p.notifyFunc()()
 
 	// A process that dies fails its in-flight invocations as escaped, with
 	// its real exit code or the signal that ended it (ADR 0004, WR-4).
@@ -672,9 +678,6 @@ func (p *Process) readerDone(err error) {
 	p.closeStdio()
 	os.RemoveAll(p.dir)
 	close(p.exited)
-	if p.cfg.notify != nil {
-		p.cfg.notify(p)
-	}
 }
 
 // dispatch is how far exec got with an invocation.
@@ -764,12 +767,19 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	p.inFlight--
 	p.abandoned++
 	reason := engine.CancelReasonOf(ctx)
+	// The slot is freed and the pool hears of the abandonment first in the
+	// invocation's calls, queued before the reader can see how the call
+	// ended, so they come before its late output and Settled however soon
+	// those arrive. Execute returns once they have run.
+	freed := make(chan struct{})
+	e.calls.do(func() {
+		if fixed != nil {
+			fixed()
+		}
+	}, p.notifyFunc(), func() { close(freed) })
 	p.conn.send(Cancel{ID: inv.ID, Reason: string(reason)})
 	p.mu.Unlock()
-	if fixed != nil {
-		fixed()
-	}
-	p.notifyFunc()()
+	<-freed
 	return engine.StepOutcome{}, abandoned, context.Cause(ctx)
 }
 
@@ -922,6 +932,15 @@ func (p *Process) Hello() Hello {
 // flight in it has been failed or settled; their Reporter calls may still
 // be running on their own goroutines.
 func (p *Process) Done() <-chan struct{} { return p.exited }
+
+// hasExited reports whether the process has exited. It is true from when
+// readerDone marks the exit, just before the pool hears of it and before
+// Done closes.
+func (p *Process) hasExited() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.state == stateExited
+}
 
 // ExitStatus returns how the process ended; it is meaningful once Done is
 // closed.

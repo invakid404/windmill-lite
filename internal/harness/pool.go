@@ -370,8 +370,7 @@ func (pl *Pool) processChanged(p *Process) {
 		if m.p != p {
 			continue
 		}
-		select {
-		case <-p.Done():
+		if p.hasExited() {
 			m.gone = true
 			pl.members = append(pl.members[:i], pl.members[i+1:]...)
 			if !pl.closed {
@@ -379,7 +378,7 @@ func (pl *Pool) processChanged(p *Process) {
 					pl.spawnLocked()
 				}
 			}
-		default:
+		} else {
 			pl.reviewLocked(m)
 		}
 		pl.broadcastLocked()
