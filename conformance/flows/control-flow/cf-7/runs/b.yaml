@@ -3,7 +3,7 @@
 # TestRecordedParallelismReleaseOrder checks them.
 spec: [CF-7/b]
 target: f/cf7/parallelism_one
-note: "The one worker serialises the iterations' scripts, not their child flows: without parallelism (run a) the child flows overlap, each starting before the previous one completed, while with parallelism 1 each starts after the previous one completed, in index order."
+note: "The one worker serialises the iterations' scripts, not their child flows: with parallelism 2 (run a) the child flows overlap, each starting before the previous one completed, while with parallelism 1 each starts after the previous one completed, in index order."
 expect:
   status: failure
   result:

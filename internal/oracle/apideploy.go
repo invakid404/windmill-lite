@@ -202,7 +202,7 @@ func readFlow(dir, path string, hashes map[string]string) (json.RawMessage, json
 	if doc == nil || doc["value"] == nil {
 		return nil, nil, fmt.Errorf("oracle: api deploy: %s/flow.yaml has no value", flowDir)
 	}
-	if err := resolveModules(doc["value"], flowDir, hashes); err != nil {
+	if err := resolveFlowValue(doc["value"], flowDir, hashes); err != nil {
 		return nil, nil, fmt.Errorf("oracle: api deploy: flow %s: %w", path, err)
 	}
 	doc["path"] = path
@@ -214,62 +214,117 @@ func readFlow(dir, path string, hashes map[string]string) (json.RawMessage, json
 	return body, value, err
 }
 
-// resolveModules reads a rawscript's "!inline <file>" content and lock from
-// the flow's directory, and replaces a by-path script's PinToDeployedHash
-// with the hash its path was deployed under. Other values are left as they
-// are, so a static input that happens to read "!inline x" stays a string.
-func resolveModules(v any, flowDir string, hashes map[string]string) error {
-	switch x := v.(type) {
-	case []any:
-		for _, e := range x {
-			if err := resolveModules(e, flowDir, hashes); err != nil {
-				return err
-			}
-		}
-	case map[string]any:
-		switch x["type"] {
-		case "rawscript":
-			for _, k := range []string{"content", "lock"} {
-				s, ok := x[k].(string)
-				if !ok || !strings.HasPrefix(s, "!inline ") {
-					continue
-				}
-				name := strings.TrimPrefix(s, "!inline ")
-				if filepath.IsAbs(name) || strings.Contains(filepath.ToSlash(name), "/") {
-					return fmt.Errorf("%s %q is not a file of the flow's directory", k, name)
-				}
-				b, err := os.ReadFile(filepath.Join(flowDir, name))
-				if err != nil {
-					return err
-				}
-				x[k] = string(b)
-			}
-		case "script":
-			if x["hash"] == PinToDeployedHash {
-				p, _ := x["path"].(string)
-				h, ok := hashes[p]
-				if !ok {
-					return fmt.Errorf("script module pins %s, which the tree does not deploy", p)
-				}
-				x["hash"] = h
-			}
-		}
-		for _, k := range sortedKeys(x) {
-			if err := resolveModules(x[k], flowDir, hashes); err != nil {
-				return err
+// resolveFlowValue resolves the modules of a flow value: those of its
+// module list and its failure and preprocessor modules, and, through
+// containers, those of every loop body and branch (OpenFlow's FlowValue,
+// FlowModule and the container values). Only a module's own value is
+// touched: a rawscript's "!inline <file>" content and lock are read from
+// the flow's directory, and a by-path script's PinToDeployedHash becomes
+// the hash its path was deployed under. Everything else is data the server
+// receives as written (FX-7): input transforms and static values, an
+// iterator, a mock, a stop or skip expression, even when such a value is an
+// object that looks like a module value.
+func resolveFlowValue(v any, flowDir string, hashes map[string]string) error {
+	fv, ok := v.(map[string]any)
+	if !ok {
+		return errors.New("the value is not an object")
+	}
+	if err := resolveModuleList(fv["modules"], flowDir, hashes); err != nil {
+		return err
+	}
+	for _, k := range []string{"failure_module", "preprocessor_module"} {
+		if m, ok := fv[k]; ok && m != nil {
+			if err := resolveModule(m, flowDir, hashes); err != nil {
+				return fmt.Errorf("%s: %w", k, err)
 			}
 		}
 	}
 	return nil
 }
 
-func sortedKeys(m map[string]any) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
+func resolveModuleList(v any, flowDir string, hashes map[string]string) error {
+	if v == nil {
+		return nil
 	}
-	sort.Strings(ks)
-	return ks
+	list, ok := v.([]any)
+	if !ok {
+		return errors.New("a module list is not a list")
+	}
+	for _, m := range list {
+		if err := resolveModule(m, flowDir, hashes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveModule(v any, flowDir string, hashes map[string]string) error {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return errors.New("a module is not an object")
+	}
+	id, _ := m["id"].(string)
+	val, ok := m["value"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("module %q has no value object", id)
+	}
+	switch val["type"] {
+	case "rawscript":
+		for _, k := range []string{"content", "lock"} {
+			s, ok := val[k].(string)
+			if !ok || !strings.HasPrefix(s, "!inline ") {
+				continue
+			}
+			name := strings.TrimPrefix(s, "!inline ")
+			if filepath.IsAbs(name) || strings.Contains(filepath.ToSlash(name), "/") {
+				return fmt.Errorf("module %q: %s %q is not a file of the flow's directory", id, k, name)
+			}
+			b, err := os.ReadFile(filepath.Join(flowDir, name))
+			if err != nil {
+				return fmt.Errorf("module %q: %w", id, err)
+			}
+			val[k] = string(b)
+		}
+	case "script":
+		if val["hash"] == PinToDeployedHash {
+			p, _ := val["path"].(string)
+			h, ok := hashes[p]
+			if !ok {
+				return fmt.Errorf("module %q pins script %s, which the tree does not deploy", id, p)
+			}
+			val["hash"] = h
+		}
+	case "forloopflow", "whileloopflow":
+		return resolveModuleList(val["modules"], flowDir, hashes)
+	case "branchone":
+		if err := resolveBranches(val["branches"], flowDir, hashes); err != nil {
+			return err
+		}
+		return resolveModuleList(val["default"], flowDir, hashes)
+	case "branchall":
+		return resolveBranches(val["branches"], flowDir, hashes)
+	}
+	return nil
+}
+
+func resolveBranches(v any, flowDir string, hashes map[string]string) error {
+	if v == nil {
+		return nil
+	}
+	list, ok := v.([]any)
+	if !ok {
+		return errors.New("branches is not a list")
+	}
+	for _, b := range list {
+		br, ok := b.(map[string]any)
+		if !ok {
+			return errors.New("a branch is not an object")
+		}
+		if err := resolveModuleList(br["modules"], flowDir, hashes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // flowValue returns the value member of a flow as the API or a flow.yaml

@@ -188,6 +188,12 @@ a narrow tree and refuses anything else:
   (`PinToDeployedHash`), which is replaced by the hash the deployment
   assigned the path.
 
+Only modules are resolved: the flow's module list, its failure and
+preprocessor modules, and the bodies of loops and branches. Everything else
+is sent as written ([FX-7](../../docs/semantics/execution.md#fx-7)),
+including a static input, an iterator or a mock whose value looks like a
+module value.
+
 The session then applies `setup.yaml` and passes the same deployment gate.
 For each flow it keeps a `FlowDeployment`: the value submitted, the value
 `GET /flows/get` answers after the gate (after the dependency job's
@@ -233,7 +239,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, and one run per walker shape that E3c and E3d recorded), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28 | `testdata/captures/` |
 | `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree | `conformance/flows` |
 | `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |
-| `TestDeployAPI`, `TestDeployAPIRefusals` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read, a pinned hash resolved, and the narrow tree's refusals | — |
+| `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
 | `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; FX-40/d's body carries the deployed script's hash | `conformance/flows` |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |

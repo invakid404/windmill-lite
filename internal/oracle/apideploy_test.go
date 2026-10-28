@@ -298,3 +298,124 @@ func TestSessionDeploysThroughTheAPI(t *testing.T) {
 		}
 	}
 }
+
+// TestDeployAPIResolvesOnlyModules: inline files and pinned hashes are
+// resolved in every position that holds a module (the module list, the
+// failure and preprocessor modules, loop bodies, branches and defaults),
+// and nowhere else. Data that looks like a module value stays exactly as
+// written (FX-7), at any depth, in a static input, an iterator and a mock,
+// even when the file or script it names does not exist.
+func TestDeployAPIResolvesOnlyModules(t *testing.T) {
+	// spec: FX-7, OR-15
+	const (
+		rawLike    = `{"type":"rawscript","content":"!inline b.ts","lock":"!inline missing.lock"}`
+		scriptLike = `{"type":"script","path":"f/t/absent","hash":"0000000000000000"}`
+	)
+	nested := `{"deep":[` + rawLike + `,{"k":` + scriptLike + `}]}`
+	flow := `summary: positions
+value:
+  modules:
+    - id: echo
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        language: bun
+        input_transforms:
+          r: {type: static, value: ` + rawLike + `}
+          s: {type: static, value: ` + scriptLike + `}
+          n: {type: static, value: ` + nested + `}
+      mock: {enabled: false, return_value: ` + rawLike + `}
+      stop_after_if: {expr: "'!inline b.ts' == ''", skip_if_stopped: false}
+    - id: w
+      value:
+        type: whileloopflow
+        modules:
+          - id: wb
+            value: {type: rawscript, content: '!inline b.ts', input_transforms: {}, language: bun}
+            stop_after_if: {expr: "true", skip_if_stopped: false}
+    - id: f
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [` + rawLike + `, ` + scriptLike + `]}
+        modules:
+          - id: fb
+            value: {type: script, path: f/t/s, hash: '0000000000000000', input_transforms: {x: {type: static, value: ` + scriptLike + `}}}
+    - id: one
+      value:
+        type: branchone
+        branches:
+          - expr: "false"
+            modules:
+              - id: ob
+                value: {type: rawscript, content: '!inline b.ts', input_transforms: {}, language: bun}
+        default:
+          - id: od
+            value: {type: script, path: f/t/s, hash: '0000000000000000', input_transforms: {}}
+    - id: all
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: ab
+                value: {type: script, path: f/t/s, hash: '0000000000000000', input_transforms: {}}
+  failure_module:
+    id: failure
+    value: {type: rawscript, content: '!inline b.ts', input_transforms: {}, language: bun}
+  preprocessor_module:
+    id: preprocessor
+    value: {type: rawscript, content: '!inline b.ts', input_transforms: {}, language: bun}
+schema: {type: object, properties: {}}
+`
+	dir := writeTree(t, map[string]string{
+		"f/t/x.flow/flow.yaml": flow,
+		"f/t/x.flow/b.ts":      "export async function main() { return 2; }\n",
+	})
+	_, value, err := readFlow(dir, "f/t/x", map[string]string{"f/t/s": "0123456789abcdef"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const absent = "(absent)"
+	b := `"export async function main() { return 2; }\n"`
+	for pointer, want := range map[string]string{
+		// modules, in every position, are resolved
+		"/modules/0/value/content":                            b,
+		"/modules/1/value/modules/0/value/content":            b,
+		"/modules/2/value/modules/0/value/hash":               `"0123456789abcdef"`,
+		"/modules/3/value/branches/0/modules/0/value/content": b,
+		"/modules/3/value/default/0/value/hash":               `"0123456789abcdef"`,
+		"/modules/4/value/branches/0/modules/0/value/hash":    `"0123456789abcdef"`,
+		"/failure_module/value/content":                       b,
+		"/preprocessor_module/value/content":                  b,
+		// data is sent as written
+		"/modules/0/value/input_transforms/r/value":                   rawLike,
+		"/modules/0/value/input_transforms/s/value":                   scriptLike,
+		"/modules/0/value/input_transforms/n/value":                   nested,
+		"/modules/0/mock/return_value":                                rawLike,
+		"/modules/0/stop_after_if/expr":                               `"'!inline b.ts' == ''"`,
+		"/modules/2/value/iterator/value/0":                           rawLike,
+		"/modules/2/value/iterator/value/1":                           scriptLike,
+		"/modules/2/value/modules/0/value/input_transforms/x/value":   scriptLike,
+		"/modules/2/value/modules/0/value/input_transforms/x/missing": absent,
+	} {
+		if got := jsonAt(t, value, pointer, absent); got != canonicalJSON(t, want) {
+			t.Errorf("%s is %s, want %s", pointer, got, want)
+		}
+	}
+}
+
+// canonicalJSON is v as jsonAt writes it.
+func canonicalJSON(t *testing.T, v string) string {
+	t.Helper()
+	if v == "(absent)" {
+		return v
+	}
+	var x any
+	if err := json.Unmarshal([]byte(v), &x); err != nil {
+		t.Fatalf("%s: %v", v, err)
+	}
+	b, err := json.Marshal(x)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
