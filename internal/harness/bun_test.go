@@ -470,9 +470,13 @@ func pidOf(t *testing.T, x engine.StepExecutor, run string) int {
 // the invocation meanwhile.
 type gate struct{ started, release string }
 
-func newGate(t *testing.T) gate {
-	dir := t.TempDir()
-	return gate{started: filepath.Join(dir, "started"), release: filepath.Join(dir, "release")}
+// newGate returns a gate with its files in dir, which it opens when the
+// test ends. dir must be made before the pool, so that it outlives the
+// pool: a step still held at a failure then ends before the pool closes.
+func newGate(t *testing.T, dir, name string) gate {
+	g := gate{started: filepath.Join(dir, name+".started"), release: filepath.Join(dir, name+".release")}
+	t.Cleanup(func() { os.WriteFile(g.release, nil, 0o600) })
+	return g
 }
 
 func (g gate) invocation(rep engine.Reporter) engine.Invocation {
@@ -541,18 +545,20 @@ func TestBunPoolRecyclesATaintedProcess(t *testing.T) {
 // invocations (a new process takes them). Once its abandoned invocation
 // settles it returns to service when the pool has room below Max, and
 // leaves once idle when it has not. The pool applies the settlement before
-// the invocation's Reporter hears of it. Gate steps start and end when the
-// test says, so no check depends on timing.
+// the invocation's Reporter hears of it. Gate steps report that they have
+// started and end when the test opens them, and lag routing is off, so no
+// check depends on timing.
 func TestBunPoolTaintedProcessReturnsToService(t *testing.T) {
 	for _, tc := range []struct {
 		max  int
 		back bool
 	}{{2, true}, {1, false}} {
 		t.Run(fmt.Sprintf("max %d", tc.max), func(t *testing.T) {
+			gates := t.TempDir()
 			cfg, _ := bunConfig(t)
-			pool := newPool(t, PoolConfig{Process: cfg, Max: tc.max})
+			pool := newPool(t, PoolConfig{Process: cfg, Max: tc.max, LagThreshold: -1})
 			first := pidOf(t, pool, "a")
-			long := newGate(t)
+			long := newGate(t, gates, "long")
 			longOut := make(chan engine.StepOutcome, 1)
 			go func() {
 				out, _ := execute(t, pool, long.invocation(newRecorder()), 30*time.Second)
@@ -562,7 +568,7 @@ func TestBunPoolTaintedProcessReturnsToService(t *testing.T) {
 				t.Fatal("the co-resident step did not start")
 			}
 			// The step is abandoned only once it runs in the harness.
-			held := newGate(t)
+			held := newGate(t, gates, "held")
 			rec := &statsRecorder{recorder: newRecorder(), pool: pool}
 			ctx, cancel := context.WithCancelCause(context.Background())
 			defer cancel(nil)

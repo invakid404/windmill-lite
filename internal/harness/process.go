@@ -85,9 +85,9 @@ type ProcessConfig struct {
 	Diagnostics io.Writer
 
 	// notify is called, outside every lock, after an invocation is
-	// abandoned, after an abandoned invocation settles (before its Reporter
-	// hears Settled, so the pool's taint rules have run by then), and after
-	// the process exits. The pool sets it.
+	// abandoned, after an abandoned invocation settles completed (before its
+	// Reporter hears Settled, so the pool's taint rules have run by then),
+	// and after the process exits. The pool sets it.
 	notify func(*Process)
 }
 

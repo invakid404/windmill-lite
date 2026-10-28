@@ -438,10 +438,11 @@ func (n *jnode) remove(k string) {
 }
 
 // canonical writes n as compact JSON, with object members in their order
-// under strict key order and sorted by key otherwise, so two values have
-// the same text exactly when an exact comparison finds no difference
-// between them. An array element is never part of the observation's own
-// shape, where strict key order does not apply.
+// under strict key order and sorted by key otherwise, so two values with
+// no unordered pointer inside them have the same text exactly when an
+// exact comparison finds no difference between them. An array element is
+// never part of the observation's own shape, where strict key order does
+// not apply.
 func (n *jnode) canonical(b *bytes.Buffer, strict bool) {
 	switch n.kind {
 	case kindObject:

@@ -226,7 +226,7 @@ number text and duplicate elements:
   broad expected element never takes the only match of a narrower one.
   Otherwise element equality is an equivalence that ignores the index, and
   the elements are counted by their canonical text (members sorted by key,
-  or in order under strict key order), in linear time;
+  or in order under strict key order), in about linear time;
   `BenchmarkCompareUnordered` measures both paths;
 - numbers by their JSON text;
 - a step field one side leaves to its canonical absence and the other spells
