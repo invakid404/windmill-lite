@@ -282,6 +282,33 @@ same table on each run from its shared Linux and macOS runners, where the
 default pool follows the runner's CPU count (3 to 5 slots so far); those
 figures show the trend, not the gate.
 
+**The budget gate, met (milestone B2b).** `TestBudgetGate` in
+`internal/expr` evaluates the predicate
+`results.fetch_order.archived ? null : flow_input.order.ref` at a `skip_if`
+site through the whole pipeline: the shortcut check, the depth check, the
+three scripts and the program on a fresh runtime, the results lookup a
+database read of a synthetic order of the row's size (the previous step
+is another), and the serialisation. Default (native) backend and pool
+(8 slots), QuickJS-ng `be664ca1` built with the system clang at `-O2`, Apple
+M4, macOS 26.5.1, Go 1.27.3, 3 s per row, at a load average of 3.4 to 4.7
+from other work. The gated rows are the paced ones:
+
+| Load | Results value | p50 | p95 | p99 | CPU per evaluation | Gate |
+|---|---|---|---|---|---|---|
+| 8 callers, 0.5 ms between evaluations | 4 KB | 121 µs | 223 µs | 437 µs | 222 µs | p95 ≤ 0.5 ms, p99 ≤ 1.5 ms: met |
+| 8 callers, back to back | 4 KB | 176 µs | 290 µs | 457 µs | 176 µs | reported |
+| 8 callers, 0.5 ms between evaluations | 64 KB | 313 µs | 449 µs | 573 µs | 370 µs | p95 ≤ 2 ms, p99 ≤ 6 ms: met |
+| 8 callers, back to back | 64 KB | 414 µs | 643 µs | 769 µs | 445 µs | reported |
+| 8 callers, 0.5 ms between evaluations | 256 KB | 1.02 ms | 1.65 ms | 1.84 ms | 1.18 ms | p95 ≤ 6 ms, p99 ≤ 20 ms: met |
+| 8 callers, back to back | 256 KB | 1.13 ms | 1.86 ms | 2.13 ms | 1.31 ms | reported |
+
+With `fetch_order` as the previous step, the text also binds the value as
+`previous_result` and `result` (JE-10), so it is parsed three times; that
+paced row gives a p95 of 221 µs, 1.24 ms and 5.19 ms at the three sizes,
+inside the gate too. CI reports the same table on each run, from its
+shared runners and from the static musl engine on `amd64` and `arm64`
+(review item cl R3-2); those figures show the trend, not the gate.
+
 ### The conformance-suite format
 
 Every Windmill rule is single-sourced in one implementation, so the suite's
@@ -418,6 +445,24 @@ error, with the database route (a step in between) as its control.
   gives its own, and says what `Compile` makes of the text and which route
   answers on a fake engine. B2b runs the same restatements on the real
   engine.
+- Milestone B2b wrote the program around an expression's source and runs
+  the pipeline on the native engine. An evaluation runs global scripts
+  before the program, the engine's preludes (`Input.Preludes`): one parses
+  the bound host strings in place and defines the helpers, one declares
+  the lexical `results` and one the lexical `error`, which only a script
+  of their own can declare (JE-10). The program is the source followed by
+  the serialisation of JE-15. Their text is observable in the stack frames
+  that error messages carry (JE-21), and E3a's recordings fix it: the
+  wrapper is `(async function() { …` (B2a's provisional reading, an async
+  function, with its exact opening), and the helpers and the results
+  lookup throw from the positions the oracle shows. Every expression E3a
+  recorded gives the oracle's value or text at unit level, its error texts
+  byte for byte, except where the engine's build differs: the last digit
+  of some transcendental `Math` results on a C library other than the
+  image's glibc,
+  and the recursion depth that fits the 1 MiB stack, deviations D16 and
+  D17 of [0001](0001-equivalence-contract.md). The budget gate above is
+  met.
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that
@@ -447,6 +492,6 @@ error, with the database route (a step in between) as its control.
 
 ## Spec IDs relied on
 
-FX-2, FX-42, JE-1, JE-3, JE-5 to JE-16, JE-21, JE-22, JE-44, JE-48, WR-6 to WR-21,
+FX-2, FX-42, JE-1 to JE-3, JE-5 to JE-18, JE-20 to JE-22, JE-44, JE-48, JE-49, WR-6 to WR-21,
 OR-15, SY-1 to SY-15, and the conformance catalogue's notation and
 provenance rules.

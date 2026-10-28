@@ -2,8 +2,9 @@
 
 **Current state:** implemented (milestone B1a of
 [0012](../../../docs/design/0012-layout-and-milestones.md)); milestone F4
-gave its heap the mimalloc allocator. Only `windmill-lite selfcheck` calls it
-yet. This README covers `internal/expr/quickjs/`, with its vendored
+gave its heap the mimalloc allocator, and milestone B2b runs the expression
+pipeline of [internal/expr](../README.md) on it, with preludes. Outside the
+tests, only `windmill-lite selfcheck` and the walking skeleton call it yet. This README covers `internal/expr/quickjs/`, with its vendored
 `quickjs-ng/` and `mimalloc/` sources and its `testdata/`. The package is windmill-lite's
 JavaScript engine for flow expressions: QuickJS-ng at revision `be664ca1`,
 the engine Windmill's expressions run on
@@ -14,8 +15,7 @@ through cgo. `*Engine` implements the `expr.Engine` interface of
 What the package does not do:
 
 - build the program an expression runs as, bind context values, or
-  serialise the result: the textual pipeline (B2a) and its run on this
-  engine (B2b) do that;
+  serialise the result: the expression pipeline does that (B2a, B2b);
 - produce Windmill's error messages. It reports what the engine saw (the
   thrown value, an interrupted attempt), and the pipeline wraps that in
   Windmill's texts, for example the time-limit and memory-limit messages of
@@ -31,9 +31,10 @@ What the package does not do:
 | `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache). |
 | `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
-| `(*Engine).Eval(ctx, program, input)` | Runs the bytecode on a fresh runtime and context, then returns the completion string or an error. |
+| `(*Engine).Eval(ctx, program, input)` | Runs the input's preludes, then the bytecode, on a fresh runtime and context, and returns the completion string or an error. |
 | `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and heap blocks that QuickJS-ng leaked and the engine freed. |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
+| `CLibrary()` | The C library the engine was built against: `glibc`, `musl` (the static Linux engine), `apple` or `other`. QuickJS-ng's transcendental `Math` functions call its libm, so their last digit can differ from the glibc of Windmill's image (deviation D16 of [0001](../../../docs/design/0001-equivalence-contract.md)). |
 
 ## How an evaluation runs
 
@@ -61,8 +62,13 @@ What the package does not do:
    before a job arrives, so an evaluation first restarts the context's
    `performance` clock, before the bindings, so that one named `performance`
    replaces it.
-4. **Running.** The bytecode runs, then pending jobs run until the
-   completion value has settled. A completion value that is not a Promise is
+4. **Running.** Each of the input's preludes runs, in order, as a global
+   script of the context: its top-level `let`, `const` and `class`
+   declarations become global lexical bindings the program sees, which no
+   property of `globalThis` gives, and its completion value is discarded. A
+   prelude that throws ends the evaluation with its exception. Then the
+   bytecode runs, and pending jobs run until the completion value has
+   settled. A completion value that is not a Promise is
    settled at once, and so is a Promise that has fulfilled or rejected; jobs
    still queued then never run. A job that throws (a `queueMicrotask`
    callback, say) fails the evaluation with its exception.
@@ -162,18 +168,18 @@ each with mimalloc and with its own `malloc`).
   `queueMicrotask`, `performance` and `DOMException`, which QuickJS-ng's
   full context adds, is open
   ([Q-JE-2](../../../docs/semantics/expressions.md#q-je-2)).
-- The Go tests cover the binding, host functions (concurrency and its
-  bound, rejection, settling after queued jobs, the attempt's end, program
-  code that calls the host while a call is settled, arguments counted
-  against the cap, sequential calls whose arguments add up past the cap,
-  record reuse), exceptions, the compile cache, fresh runtimes, leaks,
-  interrupts and cancellations (also when they come during a long built-in
-  or readback), `Close`, the arrival order of waiting callers,
-  concurrent use under `-race`, and the overflow depth at the default
-  stack, which they log for each platform and check against JE-48's
-  bracket. An engine started through the tests' shared helper must end with
-  no leaked heap block; the one test that makes QuickJS-ng leak uses a
-  helper without that check.
+- The Go tests cover the binding, the preludes, the C library's name, host
+  functions (concurrency and its bound, rejection, settling after queued
+  jobs, the attempt's end, program code that calls the host while a call
+  is settled, arguments counted against the cap, sequential calls whose
+  arguments add up past the cap, record reuse), exceptions, the compile
+  cache, fresh runtimes, leaks, interrupts and cancellations (also when
+  they come during a long built-in or readback), `Close`, the arrival
+  order of waiting callers, concurrent use under `-race`, and the overflow
+  depth at the default stack, which they log for each platform and check
+  against JE-48's bracket. An engine started through the tests' shared
+  helper must end with no leaked heap block; the one test that makes
+  QuickJS-ng leak uses a helper without that check.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
   report-only step.

@@ -59,6 +59,26 @@ func (f *fakeEngine) Eval(ctx context.Context, p Program, in Input) ([]byte, err
 	return []byte(fakeAnswer), nil
 }
 
+func (f *fakeEngine) Limits() Limits { return DefaultLimits() }
+
+// isPrelude reports whether source is one of the pipeline's preludes.
+func isPrelude(source string) bool {
+	return source == preludeContext || source == preludeResults || source == preludeError
+}
+
+// programs returns the sources compiled that are not preludes.
+func (f *fakeEngine) programs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, s := range f.compiled {
+		if !isPrelude(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // lastCall returns the last evaluation, and false when there was none.
 func (f *fakeEngine) lastCall() (fakeCall, bool) {
 	f.mu.Lock()
