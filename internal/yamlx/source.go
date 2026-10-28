@@ -9,13 +9,12 @@ import (
 	"unicode/utf8"
 )
 
-// prepare checks that the source is UTF-8, drops a leading byte order
-// mark, hides from the YAML 1.1 parser the characters it reads differently
-// from the CLI, and blanks %YAML 1.2 directives, which the YAML 1.1 parser
-// refuses. The replacer it returns, when not nil, puts the hidden
-// characters back into parsed text.
-func prepare(src []byte) ([]byte, *strings.Replacer, error) {
-	src = bytes.TrimPrefix(src, []byte{0xEF, 0xBB, 0xBF})
+// prepare checks that the source is UTF-8, hides from the YAML 1.1 parser
+// the characters it reads differently from the CLI and the tabs at the
+// byte offsets in tabs, and blanks %YAML 1.2 directives, which the YAML
+// 1.1 parser refuses. The replacer it returns, when not nil, puts the
+// hidden characters back into parsed text.
+func prepare(src []byte, tabs map[int]bool) ([]byte, *strings.Replacer, error) {
 	line, col := 1, 1
 	hide := map[rune]bool{}
 	used := map[rune]bool{} // private-use characters the source holds or escapes
@@ -30,7 +29,7 @@ func prepare(src []byte) ([]byte, *strings.Replacer, error) {
 			// ':'; the YAML 1.1 parser reads it as a line break. The CLI's
 			// writer escapes it.
 			return nil, nil, &Error{Kind: Unsupported, Line: line, Column: col, Msg: "a carriage return without a line feed"}
-		case hidden(r):
+		case hidden(r), r == '\t' && tabs[i]:
 			hide[r] = true
 		case isPrivateUse(r):
 			used[r] = true
@@ -49,7 +48,7 @@ func prepare(src []byte) ([]byte, *strings.Replacer, error) {
 	var restore *strings.Replacer
 	if len(hide) > 0 {
 		var err error
-		if src, restore, err = hideCharacters(src, hide, used); err != nil {
+		if src, restore, err = hideCharacters(src, hide, used, tabs); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -92,11 +91,11 @@ func escaped(s []byte) (rune, bool) {
 	return rune(v), err == nil
 }
 
-// hideCharacters replaces each character of hide with a private-use
-// character that the source neither holds nor escapes, which the YAML 1.1
-// parser reads as an ordinary character. The returned replacer puts the
-// originals back.
-func hideCharacters(src []byte, hide, used map[rune]bool) ([]byte, *strings.Replacer, error) {
+// hideCharacters replaces each character of hide (a tab only at the byte
+// offsets in tabs) with a private-use character that the source neither
+// holds nor escapes, which the YAML 1.1 parser reads as an ordinary
+// character. The returned replacer puts the originals back.
+func hideCharacters(src []byte, hide, used map[rune]bool, tabs map[int]bool) ([]byte, *strings.Replacer, error) {
 	stand := map[rune]rune{}
 	var restore []string
 	next := rune(0xE000)
@@ -114,7 +113,7 @@ func hideCharacters(src []byte, hide, used map[rune]bool) ([]byte, *strings.Repl
 	out := make([]byte, 0, len(src)+len(src)/16)
 	for i := 0; i < len(src); {
 		r, size := utf8.DecodeRune(src[i:])
-		if h, ok := stand[r]; ok {
+		if h, ok := stand[r]; ok && (r != '\t' || tabs[i]) {
 			out = utf8.AppendRune(out, h)
 		} else {
 			out = append(out, src[i:i+size]...)
@@ -211,4 +210,79 @@ func (p *parser) offset(line, col int) (int, bool) {
 		off += size
 	}
 	return off, true
+}
+
+// blockScalarTab reports the byte offset of the tab behind err when err is
+// the YAML 1.1 parser's refusal of a block scalar whose first line with
+// content starts with spaces and a tab. The CLI's parser reads the spaces
+// as the indentation and the tab as content, and its writer emits such
+// scalars for text whose first line starts with a tab. Parse hides that
+// tab, so the parser reads it as content too; blockScalar puts it back.
+// Only a block scalar without an indentation indicator qualifies.
+//
+// The library reports the header's line, or the tab's line when the
+// header is on the first line.
+func blockScalarTab(src []byte, err error) (int, bool) {
+	e, ok := err.(*Error)
+	if !ok || e.Kind != Syntax || e.Msg != "found a tab character where an indentation space is expected" {
+		return 0, false
+	}
+	starts := append(lineStarts(src), len(src)+1)
+	text := func(l int) string { // line l, 1-based, without its break
+		end := min(starts[l]-1, len(src))
+		return strings.TrimRight(string(src[starts[l-1]:end]), "\r\n")
+	}
+	lines := len(starts) - 1
+	if e.Line < 1 || e.Line > lines {
+		return 0, false
+	}
+	header, first := e.Line, e.Line+1
+	if e.Line == 1 || !isAutoBlockHeader(text(e.Line)) {
+		header, first = 1, 2
+	}
+	if !isAutoBlockHeader(text(header)) {
+		return 0, false
+	}
+	for l := first; l <= lines; l++ {
+		t := text(l)
+		if strings.Trim(t, " ") == "" {
+			continue
+		}
+		spaces := len(t) - len(strings.TrimLeft(t, " "))
+		if spaces == 0 || t[spaces] != '\t' || (header == 1 && l != e.Line && e.Line != 1) {
+			return 0, false
+		}
+		return starts[l-1] + spaces, true
+	}
+	return 0, false
+}
+
+// isAutoBlockHeader reports whether a line ends with a block scalar header
+// that has no indentation indicator (|, >, |-, >+), before an optional
+// comment.
+func isAutoBlockHeader(line string) bool {
+	if i := strings.Index(line, " #"); i >= 0 {
+		line = line[:i]
+	}
+	line = strings.TrimRight(line, " \t")
+	i := strings.LastIndexAny(line, " \t")
+	token := line[i+1:]
+	if i < 0 && !strings.HasPrefix(line, "|") && !strings.HasPrefix(line, ">") {
+		return false
+	}
+	switch token {
+	case "|", ">", "|-", ">-", "|+", ">+":
+		return true
+	}
+	return false
+}
+
+// position converts a byte offset into the source to the parser's 1-based
+// line and column, which count characters.
+func (p *parser) position(off int) (line, col int) {
+	line = 1
+	for line < len(p.lines) && p.lines[line] <= off {
+		line++
+	}
+	return line, utf8.RuneCount(p.src[p.lines[line-1]:off]) + 1
 }

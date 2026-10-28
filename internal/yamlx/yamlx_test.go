@@ -134,6 +134,26 @@ func TestAliasExpansionBound(t *testing.T) {
 	}
 }
 
+// The CLI's writer starts a block scalar with a tab when the text's first
+// line does; Parse reads every such scalar of a document.
+func TestTabLedBlockScalars(t *testing.T) {
+	var b strings.Builder
+	for i := range 50 {
+		fmt.Fprintf(&b, "k%d: |-\n  \tline %d\n  next\n", i, i)
+	}
+	n := mustParse(t, b.String())
+	for _, k := range []string{"k0", "k49"} {
+		want := "\tline " + strings.TrimPrefix(k, "k") + "\nnext"
+		if v := n.Get(k); v == nil || v.Text != want {
+			t.Errorf("%s: got %+v, want %q", k, v, want)
+		}
+	}
+	// A tab the YAML 1.1 parser refuses elsewhere is not hidden.
+	if _, err := yamlx.Parse([]byte("a: |\n  x\n \ty\n")); err == nil {
+		t.Error("a tab inside a block scalar's indentation parses")
+	}
+}
+
 func TestErrors(t *testing.T) {
 	for _, c := range []struct {
 		name string

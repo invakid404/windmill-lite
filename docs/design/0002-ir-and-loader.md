@@ -71,10 +71,14 @@ flowchart LR
      values (the YAML 1.1 tags such as `!!binary`, collection keys,
      directives other than `%YAML 1.2`), or that a YAML 1.1 parser reads
      differently (a bare carriage return, anchor names that YAML 1.2 reads
-     further), fails with `unsupported_yaml`. NEL, LS, PS and the control
-     characters the library refuses (DEL, the C0 and C1 controls) are
-     hidden from it and read as ordinary characters, as the CLI's parser
-     reads them; the CLI's writer emits DEL, LS and PS unescaped.
+     further, a `?` or `:` in a flow collection that the two parsers read
+     as different indicators), fails with `unsupported_yaml`. NEL, LS, PS
+     and the control characters the library refuses (DEL, the C0 and C1
+     controls) are hidden from it and read as ordinary characters, as the
+     CLI's parser reads them; the CLI's writer emits DEL, LS and PS
+     unescaped. Block scalar values and explicit tags are read from the
+     source, because the library's whitespace and percent-escape handling
+     differs from the CLI's.
      Some YAML 1.2 syntax that the library rejects, such as the `\/`
      escape, fails with the library's `yaml_syntax` error. Both are
      restrictions of [0001](0001-equivalence-contract.md) §5a; the package

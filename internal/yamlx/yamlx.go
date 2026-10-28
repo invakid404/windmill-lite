@@ -173,7 +173,25 @@ func ToJSON(src []byte) ([]byte, error) {
 // Parse parses a YAML stream holding at most one document. An empty stream,
 // or one holding only comments, is null, as in the CLI.
 func Parse(src []byte) (*Node, error) {
-	src, restore, err := prepare(src)
+	src = bytes.TrimPrefix(src, []byte{0xEF, 0xBB, 0xBF})
+	tabs := map[int]bool{}
+	for {
+		n, err := parse(src, tabs)
+		off, ok := blockScalarTab(src, err)
+		if !ok || tabs[off] || len(tabs) >= maxBlockTabs {
+			return n, err
+		}
+		tabs[off] = true
+	}
+}
+
+// maxBlockTabs bounds how often Parse hides a tab and parses again.
+const maxBlockTabs = 1024
+
+// parse parses src with the tabs at the given byte offsets hidden from the
+// library (see blockScalarTab).
+func parse(src []byte, tabs map[int]bool) (*Node, error) {
+	src, restore, err := prepare(src, tabs)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +221,7 @@ func Parse(src []byte) (*Node, error) {
 		done:    map[*yaml.Node]*Node{},
 		active:  map[*yaml.Node]bool{},
 		weight:  map[*Node]int64{},
+		indent:  -1,
 	}
 	return p.node(doc.Content[0])
 }

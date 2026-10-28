@@ -46,13 +46,14 @@ scalar itself.
 | Numbers | The JavaScript double the CLI computes: `017` is 17, `9007199254740993` is 9007199254740992, `1e400` is Infinity. In JSON, Infinity and NaN are `null`, `-0` is `0`, and the digits are JavaScript's (`1e+21`, `1e-7`, `0.000001`). |
 | `!inline v`, `!inline_fileset v` | The string `!inline v` (the tag, a space, the scalar's text). On a sequence or mapping the tag is ignored. |
 | Other tags | `!` makes a scalar a string. `!!str`, `!!int`, `!!float`, `!!bool` and `!!null` resolve when the text has the tag's form and are strings otherwise (`!!float 1` is `"1"`). `!!map` and `!!seq` leave a collection as it is and make a scalar a string. Unknown tags give the scalar's text as a string and leave a collection as it is. |
+| Tag spelling | A tag is read as written in the source, because the library decodes percent escapes everywhere and the CLI does not. A `!!` shorthand has its escapes decoded (`!!%69nt` is `!!int`). A local tag (`!%69nline`) and a verbatim tag (`!<tag:yaml.org,2002:%69nt>`, `!<!!int>`) are taken literally, so they are unknown tags. |
 | Keys | A key is the property name JavaScript's `String()` gives: `~` is `""`, `0x1F` is `"31"`, `.inf` is `"Infinity"`. `<<` is a literal key (YAML 1.2 has no merge). |
 | Duplicate keys | Two scalar keys with equal values are an error (`1` and `0x1`, `~` and `null`). Distinct values with one property name (`1` and `"1"`, `true` and `"true"`) are not: the later value replaces the earlier one in place, as in a JavaScript object. Alias keys are never duplicates. |
 | Property order | `Pairs` and the JSON follow JavaScript's property order: array-index keys (`0` to `4294967294`) in ascending order, then the other keys in first-seen order. |
 | Aliases | Resolved to the anchored value. An alias inside its own anchor, or before its anchor, is an error. |
 | Control and line-break characters | NEL, LS and PS (U+0085, U+2028, U+2029), DEL, the other C0 and C1 controls except tab, LF and CR, a U+FEFF after the start, U+FFFE and U+FFFF are ordinary characters, as the CLI's parser reads them. The YAML 1.1 parser underneath refuses them or reads them as line breaks, so yamlx hides them from it behind private-use characters the source does not use and puts them back in the parsed text. The CLI's writer emits DEL, LS, PS and U+FEFF unescaped. |
 | Documents | One per stream; a second document, even an empty one, is an error. A leading byte order mark is dropped. |
-| End of file | A clipped or kept block scalar whose last line ends the file without a line break still ends with one, as in the CLI. |
+| Block scalars | Literal and folded values are computed from the source with the CLI's rules, not taken from the library. An indentation indicator counts from the enclosing collection's column (0 at the root). A body without text is `""`, or with keep chomping one line break per blank line and at least one. Trailing blank lines indented beyond the first line of text are text. A last line that ends the file without a line break still gets one under clip and keep chomping. A first line of spaces and a tab, which the CLI's writer emits for text that starts with a tab, is read as the CLI reads it: the library refuses it, so yamlx hides that tab from it and parses again. |
 
 ## Refusals
 
@@ -74,7 +75,19 @@ it as the CLI does. These are restrictions of
   escapes it (`"\r"`);
 - an anchor or alias name followed by a character that YAML 1.2 reads as
   part of the name, such as `&a:b`;
-- a tag that contains a flow indicator (`,`, `[`, `]`, `{`, `}`);
+- a shorthand tag that contains a flow indicator (`,`, `[`, `]`, `{`,
+  `}`);
+- in a flow collection, a `?` or `:` that the two parsers read
+  differently:
+  - a `?` or `:` that starts a token and is followed by a plain character,
+    as in `[?v]` or `[a :b]`. The CLI reads a plain scalar, the YAML 1.1
+    parser an indicator;
+  - a `:` after a plain scalar and before `,`, `]` or `}`, as in `[v:]`.
+    The CLI reads an indicator, the YAML 1.1 parser part of the scalar;
+  - a `?` with nothing but whitespace before a `,`.
+
+  Quoting the scalar (`["?v"]`) avoids all three, and the CLI's writer
+  emits flow style only for empty collections;
 - aliases that add more than 2^22 to the document's weight (one per node
   plus the bytes of its scalars and keys). The CLI has its own guard
   instead: it refuses a document that uses one anchor 100 times or more,
@@ -84,9 +97,10 @@ it as the CLI does. These are restrictions of
 YAML 1.2 syntax that the YAML 1.1 parser rejects fails with the parser's
 own `yaml_syntax` error: for example the `\/` escape, a `\u` escape naming
 a lone surrogate, anchor names with characters other than letters, digits,
-`-` and `_`, a tab after a sequence indicator, an empty implicit key
-(`: v`), a percent escape in a tag that is not UTF-8 (`!%C0`), and a
-top-level block scalar whose text starts at column 0.
+`-` and `_`, a tab after a sequence indicator, a tab inside a block
+scalar's indentation after its first line, an empty implicit key (`: v`), a
+percent escape in a tag that is not UTF-8 (`!%C0`), and a top-level block
+scalar whose text starts at column 0.
 
 The YAML 1.1 parser also accepts some malformed input the CLI rejects, such
 as a quoted scalar continued at column 0 or `'v'# c`. The CLI cannot push
@@ -123,8 +137,9 @@ against yamlx. yamlx uses none of that resolution.
   ```
 
 - `yamlx_test.go` covers the API: source text and values of numbers,
-  positions, property order, shared alias nodes, the alias bound, error
-  kinds and positions, and JSON rendering.
+  positions, property order, shared alias nodes, the alias bound, block
+  scalars whose first line starts with a tab, error kinds and positions,
+  and JSON rendering.
 - `FuzzToJSON` checks that any input gives a `*Error` or valid JSON, the
   same from `ToJSON` and `Parse`.
 - `library_test.go` pins the Q-OF-6 answer above.

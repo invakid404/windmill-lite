@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"cmp"
 	"math"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -18,21 +20,26 @@ import (
 // that guard; it only keeps an alias chain from expanding without bound.
 const maxAliasWeight = 1 << 22
 
+// coreTag prefixes the YAML core tags; !!int is coreTag + "int".
+const coreTag = "tag:yaml.org,2002:"
+
 // yaml11Tags are the tags the CLI's parser resolves to JavaScript-specific
 // values (a Buffer, a Date, a Set, a Map) or, for !!merge, drops.
 var yaml11Tags = map[string]bool{
-	"!!binary":    true,
-	"!!timestamp": true,
-	"!!set":       true,
-	"!!omap":      true,
-	"!!pairs":     true,
-	"!!merge":     true,
+	coreTag + "binary":    true,
+	coreTag + "timestamp": true,
+	coreTag + "set":       true,
+	coreTag + "omap":      true,
+	coreTag + "pairs":     true,
+	coreTag + "merge":     true,
 }
 
 type parser struct {
 	src     []byte
 	restore *strings.Replacer // puts back what prepare hid, or nil
 	lines   []int             // byte offset of the start of each line
+	indent  int               // 0-based column of the enclosing block collection; -1 at the root
+	flow    bool              // inside a flow collection
 
 	done   map[*yaml.Node]*Node // converted anchored nodes, for aliases
 	active map[*yaml.Node]bool  // anchored nodes being converted
@@ -112,29 +119,63 @@ func (p *parser) weigh(n *Node) int64 {
 	return w
 }
 
-// checkTag refuses the explicit tags yamlx cannot resolve as the CLI
-// does. Any other tag on a collection, a scalar tag included, leaves the
-// collection as it is: the CLI warns about the tag and keeps the
-// collection.
-func checkTag(n *yaml.Node) error {
+// tag returns the name of n's explicit tag as the CLI's parser resolves
+// it, or "" when n has none, and refuses the tags yamlx cannot resolve as
+// the CLI does. The library decodes percent escapes in every tag; the CLI
+// decodes them only in a !! shorthand, so the name is taken from the
+// source. Any tag on a collection other than a refused one, a scalar tag
+// included, leaves the collection as it is: the CLI warns about the tag
+// and keeps the collection.
+func (p *parser) tag(n *yaml.Node) (string, error) {
 	if n.Style&yaml.TaggedStyle == 0 {
-		return nil
+		return "", nil
 	}
-	if yaml11Tags[n.Tag] {
-		return errorAt(Unsupported, n, "tag %s: the CLI turns it into a JavaScript-specific value", n.Tag)
+	raw, _, err := p.properties(n)
+	if err != nil {
+		return "", err
 	}
-	if strings.ContainsAny(n.Tag, ",[]{}") {
-		// YAML 1.2 ends a tag at a flow indicator; the YAML 1.1 parser
-		// reads the indicator as part of the tag.
-		return errorAt(Unsupported, n, "tag %s contains a flow indicator", n.Tag)
+	if !strings.HasPrefix(raw, "!<") && strings.ContainsAny(raw, ",[]{}") {
+		// YAML 1.2 ends a shorthand tag at a flow indicator; the YAML 1.1
+		// parser reads the indicator as part of the tag.
+		return "", errorAt(Unsupported, n, "tag %s contains a flow indicator", raw)
 	}
-	return nil
+	name, ok := cliTagName(raw)
+	if !ok {
+		return "", errorAt(Syntax, n, "tag %s cannot be resolved", raw)
+	}
+	if yaml11Tags[name] {
+		return "", errorAt(Unsupported, n, "tag %s: the CLI turns it into a JavaScript-specific value", raw)
+	}
+	return name, nil
+}
+
+// cliTagName resolves a tag as written the way the CLI's parser does: a
+// verbatim tag !<x> is x, a shorthand !!x is the core prefix and x with
+// its percent escapes decoded, and a local tag !x is !x as written,
+// escapes included.
+func cliTagName(raw string) (string, bool) {
+	switch {
+	case strings.HasPrefix(raw, "!<"):
+		name, ok := strings.CutSuffix(raw[2:], ">")
+		return name, ok && name != "!" && name != "!!"
+	case strings.HasPrefix(raw, "!!"):
+		suffix, err := url.PathUnescape(raw[2:])
+		return coreTag + suffix, err == nil && suffix != "" && utf8.ValidString(suffix)
+	case strings.HasPrefix(raw, "!") && !strings.Contains(raw[1:], "!"):
+		return raw, len(raw) > 1
+	}
+	return "", false // a named handle, which needs a %TAG directive
 }
 
 func (p *parser) sequence(n *yaml.Node) (*Node, error) {
-	if err := checkTag(n); err != nil {
+	if _, err := p.tag(n); err != nil {
 		return nil, err
 	}
+	leave, err := p.enter(n)
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	out := &Node{Kind: Sequence, Line: n.Line, Column: n.Column, Items: make([]*Node, 0, len(n.Content))}
 	for _, c := range n.Content {
 		it, err := p.node(c)
@@ -144,6 +185,30 @@ func (p *parser) sequence(n *yaml.Node) (*Node, error) {
 		out.Items = append(out.Items, it)
 	}
 	return out, nil
+}
+
+// restoreText puts back the characters prepare hid.
+func (p *parser) restoreText(s string) string {
+	if p.restore == nil {
+		return s
+	}
+	return p.restore.Replace(s)
+}
+
+// enter makes the block collection n the enclosing one for block scalars
+// inside it, checks a flow collection that is not inside another, and
+// returns the function that restores the previous state.
+func (p *parser) enter(n *yaml.Node) (func(), error) {
+	indent, flow := p.indent, p.flow
+	if n.Style&yaml.FlowStyle == 0 {
+		p.indent = n.Column - 1
+	} else if !p.flow {
+		p.flow = true
+		if err := p.checkFlow(n); err != nil {
+			return nil, err
+		}
+	}
+	return func() { p.indent, p.flow = indent, flow }, nil
 }
 
 // keyIdentity is a key's resolved value, which decides whether two keys
@@ -156,9 +221,14 @@ type keyIdentity struct {
 }
 
 func (p *parser) mapping(n *yaml.Node) (*Node, error) {
-	if err := checkTag(n); err != nil {
+	if _, err := p.tag(n); err != nil {
 		return nil, err
 	}
+	leave, err := p.enter(n)
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	if len(n.Content)%2 != 0 {
 		return nil, errorAt(Syntax, n, "mapping has a key without a value")
 	}
@@ -260,21 +330,13 @@ func arrayIndex(s string) (uint64, bool) {
 func (p *parser) scalar(n *yaml.Node) (*Node, error) {
 	out := &Node{Line: n.Line, Column: n.Column}
 	v := n.Value
-	if p.restore != nil {
-		v = p.restore.Replace(v)
-	}
-	if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 && v != "" && !strings.HasSuffix(v, "\n") {
-		// A clipped or kept block scalar ends with a line break unless
-		// its last line ends the file without one. The CLI's parser
-		// treats the end of the file as that line break; the YAML 1.1
-		// parser drops it.
-		strip, err := p.stripChomping(n)
-		if err != nil {
+	if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		var err error
+		if v, err = p.blockScalar(n, p.indent); err != nil {
 			return nil, err
 		}
-		if !strip {
-			v += "\n"
-		}
+	} else {
+		v = p.restoreText(v)
 	}
 	if n.Style&yaml.TaggedStyle == 0 {
 		quoted := n.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle|yaml.LiteralStyle|yaml.FoldedStyle) != 0
@@ -286,60 +348,40 @@ func (p *parser) scalar(n *yaml.Node) (*Node, error) {
 		if out.Kind != String {
 			// The library hides a non-specific tag "!", which makes a
 			// plain scalar a string.
-			bang, _, err := p.properties(n)
+			tag, _, err := p.properties(n)
 			if err != nil {
 				return nil, err
 			}
-			if bang {
+			if tag == "!" {
 				out.Kind, out.Text, out.num = String, v, 0
 			}
 		}
 		return out, nil
 	}
-	if err := checkTag(n); err != nil {
+	tag, err := p.tag(n)
+	if err != nil {
 		return nil, err
 	}
-	resolveTagged(out, n.Tag, v)
+	resolveTagged(out, tag, v)
 	return out, nil
 }
 
-// stripChomping reports whether the header of the block scalar n has the
-// strip indicator "-".
-func (p *parser) stripChomping(n *yaml.Node) (bool, error) {
-	_, s, err := p.properties(n)
-	if err != nil {
-		return false, err
-	}
-	if len(s) == 0 || (s[0] != '|' && s[0] != '>') {
-		return false, errorAt(Unsupported, n, "cannot locate the block scalar header in the source")
-	}
-	for _, c := range s[1:] {
-		switch {
-		case c == '-':
-			return true, nil
-		case c != '+' && (c < '1' || c > '9'):
-			return false, nil
-		}
-	}
-	return false, nil
-}
-
 // properties reads the source of n's node properties, which the library
-// reports only in part. It reports whether they include the non-specific
-// tag "!", and returns the source from the node's content on. It refuses
-// an anchor or alias name that YAML 1.2 would read as longer than the
-// YAML 1.1 parser did: YAML 1.2 allows characters such as ':' and '.' in
-// names, which the YAML 1.1 parser treats as the end of the name or
-// refuses.
-func (p *parser) properties(n *yaml.Node) (bang bool, rest []byte, err error) {
+// reports only in part. It returns the tag as written ("" when there is
+// none, "!" for the non-specific tag) and the source from the node's
+// content on. It refuses an anchor or alias name that YAML 1.2 would read
+// as longer than the YAML 1.1 parser did: YAML 1.2 allows characters such
+// as ':' and '.' in names, which the YAML 1.1 parser treats as the end of
+// the name or refuses.
+func (p *parser) properties(n *yaml.Node) (tag string, rest []byte, err error) {
 	off, ok := p.offset(n.Line, n.Column)
 	if !ok {
-		return false, nil, errorAt(Unsupported, n, "cannot locate the node in the source")
+		return "", nil, errorAt(Unsupported, n, "cannot locate the node in the source")
 	}
 	s := p.src[off:]
 	if n.Kind == yaml.AliasNode {
 		_, err := p.name(n, s, '*', n.Value)
-		return false, nil, err
+		return "", nil, err
 	}
 	// A node has at most two properties, a tag and an anchor, in either
 	// order.
@@ -347,21 +389,20 @@ func (p *parser) properties(n *yaml.Node) (bang bool, rest []byte, err error) {
 		switch {
 		case len(s) > 0 && s[0] == '&' && n.Anchor != "":
 			if s, err = p.name(n, s, '&', n.Anchor); err != nil {
-				return false, nil, err
+				return "", nil, err
 			}
-		case len(s) > 0 && s[0] == '!':
+		case len(s) > 0 && s[0] == '!' && tag == "":
 			end := 1
 			for end < len(s) && !isSeparator(s[end]) {
 				end++
 			}
-			bang = bang || end == 1
-			s = s[end:]
+			tag, s = string(s[:end]), s[end:]
 		default:
-			return bang, s, nil
+			return tag, s, nil
 		}
 		s = skipSeparation(s)
 	}
-	return bang, s, nil
+	return tag, s, nil
 }
 
 // name checks that s starts with sigil and name, followed by a character

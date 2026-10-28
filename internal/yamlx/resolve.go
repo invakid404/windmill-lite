@@ -37,27 +37,28 @@ func resolvePlain(out *Node, v string) {
 	}
 }
 
-// resolveTagged resolves a scalar with an explicit tag. A core tag whose
-// form does not match the text, and any tag the CLI does not know, leave
-// the text as a string: the CLI warns and keeps the string.
+// resolveTagged resolves a scalar with an explicit tag, named as cliTagName
+// names it. A core tag whose form does not match the text, and any tag the
+// CLI does not know, leave the text as a string: the CLI warns and keeps
+// the string.
 func resolveTagged(out *Node, tag, v string) {
 	out.Kind, out.Text = String, v
 	switch tag {
 	case "!inline", "!inline_fileset":
 		out.Text = tag + " " + v
-	case "!!null":
+	case coreTag + "null":
 		if reNull.MatchString(v) {
 			out.Kind, out.Text = Null, ""
 		}
-	case "!!bool":
+	case coreTag + "bool":
 		if reBool.MatchString(v) {
 			setBool(out, v)
 		}
-	case "!!int":
+	case coreTag + "int":
 		if isInt(v) {
 			setInt(out, v)
 		}
-	case "!!float":
+	case coreTag + "float":
 		// The float forms exclude the integer forms: !!float 1 is "1".
 		if isFloat(v) && !reDecimal.MatchString(v) {
 			setFloat(out, v)
