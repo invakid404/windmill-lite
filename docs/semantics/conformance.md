@@ -46,15 +46,15 @@ behaviour each. Paths such as `f/demo/...` are invented.
 
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
-| [OpenFlow model and the sync folder](#openflow) | 143 | 123 | 20 | 0 | 0 | 0 | 4 | 0 |
-| [Flow execution](#execution) | 124 | 94 | 29 | 1 | 0 | 64 | 8 | 1 |
-| [Loops, branches and subflows](#control-flow) | 86 | 68 | 16 | 0 | 2 | 43 | 0 | 0 |
+| [OpenFlow model and the sync folder](#openflow) | 145 | 125 | 20 | 0 | 0 | 0 | 4 | 0 |
+| [Flow execution](#execution) | 125 | 95 | 29 | 1 | 0 | 64 | 8 | 1 |
+| [Loops, branches and subflows](#control-flow) | 87 | 68 | 17 | 0 | 2 | 43 | 0 | 0 |
 | [Expressions](#expressions) | 170 | 122 | 48 | 0 | 0 | 164 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 183 | 124 | 59 | 0 | 0 | 0 | 12 | 0 |
+| [Languages and script wrappers](#languages) | 184 | 125 | 59 | 0 | 0 | 0 | 12 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 40 | 15 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 884 | 661 | 213 | 6 | 4 | 311 | 39 | 7 |
+| **Total** | 889 | 665 | 214 | 6 | 4 | 311 | 39 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -870,6 +870,13 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
   - **Expect:** with `**/*.ts`, script `f/a/x` (with its metadata) and flow
     `f/a/fl` (with its `flow.yaml`) are both deployed. With `**/*.yaml`, flow
     `f/a/fl` is deployed and script `f/a/x` is not.
+- **SY-17/b** · source-derived · a new lock file selects nothing
+  - **Given:** a valid new flow folder `f/a/fl.flow/` with `flow.yaml`,
+    `a.inline_script.ts` and its lock `a.inline_script.lock`;
+    `includes: ['**/*.lock']`; a plain `wmill sync push` (no
+    `--auto-metadata`) into an empty workspace.
+  - **Expect:** nothing is deployed: the only passing file is a new lock
+    file, which is skipped, so flow `f/a/fl` is not pushed.
 
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
@@ -901,6 +908,15 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
   - **Given:** `f/a/x.ts` whose bytes start with `FF FE` (UTF-16 LE text).
   - **Expect:** the push fails; the message contains
     `is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.`
+- **SY-19/c** · source-derived · a refused lock reached only as a reference
+  - **Given:** an ordinary UTF-8 `f/a/x.ts` with existing `f/a/x.script.yaml`
+    holding `lock: '!inline f/a/x.script.lock'`, where `f/a/x.script.lock`
+    starts with `FF FE`; `includes: ['**/*.ts']`, so the walk selects only
+    `f/a/x.ts`; `wmill sync push` into an empty workspace.
+  - **Expect:** the push succeeds with a warning that names
+    `f/a/x.script.lock`. Script `f/a/x` is pushed with the resolved lock
+    `""` (what the server then does with an empty lock is
+    [OF-15](openflow.md#of-15)).
 
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content
@@ -1031,10 +1047,11 @@ Findings: [execution.md](execution.md).
 - `<any>` marks values the harness normalises (stacks, timestamps, ids).
   `<starts "…">` asserts a prefix only. Durations are lower bounds on wall
   time unless a case says "about".
-- `<loc>` stands for one Rust location suffix at the end of a recorded
-  message: a space, `@`, and `<file>:<line>:<col>`, for example
-  ` @worker.rs:3822:13` ([FX-50](execution.md#fx-50)). A message can carry
-  several; each `<loc>` is one. The location text is the source position at
+- `<loc>` stands for one Rust location suffix **including its leading
+  space**: ` @<file>.rs:<line>:<col>`, for example ` @worker.rs:3822:13`
+  ([FX-50](execution.md#fx-50)), or the parenthesised not-found form
+  ` (<file>.rs:<line>)`. Nothing else separates it from the text before it,
+  and two suffixes are written `<loc><loc>`. The location text is the source position at
   the pin, so cases never assert it ([0001](../design/0001-equivalence-contract.md)
   §7 matches error text except location suffixes and stacks).
 - Cases recorded by batches E3b, E3c and E3d (design record 0012) are
@@ -1197,6 +1214,13 @@ Findings: [execution.md](execution.md).
   - **Recorded:** [`flows/execution/fx-10`](../../conformance/flows/execution/fx-10)
     run `unknown_id`, oracle run 40684097626, which also shows `null` for the
     same id in the engine and for a step with no job yet, by both routes.
+- **FX-10/c** · source-derived · The empty-id spelling reads the step's own
+  result inside `stop_after_if`.
+  - **Given:** `[a: bun: return {"k": 1} (stop_after_if: {expr:
+    "results[\"\"].k === 1", skip_if_stopped: false}), b: bun: return 9]`.
+  - **Expect:** a clean stop: `{success: true, result: {"k": 1}}`; `b`
+    never runs. The predicate's preceding id is empty, so `results[""]`
+    binds `previous_result`, here `a`'s own result, and the proxy returns it.
 
 <a id="fx-11"></a>
 ### FX-11 · `flow_env`
@@ -2037,12 +2061,21 @@ contested and now carry their own provenance.
     pickup, an `InternalError` chaining failure at the later transition.
 - **FX-51/c** · source-derived · later · `$jsonvar:` validates its text.
   - **Given:** a variable with the text `{"s": "\ud83d"}` passed as
-    `v = "$jsonvar:<path>"` to a Bun step; a second variable with the text
-    `{"n": 1e400}`.
-  - **Expect:** the step fails before its script runs, with an `InternalErr`
-    whose message starts `Internal: Failed to parse $jsonvar value as JSON: `
-    and continues `unexpected end of hex escape at line 1 column ` (first
-    variable) or `number out of range at line 1 column ` (second).
+    `v = "$jsonvar:<path>"` to a Bun step `a`; a second variable with the
+    text `{"n": 1e400}`.
+  - **Expect:** the step fails before its script runs. Its stored result,
+    and the flow's, is
+    `{"error": {"name": "ExecutionErr", "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: unexpected end of hex escape at line 1 column C<loc>", "step_id": "a"}}`
+    for the first variable, and the same with
+    `number out of range at line 1 column C` for the second, where `C` is
+    the parser's column and `<loc>` the one location suffix. The name is
+    `ExecutionErr`, not the completion insert's `InternalErr` of FX-51/a.
+  - **Correction 2026-10-28:** the case expected the resolver's inner
+    `InternalErr`. The executor converts it into the execution envelope
+    before storing it ([FX-51](execution.md#fx-51) rule 5), as the E3a
+    recordings `je42-h` and `je42-e` of
+    [`flows/je/providers`](../../conformance/flows/je/providers) show for
+    other resolver failures.
 - **FX-51/d** · source-derived · later · A number outside `numeric`'s range in
   the flow input.
   - **Given:** a run request whose input is `{"x": 1e131072}`.
@@ -2184,10 +2217,12 @@ Findings: [control-flow.md](control-flow.md).
   [languages.md](languages.md). `ERR(..)` leaves the message unasserted.
   Errors Windmill itself generates (timeout, cancellation, `EarlyStopError`,
   `InternalError`, `Anyhow`) are written out exactly.
-- **Locations.** `<loc>` stands for a Rust source location that Windmill
-  appends to some error texts: `@<file>.rs:<line>:<col>` (for example
-  `@worker.rs:3822:13`), or `(<file>.rs:<line>)` inside a not-found
-  message. It depends on the build; compare the text with it masked.
+- **Locations.** `<loc>` stands for one Rust source location suffix that
+  Windmill appends to some error texts, **including its leading space**:
+  ` @<file>.rs:<line>:<col>` (for example ` @worker.rs:3822:13`), or
+  ` (<file>.rs:<line>)` inside a not-found message; two suffixes are written
+  `<loc><loc>` ([FX-50](execution.md#fx-50)). It depends on the build;
+  compare the text with it masked.
 - **Result and status.** "Result" is the flow job's final JSON result and
   "status" its success flag. "Loop result" is the loop step's own result
   (`results.<loop id>`).
@@ -2241,7 +2276,7 @@ Findings: [control-flow.md](control-flow.md).
     The rest is `later` and depends on the route
     ([CF-23](control-flow.md#cf-23)): with the loop at step 0, name `Anyhow`
     and message
-    `Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 <loc>`;
+    `Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0<loc>`;
     with the loop after a first step, name `InternalError` and the same
     message without `Error: ` and `<loc>`.
   - **Recorded:** [`flows/control-flow/cf-2`](../../conformance/flows/control-flow/cf-2) runs `b-step0` and `b-later`, oracle run 40686532046.
@@ -2345,7 +2380,7 @@ Findings: [control-flow.md](control-flow.md).
   - **Expect:** status failure with the error
     `Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker`.
     With the loop at step 0 the flow fails at pickup:
-    `{"error": {"name": "Anyhow", "message": "Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker <loc>"}}`,
+    `{"error": {"name": "Anyhow", "message": "Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker<loc>"}}`,
     and no iteration is created.
   - **Recorded:** [`flows/control-flow/cf-7`](../../conformance/flows/control-flow/cf-7) run `d`, oracle run 40686532046.
 
@@ -2516,7 +2551,7 @@ Findings: [control-flow.md](control-flow.md).
   - **Expect:** status failure, `error.name == "EarlyStopError"`, message
     contains `stop_after_all_iters_if`. Exactly, as `later` scope: the
     flow's result is
-    ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'\n    at eval_script:1:7\n <loc>"}}``;
+    ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'\n    at eval_script:1:7\n<loc>"}}``;
     the loop step's own result is `[1,2]` and it carries that error; `n`
     does not run.
   - **Recorded:** [`flows/control-flow/cf-13`](../../conformance/flows/control-flow/cf-13) run `b`, oracle run 40685057858.
@@ -2652,9 +2687,9 @@ Findings: [control-flow.md](control-flow.md).
     containing `Failed to fetch result for step 'br'`. Exactly, as `later`
     scope: name `ExecutionErr`, and the message is the transform-error
     envelope around
-    `Failed to fetch result for step 'br': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000 <loc>`
+    `Failed to fetch result for step 'br': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000<loc>`
     followed by the engine's frame lines.
-  - **Recorded:** [`flows/cf/cf-19`](../../conformance/flows/cf/cf-19) run `cf19-c`, oracle run 40687124625 (`<loc>` was `(jobs.rs:9074)`).
+  - **Recorded:** [`flows/cf/cf-19`](../../conformance/flows/cf/cf-19) run `cf19-c`, oracle run 40687124625 (`<loc>` was ` (jobs.rs:9074)`).
 
 <a id="cf-20"></a>
 ### CF-20 · Values crossing container boundaries are JSON copies
@@ -2845,6 +2880,18 @@ job, no handler. A top-level sequential forloop `l` over `[1,2]` with
     `{"value": [-999,-998,-997]}`. (In the module list the same branchone's
     body would be a `flownode` child, and the loop would give
     `[101,103,106]`; [CF-8/b](#cf-8).)
+- **CF-30/c** · source-derived · later · A preprocessor that is itself a collapsible forloop collapses.
+  - **Given:** a deployed flow with no `failure_module`, whose
+    `preprocessor_module` is a sequential forloop `p` over `[1,2]` with the
+    one-module body `[b: ret(x) x = flow_input.iter.value]` (an inline Bun
+    script with no disqualifying field), and one module
+    `s: ret(x) x = flow_input`. Run by path with preprocessing applied
+    ([FX-35](execution.md#fx-35)).
+  - **Expect:** the first child job dispatched for `p` is a script job of
+    kind `preview` (a collapsed iteration running the unreduced inline
+    script) directly under the root `flow` job, not a `flowpreview` child
+    flow and not a `flowscript` job. Only the dispatch is asserted, not the
+    preprocessor's result or the flow's.
 
 <a id="cf-v1"></a>
 ### CF-V1 · Recovery success differs between sequential propagation and parallel aggregation
@@ -3002,7 +3049,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **Structure and values:** compare exactly, as JSON values. Large integers are compared numerically, without parsing them through JavaScript.
 - **Key order:** top-level key order is never significant. Nested key order counts only where a case says so. No case may assert the order of `Object.keys(flow_input)` or of a script's top-level argument keys, because that order comes from a hash map.
 - **Engine messages** (text after `QuickJS evaluation error: `): the quickjs-ng messages `nope is not defined`, `cannot read property 'x' of null`, `cannot read property 'x' of undefined` and `BigInt are forbidden in JSON.stringify` may be matched exactly up to the first newline. Stack text and any other engine wording are compared by prefix or substring ([Q-JE-1](expressions.md#q-je-1)).
-- **Rust location suffix:** strip ` @<file>.rs:<line>:<col>` before comparing. `<loc>` in an expected message stands for one such suffix; a message that ends in `<loc> <loc>` carries two.
+- **Rust location suffix:** strip ` @<file>.rs:<line>:<col>` before comparing. `<loc>` in an expected message stands for one such suffix **including its leading space** (or the parenthesised not-found form ` (<file>.rs:<line>)`), with nothing else between it and the text before it; a message that ends in `<loc><loc>` carries two ([FX-50](execution.md#fx-50)).
 - **`…`** in an expected message marks elided text: a stack, a location suffix, or the rest of a library message.
 
 **Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); recording batch E3e) and JE-V5/a (which transform fails first changes between runs, so it is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 (JE-50/a, JE-51/a, JE-52/a) are `source-derived` until recorded ([Q-JE-12](expressions.md#q-je-12)).
@@ -3539,7 +3586,7 @@ The predicate shortcut cases are [JE-9/j and JE-9/k](#je-9).
   - **Recorded:** [`exprs/je-24.yaml`](../../conformance/exprs/je-24.yaml) case `JE-24/c`, oracle run 40687124625.
 - **JE-24/d** · oracle-observed · without it the predicate is a syntax error
   - **Given:** flow input `{"n":5}`; a step with `skip_if: {expr: "flow_input.n > 3 // big"}`
-  - **Expect:** the flow fails per [JE-35](expressions.md#je-35); the message contains `QuickJS evaluation error:`. On the oracle (module 0, route (b)) it is `Error: Error: QuickJS evaluation error: Error: Unexpected end of input\n    at eval_script:1:7\n<loc> <loc>`, named `Anyhow`.
+  - **Expect:** the flow fails per [JE-35](expressions.md#je-35); the message contains `QuickJS evaluation error:`. On the oracle (module 0, route (b)) it is `Error: Error: QuickJS evaluation error: Error: Unexpected end of input\n    at eval_script:1:7\n<loc><loc>`, named `Anyhow`.
   - **Recorded:** [`exprs/je-24.yaml`](../../conformance/exprs/je-24.yaml) case `JE-24/d`, oracle run 40687124625.
 
 <a id="je-25"></a>
@@ -3688,7 +3735,7 @@ In each case, `F` is a failure module returning `"ran"`. Batch E3a recorded all 
   - **Recorded:** [`flows/je/errors`](../../conformance/flows/je/errors) run `je35-a`, oracle run 40687124625.
 - **JE-35/b** · oracle-observed · route (b): first pickup of a root flow, without a failure module (O5)
   - **Given:** a root flow whose module 0 has `skip_if: {expr: "nope"}`; no failure module
-  - **Expect:** the final result is `{"error":{"name":"Anyhow","message":"Error: Error: QuickJS evaluation error: Error: nope is not defined…<loc> <loc>"}}`: two `Error: ` prefixes and two location suffixes (on the oracle ` @worker_flow.rs:2451:11 @worker.rs:3822:13`).
+  - **Expect:** the final result is `{"error":{"name":"Anyhow","message":"Error: Error: QuickJS evaluation error: Error: nope is not defined…<loc><loc>"}}`: two `Error: ` prefixes and two location suffixes (on the oracle ` @worker_flow.rs:2451:11 @worker.rs:3822:13`).
   - **Correction 2026-10-28:** the case expected one `Error: ` prefix and one suffix. The worker's job dispatch wraps the flow code's error a second time ([JE-35](expressions.md#je-35)).
   - **Recorded:** [`flows/je/errors`](../../conformance/flows/je/errors) run `je35-b`, oracle run 40687124625.
 - **JE-35/c** · oracle-observed · route (b), with a failure module (O5)
@@ -3875,12 +3922,13 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
 
 **Scope:** later · **Finding:** [JE-48](expressions.md#je-48)
 
-The cases bracket the limit; none locates it. Batch E3a recorded them ([Q-JE-11](expressions.md#q-je-11)); the portable band is in [JE-48](expressions.md#je-48).
+The cases bracket the limit; none locates it. Batch E3a recorded them ([Q-JE-11](expressions.md#q-je-11)); frame sizes depend on the engine's build ([JE-48](expressions.md#je-48)).
 
 - **JE-48/a** · oracle-observed · recursions of depth 600 and less fit; depth 1 000 overflows on Windmill
   - **Given:** (1) `x = [10, 100, 300, 600].map(k => ((f) => { try { return f(f, k) } catch (e) { return e instanceof RangeError ? "RangeError" : typeof e } })((g, n) => n === 0 ? 0 : 1 + g(g, n - 1)))`, which has no `;`, so it runs in expression mode ([JE-13](expressions.md#je-13)); (2) `x = (() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()`.
-  - **Expect:** (1) `[10,100,300,600]`: every depth fits. (2) On Windmill `b` fails with a message containing `QuickJS evaluation error: Error: Maximum call stack size exceeded`. Only (1) is portable: whether depth 1 000 fits depends on the engine's build, and a conforming engine need not overflow there ([JE-48](expressions.md#je-48)).
+  - **Expect:** (1) `[10,100,300,600]`: every depth fits. (2) `b` fails with a message containing `QuickJS evaluation error: Error: Maximum call stack size exceeded`. Both are Windmill's outcomes on the pinned oracle; whether another engine build must reproduce (2) is a compatibility decision for the equivalence contract, not settled here ([JE-48](expressions.md#je-48)'s design note).
   - **Correction 2026-10-28:** the case expected depth 1 000 to fit, with the value `1000`. On Windmill it overflows; and as written the expression holds `;`, so even a run that fits would give `null` in statement mode. Part (1) is the depth bracket batch E3a recorded instead.
+  - **Revision 2026-10-28 (validation round 1):** the corrected case had called only (1) portable and said a conforming engine need not overflow at depth 1 000; that allowance is removed, and the case keeps both recorded outcomes.
   - **Recorded:** [`exprs/je-48.yaml`](../../conformance/exprs/je-48.yaml) case `JE-48/a` for (2), oracle run 40687124625, and its `depth-bracket` variant for (1), oracle run 40691336592.
 - **JE-48/b** · oracle-observed · a recursion of depth 1 000 000 overflows
   - **Given:** the same expression with `f(1000000)`
@@ -4491,6 +4539,9 @@ The finding is DISPUTED only in its later dynamic-import consequence ([Q-WR-16](
   - **Given:** flow `f/a/fl` with the top-level inline step `s` of WR-29/a, now with `path: f/elsewhere/entry`, whose source is `import { b } from "./x"; export function main() { return b; }`. Workspace scripts `f/a/fl/x`, `f/elsewhere/entry/x` and `f/elsewhere/x` each export `b` as `"flow"`, `"entry"` and `"elsewhere"`. The flow is deployed, its dependency job succeeds, and it is run by path.
   - **Expect:** `"flow"`: the deployed flow keeps no explicit path, so the step imports `f/a/fl/x`. The dependency job resolved `./x` to `f/elsewhere/entry/x`. A preview of the same flow value returns `"elsewhere"`.
   - **Correction 2026-10-28:** the case expected `f/elsewhere/x` for the deployed flow. That is the preview's outcome only ([WR-29](languages.md#wr-29)).
+- **WR-29/c** · source-derived · a deployed failure module keeps its explicit `path`
+  - **Given:** flow `f/a/fl` whose only step `boom` throws, and whose inline Bun `failure_module` has `path: f/elsewhere/entry` and the source `import { b } from "./x"; export function main() { return b; }`. Workspace scripts `f/a/fl/x`, `f/elsewhere/entry/x` and `f/elsewhere/x` export `b` as `"flow"`, `"entry"` and `"elsewhere"`. The flow is deployed, its dependency job succeeds, and it is run by path.
+  - **Expect:** the failure module returns `"elsewhere"`: the slot is not reduced, so its explicit path is its run-time base. The dependency job resolved its `./x` to `f/elsewhere/entry/x`, as for WR-29/b. The same holds for a `preprocessor_module` with that `path`.
 
 <a id="wr-31"></a>
 ### WR-31 · Leading-comment annotations for TypeScript scripts
@@ -5851,9 +5902,11 @@ Findings: [oracle.md](oracle.md).
   masked location of the NUL `InternalErr`, `<ws>` the workspace. In raw
   values, `<worker>`, `<job>`, `<uuid>` and `<64-hex>` elide volatile parts.
   In an expected error message, `<loc>` also stands for one Rust location
-  suffix ` @<file>.rs:<line>:<col>` that Windmill appended, which a
-  recording keeps verbatim and a comparison with windmill-lite strips
-  ([OR-14](oracle.md#or-14)); two suffixes are written `<loc> <loc>`.
+  suffix that Windmill appended, **including its leading space**
+  (` @<file>.rs:<line>:<col>`, or the parenthesised not-found form
+  ` (<file>.rs:<line>)`), which a recording keeps verbatim and a comparison
+  with windmill-lite strips ([OR-14](oracle.md#or-14)); two suffixes are
+  written `<loc><loc>`.
   Recorded fixtures name their sites with the typed paths of design record
   0011 (`m:<id>`, `i:<n>`, `b:<n>`, `s:failure`, `r:<k>`).
 - **Probes** are named after the rows of the
@@ -6401,7 +6454,7 @@ schema:
   - **Given:** probe `nul`: `a` returns `"x\u0000y"`, then `b`.
   - **Expect:** `a` and the root have `status: failure` with result
     ```json
-    {"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+    {"error":{"name":"InternalErr","message":"Internal: Could not add completed job <job:PATH>: error returned from database: unsupported Unicode escape sequence<loc>"}}
     ```
     (no `step_id`; `PATH` is the failing step's path); `b` is `not_run`. The
     raw message ended in ` @jobs.rs:1133:22`. The duration (about 30 s) is not
@@ -6523,7 +6576,7 @@ schema:
   - **Expect:** the module is `{"status":"failure","ran":false}` with the flow's
     error preserved, never an empty success; no branch body runs; the root
     is `failure` with
-    `{"error":{"name":"Anyhow","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n <loc>"}}`
+    `{"error":{"name":"Anyhow","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n<loc>"}}`
     and no `step_id`.
   - **Recorded:** [`flows/je/branches`](../../conformance/flows/je/branches)
     run `je31-a`, oracle run 40687124625.

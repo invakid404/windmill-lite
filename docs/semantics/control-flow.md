@@ -162,9 +162,11 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
       `<step>` is the container's position in its flow;
     - `preserve_step_tags` is inherited.
   - **Stored-node bodies:** the handler keeps its original id, and
-    `preserve_step_tags` is false. Every non-empty body of a deployed flow
-    that has a failure module is a stored node, so there the copy reads
-    `failure` (recorded, [FX-34](execution.md#fx-34)).
+    `preserve_step_tags` is false. Every non-empty body under the `modules`
+    list of a deployed flow that has a failure module is a stored node, so
+    there the copy reads `failure` (recorded, [FX-34](execution.md#fx-34));
+    a container in the failure-module or preprocessor slot is not reduced at
+    deploy and keeps inline bodies.
   - The container step's own result is assembled from the child results
     ([CF-4](#cf-4), [CF-13](#cf-13), [CF-14](#cf-14)).
 - **Evidence:** `worker_flow.rs:5038-5074` (inline construction; the
@@ -539,9 +541,13 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        whatever the caller's kind ([CF-17](#cf-17)), so an eligible forloop
        in that subflow collapses;
      - the failure and preprocessor modules are not reduced by the lite
-       version, so the bodies of a container-valued failure or preprocessor
-       module always run inline, as `FlowPreview` children, and forloops
-       inside them never collapse ([CF-30](#cf-30));
+       version, so a body of a container-valued failure or preprocessor
+       module that becomes a child flow runs inline, as a `FlowPreview`
+       child, and a forloop nested in it never collapses. The collapse
+       check still precedes child creation: a slot that is itself a
+       sequential forloop (or a while loop) with a simple body collapses in
+       the job executing it when the flow has no `failure_module`, and a
+       failure module that is a loop never collapses ([CF-30](#cf-30));
      - while loops collapse at any depth in every mode, subject to the body
        shape: multi-step while bodies never collapse.
   5. **Effects of collapsing:**
@@ -606,6 +612,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   Also new: the presence rule for disqualifiers and the bodies of the
   failure and preprocessor modules (questions asked by windmill-lite's IR
   compiler).
+- **Revision 2026-10-28 (validation round 1):** the slot bullet of point 4
+  said that every body of a container-valued failure or preprocessor module
+  runs as a `FlowPreview` child and that no forloop there collapses. It now
+  limits that to bodies that become child flows and says that a slot which
+  is itself an eligible loop collapses, because the collapse check precedes
+  child creation ([CF-30](#cf-30)).
 
 <a id="cf-9"></a>
 ### CF-9 · `previous_result` at the first step of a non-collapsed loop body or branch
@@ -1559,9 +1571,23 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        applied before the handler either (it is applied when the next
        list step starts, for example under `continue_on_error`).
   4. **Container-valued slots.** If either module is a container, its
-     bodies are never stored as nodes, so they always run as inline child
-     flows (`FlowPreview`). A forloop inside such a body never collapses
-     ([CF-8](#cf-8)); a while loop with an eligible body still does.
+     bodies are never stored as nodes. The runtime collapse check
+     ([CF-8](#cf-8)) still comes first, so:
+     - **a slot that is itself a loop** is judged like any loop of the job
+       executing it. A preprocessor that is a sequential forloop runs in
+       the root flow job (`Flow` for a by-path run), so with a simple body
+       (one inline script, no disqualifying field) and **no flow
+       `failure_module`** it collapses: each iteration is dispatched as a
+       script job directly, and since the body was not reduced, an inline
+       body script runs as a `preview` job, not a `flowscript` one. A while
+       loop slot with a simple body collapses the same way. A flow
+       `failure_module` disqualifies every body, so a failure module that
+       is itself a loop never collapses (the flow has one: itself);
+     - **bodies that do become child flows** (a non-simple body, a
+       branch's body, or any body when the flow has a failure module) are
+       raw flows and run as `FlowPreview` children, so a forloop nested in
+       one never collapses; a while loop nested in one still does when its
+       own body is simple and the flow has no failure module.
 - **Evidence:** `backend/windmill-worker/src/worker_lockfiles.rs:748-758`
   (the lite version reduces `modules` only), `:1594-1706` (the reduction
   walks module lists; virtual steps added at `:1706`), `:1553-1591` (a body
@@ -1572,13 +1598,26 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-worker/src/worker_flow.rs:3658-3681` (the delay is the
   previous list module's `sleep`; none for the slots or step 0), `:5997`
   (an inline script step's payload), `:5052-5061` (an inline body is a raw
-  flow), `:5298-5300` (forloop gate); `backend/windmill-queue/src/jobs.rs:5477-5522`
+  flow), `:5298-5300` (forloop gate: job kind, `parallel`, simple body),
+  `:5247-5249` (while gate: simple body only), `:5729-5745` (the simple-body
+  test; the flow's `failure_module` disqualifies, nothing tests for a
+  slot), `:5669-5698` (a collapsed iteration is dispatched as a script job
+  before any child flow is built), `:5940-5958` (an inline script body
+  becomes an inline-script payload); `backend/windmill-queue/src/jobs.rs:5477-5522`
   (inline-script jobs are `Preview`), `:5604-5667` (raw flows are
   `FlowPreview`).
-- **Conformance:** [CF-30/a, CF-30/b](conformance.md#cf-30)
+- **Conformance:** [CF-30/a to CF-30/c](conformance.md#cf-30)
 - **Note:** this answers questions from windmill-lite's IR compiler.
   [FX-23](execution.md#fx-23) and [JE-28](expressions.md#je-28) describe
   `sleep` on list modules.
+- **Revision 2026-10-28 (validation round 1):** point 4 said that a
+  container-valued slot's bodies always run as `FlowPreview` children, so
+  that no forloop in a slot collapses. That confused the absence of a
+  stored node with the absence of collapsing: the collapse check runs
+  before any child is created and has no exclusion for the slots, so a
+  slot that is itself an eligible loop collapses. The rule now separates
+  the slot loop from loops nested in its child flows, and
+  [CF-30/c](conformance.md#cf-30) checks the direct case.
 
 ## B. Findings added during validation
 

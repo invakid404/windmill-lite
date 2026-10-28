@@ -1000,9 +1000,11 @@ validation. Open questions are `Q-OR-n`.
     windmill-lite with the oracle strips a suffix only where the
     catalogue's expected message writes it as `<loc>` and windmill-lite's
     value is an error it generated (design record 0011, "Location
-    suffixes"). In catalogue texts `<loc>` stands for one trailing
-    ` @<file>.rs:<line>:<col>` suffix, or for the parenthesised form where
-    a case says so; two suffixes are written `<loc> <loc>`. The file, line
+    suffixes"). In catalogue texts `<loc>` stands for one location suffix
+    **including its leading space**: ` @<file>.rs:<line>:<col>`, or the
+    parenthesised not-found form ` (<file>.rs:<line>)`. Nothing else
+    separates it from the text before it, and two suffixes are written
+    `<loc><loc>` ([FX-50](execution.md#fx-50)). The file, line
     and column are Windmill build details, never compared.
   - **Observed stability:** normalised observations were byte-equal for smoke
     `ok` ×3, smoke `fail` ×2, `effects` ×2 and `loop_seq_simple` ×2;
@@ -2194,7 +2196,7 @@ no ports, and `mem_limit: 2g`.
   predicate throws (`conformance/flows/je/branches` run `je31-a`, oracle run
   40687124625, predicate `nope`): the module is `Failure` with the nil job
   (`{"status":"failure","ran":false}`), no branch body runs, and the root
-  fails with `{"error":{"name":"Anyhow","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n <loc>"}}`,
+  fails with `{"error":{"name":"Anyhow","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n<loc>"}}`,
   with no `step_id` ([OR-V2/e](conformance.md#or-v2); the message's other
   sites are [JE-31](expressions.md#je-31) and [JE-35](expressions.md#je-35)).
   *Originally asked:* what module status and root result does a throwing
