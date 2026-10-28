@@ -17,7 +17,21 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr"
 )
 
+// newEngine starts an engine that the test closes, and fails the test if
+// any of its runtimes leaked a heap block.
 func newEngine(t testing.TB, opts Options) *Engine {
+	t.Helper()
+	e := newLeakyEngine(t, opts)
+	t.Cleanup(func() {
+		if n := e.Stats().LeakedBlocks; n != 0 {
+			t.Errorf("runtimes leaked %d heap blocks", n)
+		}
+	})
+	return e
+}
+
+// newLeakyEngine is newEngine for tests that make QuickJS-ng leak.
+func newLeakyEngine(t testing.TB, opts Options) *Engine {
 	t.Helper()
 	e, err := New(opts)
 	if err != nil {
@@ -232,9 +246,9 @@ func TestExceptions(t *testing.T) {
 		{`(() => { throw 42 })()`, expr.Exception{Thrown: expr.ThrownOther, Text: "42"}},
 		{`Promise.reject(null)`, expr.Exception{Thrown: expr.ThrownNull, Text: "null"}},
 		{`(() => { throw undefined })()`, expr.Exception{Thrown: expr.ThrownUndefined, Text: "undefined"}},
-		// A value with no string form, and an Error whose getters throw, are
-		// still reported, with the texts that could be read.
-		{`(() => { throw Symbol("s") })()`, expr.Exception{Thrown: expr.ThrownOther}},
+		// A symbol, which ToString refuses, and an Error whose getters throw,
+		// are still reported, with the texts that could be read.
+		{`(() => { throw Symbol("s") })()`, expr.Exception{Thrown: expr.ThrownOther, Text: "Symbol(s)"}},
 		{`(() => { const e = new Error("x"); Object.defineProperty(e, "message", { get() { throw new Error("boom"); } }); throw e; })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error"}},
 	} {
 		_, err := run(t, e, tc.source, expr.Input{})

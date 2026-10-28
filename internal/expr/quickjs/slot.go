@@ -1,7 +1,7 @@
 package quickjs
 
 /*
-#cgo CFLAGS: -O2 -D_GNU_SOURCE -funsigned-char -Wno-unused-parameter -Wno-sign-compare
+#cgo CFLAGS: -O2 -DNDEBUG -D_GNU_SOURCE -funsigned-char -Wno-unused-parameter -Wno-sign-compare
 #cgo LDFLAGS: -lm
 #include "wl_quickjs.h"
 */
@@ -31,6 +31,10 @@ const (
 	minThreadStack   = 8 << 20
 	threadStackSlack = 4 << 20
 )
+
+// maxCallsInFlight bounds the host calls one evaluation runs at once; the
+// rest wait, queued in the engine, for a running one to settle.
+const maxCallsInFlight = 64
 
 func threadStack(l expr.Limits) int {
 	return max(minThreadStack, l.StackBytes+threadStackSlack)
@@ -108,12 +112,19 @@ func (s *slot) loop() {
 				r, used = s.run(j)
 				j.reply <- r
 			case <-s.e.closing:
-				C.wl_release(s.c)
+				s.release()
 				return
 			}
 		}
-		C.wl_release(s.c)
+		s.release()
 	}
+}
+
+// release frees the runtime and counts the blocks QuickJS-ng left
+// allocated, which the C side has just freed.
+func (s *slot) release() {
+	C.wl_release(s.c)
+	s.e.stats.leaked.Add(uint64(C.wl_leaked(s.c)))
 }
 
 // run runs j on the prepared runtime and reports whether it used it.
@@ -137,7 +148,7 @@ func (s *slot) compile(source string) reply {
 	if rc := C.wl_compile(s.c, cstr(source), C.size_t(len(source)), &bc, &n); rc != C.WL_OK {
 		return reply{err: s.failure(rc, nil)}
 	}
-	return reply{out: C.GoBytes(unsafe.Pointer(bc), C.int(n))}
+	return reply{out: goBytes(unsafe.Pointer(bc), n)}
 }
 
 // arm starts an evaluation's generation and withdraws any interrupt request
@@ -185,6 +196,7 @@ func (s *slot) eval(j *job) reply {
 		s.disarm()
 	}()
 
+	C.wl_begin(s.c)
 	for _, hs := range j.in.Strings {
 		if rc := C.wl_def_string(s.c, cstr(hs.Name), C.size_t(len(hs.Name)), cbytes(hs.Text), C.size_t(len(hs.Text))); rc != C.WL_OK {
 			return reply{err: s.failure(rc, attempt)}
@@ -203,7 +215,7 @@ func (s *slot) eval(j *job) reply {
 	done := make(chan struct{})
 	defer close(done)
 	results := make(chan hostResult)
-	pending := 0
+	running := 0
 	for {
 		rc := C.wl_run(s.c)
 		switch rc {
@@ -213,15 +225,19 @@ func (s *slot) eval(j *job) reply {
 		default:
 			return reply{err: s.failure(rc, attempt)}
 		}
-		pending += s.dispatch(attempt, j.in.Funcs, results, done)
-		// Nothing runs until a host call settles; with none outstanding the
+		running += s.dispatch(attempt, j.in.Funcs, maxCallsInFlight-running, results, done)
+		// Nothing runs until a host call settles; with none running the
 		// result can never settle, and only the attempt limit or the caller
 		// ends the evaluation (JE-2).
 		var r hostResult
 		select {
 		case r = <-results:
-			pending--
+			running--
 		case <-attempt.Done():
+			return reply{err: s.interrupted(attempt)}
+		}
+		if attempt.Err() != nil {
+			// Both were ready; the attempt's end wins.
 			return reply{err: s.interrupted(attempt)}
 		}
 		ok := C.int(1)
@@ -235,20 +251,19 @@ func (s *slot) eval(j *job) reply {
 	}
 }
 
-// dispatch starts a goroutine for every queued host call and returns how
-// many it started.
-func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, results chan<- hostResult, done <-chan struct{}) int {
+// dispatch starts a goroutine for each queued host call, oldest first, up to
+// limit of them, and returns how many it started.
+func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, results chan<- hostResult, done <-chan struct{}) int {
 	n := 0
-	for {
+	for ; n < limit; n++ {
 		var id C.uint32_t
 		var index C.int
 		var arg C.wl_text
 		if C.wl_take_call(s.c, &id, &index, &arg) == 0 {
-			return n
+			break
 		}
-		n++
 		call := funcs[index].Call
-		a := C.GoStringN(arg.ptr, C.int(arg.len))
+		a := string(goBytes(unsafe.Pointer(arg.ptr), arg.len))
 		go func() {
 			out, err := call(ctx, a)
 			select {
@@ -257,13 +272,14 @@ func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, results chan
 			}
 		}()
 	}
+	return n
 }
 
 func (s *slot) result(attempt context.Context) reply {
 	var t C.wl_text
 	switch rc := C.wl_result(s.c, &t); rc {
 	case C.WL_OK:
-		return reply{out: C.GoBytes(unsafe.Pointer(t.ptr), C.int(t.len))}
+		return reply{out: goBytes(unsafe.Pointer(t.ptr), t.len)}
 	case C.WL_NOT_STRING:
 		return reply{err: expr.ErrNotString}
 	default:
@@ -320,7 +336,16 @@ func exception(x *C.wl_exc) *expr.Exception {
 	return ex
 }
 
-func gotext(t C.wl_text) string { return C.GoStringN(t.ptr, C.int(t.len)) }
+func gotext(t C.wl_text) string { return string(goBytes(unsafe.Pointer(t.ptr), t.len)) }
+
+// goBytes copies n bytes of C memory; unlike C.GoBytes, its length is not
+// limited to a C int.
+func goBytes(p unsafe.Pointer, n C.size_t) []byte {
+	if n == 0 {
+		return []byte{}
+	}
+	return append([]byte(nil), unsafe.Slice((*byte)(p), int(n))...)
+}
 
 // cstr and cbytes pass Go memory to C for the length of one call; the C side
 // copies what it keeps.

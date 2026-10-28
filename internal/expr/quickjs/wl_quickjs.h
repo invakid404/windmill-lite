@@ -49,8 +49,12 @@ void wl_slot_free(wl_slot *s);
 // given heap cap and stack size (both in bytes). WL_OK or WL_NO_MEMORY.
 int wl_prepare(wl_slot *s, size_t memory_limit, size_t stack_size);
 // wl_release frees everything the evaluation created, then the context and
-// the runtime.
+// the runtime, then every block of the runtime's heap that is still
+// allocated.
 void wl_release(wl_slot *s);
+// wl_leaked is the number of blocks the last wl_release found still
+// allocated after the runtime was freed.
+size_t wl_leaked(wl_slot *s);
 
 // wl_interrupt asks the running program to stop. Any thread may call it.
 void wl_interrupt(wl_slot *s);
@@ -61,6 +65,10 @@ void wl_clear_interrupt(wl_slot *s);
 // eval_script and serialises its bytecode. On WL_OK, *bc holds *bc_len
 // bytes, valid until wl_release.
 int wl_compile(wl_slot *s, const char *src, size_t len, uint8_t **bc, size_t *bc_len);
+
+// wl_begin starts an evaluation on the prepared runtime, before its
+// bindings are defined.
+void wl_begin(wl_slot *s);
 
 // wl_def_string defines a global data property name = text (a string).
 int wl_def_string(wl_slot *s, const char *name, size_t name_len, const char *text, size_t text_len);

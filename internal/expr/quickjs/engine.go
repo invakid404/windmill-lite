@@ -34,6 +34,9 @@ var ErrClosed = errors.New("expr/quickjs: engine closed")
 // errForeign reports a program that this Engine did not compile.
 var errForeign = errors.New("expr/quickjs: program was not compiled by this engine")
 
+// errNilCall reports a HostFunc without a Call.
+var errNilCall = errors.New("expr/quickjs: host function has no Call")
+
 // Engine is the native QuickJS-ng engine with its pool of slots. It is safe
 // for concurrent use. Close it to stop its threads.
 type Engine struct {
@@ -143,19 +146,28 @@ func (e *Engine) Compile(source string) (expr.Program, error) {
 // holding its text as a string, and each HostFunc a global function of that
 // name. A host function converts its first argument with ToString (a missing
 // one is "undefined"), returns a Promise, and calls Call on its own
-// goroutine with a context that ends with the attempt. The Promise settles
-// only after the jobs queued so far have run: it resolves with Call's text
-// as a string, or rejects with an Error whose message is err.Error() and
-// whose stack is empty. A Call still running when the evaluation ends is
-// abandoned, and its result is dropped.
+// goroutine with a context that ends with the attempt; at most 64 calls of
+// one evaluation run at once, and the rest wait in call order. The Promise
+// settles only after the jobs queued so far have run: it resolves with
+// Call's text as a string, or rejects with an Error whose message is
+// err.Error(), built with no frames on the stack. A Call still running when
+// the evaluation ends is abandoned, and its result is dropped. Every Call
+// must be non-nil.
 //
 // The completion value is settled when the program's top level returns
 // something other than a Promise, or when the Promise it returned has
-// settled; jobs still queued then never run.
+// settled; jobs still queued then never run. A job that throws fails the
+// evaluation with its exception. The result text is UTF-8, except that an
+// unpaired surrogate comes back as its three-byte (WTF-8) form.
 func (e *Engine) Eval(ctx context.Context, p expr.Program, in expr.Input) ([]byte, error) {
 	prog, ok := p.(*program)
 	if !ok || prog == nil || prog.engine != e {
 		return nil, errForeign
+	}
+	for _, f := range in.Funcs {
+		if f.Call == nil {
+			return nil, fmt.Errorf("%w: %q", errNilCall, f.Name)
+		}
 	}
 	if ctx.Err() != nil {
 		return nil, context.Cause(ctx)
@@ -219,23 +231,29 @@ type Stats struct {
 	// Canceled those interrupted because their context ended.
 	Timeouts uint64
 	Canceled uint64
+	// LeakedBlocks counts heap blocks that were still allocated after a
+	// runtime had been freed, which the engine then freed itself.
+	// QuickJS-ng leaks for some programs (assigning an object to
+	// Error.stackTraceLimit, for one); any other leak is a bug.
+	LeakedBlocks uint64
 }
 
 type counters struct {
-	evaluations, compiles, waited, timeouts, canceled atomic.Uint64
-	waitNanos                                         atomic.Int64
+	evaluations, compiles, waited, timeouts, canceled, leaked atomic.Uint64
+	waitNanos                                                 atomic.Int64
 }
 
 // Stats returns the Engine's counters.
 func (e *Engine) Stats() Stats {
 	return Stats{
-		Slots:       e.slots,
-		Evaluations: e.stats.evaluations.Load(),
-		Compiles:    e.stats.compiles.Load(),
-		Waited:      e.stats.waited.Load(),
-		WaitTime:    time.Duration(e.stats.waitNanos.Load()),
-		Timeouts:    e.stats.timeouts.Load(),
-		Canceled:    e.stats.canceled.Load(),
+		Slots:        e.slots,
+		Evaluations:  e.stats.evaluations.Load(),
+		Compiles:     e.stats.compiles.Load(),
+		Waited:       e.stats.waited.Load(),
+		WaitTime:     time.Duration(e.stats.waitNanos.Load()),
+		Timeouts:     e.stats.timeouts.Load(),
+		Canceled:     e.stats.canceled.Load(),
+		LeakedBlocks: e.stats.leaked.Load(),
 	}
 }
 

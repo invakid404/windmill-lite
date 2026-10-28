@@ -249,28 +249,28 @@ both as host strings; parses both; and serialises
 is no pipeline wrapper and no shortcut. QuickJS-ng `be664ca1` built with the
 system clang at `-O2`, the default pool (8 slots), Apple M4 (4 performance
 and 6 efficiency cores), macOS 26.5, Go 1.27.3, 3 s per row. The machine was
-shared with other work, at a load average of about 3.4 when the run started.
+shared with other work, at a load average of about 2.9 when the run started.
 CPU per evaluation is the process's CPU time divided by the evaluations, so
 it includes freeing each runtime and preparing the next. A burst's latency
 counts from when the burst is issued.
 
 | Load | Bound value | p50 | p95 | p99 | CPU per evaluation |
 |---|---|---|---|---|---|
-| 1 caller, 2 ms between evaluations | 4 KB | 88 µs | 147 µs | 189 µs | 395 µs |
-| 8 callers, 0.5 ms between evaluations | 4 KB | 97 µs | 186 µs | 435 µs | 207 µs |
-| 8 callers, back to back | 4 KB | 201 µs | 291 µs | 436 µs | 203 µs |
-| 16 callers, back to back | 4 KB | 433 µs | 730 µs | 1.56 ms | 214 µs |
-| burst of 64 at once | 4 KB | 1.41 ms | 2.76 ms | 3.91 ms | 226 µs |
-| 1 caller, 2 ms between evaluations | 64 KB | 270 µs | 499 µs | 994 µs | 446 µs |
-| 8 callers, 0.5 ms between evaluations | 64 KB | 293 µs | 400 µs | 560 µs | 413 µs |
-| 8 callers, back to back | 64 KB | 478 µs | 821 µs | 1.08 ms | 552 µs |
-| 16 callers, back to back | 64 KB | 1.14 ms | 1.63 ms | 3.01 ms | 568 µs |
-| burst of 64 at once | 64 KB | 3.04 ms | 5.82 ms | 7.95 ms | 587 µs |
-| 1 caller, 2 ms between evaluations | 256 KB | 969 µs | 1.92 ms | 3.24 ms | 1.26 ms |
-| 8 callers, 0.5 ms between evaluations | 256 KB | 1.70 ms | 2.67 ms | 4.57 ms | 1.75 ms |
-| 8 callers, back to back | 256 KB | 2.11 ms | 3.10 ms | 5.64 ms | 1.76 ms |
-| 16 callers, back to back | 256 KB | 4.19 ms | 9.18 ms | 18.2 ms | 1.74 ms |
-| burst of 64 at once | 256 KB | 8.62 ms | 17.7 ms | 24.5 ms | 1.72 ms |
+| 1 caller, 2 ms between evaluations | 4 KB | 89 µs | 150 µs | 191 µs | 397 µs |
+| 8 callers, 0.5 ms between evaluations | 4 KB | 95 µs | 152 µs | 193 µs | 221 µs |
+| 8 callers, back to back | 4 KB | 190 µs | 264 µs | 336 µs | 201 µs |
+| 16 callers, back to back | 4 KB | 381 µs | 438 µs | 588 µs | 199 µs |
+| burst of 64 at once | 4 KB | 1.44 ms | 4.55 ms | 5.56 ms | 311 µs |
+| 1 caller, 2 ms between evaluations | 64 KB | 257 µs | 328 µs | 569 µs | 406 µs |
+| 8 callers, 0.5 ms between evaluations | 64 KB | 350 µs | 539 µs | 582 µs | 470 µs |
+| 8 callers, back to back | 64 KB | 495 µs | 848 µs | 1.04 ms | 568 µs |
+| 16 callers, back to back | 64 KB | 1.12 ms | 1.54 ms | 1.91 ms | 566 µs |
+| burst of 64 at once | 64 KB | 4.01 ms | 5.54 ms | 9.72 ms | 606 µs |
+| 1 caller, 2 ms between evaluations | 256 KB | 939 µs | 991 µs | 1.55 ms | 1.10 ms |
+| 8 callers, 0.5 ms between evaluations | 256 KB | 1.32 ms | 2.10 ms | 2.31 ms | 1.61 ms |
+| 8 callers, back to back | 256 KB | 1.45 ms | 2.46 ms | 2.87 ms | 1.68 ms |
+| 16 callers, back to back | 256 KB | 3.33 ms | 4.40 ms | 5.13 ms | 1.68 ms |
+| burst of 64 at once | 256 KB | 7.89 ms | 13.6 ms | 15.1 ms | 1.68 ms |
 
 The paced rows sit inside the gate's bounds at every size, but they are not
 the gate: B2b measures through the pipeline. On a busier machine the tails

@@ -3,11 +3,14 @@
 #include "wl_quickjs.h"
 
 #include <pthread.h>
+#include <stdalign.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "_cgo_export.h"
+#include "quickjs-ng/cutils.h"
 #include "quickjs-ng/quickjs.h"
 
 // Reading the completion value or the exception back may allocate (UTF-8
@@ -15,9 +18,23 @@
 // the evaluation's cap.
 #define WL_READBACK_HEADROOM (16u << 20)
 
+// Every block a runtime allocates is linked into its slot's heap, so that
+// whatever the engine fails to free by the end of JS_FreeRuntime can still
+// be freed, and counted.
+typedef union wl_block {
+	struct {
+		union wl_block *prev, *next;
+	} link;
+	max_align_t align;
+} wl_block;
+
+typedef struct wl_heap {
+	wl_block head;
+} wl_heap;
+
 typedef struct wl_call {
 	int index;
-	char *arg;
+	char *arg; // js_malloc'd, so it counts against the heap cap
 	size_t arg_len;
 	JSValue resolve, reject;
 	int taken, settled;
@@ -26,18 +43,120 @@ typedef struct wl_call {
 struct wl_slot {
 	JSRuntime *rt;
 	JSContext *ctx;
+	wl_heap heap;
 	size_t memory_limit;
+	size_t leaked; // blocks swept at the last release
 	atomic_int interrupt;
 	int interrupted;
 	JSValue result;
 	JSValue exc;
-	wl_call *calls;
+	wl_call *calls; // js_realloc'd
 	size_t ncalls, calls_cap, next_take;
 	uint8_t *bc;
 	// C strings handed to Go, freed at release.
 	const char *cstr[8];
 	int ncstr;
 };
+
+static void heap_link(wl_heap *h, wl_block *b)
+{
+	b->link.prev = &h->head;
+	b->link.next = h->head.link.next;
+	h->head.link.next->link.prev = b;
+	h->head.link.next = b;
+}
+
+static void heap_unlink(wl_block *b)
+{
+	b->link.prev->link.next = b->link.next;
+	b->link.next->link.prev = b->link.prev;
+}
+
+static void *heap_malloc(void *opaque, size_t size)
+{
+	wl_block *b;
+
+	if (size > SIZE_MAX - sizeof(wl_block))
+		return NULL;
+	b = malloc(sizeof(wl_block) + size);
+	if (b == NULL)
+		return NULL;
+	heap_link(opaque, b);
+	return b + 1;
+}
+
+static void *heap_calloc(void *opaque, size_t count, size_t size)
+{
+	wl_block *b;
+
+	if (size != 0 && count > (SIZE_MAX - sizeof(wl_block)) / size)
+		return NULL;
+	b = calloc(1, sizeof(wl_block) + count * size);
+	if (b == NULL)
+		return NULL;
+	heap_link(opaque, b);
+	return b + 1;
+}
+
+static void heap_free(void *opaque, void *ptr)
+{
+	wl_block *b;
+
+	(void)opaque;
+	if (ptr == NULL)
+		return;
+	b = (wl_block *)ptr - 1;
+	heap_unlink(b);
+	free(b);
+}
+
+static void *heap_realloc(void *opaque, void *ptr, size_t size)
+{
+	wl_block *b, *nb;
+
+	if (ptr == NULL)
+		return heap_malloc(opaque, size);
+	if (size > SIZE_MAX - sizeof(wl_block))
+		return NULL;
+	b = (wl_block *)ptr - 1;
+	heap_unlink(b);
+	nb = realloc(b, sizeof(wl_block) + size);
+	if (nb == NULL) {
+		heap_link(opaque, b);
+		return NULL;
+	}
+	heap_link(opaque, nb);
+	return nb + 1;
+}
+
+// heap_usable_size is what the engine's heap accounting adds per block: the
+// allocator's usable size, as with QuickJS-ng's default allocator, less the
+// link.
+static size_t heap_usable_size(const void *ptr)
+{
+	size_t n = js__malloc_usable_size((const wl_block *)ptr - 1);
+	return n > sizeof(wl_block) ? n - sizeof(wl_block) : 0;
+}
+
+static const JSMallocFunctions heap_funcs = {
+	heap_calloc, heap_malloc, heap_free, heap_realloc, heap_usable_size,
+};
+
+// heap_sweep frees every block still linked and returns how many there
+// were.
+static size_t heap_sweep(wl_heap *h)
+{
+	size_t n = 0;
+	wl_block *b;
+
+	while (h->head.link.next != &h->head) {
+		b = h->head.link.next;
+		heap_unlink(b);
+		free(b);
+		n++;
+	}
+	return n;
+}
 
 static void *wl_thread_main(void *arg)
 {
@@ -68,6 +187,7 @@ wl_slot *wl_slot_new(void)
 	wl_slot *s = calloc(1, sizeof(*s));
 	if (s != NULL) {
 		atomic_init(&s->interrupt, 0);
+		s->heap.head.link.prev = s->heap.head.link.next = &s->heap.head;
 		s->result = JS_UNDEFINED;
 		s->exc = JS_UNDEFINED;
 	}
@@ -96,15 +216,18 @@ int wl_prepare(wl_slot *s, size_t memory_limit, size_t stack_size)
 	JSRuntime *rt;
 	JSContext *ctx;
 
-	rt = JS_NewRuntime();
-	if (rt == NULL)
+	rt = JS_NewRuntime2(&heap_funcs, &s->heap);
+	if (rt == NULL) {
+		heap_sweep(&s->heap);
 		return WL_NO_MEMORY;
+	}
 	JS_SetMemoryLimit(rt, memory_limit);
 	JS_SetMaxStackSize(rt, stack_size);
 	JS_SetInterruptHandler(rt, wl_interrupt_handler, s);
 	ctx = JS_NewContext(rt);
 	if (ctx == NULL) {
 		JS_FreeRuntime(rt);
+		heap_sweep(&s->heap);
 		return WL_NO_MEMORY;
 	}
 	JS_SetContextOpaque(ctx, s);
@@ -127,9 +250,9 @@ void wl_release(wl_slot *s)
 	for (i = 0; i < s->ncalls; i++) {
 		JS_FreeValue(ctx, s->calls[i].resolve);
 		JS_FreeValue(ctx, s->calls[i].reject);
-		free(s->calls[i].arg);
+		js_free(ctx, s->calls[i].arg);
 	}
-	free(s->calls);
+	js_free(ctx, s->calls);
 	s->calls = NULL;
 	s->ncalls = s->calls_cap = s->next_take = 0;
 	for (i = 0; i < (size_t)s->ncstr; i++)
@@ -147,6 +270,14 @@ void wl_release(wl_slot *s)
 	JS_FreeRuntime(s->rt);
 	s->ctx = NULL;
 	s->rt = NULL;
+	// QuickJS-ng can leak an object the program made unreachable (for
+	// example through Error.stackTraceLimit); its blocks go here.
+	s->leaked = heap_sweep(&s->heap);
+}
+
+size_t wl_leaked(wl_slot *s)
+{
+	return s->leaked;
 }
 
 void wl_interrupt(wl_slot *s)
@@ -180,7 +311,8 @@ int wl_compile(wl_slot *s, const char *src, size_t len, uint8_t **bc, size_t *bc
 		JS_ThrowOutOfMemory(ctx);
 		return take_exception(s);
 	}
-	memcpy(buf, src, len);
+	if (len)
+		memcpy(buf, src, len);
 	buf[len] = '\0';
 	JS_UpdateStackTop(s->rt);
 	fn = JS_Eval(ctx, buf, len, "eval_script", JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -196,6 +328,15 @@ int wl_compile(wl_slot *s, const char *src, size_t len, uint8_t **bc, size_t *bc
 	}
 	*bc = s->bc;
 	return WL_OK;
+}
+
+void wl_begin(wl_slot *s)
+{
+	// The runtime was prepared before the job arrived; restart the
+	// performance clock so that it counts from the evaluation's start, as
+	// it would in a context created for it. This comes before the host
+	// bindings, so that one named performance replaces it.
+	JS_AddPerformance(s->ctx);
 }
 
 static int def_global(wl_slot *s, const char *name, size_t name_len, JSValue v)
@@ -225,38 +366,48 @@ int wl_def_string(wl_slot *s, const char *name, size_t name_len, const char *tex
 	return def_global(s, name, name_len, v);
 }
 
-static JSValue wl_host_fn(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int index)
+static JSValue wl_host_fn(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValueConst *data)
 {
 	wl_slot *s = JS_GetContextOpaque(ctx);
 	JSValue funcs[2], promise;
 	const char *arg;
 	wl_call *c;
+	int32_t index;
 	size_t len;
 	char *copy;
 
 	(void)this_val;
+	(void)magic;
+	if (JS_ToInt32(ctx, &index, data[0]) < 0)
+		return JS_EXCEPTION;
 	arg = JS_ToCStringLen(ctx, &len, argc > 0 ? argv[0] : JS_UNDEFINED);
 	if (arg == NULL)
 		return JS_EXCEPTION;
-	copy = malloc(len + 1);
-	if (copy != NULL)
+	// When an Error's ToString throws, the conversion falls back to its
+	// message but leaves the exception pending: the call then throws it.
+	if (JS_HasException(ctx)) {
+		JS_FreeCString(ctx, arg);
+		return JS_EXCEPTION;
+	}
+	copy = js_malloc(ctx, len + 1);
+	if (copy != NULL && len)
 		memcpy(copy, arg, len);
 	JS_FreeCString(ctx, arg);
 	if (copy == NULL)
-		return JS_ThrowOutOfMemory(ctx);
+		return JS_EXCEPTION;
 	if (s->ncalls == s->calls_cap) {
 		size_t cap = s->calls_cap ? 2 * s->calls_cap : 4;
-		wl_call *calls = realloc(s->calls, cap * sizeof(*calls));
+		wl_call *calls = js_realloc(ctx, s->calls, cap * sizeof(*calls));
 		if (calls == NULL) {
-			free(copy);
-			return JS_ThrowOutOfMemory(ctx);
+			js_free(ctx, copy);
+			return JS_EXCEPTION;
 		}
 		s->calls = calls;
 		s->calls_cap = cap;
 	}
 	promise = JS_NewPromiseCapability(ctx, funcs);
 	if (JS_IsException(promise)) {
-		free(copy);
+		js_free(ctx, copy);
 		return promise;
 	}
 	c = &s->calls[s->ncalls++];
@@ -272,7 +423,7 @@ static JSValue wl_host_fn(JSContext *ctx, JSValueConst this_val, int argc, JSVal
 
 int wl_def_func(wl_slot *s, const char *name, size_t name_len, int index)
 {
-	JSValue fn;
+	JSValue fn, data;
 	char *cname;
 
 	cname = malloc(name_len + 1);
@@ -283,7 +434,8 @@ int wl_def_func(wl_slot *s, const char *name, size_t name_len, int index)
 	if (name_len)
 		memcpy(cname, name, name_len);
 	cname[name_len] = '\0';
-	fn = JS_NewCFunction2(s->ctx, (JSCFunction *)(void *)wl_host_fn, cname, 1, JS_CFUNC_generic_magic, index);
+	data = JS_NewInt32(s->ctx, index);
+	fn = JS_NewCFunctionData2(s->ctx, wl_host_fn, cname, 1, 0, 1, &data);
 	free(cname);
 	if (JS_IsException(fn))
 		return take_exception(s);
@@ -296,10 +448,6 @@ int wl_start(wl_slot *s, const uint8_t *bc, size_t bc_len)
 	JSValue fn, v;
 
 	JS_UpdateStackTop(s->rt);
-	// The runtime was prepared before the job arrived; restart the
-	// performance clock so that it counts from the evaluation's start, as
-	// it would in a context created for it.
-	JS_AddPerformance(ctx);
 	fn = JS_ReadObject(ctx, bc, bc_len, JS_READ_OBJ_BYTECODE);
 	if (JS_IsException(fn))
 		return take_exception(s);
@@ -335,6 +483,8 @@ int wl_run(wl_slot *s)
 		}
 		if (!JS_IsJobPending(s->rt))
 			return WL_WAITING;
+		// A job that throws (a queueMicrotask callback, for example) fails
+		// the evaluation with its exception.
 		if (JS_ExecutePendingJob(s->rt, &job_ctx) < 0)
 			return take_exception(s);
 	}
@@ -358,37 +508,44 @@ int wl_take_call(wl_slot *s, uint32_t *id, int *index, wl_text *arg)
 int wl_settle(wl_slot *s, uint32_t id, int ok, const char *text, size_t len)
 {
 	JSContext *ctx = s->ctx;
-	JSValue v, msg, r;
+	JSValue v, msg, r, resolve, reject;
 	wl_call *c;
 
 	if (id >= s->ncalls || !s->calls[id].taken || s->calls[id].settled)
 		return WL_OK;
+	// Building the Error and resolving can run the program's code, which
+	// can call a host function and so move s->calls: take what is needed
+	// now and never touch the record again.
 	c = &s->calls[id];
 	c->settled = 1;
+	resolve = c->resolve;
+	reject = c->reject;
+	c->resolve = JS_UNDEFINED;
+	c->reject = JS_UNDEFINED;
+	c = NULL;
 	JS_UpdateStackTop(s->rt);
 	v = JS_NewStringLen(ctx, len ? text : "", len);
-	if (JS_IsException(v))
-		return take_exception(s);
-	if (!ok) {
+	if (!JS_IsException(v) && !ok) {
 		// new Error(text), built from the intrinsic prototype so that a
 		// program that replaced globalThis.Error cannot intercept it.
 		msg = v;
 		v = JS_NewError(ctx);
 		if (JS_IsException(v)) {
 			JS_FreeValue(ctx, msg);
-			return take_exception(s);
-		}
-		if (JS_DefinePropertyValueStr(ctx, v, "message", msg, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
+		} else if (JS_DefinePropertyValueStr(ctx, v, "message", msg, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
 			JS_FreeValue(ctx, v);
-			return take_exception(s);
+			v = JS_EXCEPTION;
 		}
 	}
-	r = JS_Call(ctx, ok ? c->resolve : c->reject, JS_UNDEFINED, 1, (JSValueConst *)&v);
+	if (JS_IsException(v)) {
+		JS_FreeValue(ctx, resolve);
+		JS_FreeValue(ctx, reject);
+		return take_exception(s);
+	}
+	r = JS_Call(ctx, ok ? resolve : reject, JS_UNDEFINED, 1, (JSValueConst *)&v);
 	JS_FreeValue(ctx, v);
-	JS_FreeValue(ctx, c->resolve);
-	JS_FreeValue(ctx, c->reject);
-	c->resolve = JS_UNDEFINED;
-	c->reject = JS_UNDEFINED;
+	JS_FreeValue(ctx, resolve);
+	JS_FreeValue(ctx, reject);
 	if (JS_IsException(r))
 		return take_exception(s);
 	JS_FreeValue(ctx, r);
@@ -411,10 +568,10 @@ static wl_text keep_cstr(wl_slot *s, JSValueConst v)
 	if (s->ncstr == (int)(sizeof(s->cstr) / sizeof(s->cstr[0])))
 		return t;
 	p = JS_ToCStringLen(s->ctx, &len, v);
-	if (p == NULL) {
+	if (JS_HasException(s->ctx))
 		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
+	if (p == NULL)
 		return t;
-	}
 	s->cstr[s->ncstr++] = p;
 	t.ptr = p;
 	t.len = len;
@@ -469,6 +626,29 @@ static wl_text prop_text(wl_slot *s, JSValueConst obj, const char *name, int wan
 	return t;
 }
 
+// symbol_text is a thrown symbol's string form, Symbol(<description>),
+// which ToString refuses to give.
+static wl_text symbol_text(wl_slot *s, JSValueConst v)
+{
+	wl_text t = {"", 0};
+	JSAtom to_string = JS_NewAtom(s->ctx, "toString");
+	JSValue str;
+
+	if (to_string == JS_ATOM_NULL) {
+		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
+		return t;
+	}
+	str = JS_Invoke(s->ctx, v, to_string, 0, NULL);
+	JS_FreeAtom(s->ctx, to_string);
+	if (JS_IsException(str)) {
+		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
+		return t;
+	}
+	t = keep_cstr(s, str);
+	JS_FreeValue(s->ctx, str);
+	return t;
+}
+
 int wl_exception(wl_slot *s, wl_exc *out)
 {
 	JSValueConst v = s->exc;
@@ -490,7 +670,7 @@ int wl_exception(wl_slot *s, wl_exc *out)
 		out->text = keep_cstr(s, v);
 	} else {
 		out->thrown = WL_THROWN_OTHER;
-		out->text = keep_cstr(s, v);
+		out->text = JS_IsSymbol(v) ? symbol_text(s, v) : keep_cstr(s, v);
 	}
 	return s->interrupted ? WL_INTERRUPTED : WL_OK;
 }
