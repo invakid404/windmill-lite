@@ -252,6 +252,10 @@ switch through a change to this record, naming the reason.
   it is running, and `fresh` mode turns five of them off (D1, D2, D9 to D11).
 - Contested rules are settled by recording, early, so the engine is built
   against observed behaviour rather than kept with two readings.
+- §5a gained the YAML restriction when milestone A2 implemented the dialect
+  of [0002](0002-ir-and-loader.md): a few YAML constructs the CLI accepts
+  cannot be read as the CLI reads them over a YAML 1.1 parser, so they fail
+  at load instead of parsing differently.
 
 ## Spec IDs relied on
 
@@ -259,4 +263,4 @@ FX-1, FX-2, FX-4, FX-10, FX-26, FX-33, FX-36, FX-39, FX-40, FX-41, FX-42,
 FX-46, FX-49, FX-V2, FX-V6, CF-6, CF-7, CF-8, CF-12, CF-19, CF-V5, CF-V6,
 OF-3, OF-7, OF-17, OF-V5, JE-2, JE-9, JE-10, WR-1, WR-2, WR-3, WR-16,
 WR-27, WR-28, WR-30, WR-32, WR-36, WA-33, OR-5, OR-11, OR-14, OR-15, OR-21,
-OR-23, OR-V3, OR-V5, OR-V8, OR-V9, and the questions named in the tables.
+OR-23, OR-V3, OR-V5, OR-V8, OR-V9, SY-9, and the questions named in the tables.

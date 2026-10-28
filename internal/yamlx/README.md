@@ -24,7 +24,8 @@ scalar itself.
 - `ToJSON(src) ([]byte, error)` returns the JSON text of the value, byte for
   byte what JavaScript's `JSON.stringify` gives for the CLI's value.
 - `Node` has a `Kind` (`Null`, `Bool`, `Number`, `String`, `Sequence`,
-  `Mapping`), `Text`, `Items`, `Pairs`, and a 1-based `Line` and `Column`.
+  `Mapping`), `Text`, `Items`, `Pairs`, and a 1-based `Line` and `Column`
+  (0 for the null of an empty stream).
   `Text` is the string, `"true"` or `"false"`, or a number exactly as
   written (`017`, `0x1F`, `.inf`): numbers keep their source text.
   `Float64()` gives a number's JavaScript value. `Get(key)` looks up a
@@ -32,8 +33,9 @@ scalar itself.
   `encoding/json.Marshal` of a node changes the bytes (it escapes `<`, `>`,
   `&`, U+2028 and U+2029) but not the value.
 - An alias shares the anchored `Node`, so nodes are read-only.
-- Errors are `*Error` values with a `Kind`, a position and a message;
-  `Error()` reads `<kind>: line L column C: <message>`.
+- Errors are `*Error` values with a `Kind` (`Syntax` or `Unsupported`), a
+  position (0 where unknown) and a message; `Error()` reads
+  `<kind>: line L column C: <message>` and leaves out what is unknown.
 
 ## The dialect
 

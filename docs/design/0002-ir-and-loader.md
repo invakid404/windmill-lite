@@ -336,6 +336,14 @@ only hand-written files.
   `windmill-utils-internal`) are not used until the open licence question is
   answered ([Q-OF-7](../semantics/openflow.md#q-of-7)); the loader is written
   from the `SY-` findings either way.
+- The YAML dialect's mapping rules and refusals (Pipeline, step 2) were added
+  when milestone A2 implemented it. Pinning the dialect against the CLI's
+  YAML library showed that a mapping's keys and order follow the JavaScript
+  object the CLI builds, and that a YAML 1.1 parser cannot read a few YAML
+  1.2 constructs as the CLI does. Matching those would need another parser
+  or JavaScript-specific values; none of them comes from the CLI's writer
+  for a server value, so they are refused, as a restriction of
+  [0001](0001-equivalence-contract.md) §5a.
 
 ## Spec IDs relied on
 
