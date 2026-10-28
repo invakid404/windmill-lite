@@ -320,12 +320,16 @@ number text and duplicate elements:
   `StrictKeyOrder` compares member order inside values, never in the
   observation's own fields;
 - arrays in order, except at `Unordered` pointers, which compare as
-  multisets ([OR-23](../../docs/semantics/oracle.md#or-23)): the elements
-  are matched one to one by a maximum bipartite matching, so in subset mode
-  a broad expected element never takes the only match of a narrower one.
-  Each expected element is compared at its own index, so strict key order
-  applies inside it and unordered pointers below it (for example
-  `/result/0/values`) still hold;
+  multisets ([OR-23](../../docs/semantics/oracle.md#or-23)). Each expected
+  element is compared at its own index, so strict key order applies inside
+  it and unordered pointers below it (for example `/result/0/values`) still
+  hold. In subset mode, or with such a pointer below the array, the
+  elements are matched one to one by a maximum bipartite matching, so a
+  broad expected element never takes the only match of a narrower one.
+  Otherwise element equality is an equivalence that ignores the index, and
+  the elements are counted by their canonical text (members sorted by key,
+  or in order under strict key order), in about linear time;
+  `BenchmarkCompareUnordered` measures both paths;
 - numbers by their JSON text;
 - a step field one side leaves to its canonical absence and the other spells
   out is expanded first, so the two spellings compare equal;
@@ -333,3 +337,6 @@ number text and duplicate elements:
   recording holds neither (ADR 0011).
 
 `testdata/compare/cases.json` holds the cases.
+`TestUnorderedCountingAgreesWithMatching` checks, on random arrays with
+repeated elements and reshuffled members, that counting and the matching
+agree under either key-order policy.
