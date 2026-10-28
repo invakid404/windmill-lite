@@ -1,20 +1,30 @@
 # internal/harness
 
 **Current state:** milestone C1 of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
-covers `internal/harness`. The package is the engine side of the harness
-protocol of [ADR 0004](../../docs/design/0004-harness-protocol.md): frames
-and part streams, spawned harness processes with their handshake and
-supervision, invocations through settlement, health, the watchdog, and
-pools. `Pool` and `Process` implement `engine.StepExecutor`. Nothing calls
-them yet: the walking skeleton (W1) is the first user.
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md), with what the
+walking skeleton (W1) added. This README covers `internal/harness`. The
+package is the engine side of the harness protocol of
+[ADR 0004](../../docs/design/0004-harness-protocol.md): frames and part
+streams, spawned harness processes with their handshake and supervision,
+invocations through settlement, health, the watchdog, and pools. W1 added
+the platform frames, with a pluggable handler, and host mode, where the
+engine is the child of a Bun host that is also its harness (`AttachHost`).
+`Pool` and `Process` implement `engine.StepExecutor`; their users are the
+walking skeleton's interpreter in
+[internal/engine](../engine/README.md) and its `windmill-lite host` command
+in [cmd/windmill-lite](../../cmd/windmill-lite/README.md).
 
 Not here yet:
 
 - `fresh` module state: `Spawn`, `NewPool` and `Execute` refuse it (C3b).
-- Host mode, where the harness is the host and submits runs (W1, F3a).
-- The `platform`, `host_call` and `run` frames, which are refused as
-  `unknown_type` until PF1, F2c and W1 add them.
+- The facade behind the platform frames: its router, policies and job
+  identity (PF1). A process without a handler answers each call with a
+  501.
+- The `host_call` and `host_reply` frames, which are refused as
+  `unknown_type` until F2c adds them.
+- Host mode's completion (F3a): drain from the engine's side, the working
+  directory checks on the engine's side, `onRunSettled` across the
+  connection.
 - Mapping an outcome to Windmill's stored value (WR-20, WR-21, WR-V2), which
   C3a and N1a do from the `engine.StepOutcome` this package returns.
 - Warnings for process-level errors no invocation owned (C3a).
@@ -28,7 +38,8 @@ Not here yet:
 | `frame.go` | The length prefix, the size limits, part splitting and reassembly |
 | `errors.go` | `ProtocolError` and its codes, shared with the Bun codec |
 | `conn.go` | One socket's writer and reader goroutines, and when the last frame arrived |
-| `process.go` | `Spawn`, `Process`: the handshake, invocations, settlement, death, the watchdog |
+| `process.go` | `Spawn`, `Process`: the handshake, invocations, settlement, death, the watchdog, platform calls |
+| `host.go` | `AttachHost`, `HostConn`: host mode on the engine's side, its runs, and its watchdog |
 | `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines, recent reporters, signal names |
 
@@ -54,14 +65,35 @@ milestone C1 fixed the details they left open.
 - **Order per invocation.** A message about an invocation (`invoke`,
   `cancel`, `result`, `late`, `log`) queued while a part stream about the
   same invocation is open waits for that stream's last part, so a `cancel`
-  never overtakes the large `invoke` it cancels.
+  never overtakes the large `invoke` it cancels. Messages about one
+  host-mode run (`run`, `run_done`, `run_cancel`) keep their order the same
+  way, under a key of their own.
 - **Limits.** `DefaultMaxMessage` is 512 MiB; `ProcessConfig.MaxMessage`
   lowers it and the welcome passes it on. It applies to whole frames and to
   reassembled messages. An invocation whose `invoke` would exceed it is not
   dispatched.
 - **Protocol errors.** A malformed frame, a broken part stream, a frame in
   the wrong direction or one about an invocation in the wrong state is a
-  `ProtocolError`. The `Process` then kills its harness.
+  `ProtocolError`. The `Process` then kills its harness; in host mode it
+  ends the connection instead, and with it the engine.
+- **Platform calls** (W1). When `ProcessConfig.Facade` names the facade's
+  origin, the welcome carries it as `facade`, and the harness turns every
+  fetch to that origin into a `platform` frame: `inv` (the invocation whose
+  context made it), `method`, `url`, `headers` (an object of strings,
+  sorted) and an optional `body`, the body's bytes in padded base64.
+  `ProcessConfig.Platform` answers each one on a goroutine of its own, and
+  the reply goes back as `platform_reply` with `status` (a final HTTP
+  status, 200 to 599), `headers` and an optional `body`. A handler that
+  panics or answers another status gets a 502 in its place, so one bad
+  answer never ends the harness.
+- **Runs** (W1, host mode). A host submits `run` with `id`, `kind` (`flow`
+  or `script`), `path`, `args` (raw) and an optional raw `intercept`
+  object, module ids to the results that stand in for them (H1's static
+  form). The engine answers `run_done` with `status` (a run status) and an
+  optional raw `result`; `run_cancel` cancels a run. The run's `id` is its
+  id in the engine, so every `invoke` of it carries it as `run`. These
+  fields stand in for the JSON mapping of `runner.proto` until milestone F5
+  defines it.
 
 ## Spawned processes
 
@@ -81,7 +113,8 @@ WR-22's base set that needs no later milestone.
 `bundle_mismatch`, `pid_mismatch`) and `Spawn` returns a `*HandshakeError`.
 The pid check refuses a wrapper that forks the harness, which the
 watchdog's signal would otherwise miss. An accepted harness gets the
-module-state mode, `heartbeat_ms` and `max_message`. `Spawn` refuses a
+module-state mode, `heartbeat_ms`, `max_message` and, when the engine serves
+platform calls, `facade`. `Spawn` refuses a
 heartbeat that is not shorter than `KillAfter`, and negative values.
 
 ## Invocations and settlement
@@ -95,6 +128,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 | `result` with `settled` false | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
+| host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
 
 Reporter calls for one invocation run in the order the contract fixes, one
 at a time, on a goroutine of their own; `Settled(not_started)` runs on the
@@ -122,6 +156,37 @@ heartbeat (one second, or a quarter of `KillAfter` when shorter), so the
 engine's own blocked writes never make a live harness look silent. The
 signal goes through the `os.Process` handle, which cannot reach a reused
 pid: Go uses a pidfd on Linux and does not signal a reaped child elsewhere.
+
+## Host mode
+
+`AttachHost` serves host mode on the engine's side (ADR 0004 host mode,
+milestone W1). The Bun host SDK starts the engine with its socket as file
+descriptor 3 (`HostConn`); the host is the harness that every invocation
+goes to.
+
+- **Handshake.** As for a spawned harness, plus: the hello must offer the
+  `host` capability (else `harness_mismatch`), and its `pid` must be the
+  engine's parent process, `getppid()` (else `pid_mismatch`), because that
+  is the process the watchdog would signal.
+- **Runs.** Each `run` frame starts `HostConfig.Run` on a goroutine of its
+  own, with a context that `run_cancel` ends with cause
+  `engine.CancelCanceled`. What it returns goes back as `run_done`. Its
+  invocations go to the same `Process`.
+- **No taint, no recycle.** Abandoned invocations stay in the host until
+  they settle, counted in its health; the engine never stops routing to
+  the host (D2).
+- **Losing the host.** When the connection ends, every invocation in flight
+  fails with `ErrHostLost` and settles with the process
+  (`process_exited`), every run's context ends with that cause, and `Done`
+  closes: the engine has nothing left to serve (host mode item 6).
+- **The watchdog** (host mode item 4, review item cl P4-3). It measures
+  silence from received frames, as for spawned processes; the host pings
+  every heartbeat on its own. After `KillAfter` of silence it writes a line
+  to its diagnostics naming the runs and invocations in flight, and sends
+  `SIGKILL` to the handshake's pid only if `getppid()` still equals it: once
+  the host has exited the engine is reparented, and the pid may belong to
+  another process. Then it ends the connection, which ends the engine. It
+  reports no run outcome; their only receiver was the host.
 
 ## Pools
 
@@ -158,13 +223,32 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 
 - `frames_test.go` runs the codec cases of `conformance/protocol/frames.json`
   and, with `-args -update`, rewrites their payloads from Go's encoder.
+- `qwa4_test.go` is W1's Q-WA-4 env-view test
+  ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4),
+  [WA-31](../../docs/semantics/client-api.md#wa-31)): the stock
+  `windmill-client@1.767.0`, by namespace and default import, in steps that
+  are not bundled, bundled by `Bun.build` with Windmill's settings, and
+  bundled with the define rewrite, plus an unbundled dependency that reads
+  `Bun.env`. Sixteen concurrent invocations per variant must each read their
+  own variables through `process.env`, `Bun.env`, `import.meta.env`, a copy
+  of `process.env`, a variable they write, a process variable half of them
+  delete, the dependency and the client's call, whose platform frame must
+  be attributed to them; in a process without the variables and in one that
+  has them. It needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules`
+  holds that client.
+- `host_test.go` plays a host on a socketpair: the handshake's parent check,
+  a host gone before its hello, runs and their invocations, `run_cancel`, a
+  lost host, and the watchdog, which signals its parent and spares a pid
+  that no longer is. It also checks the 502 that stands in for a bad
+  platform answer.
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
   the C1 exit gate: protocol golden tests on Bun 1.3.10.
 - `bun_test.go` runs `Process` and `Pool` against the real Bun harness:
-  handshake rejections and the pid check, outcomes, process death, cancel
-  and late settlement, limits, the working directory, the watchdog case
-  `watchdog/finite-cpu` in warm mode, and the pool rules above.
+  handshake rejections and the pid check, outcomes, process death, a
+  detached rejection that ends nothing, cancel and late settlement, limits,
+  the working directory, the watchdog case `watchdog/finite-cpu` in warm
+  mode, and the pool rules above.
   `TestBunPoolTaintedProcessReturnsToService` holds its steps on the `gate`
   fixture step, which reports that it has started and ends when the test
   opens it, and turns lag routing off, so it does not depend on timing.
@@ -176,9 +260,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher.
 
-The Bun tests need the pinned Bun: set `WL_BUN` to its executable. Without
-it they skip, unless `WL_REQUIRE_BUN` is set, as CI sets it.
+The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and
+`WL_WINDMILL_CLIENT` for the Q-WA-4 test. Without them they skip, unless
+`WL_REQUIRE_BUN` is set, as CI sets it.
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/harness
+WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./internal/harness
 ```

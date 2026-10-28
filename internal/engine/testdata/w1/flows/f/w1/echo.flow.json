@@ -1,0 +1,4 @@
+{
+  "summary": "W1: one step that returns its input, for the per-step latency figure",
+  "value": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/w1/echo", "input_transforms": {"x": {"type": "javascript", "expr": "flow_input.x"}}}}]}
+}

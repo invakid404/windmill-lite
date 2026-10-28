@@ -1,0 +1,4 @@
+{
+  "summary": "W1: a step that blocks the event loop forever (the watchdog test of ADR 0004)",
+  "value": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/w1/spin", "input_transforms": {}}}]}
+}

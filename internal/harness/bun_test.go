@@ -26,8 +26,10 @@ func TestBunHandshake(t *testing.T) {
 	if h.Proto != ProtocolVersion || h.Harness.Kind != "bun" || h.Runtime != PinnedBun || h.Bundle != cfg.Bundle || h.PID != p.PID() {
 		t.Fatalf("hello %+v", h)
 	}
-	if h.Caps != (Caps{}) {
-		t.Fatalf("the C1 runtime offers no optional capability, got %+v", h.Caps)
+	// The runtime intercepts facade fetches (W1); native, fresh and host
+	// are later milestones' or the host SDK's.
+	if h.Caps != (Caps{Fetch: true}) {
+		t.Fatalf("caps %+v, want fetch only", h.Caps)
 	}
 }
 
@@ -118,9 +120,6 @@ func TestBunProcessDeathFailsEveryInFlightInvocation(t *testing.T) {
 		script, args string
 		code         int
 	}{
-		// Without C3a's process-level handlers, a detached rejection ends
-		// the process with code 1.
-		{"detached-reject", `{"ms":100}`, 1},
 		// Without C3a's interception, process.exit ends the process.
 		{"exit", `{"ms":100,"code":7}`, 7},
 	} {
@@ -154,6 +153,48 @@ func TestBunProcessDeathFailsEveryInFlightInvocation(t *testing.T) {
 				t.Fatalf("exit status %v", st)
 			}
 		})
+	}
+}
+
+// ADR 0004, the shared-process failure model, item 1 (W1's exit gate): one
+// detached rejection does not end the process; it fails no invocation, the
+// co-resident one completes, and it is counted in health as an error no
+// invocation owned (item 3; attribution is C3a's).
+func TestBunDetachedRejectionDoesNotEndTheProcess(t *testing.T) {
+	cfg, diag := bunConfig(t)
+	p := spawn(t, cfg)
+	rejecter := make(chan error, 1)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go func() {
+		// detached-reject rejects after 100 ms and never settles; it is
+		// abandoned once the rejection has been seen.
+		_, err := p.Execute(ctx, newInvocation("detached-reject", `{"ms":100}`, newRecorder()))
+		rejecter <- err
+	}()
+	out, err := execute(t, p, newInvocation("sleep", `{"ms":400}`, newRecorder()), 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "400" {
+		t.Fatalf("co-resident invocation: %+v, %v", out, err)
+	}
+	h, err := p.Ping(context.Background())
+	if err != nil || h == nil || h.Errors != 1 || h.InFlight != 1 {
+		t.Fatalf("health %+v, %v; want one unattributed error and the rejecter still in flight", h, err)
+	}
+	cancel(engine.CancelCanceled)
+	if err := <-rejecter; !errors.Is(err, engine.CancelCanceled) {
+		t.Fatalf("rejecter: %v", err)
+	}
+	out, err = execute(t, p, newInvocation("echo", `{"after":true}`, newRecorder()), 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("after the rejection: %+v, %v", out, err)
+	}
+	select {
+	case <-p.Done():
+		t.Fatalf("the process ended: %v", p.ExitStatus())
+	default:
+	}
+	if !strings.Contains(diag.String(), "unhandledRejection that no invocation owns: Error: detached") {
+		t.Fatalf("diagnostics:\n%s", diag)
 	}
 }
 
@@ -814,9 +855,17 @@ func TestBunPoolTaintClearsWhileTheReplacementStarts(t *testing.T) {
 	rec := newRecorder()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go pool.Execute(ctx, newInvocation("sleep", `{"ms":300}`, rec))
+	// Both dispatched: the pool counts an invocation as active from the
+	// moment it picks the process, so a cancel right after that could come
+	// before the invoke was sent, and nothing would be abandoned.
 	waitFor(t, "both invocations in flight", func() bool {
-		s := pool.Stats()
-		return len(s) == 1 && s[0].Active == 2
+		pool.mu.Lock()
+		defer pool.mu.Unlock()
+		if len(pool.members) != 1 {
+			return false
+		}
+		in, _ := pool.members[0].p.Load()
+		return in == 2
 	})
 	cancel(engine.CancelTimeout)
 	waitFor(t, "the taint", func() bool { s := pool.Stats(); return len(s) == 1 && s[0].Tainted })

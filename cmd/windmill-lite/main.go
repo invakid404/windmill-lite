@@ -1,9 +1,10 @@
 // Command windmill-lite is the windmill-lite command-line entry point.
 //
 // It reports its version, builds a bundle from a Windmill sync folder,
-// verifies a bundle against its manifest or a release manifest, and checks
-// that its expression engine starts. The commands that run a bundle do not
-// exist yet.
+// verifies a bundle against its manifest or a release manifest, checks that
+// its expression engine starts, and serves host mode for the Bun host SDK
+// with the walking skeleton (`windmill-lite host`, milestone W1). The
+// commands that run a bundle do not exist yet.
 package main
 
 import (
@@ -25,7 +26,8 @@ func main() {
 const usage = `usage: windmill-lite [version]
        windmill-lite build <folder> -o <bundle> [flags]
        windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
-       windmill-lite selfcheck`
+       windmill-lite selfcheck
+       windmill-lite host --bundle <dir> [--kill-after <duration>]`
 
 // run executes the command with args (without the program name) and returns
 // the process exit code.
@@ -41,6 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVerify(args[1:], stdout, stderr)
 	case "selfcheck":
 		return runSelfcheck(args[1:], stdout, stderr)
+	case "host":
+		return runHost(args[1:], stderr)
 	}
 	fmt.Fprintln(stderr, usage)
 	return 2

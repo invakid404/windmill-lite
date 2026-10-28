@@ -1,0 +1,119 @@
+{
+  "case": "platform-fetch",
+  "title": "a fetch to the facade origin of the welcome becomes a platform frame attributed to its invocation, with its body's bytes in base64, and the reply is its Response; any other fetch passes through",
+  "provenance": "policy",
+  "relies_on": [
+    "WA-31",
+    "WA-1"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#per-invocation-identity-logs-and-environment",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912,
+          "facade": "http://127.0.0.1:9"
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "platform-fetch",
+        "entry": "main",
+        "args": {
+          "q": [
+            1,
+            2
+          ]
+        },
+        "env": {
+          "BASE_URL": "http://127.0.0.1:9",
+          "WM_WORKSPACE": "ws1"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "platform",
+        "id": "p1",
+        "inv": "i1",
+        "method": "POST",
+        "url": "http://127.0.0.1:9/api/w/ws1/x",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJxIjpbMSwyXX0="
+      }
+    },
+    {
+      "send": {
+        "t": "platform_reply",
+        "id": "p1",
+        "status": 201,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJzdG9yZWQiOnRydWV9"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": {
+          "passed": "passed",
+          "status": 201,
+          "type": "application/json",
+          "body": {
+            "stored": true
+          }
+        },
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

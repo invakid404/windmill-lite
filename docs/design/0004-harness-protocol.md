@@ -223,7 +223,14 @@ step, never releases them.
   `process.env` at build time ([WA-31](../semantics/client-api.md#wa-31)).
   This mechanism is gated: the walking skeleton (milestone W1) runs the
   16-way isolation test of [Q-WA-4](../semantics/client-api.md#q-wa-4) on the
-  pinned Bun before anything depends on it.
+  pinned Bun before anything depends on it. On Bun 1.3.10 it passed 16 of
+  16 on every channel. The view also reaches `Bun.env` and
+  `import.meta.env` at run time: their object, which assigning
+  `process.env` leaves in place, takes a prototype that answers from the
+  current invocation, and a variable the process already has becomes an
+  accessor. Code the build does not rewrite, such as an unbundled
+  dependency or a host's own module, is therefore covered too; the build's
+  define rewrite ([0010](0010-packaging.md)) stays.
 - `console.*`, `process.stdout.write` and `process.stderr.write` are
   attributed to the current invocation. Lines are merged, empty lines
   dropped ([WR-23](../semantics/languages.md#wr-23)), batched into `log`
@@ -498,6 +505,25 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   ordering of messages about one invocation, and that a tainted process
   does not count toward the pool's maximum and does not take it past the
   maximum when it returns (§Pooling).
+- Milestone W1, the walking skeleton, fixed what platform calls and host
+  mode need on the wire. `platform` carries `headers` as an object of
+  strings and an optional `body`, the body's bytes in padded base64 so that
+  binary uploads and downloads stay exact, as does `platform_reply`, whose
+  `status` is a final HTTP status (200 to 599). The welcome's `facade` names the origin to intercept.
+  `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and an
+  optional raw `intercept` (H1's static form, [0008](0008-host-hooks.md)),
+  and `run_done` carries `status` and an optional raw `result`. These
+  fields stand in for the JSON mapping of `runner.proto` until F5 defines
+  it. A run's `id` is its id in the engine, so the host finds the scope of
+  each invocation by its `run`. W1 also recorded how host mode starts: the
+  SDK passes the engine a socketpair as fd 3 (Node's extra `"pipe"` stdio,
+  a socket on Bun 1.3.10). A host-mode hello must offer the `host`
+  capability and name the engine's parent, and the watchdog signals only
+  while `getppid()` still names it (review item cl P4-3). A protocol error
+  from a host ends the connection, and with it the engine, rather than
+  signalling the host: the host-mode rules kill a host only through the
+  watchdog. It also recorded that the environment view covers `Bun.env` at
+  run time (§Per-invocation identity, logs and environment).
 
 ## Spec IDs relied on
 

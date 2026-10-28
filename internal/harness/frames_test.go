@@ -160,6 +160,15 @@ func runEncode(t *testing.T, c *frameCase) {
 			}
 		case Result:
 			raw = v.Body.Producer()
+		case RunRequest:
+			switch field {
+			case "args":
+				raw = v.Args.Producer()
+			case "intercept":
+				raw = v.Intercept.Producer()
+			}
+		case RunDone:
+			raw = v.Result.Producer()
 		}
 		if string(raw) != want {
 			t.Fatalf("raw %s = %q, want %q byte for byte", field, raw, want)
