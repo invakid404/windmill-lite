@@ -4,9 +4,10 @@
 [0012](../../../docs/design/0012-layout-and-milestones.md)); milestone F4
 gave its heap the mimalloc allocator, and milestone B2b runs the expression
 pipeline of [internal/expr](../README.md) on it, with preludes. Outside the
-tests, only `windmill-lite selfcheck` and `windmill-lite host`
-(`cmd/windmill-lite/host.go`, which serves the walking skeleton's runs) call
-it yet. This README covers `internal/expr/quickjs/`, with its vendored
+tests, only `windmill-lite selfcheck`, `windmill-lite host`
+(`cmd/windmill-lite/host.go`, which serves the walking skeleton's runs) and
+`wltest check` for flow fixtures (`cmd/wltest/check.go`) call it yet. This
+README covers `internal/expr/quickjs/`, with its vendored
 `quickjs-ng/` and `mimalloc/` sources and its `testdata/`. The package is windmill-lite's
 JavaScript engine for flow expressions: QuickJS-ng at revision `be664ca1`,
 the engine Windmill's expressions run on

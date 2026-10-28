@@ -1,9 +1,11 @@
 # internal/ir
 
 **Current state:** implemented (milestone A5 of
-[0012](../../docs/design/0012-layout-and-milestones.md)); its one caller is
-the build of [internal/bundle](../bundle/README.md), `bundle.Build`, which
-calls `ir.Compile`. This README covers `internal/ir/` and its `testdata/`. The
+[0012](../../docs/design/0012-layout-and-milestones.md)); `ir.Compile` has
+two callers: the build of [internal/bundle](../bundle/README.md),
+`bundle.Build`, and the flow runner of `wltest check`
+([cmd/wltest](../../cmd/wltest/README.md)), which compiles each target flow
+as its only root. This README covers `internal/ir/` and its `testdata/`. The
 package is the compiler of [0002](../../docs/design/0002-ir-and-loader.md):
 `ir.Compile` turns a sync folder, read by
 [internal/syncfolder](../syncfolder/README.md), and a host contract into the

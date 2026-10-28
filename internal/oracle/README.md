@@ -14,7 +14,9 @@ the fixtures of the recording batches, E3c's and E3b's under
 [conformance/flows/execution](../../conformance/flows/execution) and E3d's
 under [conformance/flows/control-flow](../../conformance/flows/control-flow),
 the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
-see [Stub mode](#stub-mode)), and the expression cases of batch E3a, which
+see [Stub mode](#stub-mode)), milestone E1's first fixtures under
+`conformance/flows/languages` and `conformance/flows/client-api`, and the
+expression cases of batch E3a, which
 `wltest record` lifts into generated flows
 ([conformance](../../conformance/README.md#expression-cases)). E3c extended
 the session and the walker (below), E3b the walker and the batch test, E3d
