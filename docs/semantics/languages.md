@@ -53,7 +53,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - a thrown `Error` is stored as exactly `{message, stack, name}`, with no `step_id` and no `extra`, and any other thrown value gives three `null`s ([WR-43](#wr-43));
     - the timeout text is `Query timeout after (>Ns)` ([WR-44](#wr-44));
     - `process` is a module-level `{env}` object, and the global surface is a fixed list of web APIs ([WR-45](#wr-45)).
-12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.0`, `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node 20, ESM bundles on Bun. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts.
+12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.0`, `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node 20 and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id, and so the decision to deploy a new version, depends only on the files under `relative_path` and the entry's settings, never on the bundle itself. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts.
 
 ## A. Bun: process model and lifecycle
 
@@ -805,6 +805,7 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
     - CJS bundles run under **Node** (`node --preserve-symlinks wrapper.mjs`), not Bun.
     - ESM bundles run under Bun.
     - The wrapper imports `./main.js`. Args, results and errors behave as in [WR-6](#wr-6) to [WR-21](#wr-21).
+    - These are the defaults. A `//native` header in the source takes precedence over both, and `//nodejs` sends an ESM bundle to Node ([WR-50](#wr-50) gives the order).
   - **How the CLI builds the bundle:**
     - by default with esbuild: platform `node`, packages inlined, `format` `cjs` (target `node20.15.1`) or `esm`, plus configurable `external`, `inject`, `define`, `loader` and `banner`;
     - or with an arbitrary `customBundler` command;
@@ -844,8 +845,10 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
     - `define` values are JavaScript expressions written as strings, so a string constant needs its own inner quotes. esbuild substitutes them.
     - `banner` is esbuild's per-output-type map, for example `{js: "…"}`.
   - **`relative_path` does not limit what is bundled.** esbuild follows imports wherever they lead. `relative_path` only feeds the codebase id ([WR-49](#wr-49)).
-  - **Which CLI paths build this way:** `wmill sync push`, `wmill script push` and `wmill script preview`. The flow-preview reader for local path scripts builds differently: always ESM with target `esnext`, whatever `format` says, and it refuses entries that have assets or several output files. That reader is `out` for windmill-lite.
-- **Evidence:** `cli/package.json:23`; `cli/build-npm.ts:75`; `cli/src/utils/esbuild_loader.ts:26-28`, `:55-79`, `:98-125`; `cli/src/commands/script/script.ts:315-364` (deploy), `:1563-1593` (preview); `cli/src/core/conf.ts:114-131` (the entry's fields); `cli/src/utils/local_path_scripts.ts:31-81` (flow-preview reader) (all @ v1.767.0). esbuild's [API documentation](https://esbuild.github.io/api/) for the meaning of each option.
+  - **Which CLI paths build this way:** `wmill sync push`, `wmill script push` and `wmill script preview`. The flow-preview reader for local path scripts builds differently, and is `out` for windmill-lite:
+    - with esbuild it always builds ESM with target `esnext`, whatever `format` says, and it refuses entries that have assets or several output files;
+    - with a `customBundler` it returns the command's output before either refusal, so an entry with assets is accepted and its assets are simply not delivered.
+- **Evidence:** `cli/package.json:23`; `cli/build-npm.ts:75`; `cli/src/utils/esbuild_loader.ts:26-28`, `:55-79`, `:98-125`; `cli/src/commands/script/script.ts:315-364` (deploy), `:1563-1593` (preview); `cli/src/core/conf.ts:114-131` (the entry's fields); `cli/src/utils/local_path_scripts.ts:31-81` (flow-preview reader; the custom-bundler return at `:35-45` comes before the refusals at `:69-78`) (all @ v1.767.0). esbuild's [API documentation](https://esbuild.github.io/api/) for the meaning of each option.
 - **Conformance:** [WR-47/a–f](conformance.md#wr-47)
 - **Design note (not Windmill behaviour):** a bundler that reproduces these options through esbuild's Go API at `v0.28.0` should produce the same bundle. Whether it does is the parity check of [Q-WR-24](#q-wr-24).
 
@@ -856,7 +859,7 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
 
 - **Rule:**
   - When an entry sets `customBundler`, esbuild is not used. The CLI runs the command line `<customBundler> <script path>` through the system shell, in its own working directory. The path is appended after one space, unquoted. The command's standard output, decoded as text, is the bundle.
-  - None of `format`, `external`, `inject`, `define`, `loader` or `banner` is applied to the build. `format` still decides how the bundle runs ([WR-50](#wr-50)): absent means CJS under Node, so the command's output must match it.
+  - None of `format`, `external`, `inject`, `define`, `loader` or `banner` is applied to the build. `format` still decides how the bundle runs, after the header annotations ([WR-50](#wr-50)): absent means CJS under Node, so the command's output must match it.
   - A non-zero exit, or more than 50 MiB of output, aborts the push of that script.
   - The output is always one file, so there is never a multi-file tar. `assets` are still added ([WR-49](#wr-49)).
   - The flow-preview reader of [WR-47](#wr-47) runs the command differently: through a login shell, with the path passed as a quoted positional argument.
@@ -866,7 +869,7 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
 <a id="wr-49"></a>
 ### WR-49 · What the CLI uploads, the codebase id, and where the server keeps the bundle
 
-**Scope:** core (single file and assets); later (several output files) · **Confidence:** high (CLI and server source-traced); medium (the multi-output naming edge) · **Status:** drafted
+**Scope:** core (single file and assets); later (several output files, versioning by digest) · **Confidence:** high (CLI and server source-traced); medium (the multi-output naming edge) · **Status:** drafted
 
 - **Rule:**
   - **One output and no `assets`:** the upload is the bundle text itself.
@@ -878,7 +881,16 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
     - Then comes every other output, under its path relative to `/`.
     - **`assets` are not added in this case.**
     - For an entry whose file name has a second dot (such as `x.bun.ts`), no output has the expected name, so `main.js` is empty (medium, [Q-WR-25](#q-wr-25)).
-  - **The id the CLI sends.** The script's `codebase` field is a digest of the files under `relative_path` together with the entry's settings. `.esm` is appended when `format` is `esm`, and `.tar` when the upload is a tar. The digest changes whenever the directory or the settings change, so such a change makes a new script version.
+  - **The id the CLI sends.** The script's `codebase` field is a digest, plus `.esm` when `format` is `esm` and `.tar` when the upload is a tar.
+    - **What the digest covers:** the bytes of every regular file found by walking `relative_path` recursively (relative to the CLI's working directory), visited in name order within each directory, together with the entry's settings as written in `wmill.yaml`. Any change to a setting changes it, and so does a change to the order of its keys, since the settings are serialised as text.
+    - **What it does not cover:**
+      - entry names: renaming a file or directory leaves the digest unchanged as long as the visiting order of contents stays the same, while a rename that reorders files of different contents changes it;
+      - symbolic links, to files or directories, and whatever they point at;
+      - anything outside `relative_path`: imported modules, `inject` files and asset `from` files that live elsewhere.
+    - Every file under `relative_path` counts, whether or not the script uses it. The digest is computed once per CLI run and shared by every script of the entry, so editing any file there gives every script of the entry a new id.
+  - **When a push makes a new version.** Before uploading, the CLI compares the local script with the deployed one: the source `content`, the metadata fields and the codebase id. Only when all of them match is the script reported up to date and skipped; the server's own no-op check, which the CLI requests, also compares the id. The generated bundle is never compared, so:
+    - a change the digest sees (under `relative_path`, or in the settings) makes a new version with a fresh bundle, even when the bundle comes out identical;
+    - a change it does not see (an asset or import outside `relative_path`, a rename, a symlink target), with the source and settings unchanged, is skipped: nothing is uploaded and the deployed bundle stays as it was.
   - **What the server keeps.** The push is one multipart request to `create_snapshot`.
     - The script JSON comes first, with its source `content` ([SY-8](openflow.md#sy-8)), then the bundle.
     - The server creates the script version and stores the bundle under `script_bundle/<workspace>/<script hash>`, plus `.esm` and `.tar` copied from the sent id.
@@ -887,13 +899,13 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
     - On EE, in the object store.
     - On CE in standalone mode with no object store, under the standalone bundle directory, `$HOME/.windmill/standalone_bundle/`.
     - In any other CE mode the upload fails with `codebase is an EE feature`, and no script version is created.
-- **Evidence:** `cli/src/commands/script/script.ts:365-418` (tar or text), `:461-463` (id), `:802-834` (multipart upload); `cli/src/utils/codebase.ts:22-45` (digest and suffixes); `backend/windmill-api-scripts/src/scripts.rs:502-576` (`create_snapshot`; suffixes `:521-541`, storage `:553-559`); `backend/windmill-object-store/src/lib.rs:983-985` (bundle key), `:991-1020` (standalone directory, EE object store, CE refusal); `backend/windmill-common/src/worker.rs:409` (`ROOT_STANDALONE_BUNDLE_DIR`) (all @ v1.767.0).
-- **Conformance:** [WR-49/a, WR-49/b](conformance.md#wr-49)
+- **Evidence:** `cli/src/commands/script/script.ts:365-418` (tar or text), `:461-463` (id), `:515-565` (the up-to-date check), `:802-834` (multipart upload); `cli/src/utils/codebase.ts:19-45` (digest inputs, memoisation and suffixes); `cli/src/utils/utils.ts:108-121` (the directory walk: file contents in name order, directories recursed, symlinks skipped, names not hashed); `cli/src/commands/script/script.ts:770`, `:817` (the CLI always requests the no-op check); `backend/windmill-api-scripts/src/scripts.rs:708-845`, `:1077-1093` (the server's no-op check compares the id); `backend/windmill-api-scripts/src/scripts.rs:502-576` (`create_snapshot`; suffixes `:521-541`, storage `:553-559`); `backend/windmill-object-store/src/lib.rs:983-985` (bundle key), `:991-1020` (standalone directory, EE object store, CE refusal); `backend/windmill-common/src/worker.rs:409` (`ROOT_STANDALONE_BUNDLE_DIR`) (all @ v1.767.0).
+- **Conformance:** [WR-49/a–e](conformance.md#wr-49)
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
 
-**Scope:** core (lookup, extraction, runtime by format); later (the Node patch version) · **Confidence:** high (source-traced); the Node version is unknown until observed ([Q-WR-24](#q-wr-24)) · **Status:** drafted
+**Scope:** core (lookup, extraction, runtime selection); later (the Node patch version, a CJS bundle under `//native`) · **Confidence:** high (source-traced); medium (the CJS-under-`//native` failure); the Node version is unknown until observed ([Q-WR-24](#q-wr-24)) · **Status:** drafted
 
 - **Rule:**
   - **Lookup** follows [WR-30](#wr-30). The id is rebuilt from the script row: `<script hash>`, plus `.esm` if the stored `codebase` value contains `.esm`, plus `.tar` if it ends in `.tar`.
@@ -903,12 +915,18 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
     - A plain bundle becomes `main.js`: copied from the standalone directory, or symlinked from the worker's cache.
     - A tar is unpacked into the job directory itself. `main.js` and every asset land at their entry names relative to the job directory, which is the process's working directory, so a script reads the asset `to: "data/a.txt"` as `./data/a.txt`. A tar entry named `package.json` replaces the placeholder.
     - Each job gets its own copy ([WR-1](#wr-1)). Nothing is installed: there is no lock, and `node_modules` exists only if the tar contains it.
-  - **Runtime by format:**
-    - **CJS** (no `.esm`): `node --preserve-symlinks wrapper.mjs`, with the Node binary at `NODE_BIN_PATH` (default `/usr/bin/node`). The wrapper is the ordinary one of [WR-6](#wr-6) to [WR-21](#wr-21), importing `./main.js`; with the `{}` placeholder Node loads `main.js` as CommonJS, and the wrapper reaches its exports through Node's CommonJS interop. The environment is the Bun one of [WR-22](#wr-22).
-    - **ESM:** `bun run wrapper.mjs`, on Bun `1.3.10` ([WR-3](#wr-3)).
+  - **Which runtime runs the bundle.** The format is not the only input. The worker keeps the header annotations of the script's source ([WR-31](#wr-31)), which the push sends along with the bundle ([SY-8](openflow.md#sy-8)), and turns CJS into the Node flag. It then decides in this order:
+    1. **`//native` in the source:** the bundle runs in the native runtime of [WR-40](#wr-40) to [WR-46](#wr-46), whatever the format. The worker builds nothing, and the server stores such a script as `bunnative`, tagged `nativets`.
+       - An ESM bundle loads there as an ordinary module.
+       - *(medium)* A CJS bundle is evaluated as an ES module too, so it fails on its first use of `module`, `exports` or `require`.
+    2. **CJS (no `.esm`), or `//nodejs` in the source:** `node --preserve-symlinks wrapper.mjs`, with the Node binary at `NODE_BIN_PATH` (default `/usr/bin/node`).
+       - The wrapper is the ordinary one of [WR-6](#wr-6) to [WR-21](#wr-21), importing `./main.js`. The environment is the Bun one of [WR-22](#wr-22).
+       - Node chooses the module format of `main.js` from the nearest `package.json`. With the `{}` placeholder it loads `main.js` as CommonJS, and the wrapper reaches its exports through Node's CommonJS interop.
+       - An ESM bundle forced onto Node by `//nodejs` therefore needs a `package.json` asset declaring `"type": "module"`.
+    3. **Otherwise (ESM):** `bun run wrapper.mjs`, on Bun `1.3.10` ([WR-3](#wr-3)).
   - **Node version.** The v1.767.0 image installs Node from NodeSource's `20.x` line when the image is built, so the major version is 20 and the patch is whatever was current then. The source does not pin it. The CLI's `node20.15.1` target ([WR-47](#wr-47)) only sets the output's syntax level.
-- **Evidence:** `backend/windmill-common/src/cache.rs:654-682` (id from the hash); `backend/windmill-types/src/scripts.rs:315-319`; `backend/windmill-worker/src/bun_executor.rs:1061-1129` (lookup), `:1131-1153` (copy, symlink or unpack), `:1505-1513` (placeholder), `:1574-1578`, `:1650-1652` (CJS → Node), `:1767-1771` (`./main.js`), `:2338-2366` (commands); `backend/windmill-worker/src/global_cache.rs:127-148` (unpack); `backend/windmill-worker/src/worker.rs:609` (`NODE_BIN_PATH`); `backend/windmill-common/src/utils.rs:106-163` (standalone is the default mode); `Dockerfile:248-249` (NodeSource 20.x) (all @ v1.767.0).
-- **Conformance:** [WR-50/a, WR-50/b](conformance.md#wr-50)
+- **Evidence:** `backend/windmill-common/src/cache.rs:654-682` (id from the hash); `backend/windmill-types/src/scripts.rs:315-319`; `backend/windmill-api-scripts/src/scripts.rs:1181-1190` (a codebase source with `//native` is stored as `bunnative`); `backend/windmill-worker/src/worker.rs:5381-5407` (the codebase is passed to the shared Bun executor); `backend/windmill-worker/src/bun_executor.rs:1442` (annotations from the source), `:1061-1129` (lookup), `:1131-1153` (copy, symlink or unpack), `:1505-1513` (placeholder), `:1574-1578`, `:1650-1652` (CJS → Node), `:1767-1771` (`./main.js`), `:2133-2245` (the native branch, taken before any process starts), `:2338-2366` (Node, then Bun); `backend/windmill-worker/src/global_cache.rs:127-148` (unpack); `backend/windmill-worker/src/worker.rs:609` (`NODE_BIN_PATH`); `backend/windmill-common/src/utils.rs:106-163` (standalone is the default mode); `Dockerfile:248-249` (NodeSource 20.x) (all @ v1.767.0).
+- **Conformance:** [WR-50/a–d](conformance.md#wr-50)
 - **Note:** the standalone path copies a plain bundle into `main.js` instead of symlinking it, so `__filename` and symlink-sensitive code see a regular file there.
 
 <a id="wr-31"></a>
@@ -1187,16 +1205,23 @@ This section answers semantics request 1: the boundary rules of the native runti
   - **Who picks the job up.** A `bunnative` job carries the `nativets` tag; only its dependency job is tagged `bun`. A worker's default tags include `nativets`, so one default worker runs both kinds.
   - **How `nativets` code is prepared.**
     - The source is transpiled from TypeScript to JavaScript (types stripped, nothing bundled) and loaded as the ES module `file:///eval.ts`.
-    - The only module it can import is the embedded client, spelled `./windmill.ts`, which is loaded beforehand as `file:///windmill.ts`. Any other import (relative, `/f/…`, bare, `npm:`, `https:`) fails while the module loads ([WR-43](#wr-43)): the module loader only reads files from the worker's own filesystem.
+    - **How imports resolve.** Each specifier is resolved as a URL against `file:///eval.ts`, then loaded from the module map or from the worker's own filesystem. There is no allowlist and no other source:
+      - The embedded client is registered beforehand under the URL `file:///windmill.ts`, so every spelling that resolves to that URL reaches it: `./windmill.ts`, `/windmill.ts` and `file:///windmill.ts`.
+      - Any other `file:` URL is read from the worker's filesystem: `./helper.ts` and `/f/x/y.ts` mean the files `/helper.ts` and `/f/x/y.ts` on the worker host. Such a file loads if it exists and parses as JavaScript; it is not transpiled, and a `.json` file needs a JSON import attribute. Workspace scripts are never fetched, so a workspace script at the matching logical path does not help.
+      - A bare specifier, or a URL with another scheme (`npm:`, `https:`), cannot be loaded.
+    - **When a failed import surfaces.** A static import that cannot be loaded fails the module load, before `main` runs: the worker-side `failed to load module` error of [WR-43](#wr-43). A dynamic `import()` that fails rejects while `main` runs, like any other rejection: `main` can catch it, and uncaught it gives the three-field exception error of [WR-43](#wr-43).
     - The embedded client is a prebuilt bundle of an older TypeScript client. Its generated `OpenAPI.VERSION` is `1.326.0`, not `1.767.0`, so its function surface is older than the [client API](client-api.md) catalogue.
   - **How `bunnative` code is prepared.**
-    - It is always bundled, even without a lock: Bun.build with target **`browser`**, ESM output, and the minification settings, `electron` external and import plugin of [WR-27](#wr-27). Relative and `/f/` imports therefore follow [WR-28](#wr-28), and npm packages from the lock are inlined.
+    - An ordinary `//native` script is always bundled, even without a lock: Bun.build with target **`browser`**, ESM output, and the minification settings, `electron` external and import plugin of [WR-27](#wr-27). Relative and `/f/` imports therefore follow [WR-28](#wr-28), and npm packages from the lock are inlined.
+    - **Two exceptions:**
+      - *(later)* if the header also has `//nodejs`, the bundle is built for the **`node`** target instead: the build checks `nodejs` before `native`, on the run path and in deploy-time prebundling alike. The bundle still runs in the native runtime ([WR-50](#wr-50) gives the run-time precedence);
+      - a codebase script with `//native` is not bundled by the worker at all: its uploaded codebase bundle runs in the native runtime ([WR-50](#wr-50)).
     - The bundle is loaded as the module `file:///eval.ts`, and the bundle cache of [WR-27](#wr-27) applies.
     - The client is whatever `windmill-client` version the lock inlines; `windmill.ts` is not loaded.
   - **The build feature.** Native steps need Windmill's `deno_core` feature. The CE and EE images have it: their feature sets include `all_languages`. Without it a `nativets` step *succeeds* with the string `"require deno_core"`, and a `//native` step fails with an internal error. That case is `out`.
   - *(later, medium)* `//native` together with `//nobundling` skips the bundle, so the runtime finds no bundle file and the step fails with an `execution error:` I/O error.
-- **Evidence:** `backend/windmill-worker/src/worker.rs:5094-5126` (`nativets` dispatch), `:3536-3574` (`do_nativets`), `:5381-5398` (`bun` and `bunnative` share the Bun executor); `backend/windmill-worker/src/bun_executor.rs:1442` (header parse), `:1192-1211`, `:1993-2012` (browser bundle), `:900-945` (target `browser`), `:2133-2245` (native execution reads the bundle); `backend/windmill-api-scripts/src/scripts.rs:1181-1190` (deploy relabelling); `backend/windmill-worker/src/worker_lockfiles.rs:1402-1408`, `:1763-1770`; `backend/windmill-queue/src/jobs.rs:5498-5505` (preview), `:6224-6231` (tag); `backend/windmill-common/src/worker.rs:248-276` (default tags); `backend/windmill-worker/src/js_eval.rs:110-140` (transpile, and the stubs without the feature); `backend/windmill-runtime-nativets/src/lib.rs:384-401` (transpile), `:591` (filesystem module loader), `:639-668` (client and script modules); `backend/windmill-runtime-nativets/src/windmill-client.js:123` (`VERSION: "1.326.0"`); `backend/Cargo.toml:177`, `:182-200` (features), `:511` (deno_core); `.github/workflows/docker-image.yml:95` (`features=ce`); `frontend/src/lib/script_helpers.ts:85-86`, `:97-103` (the editor's templates import `./windmill.ts` and `windmill-client`) (all @ v1.767.0).
-- **Conformance:** [WR-40/a–c](conformance.md#wr-40)
+- **Evidence:** `backend/windmill-worker/src/worker.rs:5094-5126` (`nativets` dispatch), `:3536-3574` (`do_nativets`), `:5381-5398` (`bun` and `bunnative` share the Bun executor); `backend/windmill-worker/src/bun_executor.rs:1442` (header parse), `:1199-1207` (prebundle target: `nodejs`, then `native`, then Bun), `:1993-2012` (the same order on the run path), `:900-945` (targets), `:2133-2245` (native execution reads the bundle); `backend/windmill-api-scripts/src/scripts.rs:1181-1190` (deploy relabelling); `backend/windmill-worker/src/worker_lockfiles.rs:1402-1408`, `:1763-1770`; `backend/windmill-queue/src/jobs.rs:5498-5505` (preview), `:6224-6231` (tag); `backend/windmill-common/src/worker.rs:248-276` (default tags); `backend/windmill-worker/src/js_eval.rs:110-140` (transpile, and the stubs without the feature); `backend/windmill-runtime-nativets/src/lib.rs:384-401` (transpile), `:591` (filesystem module loader, no transpiler for loaded files), `:639-668` (client and script modules registered by URL), `:876-894` (a static-load failure), `:1027` (the dynamic import of the script, run inside the execution); deno_core 0.352.1 `modules/loaders.rs:445-512` (URL resolution, then a file read; no other source), `module_specifier.rs:11-25` (bare specifiers are rejected), `modules/map.rs:1643-1644` (a failed dynamic import rejects its promise with a JavaScript error); `backend/windmill-runtime-nativets/src/windmill-client.js:123` (`VERSION: "1.326.0"`); `backend/Cargo.toml:177`, `:182-200` (features), `:511` (deno_core); `.github/workflows/docker-image.yml:95` (`features=ce`); `frontend/src/lib/script_helpers.ts:85-86`, `:97-103` (the editor's templates import `./windmill.ts` and `windmill-client`) (all @ v1.767.0).
+- **Conformance:** [WR-40/a–f](conformance.md#wr-40)
 
 <a id="wr-41"></a>
 ### WR-41 · A fresh isolate per job; how arguments bind
@@ -1246,10 +1271,16 @@ This section answers semantics request 1: the boundary rules of the native runti
 **Scope:** core (shapes); later (the texts of the rarer failures) · **Confidence:** high (shapes, from Windmill and deno_core 0.352.1); medium (detached rejections and timer throws; V8 and deno_core message texts) · **Status:** drafted
 
 - **Rule:** a failed native job stores `{"error": E}` ([WR-21](#wr-21)). `E` takes one of two forms.
-  1. **A JavaScript exception reached the end of the run.** It came from the entrypoint, from evaluating the module, or from serialising the result.
+  1. **A JavaScript exception reached the end of the run.** It came from the entrypoint, from evaluating the module, from a failed dynamic `import()` that the script did not catch ([WR-40](#wr-40)), or from serialising the result.
      - `E` has exactly the keys `message`, `stack` and `name`: `{"message": M, "stack": S, "name": N}`. There is **no `step_id`**, even inside a flow, and **no `extra`**: own properties such as `code` or `cause` are dropped (compare [WR-18](#wr-18)).
-     - **For an `Error` instance** (any object whose prototype chain reaches `Error.prototype`), `N` is its `name` and `M` its `message`, own or inherited. So `new Error()` gives `""`, and a subclass that does not set `name` gives `Error`.
-     - **`S` is the error's `stack` property, with one line in front of it** when the first stack frame is in the script's own module: the text of the source line that frame points at, and a newline. `S` is `null` when both parts are empty. The line comes from the module text as loaded: the transpiled `nativets` code or the `bunnative` bundle, with the environment preamble of [WR-45](#wr-45) in front.
+     - **For an `Error` instance** (any object whose prototype chain reaches `Error.prototype`), the `name` and `message` properties, own or inherited, are read **together** as two optional strings:
+       - when both are strings (or `String` objects), `N` and `M` are those strings. So `new Error()` gives `M` = `""`, and a subclass that does not set `name` gives `Error`;
+       - a property that is `null` or `undefined` gives `null` for that field alone;
+       - when either holds anything else (a number, an object), the pair fails to decode and **both** `N` and `M` are `null`, however valid the other one was.
+     - **`S` is the error's `stack` property, with one line in front of it** when the first stack frame is in the script's own module: the text of the source line that frame points at, and a newline.
+       - `stack` is read on its own, so the name and message rule above does not affect it. It must be a string: any other value is dropped, which leaves at most the source-line prefix.
+       - `S` is `null` when both parts are empty.
+       - The line comes from the module text as loaded: the transpiled `nativets` code or the `bunnative` bundle, with the environment preamble of [WR-45](#wr-45) in front.
      - **For any other thrown value** (a string, a number, a plain object even with `message` and `name` fields, `null`, `undefined`), all three fields are `null`.
      - *(medium)* A rejection that nobody handles while the entrypoint is still pending, or an exception thrown from a timer callback, fails the job the same way with that value, even if the entrypoint would have succeeded.
   2. **Any other failure is a worker-side error:** `E` = `{"message": "execution error:\n<detail>", "name": "ExecutionErr", "step_id"?}` ([WR-37](#wr-37)), with these details:
@@ -1257,30 +1288,39 @@ This section answers semantics request 1: the boundary rules of the native runti
      | Failure | `<detail>` |
      |---|---|
      | a `nativets` source that does not parse as TypeScript, caught when it is transpiled, before anything loads | `Error: <parser diagnostic>`, then a Rust location suffix ` @<file>.rs:<line>:<col>` to strip |
-     | the module fails to load: a name the preamble already declares ([WR-45](#wr-45)), an import that cannot be resolved, any other error the engine finds while compiling or linking | `Error: failed to load module: <cause>`, then the location suffix |
+     | the module fails to load: a name the preamble already declares ([WR-45](#wr-45)), a static import that cannot be resolved or read ([WR-40](#wr-40)), any other error the engine finds while compiling or linking | `Error: failed to load module: <cause>`, then the location suffix |
      | the timeout ([WR-44](#wr-44)) | `Query timeout after (>Ns)` |
      | the heap cap ([WR-44](#wr-44)) | `Memory limit reached, killing isolate` |
      | the entrypoint's promise never settles and nothing else (no timer, no request) is pending | `Promise resolution is still pending but the event loop has already resolved` |
      | a `//proxy` header on CE ([WR-45](#wr-45)) | `Proxy is an EE feature` |
 
      A `bunnative` syntax error fails earlier, while bundling, with the [WR-20](#wr-20) error of program `bun build`.
-- **Evidence:** `backend/windmill-worker/src/worker.rs:3557-3560` (the transpile runs before the runtime is called); `backend/windmill-runtime-nativets/src/lib.rs:384-401` (transpile errors), `:876-940` (load failure, exception shaping, the source line), `:1045-1058` (exception versus other failure), `:845-848` (heap), `:752-755` (proxy); `backend/windmill-worker/src/result_processor.rs:621-627` (a raw error value kept as is; other failures as `execution error:`), `:2020-2028`; `backend/windmill-common/src/error.rs:71-74`, `:146-151` (`Error: … @<location>`); `backend/windmill-worker/src/handle_child.rs:733-738` (timeout); deno_core 0.352.1 `error.rs:736-930` (fields read only from `Error` instances; other values give none), `:975-1000` (the prototype test), `:76-78` (pending resolution), `runtime/jsruntime.rs:1921-1944`, `:2029` (event-loop exceptions and unhandled rejections end the run) (all @ v1.767.0 unless named).
-- **Conformance:** [WR-43/a–f](conformance.md#wr-43)
+- **Evidence:** `backend/windmill-worker/src/worker.rs:3557-3560` (the transpile runs before the runtime is called); `backend/windmill-runtime-nativets/src/lib.rs:384-401` (transpile errors), `:876-940` (load failure, exception shaping, the source line), `:1045-1058` (exception versus other failure), `:845-848` (heap), `:752-755` (proxy); `backend/windmill-worker/src/result_processor.rs:621-627` (a raw error value kept as is; other failures as `execution error:`), `:2020-2028`; `backend/windmill-common/src/error.rs:71-74`, `:146-151` (`Error: … @<location>`); `backend/windmill-worker/src/handle_child.rs:733-738` (timeout); deno_core 0.352.1 `error.rs:736-930` (fields read only from `Error` instances; other values give none), `:649-655` and `:763-769` (`name` and `message` decoded together, defaulting to none on failure), `:799-803` (`stack` kept only when it is a string), `:975-1000` (the prototype test); serde_v8 0.261.1 `de.rs:197-220` (a string or `String` object is required; `null` and `undefined` give none); `:76-78` (pending resolution), `runtime/jsruntime.rs:1921-1944`, `:2029` (event-loop exceptions and unhandled rejections end the run) (all @ v1.767.0 unless named).
+- **Conformance:** [WR-43/a–i](conformance.md#wr-43)
 
 <a id="wr-44"></a>
 ### WR-44 · Timeout, heap and stack limits
 
-**Scope:** core (timeout); later (heap, stack) · **Confidence:** high (timeout, stack flag); medium (when the heap check takes effect) · **Status:** drafted
+**Scope:** core (timeout); later (heap, stack) · **Confidence:** high (timeout; the ignored stack flag and V8's default, from the pinned V8 source); medium (when the heap check takes effect; that the prebuilt V8 library uses the default build configuration) · **Status:** drafted
 
 - **Rule:**
-  - **Timeout.**
-    - The duration is resolved as for Bun ([WR-37](#wr-37)): the step's own timeout when it is strictly below the instance cap, otherwise the cap.
-    - The message is always `Query timeout after (>Ns)`, where `N` is the duration in whole seconds, rounded down. There is no "job-specific" wording.
+  - **Timeout duration.** The instance maximum comes from the worker's `TIMEOUT` environment variable, 604 800 s (7 days) by default on a self-hosted instance. The duration then depends on whether the job has a timeout of its own (a flow step's `timeout`, [FX-24](execution.md#fx-24)):
+    - **a timeout strictly below the maximum:** that timeout;
+    - **a timeout at or above the maximum:** the maximum;
+    - **no timeout:** the instance's default job timeout (the `job_default_timeout` setting) when it is set and strictly below the maximum, otherwise the maximum.
+  - **Timeout outcome.**
+    - The message is always `Query timeout after (>Ns)`, where `N` is the duration in whole seconds, rounded down. There is no "job-specific" wording, whichever branch chose the duration.
     - The isolate is terminated; no process is killed.
   - **Heap.** The isolate's heap is capped at 128 MiB. Reaching the cap produces the `Memory limit reached, killing isolate` failure ([WR-43](#wr-43)). The check takes effect only when the script next waits for a timer or I/O, because V8 raises the limit temporarily so the synchronous part can continue. A script that never waits is [Q-WR-23](#q-wr-23).
-  - **Stack.** V8 runs with a 1024 KiB stack limit, a process-wide flag. Overflow throws `RangeError` with the message `Maximum call stack size exceeded`. It is an ordinary exception: caught, it is a value; uncaught, it gives the [WR-43](#wr-43) form 1 error with `name` `RangeError`. The overflow depth depends on V8's frame sizes, so no fixture may assert an exact depth. This limit is unrelated to the expression engine's ([JE-48](expressions.md#je-48)).
-- **Evidence:** `backend/windmill-worker/src/handle_child.rs:723-738`; `backend/windmill-worker/src/common.rs:1056-1100` (duration); `backend/windmill-runtime-nativets/src/lib.rs:353-356` (stack flag), `:587-589` (heap cap), `:607-615` (the near-limit callback reports and raises the limit), `:845-848` (the failure is taken when the run next yields), `:196-205` (termination) (all @ v1.767.0).
-- **Conformance:** [WR-44/a–c](conformance.md#wr-44)
+  - **Stack.**
+    - Windmill passes `--stack-size=1024` to V8, but as the **first** element of the flag list, the position V8's command-line parser treats as the program name and skips. The setting therefore has **no effect**. Only the second flag (`--no-harmony-import-assertions`) applies, and the check for unrecognised flags skips the first position as well, so nothing reports the loss.
+    - The limit is thus V8's built-in default for the pinned V8 13.7.152.14: **984 KiB** on the 64-bit targets the images ship (`linux/amd64`, `linux/arm64`). V8 uses 864 KiB on 32-bit ARM and x86 and 960 KiB in AddressSanitizer builds. No other flag in deno_core or Windmill sets it.
+    - Overflow throws `RangeError` with the message `Maximum call stack size exceeded`. It is an ordinary exception: caught, it is a value; uncaught, it gives the [WR-43](#wr-43) form 1 error with `name` `RangeError`.
+    - The overflow depth depends on V8's frame sizes, so no fixture may assert an exact depth or byte limit.
+    - This limit is unrelated to the expression engine's ([JE-48](expressions.md#je-48)).
+- **Evidence:** `backend/windmill-worker/src/handle_child.rs:723-738`; `backend/windmill-worker/src/common.rs:1056-1114` (duration, including the no-timeout branch `:1095-1111`); `backend/windmill-worker/src/worker.rs:663` (`JOB_DEFAULT_TIMEOUT`); `backend/windmill-common/src/global_settings.rs:31` (`job_default_timeout`); `backend/windmill-common/src/worker.rs:211`, `:295-298` (the `TIMEOUT` environment variable and its default); `backend/windmill-worker/src/worker.rs:677` (the maximum as a duration); `backend/src/monitor.rs:2506-2513` (the default job timeout is loaded from the instance setting); `backend/windmill-runtime-nativets/src/lib.rs:353-359` (the flag list and the skipped first position), `:587-589` (heap cap), `:607-615` (the near-limit callback reports and raises the limit), `:845-848` (the failure is taken when the run next yields), `:196-205` (termination); deno_core 0.352.1 `flags.rs:3-8` (the first element is ignored), `runtime/setup.rs:26-72` (deno_core's own flags, none of them a stack size); V8 at the commit pinned by the `v8` crate 137.3.0 ([`denoland/v8@f68bbb6c`](https://github.com/denoland/v8/tree/f68bbb6cda689a14d019a6a60cc93963724e7c35)): `include/v8-version.h:11-14`, `src/flags/flags.cc:601-614` (parsing starts at the second element), `src/flags/flag-definitions.h:2645-2646` (`stack_size` defaults to `V8_DEFAULT_STACK_SIZE_KB`), `src/common/globals.h:170-192` (984, 864 and 960 KiB) (all @ v1.767.0 unless named).
+- **Conformance:** [WR-44/a–d](conformance.md#wr-44)
+- **Design note (not Windmill behaviour):** the `1024` in Windmill's flag list is not a limit Windmill applies, so it is not a compatibility requirement. A harness on another engine (Bun's JavaScriptCore) overflows at its own depth either way, and only the overflow's error shape is portable.
 
 <a id="wr-45"></a>
 ### WR-45 · What the native runtime offers: environment, globals and `fetch`
@@ -1437,9 +1477,12 @@ These are proposals for windmill-lite's equivalence contract, not facts about Wi
   - the exact `stack` text, and the V8 and deno_core messages: `Do not know how to serialize a BigInt`, the redeclaration `SyntaxError`, the `<cause>` of a load failure;
   - the detached-rejection outcome (WR-43/d);
   - the present and absent globals (WR-45/d, WR-45/e);
-  - whether a `bunnative` bundle built for the `browser` target polyfills Node built-ins such as `Buffer` or `node:` imports, or fails on them.
+  - whether a `bunnative` bundle built for the `browser` target polyfills Node built-ins such as `Buffer` or `node:` imports, or fails on them;
+  - the error that a failed dynamic import rejects with (WR-40/e, WR-40/f): its `name` and the rest of its message after the resolved URL;
+  - the native stack limit: 984 KiB is V8's default, and source shows that Windmill's `--stack-size=1024` never reaches V8 (WR-44). A recording can confirm that overflow happens (WR-44/b) but cannot measure the byte limit;
+  - the CJS codebase bundle under `//native` (WR-50), expected to fail on its first use of `module`, `exports` or `require`.
 
-  *Settled by:* recording WR-40/a to WR-46/b on the v1.767.0 CE oracle; its default worker serves the `nativets` tag.
+  *Settled by:* recording WR-40/a to WR-46/b on the v1.767.0 CE oracle (its default worker serves the `nativets` tag), plus WR-50/c and a CJS variant of it.
 
 <a id="q-wr-22"></a>
 - **Q-WR-22** · affects [WR-46](#wr-46) · open (oracle, `later`) · How is a native stream result stored when its concatenated text is not JSON (chunks `"a"` and `"b"`)? Does completion fail, and with which error, or is the text stored some other way? *Settled by:* an oracle run of that script, recording the job's result, success flag and stream rows.

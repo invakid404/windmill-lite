@@ -42,11 +42,11 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Flow execution](#execution) | 120 | 92 | 27 | 1 | 0 | 0 | 30 | 1 |
 | [Loops, branches and subflows](#control-flow) | 84 | 67 | 15 | 0 | 2 | 0 | 15 | 0 |
 | [Expressions](#expressions) | 167 | 121 | 46 | 0 | 0 | 0 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 156 | 107 | 49 | 0 | 0 | 0 | 12 | 0 |
+| [Languages and script wrappers](#languages) | 168 | 115 | 53 | 0 | 0 | 0 | 12 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 36 | 15 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 834 | 627 | 197 | 6 | 4 | 36 | 76 | 7 |
+| **Total** | 846 | 635 | 201 | 6 | 4 | 36 | 76 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -4026,9 +4026,24 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
     export function main() { return typeof wmill.getVariable; }
     ```
   - **Expect:** `"function"`.
-- **WR-40/c** · source-derived · any other `nativets` import fails to load
-  - **Given:** a `nativets` step `a`: `import { x } from "./helper.ts"; export function main() { return x; }`, with or without a workspace script at the matching path.
+- **WR-40/c** · source-derived · a static import of a missing host file fails the load (`nativets`)
+  - **Given:** a `nativets` step `a`: `import { x } from "./helper.ts"; export function main() { return x; }`. No file `/helper.ts` exists on the worker host. Whether a workspace script exists at a matching path makes no difference.
   - **Expect:** `{"error":{"message":"execution error:\nError: failed to load module…","name":"ExecutionErr","step_id":"a"}}`; match on the prefix.
+- **WR-40/d** · source-derived · every spelling that resolves to the client's URL reaches it (`nativets`)
+  - **Given:** the WR-40/b script, with the import specifier spelled `/windmill.ts` in one variant and `file:///windmill.ts` in another.
+  - **Expect:** `"function"` both times.
+- **WR-40/e** · source-derived · a failed dynamic import is an ordinary rejection that `main` can catch (`nativets`; medium)
+  - **Given:** no file `/missing.ts` on the worker host; step `a`:
+    ```ts
+    export async function main() {
+      try { await import("./missing.ts"); return "loaded"; }
+      catch (e) { return [e instanceof Error, String((e as Error).message).includes("file:///missing.ts")]; }
+    }
+    ```
+  - **Expect:** `[true,true]`.
+- **WR-40/f** · source-derived · an uncaught failed dynamic import gives the exception shape, not a load failure (`nativets`; medium)
+  - **Given:** no file `/missing.ts` on the worker host; step `a`: `export async function main() { await import("./missing.ts"); return 1; }`
+  - **Expect:** `{"error":{"message":"Failed to load file:///missing.ts…","stack":<stack>,"name":…}}`: exactly the three keys, `message` matched on the prefix, and `name` not `ExecutionErr` (its value is [Q-WR-21](languages.md#q-wr-21)). No `failed to load module` text.
 
 <a id="wr-41"></a>
 ### WR-41 · A fresh isolate per job; how arguments bind
@@ -4101,6 +4116,15 @@ All cases run on both kinds.
 - **WR-43/f** · source-derived · a syntax error fails at the transpile step (`nativets`)
   - **Given:** a `nativets` step `a` with the text `export function main( {`.
   - **Expect:** `{"error":{"message":"execution error:\nError: …","name":"ExecutionErr","step_id":"a"}}`; match on the prefix. The message does not contain `failed to load module`.
+- **WR-43/g** · source-derived · a non-string `message` nulls both `message` and `name` (both kinds)
+  - **Given:** step `a`: `export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }`
+  - **Expect:** `{"error":{"message":null,"stack":<stack>,"name":null}}`: `name` is `null` even though it was a valid string, and `stack` is a non-null string.
+- **WR-43/h** · source-derived · a non-string `name` nulls both as well (both kinds)
+  - **Given:** step `a`: `export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }`
+  - **Expect:** `{"error":{"message":null,"stack":<stack>,"name":null}}`, with `stack` a non-null string.
+- **WR-43/i** · source-derived · later · a non-string `stack` is dropped (both kinds; medium)
+  - **Given:** step `a`: `export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }`
+  - **Expect:** `message` is `"m"` and `name` is `"Error"`. `stack` is not `5` and contains no V8 stack text (no `Error: m`, no `at` frame lines). Source predicts the text of one source line of `main` followed by a newline.
 
 <a id="wr-44"></a>
 ### WR-44 · Timeout, heap and stack limits
@@ -4128,6 +4152,9 @@ All cases run on both kinds.
     }
     ```
   - **Expect:** `{"error":{"message":"execution error:\nMemory limit reached, killing isolate","name":"ExecutionErr","step_id":"a"}}`.
+- **WR-44/d** · source-derived · without a step timeout, the instance's default job timeout applies
+  - **Given:** the instance setting `job_default_timeout` = `1` (seconds), and the worker's `TIMEOUT` left at its default of 7 days. Step `a` has no `timeout` and runs the WR-44/a script. Run this case alone and reset the setting afterwards, since it applies to every job.
+  - **Expect:** `{"error":{"message":"execution error:\nQuery timeout after (>1s)","name":"ExecutionErr","step_id":"a"}}`.
 
 <a id="wr-45"></a>
 ### WR-45 · What the native runtime offers: environment, globals and `fetch`
@@ -4226,6 +4253,18 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
     ```
   - **Expect:** `[true,false]`.
 
+*Setup for WR-49/c–e:* the WR-47/a fixture, plus a file `f/cb/notes/a.txt` (content `one`) that no script uses. Each case pushes once, records the deployed hash of `f/cb/runtime` (from the script's API record), makes one change, pushes again, and compares. These cases test when a push deploys, not how the bundle is built.
+
+- **WR-49/c** · source-derived · later · any content change under `relative_path` makes a new version
+  - **Given:** the setup; the content of `f/cb/notes/a.txt` changes to `two`.
+  - **Expect:** the second push deploys a new version of `f/cb/runtime`: its hash changes, although its source, metadata and generated bundle are unchanged.
+- **WR-49/d** · source-derived · later · a rename the digest cannot see deploys nothing
+  - **Given:** the setup; `f/cb/notes/a.txt` is renamed to `f/cb/notes/b.txt`, with the same bytes. It is the only entry in `f/cb/notes/`.
+  - **Expect:** the second push reports `f/cb/runtime` as up to date, and its hash is unchanged.
+- **WR-49/e** · source-derived · later · a change outside `relative_path` deploys nothing, so the old asset stays
+  - **Given:** the setup; the entry adds `assets: [{from: "shared/a.txt", to: "a.txt"}]`, where `shared/a.txt` lies outside `f/cb` and contains `one`; `f/cb/runtime.ts` returns `readFileSync("a.txt", "utf8")` (from `node:fs`). After the first push and a run, `shared/a.txt` changes to `two`.
+  - **Expect:** the first run returns `"one"`. The second push reports `f/cb/runtime` as up to date, its hash is unchanged, and a run after it still returns `"one"`.
+
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
 
@@ -4237,6 +4276,15 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
 - **WR-50/b** · source-derived · later · the Node version is recorded
   - **Given:** `f/cb/node.ts`: `export function main() { return process.version; }`; no `format`.
   - **Expect:** a string starting `v20.`. Record the exact value ([Q-WR-24](languages.md#q-wr-24)).
+
+*Probe for WR-50/c–d:* the script body `export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version]; }` tells the three runtimes apart: `["object","string"]` on Bun, `["undefined","string"]` on Node, `["undefined","undefined"]` in the native runtime, whose `process` has only `env` ([WR-45](languages.md#wr-45)).
+
+- **WR-50/c** · source-derived · `//native` takes an ESM codebase script into the native runtime
+  - **Given:** the entry adds `format: esm`; `f/cb/native.ts` has the first line `//native`, then the probe body. The same entry without the header is the control.
+  - **Expect:** `["undefined","undefined"]`; the control gives `["object","string"]` (compare [WR-47/b](#wr-47)).
+- **WR-50/d** · source-derived · `//nodejs` takes an ESM codebase script to Node
+  - **Given:** the entry adds `format: esm` and `assets: [{from: "f/cb/pkg.json", to: "package.json"}]`, where `f/cb/pkg.json` is `{"type":"module"}`, so that Node loads `main.js` as ESM; `f/cb/node-esm.ts` has the first line `//nodejs`, then the probe body.
+  - **Expect:** `["undefined","string"]`.
 
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values
