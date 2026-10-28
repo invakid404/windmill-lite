@@ -210,7 +210,7 @@ its `note` says which milestone checks the run.
       "spec": "CF-8/c",
       "provenance": "disputed",
       "part": "compile",
-      "note": "Both readings agree; ... The run half is N3a's.",
+      "note": "Both readings agree; the case is carried as disputed with its finding. The run half, every iteration getting the flow input, is N3a's.",
       "title": "a loop at step 0 collapses",
       "given": {"files": {"wmill.yaml": "defaultTs: bun\n", "f/x/main.flow/flow.yaml": "..."}},
       "expect": {"steps": {"f/x/main m:l": {"at": {"/forloop/collapse": true}}}}

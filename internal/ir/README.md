@@ -205,9 +205,10 @@ sites.
 | `ambiguous_selector`, `invalid_contract` | the host contract (above) |
 
 Errors name the step as `<flow path> step '<id>'`, or the flow, the script
-or the provided site. `Compile` returns all of them, in walk order: the root
-scripts, then each flow in the order the walk reaches it, then the
-contract's matches.
+or the provided site. A malformed contract fails on its own, before any
+reading. Otherwise `Compile` returns every error, in walk order: the root
+scripts, then each flow in the order the walk reaches it, module by module,
+and last the provided sites that matched no site or more than one.
 
 ## Readings the reference does not settle
 
@@ -259,7 +260,7 @@ the milestone's pull request lists them as open questions.
   go test ./internal/ir -run TestGolden -args -update
   ```
 
-- `contract_test.go` covers the contract's format and every refusal;
+- `contract_test.go` covers the contract's format and its refusals;
   `compile_test.go` covers load errors and their order, subflows compiled
   once and cycles, the nil contract, determinism and stable inline ids,
   provided-site details, the harness table over every language of
