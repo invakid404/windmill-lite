@@ -1,0 +1,16 @@
+# Milestone E1's codebase-script fixture: a flow whose path steps are
+# codebase scripts (SY-8), one in an entry with format: esm, which Windmill
+# runs on Bun, and one in an entry with no format, CommonJS, which Windmill
+# runs on Node (WR-47, WR-50). The CLI bundles both with esbuild when it
+# pushes the tree, and CE standalone runs the bundles (WR-50/a's standalone
+# half). wltest check builds them with the Bun build helper as ordinary Bun
+# scripts until milestone C2b drops its esbuild bundles into this fixture,
+# which must then pass unchanged (the CJS script on Bun's CommonJS loader is
+# deviation D13). The scripts are self-contained, so the two builds can
+# only differ in the module format. Synthetic, written for this repository.
+id: languages/codebase
+spec: [SY-8, WR-47, WR-49, WR-50]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,15 @@
+# Milestone E1's first fixture of the client-api area: the contextual
+# variables a flow step's process sees (WA-4/a, FX-45/a, WR-22), for inline
+# steps and a path script, run on the oracle and, by wltest check, on
+# windmill-lite's walking skeleton. Each step returns its job ids, so the
+# observation shows them normalised to the placeholders of their sites
+# (OR-14): its own job, and the root flow as the parent, the innermost
+# flow scope and the effective root of a step directly in the flow
+# (WA-V1). Synthetic, written for this repository from
+# docs/semantics/conformance.md.
+id: client-api/job-env
+spec: [WA-4/a, FX-45/a, WR-22, WA-V1, OR-14]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}

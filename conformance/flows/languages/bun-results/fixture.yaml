@@ -1,0 +1,13 @@
+# Milestone E1's first fixture of the languages area: what a Bun step's
+# outcome becomes in a sequential flow, run on the oracle and, by wltest
+# check, on windmill-lite's walking skeleton. A result's serialisation
+# (WR-13/a and /b) and what the next step sees of it (WR-14), a thrown
+# string (FX-47/a) and a step timeout (WR-37/a, FX-24/a), each failure
+# leaving the modules after it not run (OR-11). Synthetic, written for this
+# repository from docs/semantics/conformance.md.
+id: languages/bun-results
+spec: [WR-13/a, WR-13/b, WR-14, FX-47/a, WR-37/a, FX-24/a, FX-36, OR-11]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}
