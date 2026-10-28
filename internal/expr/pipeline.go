@@ -183,7 +183,10 @@ func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, err
 	}
 	for attempt := 1; ; attempt++ {
 		out, err := p.engine.Eval(ctx, prog, in)
-		if err == nil && !isJSON(out) {
+		// Only the user's code can make the text something other than one
+		// JSON value; the check is syntax only, jsonb's rejections are the
+		// storage boundary's.
+		if err == nil && !validJSON(out) {
 			err = ErrNotJSON
 		}
 		if err == nil {

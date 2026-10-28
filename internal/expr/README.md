@@ -228,7 +228,11 @@ Readings where the reference is silent, each pinned by a test:
   as they are when it runs, so the user's code can replace them, as on
   Windmill, whose recorded stack shows `JSON.stringify` called from the
   script. A completion that is then not one JSON value fails with
-  windmill-lite's own text, so the evaluator's output is always JSON.
+  windmill-lite's own text, so the evaluator's output is always JSON. The
+  check is of syntax only, through the whole text, with no depth limit:
+  text that jsonb refuses (a `\u0000` escape, an unpaired surrogate escape,
+  a number beyond `numeric`'s range) is JSON, and the storage boundary
+  refuses it.
 
 Two named deviations of
 [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 come from the
@@ -314,7 +318,12 @@ context-free case's recorded argument as its stored form.
   an `encoding/json` implementation, on generated values. jsonb's text
   output is checked on fixed cases, and on generated values: it parses to
   the same value, with one space per `:` and `,` of the decoded value.
-  `FuzzCompile` and `FuzzJSONText` fuzz the stages and the scanners.
+  `TestValidJSON` checks the syntax check of the engine's output on fixed
+  cases (texts jsonb refuses, alone and followed by something malformed,
+  and a value 12 000 levels deep) and against `encoding/json` on generated
+  values and every prefix of them. `FuzzCompile`, `FuzzJSONText` and
+  `FuzzValidJSON` fuzz the stages and the scanners, the last against
+  `encoding/json`.
 
 The tests of milestone B2b run on the real engine. Package `expr` cannot
 import [internal/expr/quickjs](quickjs/README.md), which imports it, so

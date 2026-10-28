@@ -95,8 +95,8 @@ func TestErrorTexts(t *testing.T) {
 // TestReplacedSerialisation: the serialisation calls the context's
 // JSON.stringify as it is when it runs, as Windmill's does, so the user's
 // code can replace it; a completion that is then not one JSON value, or
-// not a string, fails with windmill-lite's own text. A deep but valid
-// value passes.
+// not a string, fails with windmill-lite's own text. Text that is JSON but
+// that jsonb would refuse passes; the storage boundary refuses it.
 func TestReplacedSerialisation(t *testing.T) {
 	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
 	for text, want := range map[string]error{
@@ -104,17 +104,19 @@ func TestReplacedSerialisation(t *testing.T) {
 		`Promise.prototype.then = function () { return "{" }; return 1`: ErrNotJSON,
 		`JSON.stringify = () => 5; return 0`:                            ErrNotString,
 		`JSON.stringify = () => '"replaced"'; return 0`:                 nil,
+		// Text that jsonb would refuse is still JSON, until something
+		// malformed follows it (review round 1, P2).
+		`JSON.stringify = () => '"\\u0000" trailing'; return 1`: ErrNotJSON,
+		`JSON.stringify = () => '["\\ud800",]'; return 1`:       ErrNotJSON,
+		`JSON.stringify = () => '[1e999999,]'; return 1`:        ErrNotJSON,
+		`JSON.stringify = () => '"\\u0000"'; return 1`:          nil,
+		`JSON.stringify = () => '["\\ud800"]'; return 1`:        nil,
+		`JSON.stringify = () => '[1e999999]'; return 1`:         nil,
 	} {
 		_, err := evalOn(t, p, SiteInputTransform, text, nil)
 		if want == nil && err != nil || want != nil && !errors.Is(err, want) {
 			t.Errorf("%q: %v, want %v", text, err, want)
 		}
-	}
-	// The check has no depth limit of its own, though JSON.stringify
-	// overflows the stack long before 12 000 levels (JE-48).
-	deep := strings.Repeat("[", 12000) + strings.Repeat("]", 12000)
-	if !isJSON([]byte(deep)) || isJSON([]byte(deep+"]")) || isJSON([]byte(`1, "x": 2`)) {
-		t.Error("isJSON misjudges a deep value or a fragment")
 	}
 }
 

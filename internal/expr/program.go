@@ -8,8 +8,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-
-	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
 // The program an evaluation runs on the engine (milestone B2b), around an
@@ -197,17 +195,6 @@ func windmillError(e *Expr, l Limits, err error) error {
 		return &EvalError{Message: "QuickJS evaluation error: the serialised value is not JSON", Err: ErrNotJSON}
 	}
 	return err
-}
-
-// isJSON reports whether out is one JSON value. json.Valid answers the
-// common case quickly; its nesting limit can refuse a deep value, which
-// jsonval's parser, with no such limit, then decides.
-func isJSON(out []byte) bool {
-	if json.Valid(out) {
-		return true
-	}
-	_, err := jsonval.FromProducer(out).Stored()
-	return !errors.Is(err, jsonval.ErrSyntax)
 }
 
 // memoryMessage is JE-3's text.
