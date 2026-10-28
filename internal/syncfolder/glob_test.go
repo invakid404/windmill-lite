@@ -313,16 +313,6 @@ func refToks(toks []globTok, s []uint16) bool {
 	}
 }
 
-func TestNonUTF8NamesAreIgnored(t *testing.T) {
-	f := mapFolder(t, map[string]string{"wmill.yaml": "defaultTs: bun\n", "f/a/ok.ts": mainSrc, "f/a/\xff.ts": mainSrc})
-	if got := f.Paths(KindScript); !slices.Equal(got, []string{"f/a/ok"}) {
-		t.Errorf("Paths = %q", got)
-	}
-	if !slices.ContainsFunc(f.Warnings, func(w string) bool { return strings.Contains(w, "not valid UTF-8") }) {
-		t.Errorf("no warning: %q", f.Warnings)
-	}
-}
-
 // FuzzGlob checks that compiling and matching never panic, that a negated
 // pattern matches exactly what the pattern does not, and that on short
 // inputs the bounded matcher agrees with a plain backtracking one.

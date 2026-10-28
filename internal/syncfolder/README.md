@@ -289,4 +289,5 @@ pull request lists them as open questions.
 - `native_test.go` covers the annotation's spelling and position rules.
 - `syncfolder_test.go` covers root discovery, symbolic links, configuration
   errors, error text, `Check`, duplicate and JSON-mode data files,
-  concurrent reads, and lock-reference white space.
+  concurrent reads, lock-reference white space, and names that are not
+  UTF-8.
