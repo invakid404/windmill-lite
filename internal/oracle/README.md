@@ -1,7 +1,9 @@
 # internal/oracle
 
 **Current state:** implemented (milestone E2 of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording
+batch E3b added the per-fixture workspace deletion, the first-site rule
+for repeated job ids and the batch test). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
@@ -9,7 +11,9 @@ fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
 only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
 and the [oracle workflow](../../.github/workflows/oracle.yml). The OR-20
 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke))
-is recorded by that workflow. Comparing windmill-lite against a recording
+and the twelve fixtures of recording batch E3b
+([conformance/flows/execution](../../conformance/flows/execution)) are
+recorded by that workflow. Comparing windmill-lite against a recording
 (`wltest check`, milestone E1) and stub mode (E4a) do not exist yet.
 
 ## A session
