@@ -17,9 +17,10 @@ import (
 // out loses whether a field was written: an absent `skip_failures` or branch
 // `skip_failure` is rendered `true`, and a derived id as an ordinary id. So
 // decoding the decoded form gives the same decoded form, but not an equal
-// model: ForLoop.SkipFailures, Branch.SkipFailure and Module.IDDerived are
-// set where the original had them unset. Never decode it before a check that
-// depends on presence, such as the compiler's strict option (Q-CF-13).
+// model: ForLoop.SkipFailures and Branch.SkipFailure are set where the
+// original had them unset, and Module.IDDerived is cleared where the
+// original had it set. Never decode it before a check that depends on
+// presence, such as the compiler's strict option (Q-CF-13).
 
 // MarshalJSON renders the flow value in the decoded form, a lossy
 // projection (see above).

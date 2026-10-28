@@ -339,3 +339,62 @@ func TestNonUTF8NamesAreIgnored(t *testing.T) {
 		t.Errorf("no warning: %q", f.Warnings)
 	}
 }
+
+// TestFlowDocument checks the two-step reading that a compiler uses to
+// leave some inline scripts unread (ADR 0002, host contract): FlowDocument
+// resolves nothing, InlineScript resolves one rawscript as Flow would, and
+// TargetDocument reads a flow target the same way.
+func TestFlowDocument(t *testing.T) {
+	f := mapFolder(t, map[string]string{
+		"wmill.yaml": "defaultTs: bun\n",
+		"f/x/a.flow/flow.yaml": "value:\n  modules:\n" +
+			"    - id: ok\n      value: {type: rawscript, language: bun, content: '!inline ok.ts', lock: '!inline ok.lock', input_transforms: {}}\n" +
+			"    - id: gone\n      value: {type: rawscript, language: bun, content: '!inline gone.ts', input_transforms: {}}\n" +
+			"    - id: plain\n      value: {type: rawscript, language: bun, content: 'export {}', lock: '!inline x.lock', input_transforms: {}}\n",
+		"f/x/a.flow/ok.ts":   "export const a = 1\n",
+		"f/x/a.flow/ok.lock": "lock\n",
+		"f/x/b.flow/flow.yaml": "value:\n  modules:\n" +
+			"    - id: s\n      value: {type: flow, path: f/x/a}\n    - id: h\n      value: {type: flow, path: hub/1/x}\n",
+	})
+	if _, err := f.Flow("f/x/a"); kindOf(err) != ErrMissingInline {
+		t.Fatalf("Flow = %v; want the missing gone.ts", err)
+	}
+	fl, err := f.FlowDocument("f/x/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := fl.Document.Value.Modules
+	rs := func(i int) *openflow.RawScript { return ms[i].Value.(*openflow.RawScript) }
+	if rs(0).Content != "!inline ok.ts" || *rs(0).Lock != "!inline ok.lock" || len(fl.Inline) != 0 {
+		t.Fatalf("FlowDocument resolved a reference: %q %q %v", rs(0).Content, *rs(0).Lock, fl.Inline)
+	}
+	in, err := f.InlineScript(fl, "ok", rs(0))
+	if err != nil || in.ContentFile != "f/x/a.flow/ok.ts" || in.LockFile != "f/x/a.flow/ok.lock" ||
+		rs(0).Content != "export const a = 1\n" || *rs(0).Lock != "lock\n" {
+		t.Errorf("InlineScript(ok) = %+v, %v; content %q", in, err, rs(0).Content)
+	}
+	_, err = f.InlineScript(fl, "gone", rs(1))
+	var e *Error
+	if !errors.As(err, &e) || e.Kind != ErrMissingInline || e.Item != "flow f/x/a" ||
+		!strings.Contains(e.Msg, "f/x/a.flow/gone.ts (module gone)") {
+		t.Errorf("InlineScript(gone) = %v", err)
+	}
+	// Content that is not a reference leaves the lock as written (SY-V1).
+	if in, err := f.InlineScript(fl, "plain", rs(2)); in != nil || err != nil || *rs(2).Lock != "!inline x.lock" {
+		t.Errorf("InlineScript(plain) = %+v, %v", in, err)
+	}
+	b, err := f.FlowDocument("f/x/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, err := f.TargetDocument("f/x/b", &b.Document.Value.Modules[0])
+	if err != nil || it.(*Flow).Document.Value.Modules[1].Value.(*openflow.RawScript).Content != "!inline gone.ts" {
+		t.Errorf("TargetDocument(s) = %v, %v", it, err)
+	}
+	if _, err := f.Target("f/x/b", &b.Document.Value.Modules[0]); kindOf(err) != ErrMissingInline {
+		t.Errorf("Target(s) = %v; want the eager read to fail", err)
+	}
+	if _, err := f.TargetDocument("f/x/b", &b.Document.Value.Modules[1]); kindOf(err) != ErrHubPath {
+		t.Errorf("TargetDocument(h) = %v; want %s", err, ErrHubPath)
+	}
+}

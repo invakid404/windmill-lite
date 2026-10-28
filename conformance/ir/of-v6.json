@@ -1,0 +1,29 @@
+{
+  "finding": "OF-V6",
+  "cases": [
+    {
+      "spec": "OF-V6",
+      "variant": "header",
+      "provenance": "source-derived",
+      "title": "a workspace-dependency header is kept as written",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n        lock: \"// workspace-dependencies-mode: manual\\n\"\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/lock": "// workspace-dependencies-mode: manual\n"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "The loader preserves supplied lock text (OF-V6's core part). Generating headers is later; conformance/openflow/deferred.json marks OF-V6/a–c not applicable."
+}

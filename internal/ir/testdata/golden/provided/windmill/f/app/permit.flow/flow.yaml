@@ -1,0 +1,6 @@
+summary: Suspends for an approval, which windmill-lite cannot run
+value:
+  modules:
+    - id: ask
+      suspend: {required_events: 1, timeout: 3600}
+      value: {type: identity}

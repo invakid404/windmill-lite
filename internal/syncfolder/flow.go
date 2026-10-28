@@ -37,8 +37,25 @@ type InlineScript struct {
 	Script *openflow.RawScript `json:"-"`
 }
 
-// Flow reads the flow at a Windmill path.
+// Flow reads the flow at a Windmill path, with every inline script's
+// content and lock read from its files.
 func (f *Folder) Flow(p string) (*Flow, error) {
+	fl, err := f.FlowDocument(p)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.inline(fl); err != nil {
+		return nil, err.withItem("flow " + p)
+	}
+	return fl, nil
+}
+
+// FlowDocument reads and decodes the flow at a Windmill path, as Flow
+// does, but leaves every `!inline` reference unresolved: rawscripts keep
+// the content and lock as written, and Inline is empty. A compiler that
+// must not read the files of some inline scripts (a host-provided call
+// site, ADR 0002) resolves the others one at a time with InlineScript.
+func (f *Folder) FlowDocument(p string) (*Flow, error) {
 	e, err := f.lookup(KindFlow, p)
 	if err != nil {
 		return nil, err
@@ -60,10 +77,25 @@ func (f *Folder) Flow(p string) (*Flow, error) {
 	if fl.Document, err = openflow.DecodeFlow(js); err != nil {
 		return nil, &Error{Kind: ErrFlow, Item: item, File: fl.File, Msg: err.Error(), Err: err}
 	}
-	if err := f.inline(fl); err != nil {
-		return nil, err.withItem(item)
-	}
 	return fl, nil
+}
+
+// InlineScript resolves one rawscript of a flow read with FlowDocument, in
+// place, by the rules Flow applies (SY-7, SY-V1): its content and, when the
+// content is a reference, its lock. id is the id of the module, or of the
+// AI-agent tool, whose value it is. It returns where the content and lock
+// came from, or nil when the content is not a reference. A missing content
+// file is an ErrMissingInline error naming the module.
+func (f *Folder) InlineScript(fl *Flow, id string, rs *openflow.RawScript) (*InlineScript, error) {
+	in, miss, err := f.inlineScript(fl.Dir, id, rs)
+	if err != nil {
+		return nil, err.withItem("flow " + fl.Path)
+	}
+	if miss != "" {
+		return nil, &Error{Kind: ErrMissingInline, Item: "flow " + fl.Path, File: fl.File,
+			Msg: "missing inline script file(s): " + miss}
+	}
+	return in, nil
 }
 
 // inline replaces `!inline` references with their files' text (SY-7,

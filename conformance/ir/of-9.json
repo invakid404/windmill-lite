@@ -1,0 +1,56 @@
+{
+  "finding": "OF-9",
+  "cases": [
+    {
+      "spec": "OF-9",
+      "variant": "aiagent",
+      "provenance": "policy",
+      "scope": "out",
+      "policy": "0001 §3",
+      "title": "aiagent modules are refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: ag\n      value:\n        type: aiagent\n        tools: []\n"
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: aiagent",
+              "step 'ag'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "OF-9",
+      "variant": "flowscript",
+      "provenance": "policy",
+      "policy": "0001 §3",
+      "note": "flowscript is a reference to a stored node of the lite form (OF-3); a folder that holds one cannot be pushed as written.",
+      "title": "the lite form's flowscript cannot come from a folder",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: fs\n      value: {type: flowscript, id: 7}\n"
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: flowscript",
+              "step 'fs'"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Out-of-scope kinds are refused at load (0001 §3). The decoder's own cases are in conformance/openflow."
+}

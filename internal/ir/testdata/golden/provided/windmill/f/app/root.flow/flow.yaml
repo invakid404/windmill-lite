@@ -1,0 +1,26 @@
+summary: The compile-time half of 0002's provided-site policy case
+value:
+  modules:
+    - id: prepare
+      value:
+        type: rawscript
+        language: bun
+        content: 'export async function main(u: string) { return { user: u } }'
+        input_transforms:
+          u: {type: javascript, expr: flow_input.user}
+    - id: permit
+      skip_if: {expr: flow_input.trusted === true}
+      stop_after_if: {expr: '!result.granted', skip_if_stopped: false, error_message: permit denied}
+      retry: {constant: {attempts: 3, seconds: 2}}
+      continue_on_error: false
+      value:
+        type: flow
+        path: f/app/permit
+        input_transforms:
+          who: {type: javascript, expr: results.prepare.user}
+    - id: audit
+      value:
+        type: script
+        path: f/app/audit_log
+        input_transforms:
+          event: {type: static, value: permit}

@@ -1,0 +1,140 @@
+{
+  "finding": "OF-13",
+  "cases": [
+    {
+      "spec": "OF-13",
+      "variant": "no-harness",
+      "provenance": "policy",
+      "policy": "0002 harness classes",
+      "title": "languages without a harness in this release are refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: python3\n        content: \"def main(): return 1\"\n        input_transforms: {}\n    - id: d\n      value:\n        type: rawscript\n        language: deno\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n    - id: g\n      value:\n        type: rawscript\n        language: go\n        content: \"package inner\"\n        input_transforms: {}\n    - id: b\n      value:\n        type: rawscript\n        language: bash\n        content: \"echo 1\"\n        input_transforms: {}\n    - id: q\n      value:\n        type: rawscript\n        language: postgresql\n        content: \"select 1\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_language",
+            "contains": [
+              "unsupported_language: python3",
+              "f/x/main step 'p'"
+            ]
+          },
+          {
+            "kind": "unsupported_language",
+            "contains": [
+              "unsupported_language: deno",
+              "step 'd'"
+            ]
+          },
+          {
+            "kind": "unsupported_language",
+            "contains": [
+              "unsupported_language: go",
+              "step 'g'"
+            ]
+          },
+          {
+            "kind": "unsupported_language",
+            "contains": [
+              "unsupported_language: bash",
+              "step 'b'"
+            ]
+          },
+          {
+            "kind": "unsupported_language",
+            "contains": [
+              "unsupported_language: postgresql",
+              "step 'q'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "OF-13",
+      "variant": "root-script",
+      "provenance": "policy",
+      "policy": "0002 harness classes",
+      "title": "a root script without a harness names the script",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/p.py": "def main():\n    return 1\n"
+        },
+        "contract": "roots:\n  - script: f/x/p\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_language",
+            "contains": [
+              "script f/x/p",
+              "unsupported_language: python3"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "OF-13",
+      "variant": "bun-family",
+      "provenance": "policy",
+      "policy": "0002 harness classes",
+      "deviation": "D5",
+      "title": "the Bun family runs in the Bun harness",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: b\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n    - id: n\n      value:\n        type: rawscript\n        language: nativets\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n    - id: f\n      value: {type: script, path: f/x/q}\n",
+          "f/x/q.fetch.ts": "export async function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:b": {
+            "at": {
+              "/leaf/harness": "bun",
+              "/leaf/boundary": "bun"
+            },
+            "script": {
+              "at": {
+                "/bundling": "bundled"
+              }
+            }
+          },
+          "f/x/main m:n": {
+            "at": {
+              "/leaf/harness": "bun",
+              "/leaf/boundary": "native"
+            },
+            "script": {
+              "at": {
+                "/language": "nativets",
+                "/bundling": "transpiled"
+              }
+            }
+          },
+          "f/x/main m:f": {
+            "at": {
+              "/leaf/boundary": "native"
+            },
+            "script": {
+              "at": {
+                "/language": "nativets"
+              }
+            }
+          }
+        },
+        "at": {
+          "/deviations": [
+            "D5"
+          ]
+        }
+      }
+    }
+  ],
+  "note": "Each leaf's harness class (0002, Language and harness class). python3, deno, go and bash have classes that only the later harnesses of L1 provide; other languages have none."
+}

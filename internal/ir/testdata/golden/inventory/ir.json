@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "roots": {
+    "flows": [
+      "f/lib/inline"
+    ],
+    "scripts": [
+      "f/lib/plain",
+      "f/lib/unbundled",
+      "f/lib/edge",
+      "f/lib/native",
+      "f/cb/esm_entry",
+      "f/cb/cjs_entry"
+    ]
+  },
+  "contract": {
+    "roots": [
+      {
+        "flow": "f/lib/inline"
+      },
+      {
+        "script": "f/lib/plain"
+      },
+      {
+        "script": "f/lib/unbundled"
+      },
+      {
+        "script": "f/lib/edge"
+      },
+      {
+        "script": "f/lib/native"
+      },
+      {
+        "script": "f/cb/esm_entry"
+      },
+      {
+        "script": "f/cb/cjs_entry"
+      }
+    ]
+  },
+  "flows": {
+    "f/lib/inline": {
+      "path": "f/lib/inline",
+      "summary": "Inline steps at top level, in a body, with an explicit path, and as the preprocessor",
+      "modules": [
+        {
+          "id": "top",
+          "kind": "rawscript",
+          "leaf": {
+            "script": "inline-9a784ecd05adcc17",
+            "harness": "bun",
+            "boundary": "bun",
+            "inputs": []
+          }
+        },
+        {
+          "id": "loop",
+          "kind": "whileloopflow",
+          "whileloop": {
+            "modules": [
+              {
+                "id": "top",
+                "kind": "rawscript",
+                "leaf": {
+                  "script": "inline-55b2c9245df583ba",
+                  "harness": "bun",
+                  "boundary": "native",
+                  "inputs": []
+                }
+              }
+            ],
+            "skip_failures": false,
+            "collapse": true
+          }
+        }
+      ],
+      "preprocessor_module": {
+        "id": "preprocessor",
+        "kind": "rawscript",
+        "leaf": {
+          "script": "inline-c7473c07a88091f1",
+          "harness": "bun",
+          "boundary": "bun",
+          "inputs": []
+        }
+      }
+    }
+  },
+  "scripts": {
+    "f/cb/cjs_entry": {
+      "id": "f/cb/cjs_entry",
+      "kind": "path",
+      "path": "f/cb/cjs_entry",
+      "file": "f/cb/cjs_entry.ts",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:0080afa5106d63a57d3356e13f785a973d78214cdc3aea2557111141798ef8fe",
+      "lock": "",
+      "bundling": "codebase",
+      "codebase": {
+        "index": 1,
+        "relative_path": "f/cb",
+        "format": "cjs"
+      },
+      "import_base": "f/cb/cjs_entry",
+      "schema": {},
+      "dependency_set": "codebase:1"
+    },
+    "f/cb/esm_entry": {
+      "id": "f/cb/esm_entry",
+      "kind": "path",
+      "path": "f/cb/esm_entry",
+      "file": "f/cb/esm_entry.ts",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:a7d72c95b1bac952b20d2b019008ddd26da7c94ddcc676bb8b386fefd849cd65",
+      "lock": "",
+      "bundling": "codebase",
+      "codebase": {
+        "index": 0,
+        "relative_path": "f/cb",
+        "format": "esm"
+      },
+      "import_base": "f/cb/esm_entry",
+      "schema": {},
+      "dependency_set": "codebase:0"
+    },
+    "f/lib/edge": {
+      "id": "f/lib/edge",
+      "kind": "path",
+      "path": "f/lib/edge",
+      "file": "f/lib/edge.fetch.ts",
+      "language": "nativets",
+      "harness": "bun",
+      "boundary": "native",
+      "content_digest": "sha256:c4d275e0942166e2bf43f9e5d346bcd53d20f7410b6fe99b2a8642c685084229",
+      "lock": "",
+      "bundling": "transpiled",
+      "import_base": "f/lib/edge",
+      "schema": {},
+      "dependency_set": "bundled"
+    },
+    "f/lib/native": {
+      "id": "f/lib/native",
+      "kind": "path",
+      "path": "f/lib/native",
+      "file": "f/lib/native.ts",
+      "language": "bunnative",
+      "harness": "bun",
+      "boundary": "native",
+      "content_digest": "sha256:f1962e705b033f69f57e3db894811580ef4d7ceb3a6a298df8351026dfdb6318",
+      "lock": "",
+      "bundling": "bundled",
+      "import_base": "f/lib/native",
+      "annotations": [
+        "native"
+      ],
+      "schema": {},
+      "dependency_set": "bundled"
+    },
+    "f/lib/plain": {
+      "id": "f/lib/plain",
+      "kind": "path",
+      "path": "f/lib/plain",
+      "file": "f/lib/plain.ts",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:069eca1e029c3a412e56e31ae97ee01f6213b49223602113290c230dc91a823f",
+      "lock": "",
+      "bundling": "bundled",
+      "import_base": "f/lib/plain",
+      "schema": {},
+      "dependency_set": "bundled"
+    },
+    "f/lib/unbundled": {
+      "id": "f/lib/unbundled",
+      "kind": "path",
+      "path": "f/lib/unbundled",
+      "file": "f/lib/unbundled.ts",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:a4ff6e090c5bb5bbe20f95e8f6dcbbe04d33c41653ce95887a5702844ac1ec67",
+      "lock": "{\"dependencies\":{\"left-pad\":\"1.3.0\"}}",
+      "bundling": "nobundling",
+      "import_base": "f/lib/unbundled",
+      "annotations": [
+        "npm",
+        "nobundling"
+      ],
+      "dependency_set": "lock:sha256:1a7ff068a682d2f4512212ab23f2f269445c4c3b98fcdaaef2e1085621c8e7d2"
+    },
+    "inline-55b2c9245df583ba": {
+      "id": "inline-55b2c9245df583ba",
+      "kind": "inline",
+      "path": "f/lib/inline/top",
+      "flow": "f/lib/inline",
+      "module": "top",
+      "site": "m:loop/m:top",
+      "language": "nativets",
+      "harness": "bun",
+      "boundary": "native",
+      "content_digest": "sha256:763dba234e872e6cf53d9849838e2b7a2a666ea1de8d2a4eeeb8aff762c086bf",
+      "lock": null,
+      "bundling": "transpiled",
+      "import_base": "f/lib/elsewhere/entry",
+      "dependency_set": "bundled"
+    },
+    "inline-9a784ecd05adcc17": {
+      "id": "inline-9a784ecd05adcc17",
+      "kind": "inline",
+      "path": "f/lib/inline/top",
+      "flow": "f/lib/inline",
+      "module": "top",
+      "site": "m:top",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:993c6bb93e1e0c0ed096d84eb66b4806b05597b8b0d5eaf0fa84c37c1f09e20f",
+      "lock": "",
+      "bundling": "bundled",
+      "import_base": "f/lib/inline/top",
+      "dependency_set": "bundled"
+    },
+    "inline-c7473c07a88091f1": {
+      "id": "inline-c7473c07a88091f1",
+      "kind": "inline",
+      "path": "f/lib/inline/preprocessor",
+      "flow": "f/lib/inline",
+      "module": "preprocessor",
+      "site": "s:preprocessor",
+      "language": "bun",
+      "harness": "bun",
+      "boundary": "bun",
+      "content_digest": "sha256:6a13d42d6c8f67d22c480cc1000d9bf188cad9726207152d0cf11749bc9532a3",
+      "lock": null,
+      "bundling": "bundled",
+      "import_base": "f/lib/inline/preprocessor",
+      "dependency_set": "bundled"
+    }
+  },
+  "deviations": [
+    "D5",
+    "D7",
+    "D13"
+  ]
+}
