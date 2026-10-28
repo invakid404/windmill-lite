@@ -46,7 +46,7 @@ behaviour each. Paths such as `f/demo/...` are invented.
 
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
-| [OpenFlow model and the sync folder](#openflow) | 145 | 125 | 20 | 0 | 0 | 0 | 4 | 0 |
+| [OpenFlow model and the sync folder](#openflow) | 147 | 127 | 20 | 0 | 0 | 0 | 4 | 0 |
 | [Flow execution](#execution) | 125 | 95 | 29 | 1 | 0 | 64 | 8 | 1 |
 | [Loops, branches and subflows](#control-flow) | 87 | 68 | 17 | 0 | 2 | 43 | 0 | 0 |
 | [Expressions](#expressions) | 170 | 122 | 48 | 0 | 0 | 164 | 0 | 0 |
@@ -54,7 +54,7 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 40 | 15 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 889 | 665 | 214 | 6 | 4 | 311 | 39 | 7 |
+| **Total** | 891 | 667 | 214 | 6 | 4 | 311 | 39 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -877,6 +877,14 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `--auto-metadata`) into an empty workspace.
   - **Expect:** nothing is deployed: the only passing file is a new lock
     file, which is skipped, so flow `f/a/fl` is not pushed.
+- **SY-17/c** · source-derived · an unreferenced file in the folder selects the flow
+  - **Given:** a valid new flow folder `f/a/fl.flow/` with `flow.yaml` and
+    its inline content files, plus `extra.yaml` holding `{}`, which the flow
+    does not refer to; `includes: ['**/extra.yaml']`; a plain
+    `wmill sync push` (no `--auto-metadata`) into an empty workspace.
+  - **Expect:** flow `f/a/fl` is pushed, with the value of its own
+    `flow.yaml` and its inline scripts, although neither `flow.yaml` nor any
+    referenced file passes the filter.
 
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
@@ -917,6 +925,16 @@ CLI end to end; Go parity is [Q-OF-6](openflow.md#q-of-6).
     `f/a/x.script.lock`. Script `f/a/x` is pushed with the resolved lock
     `""` (what the server then does with an empty lock is
     [OF-15](openflow.md#of-15)).
+- **SY-19/d** · source-derived · a refused inline file with a readable fallback
+  - **Given:** a flow folder `f/a/fl.flow/` whose module `a` has
+    `content: '!inline legacy.inline_script.ts'`, where
+    `legacy.inline_script.ts` starts with `FF FE`, and a valid UTF-8
+    `a.inline_script.ts` beside it; `includes: ['**/flow.yaml']`, so the walk
+    reads neither script file; a plain `wmill sync push` into an empty
+    workspace.
+  - **Expect:** `Script file legacy.inline_script.ts not found` is logged;
+    the push succeeds, and flow `f/a/fl` is pushed with module `a`'s content
+    taken from `a.inline_script.ts`.
 
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content

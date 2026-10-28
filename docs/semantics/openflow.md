@@ -1763,16 +1763,17 @@ differ, the CLI's on-disk form is what a loader sees.
     | Item | When the file is new | When the file changed |
     |---|---|---|
     | path script | its content file only | its content, metadata or lock file |
-    | flow | `flow.yaml` or an inline script's content file, never its lock file | any file in its folder |
+    | flow | any file in its folder that the walk keeps ([SY-18](#sy-18)) and the exclusions above do not skip: `flow.yaml`, an inline content file, or any other kept file there, referenced or not (an `extra.yaml` too); never a lock file | any file in its folder |
     | resource | its `.resource.yaml` | the resource file or its content file |
     | variable, resource type and other one-file items | the item's file | the same |
 
     In the `__mod` layout (`later`) any module file also selects its script.
   - So on a plain `wmill sync push` into an empty workspace, a script is
-    deployed exactly when its content file passes, and a flow when its
-    `flow.yaml` or one of its inline content files passes; a flow whose only
-    passing files are locks is not deployed. An item none of whose files
-    pass is neither pushed nor deleted.
+    deployed exactly when its content file passes, and a flow when any kept
+    file of its folder other than a lock passes, whether or not the flow
+    refers to that file; the push then loads the folder's own `flow.yaml`. A
+    flow whose only passing files are locks is not deployed. An item none of
+    whose files pass is neither pushed nor deleted.
 - **Evidence:** `cli/src/commands/sync/sync.ts:1541-1594` (each entry is
   tested on its own), `:1637-1652`, `:2630-2635` (directories), `:4453-4500`
   (a changed file: no such exclusion), `:4604-4650` (a new file;
@@ -1780,13 +1781,23 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/commands/script/script.ts:241-276`
   (metadata and lock files push their script), `:286-306`, `:419-435`,
   `:449` (the script's files are read from disk); `cli/src/types.ts:189-233`
-  (a flow file pushes the whole folder); `cli/src/commands/flow/flow.ts:188-206`.
-- **Conformance:** [SY-17/a–b](conformance.md#sy-17)
+  (`:220-225`: a flow file pushes the whole folder), `:358-359` (any file
+  inside a flow folder is a flow file); `cli/src/utils/resource_folders.ts:185-186`
+  (membership by the folder path); `cli/src/commands/sync/sync.ts:2487-2539`,
+  `:1660-1695` (the walk keeps it), `:4657-4689` (a new file is parsed and
+  handed to the item push); `cli/src/commands/flow/flow.ts:188-206` (the
+  folder's own `flow.yaml` is loaded).
+- **Conformance:** [SY-17/a–c](conformance.md#sy-17)
 - **Revision 2026-10-28 (validation round 1):** the table said any new file
   in a flow folder selects the flow. A new lock file never does, inline
   locks included, because every new `.lock` file is skipped before item
   selection, like new metadata files. The exclusions are now stated before
   the table, and SY-17/b covers a flow whose only passing file is its lock.
+- **Revision 2026-10-28 (validation round 2):** round 1 narrowed the new-file
+  column to `flow.yaml` and inline content files. Any kept file in the flow
+  folder that the exclusions do not skip selects the flow, including a file
+  the flow never refers to; the push then loads the real `flow.yaml`.
+  SY-17/c covers an unreferenced `extra.yaml`.
 
 <a id="sy-18"></a>
 ### SY-18 · Which files the walk reads, and as what
@@ -1866,33 +1877,43 @@ differ, the CLI's on-disk form is what a loader sees.
     | by the walk: a file that passes the filter and the extension list ([SY-18](#sy-18)) is read to compare with the workspace | the push fails before any item is pushed |
     | as a selected script's content file, read again for the push | the push fails |
     | as `flow.yaml` of a selected flow, or `wmill.yaml` | the push fails (for `wmill.yaml`, with `YAML syntax error in wmill.yaml` around the decoder's message) |
-    | as a selected script's `.script.yaml` | the push fails, but with an error about the default metadata file the CLI then tries to create beside it ([SY-4](#sy-4)), not with the decoder's message |
+    | as a selected script's flat `.script.yaml` | read as unreadable: the `__mod` candidates (`<p>__mod/script.json`, then `<p>__mod/script.yaml`) are tried next, and a readable one is used. Only when none is readable does the push fail, with an error about the default metadata file the CLI then tries to create beside the flat file ([SY-4](#sy-4)), not with the decoder's message |
     | as a script lock reference ([SY-5](#sy-5)) or an inline resource `content` reference ([SY-10](#sy-10)) | a warning `Error reading inline path: <path>, <error>`, and the value becomes `""` |
-    | as a flow's inline content file ([SY-7](#sy-7)) | read as missing: the fallback name is tried, then the push fails with `missing inline script file(s)` |
+    | as a flow's inline content file ([SY-7](#sy-7)) | read as missing (`Script file <file> not found` is logged): the fallback name `<id>.<rest>` is tried, and a readable fallback supplies the content. Only when the fallback fails too does the push fail, with `missing inline script file(s)` |
     | as a flow's inline lock file ([SY-7](#sy-7)) | a warning, and the lock becomes `""` |
 
-    So a refused file fails the push when the walk or the item's own push
-    reads it directly, and reads as `""` when it is reached only as a lock
+    So a refused file fails the push when the walk reads it, or when the
+    item's own push reads it directly and no fallback applies or every
+    fallback fails too. It reads as `""` when it is reached only as a lock
     or resource-content reference that the walk did not select.
 - **Evidence:** `cli/src/utils/utils.ts:135-177` (decoder and readers),
   `:179-186` (the reference reader catches, warns and returns `""`);
   `cli/src/utils/metadata.ts:1071-1085` (script lock references),
-  `:1119-1195` (an unreadable `.script.yaml` falls through to creating the
-  default file, refused because it exists: `:1194`);
+  `:1119-1195` (`:1152-1177` the `__mod` candidates after an unreadable flat
+  file; when none succeeds, the exclusive write of the default file at
+  `:1194` fails because the flat file exists);
   `cli/src/commands/resource/resource.ts:92` (resource content references);
   `cli/src/utils/yaml.ts:27-35` (YAML files); `cli/src/core/conf.ts:299-316`
   (`wmill.yaml`); `cli/src/commands/sync/sync.ts:491-501`, `:1763` (files read
   by the walk); `cli/src/commands/script/script.ts:449` (script content);
-  `cli/src/commands/flow/flow.ts:188-190` (flow folder files);
-  `cli/windmill-utils-internal/src/inline-scripts/replacer.ts:27-37` (inline
-  content), `:46-53` (inline lock).
-- **Conformance:** [SY-19/a–c](conformance.md#sy-19)
+  `cli/src/commands/flow/flow.ts:188-205` (the decoding file reader and the
+  missing-file list), `:207-215` (only a non-empty list fails the push);
+  `cli/windmill-utils-internal/src/inline-scripts/replacer.ts:23-36` (the
+  fallback name; a file is listed missing only when the fallback also
+  fails), `:46-53` (inline lock).
+- **Conformance:** [SY-19/a–d](conformance.md#sy-19)
 - **Revision 2026-10-28 (validation round 1):** the rule said a UTF-16 or
   UTF-32 byte order mark fails the read "and with it the push" for every
   file, lock and resource references included. The decoder refuses the
   file, but the reference reader catches the refusal and gives `""`, as
   [SY-5](#sy-5) states for an unreadable lock. The outcome is now given per
   caller, and SY-19/c covers a refused lock reached only as a reference.
+- **Revision 2026-10-28 (validation round 2):** the inline-content and
+  metadata rows said the push fails after a refusal. Both readers try a
+  fallback first: the inline fallback name `<id>.<rest>`, and the `__mod`
+  metadata candidates. The push fails only when the fallback is also
+  unreadable. The rows and the summary sentence now say so, and SY-19/d
+  covers a refused inline file with a readable fallback.
 
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content
