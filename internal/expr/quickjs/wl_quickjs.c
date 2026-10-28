@@ -10,8 +10,25 @@
 #include <string.h>
 
 #include "_cgo_export.h"
+#include "mimalloc.h"
 #include "quickjs-ng/cutils.h"
 #include "quickjs-ng/quickjs.h"
+
+// The heap's allocator: mimalloc, or the C library's with the build tag
+// wl_libc_malloc, which only measurements use (alloc_libc.go).
+#ifdef WL_LIBC_MALLOC
+#define WL_MALLOC malloc
+#define WL_CALLOC calloc
+#define WL_REALLOC realloc
+#define WL_FREE free
+#define WL_USABLE_SIZE js__malloc_usable_size
+#else
+#define WL_MALLOC mi_malloc
+#define WL_CALLOC mi_calloc
+#define WL_REALLOC mi_realloc
+#define WL_FREE mi_free
+#define WL_USABLE_SIZE mi_usable_size
+#endif
 
 // Reading the completion value or the exception back may allocate (UTF-8
 // conversion, the exception's string form); it gets this much heap above
@@ -20,7 +37,9 @@
 
 // Every block a runtime allocates is linked into its slot's heap, so that
 // whatever the engine fails to free by the end of JS_FreeRuntime can still
-// be freed, and counted.
+// be freed, and counted. Blocks come from mimalloc, whose heaps are per
+// thread, so slots do not contend for one allocator lock (README,
+// Allocator).
 typedef union wl_block {
 	struct {
 		union wl_block *prev, *next;
@@ -86,7 +105,7 @@ static void *heap_malloc(void *opaque, size_t size)
 
 	if (size > SIZE_MAX - sizeof(wl_block))
 		return NULL;
-	b = malloc(sizeof(wl_block) + size);
+	b = WL_MALLOC(sizeof(wl_block) + size);
 	if (b == NULL)
 		return NULL;
 	heap_link(opaque, b);
@@ -99,7 +118,7 @@ static void *heap_calloc(void *opaque, size_t count, size_t size)
 
 	if (size != 0 && count > (SIZE_MAX - sizeof(wl_block)) / size)
 		return NULL;
-	b = calloc(1, sizeof(wl_block) + count * size);
+	b = WL_CALLOC(1, sizeof(wl_block) + count * size);
 	if (b == NULL)
 		return NULL;
 	heap_link(opaque, b);
@@ -115,7 +134,7 @@ static void heap_free(void *opaque, void *ptr)
 		return;
 	b = (wl_block *)ptr - 1;
 	heap_unlink(b);
-	free(b);
+	WL_FREE(b);
 }
 
 static void *heap_realloc(void *opaque, void *ptr, size_t size)
@@ -128,7 +147,7 @@ static void *heap_realloc(void *opaque, void *ptr, size_t size)
 		return NULL;
 	b = (wl_block *)ptr - 1;
 	heap_unlink(b);
-	nb = realloc(b, sizeof(wl_block) + size);
+	nb = WL_REALLOC(b, sizeof(wl_block) + size);
 	if (nb == NULL) {
 		heap_link(opaque, b);
 		return NULL;
@@ -142,7 +161,7 @@ static void *heap_realloc(void *opaque, void *ptr, size_t size)
 // link.
 static size_t heap_usable_size(const void *ptr)
 {
-	size_t n = js__malloc_usable_size((const wl_block *)ptr - 1);
+	size_t n = WL_USABLE_SIZE((const wl_block *)ptr - 1);
 	return n > sizeof(wl_block) ? n - sizeof(wl_block) : 0;
 }
 
@@ -160,7 +179,7 @@ static size_t heap_sweep(wl_heap *h)
 	while (h->head.link.next != &h->head) {
 		b = h->head.link.next;
 		heap_unlink(b);
-		free(b);
+		WL_FREE(b);
 		n++;
 	}
 	return n;

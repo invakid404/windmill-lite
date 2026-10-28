@@ -1,0 +1,3 @@
+value: eu-synthetic-1
+is_secret: false
+description: A synthetic non-secret variable

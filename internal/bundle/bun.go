@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -23,7 +22,8 @@ import (
 // BunScript is one Bun script to bundle.
 type BunScript struct {
 	// ID names its files in the bundle: scripts/bun/<ID>.mjs and
-	// <ID>.meta.json.
+	// <ID>.meta.json. It is an inventory id (ADR 0002): one or more
+	// `/`-separated segments, as the harness runtime resolves it.
 	ID string
 	// Path is its import base (WR-29): a path script's Windmill path, or an
 	// inline script's ImportBase.
@@ -41,7 +41,8 @@ type BunScript struct {
 // Lock it installs from).
 type HostModule struct {
 	// ID names its files: scripts/bun/provided/<ID>.mjs, the bundled copy,
-	// and scripts/bun/provided/shims/<ID>.mjs, the shim.
+	// and scripts/bun/provided/shims/<ID>.mjs, the shim. It has the form of
+	// a script's ID.
 	ID string
 	// Key is the module as the host contract names it: the registry key.
 	Key     string
@@ -100,7 +101,17 @@ type BunResult struct {
 	Warnings        []Warning
 }
 
-var safeID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// validID reports whether id can name files in the bundle tree: one or
+// more `/`-separated segments, none empty, `.` or `..`, and none holding a
+// backslash or NUL. The harness runtime applies the same rule.
+func validID(id string) bool {
+	for _, seg := range strings.Split(id, "/") {
+		if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, "\\\x00") {
+			return false
+		}
+	}
+	return true
+}
 
 func (cfg *BunConfig) validate() error {
 	if cfg.Bun == "" || cfg.Helper == "" || cfg.Folder == "" || cfg.Out == "" {
@@ -110,7 +121,9 @@ func (cfg *BunConfig) validate() error {
 	// case-insensitive file system.
 	ids := map[string]bool{}
 	for _, e := range cfg.Entries {
-		if !safeID.MatchString(e.ID) || ids[strings.ToLower(e.ID)] {
+		// scripts/bun/provided/ holds the host-provided modules.
+		first, _, _ := strings.Cut(e.ID, "/")
+		if !validID(e.ID) || ids[strings.ToLower(e.ID)] || strings.EqualFold(first, "provided") {
 			return fmt.Errorf("bundle: script id %q is invalid or repeated", e.ID)
 		}
 		ids[strings.ToLower(e.ID)] = true
@@ -120,7 +133,7 @@ func (cfg *BunConfig) validate() error {
 	}
 	hids, keys := map[string]bool{}, map[string]bool{}
 	for _, m := range cfg.HostModules {
-		if !safeID.MatchString(m.ID) || hids[strings.ToLower(m.ID)] {
+		if !validID(m.ID) || hids[strings.ToLower(m.ID)] {
 			return fmt.Errorf("bundle: host module id %q is invalid or repeated", m.ID)
 		}
 		if m.Key == "" || keys[m.Key] {
@@ -237,7 +250,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 			if err != nil {
 				return nil, err
 			}
-			rel := filepath.Join("scripts", "bun", "provided", "shims", m.ID+".mjs")
+			rel := filepath.Join("scripts", "bun", "provided", "shims", filepath.FromSlash(m.ID)+".mjs")
 			if err := writeFile(filepath.Join(cfg.Out, rel), shim); err != nil {
 				return nil, err
 			}
@@ -270,6 +283,8 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		case !sameNames(r.Exports, res.HostModules[m.ID].Exports):
 			problems = append(problems, ItemProblem{hostItem(m.ID), Problem{ProblemExportsDiffer, fmt.Sprintf(
 				"its bundled copy exports %v, its scan found %v", r.Exports, res.HostModules[m.ID].Exports)}})
+		default:
+			res.HostModules[m.ID].Imports = nonNilStrings(r.Imports)
 		}
 	}
 	for _, e := range req.Entries {
@@ -292,7 +307,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := writeFile(filepath.Join(cfg.Out, "scripts", "bun", e.ID+".meta.json"), append(b, '\n')); err != nil {
+		if err := writeFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(e.ID)+".meta.json"), append(b, '\n')); err != nil {
 			return nil, err
 		}
 	}
@@ -306,6 +321,13 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 func (r *BunResult) setRuntime(v string) {
 	r.BunVersion = v
 	r.NonconformantRuntime = v != harness.PinnedBun
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func sameNames(a, b []string) bool {
@@ -481,6 +503,7 @@ type helperHostResult struct {
 	Exports     []string `json:"exports"`
 	HostModules []string `json:"host_modules"`
 	Packages    []string `json:"packages"`
+	Imports     []string `json:"imports"`
 }
 
 type helperEntryRes struct {

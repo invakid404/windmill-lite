@@ -359,6 +359,15 @@ validation with `contextual_case_needs_flow_fixture`.
   the budget gate, and moved evaluations onto threads the engine creates,
   because the stack limit of JE-48 needs more stack than musl gives the Go
   runtime's threads.
+- Milestone F4 measured the pool in the static musl engine: musl's `malloc`
+  makes the slot threads wait on one lock, and with 8 concurrent callers an
+  evaluation cost 3 to 10 times the CPU it costs with glibc. The engine's
+  heap therefore allocates with mimalloc (MIT, vendored with its notice
+  beside QuickJS-ng), which makes the static musl engine as fast as a glibc
+  build under load; the C library's `malloc` is untouched elsewhere
+  (`internal/expr/quickjs` README, Allocator). F4 also runs the expression
+  suite from the static binaries and starts the static engine on an empty
+  base ([0010](0010-packaging.md)).
 - The decode level was added with milestone A3. A flow value's accept or
   reject decision has no run to observe, so it fits none of the three run
   levels, and the decoder is Go only, so no harness reads these cases.

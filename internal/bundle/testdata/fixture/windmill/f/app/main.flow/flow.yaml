@@ -1,0 +1,28 @@
+summary: The build fixture's flow
+value:
+  modules:
+    - id: greet
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline greet.ts'
+        input_transforms:
+          name:
+            type: javascript
+            expr: flow_input.name
+    - id: report
+      value:
+        type: script
+        path: f/app/report
+        input_transforms:
+          count:
+            type: javascript
+            expr: results.greet.length
+          when:
+            type: static
+            value: '2026-01-01T00:00:00Z'
+schema:
+  type: object
+  properties:
+    name:
+      type: string
