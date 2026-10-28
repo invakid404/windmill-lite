@@ -1,0 +1,24 @@
+note: >-
+  Catalogue cases of the findings in this directory that are not stored-form
+  cases. Each names why it is not checked here and where it is expected to be
+  checked. The test in internal/jsonval fails unless every catalogue case of
+  each finding with a file here is a case in that file or is listed below.
+deferred:
+  - spec: FX-42/d
+    reason: the outer order of flow_input is shuffled per run by the engine (ADR 0005, the routing table), so it is not a property of either text
+    expected_in: N1a
+  - spec: FX-42/e
+    reason: the flow_input shortcut's whole-suffix key is a shortcut rule (JE-7), with no text rewritten
+    expected_in: B2a
+  - spec: FX-42/h
+    reason: 'contested (Q-FX-16); the spelling of a $jsonvar: value is decided by resolution, and the case is recorded before it is encoded (ADR 0001 §6)'
+    expected_in: E3b records it; PF2 implements it
+  - spec: FX-48/c
+    reason: its text is FX-48/b's; that the push failure is an InternalError at a later transition is the engine's routing (FX-15)
+    expected_in: N1b
+  - spec: OR-27/b
+    reason: the catalogue sets no expectation until Q-OR-6 is recorded; jsonb's rejection of a NUL in a key and in a nested value is checked by the FX-48 variants nul-in-key and nul-nested
+    expected_in: E3e (records Q-OR-6)
+  - spec: WR-10/c
+    reason: the preprocessor's output reaches main in memory inside the harness; no producer or stored text is involved
+    expected_in: the step suite, once script preprocessors (WR-11, later scope) have a milestone; none in docs/design/0012 yet

@@ -130,8 +130,10 @@ without building a tree of Go values:
   (`1e+21` → `1000000000000000000000`, `1.5e3` → `1500`), `-0` → `0`,
   other digits kept; the scale of an exponent number such as `1.50e3` is
   pinned by an oracle-checked fixture ([Q-FX-7](../semantics/execution.md#q-fx-7));
-- strings re-escaped to one canonical escaping; `\u0000` in a string or key
-  rejected;
+  a number outside `numeric`'s range rejected, as PostgreSQL rejects it;
+- strings re-escaped to `jsonb`'s own output escaping; `\u0000` in a string
+  or key rejected, and so is a surrogate escape without its pair, as
+  PostgreSQL rejects both;
 - whitespace removed. jsonb's own text output puts spaces after `:` and `,`;
   no consumer can observe that after parsing, so the compact form is used and
   comparisons are on parsed values.
@@ -139,8 +141,8 @@ without building a tree of Go values:
 It is checked three ways: catalogue cases ([FX-42](../semantics/execution.md#fx-42)
 a–h, [JE-44](../semantics/expressions.md#je-44), [WR-10](../semantics/languages.md#wr-10)),
 an independent Go implementation used only in tests (decode, sort, re-encode),
-and, in oracle CI, PostgreSQL itself: the oracle's PostgreSQL container
-casts every canonicaliser fixture to `jsonb` and back
+and PostgreSQL itself: a CI job casts every canonicaliser fixture to `jsonb`
+and back in the oracle's PostgreSQL image, pinned by the same digest
 ([Q-JE-9](../semantics/expressions.md#q-je-9)).
 
 ### Results and errors in the harness
@@ -202,6 +204,13 @@ runs on demand and nightly, never on every pull request.
   ([Q-WR-4](../semantics/languages.md#q-wr-4), [Q-OR-11](../semantics/oracle.md#q-or-11),
   [Q-OR-12](../semantics/oracle.md#q-or-12)) is encoded as cases; a recording
   that disagrees changes one routing table entry.
+- Milestone A1 changed two points. The PostgreSQL check runs in the ordinary
+  CI workflow rather than only in oracle CI, because it needs PostgreSQL but
+  no Windmill. And the canonicaliser rejects two texts besides NUL that
+  PostgreSQL's `jsonb` input rejects, an unpaired surrogate escape and a
+  number outside `numeric`'s range. The reference covers only NUL, so
+  whether Windmill fails a step on them as it does on NUL is request 4 of the
+  [README](README.md); until then the eager flag covers NUL alone.
 
 ## Spec IDs relied on
 

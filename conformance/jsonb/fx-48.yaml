@@ -1,0 +1,135 @@
+finding: FX-48
+note: >-
+  FX-48 says jsonb rejects the escaped NUL character, and what Windmill does
+  when a value it stores holds one. Each catalogue entry checks the rejection;
+  rest_in names where the outcome is checked. FX-48/c has the text of
+  FX-48/b and is in deferred.yaml. The variants with provenance policy cover
+  the other escape jsonb input rejects, a surrogate without its pair, which
+  the reference does not state (request 4 in docs/design/README.md).
+cases:
+  - spec: FX-48/a
+    provenance: source-derived
+    title: a NUL in a result fails the completion insert
+    given: '"x\u0000y"'
+    expect:
+      reject:
+        kind: nul
+        database: unsupported Unicode escape sequence
+    rest_in: N1b, which fails the step with InternalErr after the insert retries
+  - spec: FX-48/b
+    provenance: source-derived
+    title: a NUL generated in args at root pickup
+    note: The given text is what JSON.stringify writes for String.fromCharCode(0).
+    given: '"\u0000"'
+    expect:
+      reject:
+        kind: nul
+    rest_in: N1b, which routes the push failure as an Anyhow failure of a (FX-15)
+
+  - spec: FX-48
+    variant: nul-in-key
+    provenance: source-derived
+    title: a NUL in a key
+    given: '{"\u0000":1}'
+    expect:
+      reject:
+        kind: nul
+  - spec: FX-48
+    variant: nul-nested
+    provenance: source-derived
+    title: a NUL deep inside a value
+    given: '{"k":{"deep":["a","b\u0000c"]}}'
+    expect:
+      reject:
+        kind: nul
+  - spec: FX-48
+    variant: nul-after-escaped-backslash
+    provenance: source-derived
+    title: an escaped backslash followed by a NUL escape
+    given: '"\\\u0000"'
+    expect:
+      reject:
+        kind: nul
+  - spec: FX-48
+    variant: nul-in-dropped-duplicate
+    provenance: source-derived
+    title: a NUL in a duplicate that jsonb would drop still rejects the value
+    given: '{"a":"\u0000","a":1}'
+    expect:
+      reject:
+        kind: nul
+  - spec: FX-48
+    variant: not-nul
+    provenance: source-derived
+    title: an escaped backslash followed by the letters u0000 is not a NUL
+    given: '"\\u0000"'
+    expect:
+      stored: '"\\u0000"'
+
+  - spec: FX-48
+    variant: surrogate-lone-high
+    provenance: policy
+    title: a high surrogate escape at the end of a string
+    given: '"a\ud83d"'
+    expect:
+      reject:
+        kind: surrogate
+        database: invalid input syntax for type json
+  - spec: FX-48
+    variant: surrogate-lone-low
+    provenance: policy
+    title: a low surrogate escape with no high one before it
+    given: '"\ude00a"'
+    expect:
+      reject:
+        kind: surrogate
+        database: invalid input syntax for type json
+  - spec: FX-48
+    variant: surrogate-two-high
+    provenance: policy
+    title: two high surrogate escapes
+    given: '"\ud83d\ud83d"'
+    expect:
+      reject:
+        kind: surrogate
+  - spec: FX-48
+    variant: surrogate-then-character
+    provenance: policy
+    title: a high surrogate escape followed by a raw character
+    given: '"\ud83dx"'
+    expect:
+      reject:
+        kind: surrogate
+  - spec: FX-48
+    variant: surrogate-then-escape
+    provenance: policy
+    title: a high surrogate escape followed by the escape of a character outside the low range
+    given: '"\ud83d\u0041"'
+    expect:
+      reject:
+        kind: surrogate
+  - spec: FX-48
+    variant: surrogate-then-nul
+    provenance: policy
+    note: PostgreSQL checks the pairing before the NUL, so this is a surrogate rejection although the text holds \u0000.
+    title: a high surrogate escape followed by a NUL escape
+    given: '"\ud83d\u0000"'
+    expect:
+      reject:
+        kind: surrogate
+        database: invalid input syntax for type json
+  - spec: FX-48
+    variant: surrogate-in-key
+    provenance: policy
+    title: an unpaired surrogate in a key
+    given: '{"\ude00":1}'
+    expect:
+      reject:
+        kind: surrogate
+  - spec: FX-48
+    variant: surrogate-pair
+    provenance: policy
+    title: a high surrogate escape followed by a low one is one character
+    given: '"\ud83d\ude00"'
+    expect:
+      stored: '"😀"'
