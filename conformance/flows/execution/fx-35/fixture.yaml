@@ -1,0 +1,11 @@
+# FX-35/a (scope later): a deployed flow started through the run API
+# without skip_preprocessor runs its preprocessor first, and a
+# non-object preprocessor result becomes the input {"value": <result>}.
+# Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-35.
+id: execution/fx-35
+spec: [FX-35/a]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

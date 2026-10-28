@@ -12,7 +12,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Ten milestones have landed. No command uses nine of them yet: the OpenFlow
+Eleven milestones have landed. No command uses nine of them yet: the OpenFlow
 decoder in [internal/openflow](internal/openflow/README.md) (A3); the YAML
 dialect of the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md)
 (A2); the jsonb canonicaliser in [internal/jsonval](internal/jsonval/README.md)
@@ -33,7 +33,10 @@ scripts with Windmill's settings and records their signatures, annotations
 and workflow-as-code markers. The tenth, E2, is the oracle harness
 ([internal/oracle](internal/oracle/README.md), `wltest record`), which
 records synthetic flow fixtures on an unmodified Windmill CE image in public
-CI.
+CI. The eleventh, recording batch E3c, recorded the reference's flow-execution
+error cases on that oracle
+([conformance/flows/execution](conformance/flows/execution)), which settled
+two contested findings.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
@@ -82,7 +85,7 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/harness ./internal/bundl
 | [internal/bundle](internal/bundle/README.md) | The build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base) and the Bun side of the build, which runs the Bun build helper. |
 | [harnesses/bun](harnesses/bun/README.md) | The Bun harness: the runtime side of the protocol and a skeleton step runner, on Bun 1.3.10. |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, and the export scan of host-provided modules. |
-| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, and the first flow fixture, the oracle smoke fixture. |
+| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, and the flow fixtures the oracle records: the smoke fixture and recording batch E3c's flow-execution fixtures. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |

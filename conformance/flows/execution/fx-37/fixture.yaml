@@ -1,0 +1,11 @@
+# FX-37/a (scope later), executor part: early_return affects only the
+# synchronous run-and-wait API, which the oracle never uses (OR-10); the
+# flow keeps running and its own final result is unaffected. The early
+# response itself is deferred to E3e with FX-36's HTTP part. Synthetic,
+# written for this repository from docs/semantics/conformance.md#fx-37.
+id: execution/fx-37
+spec: [FX-37/a]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

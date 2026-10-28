@@ -1,0 +1,26 @@
+summary: FX-35/a preprocessor returns 5
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input
+        lock: '!inline a.lock'
+        language: bun
+  preprocessor_module:
+    id: preprocessor
+    value:
+      type: rawscript
+      content: '!inline preprocessor.ts'
+      input_transforms: {}
+      lock: '!inline preprocessor.lock'
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

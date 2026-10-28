@@ -1,0 +1,13 @@
+# FX-33/f: [] is a decode error.
+spec: [FX-33/f]
+target: f/wl_fx33/recover
+args: {ret: []}
+expect:
+  status: failure
+  result: []
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: []}, result: []}

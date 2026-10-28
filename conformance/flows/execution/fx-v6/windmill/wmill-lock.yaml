@@ -1,0 +1,8 @@
+version: v2
+locks:
+  f/wl_fxv6/lookup.flow+__flow_hash: af87078bb5175e1f7d8d9a78fb98193c3b167748c161a822af7938bd4f83e61b
+  f/wl_fxv6/lookup.flow+a.ts: b2582a0871f698c36e40fd9430528f0023d3a57dd593e88a8567246841376643
+  f/wl_fxv6/lookup.flow+failure.ts: 1d291052bd9aec883575dc46ee31333b47df44f844ee1336217493ceaa8e5646
+  f/wl_fxv6/three_ways.flow+__flow_hash: 7100fc3a1c83412d7235e9cb41c97ae06fc5e57a59fc1d015747f1d8b7e9d3ba
+  f/wl_fxv6/three_ways.flow+a.ts: 14d0ab926a3b1abe36b7309ede0acfcaa9b4b20276fbb02b89cb96c68b79c0e2
+  f/wl_fxv6/three_ways.flow+failure.ts: 061f853155cd767efe5f35585d33b224bb04b2cb40879aec5e5a6e0fbc44434d
