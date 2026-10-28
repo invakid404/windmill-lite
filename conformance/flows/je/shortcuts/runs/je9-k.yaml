@@ -5,3 +5,15 @@ claims:
     equals: success
   - at: /steps/m:c/skipped
     equals: true
+unit:
+  - spec: JE-9/k
+    site: m:c
+    input: skip_if
+    expr: "false ||\nresults.a.flag\n"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "{\"flag\": true}"
+    expect:
+      text: "true"

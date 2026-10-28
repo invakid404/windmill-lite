@@ -136,7 +136,9 @@ without building a tree of Go values:
   PostgreSQL rejects both;
 - whitespace removed. jsonb's own text output puts spaces after `:` and `,`;
   no consumer can observe that after parsing, so the compact form is used and
-  comparisons are on parsed values.
+  comparisons are on parsed values. One consumer reads the text unparsed:
+  the [JE-9](../semantics/expressions.md#je-9) shortcut, whose text a site
+  can quote (Consequences).
 
 It is checked three ways: catalogue cases ([FX-42](../semantics/execution.md#fx-42)
 a–h, [JE-44](../semantics/expressions.md#je-44), [WR-10](../semantics/languages.md#wr-10)),
@@ -211,6 +213,16 @@ runs on demand and nightly, never on every pull request.
   number outside `numeric`'s range. The reference covers only NUL, so
   whether Windmill fails a step on them as it does on NUL is request 4 of the
   [README](README.md); until then the eager flag covers NUL alone.
+- Milestone B2a found the one place where the spaces of jsonb's text
+  output show. The [JE-9](../semantics/expressions.md#je-9) shortcut
+  answers the database's text unparsed, and the `timeout` site's parse
+  error quotes it: recording batch E3a recorded `Value was: {"a": 2, "b": 1}`
+  for a `results.p` read through the database, against
+  `Value was: {"b":1,"a":2}` for the same read of the previous step from
+  memory (`conformance/flows/je/shortcuts`, runs `je8-order-timeout-db` and
+  `je8-order-timeout`). The expression pipeline therefore applies the
+  path to the stored text and answers in jsonb's text output, a space after
+  each `:` and `,` outside strings; the stored text stays compact.
 
 ## Spec IDs relied on
 

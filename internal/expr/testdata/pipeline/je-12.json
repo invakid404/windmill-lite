@@ -1,0 +1,124 @@
+{
+  "finding": "JE-12",
+  "cases": [
+    {
+      "spec": "JE-12/a",
+      "provenance": "oracle-observed",
+      "title": "a single-quoted key is not rewritten",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_a", "input": "x"},
+      "site": "input_transform",
+      "text": "results['a'].v",
+      "expect": {"shortcut": {}, "code": "results['a'].v", "route": "engine", "bound": {}, "results_lookup": true}
+    },
+    {
+      "spec": "JE-12/b",
+      "provenance": "oracle-observed",
+      "title": "a lone single-quoted read is not rewritten either",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_b", "input": "x"},
+      "site": "input_transform",
+      "text": "results['a']",
+      "expect": {"shortcut": {}, "code": "results['a']", "route": "engine", "results_lookup": true}
+    },
+    {
+      "spec": "JE-12/c",
+      "provenance": "oracle-observed",
+      "title": "string literals are rewritten",
+      "note": "the recorded value is the rewritten literal",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_c", "input": "x"},
+      "site": "input_transform",
+      "text": "\"see results.a\"",
+      "expect": {"shortcut": {}, "code": "\"see (await results.a)\"", "route": "engine", "results_lookup": true}
+    },
+    {
+      "spec": "JE-12/d",
+      "provenance": "oracle-observed",
+      "title": "a read inside a callback gets an await there",
+      "note": "an await in a non-async arrow does not compile on the engine (B2b)",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12-d", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "[1].map(i => results.a.v)",
+      "expect": {"shortcut": {}, "code": "[1].map(i => (await results.a).v)", "route": "engine", "results_lookup": true}
+    },
+    {
+      "spec": "JE-12/e",
+      "provenance": "oracle-observed",
+      "title": "bare results is not rewritten",
+      "recorded": {"fixture": "je/shortcuts", "run": "je12", "at": "m:b_e", "input": "x"},
+      "site": "input_transform",
+      "text": "results",
+      "expect": {"shortcut": {}, "binds": ["result", "results"], "code": "results", "route": "engine", "bound": {}, "results_lookup": true}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "segment",
+      "provenance": "source-derived",
+      "title": "only the step id is awaited; later segments read the awaited value",
+      "site": "input_transform",
+      "text": "results.a.b",
+      "expect": {"code": "(await results.a).b"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "no-word-boundary",
+      "provenance": "source-derived",
+      "title": "a name ending in results is split",
+      "site": "input_transform",
+      "text": "my_results.x",
+      "expect": {"code": "my_(await results.x)"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "property-named-results",
+      "provenance": "source-derived",
+      "title": "a property named results is rewritten",
+      "site": "input_transform",
+      "text": "flow_input.results.x",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "results.x"}}, "code": "flow_input.(await results.x)"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "optional-dot",
+      "provenance": "source-derived",
+      "title": "results?.<id> is rewritten",
+      "site": "input_transform",
+      "text": "results?.a",
+      "expect": {"code": "(await results?.a)"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "optional-bracket",
+      "provenance": "source-derived",
+      "title": "results?.[\"<id>\"] is not: ? is followed by neither a dot and a name nor [\"",
+      "site": "input_transform",
+      "text": "results?.[\"a\"].v",
+      "expect": {"code": "results?.[\"a\"].v"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "lazy-brackets",
+      "provenance": "source-derived",
+      "title": "each bracket read ends at its own \"]",
+      "site": "input_transform",
+      "text": "results[\"a\"] + results[\"b\"]",
+      "expect": {"code": "(await results[\"a\"]) + (await results[\"b\"])"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "bracket-one-line",
+      "provenance": "source-derived",
+      "title": "a bracket read does not span lines",
+      "site": "input_transform",
+      "text": "results[\"a\nb\"]",
+      "expect": {"code": "results[\"a\nb\"]"}
+    },
+    {
+      "spec": "JE-12",
+      "variant": "template",
+      "provenance": "source-derived",
+      "title": "a template literal is rewritten inside ${} (JE-40)",
+      "site": "input_transform",
+      "text": "`id ${results.a.id}`",
+      "expect": {"code": "`id ${(await results.a).id}`"}
+    }
+  ]
+}

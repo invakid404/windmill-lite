@@ -246,6 +246,28 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      before the timeout error surfaces;
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
      where JE-33 says it completes successfully.
+8. **The textual pipeline's unstated details** (milestone B2a). The
+   reference leaves these open; each is decided by the reading named here
+   and pinned by a source-derived case in `internal/expr/testdata/pipeline`
+   (the wrapper by `TestWrapperSingleLine`), so a different answer changes
+   one function:
+   - [JE-5](../semantics/expressions.md#je-5): which characters trimming
+     removes. Read as Unicode White_Space, as Rust's `str::trim` removes.
+   - [JE-7](../semantics/expressions.md#je-7): whether the dot form takes an
+     empty key (`flow_input.`). Read as yes; only the bracket form needs a
+     non-empty key.
+   - [JE-9](../semantics/expressions.md#je-9): whether a step id `length`
+     (`results.length`) declines like a last segment `length`. Read as no.
+   - [JE-11](../semantics/expressions.md#je-11): where a call whose
+     parentheses never balance ends. Read as the end of the text.
+   - [JE-13](../semantics/expressions.md#je-13): whether `return` followed by
+     a newline selects statement mode (read as no, the text lists a space
+     or a semicolon), and how the quote scan reads a quote: as opening a
+     quote of its kind or closing the one it is in, unless a backslash
+     precedes it, so another kind of quote inside a string is text.
+   - JE-13 and [JE-14](../semantics/expressions.md#je-14): whether the
+     wrapper is an `async function` or an async arrow, which `arguments`
+     tells apart. Read as a function.
 
 ## Changing the design
 

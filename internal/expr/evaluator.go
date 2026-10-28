@@ -62,12 +62,16 @@ type Results interface {
 	// Lookup resolves results.<id> on the engine path, steps 2 and 3 of
 	// JE-18: a module of the current flow that has a job yields its result
 	// (an array of child results for a loop or branchall) or an error when
-	// fetching it fails; anything else goes through the node-id lookup, and
-	// any failure there yields JSON null.
+	// fetching it fails, whose message is the read's whole text, Failed to
+	// fetch result for step '<id>': <cause> (results for step, for a list);
+	// anything else goes through the node-id lookup, and any failure there
+	// yields JSON null. Either way it is a database read: the evaluator
+	// binds the value's stored text.
 	Lookup(ctx context.Context, id string) (jsonval.Value, error)
 	// Stored returns the stored result found for id by the result-by-node-id
 	// lookup of JE-19, through the scope chain, and false when there is
-	// none. JE-9 applies its path to this value.
+	// none. JE-9 applies its path to this value's stored text and answers
+	// in jsonb's text output.
 	Stored(ctx context.Context, id string) (jsonval.Value, bool)
 }
 
