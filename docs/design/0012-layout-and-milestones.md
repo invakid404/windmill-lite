@@ -187,6 +187,24 @@ waits on an external gate except R1.
 - F4 added `windmill-lite selfcheck`, which starts the expression engine and
   runs a few probes, to the CLI: it is how its exit gate starts the static
   Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).
+- E1 made `wltest check` run the flow fixtures on windmill-lite, in `warm`,
+  on W1's walking skeleton, which runs sequential flows of Bun steps only.
+  Its first fixtures per area are the runs that skeleton can run: the E3b
+  and E3c runs of `execution` and the E3a runs of `je/sites` that already
+  pass, and new fixtures of two areas that had none, `languages`
+  (`flows/languages/bun-results`, `flows/languages/codebase`) and
+  `client-api` (`flows/client-api/job-env`), recorded on the oracle.
+  `control-flow` has none until N3a and N3b, since the skeleton runs no
+  container. `cmd/wltest/testdata/flowsuite.json` lists the runs the flow
+  suite requires, each with the milestone that first made it pass, and
+  names the milestones whose batch gates it also requires; an engine
+  milestone adds itself there, and a required run stays required. A run the
+  engine cannot run yet is reported as unsupported and never compared.
+  `flows/languages/codebase` is the codebase-script fixture that C2b drops
+  its esbuild bundles into: until then `wltest check` builds codebase
+  scripts with the Bun build helper as ordinary Bun scripts. The `diff`
+  verb of [0011](0011-differential-testing.md) is in no milestone's row,
+  and E1 left it out.
 
 ## Spec IDs relied on
 

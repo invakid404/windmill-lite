@@ -3,15 +3,17 @@
 //
 //	wltest record [flags] <fixture, expression file or directory>...
 //	wltest stub --out <dir> <sync tree>
-//	wltest check [flags] <step file or directory>...
+//	wltest check [flags] <step file, fixture or directory>...
 //
 // record runs flow fixtures, and the expression cases of conformance/exprs
 // lifted into generated one-step flows, on the pinned Windmill CE oracle
 // and writes their recordings with provenance; fixtures in stub mode run
 // stubbed, with the replay service answering from each run's table. stub
 // writes a stubbed copy of a sync tree. check runs the step cases of
-// conformance/steps on windmill-lite's Bun harness (milestone C3a); flow
-// fixtures in check, and diff, are milestone E1's.
+// conformance/steps on windmill-lite's Bun harness (milestone C3a) and the
+// flow fixtures of conformance/flows on its engine (milestone E1). diff,
+// which would run the oracle and windmill-lite live and compare them, is
+// not implemented: no milestone of ADR 0012 has it yet.
 package main
 
 import (
@@ -44,7 +46,7 @@ func main() {
 
 const usage = `usage: wltest record [flags] <fixture, expression file or directory>...
        wltest stub --out <dir> <sync tree>
-       wltest check [flags] <step file or directory>...
+       wltest check [flags] <step file, fixture or directory>...
 
 record runs flow fixtures, and expression-case files lifted into generated
 one-step flows, on the Windmill CE v1.767.0 oracle and writes their
@@ -53,9 +55,10 @@ stub copies a sync tree to <dir> with every Bun script body replaced by a
 replay stub (ADR 0011).
 check runs step-case files (conformance/steps) on windmill-lite's Bun
 harness, in warm mode or with --mode fresh in one process per run, and
-compares each step's stored value with the case's. Run
-wltest check -h for its flags. Flow fixtures in check, and diff, are not
-implemented yet.
+compares each step's stored value with the case's, and runs flow fixtures
+(conformance/flows) on windmill-lite, in warm mode, and compares each
+run's observation with its expect or recording. Run wltest check -h for
+its flags. diff is not implemented yet.
 `
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -71,7 +74,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "check":
 		return check(ctx, args[1:], stdout, stderr)
 	case "diff":
-		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0012: E1)\n", args[0])
+		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0011; no milestone of ADR 0012 has it): wltest check compares windmill-lite with the committed recordings\n", args[0])
 		return 2
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)

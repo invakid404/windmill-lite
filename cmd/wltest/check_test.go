@@ -197,10 +197,10 @@ cases:
 				"run 1: warnings [unattributed_error], want []",
 				"fail wr-6-g ",
 				"run 1: 1 late reports, want 0: [error final=false",
-				"1 passed, 6 failed (mode warm)",
+				"1 passed, 6 failed, 0 unsupported (mode warm)",
 			)
 		} else {
-			wants = append(wants, "pass wr-6-d ", "pass wr-6-g ", "3 passed, 4 failed (mode fresh)")
+			wants = append(wants, "pass wr-6-d ", "pass wr-6-g ", "3 passed, 4 failed, 0 unsupported (mode fresh)")
 		}
 		for _, want := range wants {
 			if !strings.Contains(out, want) {

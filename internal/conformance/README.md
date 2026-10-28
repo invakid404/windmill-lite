@@ -4,13 +4,14 @@
 milestone K1, the fixture format, normaliser and comparator of milestone
 E2, the expression-case format, its lifting into generated flows, and the
 claims and unit cases of recording batch E3a, and the replay table and
-replay service of stub mode, milestone E4a, and the step-case format and
-its comparison, milestone C3a
+replay service of stub mode, milestone E4a, the step-case format and
+its comparison, milestone C3a, and the location rule of comparisons with
+the oracle, milestone E1
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
-([cmd/wltest](../../cmd/wltest/README.md)) runs the step cases on
-windmill-lite, and its flow runner is milestone E1's.
+([cmd/wltest](../../cmd/wltest/README.md)) runs the step cases and the flow
+fixtures on windmill-lite.
 
 ## What it holds
 
@@ -26,7 +27,7 @@ windmill-lite, and its flow runner is milestone E1's.
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
-| `normalise.go` | `Normaliser` and `MaskPaths`: the value rules of [OR-14](../../docs/semantics/oracle.md#or-14) |
+| `normalise.go` | `Normaliser` and `MaskPaths`: the value rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations`, the rule a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`: stub mode's replay table and the run-scoped service that answers stubs (see [Stub mode](#stub-mode)) |
 
@@ -331,6 +332,24 @@ number text and duplicate elements:
 
 `MaskPaths` then applies a fixture's `stack` and `mask` pointers.
 `testdata/normalise/cases.json` holds the cases.
+
+### Location suffixes
+
+Comparing windmill-lite with the oracle adds one rule
+([ADR 0011](../../docs/design/0011-differential-testing.md), Location
+suffixes): windmill-lite generates Windmill's messages without a Rust
+location (D14), so where windmill-lite's value is an error it generated,
+the oracle's location suffix is stripped. `StripLocations(o, at)` applies
+it to the oracle's normalised observation (an expect or a recording): at
+each pointer, a value windmill-lite's trace says it generated, the
+recognised internal error of item 3 loses its `<loc>` marker and the space
+before it. A pointer may name the error object or a failure value
+`{"error":…}`. Nothing else changes: user text never carries the marker,
+since the normaliser masks no location in it and escapes a literal `<loc>`
+(`<<loc>`). `TestStripLocations` holds ADR 0011's positive case (a
+generated `Internal:` error compares equal to the oracle's with its
+location) and its negative one (two user errors that differ only in such a
+suffix still differ), and that an escaped literal is never stripped.
 
 ## Comparison
 

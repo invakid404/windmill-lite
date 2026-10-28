@@ -1,0 +1,25 @@
+summary: E1 WR-37 step timeout
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      timeout:
+        type: static
+        value: 1
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

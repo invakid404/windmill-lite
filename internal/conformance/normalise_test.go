@@ -98,3 +98,80 @@ func TestMaskPaths(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", g, w)
 	}
 }
+
+// TestStripLocations is the location-suffix rule of ADR 0011: a generated
+// Internal error whose oracle text ends in a Rust location compares equal
+// to windmill-lite's text, which has none (D14), while two user errors that
+// differ only in such a suffix still differ.
+func TestStripLocations(t *testing.T) {
+	// spec: OR-14, OR-27
+	const job = "0190a0c4-8c11-7b1e-9f3a-0123456789ab"
+	ids := map[string]SitePath{job: SitePath{}.Child(Module("a"))}
+	internal := func(loc string) string {
+		return `{"error":{"name":"InternalErr","message":"Internal: Could not add completed job ` + job +
+			`: error returned from database: unsupported Unicode escape sequence` + loc + `"}}`
+	}
+	user := func(loc string) string {
+		return `{"error":{"name":"Error","message":"boom` + loc + `","stack":"s","step_id":"a"}}`
+	}
+	observe := func(t *testing.T, result string) Observation {
+		t.Helper()
+		n := &Normaliser{IDs: ids}
+		v, err := n.Value(json.RawMessage(result))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return Observation{Status: RunFailure, Result: v, Steps: map[SitePath]StepObservation{
+			ids[job]: {Status: StepFailure, Args: json.RawMessage(`{}`), Result: v},
+		}}
+	}
+	differences := func(t *testing.T, got, oracle Observation, at []string) []Difference {
+		t.Helper()
+		stripped, err := StripLocations(oracle, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diffs, err := Compare(got, stripped, CompareOptions{WithRecording: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return diffs
+	}
+	generated := []string{"/result", "/steps/m:a/result"}
+
+	t.Run("generated internal error", func(t *testing.T) {
+		got, oracle := observe(t, internal("")), observe(t, internal(" @windmill-worker/src/result_processor.rs:412:17"))
+		if !strings.HasSuffix(string(oracle.Result), ` sequence <loc>"}}`) {
+			t.Fatalf("the normaliser did not mask the location: %s", oracle.Result)
+		}
+		if d := differences(t, got, oracle, generated); len(d) != 0 {
+			t.Fatalf("differences after stripping: %v", d)
+		}
+		// Without the rule, the two still differ: the rule is what equates
+		// them.
+		if d := differences(t, got, oracle, nil); len(d) != 2 {
+			t.Fatalf("differences without stripping: %v", d)
+		}
+		// Only the pointers given are stripped.
+		if d := differences(t, got, oracle, []string{"/result"}); len(d) != 1 || d[0].Pointer != "/steps/m:a/result/error/message" {
+			t.Fatalf("differences stripping /result only: %v", d)
+		}
+	})
+	t.Run("user errors", func(t *testing.T) {
+		got, oracle := observe(t, user(" @a.rs:1:2")), observe(t, user(" @b.rs:3:4"))
+		if d := differences(t, got, oracle, generated); len(d) != 2 {
+			t.Fatalf("user errors that differ in a location suffix compared equal: %v", d)
+		}
+	})
+	t.Run("a user's literal marker", func(t *testing.T) {
+		// The normaliser escapes a literal "<loc>" in user text, so it is
+		// never taken for the marker.
+		got, oracle := observe(t, internal("")), observe(t, internal(" <loc>"))
+		if !strings.HasSuffix(string(oracle.Result), ` sequence <<loc>"}}`) {
+			t.Fatalf("the literal was not escaped: %s", oracle.Result)
+		}
+		if d := differences(t, got, oracle, generated); len(d) != 2 {
+			t.Fatalf("an escaped literal was stripped: %v", d)
+		}
+	})
+}
