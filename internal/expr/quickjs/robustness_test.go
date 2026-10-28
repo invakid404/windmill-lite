@@ -184,3 +184,79 @@ func TestAThrowingJobFailsTheEvaluation(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestAttemptEndWinsOverALateCompletion(t *testing.T) {
+	// JE-2, D8: a built-in that runs past the attempt limit without reaching
+	// the interrupt handler, or a long readback, still ends the attempt: the
+	// evaluation reports the timeout, not what the program got to.
+	e := newEngine(t, Options{Limits: shortLimits(time.Millisecond), Slots: 1})
+	for _, source := range []string{
+		`String("x".repeat(100 << 20).length)`,
+		`"é".repeat(20 << 20)`,
+		`(() => { "x".repeat(100 << 20); throw new Error("late"); })()`,
+		`JSON.stringify(Array(3000000).fill(123)).slice(0, 1)`,
+	} {
+		before := e.Stats().Timeouts
+		if out, err := run(t, e, source, expr.Input{}); !errors.Is(err, expr.ErrAttemptTimeout) {
+			t.Errorf("%s: got %d bytes, %v; want ErrAttemptTimeout", source, len(out), err)
+		}
+		if n := e.Stats().Timeouts - before; n != 1 {
+			t.Errorf("%s: counted %d timeouts", source, n)
+		}
+	}
+	if got := mustRun(t, e, `"next"`, expr.Input{}); got != "next" {
+		t.Fatalf("the slot did not recover: %q", got)
+	}
+}
+
+func TestCancellationWinsOverALateCompletion(t *testing.T) {
+	e := newEngine(t, Options{Slots: 1})
+	p := compile(t, e, `String("x".repeat(100 << 20).length)`)
+	cause := errors.New("run canceled")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	time.AfterFunc(2*time.Millisecond, func() { cancel(cause) })
+	if out, err := e.Eval(ctx, p, expr.Input{}); !errors.Is(err, cause) {
+		t.Fatalf("got %s, %v; want the cancellation cause", out, err)
+	}
+	if s := e.Stats(); s.Canceled != 1 || s.Timeouts != 0 {
+		t.Fatalf("stats %+v", s)
+	}
+}
+
+func TestSequentialHostCallsDoNotAccumulate(t *testing.T) {
+	// JE-3: what counts against the cap is what the engine holds, not what
+	// it has ever passed to the host. 100 MiB of arguments go through one
+	// call at a time under a 32 MB cap.
+	l := expr.DefaultLimits()
+	l.MemoryMB = 32
+	e := newEngine(t, Options{Limits: l, Slots: 1})
+	var calls atomic.Int32
+	in := expr.Input{Funcs: []expr.HostFunc{hostFunc("f", func(_ context.Context, arg string) ([]byte, error) {
+		calls.Add(1)
+		return []byte("ok"), nil
+	})}}
+	got := mustRun(t, e, `(async () => { const s = "x".repeat(1 << 20); for (let i = 0; i < 100; i++) await f(s); return "done"; })()`, in)
+	if got != "done" || calls.Load() != 100 {
+		t.Fatalf("got %q after %d calls", got, calls.Load())
+	}
+}
+
+func TestSettledCallRecordsAreReused(t *testing.T) {
+	// Many calls in sequence under a small cap: the engine keeps one record
+	// per outstanding call, not one per call ever made.
+	l := expr.DefaultLimits()
+	l.MemoryMB = 2
+	e := newEngine(t, Options{Limits: l, Slots: 1})
+	in := expr.Input{Funcs: []expr.HostFunc{hostFunc("f", func(_ context.Context, arg string) ([]byte, error) {
+		return []byte(arg), nil
+	})}}
+	got := mustRun(t, e, `(async () => {
+		let n = 0;
+		for (let i = 0; i < 50000; i++) n += (await f("1")).length;
+		const all = await Promise.all([f("a"), f("b"), f("c")]);
+		return n + ":" + all.join("");
+	})()`, in)
+	if got != "50000:abc" {
+		t.Fatalf("got %q", got)
+	}
+}

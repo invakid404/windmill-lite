@@ -32,12 +32,19 @@ typedef struct wl_heap {
 	wl_block head;
 } wl_heap;
 
+// A host call's record is queued when the program calls, taken when Go
+// dispatches it, and free again once it settles; free records are reused,
+// so the table holds one record per outstanding call.
+enum { WL_CALL_FREE, WL_CALL_QUEUED, WL_CALL_TAKEN };
+#define WL_NO_CALL UINT32_MAX
+
 typedef struct wl_call {
 	int index;
 	char *arg; // js_malloc'd, so it counts against the heap cap
 	size_t arg_len;
 	JSValue resolve, reject;
-	int taken, settled;
+	int state;
+	uint32_t next; // the next queued call, or the next free record
 } wl_call;
 
 struct wl_slot {
@@ -51,7 +58,8 @@ struct wl_slot {
 	JSValue result;
 	JSValue exc;
 	wl_call *calls; // js_realloc'd
-	size_t ncalls, calls_cap, next_take;
+	uint32_t ncalls, calls_cap;
+	uint32_t free_head, queue_head, queue_tail;
 	uint8_t *bc;
 	// C strings handed to Go, freed at release.
 	const char *cstr[8];
@@ -188,6 +196,7 @@ wl_slot *wl_slot_new(void)
 	if (s != NULL) {
 		atomic_init(&s->interrupt, 0);
 		s->heap.head.link.prev = s->heap.head.link.next = &s->heap.head;
+		s->free_head = s->queue_head = s->queue_tail = WL_NO_CALL;
 		s->result = JS_UNDEFINED;
 		s->exc = JS_UNDEFINED;
 	}
@@ -254,7 +263,8 @@ void wl_release(wl_slot *s)
 	}
 	js_free(ctx, s->calls);
 	s->calls = NULL;
-	s->ncalls = s->calls_cap = s->next_take = 0;
+	s->ncalls = s->calls_cap = 0;
+	s->free_head = s->queue_head = s->queue_tail = WL_NO_CALL;
 	for (i = 0; i < (size_t)s->ncstr; i++)
 		JS_FreeCString(ctx, s->cstr[i]);
 	s->ncstr = 0;
@@ -373,6 +383,7 @@ static JSValue wl_host_fn(JSContext *ctx, JSValueConst this_val, int argc, JSVal
 	const char *arg;
 	wl_call *c;
 	int32_t index;
+	uint32_t id;
 	size_t len;
 	char *copy;
 
@@ -395,11 +406,13 @@ static JSValue wl_host_fn(JSContext *ctx, JSValueConst this_val, int argc, JSVal
 	JS_FreeCString(ctx, arg);
 	if (copy == NULL)
 		return JS_EXCEPTION;
-	if (s->ncalls == s->calls_cap) {
-		size_t cap = s->calls_cap ? 2 * s->calls_cap : 4;
-		wl_call *calls = js_realloc(ctx, s->calls, cap * sizeof(*calls));
+	if (s->free_head == WL_NO_CALL && s->ncalls == s->calls_cap) {
+		uint32_t cap = s->calls_cap ? 2 * s->calls_cap : 4;
+		wl_call *calls = cap > s->calls_cap ? js_realloc(ctx, s->calls, (size_t)cap * sizeof(*calls)) : NULL;
 		if (calls == NULL) {
 			js_free(ctx, copy);
+			if (!JS_HasException(ctx))
+				JS_ThrowOutOfMemory(ctx);
 			return JS_EXCEPTION;
 		}
 		s->calls = calls;
@@ -410,14 +423,25 @@ static JSValue wl_host_fn(JSContext *ctx, JSValueConst this_val, int argc, JSVal
 		js_free(ctx, copy);
 		return promise;
 	}
-	c = &s->calls[s->ncalls++];
+	if (s->free_head != WL_NO_CALL) {
+		id = s->free_head;
+		s->free_head = s->calls[id].next;
+	} else {
+		id = s->ncalls++;
+	}
+	c = &s->calls[id];
 	c->index = index;
 	c->arg = copy;
 	c->arg_len = len;
 	c->resolve = funcs[0];
 	c->reject = funcs[1];
-	c->taken = 0;
-	c->settled = 0;
+	c->state = WL_CALL_QUEUED;
+	c->next = WL_NO_CALL;
+	if (s->queue_tail == WL_NO_CALL)
+		s->queue_head = id;
+	else
+		s->calls[s->queue_tail].next = id;
+	s->queue_tail = id;
 	return promise;
 }
 
@@ -494,15 +518,31 @@ int wl_take_call(wl_slot *s, uint32_t *id, int *index, wl_text *arg)
 {
 	wl_call *c;
 
-	if (s->next_take == s->ncalls)
+	if (s->queue_head == WL_NO_CALL)
 		return 0;
-	*id = (uint32_t)s->next_take;
-	c = &s->calls[s->next_take++];
-	c->taken = 1;
+	*id = s->queue_head;
+	c = &s->calls[*id];
+	s->queue_head = c->next;
+	if (s->queue_head == WL_NO_CALL)
+		s->queue_tail = WL_NO_CALL;
+	c->state = WL_CALL_TAKEN;
+	c->next = WL_NO_CALL;
 	*index = c->index;
 	arg->ptr = c->arg;
 	arg->len = c->arg_len;
 	return 1;
+}
+
+void wl_free_arg(wl_slot *s, uint32_t id)
+{
+	wl_call *c;
+
+	if (id >= s->ncalls || s->calls[id].state != WL_CALL_TAKEN)
+		return;
+	c = &s->calls[id];
+	js_free(s->ctx, c->arg);
+	c->arg = NULL;
+	c->arg_len = 0;
 }
 
 int wl_settle(wl_slot *s, uint32_t id, int ok, const char *text, size_t len)
@@ -511,17 +551,22 @@ int wl_settle(wl_slot *s, uint32_t id, int ok, const char *text, size_t len)
 	JSValue v, msg, r, resolve, reject;
 	wl_call *c;
 
-	if (id >= s->ncalls || !s->calls[id].taken || s->calls[id].settled)
+	if (id >= s->ncalls || s->calls[id].state != WL_CALL_TAKEN)
 		return WL_OK;
 	// Building the Error and resolving can run the program's code, which
-	// can call a host function and so move s->calls: take what is needed
-	// now and never touch the record again.
+	// can call a host function and so move s->calls or reuse this record:
+	// take what is needed, free the record, and never touch it again.
 	c = &s->calls[id];
-	c->settled = 1;
 	resolve = c->resolve;
 	reject = c->reject;
+	js_free(ctx, c->arg);
+	c->arg = NULL;
+	c->arg_len = 0;
 	c->resolve = JS_UNDEFINED;
 	c->reject = JS_UNDEFINED;
+	c->state = WL_CALL_FREE;
+	c->next = s->free_head;
+	s->free_head = id;
 	c = NULL;
 	JS_UpdateStackTop(s->rt);
 	v = JS_NewStringLen(ctx, len ? text : "", len);

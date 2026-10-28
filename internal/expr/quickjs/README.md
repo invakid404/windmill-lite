@@ -84,10 +84,10 @@ What the package does not do:
 
 | Limit | Default | What happens |
 |---|---|---|
-| heap | 128 MiB (`Limits.MemoryMB`) | Allocation fails past the cap. QuickJS-ng then throws an `InternalError` with the text `out of memory`, or a bare `null` or `undefined`, and the exception keeps that kind ([JE-3](../../../docs/semantics/expressions.md#je-3)). The cap covers the engine's own records of host calls and the copies of their arguments. Reading the completion value or the exception back gets 16 MiB of headroom above the cap. |
+| heap | 128 MiB (`Limits.MemoryMB`) | Allocation fails past the cap. QuickJS-ng then throws an `InternalError` with the text `out of memory`, or a bare `null` or `undefined`, and the exception keeps that kind ([JE-3](../../../docs/semantics/expressions.md#je-3)). The cap also covers the engine's host-call bookkeeping: one record per outstanding call, reused once the call settles, and the argument copies of calls not yet handed to Go, which are freed as Go copies them. Reading the completion value or the exception back gets 16 MiB of headroom above the cap. |
 | stack | 1 MiB (`Limits.StackBytes`) | QuickJS-ng's built-in default, which Windmill's embedding never changes ([JE-48](../../../docs/semantics/expressions.md#je-48)). It is measured from where each call enters the engine: the top level, each round of the job loop, each settlement. Overflow is a catchable `RangeError`, `Maximum call stack size exceeded`. A slot thread's own stack is at least 8 MiB and at least 4 MiB more than this limit, so a deep recursion meets the engine's error, never the end of the thread. Threads that the Go runtime creates would have the C library's default stack, which is 128 KiB on musl. |
-| attempt | 20 s (`Limits.Attempt`) | The attempt is interrupted through QuickJS-ng's interrupt handler, which the engine polls in loops, calls and regular-expression matching. The interrupt cannot be caught. `Eval` returns `expr.ErrAttemptTimeout`, and the slot prepares a new runtime. Windmill leaves a timed-out evaluation running; interrupting it is deviation D8 of [0001](../../../docs/design/0001-equivalence-contract.md). A Promise that never settles also ends here ([JE-2](../../../docs/semantics/expressions.md#je-2)). |
-| context | the caller's `ctx` | When `ctx` ends during an evaluation, the program is interrupted the same way and `Eval` returns `context.Cause(ctx)`. |
+| attempt | 20 s (`Limits.Attempt`) | The attempt is interrupted through QuickJS-ng's interrupt handler, which the engine polls in loops, calls and regular-expression matching. The interrupt cannot be caught. A built-in that runs long without reaching the handler (`"x".repeat(n)` on a large `n`, for one), or a long readback, still ends the attempt: whatever the program got to, `Eval` returns `expr.ErrAttemptTimeout` once the limit has passed, and the slot prepares a new runtime. Windmill leaves a timed-out evaluation running; interrupting it is deviation D8 of [0001](../../../docs/design/0001-equivalence-contract.md). A Promise that never settles also ends here ([JE-2](../../../docs/semantics/expressions.md#je-2)). |
+| context | the caller's `ctx` | When `ctx` ends during an evaluation, the program is interrupted the same way and `Eval` returns `context.Cause(ctx)`, again whatever the program got to. |
 
 ## Vendored source and licence
 
@@ -128,8 +128,10 @@ architecture.
 - The Go tests cover the binding, host functions (concurrency and its
   bound, rejection, settling after queued jobs, the attempt's end, program
   code that calls the host while a call is settled, arguments counted
-  against the cap), exceptions, the compile cache, fresh runtimes, leaks,
-  interrupts, cancellation, `Close`, the arrival order of waiting callers,
+  against the cap, sequential calls whose arguments add up past the cap,
+  record reuse), exceptions, the compile cache, fresh runtimes, leaks,
+  interrupts and cancellations (also when they come during a long built-in
+  or readback), `Close`, the arrival order of waiting callers,
   concurrent use under `-race`, and the overflow depth at the default
   stack, which they log for each platform and check against JE-48's
   bracket. An engine started through the tests' shared helper must end with

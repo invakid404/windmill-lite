@@ -157,7 +157,9 @@ func (e *Engine) Compile(source string) (expr.Program, error) {
 // The completion value is settled when the program's top level returns
 // something other than a Promise, or when the Promise it returned has
 // settled; jobs still queued then never run. A job that throws fails the
-// evaluation with its exception. The result text is UTF-8, except that an
+// evaluation with its exception. An attempt that ends while a built-in or the
+// readback is still running ends the evaluation all the same: Eval returns
+// expr.ErrAttemptTimeout or context.Cause(ctx), whatever the program got to. The result text is UTF-8, except that an
 // unpaired surrogate comes back as its three-byte (WTF-8) form.
 func (e *Engine) Eval(ctx context.Context, p expr.Program, in expr.Input) ([]byte, error) {
 	prog, ok := p.(*program)

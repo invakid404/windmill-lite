@@ -146,7 +146,7 @@ func (s *slot) compile(source string) reply {
 	var bc *C.uint8_t
 	var n C.size_t
 	if rc := C.wl_compile(s.c, cstr(source), C.size_t(len(source)), &bc, &n); rc != C.WL_OK {
-		return reply{err: s.failure(rc, nil)}
+		return reply{err: s.failure(rc)}
 	}
 	return reply{out: goBytes(unsafe.Pointer(bc), n)}
 }
@@ -195,21 +195,33 @@ func (s *slot) eval(j *job) reply {
 		stop()
 		s.disarm()
 	}()
+	r := s.runAttempt(j, attempt)
+	// The interrupt stops running JavaScript, but a built-in or a readback
+	// can run past the limit without reaching the handler. Whatever the
+	// program got to, an attempt that has ended reports its end (JE-2, D8).
+	if attempt.Err() != nil {
+		return reply{err: s.ended(attempt)}
+	}
+	return r
+}
 
+// runAttempt binds j's input, runs its program and reads its outcome back.
+// When the attempt ends first it may return anything; eval replaces it.
+func (s *slot) runAttempt(j *job, attempt context.Context) reply {
 	C.wl_begin(s.c)
 	for _, hs := range j.in.Strings {
 		if rc := C.wl_def_string(s.c, cstr(hs.Name), C.size_t(len(hs.Name)), cbytes(hs.Text), C.size_t(len(hs.Text))); rc != C.WL_OK {
-			return reply{err: s.failure(rc, attempt)}
+			return reply{err: s.failure(rc)}
 		}
 	}
 	for i, hf := range j.in.Funcs {
 		if rc := C.wl_def_func(s.c, cstr(hf.Name), C.size_t(len(hf.Name)), C.int(i)); rc != C.WL_OK {
-			return reply{err: s.failure(rc, attempt)}
+			return reply{err: s.failure(rc)}
 		}
 	}
 	bc := j.prog.bc
 	if rc := C.wl_start(s.c, (*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(bc))), C.size_t(len(bc))); rc != C.WL_OK {
-		return reply{err: s.failure(rc, attempt)}
+		return reply{err: s.failure(rc)}
 	}
 
 	done := make(chan struct{})
@@ -220,10 +232,10 @@ func (s *slot) eval(j *job) reply {
 		rc := C.wl_run(s.c)
 		switch rc {
 		case C.WL_OK:
-			return s.result(attempt)
+			return s.result()
 		case C.WL_WAITING:
 		default:
-			return reply{err: s.failure(rc, attempt)}
+			return reply{err: s.failure(rc)}
 		}
 		running += s.dispatch(attempt, j.in.Funcs, maxCallsInFlight-running, results, done)
 		// Nothing runs until a host call settles; with none running the
@@ -234,11 +246,11 @@ func (s *slot) eval(j *job) reply {
 		case r = <-results:
 			running--
 		case <-attempt.Done():
-			return reply{err: s.interrupted(attempt)}
+			return reply{err: errInterrupted}
 		}
 		if attempt.Err() != nil {
 			// Both were ready; the attempt's end wins.
-			return reply{err: s.interrupted(attempt)}
+			return reply{err: errInterrupted}
 		}
 		ok := C.int(1)
 		out := r.out
@@ -246,13 +258,15 @@ func (s *slot) eval(j *job) reply {
 			ok, out = 0, []byte(r.err.Error())
 		}
 		if rc := C.wl_settle(s.c, r.id, ok, cbytes(out), C.size_t(len(out))); rc != C.WL_OK {
-			return reply{err: s.failure(rc, attempt)}
+			return reply{err: s.failure(rc)}
 		}
 	}
 }
 
 // dispatch starts a goroutine for each queued host call, oldest first, up to
-// limit of them, and returns how many it started.
+// limit of them, and returns how many it started. Each argument is copied
+// and its engine copy freed at once, so that the heap holds only the
+// arguments of calls not yet dispatched.
 func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, results chan<- hostResult, done <-chan struct{}) int {
 	n := 0
 	for ; n < limit; n++ {
@@ -264,6 +278,7 @@ func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, r
 		}
 		call := funcs[index].Call
 		a := string(goBytes(unsafe.Pointer(arg.ptr), arg.len))
+		C.wl_free_arg(s.c, id)
 		go func() {
 			out, err := call(ctx, a)
 			select {
@@ -275,7 +290,7 @@ func (s *slot) dispatch(ctx context.Context, funcs []expr.HostFunc, limit int, r
 	return n
 }
 
-func (s *slot) result(attempt context.Context) reply {
+func (s *slot) result() reply {
 	var t C.wl_text
 	switch rc := C.wl_result(s.c, &t); rc {
 	case C.WL_OK:
@@ -283,32 +298,35 @@ func (s *slot) result(attempt context.Context) reply {
 	case C.WL_NOT_STRING:
 		return reply{err: expr.ErrNotString}
 	default:
-		return reply{err: s.failure(rc, attempt)}
+		return reply{err: s.failure(rc)}
 	}
 }
 
+// errInterrupted stands for the outcome of an attempt that the interrupt
+// stopped; eval replaces it with the attempt's cause.
+var errInterrupted = errors.New("expr/quickjs: interrupted")
+
 // failure turns a C status into the evaluation's error.
-func (s *slot) failure(rc C.int, attempt context.Context) error {
+func (s *slot) failure(rc C.int) error {
 	switch rc {
 	case C.WL_EXCEPTION:
 		var x C.wl_exc
-		if C.wl_exception(s.c, &x) == C.WL_INTERRUPTED && attempt != nil {
-			return s.interrupted(attempt)
+		if C.wl_exception(s.c, &x) == C.WL_INTERRUPTED {
+			return errInterrupted
 		}
 		return exception(&x)
 	case C.WL_INTERRUPTED:
-		if attempt != nil {
-			return s.interrupted(attempt)
-		}
+		return errInterrupted
 	case C.WL_NOT_STRING:
 		return expr.ErrNotString
 	}
 	return fmt.Errorf("expr/quickjs: unexpected engine status %d", int(rc))
 }
 
-// interrupted is the error of an attempt that the interrupt stopped: the
-// attempt limit, or the caller's context.
-func (s *slot) interrupted(attempt context.Context) error {
+// ended is the error of an attempt that ended before its evaluation could
+// report: the attempt limit, or the caller's context. It counts the attempt
+// once.
+func (s *slot) ended(attempt context.Context) error {
 	err := context.Cause(attempt)
 	if errors.Is(err, expr.ErrAttemptTimeout) {
 		s.e.stats.timeouts.Add(1)

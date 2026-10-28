@@ -84,11 +84,14 @@ int wl_start(wl_slot *s, const uint8_t *bc, size_t bc_len);
 int wl_run(wl_slot *s);
 
 // wl_take_call hands over the oldest queued host call: its id, function
-// index and argument text, valid until wl_release. It returns 0 when no call
-// is queued.
+// index and argument text, valid until wl_free_arg, wl_settle or
+// wl_release. It returns 0 when no call is queued.
 int wl_take_call(wl_slot *s, uint32_t *id, int *index, wl_text *arg);
+// wl_free_arg frees the argument of taken call id, once it has been copied.
+void wl_free_arg(wl_slot *s, uint32_t id);
 // wl_settle resolves call id with text (ok != 0) or rejects it with
-// new Error(text). WL_OK, WL_EXCEPTION or WL_INTERRUPTED.
+// new Error(text), and frees its record for reuse. WL_OK, WL_EXCEPTION or
+// WL_INTERRUPTED.
 int wl_settle(wl_slot *s, uint32_t id, int ok, const char *text, size_t len);
 
 // wl_result reads the fulfilled completion value as UTF-8, valid until
