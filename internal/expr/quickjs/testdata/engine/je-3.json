@@ -1,0 +1,136 @@
+{
+  "finding": "JE-3",
+  "cases": [
+    {
+      "spec": "JE-3/a",
+      "provenance": "source-derived",
+      "title": "a null throw keeps its kind, which the pipeline reads as out of memory",
+      "note": "The engine reports the throw; the memory-limit message is the pipeline's (B2b).",
+      "given": {
+        "expr": "(() => { throw null })()"
+      },
+      "expect": {
+        "exception": {
+          "thrown": "null",
+          "out_of_memory": true
+        }
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "throw-undefined",
+      "provenance": "source-derived",
+      "title": "an undefined throw is also out of memory",
+      "given": {
+        "expr": "(() => { throw undefined })()"
+      },
+      "expect": {
+        "exception": {
+          "thrown": "undefined",
+          "out_of_memory": true
+        }
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "user-error-text",
+      "provenance": "source-derived",
+      "title": "a user Error with the text out of memory stays an ordinary error",
+      "given": {
+        "expr": "(() => { throw new Error(\"out of memory\") })()"
+      },
+      "expect": {
+        "exception": {
+          "thrown": "error",
+          "name": "Error",
+          "message": "out of memory",
+          "out_of_memory": false
+        }
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "string-over-cap",
+      "provenance": "source-derived",
+      "title": "a 200 MiB string exceeds the default 128 MiB cap",
+      "given": {
+        "expr": "\"x\".repeat(200 * 1024 * 1024).length"
+      },
+      "expect": {
+        "exception": {
+          "out_of_memory": true
+        }
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "objects-over-cap",
+      "provenance": "source-derived",
+      "title": "an unbounded allocation loop stops at the cap",
+      "given": {
+        "expr": "(() => { const a = []; for (;;) a.push([a.length]); })()"
+      },
+      "expect": {
+        "exception": {
+          "out_of_memory": true
+        }
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "under-cap",
+      "provenance": "source-derived",
+      "title": "a 64 MiB string fits under the default cap",
+      "given": {
+        "expr": "\"x\".repeat(64 * 1024 * 1024).length"
+      },
+      "expect": {
+        "value": "67108864"
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "lower-cap",
+      "provenance": "source-derived",
+      "title": "a host-set cap of 32 MB rejects the same 64 MiB string",
+      "note": "QUICKJS_MEMORY_LIMIT_MB sets this cap on Windmill; the host passes it as Limits.MemoryMB.",
+      "given": {
+        "expr": "\"x\".repeat(64 * 1024 * 1024).length",
+        "limits": {
+          "memory_mb": 32
+        }
+      },
+      "expect": {
+        "exception": {
+          "out_of_memory": true
+        }
+      }
+    },
+    {
+      "spec": "JE-3",
+      "variant": "bound-string-over-cap",
+      "provenance": "source-derived",
+      "title": "a bound value larger than the cap fails before the program runs",
+      "given": {
+        "expr": "big.length",
+        "strings": [
+          {
+            "name": "big",
+            "gen": {
+              "repeat": "x",
+              "count": 9437184
+            }
+          }
+        ],
+        "limits": {
+          "memory_mb": 8
+        }
+      },
+      "expect": {
+        "exception": {
+          "out_of_memory": true
+        }
+      }
+    }
+  ]
+}

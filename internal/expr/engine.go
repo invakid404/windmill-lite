@@ -125,16 +125,16 @@ type Limits struct {
 	// Attempt is the wall-clock limit of one attempt (JE-2); an attempt that
 	// reaches it is interrupted (D8).
 	Attempt time.Duration
-	// StackBytes is the engine's maximum stack size. It is observable as
+	// StackBytes is the engine's maximum stack size, measured from where
+	// each call enters the engine (JE-48). It is observable as
 	// stack-overflow depth, so it is pinned and recorded in the bundle
-	// manifest (ADR 0003, semantics request 3).
+	// manifest (ADR 0003).
 	StackBytes int
 }
 
-// DefaultLimits returns Windmill's limits: 128 MiB per runtime (JE-3) and
-// 20 s per attempt (JE-2), and QuickJS-ng's built-in maximum stack of 1 MiB,
-// pinned until semantics request 3 says which value Windmill's embedding
-// uses.
+// DefaultLimits returns Windmill's limits: 128 MiB per runtime (JE-3), 20 s
+// per attempt (JE-2), and QuickJS-ng's built-in maximum stack of 1 MiB,
+// which Windmill's embedding never changes (JE-48).
 func DefaultLimits() Limits {
 	return Limits{MemoryMB: 128, Attempt: 20 * time.Second, StackBytes: 1 << 20}
 }
