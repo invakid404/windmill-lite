@@ -307,5 +307,34 @@
     "name": "a main re-exported from another module",
     "source": "function main(x) {}\nexport { main } from \"./elsewhere\";",
     "refuse": "re-exported from another module"
+  },
+  {
+    "name": "a type-only export list entry is no runtime main",
+    "source": "function main(x: string) { return x }; export { type main };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "a type-only export list is no runtime main",
+    "source": "function main(x: string) { return x }\nexport type { main };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "a type-only alias of main is no runtime main",
+    "source": "function main(x: string) { return x }\nexport { type main as main };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "main beside a type-only entry in one export list",
+    "source": "type Foo = string;\nfunction main(x: Foo) { return x }\nexport { type Foo, main };",
+    "params": "x: Foo",
+    "keep": [
+      "type Foo = string;"
+    ]
+  },
+  {
+    "name": "a binding named type in an export list",
+    "source": "const type = 1;\nfunction main(x: number) { return x }\nexport { type, main };",
+    "params": "x: number",
+    "keep": []
   }
 ]

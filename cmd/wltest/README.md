@@ -72,7 +72,8 @@ bin/wltest stub --out <dir> <sync tree>
 ```
 
 Copies the sync tree (the directory of its `wmill.yaml`) to `<dir>`, which
-must not exist and must not lie inside the tree (symbolic links resolved),
+must not exist and must not lie inside the tree (compared by file identity,
+so a symbolic link or a case alias counts),
 with the source of every Bun script and every `!inline` Bun rawscript
 replaced by a stub that keeps `main`'s declaration with its parameter list
 and the type declarations, never calls it, and exports a function under

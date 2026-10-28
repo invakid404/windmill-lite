@@ -430,3 +430,98 @@ console.log(JSON.stringify({ calls: calls.map((x) => x.url), args: calls.filter(
 		})
 	}
 }
+
+// TestStubTreeRefusesACaseAlias spells the output's parent with another
+// letter case than the tree. On a case-insensitive file system (macOS by
+// default) the two spellings are one directory, so the output is inside
+// the tree and is refused before anything is written; on a case-sensitive
+// one they are two directories, and the stub is written.
+func TestStubTreeRefusesACaseAlias(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(base, "SourceTree")
+	for p, c := range map[string]string{"wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\n", "f/x/a.ts": okScript} {
+		full := filepath.Join(src, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(base, "sourcetree")
+	a, errA := os.Stat(src)
+	b, errB := os.Stat(alias)
+	sameDir := errA == nil && errB == nil && os.SameFile(a, b)
+	before := listTree(t, src)
+	_, err := StubTree(src, filepath.Join(alias, "out"))
+	if after := listTree(t, src); after != before {
+		t.Fatalf("the tree changed:\n%s\nwas\n%s", after, before)
+	}
+	if sameDir {
+		if err == nil || !strings.Contains(err.Error(), "is inside the sync tree") {
+			t.Fatalf("a case alias of the tree: got %v", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("a distinct directory on a case-sensitive file system: %v", err)
+	}
+	t.Log("case-sensitive file system: the alias is a separate directory")
+}
+
+// TestExportListsOnBun checks the scanner's reading of export lists
+// against the pinned Bun: a script is stubbed exactly when importing it
+// gives a callable main, so a type-only export entry (which exports
+// nothing at run time) is refused as Windmill would fail it (WR-7), and
+// the stub of every accepted one exports a callable main too.
+func TestExportListsOnBun(t *testing.T) {
+	bun := os.Getenv("WL_BUN")
+	if bun == "" {
+		if os.Getenv("WL_REQUIRE_BUN") != "" {
+			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
+		}
+		t.Skip("WL_BUN is not set; it names the pinned Bun " + BunVersion)
+	}
+	typeofMain := func(t *testing.T, src string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "main.ts"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "driver.ts"), []byte(`const m = await import("./main.ts"); console.log(typeof m.main);`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(bun, "run", "driver.ts")
+		cmd.Dir = dir
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("bun: %v\n%s", err, stderr.String())
+		}
+		return strings.TrimSpace(string(out))
+	}
+	for _, src := range []string{
+		"function main(x: string) { return x }\nexport { main };",
+		"function main(x: string) { return x }; export { type main };",
+		"function main(x: string) { return x }\nexport type { main };",
+		"function main(x: string) { return x }\nexport { type main as main };",
+		"type Foo = string;\nfunction main(x: Foo) { return x }\nexport { type Foo, main };",
+		"function main(x: string) { return x }\nconst run = (x: string) => x;\nexport { run as main };",
+		"export async function main(x: string) { return x }",
+	} {
+		got := typeofMain(t, src)
+		stub, err := StubSource(src)
+		switch {
+		case got == "function" && err != nil:
+			t.Errorf("Bun exports a callable main, the scanner refuses: %v\n%s", err, src)
+		case got != "function" && err == nil:
+			t.Errorf("Bun exports main as %s, the scanner accepts it\n%s", got, src)
+		case err == nil:
+			if s := typeofMain(t, stub); s != "function" {
+				t.Errorf("the stub exports main as %s\n%s", s, src)
+			}
+		}
+	}
+}

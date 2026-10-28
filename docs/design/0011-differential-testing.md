@@ -240,9 +240,11 @@ AI-agent step), a retry on a subflow, loop or branch step (the walk puts a
 failed attempt's inner steps under `r:<k>`, which a table does not
 address), and a script whose `main` Windmill would not call as the stub's
 (no `function main` declaration, one not exported directly or through an
-export list, a re-exported, default-exported, generic, generator or
-overloaded `main`, a `preprocessor`). `wltest stub` writes the stubbed copy
-to a new directory outside the tree, never in place. Because the copy's metadata still describes the
+export list (a type-only entry exports nothing), a re-exported,
+default-exported, generic, generator or overloaded `main`, a
+`preprocessor`). `wltest stub` writes the stubbed copy to a new directory
+outside the tree, decided by file identity rather than spelling, never in
+place. Because the copy's metadata still describes the
 originals, `record` runs the CLI's `generate-metadata` in it and requires
 every path script's generated schema to equal the original's: the CLI
 derives the schema from the signature, so this checks on the oracle that the

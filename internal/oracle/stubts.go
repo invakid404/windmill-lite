@@ -495,19 +495,25 @@ func exportedNames(toks []tsToken) (exportsMain bool, err error) {
 				return false, err
 			}
 			named := false
-			// Each specifier is name, type name, or name as alias; the
-			// exported name is its last identifier.
-			last := ""
+			// Each specifier is name, name as alias, or a type-only
+			// "type name" or "type name as alias", which exports nothing
+			// at run time; the exported name is its last identifier.
+			last, first, n := "", "", 0
 			for k := i + 2; k <= close; k++ {
 				if toks[k].is(tsPunct, ",") || k == close {
-					if last == "main" {
+					typeOnly := first == "type" && n > 1
+					if last == "main" && !typeOnly {
 						named = true
 					}
-					last = ""
+					last, first, n = "", "", 0
 					continue
 				}
 				if toks[k].kind == tsIdent || toks[k].kind == tsString {
 					last = strings.Trim(toks[k].text, `"'`)
+					if n == 0 {
+						first = toks[k].text
+					}
+					n++
 				}
 			}
 			if named {

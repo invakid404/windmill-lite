@@ -173,9 +173,11 @@ hash (it runs that deployed version, not the stub pushed at its path,
 [OF-14](../../docs/semantics/openflow.md#of-14)), a `flowscript` step, an
 AI-agent step, a retry on a subflow, loop or branch step (a failed attempt's inner steps
 are walked under `r:<k>`, which a table does not address), and a source
-`StubSource` refuses. The output must not lie inside the tree (canonical
-paths, so a symbolic link in its parents counts), and a copy that fails
-removes the output and any parent directory it made. The CLI then runs
+`StubSource` refuses. The output must not lie inside the tree, which is
+decided by file identity (`os.SameFile` against each existing ancestor of
+the output, links resolved), so a symbolic link, another letter case on a
+case-insensitive file system or any other alias of the tree counts; a copy
+that fails removes the output and any parent directory it made. The CLI then runs
 `generate-metadata` in the copy,
 since its locks and `wmill-lock.yaml` still describe the originals, and
 `CheckStubSignatures` requires every path script's generated schema to
@@ -215,7 +217,8 @@ bracket depth, so text in strings, comments, templates and regular
 expressions never counts as code. It refuses a script without a `function
 main` declaration (an arrow `main` gets no arguments from Windmill), one
 that is neither exported where it is declared nor through an export list
-(`export { main }`, `export { other as main }`), one re-exported from
+(`export { main }`, `export { other as main }`; a type-only entry such as
+`export { type main }` exports nothing at run time), one re-exported from
 another module, a default-exported, generic, generator or overloaded
 `main`, and a `preprocessor`. At the top level, `type` and
 a name on one line before `=` or `<`, and `interface` and a name, are
@@ -327,7 +330,8 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`, the hash-pinned script step and the `flowscript` step among them; the schema check | `conformance/flows/stub` |
 | `TestStubRunsOnBun` | a generated stub on the pinned Bun (`WL_BUN`) against the real replay service: the request it sends (identities, the hydrated `Date` as its JSON), an error outcome thrown with its name, message and own property, a result returned with its member order, a refusal thrown | `conformance/flows/stub/collapsed` |
 | `TestStubIsolationOnBun` | stubs on the pinned Bun with `fetch` recorded: a default that would call a service or name a dropped binding never runs, and a parameter or destructured binding named `Array` cannot reach the stub's code; the replay call is the only request. Each original runs through the same driver first, to show the recorder sees what a default does | — |
-| `TestStubTreeKeepsItsOutputOutsideTheTree` | an output inside the tree, directly or through a symbolic link, is refused with the tree unchanged; a failed copy removes its output and the parents it made | — |
+| `TestStubTreeKeepsItsOutputOutsideTheTree`, `TestStubTreeRefusesACaseAlias` | an output inside the tree, directly, through a symbolic link, or through another letter case where the file system makes it the same directory, is refused with the tree unchanged (where the spellings are two directories, the stub is written); a failed copy removes its output and the parents it made | — |
+| `TestExportListsOnBun` | the scanner accepts a script exactly when importing it on the pinned Bun gives a callable `main` (export lists, type-only entries, aliases), and every accepted script's stub exports one too | — |
 | `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
 | `TestCheckReplay`, `TestCheckOverlap` | each failure of `checkReplay`; a group's root jobs in flight together | — |
 | `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes the stub fixtures job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; runs `r` and `t` run together and keep apart; `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |

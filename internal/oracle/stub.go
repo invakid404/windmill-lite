@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/openflow"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
@@ -163,15 +162,15 @@ func StubTree(src, dst string) (*StubReport, error) {
 }
 
 // outsideTree refuses an output directory that would lie inside the tree
-// it copies, by canonical paths (symbolic links in dst's existing parents
-// resolved): the copy would walk into itself. It returns the first
-// component of dst that does not exist yet, the directory a failed copy
-// removes.
+// it copies: the copy would walk into itself. It compares file identities,
+// not spellings: dst is inside src when src is the same directory as an
+// existing ancestor of dst, after symbolic links are resolved, so a path
+// through a link, another letter case on a case-insensitive file system or
+// any other alias of src is caught, and distinct directories on a
+// case-sensitive one stay distinct. It returns the first component of dst
+// that does not exist yet, the directory a failed copy removes.
 func outsideTree(src, dst string) (created string, err error) {
-	srcCanon, err := filepath.Abs(src)
-	if err == nil {
-		srcCanon, err = filepath.EvalSymlinks(srcCanon)
-	}
+	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return "", err
 	}
@@ -195,13 +194,25 @@ func outsideTree(src, dst string) (created string, err error) {
 		missing = append([]string{filepath.Base(existing)}, missing...)
 		existing = parent
 	}
+	// With links resolved, each parent of the resolved ancestor is the
+	// directory its spelling names, so the walk up is the real one.
 	base, err := filepath.EvalSymlinks(existing)
 	if err != nil {
 		return "", err
 	}
-	dstCanon := filepath.Join(append([]string{base}, missing...)...)
-	if rel, err := filepath.Rel(srcCanon, dstCanon); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("oracle: stub output %s is inside the sync tree %s, which the copy would walk into", dst, src)
+	for a := base; ; {
+		info, err := os.Stat(a)
+		if err != nil {
+			return "", err
+		}
+		if os.SameFile(srcInfo, info) {
+			return "", fmt.Errorf("oracle: stub output %s is inside the sync tree %s, which the copy would walk into", dst, src)
+		}
+		parent := filepath.Dir(a)
+		if parent == a {
+			break
+		}
+		a = parent
 	}
 	return filepath.Join(existing, missing[0]), nil
 }
