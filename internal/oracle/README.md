@@ -135,9 +135,11 @@ A container module records no args: its job's args are Windmill's
 body jobs get no record of their own, but their ids map to `i:<n>` and
 `b:<n>` for placeholders. A flow status that does not match the fixture's
 module list is an error, not an observation. These rules follow the shapes
-oracle run 1 recorded, as the reference describes them; only the
-sequential and failure shapes of the smoke fixture are recorded by this
-milestone, and the recording batches E3a to E3e confirm the rest.
+oracle run 1 recorded, as the reference describes them. The smoke fixture
+records the sequential and failure shapes, and the stub fixtures
+(`conformance/flows/stub`) record failed attempts, sequential, collapsed,
+parallel and nested loop iterations and a named subflow; the recording
+batches E3a to E3e confirm the rest (branches, while loops, the slots).
 
 ## Stub mode
 
