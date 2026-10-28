@@ -1,9 +1,10 @@
 # internal/expr/quickjs
 
 **Current state:** implemented (milestone B1a of
-[0012](../../../docs/design/0012-layout-and-milestones.md)); no other package
-calls it yet. This README covers `internal/expr/quickjs/`, with its vendored
-`quickjs-ng/` sources and its `testdata/`. The package is windmill-lite's
+[0012](../../../docs/design/0012-layout-and-milestones.md)); milestone F4
+gave its heap the mimalloc allocator. Only `windmill-lite selfcheck` calls it
+yet. This README covers `internal/expr/quickjs/`, with its vendored
+`quickjs-ng/` and `mimalloc/` sources and its `testdata/`. The package is windmill-lite's
 JavaScript engine for flow expressions: QuickJS-ng at revision `be664ca1`,
 the engine Windmill's expressions run on
 ([JE-1](../../../docs/semantics/expressions.md#je-1)), compiled from C source
@@ -102,11 +103,47 @@ off, because a program can reach one of them: the one in `JS_FreeRuntime`
 that checks for leaked objects. The tracked heap handles those leaks
 instead.
 
+`mimalloc/` holds the allocator the engine's heap uses (below): mimalloc
+v3.5.3, revision `d4881d338125e1cb7c47ba4cfb398d6f7c0c8d45`, copied
+unmodified under the MIT licence, with its own
+[NOTICE](mimalloc/NOTICE) that the same test checks. `qjs_mimalloc.c`
+compiles it.
+
 Building needs cgo and a C compiler: the system clang on macOS. The Linux
 release binaries are static, built with `zig cc` against musl. The `Static
-Linux engine` CI job builds this package's tests that way for `amd64` and
-`arm64`, checks that the binary is static, and runs it on a runner of that
-architecture.
+Linux engine` CI job builds the tests of this package and of
+[internal/expr](../README.md) that way for `amd64` and `arm64`, checks that
+the binaries are static, and runs them on a runner of that architecture.
+
+## Allocator
+
+The engine allocates every block of a runtime's heap with mimalloc
+(`mi_malloc` and the rest, in `wl_quickjs.c`), and the heap cap counts each
+block's `mi_usable_size`. mimalloc does not replace the C library's
+`malloc`, which the rest of the program keeps.
+
+musl's `malloc`, which the static Linux engine links, makes every slot
+thread wait on one lock. Measured in CI (`TestPoolUnderLoad`, CI run
+40709537760), the CPU per evaluation with 8 callers back to back:
+
+| Runner | Bound value | musl and mimalloc (release) | musl's malloc | glibc's malloc |
+|---|---|---|---|---|
+| `linux/arm64` | 4 KB | 189 µs | 2.27 ms | 261 µs |
+| `linux/arm64` | 256 KB | 1.46 ms | 12.9 ms | 1.69 ms |
+| `linux/amd64` | 4 KB | 340 µs | 1.74 ms | 433 µs |
+| `linux/amd64` | 256 KB | 2.82 ms | 8.45 ms | 3.04 ms |
+
+One caller costs about the same with every allocator. With mimalloc, the
+glibc and musl builds measure the same, and the heap accounting no longer
+depends on the C library's block sizes. On a Linux C library other than
+glibc, `qjs_mimalloc.c` sets mimalloc's `MI_LIBC_MUSL` (musl defines no
+macro of its own), which only stops mimalloc reading the thread pointer
+directly.
+
+The build tag `wl_libc_malloc` (`alloc_libc.go`) puts the C library's
+allocator back. Only measurements use it: the `Static Linux engine` CI job
+prints the pool's table for four builds in its summary (musl or glibc,
+each with mimalloc and with its own `malloc`).
 
 ## Tests and cases
 

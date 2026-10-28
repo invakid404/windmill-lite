@@ -201,6 +201,11 @@ func TestBunConfigValidation(t *testing.T) {
 		"repeated key": func(c *BunConfig) {
 			c.HostModules = []HostModule{{ID: "m", Key: "k", Package: "p"}, {ID: "n", Key: "k", Package: "q"}}
 		},
+		"empty segment":  func(c *BunConfig) { c.Entries = []BunScript{{ID: "f//a", Path: "f/a", File: "f/a.ts"}} },
+		"dot segment":    func(c *BunConfig) { c.Entries = []BunScript{{ID: "f/./a", Path: "f/a", File: "f/a.ts"}} },
+		"backslash":      func(c *BunConfig) { c.Entries = []BunScript{{ID: `f\a`, Path: "f/a", File: "f/a.ts"}} },
+		"provided entry": func(c *BunConfig) { c.Entries = []BunScript{{ID: "Provided/a", Path: "f/a", File: "f/a.ts"}} },
+		"bad module id":  func(c *BunConfig) { c.HostModules = []HostModule{{ID: "f/../m", Key: "k", Package: "p"}} },
 	} {
 		c := base
 		mod(&c)
@@ -210,6 +215,15 @@ func TestBunConfigValidation(t *testing.T) {
 	}
 	if err := base.validate(); err != nil {
 		t.Errorf("the base config: %v", err)
+	}
+	// Inventory ids: a path script's path, with segments, and an inline
+	// script's id.
+	nested := base
+	nested.Scripts = map[string]string{"f/shared/ctx": "f/shared/ctx.ts"}
+	nested.Entries = []BunScript{{ID: "f/app/x", Path: "f/app/x", File: "f/app/x.ts"}, {ID: "inline-0123456789abcdef", Path: "f/app/flow/a", Content: "x"}}
+	nested.HostModules = []HostModule{{ID: "f/shared/ctx", Key: "f/shared/ctx.ts", Path: "f/shared/ctx", File: "f/shared/ctx.ts"}}
+	if err := nested.validate(); err != nil {
+		t.Errorf("ids with segments: %v", err)
 	}
 }
 

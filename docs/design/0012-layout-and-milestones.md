@@ -19,7 +19,7 @@ already pass.
 ### Layout
 
 ```text
-cmd/windmill-lite/          the CLI: build, run, gen, pack, image, verify, serve
+cmd/windmill-lite/          the CLI: build, run, gen, pack, image, verify, selfcheck, serve
 cmd/wltest/                 conformance and oracle runner: check, record, diff, stub
 wl/                         the public Go library API (0009); the only exported engine package
 wl/plugin/                  go-plugin client and server helpers for hosts (0009)
@@ -180,6 +180,9 @@ waits on an external gate except R1.
   the shared build transforms (the define table, its support module and the shim
   generator) in `internal/bundle`, which F4 extends with the bundle format,
   and the Bun build helper in `harnesses/bun/build`.
+- F4 added `windmill-lite selfcheck`, which starts the expression engine and
+  runs a few probes, to the CLI: it is how its exit gate starts the static
+  Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).
 
 ## Spec IDs relied on
 

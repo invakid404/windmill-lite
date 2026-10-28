@@ -9,7 +9,6 @@
     {"spec": "WR-8/f", "reason": "the same script as WR-8/d; an unparsable string becoming an Invalid Date is hydration at run time", "expected_in": "C3a (the step suite)"},
     {"spec": "WR-V3/c", "reason": "no Date for a missing input is hydration at run time; the parameter's Date marking is WR-8/d's", "expected_in": "C3a (the step suite)"},
     {"spec": "WR-26/b", "reason": "dependency inference: windmill-lite consumes the folder's locks and does not generate them (ADR 0002, validation 5)", "expected_in": "a later milestone that adds lock generation (L1)"},
-    {"spec": "WA-33/c", "reason": "the loader's refusal; the build records the markers it acts on (workflow_as_code in the metadata)", "expected_in": "A5 (load errors)"},
     {"spec": "WA-31/a", "reason": "per-invocation isolation in a warm process is the harness's env view and fetch interception", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"},
     {"spec": "WA-31/b", "reason": "the concurrent Bun.env reads run in the harness; the rewrite they rely on is checked by this directory's WA-31 cases", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"}
   ]

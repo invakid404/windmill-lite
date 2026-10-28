@@ -73,6 +73,14 @@ type buildCase struct {
 			Package      string            `json:"package"`
 			Dependencies map[string]string `json:"dependencies"`
 		} `json:"host_modules"`
+		// Folder is a whole sync folder, wmill.yaml included, which the case
+		// builds with Build and its Contract (none: every item is a root).
+		// Locks gives scripts' dependencies by script file: the runner
+		// writes the lock it makes from the case's packages beside it, as
+		// <path>.script.lock.
+		Folder   map[string]string            `json:"folder"`
+		Contract string                       `json:"contract"`
+		Locks    map[string]map[string]string `json:"locks"`
 	} `json:"given"`
 	Expect struct {
 		entryExpect
@@ -82,6 +90,13 @@ type buildCase struct {
 			Imports []string     `json:"host_modules"`
 			Problem *problemWant `json:"problem"`
 		} `json:"provided"`
+		// BuildProblems are every problem Build reports for a Folder case,
+		// none for a clean build. Item is the start of the reported item.
+		BuildProblems []struct {
+			Item     string   `json:"item"`
+			Kind     string   `json:"kind"`
+			Contains []string `json:"contains"`
+		} `json:"build_problems"`
 		HostModuleOrder []string     `json:"host_module_order"`
 		OrderProblem    *problemWant `json:"order_problem"`
 		Warnings        []string     `json:"warnings"`
@@ -208,6 +223,10 @@ func TestConformanceBuild(t *testing.T) {
 }
 
 func runBuildCase(t *testing.T, bun, helper string, c buildCase) {
+	if c.Given.Folder != nil {
+		runFolderCase(t, bun, helper, c)
+		return
+	}
 	entries := c.Given.Entries
 	if c.Given.Source != "" || c.Given.Flow != nil {
 		main := c.Given.entryGiven
@@ -381,6 +400,62 @@ func runBuildCase(t *testing.T, bun, helper string, c buildCase) {
 			case !jsonEqual(t, g.Result, cl.Result):
 				t.Errorf("call %d: returned %s, want %s", i, g.Result, cl.Result)
 			}
+		}
+	}
+}
+
+// runFolderCase builds a whole sync folder with Build and checks every
+// problem it reports.
+func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
+	files := map[string]string{}
+	for p, text := range c.Given.Folder {
+		files[p] = text
+	}
+	var env []string
+	if len(c.Given.Locks) > 0 {
+		reg := newRegistry(t, c.Given.Packages)
+		for file, deps := range c.Given.Locks {
+			files[strings.TrimSuffix(file, ".ts")+".script.lock"] = reg.lock(t, bun, deps)
+		}
+		env = reg.env
+	}
+	cfg := Config{
+		Folder: writeFolder(t, files), EngineVersion: fixtureEngine,
+		Bun: bun, Helper: helper, HarnessRuntime: repoPath(t, "harnesses/bun/runtime"),
+		Out: filepath.Join(t.TempDir(), "bundle"), Work: t.TempDir(), Env: env,
+	}
+	if c.Given.Contract != "" {
+		cfg.Contract = []byte(c.Given.Contract)
+	}
+	res, err := Build(context.Background(), cfg)
+	var be *BuildError
+	if err != nil && !errors.As(err, &be) {
+		t.Fatalf("Build: %v", err)
+	}
+	// A case's item is the start of the reported one: an inline step's
+	// script id is a digest.
+	var got []ItemProblem
+	if be != nil {
+		got = slices.Clone(be.Problems)
+	}
+	for _, w := range c.Expect.BuildProblems {
+		i := slices.IndexFunc(got, func(p ItemProblem) bool { return strings.HasPrefix(p.Item, w.Item) && p.Kind == w.Kind })
+		if i < 0 {
+			t.Errorf("no problem %s for %q among %+v", w.Kind, w.Item, got)
+			continue
+		}
+		checkProblem(t, got[i].Item, &problemWant{Kind: w.Kind, Contains: w.Contains}, got[i].Problem, true)
+		got = slices.Delete(got, i, i+1)
+	}
+	for _, p := range got {
+		t.Errorf("unexpected problem %s: %s: %s", p.Item, p.Kind, p.Message)
+	}
+	if be == nil {
+		if res == nil || res.Manifest == nil {
+			t.Fatal("a clean build has no manifest")
+		}
+		if _, err := Verify(cfg.Out, VerifyOptions{Digest: res.Digest}); err != nil {
+			t.Error(err)
 		}
 	}
 }

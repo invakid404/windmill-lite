@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"runtime"
 	"slices"
@@ -634,7 +635,15 @@ func TestConcurrentEvaluations(t *testing.T) {
 }
 
 func TestVendoredSourcesAreUnmodified(t *testing.T) {
-	notice, err := os.ReadFile("quickjs-ng/NOTICE")
+	for _, dir := range []string{"quickjs-ng", "mimalloc"} {
+		t.Run(dir, func(t *testing.T) { checkNotice(t, dir) })
+	}
+}
+
+// checkNotice checks that dir/NOTICE lists every file under dir, with its
+// SHA-256.
+func checkNotice(t *testing.T, dir string) {
+	notice, err := os.ReadFile(dir + "/NOTICE")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -644,7 +653,7 @@ func TestVendoredSourcesAreUnmodified(t *testing.T) {
 		if len(fields) != 2 || len(fields[0]) != 64 {
 			continue
 		}
-		data, err := os.ReadFile("quickjs-ng/" + fields[1])
+		data, err := os.ReadFile(dir + "/" + fields[1])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -653,14 +662,17 @@ func TestVendoredSourcesAreUnmodified(t *testing.T) {
 		}
 		listed[fields[1]] = true
 	}
-	entries, err := os.ReadDir("quickjs-ng")
+	err = fs.WalkDir(os.DirFS(dir), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !listed[p] {
+			t.Errorf("%s/%s is not listed in NOTICE", dir, p)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if !listed[e.Name()] {
-			t.Errorf("%s is not listed in NOTICE", e.Name())
-		}
 	}
 	if len(listed) < 10 {
 		t.Fatalf("NOTICE lists only %d files", len(listed))
