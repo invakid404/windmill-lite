@@ -149,11 +149,14 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    rawscript body without an explicit `path` also shares an entry between
    collapsed iterations; it runs as `flowscript` jobs with one script hash,
    though their paths end in `/loop-<index>`, and the correction expected
-   no sharing there. The pinned CLI's `generate-metadata` writes container
-   defaults into `flow.yaml`, as [CF-6](../semantics/control-flow.md#cf-6)
-   says `sync pull` does. CF-7/d fails at pickup, with name `Anyhow` and
-   the message `Error: Bad request: Cannot continue on same worker …` plus a
-   location. The design waits on none of this.
+   no sharing there (a body pinned by hash shares too, as both readings
+   expect). The pinned CLI's `generate-metadata` writes container defaults
+   into `flow.yaml`, as [CF-6](../semantics/control-flow.md#cf-6) says
+   `sync pull` does; CF-6/a's recording holds its output beside the value
+   the API answers after the dependency job. CF-7/d fails at pickup, with
+   name `Anyhow` and the message
+   `Error: Bad request: Cannot continue on same worker …` plus a location.
+   The design waits on none of this.
 
 ## Changing the design
 

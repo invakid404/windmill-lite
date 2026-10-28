@@ -43,7 +43,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
 | `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop runs (cf-2 to cf-8, cf-9 run `a`, cf-11, cf-13 and the loop runs of cf-12) gate N3a; the while and branch runs (cf-10, cf-9 run `b`, cf-14, cf-15 and the branch runs `d` and `e-*` of cf-12) gate N3b. |
-| `flows/execution/fx-40` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)). Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4. |
+| `flows/execution/fx-40`, `fx-40-hash` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)); `fx-40-hash` pins the body's script by the hash its deployment assigns. Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4. |
 
 `internal/oracle/testdata/batches/<batch>.json` names each batch's
 findings, fixtures and the cases it defers, and `TestRecordingBatches`
@@ -56,9 +56,15 @@ write, generated against the oracle and committed as written
 it on every recording and fails on any change. `generate-metadata` writes a
 container's defaults into `flow.yaml` (`skip_failures` and `parallel` on a
 loop, `parallel` on a `branchall`, and `skip_failure`, `parallel` and `expr`
-on each branch), so a field left out of a fixture's flow never reaches the
-oracle absent: the recordings show deployed flows, the reference
-configuration of [ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
+on each branch), so a field left out of such a tree never reaches the
+oracle absent. A fixture with `oracle: {deploy: api}` (`cf-6`, `cf-15`,
+`fx-40-hash`) is instead created through the REST API exactly as written
+and never regenerated, so its tree holds no generated metadata; each of its
+recordings' provenance holds the target flow's submitted value, the value
+the API answers after the dependency job, and what `generate-metadata`
+writes for the same source ([internal/oracle](../internal/oracle/README.md#api-deployment)).
+Either way the recordings show deployed flows, the reference configuration
+of [ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
 
 ## OpenFlow decode cases
 

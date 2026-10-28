@@ -225,7 +225,7 @@ switch through a change to this record, naming the reason.
 | [OF-3](../semantics/openflow.md#of-3) / [OF-V5](../semantics/openflow.md#of-v5) | one or two form selections | not applicable: both readings agree on the successful lite deployment, which is the reference configuration | Q-OF-11 | none needed |
 | [CF-8](../semantics/control-flow.md#cf-8) | how far the raw-submission no-collapse rule reaches, and whether the stored form actually selected (lite or full) decides nested collapse | not applicable: windmill-lite never runs raw submissions and always reads the lite form (§1). The by-path halves of CF-8/a–c, which both readings agree on, are recorded (E3d), with the nested body's job kind `flownode` | Q-CF-15 | none needed |
 | [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | re-evaluation itself is not contested; (b) for the outcome | Q-FX-11 | E3e, gating the `later` milestone that implements `skip_expr` |
-| [FX-40](../semantics/execution.md#fx-40) | collapsed iterations (a) never, or (b) can share cache entries | **recorded: (b).** Two collapsed iterations with identical arguments share an entry for an inline rawscript body (with or without an explicit `path`) under the loop's `cache_ttl`, and for an unhashed by-path script with its own `cache_ttl`. The inline body runs as `flowscript` jobs whose paths end in `/loop-<index>` but which carry one script hash, so the key does not follow the path; the correction expected a rawscript without a path not to share. A hash-pinned body is not recorded (N4 checks it) | Q-FX-17, case FX-40/d | E3d (`conformance/flows/execution/fx-40`, runs `d-raw`, `d-raw-path` and `d-script`), gating N4 |
+| [FX-40](../semantics/execution.md#fx-40) | collapsed iterations (a) never, or (b) can share cache entries | **recorded: (b).** Two collapsed iterations with identical arguments share an entry for an inline rawscript body (with or without an explicit `path`) under the loop's `cache_ttl`, and for an unhashed by-path script with its own `cache_ttl`. The inline body runs as `flowscript` jobs whose paths end in `/loop-<index>` but which carry one script hash, so the key does not follow the path; the correction expected a rawscript without a path not to share. A body pinned by hash shares under the loop's `cache_ttl`, and a pinned script's own `cache_ttl` is dropped | Q-FX-17, case FX-40/d | E3d (`conformance/flows/execution/fx-40`, runs `d-raw`, `d-raw-path` and `d-script`; `conformance/flows/execution/fx-40-hash`, runs `d-hash` and `d-hash-script-ttl`), gating N4 |
 | [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | only matters to an HTTP adapter | Q-FX-12 | E3e, gating F7b |
 | [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28) (`later` parts) | stream classification; dynamic-import rewrite reach | the corrected readings, when those features land | Q-WR-15, Q-WR-16 | E3e, gating the `later` milestones for them |
 | [OR-11](../semantics/oracle.md#or-11), [OR-14](../semantics/oracle.md#or-14), [OR-V3](../semantics/oracle.md#or-v3), [OR-V8](../semantics/oracle.md#or-v8) | identity encoding for compared steps | decided in [0011](0011-differential-testing.md): typed segments, an occurrence suffix for repeated module ids, the escape character escaped | Q-OR-17 | a design decision; K1's encoder tests |
@@ -274,11 +274,15 @@ switch through a change to this record, naming the reason.
   so no engine function changes: CF-12 (Q-CF-14) and FX-40 (Q-FX-17, where
   the oracle also showed sharing for a rawscript without a path). The
   catalogue's provenance tags and the tracking questions are the semantics
-  team's to update. The recordings also confirm §1's deployed defaults from
-  the folder side: the published CLI's `generate-metadata` writes the
-  container defaults (`skip_failures`, `parallel`, a branch's
-  `skip_failure`, `parallel` and `expr`) into `flow.yaml`, so a folder that
-  has been through it carries them explicitly.
+  team's to update. The recordings confirm §1's deployed defaults from both
+  sides. CF-6/a and CF-15/a are pushed through the API with the fields
+  absent (`conformance/flows/control-flow/cf-6`, `cf-15`); the API answers
+  with them filled once the dependency job has succeeded, and the flows run
+  with the defaults. The published CLI's `generate-metadata` writes the same
+  defaults (`skip_failures`, `parallel`, a branch's `skip_failure`,
+  `parallel` and `expr`) into `flow.yaml`, so a folder that has been
+  through it carries them explicitly. Each such recording's provenance
+  holds the three values.
 
 ## Spec IDs relied on
 
