@@ -160,8 +160,9 @@ and observed behaviour.
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
 `go vet ./...` and `go test -race ./...` (with Bun 1.3.10, the build
 helper's parser and `windmill-client@1.767.0` installed, so the harness,
-build and host-mode tests cannot skip; the tests include the image lint and
-the manifest guard), builds a fixture
+build and host-mode tests cannot skip, and Node 20, on which the step suite
+runs each CommonJS codebase bundle as Windmill does, deviation D13; the
+tests include the image lint and the manifest guard), builds a fixture
 bundle twice with `windmill-lite build` and compares the digests and the
 archives, prints a load measurement of the expression engine's pool and
 the expression budget gate (report only), and runs the unit tests of the helpers in `scripts/`, on Ubuntu and
@@ -174,6 +175,11 @@ expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
 the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
 job runs the Bun harness's own `bun test`, which is not a required check.
+The [codebase parity workflow](.github/workflows/parity.yml) runs the
+pinned `windmill-cli@1.767.0`, unmodified, as a tool: it pushes synthetic
+codebase scripts to a recording HTTP stub, and the bundles it uploads must
+equal windmill-lite's esbuild reproduction of them; it is not a required
+check, and its fallback, the settings comparison, runs in the Go jobs.
 The [oracle workflow](.github/workflows/oracle.yml) records the flow
 fixtures and the expression cases on the Windmill CE oracle nightly, on
 demand, and on pull requests that change the cases or the harness or carry
