@@ -183,8 +183,9 @@ each with mimalloc and with its own `malloc`).
   order of waiting callers, concurrent use under `-race`, and the overflow
   depth at the default stack, which they log for each platform and check
   lies between 1 000 (fits) and 1 000 000 (overflows). On Windmill, JE-48
-  records that depths up to 600 fit and depth 1 000 overflows; whether
-  windmill-lite must match that is open (JE-48's design note). An engine
+  records that depths up to 600 fit and depth 1 000 overflows; that this
+  engine fits deeper is deviation D17 of
+  [0001](../../../docs/design/0001-equivalence-contract.md). An engine
   started through the tests' shared helper must end with no leaked heap
   block; the one test that makes QuickJS-ng leak uses a helper without that
   check.

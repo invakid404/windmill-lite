@@ -13,10 +13,11 @@ cases, and those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
 Nothing runs the flow fixtures on windmill-lite yet (`wltest check` for
 flows, milestone E1). The tests of the expression pipeline
-([internal/expr](../internal/expr/README.md), milestone B2a) run the
-expression cases and the flow fixtures' unit cases through its shortcuts
-and textual stages on a fake engine; what the engine computes waits for
-B2b. The step cases in `steps/` run on windmill-lite's Bun harness through
+([internal/expr](../internal/expr/README.md)) run the expression cases and
+the flow fixtures' unit cases at unit level: through its shortcuts and
+textual stages on a fake engine (milestone B2a), and on QuickJS-ng against
+what the oracle recorded, apart from the cases they list as skipped or as
+deviations (B2b). The step cases in `steps/` run on windmill-lite's Bun harness through
 `wltest check` (milestone C3a).
 
 The suite pins each implementation to the
