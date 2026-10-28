@@ -1,0 +1,34 @@
+{
+  "finding": "FX-4",
+  "cases": [
+    {
+      "spec": "FX-4/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The run half, the result \"x\" after at least 1 s, is N2's, which implements sleep.",
+      "title": "a sleep on the last step adds a-v",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      sleep: {type: static, value: 1}\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return \\\"x\\\" }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a",
+            "m:a-v"
+          ]
+        },
+        "steps": {
+          "f/x/main m:a": {
+            "at": {
+              "/sleep/type": "static",
+              "/sleep/value": 1
+            }
+          }
+        }
+      }
+    }
+  ]
+}

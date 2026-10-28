@@ -1,0 +1,28 @@
+summary: Inline steps at top level, in a body, with an explicit path, and as the preprocessor
+value:
+  preprocessor_module:
+    id: preprocessor
+    value:
+      type: rawscript
+      language: bun
+      content: 'export async function preprocessor(event: any) { return event }'
+      input_transforms: {}
+  modules:
+    - id: top
+      value:
+        type: rawscript
+        language: bunnative
+        content: 'export async function main() { return 1 }'
+        lock: ''
+        input_transforms: {}
+    - id: loop
+      value:
+        type: whileloopflow
+        modules:
+          - id: top
+            value:
+              type: rawscript
+              language: nativets
+              path: f/lib/elsewhere/entry
+              content: 'export async function main() { return 2 }'
+              input_transforms: {}

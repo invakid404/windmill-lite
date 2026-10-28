@@ -1,0 +1,102 @@
+{
+  "finding": "OF-3",
+  "cases": [
+    {
+      "spec": "OF-3/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The catalogue case reads the stored full form with flows/get after a deploy, an oracle recording (Q-OF-1). The compiled program shows what that form runs as: the loop's materialised defaults, the identity's unknown key ignored, and the script with no inputs.",
+      "title": "kept values and materialised container defaults",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: i\n      value: {type: identity, extra: 7}\n    - id: s\n      value: {type: script, path: f/x/s}\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: b\n            value: {type: identity}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:i": {
+            "at": {
+              "/kind": "identity"
+            }
+          },
+          "f/x/main m:s": {
+            "at": {
+              "/kind": "script",
+              "/leaf/script": "f/x/s",
+              "/leaf/inputs": []
+            }
+          },
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/skip_failures": true,
+              "/forloop/parallel": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-3/c",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The full and lite values are Windmill's stored forms, an oracle recording (Q-OF-1); the folder keeps saying bun, as the raw form does. The program records the language a successful deploy gives (SY-V3).",
+      "title": "native switch on deploy",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"//native\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n        lock: \"\"\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "at": {
+              "/leaf/harness": "bun",
+              "/leaf/boundary": "native"
+            },
+            "script": {
+              "at": {
+                "/language": "bunnative",
+                "/lock": "",
+                "/boundary": "native"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-3/d",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Contested is only whether the status list has a-v when enqueue builds it from the full form (Q-OF-11, OF-V5). windmill-lite's reference configuration is the successful lite deployment, on which both readings agree (0001 §1, §6), so the program always has a-v. The run half, the status ids and the result, is N2's, which implements sleep.",
+      "title": "virtual step after deploy",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      sleep: {type: static, value: 1}\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a",
+            "m:a-v"
+          ]
+        },
+        "steps": {
+          "f/x/main m:a-v": {
+            "at": {
+              "/kind": "identity",
+              "/virtual": true,
+              "/summary": "Virtual module needed for suspend/sleep when last module"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "OF-3's observable differences between a raw value and a successfully deployed one, applied once by the compiler (0002, Normalising to the reference configuration). Only the stored forms themselves are oracle recordings."
+}
