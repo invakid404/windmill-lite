@@ -22,8 +22,8 @@ value:
         iterator:
           type: javascript
           expr: flow_input.items
-        skip_failures: false
         parallel: false
+        skip_failures: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

@@ -38,10 +38,11 @@ type fakeEngine struct {
 	// replay service, like a script that was not stubbed.
 	skipCall string
 
-	mu   sync.Mutex
-	jobs map[string]*fjob
-	n    int
-	wg   sync.WaitGroup
+	mu      sync.Mutex
+	jobs    map[string]*fjob
+	n       int
+	deleted []string
+	wg      sync.WaitGroup
 }
 
 type fjob struct {
@@ -128,6 +129,13 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/workspaces/create":
 		write(201, "created")
+		return
+	}
+	if strings.HasPrefix(p, "/workspaces/delete/") && r.Method == http.MethodDelete {
+		e.mu.Lock()
+		e.deleted = append(e.deleted, strings.TrimPrefix(p, "/workspaces/delete/"))
+		e.mu.Unlock()
+		write(200, "deleted")
 		return
 	}
 	rest := p[strings.Index(p[3:], "/")+4:] // after /w/{ws}/

@@ -29,8 +29,8 @@ value:
         iterator:
           type: javascript
           expr: results.who
-        skip_failures: false
         parallel: true
+        skip_failures: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

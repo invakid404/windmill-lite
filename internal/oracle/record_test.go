@@ -159,6 +159,8 @@ type fakeOracle struct {
 	extra   bool // a's result gains a member
 	hang    bool // roots never complete until canceled
 	cancels []string
+	deleted []string
+	live    int // workspaces created and not deleted
 	docker  *fakeDocker
 	jobs    map[string]fakeJob
 	n       int
@@ -193,7 +195,19 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(200, "session-token")
 		return
 	case p == "/workspaces/create":
+		// CE admits two workspaces besides admins (observed on the
+		// v1.767.0 oracle in E4a's first recording).
+		if o.live >= 2 {
+			write(400, "Bad request: You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one")
+			return
+		}
+		o.live++
 		write(201, "created")
+		return
+	case strings.HasPrefix(p, "/workspaces/delete/") && r.Method == http.MethodDelete:
+		o.deleted = append(o.deleted, strings.TrimPrefix(p, "/workspaces/delete/"))
+		o.live--
+		write(200, "deleted")
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer session-token" {
@@ -749,5 +763,32 @@ func TestSessionKillsAHungCLIAndTearsDown(t *testing.T) {
 	}
 	if rig.docker.calledWith(" down -v") != 1 || rig.docker.up {
 		t.Fatalf("calls %q", rig.docker.calls)
+	}
+}
+
+// TestSessionDeletesEachWorkspace records three fixtures in one session on
+// an oracle that, like CE, admits only two workspaces besides admins: each
+// fixture's workspace is deleted once its runs are done, so every fixture
+// gets one.
+func TestSessionDeletesEachWorkspace(t *testing.T) {
+	rig := newRig(t)
+	var fixtures []*conformance.Fixture
+	for i := 0; i < 3; i++ {
+		fixtures = append(fixtures, rig.load(t))
+	}
+	rep, err := rig.session(20*GiB).Run(context.Background(), fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Runs) != 9 {
+		t.Fatalf("%d runs", len(rep.Runs))
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome == OutcomeFailed || r.Outcome == OutcomeRefused {
+			t.Fatalf("run %s: %s %s", r.Run, r.Outcome, r.Error)
+		}
+	}
+	if len(rig.oracle.deleted) != 3 || rig.oracle.live != 0 {
+		t.Fatalf("deleted %q, %d left", rig.oracle.deleted, rig.oracle.live)
 	}
 }

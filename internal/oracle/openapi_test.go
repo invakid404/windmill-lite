@@ -156,6 +156,7 @@ func TestClientUsesTheOpenAPISurface(t *testing.T) {
 		"Health":                 func() error { _, err := c.Health(ctx); return err },
 		"Login":                  func() error { _, err := c.Login(ctx, AdminEmail, AdminPassword); return err },
 		"CreateWorkspace":        func() error { return c.CreateWorkspace(ctx, ws) },
+		"DeleteWorkspace":        func() error { return c.DeleteWorkspace(ctx, ws) },
 		"QueueCount":             func() error { _, err := c.QueueCount(ctx, ws); return err },
 		"ListScripts":            func() error { _, err := c.ListScripts(ctx, ws); return err },
 		"ListFlows":              func() error { _, err := c.ListFlows(ctx, ws); return err },

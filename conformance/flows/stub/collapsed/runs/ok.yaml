@@ -4,17 +4,17 @@
 target: f/wl_stub/collapsed
 args: {days: ["2026-03-02T09:00:00Z", "2026-03-03T09:30:00Z"]}
 replay:
-  "m:each/i:0/m:book": {result: {slot: 4}}
-  "m:each/i:1/m:book": {result: {slot: 7}}
+  "m:each/i:0/m:book": {result: 4}
+  "m:each/i:1/m:book": {result: 7}
   "m:total": {result: 11}
 expect:
   status: success
   result: 11
   steps:
-    "m:each": {status: success, result: [{slot: 4}, {slot: 7}]}
-    "m:each/i:0/m:book": {status: success, args: {at: "2026-03-02T09:00:00Z", n: 0}, result: {slot: 4}}
-    "m:each/i:1/m:book": {status: success, args: {at: "2026-03-03T09:30:00Z", n: 1}, result: {slot: 7}}
-    "m:total": {status: success, args: {slots: [{slot: 4}, {slot: 7}]}, result: 11}
+    "m:each": {status: success, result: [4, 7]}
+    "m:each/i:0/m:book": {status: success, args: {at: "2026-03-02T09:00:00Z", n: 0}, result: 4}
+    "m:each/i:1/m:book": {status: success, args: {at: "2026-03-03T09:30:00Z", n: 1}, result: 7}
+    "m:total": {status: success, args: {slots: [4, 7]}, result: 11}
   effects:
     - site: "m:each/i:0/m:book"
       attempt: 0
@@ -39,4 +39,4 @@ expect:
       flow: "<job:>"
       root_flow: "<job:>"
       root: "<job:>"
-      args: [[{slot: 4}, {slot: 7}]]
+      args: [[4, 7]]

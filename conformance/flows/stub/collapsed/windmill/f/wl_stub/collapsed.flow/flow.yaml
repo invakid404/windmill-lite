@@ -21,8 +21,8 @@ value:
         iterator:
           type: javascript
           expr: flow_input.days
-        skip_failures: false
         parallel: false
+        skip_failures: false
     - id: total
       value:
         type: script
