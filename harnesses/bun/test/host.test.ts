@@ -7,6 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, HostError } from "../host/index.ts";
 
+test("importing the SDK publishes the process scope, before any connect, for the host's own modules to capture", () => {
+  const scope = (globalThis as Record<symbol, { capture: () => unknown } | undefined>)[Symbol.for("windmill-lite.processScope")];
+  expect(typeof scope?.capture).toBe("function");
+});
+
 async function code(p: Promise<unknown>): Promise<string | undefined> {
   try {
     await p;

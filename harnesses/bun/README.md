@@ -165,7 +165,11 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   Loading outside every invocation is not enough: a function a module
   exports runs in its caller's context, so a factory a step calls must
   re-enter the captured scope (case `D12/pool-process-scope`, and
-  `D12/pool-without-scope` as its control).
+  `D12/pool-without-scope` as its control). The API is published when `runtime/context.ts`
+  is evaluated: in a spawned harness before the bundle's host-provided
+  copies load, and in host mode as soon as the host imports the host SDK,
+  so a host imports the SDK before the modules of its own that capture the
+  scope.
 
 The fetch wrapper, the handlers and the `process.exit` interception are
 installed once per process and answer to the runtime that installed them

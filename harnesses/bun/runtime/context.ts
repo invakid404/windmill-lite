@@ -135,13 +135,18 @@ const processScope: ProcessScope = {
 };
 
 /** Publishes the process-scope API on globalThis, before any step or
- * host-provided module loads. */
+ * host-provided module loads. This module publishes it when it is
+ * evaluated, so a host that imports the host SDK before the modules that
+ * capture the scope gives them the API; the runtime calls it again, which
+ * changes nothing. */
 export function installProcessScope() {
   const g = globalThis as Record<symbol, unknown>;
   if (g[PROCESS_SCOPE] === undefined) {
     Object.defineProperty(g, PROCESS_SCOPE, { value: Object.freeze(processScope), enumerable: false });
   }
 }
+
+installProcessScope();
 
 /** ABSENT: the current invocation deleted the variable. */
 const ABSENT = Symbol("absent");

@@ -572,7 +572,10 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     maintenance timers in no invocation: they are never attributed, and
     never fenced. A factory a step calls runs in the step's context unless
     it re-enters the captured scope; loading outside every invocation is
-    not enough.
+    not enough. The API is published when the harness runtime's module is
+    evaluated, so it exists before a spawned harness registers its
+    host-provided copies, and in host mode as soon as the host imports the
+    host SDK.
   - **Host-provided modules in a spawned harness** are the bundle's copies,
     registered in the manifest's `host_modules` order before any step loads
     and before the harness's `hello`, once every process-wide hook (the
