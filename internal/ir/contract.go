@@ -55,8 +55,10 @@ type Selector struct {
 	// Flow is the path of a flow: the root or a by-path flow. Body modules
 	// of containers belong to their enclosing flow.
 	Flow string `json:"flow,omitempty"`
-	// Module is a module id in any module list of Flow.
-	Module string `json:"module,omitempty"`
+	// Module is a module id in any module list of Flow. It is a pointer
+	// because a module id may be "" (OF-2): nil means the selector has no
+	// module field.
+	Module *string `json:"module,omitempty"`
 	// Occurrence selects the occurrence k, from 0 in list order, of an id
 	// that occurs more than once in one module list. It is required for
 	// such an id; a unique id is its own occurrence 0.
@@ -75,7 +77,11 @@ func (s Selector) String() string {
 	if s.Script != "" {
 		return "{script: " + s.Script + "}"
 	}
-	t := "{flow: " + s.Flow + ", module: " + s.Module
+	module := "<none>"
+	if s.Module != nil {
+		module = strconv.Quote(*s.Module)
+	}
+	t := "{flow: " + s.Flow + ", module: " + module
 	if s.Occurrence != nil {
 		t += ", occurrence: " + strconv.Itoa(*s.Occurrence)
 	}
@@ -166,6 +172,9 @@ func (c *Contract) Validate() error {
 		if (p.Static == nil) == (p.Provider == "") {
 			return contractError("%s: give exactly one of static and provider", where)
 		}
+		if p.Static != nil && !json.Valid(p.Static) {
+			return contractError("%s.static: not a JSON value", where)
+		}
 		if !p.Mandatory {
 			return contractError("%s: a provided site must be mandatory (`mandatory: true`); optional interception is a run-time hook", where)
 		}
@@ -195,12 +204,12 @@ func (r Root) String() string {
 
 func (s Selector) validate(where string) error {
 	if s.Script != "" {
-		if s.Flow != "" || s.Module != "" || s.Occurrence != nil || len(s.Iterations) > 0 || len(s.Branches) > 0 {
+		if s.Flow != "" || s.Module != nil || s.Occurrence != nil || len(s.Iterations) > 0 || len(s.Branches) > 0 {
 			return contractError("%s: a script selector has only `script`", where)
 		}
 		return nil
 	}
-	if s.Flow == "" || s.Module == "" {
+	if s.Flow == "" || s.Module == nil {
 		return contractError("%s: give `flow` and `module`, or `script`", where)
 	}
 	if s.Occurrence != nil && *s.Occurrence < 0 {
@@ -281,12 +290,19 @@ func parseSelector(raw json.RawMessage, where string) (Selector, error) {
 	for _, f := range []struct {
 		name string
 		to   *string
-	}{{"flow", &s.Flow}, {"module", &s.Module}, {"script", &s.Script}} {
+	}{{"flow", &s.Flow}, {"script", &s.Script}} {
 		if v, ok := m[f.name]; ok {
 			if *f.to, err = str(v, where+"."+f.name); err != nil {
 				return Selector{}, err
 			}
 		}
+	}
+	if v, ok := m["module"]; ok {
+		id, err := str(v, where+".module")
+		if err != nil {
+			return Selector{}, err
+		}
+		s.Module = &id
 	}
 	if v, ok := m["occurrence"]; ok {
 		n, err := index(v, where+".occurrence")

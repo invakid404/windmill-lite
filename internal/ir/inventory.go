@@ -167,8 +167,18 @@ func (c *compiler) pathScript(s *syncfolder.Script, flow, step string) *Script {
 	return e
 }
 
-// rawScript adds an inline step to the inventory and returns its leaf.
+// rawScript reads an inline step's `!inline` files, adds it to the
+// inventory and returns its leaf.
 func (fc *flowCompiler) rawScript(m *openflow.Module, v *openflow.RawScript, site conformance.SitePath, sc scope, in []Input) *Leaf {
+	leaf := &Leaf{Script: inlineID(sc.flow, site), Inputs: in}
+	files, err := fc.folder.InlineScript(fc.doc, m.ID, v)
+	if err != nil {
+		fc.fail(&Error{Kind: ErrLoad, Flow: sc.flow, Step: m.ID, Selector: -1, Err: err})
+		return leaf
+	}
+	if files == nil {
+		files = &syncfolder.InlineScript{}
+	}
 	lang := v.Language
 	if lang == openflow.LangBun || lang == openflow.LangBunNative {
 		// A deploy relocks a Bun-family rawscript whose language disagrees
@@ -187,11 +197,11 @@ func (fc *flowCompiler) rawScript(m *openflow.Module, v *openflow.RawScript, sit
 		Flow:     sc.flow,
 		Module:   m.ID,
 		Site:     site.String(),
-		File:     fc.inline[v].ContentFile,
+		File:     files.ContentFile,
 		Language: lang,
 		Content:  v.Content,
 		Lock:     v.Lock,
-		LockFile: fc.inline[v].LockFile,
+		LockFile: files.LockFile,
 	}
 	// The import base is the step's runnable path, collapsed to
 	// `<flow path>/flow` inside container bodies, or the rawscript's own
@@ -206,7 +216,6 @@ func (fc *flowCompiler) rawScript(m *openflow.Module, v *openflow.RawScript, sit
 	default:
 		e.ImportBase = sc.flow + "/" + m.ID
 	}
-	leaf := &Leaf{Script: e.ID, Inputs: in}
 	if !fc.finish(e, sc.flow, m.ID) {
 		return leaf
 	}

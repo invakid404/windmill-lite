@@ -26,7 +26,7 @@ host_modules: [f/a/scope.ts]
 	want := &Contract{
 		Roots: []Root{{Flow: "f/a/main"}, {Script: "f/a/dispatched"}},
 		Provided: []ProvidedSite{
-			{Selector: Selector{Flow: "f/a/main", Module: "permit", Occurrence: &one}, Provider: "permitCheck", Mandatory: true},
+			{Selector: Selector{Flow: "f/a/main", Module: new("permit"), Occurrence: &one}, Provider: "permitCheck", Mandatory: true},
 			// The static value is the JSON the sync folder's YAML dialect
 			// gives: 017 is 17 (SY-9).
 			{Selector: Selector{Script: "f/a/audit"}, Static: json.RawMessage(`{"ok":true,"n":17}`), Mandatory: true},
@@ -106,14 +106,71 @@ func TestSelectorFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Selector{Flow: "f/a", Module: "m", Iterations: []int{0, 2}, Branches: []string{"default", "1"}}
+	want := Selector{Flow: "f/a", Module: new("m"), Iterations: []int{0, 2}, Branches: []string{"default", "1"}}
 	if !reflect.DeepEqual(s, want) {
 		t.Errorf("parseSelector = %+v, want %+v", s, want)
 	}
 	if err := s.validate("s"); err != nil {
 		t.Errorf("validate: %v", err)
 	}
-	if got := (Selector{Flow: "f/a", Module: "m", Occurrence: new(int)}).String(); got != "{flow: f/a, module: m, occurrence: 0}" {
+	if got := (Selector{Flow: "f/a", Module: new("m"), Occurrence: new(int)}).String(); got != `{flow: f/a, module: "m", occurrence: 0}` {
 		t.Errorf("String = %s", got)
+	}
+}
+
+// TestEmptyModuleID checks that a selector can name the id "" (OF-2 allows
+// any id) and that a missing module field is still refused.
+func TestEmptyModuleID(t *testing.T) {
+	c, err := ParseContract([]byte("roots: [{flow: f/a}]\nprovided:\n  - selector: {flow: f/a, module: '', occurrence: 1}\n    provider: p\n    mandatory: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := c.Provided[0].Selector.Module; m == nil || *m != "" {
+		t.Fatalf("module = %v, want the empty id", m)
+	}
+	if got := c.Provided[0].Selector.String(); got != `{flow: f/a, module: "", occurrence: 1}` {
+		t.Errorf("String = %s", got)
+	}
+	// The empty id survives the contract's JSON form, in both directions.
+	js, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), `"module":""`) {
+		t.Errorf("JSON form lost the empty id: %s", js)
+	}
+	back, err := ParseContract(js)
+	if err != nil || !reflect.DeepEqual(back, c) {
+		t.Errorf("ParseContract(%s) = %+v, %v", js, back, err)
+	}
+	var decoded Contract
+	if err := json.Unmarshal(js, &decoded); err != nil || !reflect.DeepEqual(&decoded, c) {
+		t.Errorf("json.Unmarshal(%s) = %+v, %v", js, decoded, err)
+	}
+	// A Go-built selector without a module is refused, as a file's is.
+	bad := &Contract{Roots: []Root{{Flow: "f/a"}}, Provided: []ProvidedSite{{Selector: Selector{Flow: "f/a"}, Provider: "p", Mandatory: true}}}
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "give `flow` and `module`") {
+		t.Errorf("Validate without a module = %v", err)
+	}
+}
+
+// TestStaticMustBeJSON checks that a Go-built contract's static value is
+// checked as a parsed one is: valid JSON text, null included.
+func TestStaticMustBeJSON(t *testing.T) {
+	site := func(static json.RawMessage) *Contract {
+		return &Contract{Roots: []Root{{Flow: "f/a"}}, Provided: []ProvidedSite{
+			{Selector: Selector{Script: "f/s"}, Static: static, Mandatory: true}}}
+	}
+	for _, bad := range []json.RawMessage{json.RawMessage("invalid"), {}, json.RawMessage(`{"a":`)} {
+		err := site(bad).Validate()
+		var e *Error
+		if !errors.As(err, &e) || e.Kind != ErrContract || !strings.Contains(err.Error(), "provided[0].static: not a JSON value") {
+			t.Errorf("Validate(static %q) = %v", bad, err)
+		}
+	}
+	for _, good := range []json.RawMessage{json.RawMessage("null"), json.RawMessage(` {"a": [1]} `)} {
+		if err := site(good).Validate(); err != nil {
+			t.Errorf("Validate(static %q) = %v", good, err)
+		}
 	}
 }

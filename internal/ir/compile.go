@@ -60,6 +60,7 @@ func Compile(f *syncfolder.Folder, contract *Contract, opts Options) (*Program, 
 			Deviations: []string{},
 		},
 		queued:  map[string]bool{},
+		docs:    map[string]*syncfolder.Flow{},
 		matches: make([][]string, len(contract.Provided)),
 		flagged: map[int]bool{},
 	}
@@ -100,6 +101,9 @@ type compiler struct {
 	errs     []error
 	queue    []string
 	queued   map[string]bool
+	// docs holds the flow documents that a step's target check already
+	// read, for the walk to compile.
+	docs map[string]*syncfolder.Flow
 	// matches holds, per provided site, the sites its selector matched,
 	// as "<flow path> <site path>".
 	matches [][]string
@@ -140,11 +144,18 @@ type scope struct {
 	preprocessorSlot bool
 }
 
+// flow compiles the flow at p. Its document is read with its inline
+// references unresolved: each rawscript's files are read only when the
+// module is compiled as a step, so a provided rawscript's files are never
+// read (ADR 0002, host contract).
 func (c *compiler) flow(p string) {
-	fl, err := c.folder.Flow(p)
-	if err != nil {
-		c.fail(&Error{Kind: ErrLoad, Flow: p, Selector: -1, Err: err})
-		return
+	fl, ok := c.docs[p]
+	if !ok {
+		var err error
+		if fl, err = c.folder.FlowDocument(p); err != nil {
+			c.fail(&Error{Kind: ErrLoad, Flow: p, Selector: -1, Err: err})
+			return
+		}
 	}
 	doc := fl.Document
 	v := doc.Value
@@ -166,11 +177,7 @@ func (c *compiler) flow(p string) {
 	for _, e := range v.FlowEnv {
 		out.FlowEnv = append(out.FlowEnv, EnvVar{Name: e.Name, Value: e.Value})
 	}
-	inline := map[*openflow.RawScript]syncfolder.InlineScript{}
-	for _, s := range fl.Inline {
-		inline[s.Script] = s
-	}
-	fc := &flowCompiler{compiler: c, inline: inline}
+	fc := &flowCompiler{compiler: c, doc: fl}
 	sc := scope{flow: p, hasFailure: v.FailureModule != nil}
 	out.Modules = fc.list(v.Modules, sc)
 	if m := v.FailureModule; m != nil {
@@ -189,9 +196,9 @@ func (c *compiler) flow(p string) {
 // flowCompiler compiles the modules of one flow.
 type flowCompiler struct {
 	*compiler
-	// inline maps each rawscript of the flow to the files it was read
-	// from.
-	inline map[*openflow.RawScript]syncfolder.InlineScript
+	// doc is the flow as read, its inline references resolved one
+	// rawscript at a time.
+	doc *syncfolder.Flow
 }
 
 // list compiles a module list. A list whose last module has a sleep gets
@@ -373,15 +380,18 @@ func (fc *flowCompiler) envelope(m *openflow.Module, out *Module, sc scope) {
 }
 
 // subflow checks a by-path flow step's target and queues it. The target
-// is read here so that an error names the step (SY-15).
+// is read here so that an error names the step (SY-15), with its inline
+// references unresolved, as flow reads it.
 func (fc *flowCompiler) subflow(m *openflow.Module, v *openflow.PathFlow, sc scope) {
 	if fc.queued[v.Path] {
 		return
 	}
-	if _, err := fc.folder.Target(sc.flow, m); err != nil {
+	item, err := fc.folder.TargetDocument(sc.flow, m)
+	if err != nil {
 		fc.fail(&Error{Kind: ErrLoad, Flow: sc.flow, Step: m.ID, Selector: -1, Err: err})
 		return
 	}
+	fc.docs[v.Path] = item.(*syncfolder.Flow)
 	fc.enqueue(v.Path)
 }
 

@@ -233,7 +233,8 @@ every by-path target that steps dispatch locally with `runScript*` or
 `runFlow*`, since no static path reaches those) and its **provided sites**, each a selector ([0008](0008-host-hooks.md)) with
 the form of its provider (a static value, or a named provider the host
 registers at run time) and `mandatory: true`. A provided site must be a
-call site (a `script`, `flow` or `rawscript` step), and its selector cannot
+call site (a `script`, `flow` or `rawscript` step; a provided rawscript's
+`!inline` files are not read), and its selector cannot
 narrow it to some `iterations` or `branches`, because its target is replaced
 everywhere. A `{script: <path>}` selector names a `script` step by its path
 and an inline step by `<flow path>/<module id>`. The contract also lists the

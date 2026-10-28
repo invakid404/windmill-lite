@@ -26,7 +26,7 @@ func (s Selector) matches(flow string, m *openflow.Module, seg conformance.Segme
 		}
 		return false, false
 	}
-	if s.Flow != flow || s.Module != m.ID {
+	if s.Flow != flow || s.Module == nil || *s.Module != m.ID {
 		return false, false
 	}
 	k, repeated := seg.Occurrence()

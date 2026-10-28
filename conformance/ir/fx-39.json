@@ -278,6 +278,194 @@
     },
     {
       "spec": "FX-39",
+      "variant": "provided-inline-files",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "p's content and lock files are absent, q's content is not UTF-8, and r's content reference leaves the sync root; the case without the contract entries fails on each.",
+      "title": "a provided rawscript's inline files are never read",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline absent.ts'\n        lock: '!inline absent.lock'\n        input_transforms: {}\n    - id: q\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline bad.ts'\n        input_transforms: {}\n    - id: r\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline ../../../../outside.ts'\n        input_transforms: {}\n"
+        },
+        "hex_files": {
+          "f/x/main.flow/bad.ts": "6578706f7274ff0a"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: p}\n    provider: host\n    mandatory: true\n  - selector: {flow: f/x/main, module: q}\n    provider: host\n    mandatory: true\n  - selector: {flow: f/x/main, module: r}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:p": {
+            "at": {
+              "/kind": "provided",
+              "/provided/target": {
+                "kind": "rawscript"
+              }
+            },
+            "absent": [
+              "/leaf"
+            ]
+          },
+          "f/x/main m:q": {
+            "at": {
+              "/kind": "provided"
+            }
+          },
+          "f/x/main m:r": {
+            "at": {
+              "/kind": "provided"
+            }
+          }
+        },
+        "at": {
+          "/scripts": {}
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-inline-control",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "the same rawscripts, not provided, fail to load",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline absent.ts'\n        lock: '!inline absent.lock'\n        input_transforms: {}\n    - id: q\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline bad.ts'\n        input_transforms: {}\n    - id: r\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline ../../../../outside.ts'\n        input_transforms: {}\n"
+        },
+        "hex_files": {
+          "f/x/main.flow/bad.ts": "6578706f7274ff0a"
+        },
+        "contract": "roots:\n  - flow: f/x/main\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "load",
+            "contains": [
+              "f/x/main step 'p'",
+              "missing inline script file(s)",
+              "absent.ts"
+            ]
+          },
+          {
+            "kind": "load",
+            "contains": [
+              "f/x/main step 'q'",
+              "not valid UTF-8"
+            ]
+          },
+          {
+            "kind": "load",
+            "contains": [
+              "f/x/main step 'r'",
+              "leaves the sync root"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-inline-subflow",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "The subflow is a step's target, so its document is read and checked, but its inline files only as each rawscript is compiled.",
+      "title": "a provided rawscript in a by-path subflow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value: {type: flow, path: f/x/sub}\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline absent.ts'\n        input_transforms: {}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/sub, module: p}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:s": {
+            "at": {
+              "/subflow/path": "f/x/sub"
+            }
+          },
+          "f/x/sub m:p": {
+            "at": {
+              "/kind": "provided"
+            }
+          }
+        },
+        "at": {
+          "/scripts": {}
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-empty-id",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "Module ids may be empty and repeat (OF-2); a script selector would match both calls of f/x/s.",
+      "title": "a selector can name the empty id with its occurrence",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: ''\n      value: {type: script, path: f/x/s}\n    - id: ''\n      value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: '', occurrence: 1}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:~0",
+            "m:~1"
+          ]
+        },
+        "steps": {
+          "f/x/main m:~0": {
+            "at": {
+              "/kind": "script",
+              "/id": ""
+            }
+          },
+          "f/x/main m:~1": {
+            "at": {
+              "/kind": "provided",
+              "/occurrence": 1
+            }
+          }
+        },
+        "at": {
+          "/contract/provided/0/selector/module": ""
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-empty-id-ambiguous",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "the empty id repeated needs its occurrence too",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: ''\n      value: {type: script, path: f/x/s}\n    - id: ''\n      value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: ''}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "ambiguous_selector",
+            "contains": [
+              "give its occurrence"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
       "variant": "provided-no-match",
       "provenance": "policy",
       "policy": "0002 host contract: mandatory provided sites",

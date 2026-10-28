@@ -2,6 +2,7 @@ package ir
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -52,6 +53,7 @@ type compileCase struct {
 	Title      string `json:"title"`
 	Given      struct {
 		Files    map[string]string `json:"files"`
+		HexFiles map[string]string `json:"hex_files"`
 		Contract string            `json:"contract"`
 		Options  Options           `json:"options"`
 	} `json:"given"`
@@ -175,17 +177,30 @@ func TestConformanceIR(t *testing.T) {
 }
 
 // openFolder writes files to a temporary directory and opens it as a sync
-// folder. A `.git` directory bounds the search for wmill.yaml.
-func openFolder(t *testing.T, files map[string]string) *syncfolder.Folder {
+// folder. hexFiles gives files by their bytes in hex, for text that is not
+// UTF-8. A `.git` directory bounds the search for wmill.yaml.
+func openFolder(t *testing.T, files map[string]string, hexFiles ...map[string]string) *syncfolder.Folder {
 	t.Helper()
 	dir := t.TempDir()
-	for name, text := range files {
+	write := func(name string, data []byte) {
 		p := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+		if err := os.WriteFile(p, data, 0o644); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for name, text := range files {
+		write(name, []byte(text))
+	}
+	for _, hf := range hexFiles {
+		for name, h := range hf {
+			data, err := hex.DecodeString(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(name, data)
 		}
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
@@ -200,7 +215,7 @@ func openFolder(t *testing.T, files map[string]string) *syncfolder.Folder {
 }
 
 func runCase(t *testing.T, c compileCase) {
-	f := openFolder(t, c.Given.Files)
+	f := openFolder(t, c.Given.Files, c.Given.HexFiles)
 	var contract *Contract
 	if c.Given.Contract != "" {
 		var err error

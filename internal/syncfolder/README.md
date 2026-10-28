@@ -48,6 +48,7 @@ errors, which refuses what `wmill sync push` refuses.
 | `Load(fsys)` | The walk over any `fs.FS` whose root holds `wmill.yaml`. |
 | `(*Folder).Script`, `Flow`, `Resource`, `Variable`, `ResourceType` | Read one item by Windmill path (a resource type by name). |
 | `(*Folder).Target(from, module)` | Read the target of a `script` or `flow` step of flow `from`; errors name the step (SY-15). |
+| `(*Folder).FlowDocument`, `InlineScript`, `TargetDocument` | Read a flow, or a flow step's target, with its `!inline` references unresolved, then resolve one rawscript at a time by the rules `Flow` applies. The compiler uses them so that a host-provided inline step's files are never read (0002, host contract). |
 | `(*Folder).Paths(kind)`, `Filtered(kind)` | The sorted paths of the items of a kind that are kept, or filtered out. |
 | `(*Folder).Check()` | Read every kept item and join the errors. |
 | `(*Folder).FS()` | The folder's file system, for builders that read further files. |
@@ -293,5 +294,6 @@ pull request lists them as open questions.
   `native` and for other keys.
 - `syncfolder_test.go` covers root discovery, symbolic links, configuration
   errors, error text, `Check`, duplicate and JSON-mode data files,
-  concurrent reads, lock-reference white space, and names that are not
-  UTF-8.
+  concurrent reads, lock-reference white space, names that are not
+  UTF-8, and the two-step reading of `FlowDocument`, `InlineScript` and
+  `TargetDocument`.

@@ -173,10 +173,15 @@ errors. A **selector** ([0008](../../docs/design/0008-host-hooks.md)) is
 `{flow, module}`, which names that id in any module list of the flow, slots
 and container bodies included, with an optional `occurrence`; or
 `{script}`, which names every call of a script: a `script` step by its path
-and an inline step by `<flow path>/<module id>`.
+and an inline step by `<flow path>/<module id>`. A module id may be empty
+(`module: ''`), so `Selector.Module` is a pointer and nil means no module
+field. A static provider's value must be JSON text, `null` included.
 
 1. The walk stops at a provided site: its target is not loaded, validated or
    bundled and need not be in the folder, unless another path reaches it.
+   Flows are read with their `!inline` references unresolved, and a
+   rawscript's content and lock files are read only when it is compiled as a
+   step, so a provided rawscript's files are never read.
 2. The site becomes a `provided` module that keeps its envelope and its
    input transforms, so the orchestration around it is the real one. A
    `suspend` on the site's own envelope belongs to its flow and is still
@@ -197,7 +202,7 @@ sites.
 
 | `Kind` | When |
 |---|---|
-| `load` | the folder cannot supply an item the closure reaches, or it fails to read: the wrapped `*syncfolder.Error` says which (`not_in_folder`, `filtered`, `hub_path`, `invalid_flow`, …, [SY-15](../../docs/semantics/openflow.md#sy-15)) |
+| `load` | the folder cannot supply an item the closure reaches, or it fails to read: the wrapped `*syncfolder.Error` says which (`not_in_folder`, `filtered`, `hub_path`, `invalid_flow`, …, [SY-15](../../docs/semantics/openflow.md#sy-15)); an inline step's files (`missing_inline_file`, `invalid_text`, `path_escape`) fail that step |
 | `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler`, and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a) |
 | `unsupported_language` | a leaf whose language has no harness in this release |
 | `pinned_hash` | a `script` step with a `hash` ([OF-14](../../docs/semantics/openflow.md#of-14)): a folder never records the hash Windmill gave its version, so no pin can be shown to be the folder's |

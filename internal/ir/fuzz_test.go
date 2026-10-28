@@ -35,7 +35,7 @@ func FuzzCompile(f *testing.F) {
 	}
 	contract := &Contract{
 		Roots:    []Root{{Flow: "f/x/main"}},
-		Provided: []ProvidedSite{{Selector: Selector{Flow: "f/x/main", Module: "p"}, Provider: "x", Mandatory: true}},
+		Provided: []ProvidedSite{{Selector: Selector{Flow: "f/x/main", Module: new("p")}, Provider: "x", Mandatory: true}},
 	}
 	f.Fuzz(func(t *testing.T, flow string, provide bool) {
 		fsys := fstest.MapFS{
