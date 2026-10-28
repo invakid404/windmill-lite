@@ -1,0 +1,32 @@
+summary: wl smoke two-step
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input.x
+        path: f/wl_smoke/double
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          n:
+            type: javascript
+            expr: results.a.doubled
+          tag:
+            type: static
+            value: hi
+        lock: '!inline b.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    x:
+      type: number
+  required:
+    - x

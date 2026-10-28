@@ -1,0 +1,11 @@
+# The smoke fixture of OR-20: a two-step Bun flow with one input transform,
+# the minimal end-to-end proof of the oracle harness (OR-8 push, OR-9
+# deployment gate, OR-10 submit and poll, OR-11 walk, OR-12 failure
+# capture, OR-14 normalisation). Synthetic, written for this repository from
+# docs/semantics/conformance.md#or-20.
+id: oracle/smoke
+spec: [OR-20/a, OR-20/b, OR-8/a, OR-8/b, OR-9/a, OR-10/c, OR-11/a, OR-12/a, OR-14/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

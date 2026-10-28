@@ -1,9 +1,12 @@
 # conformance
 
-**Current state:** four levels of the shared conformance suite exist: the
+**Current state:** five levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
-sync-folder load cases in `syncfolder/` and the harness protocol cases in
-`protocol/`. This README covers `conformance/`. The flow, step and
+sync-folder load cases in `syncfolder/`, the harness protocol cases in
+`protocol/`, and the first flow fixture in `flows/`, the oracle smoke
+fixture, which `wltest record` records on the Windmill CE oracle. This
+README covers `conformance/`. Nothing runs the flow fixtures on
+windmill-lite yet (`wltest check`, milestone E1), and the step and
 expression levels that [0003](../docs/design/0003-semantics-placement.md)
 defines have no cases or runners yet.
 
@@ -21,9 +24,27 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | not yet |
+| flow | `flows/<area>/<case>/` | one fixture, `flows/oracle/smoke`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
+
+## Flow fixtures
+
+A flow fixture is a directory in the format of
+[OR-15](../docs/semantics/oracle.md#or-15): `fixture.yaml`, a `windmill/`
+sync tree, an optional `setup.yaml`, one `runs/<name>.yaml` per run with its
+`expect`, and `recorded/<name>.json` once the oracle has run it. The format
+is described in [internal/conformance](../internal/conformance/README.md#fixtures),
+and recording in [internal/oracle](../internal/oracle/README.md).
+
+| Fixture | Encodes |
+|---|---|
+| `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+
+The sync tree holds what `wmill folder add-missing` and `generate-metadata`
+write, generated against the oracle and committed as written
+([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
+it on every recording and fails on any change.
 
 ## OpenFlow decode cases
 
