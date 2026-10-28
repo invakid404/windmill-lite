@@ -12,8 +12,9 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Three milestones have landed: the OpenFlow decoder in
-[internal/openflow](internal/openflow/README.md) (A3) and the jsonb
+Four milestones have landed: the OpenFlow decoder in
+[internal/openflow](internal/openflow/README.md) (A3), the YAML dialect of the
+`wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2) and the jsonb
 canonicaliser in [internal/jsonval](internal/jsonval/README.md) (A1), which no
 command uses yet, and K1, the shared types and interfaces under `internal/`
 that later milestones implement and code against, which define no runnable
@@ -39,6 +40,7 @@ go test -race ./...
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
+| [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. No implementation yet. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
