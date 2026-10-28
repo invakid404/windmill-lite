@@ -208,7 +208,9 @@ module-state mode.
   replaced. If its abandoned invocations settle first, it returns to
   service when the pool is below `Max` without it, counting processes still
   starting; otherwise it is surplus and leaves once idle. A process that
-  finishes starting when the pool has reached `Max` is surplus itself.
+  finishes starting when the pool has reached `Max` is surplus itself. The
+  pool applies these rules before an abandoned invocation's Reporter hears
+  `Settled(completed)`.
 - **Replacement.** A process that dies is replaced up to `Min`; a failed
   start is logged and retried by the next `Execute`.
 - **Close.** It refuses new invocations, waits for those in flight until
@@ -247,6 +249,9 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   detached rejection that ends nothing, cancel and late settlement, limits,
   the working directory, the watchdog case `watchdog/finite-cpu` in warm
   mode, and the pool rules above.
+  `TestBunPoolTaintedProcessReturnsToService` holds its steps on the `gate`
+  fixture step, which reports that it has started and ends when the test
+  opens it, and turns lag routing off, so it does not depend on timing.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
   outcomes fixed before the call ends, late output, protocol violations, an
