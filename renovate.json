@@ -2,5 +2,22 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>invakid404/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Bun follows the Bun of the pinned Windmill image (WR-3, ADR 0001); it moves only with the semantics pin.",
+      "matchPackageNames": ["bun"],
+      "allowedVersions": "1.3.10"
+    },
+    {
+      "description": "The jsonb test image follows the oracle's PostgreSQL major; only digest and patch updates within 16.",
+      "matchPackageNames": ["postgres"],
+      "allowedVersions": "<17"
+    },
+    {
+      "description": "The Windmill oracle image is the semantics pin (v1.767.0); it is never bumped by Renovate.",
+      "matchPackageNames": ["/windmill-labs\\/windmill/"],
+      "enabled": false
+    }
   ]
 }
