@@ -455,10 +455,19 @@ script under `scripts/bun/`). Each step does one thing:
 | `quiet_ms` | no message arrives for that long |
 | `exit` | the process exits with this code and sends nothing more |
 | `stdout_contains` | the process's stdout contains the text |
+| `release` | create the file of this name in the harness's working directory, which ends a `gate` step waiting for it |
 
 Expected values may use placeholders: `<any>`, `<string>`, `<int>`, `<pid>`
 (the harness's pid), `<bundle>` (the fixture bundle's digest) and `<c*N>`
 (a string of `N` copies of `c`).
+
+A transcript never relies on a step outlasting the frames that follow it.
+A call that must still run when a later frame arrives is a `gate` step
+(`scripts/bun/gate.mjs`), which runs until a `release` step creates its
+file; its paths are relative to the harness's working directory.
+`cancel-late` and `cancel-error-late` cancel such a call, check the pong,
+and only then release it; `concurrent` releases its calls in the order in
+which it expects their results.
 
 ## Build cases
 

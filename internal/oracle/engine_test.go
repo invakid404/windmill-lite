@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/openflow"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
@@ -29,9 +30,9 @@ import (
 // those the stub recordings observed on the oracle (OR-V6, Q-OR-10): a
 // named subflow and a parallel iteration are new innermost root flows,
 // sequential iterations and collapsed bodies are not, and WM_ROOT_JOB_ID
-// is always the submitted root. It models only what
-// the stub fixtures use: transforms that read flow_input or results by a
-// dotted path, and static ones.
+// is always the submitted root. The runs of a group start together
+// (holdGroups). It models only what the stub fixtures use: transforms that
+// read flow_input or results by a dotted path, and static ones.
 type fakeEngine struct {
 	t      *testing.T
 	folder *syncfolder.Folder
@@ -39,6 +40,10 @@ type fakeEngine struct {
 	// skipCall names a step whose jobs complete without calling the
 	// replay service, like a script that was not stubbed.
 	skipCall string
+	// together holds the fixture's groups, by groupKey of each member run:
+	// a submitted run of a group starts once all of its group were
+	// submitted (see rendezvous).
+	together map[string]*rendezvous
 
 	mu      sync.Mutex
 	jobs    map[string]*fjob
@@ -246,14 +251,89 @@ func (e *fakeEngine) run(w http.ResponseWriter, r *http.Request, path string) {
 	e.mu.Lock()
 	e.jobs[root] = &fjob{kind: "flow", path: path, args: body, fs: fs, created: time.Now()}
 	e.mu.Unlock()
+	group := e.together[groupKey(path, body)]
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
+		if group != nil {
+			group.arrive()
+		}
 		ok, res := e.flow(scope{root: root, rootFlow: root, flow: root, input: input}, fs, fl.Document.Value.Modules)
 		e.complete(root, ok, res)
 	}()
 	w.WriteHeader(201)
 	_, _ = io.WriteString(w, root)
+}
+
+// holdGroups makes the runs of each group in runs start together. On the
+// oracle a run lasts far longer than the gap between the submissions of
+// its group, so they overlap; the fake runs a flow in about a millisecond,
+// and a slow machine can finish one before the next is submitted, which
+// the session rightly refuses as group_not_concurrent. A session that does
+// not submit a group's runs together still gets that refusal: each run
+// starts alone after rendezvousWait.
+func (e *fakeEngine) holdGroups(runs []conformance.Run) {
+	e.together = map[string]*rendezvous{}
+	for _, batch := range conformance.RunBatches(runs) {
+		if len(batch) < 2 {
+			continue
+		}
+		g := &rendezvous{size: len(batch), all: make(chan struct{}), logf: e.t.Logf}
+		for _, r := range batch {
+			k := groupKey(r.Target, r.ArgsOrEmpty())
+			if other := e.together[k]; other != nil && other != g {
+				e.t.Fatalf("fake engine: run %s has the target and arguments of another group's run", r.Name)
+			}
+			e.together[k] = g
+		}
+	}
+	for _, r := range runs {
+		if g := e.together[groupKey(r.Target, r.ArgsOrEmpty())]; g != nil && r.Group == "" {
+			e.t.Fatalf("fake engine: run %s has the target and arguments of a group's run", r.Name)
+		}
+	}
+}
+
+// groupKey identifies a submitted run by its target and its arguments.
+func groupKey(path string, args []byte) string {
+	var v any
+	_ = json.Unmarshal(args, &v)
+	canonical, _ := json.Marshal(v)
+	return path + " " + string(canonical)
+}
+
+// rendezvousWait is how long a run of a group waits for the rest of it.
+const rendezvousWait = 10 * time.Second
+
+// rendezvous starts the runs of one group together, once per repetition:
+// each waits until all of them have arrived.
+type rendezvous struct {
+	size int
+	logf func(string, ...any)
+	mu   sync.Mutex
+	n    int
+	all  chan struct{}
+}
+
+func (g *rendezvous) arrive() {
+	g.mu.Lock()
+	all := g.all
+	g.n++
+	if g.n == g.size {
+		close(all)
+		g.n, g.all = 0, make(chan struct{})
+	}
+	g.mu.Unlock()
+	select {
+	case <-all:
+	case <-time.After(rendezvousWait):
+		g.logf("fake engine: a run of a group of %d waited %s for the rest of it; it starts alone", g.size, rendezvousWait)
+		g.mu.Lock()
+		if g.all == all {
+			g.n--
+		}
+		g.mu.Unlock()
+	}
 }
 
 // flow runs a module list whose status entries are fs.Modules.
