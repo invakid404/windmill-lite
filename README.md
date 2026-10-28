@@ -64,8 +64,11 @@ reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
 and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race ./...`, and runs the unit tests of the
+`go vet ./...` and `go test -race ./...`, prints a load measurement of the
+expression engine's pool (report only), and runs the unit tests of the
 helpers in `scripts/`, on Ubuntu and macOS for pull requests and pushes to
-`main`. The [Memoria gate](.github/workflows/memoria.yml) fails while any
+`main`. A second job builds the expression engine's tests as a static musl
+binary with `zig cc` for `amd64` and `arm64`, checks that it is static, and
+runs it on a runner of that architecture. The [Memoria gate](.github/workflows/memoria.yml) fails while any
 README has an unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.

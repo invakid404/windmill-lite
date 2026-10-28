@@ -31,7 +31,7 @@ What the package does not do:
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache). |
 | `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the bytecode on a fresh runtime and context, then returns the completion string or an error. |
-| `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts and cancellations. |
+| `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and heap blocks that QuickJS-ng leaked and the engine freed. |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
 
 ## How an evaluation runs
@@ -128,8 +128,10 @@ architecture.
   bound, rejection, settling after queued jobs, the attempt's end, program
   code that calls the host while a call is settled, arguments counted
   against the cap), exceptions, the compile cache, fresh runtimes, leaks,
-  interrupts, cancellation, `Close`, the arrival order of waiting callers and
-  concurrent use under `-race`. Every engine a test starts must end with no
+  interrupts, cancellation, `Close`, the arrival order of waiting callers,
+  concurrent use under `-race`, and the overflow depth at the default
+  stack, which they log for each platform and check against JE-48's
+  bracket. Every engine a test starts must end with no
   leaked heap block, except in the test that makes QuickJS-ng leak.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
