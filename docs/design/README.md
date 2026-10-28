@@ -16,7 +16,9 @@ C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, and milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
-[internal/oracle](../../internal/oracle/README.md); nothing runs flows yet.
+[internal/oracle](../../internal/oracle/README.md), on which recording batch
+E3c recorded the flow-execution error cases and settled two contested rules
+of [0001](0001-equivalence-contract.md) §6; nothing runs flows yet.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
