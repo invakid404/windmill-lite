@@ -1,0 +1,10 @@
+{
+  "summary": "W1: H1 stands in for module b, whose script must not run; c sees the stand-in as previous_result",
+  "value": {
+    "modules": [
+      {"id": "a", "value": {"type": "script", "path": "f/w1/echo", "input_transforms": {"x": {"type": "javascript", "expr": "flow_input.x"}}}},
+      {"id": "b", "value": {"type": "script", "path": "f/w1/must_not_run", "input_transforms": {"from_a": {"type": "javascript", "expr": "previous_result"}}}},
+      {"id": "c", "value": {"type": "script", "path": "f/w1/echo", "input_transforms": {"from_b": {"type": "javascript", "expr": "previous_result"}}}}
+    ]
+  }
+}

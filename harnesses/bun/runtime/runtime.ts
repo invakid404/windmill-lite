@@ -1,14 +1,20 @@
 // The Bun harness runtime: the harness side of ADR 0004's protocol. It
-// greets the engine, runs invocations concurrently on one event loop,
-// reports health, turns a cancel into an abandoned invocation whose end is
-// reported late, and exits after drain.
+// greets the engine, runs invocations concurrently on one event loop, each
+// inside its own context (context.ts), reports health, turns a cancel into
+// an abandoned invocation whose end is reported late, and exits after
+// drain. In host mode (the host SDK, ../host) the process is also the host:
+// it submits runs, and each invocation of a run re-enters the scope the
+// host had when it submitted it (H11).
 //
-// This is milestone C1's skeleton. The step runner below only loads a
-// bundled module and calls one export with the argument object. Binding by
-// signature, Date hydration, Windmill's result and error serialisation,
-// process.exit interception, process-level error handlers and per-invocation
-// env, log and fetch views come with milestones C3a and C3b.
+// The step runner is milestone C1's skeleton: it loads a bundled module and
+// calls one export with the argument object. The walking skeleton (W1)
+// added the per-invocation environment, the facade fetch, handlers for
+// process-level errors and host mode. Binding by signature, Date hydration,
+// Windmill's result and error serialisation, process.exit interception,
+// error attribution, and per-invocation logs come with milestones C3a and
+// C3b.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -23,6 +29,7 @@ import {
   Raw,
   Sender,
 } from "./frame.ts";
+import { installEnvView, installFetch, installProcessHandlers, invocations, type PlatformAnswer, type PlatformCall, shadow } from "./context.ts";
 
 /** The protocol version this harness speaks. */
 export const PROTOCOL_VERSION = 1;
@@ -53,17 +60,31 @@ export type Options = {
   bundleDir: string;
   bundleDigest: string;
   transport: Transport;
-  /** Ends the process; tests replace it. */
+  /** Ends the process; tests replace it. In host mode it is called instead
+   * when the connection to the engine ends. */
   exit: (code: number) => void;
   /** Writes a diagnostic line no invocation owns. */
   diag?: (line: string) => void;
+  /** Host mode: this process is the host, and submits runs (ADR 0009). */
+  host?: boolean;
+  /** Called once the engine's welcome has been accepted. */
+  onWelcome?: () => void;
 };
 
 type Invocation = {
   id: string;
   abandoned: boolean;
+  /** When the engine abandoned it (performance.now()). */
+  abandonedAt?: number;
   controller: AbortController;
 };
+
+/** A run's outcome, as run_done reports it. result is its JSON text. */
+export type RunOutcome = { status: string; result?: string };
+
+/** The health of this process: what pings report, plus the age of the
+ * oldest abandoned invocation, which the host SDK's health() exposes. */
+export type HostHealth = Health & { oldest_abandoned_ms: number };
 
 type Outcome =
   | { outcome: "ok"; body: string }
@@ -82,11 +103,26 @@ export class Runtime {
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private pingSeq = 0;
   private lagMs = 0;
+  private errors = 0;
+  private facade: string | undefined;
+  private platformSeq = 0;
+  private platformCalls = new Map<string, { resolve: (a: PlatformAnswer) => void; reject: (e: Error) => void }>();
+  private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
+  private scopes = new Map<string, <R>(fn: () => R) => R>();
   private diag: (line: string) => void;
 
   constructor(private opts: Options) {
     this.sender = new Sender((b) => opts.transport.write(b));
     this.diag = opts.diag ?? ((line) => process.stderr.write(line + "\n"));
+    installEnvView();
+    installFetch(
+      () => this.facade,
+      (c) => this.platformCall(c),
+    );
+    installProcessHandlers((kind, e) => {
+      this.errors++;
+      this.diag(`windmill-lite harness: ${kind} that no invocation owns: ${describe(e)}`);
+    });
   }
 
   /** Sends hello; the engine answers with welcome. */
@@ -96,7 +132,7 @@ export class Runtime {
       proto: PROTOCOL_VERSION,
       harness: { kind: "bun", version: HARNESS_VERSION },
       runtime: Bun.version,
-      caps: { fetch: false, native: false, fresh: false, host: false },
+      caps: { fetch: true, native: false, fresh: false, host: this.opts.host === true },
       bundle: this.opts.bundleDigest,
       pid: process.pid,
     });
@@ -154,6 +190,12 @@ export class Runtime {
         break;
       case "pong":
         break;
+      case "platform_reply":
+        this.onPlatformReply(m);
+        break;
+      case "run_done":
+        this.onRunDone(m);
+        break;
       case "drain":
         this.drain();
         break;
@@ -175,9 +217,11 @@ export class Runtime {
       return;
     }
     this.welcomed = true;
+    this.facade = c.facade;
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
     this.startHeartbeat(c.heartbeat_ms);
+    this.opts.onWelcome?.();
   }
 
   /** Pings the engine every interval with this process's health. The
@@ -195,22 +239,44 @@ export class Runtime {
   }
 
   private health(): Health {
+    const { oldest_abandoned_ms: _, ...h } = this.hostHealth();
+    return h;
+  }
+
+  /** Invocations in flight and abandoned, unattributed process-level
+   * errors, event-loop lag, RSS, and how long ago the oldest abandoned
+   * invocation was abandoned (0 when none is). */
+  hostHealth(): HostHealth {
     let inFlight = 0;
     let abandoned = 0;
+    let oldest = 0;
+    const now = performance.now();
     for (const inv of this.invocations.values()) {
-      if (inv.abandoned) abandoned++;
-      else inFlight++;
+      if (!inv.abandoned) {
+        inFlight++;
+        continue;
+      }
+      abandoned++;
+      oldest = Math.max(oldest, Math.round(now - (inv.abandonedAt ?? now)));
     }
-    return { in_flight: inFlight, abandoned, errors: 0, lag_ms: this.lagMs, rss: process.memoryUsage.rss() };
+    return { in_flight: inFlight, abandoned, errors: this.errors, lag_ms: this.lagMs, rss: process.memoryUsage.rss(), oldest_abandoned_ms: oldest };
   }
 
   private invoke(m: Message) {
     if (this.invocations.has(m.id)) throw new ProtocolError("unexpected_message", `invocation ${JSON.stringify(m.id)} is already in flight`);
     const inv: Invocation = { id: m.id, abandoned: false, controller: new AbortController() };
     this.invocations.set(m.id, inv);
+    const env: Record<string, string> = Object.assign(Object.create(null), m.env);
+    shadow(env);
+    const ctx = { id: m.id, run: m.run, env, signal: inv.controller.signal };
+    // The module loads and the entrypoint runs inside the invocation's
+    // context, and in host mode inside the scope the host had when it
+    // submitted the run.
+    const go = () => invocations.run(ctx, () => this.run(m));
+    const scope = this.scopes.get(m.run);
     // Nothing that goes wrong while one invocation ends may end the
     // process: it would take every co-resident invocation with it.
-    this.run(m)
+    (scope ? scope(go) : go())
       .then((o) => this.finish(inv, o))
       .catch((e) => {
         this.diag(`windmill-lite harness: invocation ${JSON.stringify(inv.id)}: ${describe(e)}`);
@@ -264,7 +330,68 @@ export class Runtime {
     const inv = this.invocations.get(m.id);
     if (!inv || inv.abandoned) return;
     inv.abandoned = true;
+    inv.abandonedAt = performance.now();
     inv.controller.abort(m.reason);
+  }
+
+  /** Sends a platform frame for a facade fetch and waits for its reply. */
+  private platformCall(c: PlatformCall): Promise<PlatformAnswer> {
+    if (this.stopped) return Promise.reject(new TypeError("windmill-lite: the engine connection is closed"));
+    const id = `p${++this.platformSeq}`;
+    return new Promise((resolve, reject) => {
+      this.platformCalls.set(id, { resolve, reject });
+      try {
+        this.send({ t: "platform", id, inv: c.inv, method: c.method, url: c.url, headers: c.headers, body: c.body });
+      } catch (e) {
+        this.platformCalls.delete(id);
+        reject(e as Error);
+      }
+    });
+  }
+
+  private onPlatformReply(m: Message) {
+    const call = this.platformCalls.get(m.id);
+    if (!call) throw new ProtocolError("unexpected_message", `platform_reply for unknown request ${JSON.stringify(m.id)}`);
+    this.platformCalls.delete(m.id);
+    call.resolve({ status: m.status, headers: m.headers, body: m.body });
+  }
+
+  /** Host mode: submits a run of the flow or script at path with args, a
+   * JSON object's text, and resolves with its outcome. The run's id is a
+   * fresh UUID, which the engine uses as the run's id. The scope the
+   * caller has now is captured, and every invocation of the run re-enters
+   * it (H11). intercept, a JSON object's text, maps module ids to the
+   * results that stand in for them (H1's static form). */
+  submit(kind: "flow" | "script", path: string, args: string, intercept?: string): { id: string; done: Promise<RunOutcome> } {
+    if (!this.opts.host) throw new Error("windmill-lite: runs are submitted only in host mode");
+    if (!this.welcomed || this.stopped) throw new Error("windmill-lite: the engine is not connected");
+    const id = crypto.randomUUID();
+    const scope = AsyncLocalStorage.snapshot();
+    const done = new Promise<RunOutcome>((resolve, reject) => {
+      this.runs.set(id, { resolve, reject });
+      this.scopes.set(id, scope);
+      try {
+        this.send({ t: "run", id, kind, path, args: new Raw(args), intercept: intercept === undefined ? undefined : new Raw(intercept) });
+      } catch (e) {
+        this.runs.delete(id);
+        this.scopes.delete(id);
+        reject(e as Error);
+      }
+    });
+    return { id, done };
+  }
+
+  /** Host mode: cancels a run this process submitted. */
+  cancelRun(id: string) {
+    if (this.runs.has(id)) this.send({ t: "run_cancel", id });
+  }
+
+  private onRunDone(m: Message) {
+    const run = this.runs.get(m.id);
+    if (!this.opts.host || !run) throw new ProtocolError("unexpected_message", `run_done for unknown run ${JSON.stringify(m.id)}`);
+    this.runs.delete(m.id);
+    this.scopes.delete(m.id);
+    run.resolve({ status: m.status, result: m.result === undefined ? undefined : JSON.stringify(m.result) });
   }
 
   /** Reports how the entrypoint call ended: as the result, or, for an
@@ -330,6 +457,12 @@ export class Runtime {
     this.stopped = true;
     if (this.heartbeat) clearInterval(this.heartbeat);
     for (const inv of this.invocations.values()) inv.controller.abort("harness_exit");
+    const lost = new Error("windmill-lite: the engine connection ended");
+    for (const c of this.platformCalls.values()) c.reject(lost);
+    for (const r of this.runs.values()) r.reject(lost);
+    this.platformCalls.clear();
+    this.runs.clear();
+    this.scopes.clear();
     this.opts.transport.end();
     this.opts.exit(code);
   }

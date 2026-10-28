@@ -253,6 +253,182 @@
       "payload": "{\"t\":\"log\",\"id\":\"i1\",\"lines\":[\"one\",\"two\"]}"
     },
     {
+      "case": "welcome-config-facade",
+      "title": "a welcome whose engine serves platform calls names the facade origin, after the other config fields",
+      "message": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "0.0.0",
+        "bundle": "sha256:00ff",
+        "config": {
+          "facade": "http://127.0.0.1:40123",
+          "module_state": "warm",
+          "heartbeat_ms": 1000,
+          "max_message": 536870912
+        }
+      },
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\"}}"
+    },
+    {
+      "case": "platform",
+      "title": "an intercepted fetch to the facade, attributed to its invocation; header names are data, sorted; the body's bytes travel as padded base64",
+      "message": {
+        "t": "platform",
+        "id": "p1",
+        "inv": "i1",
+        "method": "POST",
+        "url": "http://127.0.0.1:40123/api/w/ws/variables/get_value/f/x",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer t"
+        },
+        "body": "eyJhIjoxfQ=="
+      },
+      "payload": "{\"t\":\"platform\",\"id\":\"p1\",\"inv\":\"i1\",\"method\":\"POST\",\"url\":\"http://127.0.0.1:40123/api/w/ws/variables/get_value/f/x\",\"headers\":{\"authorization\":\"Bearer t\",\"content-type\":\"application/json\"},\"body\":\"eyJhIjoxfQ==\"}"
+    },
+    {
+      "case": "platform-no-body",
+      "title": "a platform request without a body has no body field",
+      "message": {
+        "t": "platform",
+        "id": "p2",
+        "inv": "i1",
+        "method": "GET",
+        "url": "http://127.0.0.1:40123/api/w/ws/jobs_u/get_root_job_id/j",
+        "headers": {}
+      },
+      "payload": "{\"t\":\"platform\",\"id\":\"p2\",\"inv\":\"i1\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:40123/api/w/ws/jobs_u/get_root_job_id/j\",\"headers\":{}}"
+    },
+    {
+      "case": "platform-reply",
+      "title": "the facade's answer echoes the request id",
+      "message": {
+        "t": "platform_reply",
+        "id": "p1",
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "InYi"
+      },
+      "payload": "{\"t\":\"platform_reply\",\"id\":\"p1\",\"status\":200,\"headers\":{\"content-type\":\"application/json\"},\"body\":\"InYi\"}"
+    },
+    {
+      "case": "platform-reply-no-body",
+      "title": "a reply without a body, such as a 204",
+      "message": {
+        "t": "platform_reply",
+        "id": "p2",
+        "status": 204,
+        "headers": {}
+      },
+      "payload": "{\"t\":\"platform_reply\",\"id\":\"p2\",\"status\":204,\"headers\":{}}"
+    },
+    {
+      "case": "platform-empty-body",
+      "title": "an empty body is present, unlike an absent one",
+      "message": {
+        "t": "platform",
+        "id": "p3",
+        "inv": "i1",
+        "method": "POST",
+        "url": "http://127.0.0.1:40123/api/w/ws/x",
+        "headers": {},
+        "body": ""
+      },
+      "payload": "{\"t\":\"platform\",\"id\":\"p3\",\"inv\":\"i1\",\"method\":\"POST\",\"url\":\"http://127.0.0.1:40123/api/w/ws/x\",\"headers\":{},\"body\":\"\"}"
+    },
+    {
+      "case": "platform-binary-body",
+      "title": "bytes that are not UTF-8 survive both codecs",
+      "message": {
+        "t": "platform_reply",
+        "id": "p4",
+        "status": 200,
+        "headers": {
+          "content-type": "application/octet-stream"
+        },
+        "body": "AP/+Cg=="
+      },
+      "payload": "{\"t\":\"platform_reply\",\"id\":\"p4\",\"status\":200,\"headers\":{\"content-type\":\"application/octet-stream\"},\"body\":\"AP/+Cg==\"}"
+    },
+    {
+      "case": "run",
+      "title": "a host-mode run: the target and its arguments, kept byte for byte",
+      "sides": [
+        "go"
+      ],
+      "message_text": "{\"args\":{\"n\":1.50,\"b\":2},\"path\":\"f/w1/flow\",\"kind\":\"flow\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"t\":\"run\"}",
+      "raw": {
+        "args": "{\"n\":1.50,\"b\":2}"
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{\"n\":1.50,\"b\":2}}"
+    },
+    {
+      "case": "run-intercept",
+      "title": "a run with static stand-ins for modules (H1's no-code form)",
+      "message": {
+        "t": "run",
+        "id": "r2",
+        "kind": "flow",
+        "path": "f/w1/flow",
+        "args": {},
+        "intercept": {
+          "b": {
+            "stood": "in"
+          }
+        }
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"r2\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"intercept\":{\"b\":{\"stood\":\"in\"}}}"
+    },
+    {
+      "case": "run-intercept-null",
+      "title": "a null intercept counts as absent",
+      "message_text": "{\"t\":\"run\",\"id\":\"r3\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"intercept\":null}",
+      "payload": "{\"t\":\"run\",\"id\":\"r3\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}"
+    },
+    {
+      "case": "run-done",
+      "title": "a run's outcome with its final result",
+      "message": {
+        "t": "run_done",
+        "id": "r2",
+        "status": "success",
+        "result": {
+          "x": [
+            1,
+            2
+          ]
+        }
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"success\",\"result\":{\"x\":[1,2]}}"
+    },
+    {
+      "case": "run-done-null-result",
+      "title": "a final result of JSON null is a value: a flow may return null",
+      "message_text": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"success\",\"result\":null}",
+      "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"success\",\"result\":null}"
+    },
+    {
+      "case": "run-done-no-result",
+      "title": "a canceled run has no result",
+      "message": {
+        "t": "run_done",
+        "id": "r2",
+        "status": "canceled"
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"canceled\"}"
+    },
+    {
+      "case": "run-cancel",
+      "title": "the host cancels a run it submitted",
+      "message": {
+        "t": "run_cancel",
+        "id": "r2"
+      },
+      "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\"}"
+    },
+    {
       "case": "ping-health",
       "title": "a heartbeat with health",
       "message": {
@@ -519,7 +695,7 @@
       "case": "unknown-type",
       "title": "a type this milestone does not implement",
       "frames": [
-        "{\"t\":\"platform\",\"id\":\"p1\"}"
+        "{\"t\":\"host_call\",\"id\":\"p1\"}"
       ],
       "error": "unknown_type"
     },
@@ -805,6 +981,86 @@
         "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":null,\"errors\":0,\"lag_ms\":0,\"rss\":0}"
       ],
       "error": "missing_field"
+    },
+    {
+      "case": "platform-missing-inv",
+      "title": "a platform request must name its invocation",
+      "frames": [
+        "{\"t\":\"platform\",\"id\":\"p1\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:1/api\",\"headers\":{}}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "platform-body-not-string",
+      "title": "a platform body is text",
+      "frames": [
+        "{\"t\":\"platform\",\"id\":\"p1\",\"inv\":\"i1\",\"method\":\"POST\",\"url\":\"http://127.0.0.1:1/api\",\"headers\":{},\"body\":{\"a\":1}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "platform-header-not-string",
+      "title": "header values are strings",
+      "frames": [
+        "{\"t\":\"platform\",\"id\":\"p1\",\"inv\":\"i1\",\"method\":\"GET\",\"url\":\"http://127.0.0.1:1/api\",\"headers\":{\"x\":1}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "platform-reply-bad-status",
+      "title": "a reply status is an HTTP status code",
+      "frames": [
+        "{\"t\":\"platform_reply\",\"id\":\"p1\",\"status\":600,\"headers\":{}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "platform-reply-informational",
+      "title": "an informational status is not a final answer: no Response can carry it",
+      "frames": [
+        "{\"t\":\"platform_reply\",\"id\":\"p1\",\"status\":101,\"headers\":{}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "platform-body-not-base64",
+      "title": "a platform body is padded base64: unpadded is refused",
+      "frames": [
+        "{\"t\":\"platform\",\"id\":\"p1\",\"inv\":\"i1\",\"method\":\"POST\",\"url\":\"http://127.0.0.1:1/api\",\"headers\":{},\"body\":\"eyJhIjoxfQ\"}"
+      ],
+      "error": "bad_chunk"
+    },
+    {
+      "case": "run-bad-kind",
+      "title": "a run targets a flow or a script",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r1\",\"kind\":\"app\",\"path\":\"f/x\",\"args\":{}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-missing-args",
+      "title": "a run carries its arguments",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r1\",\"kind\":\"flow\",\"path\":\"f/x\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "run-done-bad-status",
+      "title": "a run_done status is a run status",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r1\",\"status\":\"done\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "welcome-facade-not-string",
+      "title": "the facade origin is a string",
+      "frames": [
+        "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"e\",\"bundle\":\"b\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1,\"max_message\":1024,\"facade\":1}}"
+      ],
+      "error": "bad_field"
     }
   ]
 }
