@@ -1,0 +1,11 @@
+# FX-12/c: no extra in the Deno error object.
+spec: [FX-12/c]
+target: f/wl_fx12d/error_extra
+expect:
+  status: failure
+  result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a}}

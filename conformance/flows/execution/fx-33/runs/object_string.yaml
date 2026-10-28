@@ -1,0 +1,13 @@
+# FX-33/b: a string "true" does not recover.
+spec: [FX-33/b]
+target: f/wl_fx33/recover
+args: {ret: {recover: "true"}}
+expect:
+  status: failure
+  result: {recover: "true"}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: {recover: "true"}}, result: {recover: "true"}}

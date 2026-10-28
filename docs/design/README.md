@@ -17,10 +17,11 @@ C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
-[internal/oracle](../../internal/oracle/README.md), and recording batch E3a
-the oracle recordings of the JE expression cases and of CF-19 and CF-V6,
-which settled the CF-V6 row of [0001](0001-equivalence-contract.md) §6;
-nothing runs flows yet.
+[internal/oracle](../../internal/oracle/README.md), on which recording batch
+E3c recorded the flow-execution error cases and settled two contested rules
+of [0001](0001-equivalence-contract.md) §6, and recording batch E3a the JE
+expression cases and CF-19 and CF-V6, which settled a third; nothing runs
+flows yet.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -102,10 +103,14 @@ Recording batches E3a to E3e record them on the oracle (E3e holds the
 contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
-keeps both readings. Batch E3a has recorded the CF-19 / CF-V6 dispute
+keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
+and FX-33 (Q-FX-19), both for the stated default. It also found one
+confirmed finding contradicted, the id of a failure module copied into an
+inline body (FX-34, FX-32). E3a has recorded the CF-19 / CF-V6 dispute
 ([Q-CF-16](../semantics/control-flow.md#q-cf-16)): the direct lookup is
-line-anchored, the default; the reference still lists the finding as not
-settled until the semantics team records the result.
+line-anchored, the stated default. 0001 §6 gives the results; the reference
+still lists these findings as not settled until the semantics team records
+them.
 
 ## Requests to the semantics team
 
@@ -135,7 +140,7 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    records in the manifest ([0003](0003-semantics-placement.md)).
    Recording batch E3a found the reference's bracket wrong on the oracle: a
    recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
-   fit than the reference implies; request 5 asks why.
+   fit than the reference implies; request 6 asks why.
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
@@ -145,12 +150,48 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
-
-5. **Recorded differences from the reference (batch E3a).** These oracle
-   recordings differ from the reference's source-derived expectations; the
-   cases now expect what the oracle did and cite the recording
-   (`conformance/exprs`, `conformance/flows/je`). The reference should say
-   which rule produces each, and where a reading is not settled:
+5. **Fold in recording batch E3c.** E3c recorded the catalogue cases of
+   FX-12 to FX-15, FX-30 to FX-38 (FX-36's executor part), FX-V6/a and
+   FX-10/a on the CE oracle (`conformance/flows/execution`, oracle run
+   40685766017; FX-34/a's step-id run, run 40689442792). Every catalogue
+   expectation it recorded held but one. A failure module copied into an
+   inline body keeps its own id, `failure`, in its status and in
+   `WM_FLOW_STEP_ID`; FX-34 (`failure-0-0`) and FX-32 say it is suffixed
+   with the parent cursor and the iteration. Please correct both findings;
+   [0001](0001-equivalence-contract.md) §6 lists the recorded behaviour.
+   The reference still tags the recorded cases `source-derived` or
+   `disputed`. Two disputes are now settled for their corrections: Q-FX-15
+   (FX-V6) and Q-FX-19 (FX-33, SR-1). The recordings also show behaviour
+   the reference does not state:
+   - CE refuses a third workspace besides `admins`, so a fresh workspace per
+     fixture ([OR-6](../semantics/oracle.md#or-6)) means deleting each one
+     after its runs;
+   - an empty flow's status holds one `Success` entry with id `failure` and
+     a nil job ([FX-3](../semantics/execution.md#fx-3));
+   - a completed `branchall` entry has no `branchall` field. Failure-module
+     and preprocessor jobs are of kind `preview`, branch bodies
+     `flowpreview` and loop bodies `flownode`
+     ([OR-11](../semantics/oracle.md#or-11), [OR-28](../semantics/oracle.md#or-28));
+   - a failure module whose retry its `skip_if` skips runs an identity job
+     that is not marked skipped ([FX-17](../semantics/execution.md#fx-17),
+     [FX-32](../semantics/execution.md#fx-32));
+   - a preprocessor runs on a run-API start, and its job stores the args
+     `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}`
+     ([FX-35](../semantics/execution.md#fx-35));
+   - the exact error texts ([Q-FX-13](../semantics/execution.md#q-fx-13)).
+     An input-transform error continues `QuickJS evaluation error: Error: …`
+     with the engine's frames ([FX-14](../semantics/execution.md#fx-14)).
+     Chaining errors end in Rust location suffixes, and at a child flow's
+     pickup the message starts `Error: Error: ` and carries two suffixes
+     ([FX-15](../semantics/execution.md#fx-15)).
+6. **Fold in recording batch E3a.** E3a recorded the JE catalogue cases
+   (`conformance/exprs`, `conformance/flows/je`) and CF-19 and CF-V6
+   (`conformance/flows/cf/cf-19`; oracle runs 40687124625, 40688787344 and
+   40691336592). The dispute Q-CF-16 is settled for CF-V6: a qualifying line
+   of a multiline expression answers by itself. These recordings differ
+   from the reference's source-derived expectations; the cases now expect
+   what the oracle did and say so. The reference should say which rule
+   produces each, and where a reading is not settled:
    - JE-48/a, above: the stack depth that fits. The catalogue's JE-48 cases
      also hold a `;`, so they run in statement mode
      ([JE-13](../semantics/expressions.md#je-13)) and JE-48/c gives `null`;
@@ -164,10 +205,7 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      canceled after 60 s by the monitor of flows hanging between two steps,
      before the timeout error surfaces;
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
-     where JE-33 says it completes successfully;
-   - CE allows two workspaces besides `admins`, which
-     [OR-6](../semantics/oracle.md#or-6) does not state, and a completed
-     `branchall`'s flow-status entry has no `branchall` field.
+     where JE-33 says it completes successfully.
 
 ## Changing the design
 

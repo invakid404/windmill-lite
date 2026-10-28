@@ -5,14 +5,14 @@ OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
 harness protocol cases in `protocol/`, the flow fixtures in `flows/`, and
 the context-free expression cases in `exprs/`. `wltest record` records the
-flow fixtures and the expression cases on the Windmill CE oracle, and the
-recordings of recording batch E3a (the expression cases of the JE
-catalogue, and CF-19 and CF-V6) are committed. This README covers
-`conformance/`. Nothing runs the flow fixtures or the expression cases on
-windmill-lite yet (`wltest check`, milestone E1; the expression pipeline,
-B2a and B2b), and the step level that
-[0003](../docs/design/0003-semantics-placement.md) defines has no cases or
-runner yet.
+flow fixtures and the expression cases on the Windmill CE oracle: the
+oracle smoke fixture, the fixtures of recording batch E3c (flow execution
+errors), and those of recording batch E3a (the expression cases of the JE
+catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
+Nothing runs the flow fixtures or the expression cases on windmill-lite yet
+(`wltest check`, milestone E1; the expression pipeline, B2a and B2b), and
+the step level that [0003](../docs/design/0003-semantics-placement.md)
+defines has no cases or runner yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -29,7 +29,7 @@ repository to exercise one behaviour each.
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | in use; recorded on the oracle by `wltest record`; their recordings are held to their claims by `go test ./internal/oracle` |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c), `flows/je/*` and `flows/cf/cf-19` (E3a); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
 
@@ -45,6 +45,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/execution/fx-12` … `fx-38`, `fx-v6` | Recording batch E3c (ADR 0012): the catalogue cases of [FX-12](../docs/semantics/execution.md#fx-12) to [FX-15](../docs/semantics/execution.md#fx-15) and [FX-30](../docs/semantics/execution.md#fx-30) to [FX-38](../docs/semantics/execution.md#fx-38) (FX-36's executor part), FX-V6/a and FX-10/a. Covered: error values, chaining errors, `continue_on_error`, the failure module (what it sees, its retry, `recover`, inside loop bodies), the preprocessor, final-result selection, `early_return` and cancellation. One fixture per finding, `fx-12-deno` for the Deno case. Each run's `expect` states the catalogue's expectation. It holds the recorded value instead where the catalogue asserts only a prefix of a text, says nothing about a field, or is contradicted by the oracle: one case, FX-34/a's handler id, listed in the batch manifest and in [0001](../docs/design/0001-equivalence-contract.md) §6. The batch's coverage, deferrals and prefix checks are in `internal/oracle/testdata/batches/e3c.json` ([internal/oracle](../internal/oracle/README.md)). |
 | `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
 | `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. |
@@ -55,9 +56,10 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/je/providers` | Variable helpers, `flow_env` resolution and `$var:` resolution: JE-20, JE-38/a–b, JE-41, JE-42, JE-V3/a. |
 | `flows/cf/cf-19` | `results` lookups across containers, CF-19/a–c, and the contested CF-V6/a–b of [Q-CF-16](../docs/semantics/control-flow.md#q-cf-16). |
 
-A run says what the catalogue expects of it in `claims`, `delays` and
-`unit` (see [Claims and unit cases](#claims-and-unit-cases)) and leaves the
-whole observation to its recording, because most expectations are partial:
+The runs of batch E3a say what the catalogue expects of them in `claims`,
+`delays` and `unit` (see [Claims and unit cases](#claims-and-unit-cases))
+and leave the whole observation to the recording, because most expectations
+are partial:
 an error message's prefix, one argument. The fixtures of recording batch E3a
 are `oracle-observed`; where a recording differs from the catalogue's
 source-derived expectation, the run's comment says so.

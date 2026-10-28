@@ -94,24 +94,26 @@ func Bootstrap(ctx context.Context, c *Client) error {
 // NewWorkspace creates a harness-owned workspace for one fixture run and
 // checks that its queue is empty (OR-6/a). Pushing only into such a
 // workspace keeps the destructive push away from anything else (OR-31).
-//
-// created reports whether the workspace exists afterwards, so that a caller
-// deletes it even when the check after creating it failed.
-func NewWorkspace(ctx context.Context, c *Client, id string) (created bool, err error) {
+// When the check fails, the workspace is deleted again, so an error means
+// that the harness owns no new workspace.
+func NewWorkspace(ctx context.Context, c *Client, id string) error {
 	if len(id) > 50 {
-		return false, fmt.Errorf("oracle: workspace id %q is longer than 50 characters", id)
+		return fmt.Errorf("oracle: workspace id %q is longer than 50 characters", id)
 	}
 	if err := c.CreateWorkspace(ctx, id); err != nil {
-		return false, err
+		return err
 	}
 	n, err := c.QueueCount(ctx, id)
+	if err == nil && n != 0 {
+		err = fmt.Errorf("oracle: new workspace %s has %d queued jobs", id, n)
+	}
 	if err != nil {
-		return true, err
+		if derr := c.DeleteWorkspace(ctx, id); derr != nil {
+			return errors.Join(err, derr)
+		}
+		return err
 	}
-	if n != 0 {
-		return true, fmt.Errorf("oracle: new workspace %s has %d queued jobs", id, n)
-	}
-	return true, nil
+	return nil
 }
 
 // ApplySetup creates a fixture's setup.yaml items after the push, because

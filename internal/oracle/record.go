@@ -403,35 +403,33 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		}
 		ws := fmt.Sprintf("wl-%s-%d", short, i+1)
 		s.logf("fixture %s: workspace %s", name, ws)
-		created, err := NewWorkspace(ctx, c, ws)
-		var tree *SyncTree
-		if err == nil {
-			var dep Deployment
-			tree, dep, err = s.deploy(ctx, c, cli, f, ws, tmp)
-			rep.Session.Deployments[name] = dep
-		}
-		if err != nil {
+		failAll := func(err error) {
 			for _, r := range runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
 			}
+		}
+		if err := NewWorkspace(ctx, c, ws); err != nil {
+			failAll(err)
+			continue
+		}
+		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
+		rep.Session.Deployments[name] = dep
+		if err != nil {
+			failAll(err)
 		} else {
 			for _, r := range runs {
 				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
 			}
 		}
-		if !created {
-			continue
-		}
-		// CE allows two workspaces besides admins, so the next fixture's
-		// fresh workspace needs this one gone, whatever happened in it. A
-		// workspace that cannot be deleted ends the session: every later
-		// fixture would fail. The deletion has a context of its own, so a
+		// CE refuses a third workspace besides admins, so the next
+		// fixture needs this one gone; a workspace that cannot be deleted
+		// ends the session. The deletion has a context of its own, so a
 		// canceled session still cleans up and reports the cancellation.
 		del, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err = c.DeleteWorkspace(del, ws)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("oracle: deleting workspace %s: %w", ws, err)
+			return fmt.Errorf("oracle: fixture %s: deleting workspace %s: %w", name, ws, err)
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -457,8 +455,8 @@ func (s *Session) rel(p string) string {
 }
 
 // deploy optionally regenerates the fixture's metadata, pushes a copy of
-// its sync tree with the CLI into the fixture's new workspace ws, applies
-// its setup and passes the deployment gate.
+// its sync tree with the CLI into its new workspace ws, applies its setup
+// and passes the deployment gate.
 func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}

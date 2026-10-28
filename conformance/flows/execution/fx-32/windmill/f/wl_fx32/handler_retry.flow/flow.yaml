@@ -1,0 +1,32 @@
+summary: FX-32/b handler retry
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms:
+        n:
+          type: javascript
+          expr: '1'
+      lock: '!inline failure.lock'
+      language: bun
+    retry:
+      constant:
+        attempts: 1
+        seconds: 0
+    skip_if:
+      expr: previous_result?.error?.message === 'h1'
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

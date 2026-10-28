@@ -1,0 +1,10 @@
+# FX-13/a (scope later): a successful result with a string wm_failure is
+# turned into a failure with a ManualFailure error beside its fields.
+# Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-13.
+id: execution/fx-13
+spec: [FX-13/a]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
