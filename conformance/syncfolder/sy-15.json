@@ -1,0 +1,159 @@
+{
+  "finding": "SY-15",
+  "cases": [
+    {
+      "spec": "SY-15/a",
+      "provenance": "source-derived",
+      "title": "hub step",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: script\n        path: hub/123/foo\n        input_transforms: {}\n"
+        },
+        "step": {
+          "flow": "f/x",
+          "module": "a"
+        }
+      },
+      "expect": {
+        "target": {
+          "error": {
+            "kind": "hub_path",
+            "contains": [
+              "flow f/x step 'a'",
+              "hub/123/foo"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-15",
+      "provenance": "policy",
+      "title": "a target not in the folder",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: script\n        path: f/a/missing\n        input_transforms: {}\n"
+        },
+        "step": {
+          "flow": "f/x",
+          "module": "s"
+        }
+      },
+      "expect": {
+        "target": {
+          "error": {
+            "kind": "not_in_folder",
+            "contains": [
+              "flow f/x step 's'",
+              "script f/a/missing"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-15",
+      "provenance": "policy",
+      "title": "a filtered target",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/x*/**']\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: script\n        path: f/b/y\n        input_transforms: {}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n"
+        },
+        "step": {
+          "flow": "f/x",
+          "module": "s"
+        }
+      },
+      "expect": {
+        "target": {
+          "error": {
+            "kind": "filtered",
+            "contains": [
+              "flow f/x step 's'",
+              "f/b/y"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-15",
+      "provenance": "source-derived",
+      "title": "a script target",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: script\n        path: f/b/y\n        input_transforms: {}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n"
+        },
+        "step": {
+          "flow": "f/x",
+          "module": "s"
+        }
+      },
+      "expect": {
+        "target": {
+          "at": {
+            "/path": "f/b/y",
+            "/language": "bun"
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-15",
+      "provenance": "source-derived",
+      "title": "a subflow target",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: flow\n        path: f/b/sub\n        input_transforms: {}\n",
+          "f/b/sub.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        },
+        "step": {
+          "flow": "f/x",
+          "module": "s"
+        }
+      },
+      "expect": {
+        "target": {
+          "at": {
+            "/path": "f/b/sub",
+            "/dir": "f/b/sub.flow"
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-15",
+      "provenance": "policy",
+      "title": "a target that fails to read names the step",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: script\n        path: f/b/y\n        input_transforms: {}\n",
+          "f/b/y.sql": "select 1;\n"
+        },
+        "step": {
+          "flow": "f/x",
+          "module": "s"
+        }
+      },
+      "expect": {
+        "target": {
+          "error": {
+            "kind": "unknown_language",
+            "contains": [
+              "flow f/x step 's'",
+              "script f/b/y"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "finding": "SY-12",
+  "cases": [
+    {
+      "spec": "SY-12/a",
+      "provenance": "source-derived",
+      "title": "per-workspace override is not an item",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nworkspaces:\n  prod:\n    workspaceId: prod\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: x\n",
+          "f/a/x.prod.resource.yaml": "resource_type: x\nvalue: 1\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ],
+          "resource": []
+        },
+        "skipped": [
+          {
+            "file": "f/a/x.prod.resource.yaml",
+            "kind": "override"
+          }
+        ]
+      }
+    },
+    {
+      "spec": "SY-12",
+      "provenance": "source-derived",
+      "note": "workspace names are matched in file-name form: my.ws is my_ws",
+      "title": "deprecated spellings declare workspaces",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ngitBranches:\n  staging: {}\nenvironments:\n  my.ws: {}\n",
+          "f/a/x.staging.variable.yaml": "value: s\n",
+          "f/a/x.my_ws.variable.yaml": "value: s\n",
+          "f/a/x.variable.yaml": "value: base\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "variable": [
+            "f/a/x"
+          ]
+        },
+        "skipped": [
+          {
+            "file": "f/a/x.staging.variable.yaml",
+            "kind": "override"
+          },
+          {
+            "file": "f/a/x.my_ws.variable.yaml",
+            "kind": "override"
+          }
+        ]
+      }
+    },
+    {
+      "spec": "SY-12",
+      "provenance": "source-derived",
+      "scope": "later",
+      "title": "other files are recognised and skipped",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.schedule.yaml": "schedule: '* * * * *'\n",
+          "f/a/x.http_trigger.yaml": "route_path: x\n",
+          "f/a/x.kafka_trigger.yaml": "topics: []\n",
+          "f/a/x.script.ext1.gmail_native_trigger.yaml": "x: 1\n",
+          "f/a/folder.meta.yaml": "summary: f\n",
+          "f/a/dash.app/app.yaml": "x: 1\n",
+          "f/a/raw__raw_app/raw_app.yaml": "x: 1\n",
+          "users/a@example.com.user.yaml": "x: 1\n",
+          "groups/devs.group.yaml": "x: 1\n",
+          "settings.yaml": "x: 1\n",
+          "encryption_key.yaml": "x: 1\n",
+          "dependencies/package.json": "{}\n",
+          "dependencies/extra.requirements.in": "x\n",
+          "migrations/datatable/001.sql": "select 1;\n",
+          "ui/x.json": "{}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ],
+          "flow": [],
+          "resource": [],
+          "variable": []
+        },
+        "skipped": [
+          {
+            "file": "f/a/x.schedule.yaml",
+            "kind": "schedule"
+          },
+          {
+            "file": "f/a/x.http_trigger.yaml",
+            "kind": "trigger"
+          },
+          {
+            "file": "f/a/x.kafka_trigger.yaml",
+            "kind": "trigger"
+          },
+          {
+            "file": "f/a/x.script.ext1.gmail_native_trigger.yaml",
+            "kind": "native_trigger"
+          },
+          {
+            "file": "f/a/folder.meta.yaml",
+            "kind": "folder"
+          },
+          {
+            "file": "f/a/dash.app",
+            "kind": "app"
+          },
+          {
+            "file": "f/a/raw__raw_app",
+            "kind": "raw_app"
+          },
+          {
+            "file": "users/a@example.com.user.yaml",
+            "kind": "user"
+          },
+          {
+            "file": "groups/devs.group.yaml",
+            "kind": "group"
+          },
+          {
+            "file": "settings.yaml",
+            "kind": "settings"
+          },
+          {
+            "file": "encryption_key.yaml",
+            "kind": "encryption_key"
+          },
+          {
+            "file": "dependencies/package.json",
+            "kind": "workspace_dependency"
+          },
+          {
+            "file": "dependencies/extra.requirements.in",
+            "kind": "workspace_dependency"
+          },
+          {
+            "file": "migrations/datatable/001.sql",
+            "kind": "migration"
+          },
+          {
+            "file": "ui",
+            "kind": "ui"
+          }
+        ],
+        "check_ok": true
+      }
+    }
+  ]
+}

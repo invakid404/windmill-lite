@@ -1,0 +1,453 @@
+{
+  "finding": "SY-1",
+  "cases": [
+    {
+      "spec": "SY-1/a",
+      "provenance": "source-derived",
+      "title": "flat script",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/hello.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/hello.script.yaml": "summary: hello\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/hello"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/hello": {
+              "at": {
+                "/file": "f/a/hello.ts",
+                "/metadata_file": "f/a/hello.script.yaml",
+                "/language": "bun",
+                "/metadata/summary": "hello"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-1/b",
+      "provenance": "source-derived",
+      "policy": "ADR 0002: a script file the CLI would rename by cutting its path at the first dot is refused",
+      "note": "Windmill path f/my; windmill-lite refuses the file instead of renaming the script",
+      "title": "dotted folder truncates",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/my.dir/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/my"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/my": {
+              "error": {
+                "kind": "dotted_path",
+                "contains": [
+                  "f/my.dir/x.ts",
+                  "f/my"
+                ]
+              }
+            },
+            "f/my.dir/x": {
+              "error": {
+                "kind": "not_in_folder",
+                "contains": [
+                  "f/my.dir/x.ts"
+                ]
+              }
+            }
+          }
+        },
+        "warnings": [
+          "dotted script paths"
+        ],
+        "check_error": {
+          "kind": "dotted_path"
+        }
+      }
+    },
+    {
+      "spec": "SY-1/b",
+      "variant": "flow-and-resource",
+      "provenance": "source-derived",
+      "note": "SY-1 applies the first-dot rule to flat script files only; folder markers and type suffixes are stripped",
+      "title": "a dot in a flow or resource path is kept",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/my.dir/x.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/my.dir/cfg.resource.yaml": "resource_type: x\nvalue: 1\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/my.dir/x"
+          ],
+          "resource": [
+            "f/my.dir/cfg"
+          ],
+          "script": []
+        },
+        "items": {
+          "flow": {
+            "f/my.dir/x": {
+              "at": {
+                "/dir": "f/my.dir/x.flow"
+              }
+            }
+          },
+          "resource": {
+            "f/my.dir/cfg": {
+              "at": {
+                "/value": 1
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-1/c",
+      "provenance": "source-derived",
+      "title": "dot directory skipped",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          ".git/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/.cache/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/ok.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/ok"
+          ]
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-1/d",
+      "provenance": "source-derived",
+      "title": "node_modules skipped",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "node_modules/a/b.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/node_modules/b/c.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/ok.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/ok"
+          ]
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-1/e",
+      "variant": "bun.ts",
+      "provenance": "source-derived",
+      "title": "multi-part language suffix .bun.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.bun.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/file": "f/a/x.bun.ts",
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-1/e",
+      "variant": "deno.ts",
+      "provenance": "source-derived",
+      "title": "multi-part language suffix .deno.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.deno.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/file": "f/a/x.deno.ts",
+                "/language": "deno"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-1/e",
+      "variant": "fetch.ts",
+      "provenance": "source-derived",
+      "title": "multi-part language suffix .fetch.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.fetch.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/file": "f/a/x.fetch.ts",
+                "/language": "nativets"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-1/e",
+      "variant": "pg.sql",
+      "provenance": "source-derived",
+      "title": "multi-part language suffix .pg.sql",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.pg.sql": "select 1;\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/file": "f/a/x.pg.sql",
+                "/language": "postgresql"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-1/f",
+      "provenance": "source-derived",
+      "scope": "later",
+      "policy": "ADR 0002: the root is always the directory of wmill.yaml",
+      "note": "the CLI finds the parent's config and keeps the child as its working directory; windmill-lite walks the parent and says so",
+      "title": "noCdToRoot: true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnoCdToRoot: true\n",
+          "sub/README.md": "child\n"
+        },
+        "start": "sub"
+      },
+      "expect": {
+        "root": ".",
+        "warnings": [
+          "noCdToRoot",
+          "SY-V4"
+        ]
+      }
+    },
+    {
+      "spec": "SY-1/g",
+      "provenance": "source-derived",
+      "scope": "later",
+      "title": "noCdToRoot: false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnoCdToRoot: false\n",
+          "sub/README.md": "child\n"
+        },
+        "start": "sub"
+      },
+      "expect": {
+        "root": ".",
+        "not_warnings": [
+          "noCdToRoot"
+        ]
+      }
+    },
+    {
+      "spec": "SY-1",
+      "provenance": "source-derived",
+      "title": "upward search stops at the git root",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "repo/.git/HEAD": "ref: x\n",
+          "repo/f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        },
+        "start": "repo"
+      },
+      "expect": {
+        "load": {
+          "kind": "wmill_yaml_not_found"
+        }
+      }
+    },
+    {
+      "spec": "SY-1",
+      "provenance": "source-derived",
+      "title": "the git root itself is searched",
+      "given": {
+        "files": {
+          "repo/.git/HEAD": "ref: x\n",
+          "repo/wmill.yaml": "defaultTs: bun\n",
+          "repo/f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        },
+        "start": "repo/f/a"
+      },
+      "expect": {
+        "root": "repo",
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-1",
+      "provenance": "source-derived",
+      "title": "paths outside u/, f/ and g/ are ignored",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "x.ts": "export async function main() {\n  return 1;\n}\n",
+          "lib/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "u/me/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "g/team/z.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/x",
+            "g/team/z",
+            "u/me/y"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-1",
+      "provenance": "source-derived",
+      "policy": "ADR 0002: a script file the CLI would rename by cutting its path at the first dot is refused",
+      "title": "first-dot rule on a file name",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/types.d.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/my.script.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/my",
+            "f/a/types"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/types": {
+              "error": {
+                "kind": "dotted_path",
+                "contains": [
+                  "f/a/types.d.ts"
+                ]
+              }
+            },
+            "f/a/my": {
+              "error": {
+                "kind": "dotted_path",
+                "contains": [
+                  "f/a/my.script.ts"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-1",
+      "provenance": "source-derived",
+      "title": ".wmillignore is ignored",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          ".wmillignore": "f/**\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "skipped": [
+          {
+            "file": ".wmillignore",
+            "kind": "wmillignore"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -12,13 +12,15 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Five milestones have landed, and no command uses them yet: the OpenFlow
+Six milestones have landed, and no command uses them yet: the OpenFlow
 decoder in [internal/openflow](internal/openflow/README.md) (A3); the YAML
 dialect of the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md)
 (A2); the jsonb canonicaliser in [internal/jsonval](internal/jsonval/README.md)
-(A1); K1, the shared types and interfaces under `internal/` that later
-milestones implement and code against; and the QuickJS-ng expression engine
-in [internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
+(A1); the sync-folder loader in
+[internal/syncfolder](internal/syncfolder/README.md) (A4); K1, the shared
+types and interfaces under `internal/` that later milestones implement and
+code against; and the QuickJS-ng expression engine in
+[internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
@@ -44,12 +46,13 @@ go test -race ./...
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
+| [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-15). |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. The pipeline is not implemented yet. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary: the site-path encoder with its negative tests, run and step statuses, and the observation types. |
-| [conformance](conformance/README.md) | The shared conformance cases. Today the OpenFlow decode cases and the stored-form (jsonb) cases exist. |
+| [conformance](conformance/README.md) | The shared conformance cases. Today the OpenFlow decode cases, the stored-form (jsonb) cases and the sync-folder load cases exist. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
