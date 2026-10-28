@@ -100,7 +100,15 @@ appear as `m:<loop>/i:<n>/m:<body>`, the same path a non-collapsed loop gives,
 so the shape of Windmill's job tree never leaks into identities. The same
 encoding is used by job-id placeholders (`<job:m:a/i:1/m:s>`), host-hook
 sites ([0008](0008-host-hooks.md)), run traces, and any replay service keyed
-by site. Cases OR-V8/a–c become negative tests of the encoder.
+by site. Inside a placeholder, a `>` from a module id is written `%3E`.
+Path text never contains `%3E`, since a literal `%` is escaped, so a
+placeholder ends at its first `>` and distinct sites never share a
+placeholder. That alone does not make a whole normalised string injective:
+user text that already looks like a placeholder needs its own escape, and
+OR-14's drafted `<<job:` rule is not injective on its own, because a user's
+`<` followed by a walked job id gives the same text. The normaliser
+(milestone E2) chooses that escape. Cases OR-V8/a–c become negative tests of
+the encoder.
 
 ### Fixtures and verbs
 
@@ -121,6 +129,33 @@ Step cases, and expression cases (which are context-free by construction,
 [0003](0003-semantics-placement.md)), are lifted into generated one-step flow
 fixtures for `record`. Contextual expression cases are flow fixtures already
 and are recorded as such.
+
+**Observation fields beyond OR-15.** A step's observation adds three fields
+to OR-15's step record. [0001](0001-equivalence-contract.md) §2 compares
+them, and the stored fields cannot recover them:
+
+- `module`: the module's own status
+  ([FX-1](../semantics/execution.md#fx-1)), which differs from its job's
+  after an error stop ([FX-V2](../semantics/execution.md#fx-v2));
+- `carried`: the value the module carries on to what follows it;
+- `resolved_args`: the arguments after `$var:`/`$res:` resolution
+  ([JE-V3](../semantics/expressions.md#je-v3)).
+
+Each is written only where it differs from what the other fields imply
+(`module` from the job status, `carried` from `result`, `resolved_args` from
+`args`), so most expectations read as OR-15 writes them. `carried` and
+`resolved_args` differ when their text does, whitespace aside: the same keys
+in another order still count as a difference, because a `key_order: strict`
+comparison ([OR-14](../semantics/oracle.md#or-14)) and the producer and
+stored routes of [0005](0005-json-step-boundaries.md) can tell them apart. A
+comparator expands these absences before it applies a fixture's key-order
+policy. The oracle's API
+exposes the module status but neither a carried value nor resolved
+arguments, so recordings hold neither. A comparison with a recording
+therefore leaves `carried` and `resolved_args` out, and a comparison with
+`expect` includes them. A fixture shows them to the oracle through what its
+flow returns: a step that returns its arguments, a later step's
+`previous_result`, or a failure handler's input.
 
 **Location suffixes.** Comparing windmill-lite with the oracle adds one rule
 to [OR-14](../semantics/oracle.md#or-14)'s normaliser: at a path where
@@ -194,6 +229,15 @@ merged.
 ## Consequences
 
 - Every comparison, placeholder, hook and trace uses one identity encoding.
+- Milestone K1 added the three observation fields beyond OR-15, so that a
+  successful job under a failed module, an error stop masked by a recovering
+  handler, and a wrongly resolved argument that the script ignores all stay
+  visible in a comparison.
+- Milestone K1 added the `%3E` rule for placeholders. Without it, a string
+  holding module `a`'s job id followed by `b>` would normalise to the same
+  text as the job id of a module named `a>b`. Windmill puts no restriction
+  on module ids ([OF-2](../semantics/openflow.md#of-2)). K1 also recorded
+  that the escape for placeholder-like user text is still E2's to choose.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
 - Disputed findings get settled by recordings, early, through a reviewed

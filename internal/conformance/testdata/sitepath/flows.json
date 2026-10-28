@@ -1,0 +1,142 @@
+{
+  "about": "The encoder's negative tests (ADR 0011): synthetic runs whose sites must get distinct site paths and distinct placeholders. A flow is {modules, failure_module, preprocessor_module}; a module is {id, label} plus what ran under it: failed_attempts (retried attempts before the final one), iterations (one module list per loop iteration), branches (taken branches with their module lists) and flow (the body of a subflow called by path). Labels name sites in expect. Occurrence suffixes count ids within one module list, so each list is walked as a whole. Provenance is policy: the encoding is windmill-lite's answer to Q-OR-17.",
+  "cases": [
+    {
+      "name": "two modules with one id in one list",
+      "spec": ["OF-2", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {"modules": [{"id": "a", "label": "first a"}, {"id": "b", "label": "b"}, {"id": "a", "label": "second a"}]},
+      "expect": {"first a": "m:a~0", "b": "m:b", "second a": "m:a~1"}
+    },
+    {
+      "name": "the same id in different container bodies needs no suffix",
+      "spec": ["OF-2", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {"modules": [
+        {"id": "x", "label": "top x"},
+        {"id": "l", "label": "loop", "iterations": [[{"id": "x", "label": "loop x 0"}], [{"id": "x", "label": "loop x 1"}]]},
+        {"id": "ba", "label": "branchall", "branches": [{"branch": 0, "modules": [{"id": "x", "label": "branch x 0"}]}, {"branch": 1, "modules": [{"id": "x", "label": "branch x 1"}]}]},
+        {"id": "sub", "label": "subflow", "flow": {"modules": [{"id": "x", "label": "subflow x"}]}}
+      ]},
+      "expect": {
+        "top x": "m:x",
+        "loop": "m:l", "loop x 0": "m:l/i:0/m:x", "loop x 1": "m:l/i:1/m:x",
+        "branchall": "m:ba", "branch x 0": "m:ba/b:0/m:x", "branch x 1": "m:ba/b:1/m:x",
+        "subflow": "m:sub", "subflow x": "m:sub/m:x"
+      }
+    },
+    {
+      "name": "OR-V8/a: an ordinary module named failure beside a failure handler named recover",
+      "spec": ["OR-V8/a", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {
+        "modules": [{"id": "failure", "label": "ordinary failure"}, {"id": "b", "label": "b"}],
+        "failure_module": {"id": "recover", "label": "handler"}
+      },
+      "expect": {"ordinary failure": "m:failure", "b": "m:b", "handler": "s:failure"},
+      "swap": ["ordinary failure", "handler"]
+    },
+    {
+      "name": "an ordinary module named failure beside a failure handler that is also named failure",
+      "spec": ["OR-V8/a", "FX-1", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {
+        "modules": [{"id": "failure", "label": "ordinary failure"}],
+        "failure_module": {"id": "failure", "label": "handler"}
+      },
+      "expect": {"ordinary failure": "m:failure", "handler": "s:failure"},
+      "swap": ["ordinary failure", "handler"]
+    },
+    {
+      "name": "OR-V8/b: an ordinary module named preprocessor beside a differently named preprocessor",
+      "spec": ["OR-V8/b", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {
+        "modules": [{"id": "preprocessor", "label": "ordinary preprocessor"}, {"id": "a", "label": "a"}],
+        "preprocessor_module": {"id": "prep", "label": "real preprocessor"}
+      },
+      "expect": {"ordinary preprocessor": "m:preprocessor", "a": "m:a", "real preprocessor": "s:preprocessor"},
+      "swap": ["ordinary preprocessor", "real preprocessor"]
+    },
+    {
+      "name": "OR-V8/c: literal ids that differ only by escaping",
+      "spec": ["OR-V8/c", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {"modules": [{"id": "a/b", "label": "slash"}, {"id": "a%2Fb", "label": "escape text"}]},
+      "expect": {"slash": "m:a%2Fb", "escape text": "m:a%252Fb"},
+      "swap": ["slash", "escape text"]
+    },
+    {
+      "name": "ids containing %, /, : and ~ beside a repeated id",
+      "spec": ["OF-2", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {"modules": [
+        {"id": "a~0", "label": "literal tilde zero"},
+        {"id": "a", "label": "a first"},
+        {"id": "a", "label": "a second"},
+        {"id": "a%7E0", "label": "escape text of tilde zero"},
+        {"id": "a:b", "label": "colon"},
+        {"id": "a%", "label": "percent"},
+        {"id": "a%25", "label": "escape text of percent"}
+      ]},
+      "expect": {
+        "literal tilde zero": "m:a%7E0",
+        "a first": "m:a~0",
+        "a second": "m:a~1",
+        "escape text of tilde zero": "m:a%257E0",
+        "colon": "m:a%3Ab",
+        "percent": "m:a%25",
+        "escape text of percent": "m:a%2525"
+      }
+    },
+    {
+      "name": "ids whose placeholders would collide if > were not escaped",
+      "spec": ["OR-14", "Q-OR-17"],
+      "provenance": "policy",
+      "flow": {"modules": [{"id": "a", "label": "a"}, {"id": "a>b", "label": "a>b"}, {"id": "a>", "label": "a>"}]},
+      "expect": {"a": "m:a", "a>b": "m:a>b", "a>": "m:a>"}
+    },
+    {
+      "name": "nested loops, retries and a subflow's own slots",
+      "spec": ["Q-OR-17"],
+      "provenance": "policy",
+      "flow": {
+        "modules": [
+          {"id": "outer", "label": "outer", "iterations": [
+            [{"id": "inner", "label": "inner 0", "iterations": [[{"id": "s", "label": "s 0 0"}]]}],
+            [{"id": "inner", "label": "inner 1", "iterations": [[{"id": "s", "label": "s 1 0", "failed_attempts": [{"label": "s 1 0 attempt 0"}]}]]}]
+          ]},
+          {"id": "a", "label": "a", "failed_attempts": [{"label": "a attempt 0"}, {"label": "a attempt 1"}]},
+          {"id": "sub", "label": "sub",
+            "failed_attempts": [{"label": "sub attempt 0", "flow": {"modules": [{"id": "x", "label": "sub attempt 0 x"}], "failure_module": {"id": "failure", "label": "sub attempt 0 handler"}}}],
+            "flow": {"modules": [{"id": "x", "label": "sub x"}], "failure_module": {"id": "failure", "label": "sub handler"}}},
+          {"id": "br", "label": "branchone", "branches": [{"branch": "default", "modules": [{"id": "d", "label": "default d"}]}]}
+        ],
+        "failure_module": {"id": "failure", "label": "root handler"},
+        "preprocessor_module": {"id": "preprocessor", "label": "root preprocessor"}
+      },
+      "expect": {
+        "outer": "m:outer",
+        "inner 0": "m:outer/i:0/m:inner",
+        "s 0 0": "m:outer/i:0/m:inner/i:0/m:s",
+        "inner 1": "m:outer/i:1/m:inner",
+        "s 1 0": "m:outer/i:1/m:inner/i:0/m:s",
+        "s 1 0 attempt 0": "m:outer/i:1/m:inner/i:0/m:s/r:0",
+        "a": "m:a",
+        "a attempt 0": "m:a/r:0",
+        "a attempt 1": "m:a/r:1",
+        "sub": "m:sub",
+        "sub attempt 0": "m:sub/r:0",
+        "sub attempt 0 x": "m:sub/r:0/m:x",
+        "sub attempt 0 handler": "m:sub/r:0/s:failure",
+        "sub x": "m:sub/m:x",
+        "sub handler": "m:sub/s:failure",
+        "branchone": "m:br",
+        "default d": "m:br/b:default/m:d",
+        "root handler": "s:failure",
+        "root preprocessor": "s:preprocessor"
+      },
+      "swap": ["sub handler", "root handler"]
+    }
+  ]
+}
