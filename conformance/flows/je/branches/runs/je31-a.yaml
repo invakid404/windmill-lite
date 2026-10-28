@@ -1,0 +1,13 @@
+spec: [JE-31/a]
+target: f/wl_je_branches/je31_a
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:br/status
+    equals: failure
+  - at: /result/error/name
+    equals: Anyhow
+  - at: /result/error/message
+    contains: ["nope is not defined"]
+  - at: "/steps/m:br~1b:1~1m:t"
+    absent: true

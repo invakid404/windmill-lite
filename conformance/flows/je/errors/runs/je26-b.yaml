@@ -1,0 +1,13 @@
+spec: [JE-26/b]
+target: f/wl_je_errors/je26_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/status
+    equals: success
+  - at: /steps/m:b/result
+    equals: 11
+  - at: "/steps/m:b~1r:0"
+    absent: true
+  - at: /result/error
+    prefix: "Error: QuickJS evaluation error: Error: nope is not defined"

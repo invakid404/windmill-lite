@@ -1,0 +1,9 @@
+spec: [JE-42/h]
+target: f/wl_je_providers/je42_h
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/status
+    equals: failure
+  - at: /steps/m:b/result/error/message
+    contains: ["Maximum resource/variable interpolation depth (50) exceeded for `"]

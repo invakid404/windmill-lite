@@ -1,0 +1,23 @@
+# JE-2: an evaluation has a 20 s wall-clock limit, tried up to 3 times.
+# Recorded, the case does not reach the timeout error the catalogue
+# expects: the three attempts and two pauses take about 70 s, and the oracle
+# cancels a flow that hangs between two steps for 60 s, so the run ends
+# canceled by the monitor, with a reason that names times and workers
+# (masked). The engine does not stop the loop, so its thread keeps spinning
+# after the run (JE-2): slow files are recorded last. The recording rests on
+# the monitor firing at about 60 s, before the third attempt ends at about
+# 70 s; three sessions of two repeats each agreed, the second repeat running
+# beside the first one's spinning thread.
+finding: JE-2
+scope: later
+slow: true
+mask: [/result/error/message, /result/error/reason]
+cases:
+  - spec: JE-2/a
+    provenance: oracle-observed
+    title: a CPU-bound loop outlasts the oracle's 60 s monitor of flows hanging between steps
+    note: "the catalogue expects b to fail with took too long to execute (>20000ms); the oracle cancels the flow first (reported to the semantics team)"
+    expr: '(() => { while (true) {} })()'
+    expect:
+      status: canceled
+      flow_error: {name: Canceled}

@@ -1,0 +1,21 @@
+spec: [CF-V6/b]
+target: f/wl_cf19/cf_v6_b
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: 107
+  - at: /result
+    equals: 107
+unit:
+  - spec: CF-V6/b
+    site: m:b
+    input: x
+    expr: "results.a + 100"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "7"
+    expect:
+      text: "107"

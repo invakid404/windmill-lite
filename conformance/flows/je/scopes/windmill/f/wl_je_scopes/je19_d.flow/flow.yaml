@@ -1,0 +1,20 @@
+summary: "JE-19/d: a subflow reads its caller's step"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 7
+        path: f/wl_je_scopes/echo
+    - id: S
+      value:
+        type: flow
+        input_transforms: {}
+        path: f/wl_je_scopes/je19_sub
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,13 @@
+# JE-44: which reads go through jsonb. The submitted flow input is stored
+# as jsonb before any expression reads it. The memory and database routes
+# (JE-44/a, JE-44/b) are in flows/je/shortcuts; their texts are in
+# conformance/jsonb/je-44.yaml.
+finding: JE-44
+scope: core
+cases:
+  - spec: JE-44/c
+    provenance: oracle-observed
+    title: exponents are expanded
+    flow_input: '{"n":1e3}'
+    expr: flow_input.n
+    expect: {value: '1000'}

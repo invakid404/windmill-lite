@@ -1,0 +1,23 @@
+summary: "JE-8: the timeout site's error quotes the producer text"
+value:
+  modules:
+    - id: p
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_je_shortcuts/pair
+    - id: q
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/wl_je_shortcuts/echo
+      timeout:
+        type: javascript
+        expr: results.p
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

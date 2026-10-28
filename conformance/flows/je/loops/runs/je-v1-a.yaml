@@ -1,0 +1,9 @@
+# JE-V1/a (later): with one worker the oracle cannot show how many children
+# ran at once; the recording shows that the expression was accepted.
+spec: [JE-V1/a]
+target: f/wl_je_loops/je_v1_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:l/result
+    length: 3

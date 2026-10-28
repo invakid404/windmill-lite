@@ -2,7 +2,6 @@ package oracle
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -47,9 +46,17 @@ func TestFlowFixtureTreesResolve(t *testing.T) {
 			t.Errorf("%s: %v", f.ID, err)
 			continue
 		}
+		// A script is its source file in any language (x.ts, x.py, …),
+		// not its generated x.script.yaml or x.script.lock.
 		hasScript := func(p string) bool {
-			_, err := os.Stat(filepath.Join(f.SyncTree(), filepath.FromSlash(p)+".ts"))
-			return err == nil
+			base := filepath.Join(f.SyncTree(), filepath.FromSlash(p))
+			matches, _ := filepath.Glob(base + ".*")
+			for _, m := range matches {
+				if m != base+".script.yaml" && m != base+".script.lock" {
+					return true
+				}
+			}
+			return false
 		}
 		for _, r := range f.Runs {
 			if r.IsScript() && !hasScript(r.Target) || !r.IsScript() && tree.flow(r.Target) == nil {

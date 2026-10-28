@@ -1,0 +1,7 @@
+spec: [JE-26/c]
+target: f/wl_je_errors/je26_c
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/s:failure/args/x
+    equals: string

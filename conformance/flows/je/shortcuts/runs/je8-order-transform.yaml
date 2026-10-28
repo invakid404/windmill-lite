@@ -1,0 +1,22 @@
+# ADR 0003's JE-8 example: the evaluator returns the producer text
+# {"b":1,"a":2} verbatim (unit case), but the job API stores the argument as
+# jsonb, so the recording shows jsonb order (review item cx R16).
+spec: [JE-8]
+target: f/wl_je_shortcuts/je8_order_transform
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:q/args/x
+    equals: {"a":2,"b":1}
+    key_order: strict
+unit:
+  - spec: JE-8
+    site: m:q
+    input: x
+    expr: results.p
+    context:
+      previous_id: p
+      previous_result: "{\"b\":1,\"a\":2}"
+    expect:
+      text: "{\"b\":1,\"a\":2}"
+    note: "the raw-text assertion of ADR 0003's JE-8 example (review item cx R16); the recorded argument is its jsonb form"

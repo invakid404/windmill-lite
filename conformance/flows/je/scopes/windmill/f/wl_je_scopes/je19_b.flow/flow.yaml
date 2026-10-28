@@ -1,0 +1,51 @@
+summary: 'JE-19/b: a parallel loop does not expose its body steps'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/wl_je_scopes/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: h
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 0
+              path: f/wl_je_scopes/echo
+          - id: i
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value * 10
+              path: f/wl_je_scopes/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+            - 3
+        parallel: true
+        skip_failures: false
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.i
+        path: f/wl_je_scopes/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

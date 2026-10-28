@@ -1,0 +1,8 @@
+spec: [JE-30/b]
+target: f/wl_je_loops/je30_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains:
+      - "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence"

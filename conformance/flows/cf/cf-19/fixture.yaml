@@ -1,0 +1,12 @@
+# Recording batch E3a: the results-lookup cases of CF-19 and the contested
+# CF-V6 cases (Q-CF-16, ADR 0001 section 6: is a direct lookup anchored to
+# the whole expression or to one line of it?). Synthetic, written for this
+# repository from docs/semantics/conformance.md. ret(v) is a step that
+# returns v.
+id: cf/cf-19
+spec: [CF-19/a, CF-19/b, CF-19/c, CF-V6/a, CF-19, JE-9/g, CF-V6/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle:
+  workers: 1

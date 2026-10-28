@@ -1,0 +1,25 @@
+# JE-23: step input transforms. The skipped-step case (JE-23/c) is in
+# flows/je/sites.
+finding: JE-23
+scope: core
+flow_input: '{"n":5}'
+cases:
+  - spec: JE-23/a
+    provenance: oracle-observed
+    title: params is always empty
+    expr: params
+    expect: {value: '{}'}
+  - spec: JE-23/b
+    provenance: oracle-observed
+    title: static strings are not templates
+    site: static
+    static: '"${flow_input.n}"'
+    expect: {value: '"${flow_input.n}"'}
+  - spec: JE-23/d
+    provenance: oracle-observed
+    title: a failing transform fails the step before it runs
+    expr: nope
+    expect:
+      error:
+        name: ExecutionErr
+        prefix: "Error during isolated evaluation of expression `nope`:\nQuickJS evaluation error: Error: nope is not defined"

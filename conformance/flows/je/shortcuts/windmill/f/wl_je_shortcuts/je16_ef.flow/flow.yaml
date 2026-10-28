@@ -1,0 +1,28 @@
+summary: 'JE-16/e, f: negative zero in memory, plain zero from the database'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_je_shortcuts/negzero
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: Object.is(previous_result.n, -0)
+        path: f/wl_je_shortcuts/echo
+    - id: c
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: Object.is((results.a).n, -0)
+        path: f/wl_je_shortcuts/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,13 @@
+spec: [CF-19/a]
+target: f/wl_cf19/cf19_a
+claims:
+  - at: /status
+    equals: success
+  - at: /result
+    equals:
+      - 2
+      - 20
+      - null
+      - - 10
+        - 20
+      - null

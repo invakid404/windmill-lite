@@ -1,0 +1,47 @@
+summary: 'JE-V1/d: an outer iter stays visible to parallelism'
+value:
+  modules:
+    - id: o
+      value:
+        type: forloopflow
+        modules:
+          - id: h
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 0
+              path: f/wl_je_loops/echo
+          - id: inner
+            value:
+              type: forloopflow
+              modules:
+                - id: s
+                  value:
+                    type: script
+                    input_transforms:
+                      x:
+                        type: javascript
+                        expr: flow_input.iter.value
+                    path: f/wl_je_loops/echo
+              iterator:
+                type: static
+                value:
+                  - a
+                  - b
+              parallel: true
+              parallelism:
+                type: javascript
+                expr: flow_input.iter.value
+              skip_failures: false
+        iterator:
+          type: static
+          value:
+            - 2
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

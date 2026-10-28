@@ -1,0 +1,34 @@
+summary: 'JE-35/a: route (a), chaining after a child completed'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_je_errors/echo
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_je_errors/echo
+      skip_if:
+        expr: nope
+  failure_module:
+    id: failure
+    value:
+      type: script
+      input_transforms:
+        x:
+          type: static
+          value: ran
+      path: f/wl_je_errors/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

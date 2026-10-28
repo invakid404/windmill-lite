@@ -1,0 +1,11 @@
+# JE-33/a: an early stop by skip_expr leaves the flow skipped, as a clean
+# stop with skip_if_stopped does (FX-19), with the result "stopped early".
+spec: [JE-33/a]
+target: f/wl_je_sites/je33_a
+args:
+  skip: true
+claims:
+  - at: /status
+    equals: skipped
+  - at: /result
+    equals: "stopped early"

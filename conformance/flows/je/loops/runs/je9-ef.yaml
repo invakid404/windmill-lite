@@ -1,0 +1,9 @@
+spec: [JE-9/e, JE-9/f]
+target: f/wl_je_loops/je9_ef
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b_e/args/x
+    equals: 20
+  - at: /steps/m:b_f/args/x
+    equals: null

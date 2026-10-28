@@ -1,0 +1,23 @@
+summary: 'JE-49/c: a shortcut passes any depth through'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          k:
+            type: static
+            value: 128
+        path: f/wl_je_sites/nest
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: previous_result
+        path: f/wl_je_sites/sink
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

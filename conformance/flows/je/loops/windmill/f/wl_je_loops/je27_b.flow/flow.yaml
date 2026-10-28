@@ -1,0 +1,37 @@
+summary: 'JE-27/b: an error in stop_after_all_iters_if fails the module'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: i
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
+      stop_after_all_iters_if:
+        expr: nope
+        skip_if_stopped: false
+    - id: c
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_je_loops/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

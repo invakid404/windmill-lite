@@ -1,0 +1,8 @@
+version: v2
+locks:
+  f/wl_je_scopes/echo: f15bcf9082fe1fbbbdbabf70fb3cfe6b3a8318296baf9e7af4780a53cf25b672
+  f/wl_je_scopes/je19_b.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_je_scopes/je19_d.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_je_scopes/je19_sub.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_je_scopes/je38_d.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_je_scopes/je38_sub.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a

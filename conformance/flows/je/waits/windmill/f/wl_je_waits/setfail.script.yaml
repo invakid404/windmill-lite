@@ -1,0 +1,20 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_je_waits/setfail.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+    x:
+      type: ''
+      description: ''
+      default: null
+  required:
+    - v
+    - x

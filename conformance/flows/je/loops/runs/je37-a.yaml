@@ -1,0 +1,7 @@
+spec: [JE-37/a]
+target: f/wl_je_loops/je37_a
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:l~1i:0~1m:inner~1i:0~1m:s/args/x"
+    equals: [a, 1]

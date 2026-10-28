@@ -1,0 +1,31 @@
+summary: 'JE-36/d: a simple while loop is collapsed'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 9
+        path: f/wl_je_branches/echo
+    - id: w
+      value:
+        type: whileloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: previous_result
+              path: f/wl_je_branches/echo
+        skip_failures: false
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

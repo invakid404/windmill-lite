@@ -1,0 +1,10 @@
+# JE-9/j: the error is a flow-chaining failure, route (a) of JE-35.
+spec: [JE-9/j, JE-24]
+target: f/wl_je_shortcuts/je9_j
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["Expected a boolean value, found: \"7\""]
+  - at: /steps/m:c/status
+    equals: not_run

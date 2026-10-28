@@ -1,0 +1,11 @@
+spec: [CF-19/b]
+target: f/wl_cf19/cf19_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/args/x
+    equals: null
+  - at: /steps/m:c/status
+    equals: failure
+  - at: /steps/m:c/result/error/name
+    equals: ExecutionErr

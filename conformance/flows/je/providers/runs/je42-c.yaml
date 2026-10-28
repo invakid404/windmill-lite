@@ -1,0 +1,9 @@
+spec: [JE-42/c]
+target: f/wl_je_providers/je42_c
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: ["$WM_WORKSPACE"]
+  - at: /steps/m:b/result
+    equals: ["$WM_WORKSPACE"]

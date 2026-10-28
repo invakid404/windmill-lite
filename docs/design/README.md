@@ -17,16 +17,17 @@ C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, milestone C2a the Bun side of the build of
 [0010](0010-packaging.md) in [internal/bundle](../../internal/bundle/README.md)
-and [harnesses/bun/build](../../harnesses/bun/build/README.md), and
-milestone E2 the oracle harness of
+and [harnesses/bun/build](../../harnesses/bun/build/README.md), milestone
+E2 the oracle harness of
 [0011](0011-differential-testing.md) in
 [internal/oracle](../../internal/oracle/README.md), on which recording batches
 E3c, E3b and E3d recorded the flow-execution error cases, its core and the
 control-flow cases and settled contested rules of
-[0001](0001-equivalence-contract.md) §6, and milestone E4a its stub mode.
-Milestone F4 implements the bundle of [0010](0010-packaging.md) (the build,
-the manifest and the bundle digest, `verify`) in
-[internal/bundle](../../internal/bundle/README.md) and
+[0001](0001-equivalence-contract.md) §6, recording batch E3a the JE
+expression cases and CF-19 and CF-V6, which settled another, and milestone
+E4a its stub mode. Milestone F4 implements the bundle of
+[0010](0010-packaging.md) (the build, the manifest and the bundle digest,
+`verify`) in [internal/bundle](../../internal/bundle/README.md) and
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md), and put the
 expression engine's heap on mimalloc. Nothing runs flows yet.
 This README covers `docs/design/`: this index and the decision records it
@@ -115,9 +116,13 @@ keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
 and FX-33 (Q-FX-19), both for the stated default. It also found one
 confirmed finding contradicted, the id of a failure module copied into an
 inline body (FX-34, FX-32). E3b recorded Q-FX-16 (FX-42) and the half of
-Q-FX-15 that needs no failure module, also for the stated defaults. 0001 §6
-gives the results. Batch E3d recorded CF-12 and FX-40 as reading (b), the
-default each already had (request 6 below).
+Q-FX-15 that needs no failure module, also for the stated defaults. Batch
+E3d recorded CF-12 and FX-40 as reading (b), the default each already had
+(request 6 below). E3a has recorded the CF-19 / CF-V6 dispute
+([Q-CF-16](../semantics/control-flow.md#q-cf-16)): the direct lookup is
+line-anchored, the stated default (request 7 below). 0001 §6 gives the
+results; the reference still lists these findings as not settled until the
+semantics team records them.
 
 ## Requests to the semantics team
 
@@ -145,6 +150,9 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    observable. Answered by [JE-48](../semantics/expressions.md#je-48):
    QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
    records in the manifest ([0003](0003-semantics-placement.md)).
+   Recording batch E3a found the reference's bracket wrong on the oracle: a
+   recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
+   fit than the reference implies; request 7 asks why.
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
@@ -209,6 +217,28 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    name `Anyhow` and the message
    `Error: Bad request: Cannot continue on same worker …` plus a location.
    The design waits on none of this.
+7. **Fold in recording batch E3a.** E3a recorded the JE catalogue cases
+   (`conformance/exprs`, `conformance/flows/je`) and CF-19 and CF-V6
+   (`conformance/flows/cf/cf-19`; oracle runs 40687124625, 40688787344 and
+   40691336592). The dispute Q-CF-16 is settled for CF-V6: a qualifying line
+   of a multiline expression answers by itself. These recordings differ
+   from the reference's source-derived expectations; the cases now expect
+   what the oracle did and say so. The reference should say which rule
+   produces each, and where a reading is not settled:
+   - JE-48/a, above: the stack depth that fits. The catalogue's JE-48 cases
+     also hold a `;`, so they run in statement mode
+     ([JE-13](../semantics/expressions.md#je-13)) and JE-48/c gives `null`;
+     the batch adds semicolon-free variants;
+   - JE-28/c: the last module's `sleep` is evaluated, because the deployed
+     flow ends in the `-v` identity of [OF-17](../semantics/openflow.md#of-17),
+     so an invalid final `sleep` fails the flow;
+   - JE-35/b: at the first pickup of a root flow, a predicate error is
+     `Error: Error: QuickJS evaluation error: …` with two location suffixes;
+   - JE-2/a: a root flow's first transform that times out three times is
+     canceled after 60 s by the monitor of flows hanging between two steps,
+     before the timeout error surfaces;
+   - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
+     where JE-33 says it completes successfully.
 
 ## Changing the design
 

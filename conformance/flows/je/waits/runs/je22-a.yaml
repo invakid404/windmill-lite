@@ -1,0 +1,7 @@
+spec: [JE-22/a]
+target: f/wl_je_waits/je22_a
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["results is not defined"]

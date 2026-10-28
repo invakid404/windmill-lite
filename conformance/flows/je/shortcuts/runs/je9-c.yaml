@@ -1,0 +1,19 @@
+spec: [JE-9/c]
+target: f/wl_je_shortcuts/je9_c
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: 3
+unit:
+  - spec: JE-9/c
+    site: m:b
+    input: x
+    expr: results.a.length
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "[10, 20, 30]"
+    expect:
+      text: "3"

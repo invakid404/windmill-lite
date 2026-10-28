@@ -13,12 +13,15 @@ records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conforma
 the fixtures of the recording batches, E3c's and E3b's under
 [conformance/flows/execution](../../conformance/flows/execution) and E3d's
 under [conformance/flows/control-flow](../../conformance/flows/control-flow),
-and the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
-see [Stub mode](#stub-mode)). E3c extended the session and the walker
-(below), E3b the walker and the batch test, and E3d the walker and added the
-API deployment (below). Comparing windmill-lite against a recording
-(`wltest check`, milestone E1) and stub mode on windmill-lite (E4b) do not
-exist yet.
+the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
+see [Stub mode](#stub-mode)), and the expression cases of batch E3a, which
+`wltest record` lifts into generated flows
+([conformance](../../conformance/README.md#expression-cases)). E3c extended
+the session and the walker (below), E3b the walker and the batch test, E3d
+the walker and added the API deployment (below), and E3a the session and
+its own batch tests. Comparing windmill-lite against a recording (`wltest
+check`, milestone E1) and stub mode on windmill-lite (E4b) do not exist
+yet.
 
 ## A session
 
@@ -47,12 +50,18 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    session has, and a run whose committed recording names another oracle
    version, image or CLI than the pins (`recording_identity_mismatch`,
    [OR-V5](../../docs/semantics/oracle.md#or-v5)/b), before anything is
-   deployed; to re-record against a new pin, delete the recording. Create a fresh workspace `wl-<6 hex>-<n>`, deleted again once the
-   fixture's runs are done, because CE admits only two workspaces besides
-   `admins` (observed in E4a's first recording); optionally run
-++++++ prnlnlyu 326af80f "E3c: Recording batch FX errors (#26)"
+   deployed; to re-record against a new pin, delete the recording. Create a
+   fresh workspace `wl-<6 hex>-<n>`, which is deleted again after the
+   fixture's runs, or after its deployment failed, with a context of its own
+   so that a canceled session still cleans up
+   (`DELETE /workspaces/delete/{id}`): CE refuses a third workspace besides
+   `admins` ("You have reached the maximum number of workspaces (2 outside
+   of default workspace 'admins') without an enterprise license", observed
+   by E3c, E3a and E4a), and a workspace that cannot be deleted ends the
+   session. Optionally run
    `folder add-missing` and `generate-metadata` in the fixture's sync tree
-   (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)); push a
+   (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)), and
+   always in a generated tree, which has no committed metadata; push a
    copy of the tree with the CLI, or create it through the API for a
    fixture with `oracle: {deploy: api}` ([API deployment](#api-deployment));
    apply `setup.yaml` after the push
@@ -334,6 +343,13 @@ checks it on every CI run:
 | `contradictions` | catalogue claims the oracle contradicted, with the run, pointer and recorded value the run's `expect` holds instead |
 | `gates` | optional: for every run, `<fixture directory>/<run>`, the milestone whose exit gate runs it, which must need the batch merged; E3b's gates N1a, N1b, N2, NI, N3b, PF2 or F1 by the features each flow needs |
 
+Batch E3a was built beside these manifests and has none: most of its runs
+state partial `claims` rather than a whole `expect`, and half of its cases
+are expression cases, whose lifted runs have no `expect` at all. Its
+coverage is `conformance/exprs/deferred.yaml`, checked by
+`TestBatchCoverage`, and its runs are checked by
+`TestRecordingsSatisfyClaims` and the other tests of `recordings_test.go`.
+
 ## Repository checks
 
 Two Go tests run on every pull request in the `Go` CI jobs (ADR 0011, CI
@@ -369,7 +385,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
 | `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
-| `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree | `conformance/flows` |
+| `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree (a script by its source file, in any language) | `conformance/flows` |
 | `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |
 | `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
 | `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; FX-40/d's body carries the deployed script's hash | `conformance/flows` |
@@ -388,4 +404,8 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes the stub fixtures job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; runs `r` and `t` run together and keep apart; `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
+| `TestSessionDeletesWorkspacesOnFailure` | a workspace whose check after creation or whose deployment gate failed is deleted too, and a workspace that cannot be deleted ends the session | the smoke fixture |
+| `TestExprFilesLift`, `TestBatchFixturesDecode` | every expression file lifts into flows that the walker reads back as their cases describe them; every flow fixture's tree decodes and holds its runs' targets | `conformance/exprs`, `conformance/flows` |
+| `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings`, `TestUnitCasesMatchRecordings` | committed recordings against what their cases say (batch E3a's form): claims and delays hold, a recorded case is `oracle-observed`, an expected evaluator text has the recorded argument as its stored form, and each unit case's expression and previous id match its flow, and its flow input, previous result and database reads have the recorded texts as their stored forms | `conformance/exprs`, `conformance/flows` |
+| `TestBatchCoverage` | every JE case of the catalogue, and every CF-19 and CF-V6 case, is an expression case, a flow fixture's run, or deferred with a reason and a milestone (batch E3a) | `conformance/exprs/deferred.yaml` |
 | `TestRecordingBatches` | each recording batch against its ADR 0012 row: the batch covers the finding ranges and cases its row names; every catalogue case of its findings is recorded by a run of its fixtures or deferred with a milestone and a reason; every run has an `expect` and a recording of the pinned oracle that meets it; the catalogue's prefix-only assertions (`<starts "…">`) hold on the recorded text; each catalogue claim the oracle contradicted is listed with the value it recorded; a batch with `gates` names for every run a milestone that needs the batch merged | `testdata/batches/` |

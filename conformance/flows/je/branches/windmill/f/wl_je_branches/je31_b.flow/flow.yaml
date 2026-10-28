@@ -1,0 +1,56 @@
+summary: 'JE-31/b: later predicates are not evaluated'
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: s
+                value:
+                  type: script
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 0
+                  path: f/wl_je_branches/echo
+            expr: 'false'
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: t
+                value:
+                  type: script
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 1
+                  path: f/wl_je_branches/echo
+            expr: 'true'
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: u
+                value:
+                  type: script
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 2
+                  path: f/wl_je_branches/echo
+            expr: nope
+            parallel: true
+            skip_failure: true
+        default:
+          - id: d
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 3
+              path: f/wl_je_branches/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

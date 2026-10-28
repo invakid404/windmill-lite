@@ -1,0 +1,13 @@
+spec: [JE-42/a]
+target: f/wl_je_providers/je42_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals:
+      a:
+        b: ["$var:f/wl_je_providers/s"]
+  - at: /steps/m:b/result
+    equals:
+      a:
+        b: [s]

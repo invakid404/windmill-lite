@@ -1,0 +1,27 @@
+summary: "JE-22/b: sleep sees its own module's result"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              s: 0
+        path: f/wl_je_waits/echo
+      sleep:
+        type: javascript
+        expr: result.s
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_je_waits/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,56 @@
+# JE-12/a, b, c and e: the observers follow each other; a is never the previous step.
+spec: [JE-12/a, JE-12/b, JE-12/c, JE-12/e]
+target: f/wl_je_shortcuts/je12
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b_a/args/x
+    equals: null
+  - at: /steps/m:b_b/args/x
+    equals:
+      v: 3
+  - at: /steps/m:b_c/args/x
+    equals: "see (await results.a)"
+  - at: /steps/m:b_e/args/x
+    equals: {}
+unit:
+  - spec: JE-12/a
+    site: m:b_a
+    input: x
+    expr: "results['a'].v"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "{\"v\": 3}"
+    expect:
+      text: "null"
+  - spec: JE-12/b
+    site: m:b_b
+    input: x
+    expr: "results['a']"
+    context:
+      previous_id: b_a
+      previous_result: "null"
+      results:
+        a: "{\"v\": 3}"
+    expect:
+      text: "{\"v\":3}"
+  - spec: JE-12/c
+    site: m:b_c
+    input: x
+    expr: "\"see results.a\""
+    context:
+      previous_id: b_b
+      previous_result: "{\"v\":3}"
+    expect:
+      text: "\"see (await results.a)\""
+  - spec: JE-12/e
+    site: m:b_e
+    input: x
+    expr: results
+    context:
+      previous_id: b_c
+      previous_result: "\"see (await results.a)\""
+    expect:
+      text: "{}"

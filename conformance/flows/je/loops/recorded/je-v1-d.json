@@ -1,0 +1,139 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      [
+        "a",
+        "b"
+      ]
+    ],
+    "steps": {
+      "m:o": {
+        "status": "success",
+        "result": [
+          [
+            "a",
+            "b"
+          ]
+        ]
+      },
+      "m:o/i:0/m:h": {
+        "status": "success",
+        "args": {
+          "x": 0
+        },
+        "result": 0
+      },
+      "m:o/i:0/m:inner": {
+        "status": "success",
+        "result": [
+          "a",
+          "b"
+        ]
+      },
+      "m:o/i:0/m:inner/i:0/m:s": {
+        "status": "success",
+        "args": {
+          "x": "a"
+        },
+        "result": "a"
+      },
+      "m:o/i:0/m:inner/i:1/m:s": {
+        "status": "success",
+        "args": {
+          "x": "b"
+        },
+        "result": "b"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261028122124-26f0815a80f0",
+      "revision": "26f0815a80f02157e8983b953fbcd0ce89af2700",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40687124625"
+    },
+    "recorded_at": "2026-10-28T12:23:46Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34331"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 205,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-28T12:23:46.593388Z",
+          "started_at": "2026-10-28T12:23:46.612925Z",
+          "completed_at": "2026-10-28T12:23:46.751298Z",
+          "duration_ms": 138
+        },
+        "m:o/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-28T12:23:46.614228Z",
+          "started_at": "2026-10-28T12:23:46.618221Z",
+          "completed_at": "2026-10-28T12:23:46.749221Z",
+          "duration_ms": 131
+        },
+        "m:o/i:0/m:h": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:46.620357Z",
+          "started_at": "2026-10-28T12:23:46.622310Z",
+          "completed_at": "2026-10-28T12:23:46.638474Z",
+          "duration_ms": 14
+        },
+        "m:o/i:0/m:inner/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-28T12:23:46.641710Z",
+          "started_at": "2026-10-28T12:23:46.690384Z",
+          "completed_at": "2026-10-28T12:23:46.727544Z",
+          "duration_ms": 37
+        },
+        "m:o/i:0/m:inner/i:0/m:s": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:46.695278Z",
+          "started_at": "2026-10-28T12:23:46.704915Z",
+          "completed_at": "2026-10-28T12:23:46.723667Z",
+          "duration_ms": 16
+        },
+        "m:o/i:0/m:inner/i:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-28T12:23:46.641710Z",
+          "started_at": "2026-10-28T12:23:46.697722Z",
+          "completed_at": "2026-10-28T12:23:46.745166Z",
+          "duration_ms": 47
+        },
+        "m:o/i:0/m:inner/i:1/m:s": {
+          "kind": "script",
+          "created_at": "2026-10-28T12:23:46.702536Z",
+          "started_at": "2026-10-28T12:23:46.724011Z",
+          "completed_at": "2026-10-28T12:23:46.742923Z",
+          "duration_ms": 16
+        }
+      }
+    }
+  }
+}
