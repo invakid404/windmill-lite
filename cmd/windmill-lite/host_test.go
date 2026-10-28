@@ -94,10 +94,13 @@ type supervisor struct {
 }
 
 type generation struct {
-	n       int
-	cmd     *exec.Cmd
-	pid     int
-	stderr  syncBuffer
+	n   int
+	cmd *exec.Cmd
+	pid int
+	// stderr is a file, shared with the engine, which inherits it: a pipe
+	// would make Wait wait for the engine's exit too, and the engine, a
+	// race-detector test binary, sleeps a second at exit.
+	stderr  *os.File
 	exited  chan struct{}
 	state   *os.ProcessState
 	exitAt  time.Time
@@ -147,10 +150,15 @@ func (s *supervisor) start() {
 	}
 	os.Remove(s.sock)
 	g := &generation{n: len(s.gens), exited: make(chan struct{}), started: time.Now()}
+	f, err := os.Create(filepath.Join(s.dir, fmt.Sprintf("host-%d.stderr", g.n)))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	g.stderr = f
 	g.cmd = exec.Command(s.bin)
 	g.cmd.Dir = s.dir
 	g.cmd.Env = s.env
-	g.cmd.Stderr = &g.stderr
+	g.cmd.Stderr = f
 	out, err := g.cmd.StdoutPipe()
 	if err != nil {
 		s.t.Fatal(err)
@@ -171,6 +179,7 @@ func (s *supervisor) start() {
 	go func() {
 		g.cmd.Wait()
 		g.state, g.exitAt = g.cmd.ProcessState, time.Now()
+		g.stderr.Close() // the engine keeps its own descriptor
 		close(g.exited)
 		// The supervisor's one rule: restart on exit.
 		s.start()
@@ -187,9 +196,15 @@ func (s *supervisor) waitReady(n int) *generation {
 				return g
 			}
 		case <-deadline:
-			s.t.Fatalf("host generation %d did not get ready; stderr:\n%s", n, s.gen(len(s.gens)-1).stderr.String())
+			s.t.Fatalf("host generation %d did not get ready; stderr:\n%s", n, s.gen(len(s.gens)-1).log())
 		}
 	}
+}
+
+// log returns what the generation and its engine wrote to stderr so far.
+func (g *generation) log() string {
+	b, _ := os.ReadFile(g.stderr.Name())
+	return string(b)
 }
 
 func (s *supervisor) gen(n int) *generation {
@@ -220,7 +235,7 @@ func (s *supervisor) stop() {
 	}
 	if s.t.Failed() {
 		for _, g := range gens {
-			s.t.Logf("host generation %d stderr:\n%s", g.n, g.stderr.String())
+			s.t.Logf("host generation %d stderr:\n%s", g.n, g.log())
 		}
 	}
 }
@@ -351,8 +366,8 @@ func TestHostSurvivesADetachedRejection(t *testing.T) {
 	if g := s.generations(); g != 1 {
 		t.Fatalf("the host was restarted: %d generations", g)
 	}
-	if !strings.Contains(s.gen(0).stderr.String(), "unhandledRejection that no invocation owns: Error: detached rejection") {
-		t.Fatalf("stderr:\n%s", s.gen(0).stderr.String())
+	if !strings.Contains(s.gen(0).log(), "unhandledRejection that no invocation owns: Error: detached rejection") {
+		t.Fatalf("stderr:\n%s", s.gen(0).log())
 	}
 }
 
@@ -442,7 +457,7 @@ func TestHostWatchdog(t *testing.T) {
 		t.Fatal("the spinning run's caller did not see the host's exit")
 	}
 	line := ""
-	for _, l := range strings.Split(first.stderr.String(), "\n") {
+	for _, l := range strings.Split(first.log(), "\n") {
 		if strings.Contains(l, "watchdog: no frame from the host") {
 			line = l
 		}

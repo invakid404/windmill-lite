@@ -191,6 +191,12 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 - The pinned Bun is the reference's; a host on another Bun gets a visible
   `nonconformant_runtime` flag, not a silent difference.
 - One-file deployment is available for the common case of a single language.
+- Milestone W1 measured on Bun 1.3.10 that the harness's environment view
+  isolates `Bun.env` and `import.meta.env` reads at run time even without
+  the env rewrite of step 5 ([0004](0004-harness-protocol.md)), including
+  in unbundled code. Step 5 stays: it keeps a bundle's reads on
+  `process.env`, the one name the view replaces, so their isolation does
+  not depend on the run-time mechanism alone.
 
 ## Spec IDs relied on
 

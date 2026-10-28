@@ -1,12 +1,15 @@
 # internal/engine
 
-**Current state:** contracts only, from milestone K1
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers `internal/engine`. The package holds the seams that the flow
-interpreter is built against: the step executor, the hook interface with
-no-op defaults, the precedence of host signals, and the run trace. The
-interpreter itself starts with milestone N1a, and the harness that executes
-steps with C1.
+**Current state:** the contracts of milestone K1
+([ADR 0012](../../docs/design/0012-layout-and-milestones.md)) and the
+walking skeleton's interpreter (W1). This README covers `internal/engine`
+and its `testdata/`. The package holds the seams that the flow interpreter
+is built against: the step executor, the hook interface with no-op
+defaults, the precedence of host signals, and the run trace.
+`skeleton.go` is scaffolding that runs one sequential flow on those seams,
+so that W1 could exercise the process model on the pinned Bun; milestone
+N1a replaces it with the engine core. The harness that executes steps is
+[internal/harness](../harness/README.md).
 
 ## Contracts
 
@@ -17,6 +20,7 @@ steps with C1.
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10) | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
+| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`, `StaticIntercepts`: the walking skeleton's interpreter (below) | W1's `windmill-lite host`; N1a replaces it |
 
 Site identities are `conformance.SitePath` values. Run statuses are
 `conformance.RunStatus` values, including the windmill-lite-only `latched`
@@ -109,3 +113,54 @@ An invocation settles when its entrypoint call can run no more code, and
   never-dispatched invocation, and an `escaped` outcome fixed while the call
   is still pending, which settles only when the call ends or its process
   exits.
+
+## The walking skeleton
+
+`Skeleton` (milestone W1) runs one flow at a time per run, sequentially,
+from a bundle directory that holds each flow as
+`flows/<flow path>.flow.json`, the flow's OpenFlow document as JSON. It is
+scaffolding: its review bar was that it retires W1's gates, and N1a, B2b,
+C3a and F4 replace its parts.
+
+- **What it runs.** Script steps by path and inline Bun steps (whose module
+  is the bundle's `scripts/bun/<flow path>/<id>.mjs`), with `static` and
+  `javascript` input transforms, a static step `timeout`, and H1
+  interception at launch. `NewSkeleton` refuses any other module kind or
+  feature with `ErrSkeletonUnsupported`, at load.
+- **Transforms.** Static values are copied verbatim
+  ([JE-40](../../docs/semantics/expressions.md#je-40)). A javascript
+  transform is a stand-in for B2b's pipeline: the text trimmed, in
+  expression or statement mode
+  ([JE-13](../../docs/semantics/expressions.md#je-13)), with `flow_input`,
+  `previous_result` and `params` bound only when the text names them
+  ([JE-10](../../docs/semantics/expressions.md#je-10)), serialised as
+  `JSON.stringify(value ?? null)`
+  ([JE-15](../../docs/semantics/expressions.md#je-15)), and evaluated in
+  QuickJS-ng. `params` is `{}` and `previous_result` is the flow input at
+  the first step ([JE-23](../../docs/semantics/expressions.md#je-23),
+  [FX-6](../../docs/semantics/execution.md#fx-6)). The shortcuts and
+  rewrites of JE-6 to JE-12 are left out.
+- **Steps.** Each runs through the `StepExecutor` with the core `WM_*`
+  variables, with the run's id as `WM_FLOW_JOB_ID` and the invocation's as
+  `WM_JOB_ID`. The timeout is a timer in the engine; when it fires the step
+  is abandoned and fails with
+  [WR-37](../../docs/semantics/languages.md#wr-37)'s text.
+- **Failure.** The flow stops at the first failed step, whose result is the
+  flow's ([FX-36](../../docs/semantics/execution.md#fx-36)). The failure
+  values follow [FX-12](../../docs/semantics/execution.md#fx-12) and
+  [FX-14](../../docs/semantics/execution.md#fx-14); C3a and N1a own the
+  final mapping. The final result is stored as jsonb.
+- **Host signals.** `Start` and `Completion` decide the latch and
+  cancellation at every module; a canceled run ends with no result, and the
+  run settles (`OnRunSettled`) once its abandoned invocations have.
+  `StaticIntercepts` is H1's no-code form, a fixed result per module id.
+
+`testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step
+modules written by hand, among them `scope_shim.mjs`, which reads the
+host-provided module `f/w1/scopes.ts` through a hand-written shim, and
+`scope_copy.mjs`, which bundles its own copy of it.
+
+`skeleton_test.go` checks the interpreter with a fake executor and the real
+QuickJS-ng engine. `skeleton_bun_test.go` runs it on the real Bun harness
+and reports W1's first per-step latency figure; it needs `WL_BUN`, like the
+harness tests.

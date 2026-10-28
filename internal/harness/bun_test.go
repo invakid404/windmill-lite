@@ -778,9 +778,17 @@ func TestBunPoolTaintClearsWhileTheReplacementStarts(t *testing.T) {
 	rec := newRecorder()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go pool.Execute(ctx, newInvocation("sleep", `{"ms":300}`, rec))
+	// Both dispatched: the pool counts an invocation as active from the
+	// moment it picks the process, so a cancel right after that could come
+	// before the invoke was sent, and nothing would be abandoned.
 	waitFor(t, "both invocations in flight", func() bool {
-		s := pool.Stats()
-		return len(s) == 1 && s[0].Active == 2
+		pool.mu.Lock()
+		defer pool.mu.Unlock()
+		if len(pool.members) != 1 {
+			return false
+		}
+		in, _ := pool.members[0].p.Load()
+		return in == 2
 	})
 	cancel(engine.CancelTimeout)
 	waitFor(t, "the taint", func() bool { s := pool.Stats(); return len(s) == 1 && s[0].Tainted })

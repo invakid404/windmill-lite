@@ -4,31 +4,34 @@ windmill-lite runs the flows and scripts of a [Windmill](https://www.windmill.de
 folder with Windmill's semantics, but without Windmill's scheduling: no job
 queue, no job per step, and no worker pickup.
 
-**Current state:** first implementation milestones. Nothing runs flows yet.
-The repository holds
-a Go module, a placeholder command that prints its version, CI, a
-documentation gate, the [semantics reference](docs/semantics/README.md) (the
+**Current state:** first implementation milestones. Only the walking
+skeleton runs flows yet: one sequential flow at a time, a test scaffold for
+the process model. The repository holds
+a Go module, a command that prints its version and serves the walking
+skeleton's host mode, CI, a documentation gate, the [semantics reference](docs/semantics/README.md) (the
 Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Eight milestones have landed. No command uses seven of them yet: the OpenFlow
-decoder in [internal/openflow](internal/openflow/README.md) (A3); the YAML
-dialect of the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md)
-(A2); the jsonb canonicaliser in [internal/jsonval](internal/jsonval/README.md)
-(A1); the sync-folder loader in
-[internal/syncfolder](internal/syncfolder/README.md) (A4); K1, the shared
-types and interfaces under `internal/` that later milestones implement and
-code against; the QuickJS-ng expression engine in
-[internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a); and C1, the
+Nine milestones have landed: the OpenFlow decoder in
+[internal/openflow](internal/openflow/README.md) (A3); the YAML dialect of
+the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2); the
+jsonb canonicaliser in [internal/jsonval](internal/jsonval/README.md) (A1);
+the sync-folder loader in [internal/syncfolder](internal/syncfolder/README.md)
+(A4); K1, the shared types and interfaces under `internal/` that later
+milestones implement and code against; the QuickJS-ng expression engine in
+[internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a); C1, the
 harness protocol between the engine
 ([internal/harness](internal/harness/README.md)) and a skeleton Bun harness
 ([harnesses/bun](harnesses/bun/README.md)), which runs one exported function
-of a bundled module per step but not yet with Windmill's wrapper rules. The
-eighth, E2, is the oracle harness
-([internal/oracle](internal/oracle/README.md), `wltest record`), which
-records synthetic flow fixtures on an unmodified Windmill CE image in public
-CI.
+of a bundled module per step but not yet with Windmill's wrapper rules; E2,
+the oracle harness ([internal/oracle](internal/oracle/README.md),
+`wltest record`), which records synthetic flow fixtures on an unmodified
+Windmill CE image in public CI; and W1, the walking skeleton. W1 runs one
+sequential flow end to end on the pinned Bun, in a spawned harness and in
+host mode, where a Bun program embeds the host SDK and starts
+`windmill-lite host` as its engine. It is scaffolding that later milestones
+replace, built to test the process model first.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
@@ -48,18 +51,21 @@ go run ./cmd/windmill-lite    # prints: windmill-lite (devel)
 go test -race ./...
 ```
 
-The harness tests also need Bun 1.3.10, the version Windmill v1.767.0 ships;
-without it they skip. Point `WL_BUN` at its executable:
+The harness, skeleton and host-mode tests also need Bun 1.3.10, the
+version Windmill v1.767.0 ships; without it they skip. Point `WL_BUN` at its
+executable. The Q-WA-4 test also needs the stock `windmill-client@1.767.0`:
+point `WL_WINDMILL_CLIENT` at a directory whose `node_modules` holds it (CI
+fetches it by its npm integrity hash):
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/harness
+WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race ./...
 ```
 
 ## Index
 
 | Path | What it covers |
 |---|---|
-| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
+| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it prints its version and serves host mode for the Bun host SDK with the walking skeleton (`windmill-lite host`). |
 | [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has one verb, `record`, which records flow fixtures on the Windmill CE oracle. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
@@ -67,11 +73,11 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/harness
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. The pipeline is not implemented yet. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
-| [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
+| [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace; and the walking skeleton's interpreter, which runs one sequential flow and which N1a replaces. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture format, the normaliser and the comparator. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
-| [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, and pools. It implements the step executor. |
-| [harnesses/bun](harnesses/bun/README.md) | The Bun harness: the runtime side of the protocol and a skeleton step runner, on Bun 1.3.10. |
+| [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, pools, platform calls, and host mode. It implements the step executor. |
+| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol with the per-invocation environment and facade fetch, a skeleton step runner, and a minimal host SDK. |
 | [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the harness protocol cases, and the first flow fixture, the oracle smoke fixture. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
@@ -88,9 +94,10 @@ reference, Windmill's public documentation, the Apache-2.0 parts of Windmill,
 and observed behaviour.
 
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
-`go vet ./...` and `go test -race ./...` (with Bun 1.3.10 installed, so the
-harness tests cannot skip; the tests include the image lint and the manifest
-guard), prints a load measurement of the expression engine's pool (report
+`go vet ./...` and `go test -race ./...` (with Bun 1.3.10 and
+`windmill-client@1.767.0` installed, so the harness and host-mode tests
+cannot skip; the tests include the image lint and the manifest guard),
+prints a load measurement of the expression engine's pool (report
 only), and runs the unit tests of the helpers in `scripts/`, on Ubuntu and
 macOS for pull requests and pushes to `main`. Two more jobs run on Linux
 runners. One builds the expression engine's tests as a static musl binary
