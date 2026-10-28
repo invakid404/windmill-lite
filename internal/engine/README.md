@@ -18,7 +18,7 @@ N1a replaces it with the engine core. The harness that executes steps is
 | File | Contents | Built on by |
 |---|---|---|
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it |
-| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below) | C3a; the step-case runner (`wltest check`) and the skeleton call them; N1a's interpreter will |
+| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below); `TimeoutError`, a step's timeout text by boundary (C3n) | C3a; the step-case runner (`wltest check`) and the skeleton call them; N1a's interpreter will |
 | `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10) | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
@@ -179,8 +179,11 @@ C3a and F4 replace its parts.
 - **Steps.** Each runs through the `StepExecutor` with the core `WM_*`
   variables, with the run's id as `WM_FLOW_JOB_ID` and the invocation's as
   `WM_JOB_ID`. The timeout is a timer in the engine; when it fires the step
-  is abandoned and fails with
-  [WR-37](../../docs/semantics/languages.md#wr-37)'s text.
+  is abandoned and fails with `TimeoutError`'s value for its boundary,
+  [WR-37](../../docs/semantics/languages.md#wr-37)'s text for a Bun step.
+  The skeleton runs Bun steps only; `TimeoutError` gives a native step
+  [WR-44](../../docs/semantics/languages.md#wr-44)'s
+  `Query timeout after (>Ns)`, which `wltest check` applies (C3n).
 - **Failure.** The flow stops at the first failed step, whose result is the
   flow's ([FX-36](../../docs/semantics/execution.md#fx-36)). A step's
   failure value is `StoreOutcome`'s; those the engine raises around a step

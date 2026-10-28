@@ -56,8 +56,11 @@ host upgrades the engine and rebuilds the bundle together.
 4. parses each script's signature and annotations into its metafile
    ([WR-6](../semantics/languages.md#wr-6), [WR-8](../semantics/languages.md#wr-8),
    [WR-31](../semantics/languages.md#wr-31), [WR-32](../semantics/languages.md#wr-32),
-   [WR-39](../semantics/languages.md#wr-39)), and checks native scripts for
-   imports and globals the native runtime lacks (D5);
+   [WR-39](../semantics/languages.md#wr-39)), and warns about each static
+   import of a native script that the native runtime cannot load
+   (`native_import_unavailable`, D5): the step still builds, since Windmill
+   fails it only when it runs. A missing global is not checked; it fails at
+   the reference, as on Windmill;
 5. applies the **env rewrite** for per-invocation environments
    ([WA-31](../semantics/client-api.md#wa-31)) in both bundlers, from one
    define table and one support module owned by the Go build. The support
@@ -277,6 +280,25 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     engine with `zig cc` against musl for `amd64` and `arm64`, checks that
     it is static, and runs `windmill-lite selfcheck`, which starts the
     expression engine, and `verify` in an image built `FROM scratch`.
+- Milestone C3n built native scripts in their **native form**,
+  `scripts/bun/<id>.native.js`: the source of one async function, which the
+  harness compiles in the invocation's realm with the environment preamble
+  inserted at a recorded offset, and calls with the static imports it
+  resolved and linked. An ES module cannot be evaluated in such a realm:
+  Bun 1.3.10's `vm.SourceTextModule` ends the process on top-level `await`.
+  The script's metadata records the form (`boundary`, `native`).
+  - A **nativets** script is transpiled, not bundled
+    ([WR-40](../semantics/languages.md#wr-40)); one that does not transpile
+    builds, and its diagnostic fails the step when it runs
+    ([WR-43](../semantics/languages.md#wr-43)).
+  - A **`//native`** script is bundled for the browser target, without the
+    env rewrite, and inlines host-provided modules instead of using their
+    shims: a realm does not reach the process-wide registry, so D12 does not
+    extend to native steps.
+  - The **embedded client** that a nativets script imports as
+    `./windmill.ts` is `windmill-client@1.326.0` (Apache-2.0), pinned in the
+    Bun helper's lock, bundled as CommonJS for the browser target into
+    `scripts/native/windmill.js` when the bundle has a nativets script.
 - Milestone W1 measured on Bun 1.3.10 that the harness's environment view
   isolates `Bun.env` and `import.meta.env` reads at run time even without
   the env rewrite of step 5 ([0004](0004-harness-protocol.md)), including
@@ -286,4 +308,5 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 
 ## Spec IDs relied on
 
-WR-3, WR-6, WR-8, WR-25 to WR-32, WR-38 to WR-40, WA-31, WA-33, SY-8, OR-3.
+WR-3, WR-6, WR-8, WR-25 to WR-32, WR-38 to WR-40, WR-43, WR-45, WA-31, WA-33,
+SY-8, OR-3.

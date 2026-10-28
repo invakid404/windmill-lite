@@ -131,7 +131,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 
 | What happens | `Execute` returns | Reporter |
 |---|---|---|
-| refused before dispatch (a bad entry name, the native boundary, fresh mode, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
+| refused before dispatch (a bad entry name, the native boundary to a harness whose `hello` does not offer it, fresh mode, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
 | `result` with `settled` true | the outcome | `Settled(completed)` first |
 | `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |

@@ -22,7 +22,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/openflow"
 )
 
 // check runs step-case files (the step level of ADR 0003) on windmill-lite:
@@ -125,6 +127,22 @@ const (
 	pendingWindow = 500 * time.Millisecond
 )
 
+// stepFacade is the platform facade's origin the harness is given, which
+// a native step reads as BASE_URL and BASE_INTERNAL_URL (WR-45). Nothing
+// listens there, and the checker answers no platform call (a 501).
+const stepFacade = "http://127.0.0.1:9"
+
+// language returns the language a deploy records for a case's script, and
+// the boundary it runs with: bun, or native for bunnative and nativets
+// (ADR 0002, WR-40).
+func language(c *conformance.StepCase) (openflow.Language, engine.Boundary) {
+	lang := ir.DeployedLanguage(openflow.Language(cmp(c.Language, conformance.LangBun)), c.Script)
+	if b, _ := ir.BoundaryOf(lang); b == ir.BoundaryNative {
+		return lang, engine.BoundaryNative
+	}
+	return lang, engine.BoundaryBun
+}
+
 // runFile builds f's scripts into one bundle and runs every case, a few at
 // a time.
 func (sc *stepChecker) runFile(ctx context.Context, f *conformance.StepFile) []caseResult {
@@ -204,7 +222,8 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 		if err := write(c.ScriptPath(), c.Script); err != nil {
 			return "", "", nil, err
 		}
-		cfg.Entries = append(cfg.Entries, bundle.BunScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts"})
+		lang, _ := language(c)
+		cfg.Entries = append(cfg.Entries, bundle.BunScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts", Language: string(lang)})
 		for _, h := range c.HostModules {
 			if hosts[h.Path] {
 				continue
@@ -271,6 +290,7 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 		ModuleState:   engine.ModuleStateWarm,
 		EngineVersion: "wltest-check",
 		Diagnostics:   &diag,
+		Facade:        stepFacade,
 	})
 	if err != nil {
 		return []string{"spawn: " + err.Error()}, diag.String()
@@ -298,6 +318,7 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 		return []string{err.Error()}
 	}
 	step := c.ModuleID()
+	_, boundary := language(c)
 	invID := newUUID()
 	inv := engine.Invocation{
 		ID:          invID,
@@ -307,18 +328,32 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 		Entry:       entry,
 		Args:        args,
 		Env:         jobEnv(c, step, invID, runID),
-		Boundary:    engine.BoundaryBun,
+		Boundary:    boundary,
 		ModuleState: engine.ModuleStateWarm,
 	}
 	rec := newStepRecorder()
 	inv.Report = rec
 	rctx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
-	out, err := p.Execute(rctx, inv)
-	if err != nil {
-		return []string{"execute: " + err.Error()}
+	// The step's own timeout is the engine's (FX-24): it abandons the
+	// invocation (D2), and the step fails with the timeout's text.
+	var timeout time.Duration
+	if c.Timeout != nil {
+		timeout = time.Duration(*c.Timeout) * time.Second
+		var stop context.CancelFunc
+		rctx, stop = context.WithTimeoutCause(rctx, timeout, engine.CancelTimeout)
+		defer stop()
 	}
-	stored := engine.StoreOutcome(out, step)
+	out, err := p.Execute(rctx, inv)
+	var stored engine.Stored
+	switch {
+	case c.Timeout != nil && errors.Is(err, engine.CancelTimeout):
+		stored = engine.Stored{Failed: true, Value: engine.TimeoutError(boundary, step, timeout, false), Origin: engine.OriginEngine}
+	case err != nil:
+		return []string{"execute: " + err.Error()}
+	default:
+		stored = engine.StoreOutcome(out, step)
+	}
 	text, err := stored.Value.Stored()
 	if err != nil {
 		return []string{"the stored value: " + err.Error()}

@@ -26,10 +26,39 @@ func TestBunHandshake(t *testing.T) {
 	if h.Proto != ProtocolVersion || h.Harness.Kind != "bun" || h.Runtime != PinnedBun || h.Bundle != cfg.Bundle || h.PID != p.PID() {
 		t.Fatalf("hello %+v", h)
 	}
-	// The runtime intercepts facade fetches (W1); native, fresh and host
-	// are later milestones' or the host SDK's.
-	if h.Caps != (Caps{Fetch: true}) {
-		t.Fatalf("caps %+v, want fetch only", h.Caps)
+	// The runtime intercepts facade fetches (W1) and runs the native
+	// boundary (C3n); fresh and host are C3b's and the host SDK's.
+	if h.Caps != (Caps{Fetch: true, Native: true}) {
+		t.Fatalf("caps %+v, want fetch and native", h.Caps)
+	}
+}
+
+// The engine refuses a native invocation to a harness whose hello does not
+// offer the native boundary, before it is dispatched.
+func TestCheckInvocationNeedsTheNativeCap(t *testing.T) {
+	inv := newInvocation("echo", `{}`, newRecorder())
+	inv.Boundary = engine.BoundaryNative
+	if err := checkInvocation(inv, Caps{Fetch: true}); err == nil || !strings.Contains(err.Error(), "no native boundary") {
+		t.Fatalf("without the cap: %v, want a refusal", err)
+	}
+	if err := checkInvocation(inv, Caps{Fetch: true, Native: true}); err != nil {
+		t.Fatalf("with the cap: %v", err)
+	}
+}
+
+// A script built for one boundary and invoked with the other escapes,
+// naming the mismatch, instead of running.
+func TestBunBoundaryMismatch(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	p := spawn(t, cfg)
+	inv := newInvocation("echo", `{}`, newRecorder())
+	inv.Boundary = engine.BoundaryNative
+	out, err := p.Execute(context.Background(), inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Kind != engine.OutcomeEscaped || !strings.Contains(out.Tail, "is not built for the native boundary") {
+		t.Fatalf("outcome %+v, want escaped for the boundary", out)
 	}
 }
 
@@ -480,7 +509,6 @@ func TestBunNotDispatched(t *testing.T) {
 		want string
 	}{
 		"canceled before dispatch": {canceled, func(*engine.Invocation) {}, "context canceled"},
-		"native boundary":          {context.Background(), func(i *engine.Invocation) { i.Boundary = engine.BoundaryNative }, "no native boundary"},
 		"fresh mode":               {context.Background(), func(i *engine.Invocation) { i.ModuleState = engine.ModuleStateFresh }, "C3b"},
 		"invalid entrypoint":       {context.Background(), func(i *engine.Invocation) { i.Entry = "not-a-name" }, "not a valid name"},
 		"env not UTF-8":            {context.Background(), func(i *engine.Invocation) { i.Env = map[string]string{"X": "\xff"} }, "invalid_utf8"},

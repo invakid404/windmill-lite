@@ -28,6 +28,9 @@ export type EntryRequest = {
   file?: string;
   content?: string;
   deps?: string;
+  // The language a deploy records ("bun", "bunnative" or "nativets"): a
+  // nativets script is transpiled, not bundled (WR-40).
+  language?: string;
 };
 
 export type Request = {

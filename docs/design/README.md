@@ -153,9 +153,15 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    globals and APIs the native runtime offers. The reference covers the
    native runtime only in outline ([WR-31](../semantics/languages.md#wr-31))
    and puts it in `later` scope, while the language values are `core` for
-   loading ([OF-13](../semantics/openflow.md#of-13)). Until it is covered, the
-   harness's native mode ([0004](0004-harness-protocol.md)) has no public
-   conformance cases, and milestone C3n cannot merge (gate S1).
+   loading ([OF-13](../semantics/openflow.md#of-13)). Answered by
+   [WR-40](../semantics/languages.md#wr-40) to
+   [WR-46](../semantics/languages.md#wr-46) (request S1), which milestone C3n
+   implements as the Bun harness's native mode
+   ([0001](0001-equivalence-contract.md) D5). One expectation cannot hold as
+   written: a `//native` bundle is built with Bun's syntax minification
+   ([WR-27](../semantics/languages.md#wr-27)), which writes
+   `throw new Error("x")` as `throw Error("x")`, so WR-43/c's source line for
+   that kind lacks `new`; please confirm the catalogue's reading.
 2. **Codebase bundling details**: the default `format` of a codebase entry,
    the esbuild version the pinned CLI uses, how `inject` and `customBundler`
    are handled, where `assets` land at run time, and the Node version that

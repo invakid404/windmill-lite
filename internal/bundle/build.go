@@ -185,7 +185,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 				"unsupported: codebase script: bundling codebase scripts with esbuild is not implemented yet"}})
 			continue
 		}
-		e := BunScript{ID: id, Path: s.ImportBase, Lock: lockText(s.Lock)}
+		e := BunScript{ID: id, Path: s.ImportBase, Lock: lockText(s.Lock), Language: string(s.Language)}
 		if s.Kind == ir.PathScript {
 			e.File = s.File
 		} else {

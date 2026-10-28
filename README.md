@@ -15,7 +15,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Nineteen milestones have landed. F4 gives the
+Twenty-one milestones have landed. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
@@ -47,8 +47,10 @@ uses, and on C1, the harness protocol between the engine
 ([harnesses/bun](harnesses/bun/README.md)), whose step runtime core, C3a,
 runs each step with Windmill's wrapper rules: binding and `Date` hydration
 by the signature the build recorded, the result and error shapes,
-`process.exit` interception and the attribution of process-level errors.
-`wltest check` (C3a) runs the step cases of
+`process.exit` interception and the attribution of process-level errors;
+C3n adds the native boundary mode, which runs `nativets` and `//native`
+steps each in a realm of its own with the rules of Windmill's native
+runtime. `wltest check` (C3a) runs the step cases of
 [conformance/steps](conformance/README.md) through the same harness. No
 command uses B2a and B2b yet: the expression pipeline in
 [internal/expr](internal/expr/README.md), whose textual stages and
@@ -132,8 +134,8 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; stub mode's generator and the locator that finds a stub's site in a running job tree; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
 | [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, pools, platform calls, warnings, and host mode. It implements the step executor. |
 | [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base) and the Bun side of the build, which runs the Bun build helper. |
-| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment and facade fetch, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the per-invocation registry and the process scope, and a minimal host SDK. |
-| [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, and the export scan of host-provided modules. |
+| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment and facade fetch, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the per-invocation registry and the process scope, the native boundary mode for `nativets` and `//native` steps, and a minimal host SDK. |
+| [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, the export scan of host-provided modules, and the native form of native steps with their embedded client. |
 | [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, the Bun step cases, the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a) and the context-free expression cases, with their recordings. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |

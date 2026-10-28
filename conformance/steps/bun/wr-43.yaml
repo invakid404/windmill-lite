@@ -1,0 +1,249 @@
+# WR-43: the native error shapes. An exception that reaches the end of the
+# run is exactly {message, stack, name}, with no step_id and no extra: an
+# Error's name and message decoded together, its stack after the source
+# line its first frame points at; three nulls for any other value. Anything
+# that fails before the module runs is the worker's `execution error:`.
+# "Both kinds" cases run once as nativets and once as a bun script whose
+# first line is //native.
+finding: WR-43
+scope: core
+cases:
+  - spec: WR-43/a
+    variant: nativets
+    provenance: source-derived
+    title: an Error gives exactly three fields; own properties are dropped (nativets)
+    language: nativets
+    script: |
+      export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
+  - spec: WR-43/a
+    variant: bunnative
+    provenance: source-derived
+    title: an Error gives exactly three fields; own properties are dropped (bunnative)
+    script: |
+      //native
+      export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
+  - spec: WR-43/b
+    variant: nativets
+    provenance: source-derived
+    title: a string, a plain object with message and name, and null each give three nulls (nativets)
+    language: nativets
+    script: |
+      export function main(v: string) {
+        if (v === "s") throw "s";
+        if (v === "o") throw { message: "m", name: "N" };
+        throw null;
+      }
+    runs:
+      - args: '{"v":"s"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"o"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"n"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+  - spec: WR-43/b
+    variant: bunnative
+    provenance: source-derived
+    title: a string, a plain object with message and name, and null each give three nulls (bunnative)
+    script: |
+      //native
+      export function main(v: string) {
+        if (v === "s") throw "s";
+        if (v === "o") throw { message: "m", name: "N" };
+        throw null;
+      }
+    runs:
+      - args: '{"v":"s"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"o"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"n"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+  - spec: WR-43/c
+    variant: nativets
+    provenance: source-derived
+    title: the stack starts with the failing source line, as loaded (nativets)
+    language: nativets
+    compare: {keep_stack: true}
+    script: |
+      export function main() {
+        throw new Error("x");
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, equals: x}
+          - {at: /result/error/stack, contains: ["throw new Error(\"x\");\nError: x\n"]}
+  - spec: WR-43/c
+    variant: bunnative
+    provenance: source-derived
+    title: the stack starts with the failing source line, as the bundle has it (bunnative)
+    note: >-
+      A //native script is bundled with Bun's syntax minification (WR-27,
+      WR-40), which writes `new Error("x")` as `Error("x")`; the line as
+      loaded is the bundle's, so the catalogue's `throw new Error("x")`
+      cannot appear for this kind.
+    compare: {keep_stack: true}
+    script: |
+      //native
+      export function main() {
+        throw new Error("x");
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, equals: x}
+          - {at: /result/error/stack, contains: ["throw Error(\"x\");\nError: x\n"]}
+  - spec: WR-43/d
+    variant: nativets
+    provenance: source-derived
+    title: a rejection nobody handles while main is pending fails the job (nativets)
+    language: nativets
+    script: |
+      export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+  - spec: WR-43/d
+    variant: bunnative
+    provenance: source-derived
+    title: a rejection nobody handles while main is pending fails the job (bunnative)
+    script: |
+      //native
+      export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: timer-throw
+    provenance: source-derived
+    title: an exception thrown from a timer callback fails the job too
+    language: nativets
+    script: |
+      export async function main() {
+        setTimeout(() => { throw new RangeError("tick"); }, 1);
+        await new Promise(r => setTimeout(r, 100));
+        return 1;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: tick, stack: "<stack>", name: RangeError}}}
+  - spec: WR-43
+    variant: microtask-throw
+    provenance: source-derived
+    title: an exception thrown from a queued microtask fails the job too
+    language: nativets
+    script: |
+      export async function main() {
+        queueMicrotask(() => { throw new Error("micro"); });
+        await new Promise(r => setTimeout(r, 50));
+        return 1;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: micro, stack: "<stack>", name: Error}}}
+  - spec: WR-43/f
+    provenance: source-derived
+    title: a syntax error fails at the transpile step, before anything loads
+    language: nativets
+    script: |
+      export function main( {
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, prefix: "execution error:\nError: ", not_contains: [failed to load module]}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-43/g
+    variant: nativets
+    provenance: source-derived
+    title: a non-string message nulls both message and name (nativets)
+    language: nativets
+    script: |
+      export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43/g
+    variant: bunnative
+    provenance: source-derived
+    title: a non-string message nulls both message and name (bunnative)
+    script: |
+      //native
+      export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43/h
+    variant: nativets
+    provenance: source-derived
+    title: a non-string name nulls both as well (nativets)
+    language: nativets
+    script: |
+      export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43/h
+    variant: bunnative
+    provenance: source-derived
+    title: a non-string name nulls both as well (bunnative)
+    script: |
+      //native
+      export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43
+    variant: null-and-string-objects
+    provenance: source-derived
+    title: a null field is null alone, a String object is its text, a subclass without a name is Error
+    language: nativets
+    script: |
+      class Sub extends Error {}
+      export function main(v: string) {
+        if (v === "null") { const e = new Error("m"); (e as any).name = null; throw e; }
+        if (v === "string-object") { const e = new Error("m"); (e as any).name = new String("S"); throw e; }
+        throw new Sub();
+      }
+    runs:
+      - args: '{"v":"null"}'
+        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: null}}}
+      - args: '{"v":"string-object"}'
+        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: S}}}
+      - args: '{"v":"subclass"}'
+        expect: {status: failure, result: {error: {message: "", stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-error
+    provenance: source-derived
+    title: an error a web API throws is an Error too
+    language: nativets
+    script: |
+      export function main() { return new URL("not a url"); }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/step_id, absent: true}
+  - spec: WR-43
+    variant: replaced-stack
+    provenance: policy
+    title: a stack replaced by a non-string is dropped, and with it every frame
+    note: >-
+      WR-43/i, which is deferred: the native runtime keeps the frames apart
+      from the stack property and still writes the source line;
+      JavaScriptCore reads frames only from the stack text, so windmill-lite
+      gives null.
+    language: nativets
+    script: |
+      export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: m, stack: null, name: Error}}}

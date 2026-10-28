@@ -146,7 +146,7 @@
       "variant": "not-native",
       "provenance": "policy",
       "title": "//native and //nodejs bundles are not rewritten",
-      "note": "On Windmill these scripts do not run with Bun's globals; their environment is the native boundary's (C3n).",
+      "note": "On Windmill these scripts do not run with Bun's globals; their environment is the native boundary's (C3n). The //native module is in its native form, where import.meta is read from the function's parameter.",
       "given": {
         "entries": [
           {
@@ -167,7 +167,7 @@
             "target": "browser",
             "bundle_contains": [
               "Bun.env.WL_CASE",
-              "import.meta.env"
+              "__windmill_lite_native.meta.env"
             ],
             "bundle_not_contains": [
               "__windmill_lite_Bun"

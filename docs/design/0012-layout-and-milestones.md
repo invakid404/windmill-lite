@@ -184,6 +184,12 @@ waits on an external gate except R1.
   [0003](0003-semantics-placement.md) that milestone C3a gave its format
   and its runner, `wltest check`; C3a runs them in `warm`, and C3b adds
   `fresh`.
+- C3n's exit gate, the native cases of the reference, is the step files
+  `conformance/steps/bun/wr-40.yaml` to `wr-45.yaml`: each catalogue case of
+  WR-40 to WR-46 is a step case, run as `nativets` and as `//native` where
+  the catalogue says both kinds, or is listed in the level's `deferred.yaml`
+  with its reason. A step case gives its `language` and its `timeout` for
+  that; the native build cases are `conformance/build/d5.json`.
 - F4 added `windmill-lite selfcheck`, which starts the expression engine and
   runs a few probes, to the CLI: it is how its exit gate starts the static
   Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).

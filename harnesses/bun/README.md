@@ -6,7 +6,9 @@ walking skeleton (W1) added (the per-invocation context, the facade fetch,
 the process-level error handlers, host mode, and a minimal host SDK) and
 the step runtime core of milestone C3a: Windmill's wrapper rules, the
 `process.exit` interception, the attribution of process-level errors, the
-per-invocation registry and the process scope. This
+per-invocation registry and the process scope; and the native boundary
+mode of milestone C3n, which runs `nativets` and `//native` steps with the
+native runtime's rules (deviation D5). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md) in W1's
@@ -37,12 +39,13 @@ cannot corrupt the protocol.
 | `runtime/main.ts` | Reads the bundle's digest, registers its host-provided modules, connects to fd 3, starts the runtime |
 | `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
+| `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the preamble, imports and the embedded client, binding, the result and the error shapes |
 | `runtime/context.ts` | The per-invocation context: the environment view, the facade fetch, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
 | `runtime/frame.ts` | The codec and the send queue: canonical envelopes, the decoding rules and error codes of the Go side, part streams, and the order of messages about one invocation |
 
 - **Handshake.** It sends `hello` with `Bun.version`, its pid, the SHA-256
-  of the bundle's `manifest.json`, and the `fetch` capability (`host` too in
-  host mode; `native` and `fresh` are false). It accepts only a warm
+  of the bundle's `manifest.json`, and the `fetch` and `native` capabilities
+  (`host` too in host mode; `fresh` is false). It accepts only a warm
   welcome.
 - **Heartbeat.** After the welcome it sends a `ping` every `heartbeat_ms`
   with its health: invocations in flight (those whose outcome is still
@@ -279,6 +282,67 @@ Per-invocation logs and child-process wrapping (C3b) are not here yet: the
 runtime sends no `log` frames, and an escaped outcome's tail is the error's
 text, not the step's last log lines.
 
+## The native boundary mode
+
+An invocation whose `boundary` is `native` (a `nativets` step, or a
+Bun-family one whose header says `//native`) runs with the rules of
+Windmill's in-worker native runtime
+([WR-40](../../docs/semantics/languages.md#wr-40) to
+[WR-45](../../docs/semantics/languages.md#wr-45)), in `native.ts`. What
+this mode cannot reproduce is deviation D5 of
+[ADR 0001](../../docs/design/0001-equivalence-contract.md).
+
+- **A realm per invocation.** Each invocation gets a fresh `node:vm`
+  context, as each native job gets a fresh isolate, so module state and
+  globals never survive it in any mode
+  ([WR-41](../../docs/semantics/languages.md#wr-41)). Its global object has
+  the ECMAScript built-ins and the web APIs WR-45 lists, taken from this
+  realm once fetch is wrapped and before any step loads (`fetch`, `URL`,
+  `URLPattern`, `crypto`, the streams, `structuredClone`, `console` and the
+  rest; Bun 1.3.10 has no `FileReader`), a `Deno` object holding only an
+  empty `core`, and `addEventListener`, `removeEventListener` and
+  `dispatchEvent` on `globalThis`. Nothing of Bun's: no `Bun`, `Buffer`,
+  `require`, `module`, `process`, `setImmediate` or `ShadowRealm`.
+- **Timers and fetch are the invocation's.** `setTimeout` and
+  `setInterval` return numeric ids; each pending handle and each fetch in
+  flight is registered with the invocation and released when it settles,
+  as the isolate is dropped. `fetch` is this realm's, so a request to the
+  facade is a platform call; it sends `User-Agent: windmill/beta`, or the
+  text of a `//useragent` header, unless the request sets one.
+- **The module** is the script's native form, `scripts/bun/<id>.native.js`
+  ([build/](build/README.md)): one async function, compiled in the realm
+  once per process for each set of preamble names. Its **preamble**
+  declares `process = { env }`, `BASE_URL` and `BASE_INTERNAL_URL` (both the
+  facade's origin), and for nativets every job variable as a `const` of its
+  name; the values are the invocation's job variables and nothing else. A
+  top-level declaration of one of those names fails the load.
+- **Imports** resolve against `file:///eval.ts`. For a nativets script,
+  every spelling of `file:///windmill.ts` is the embedded client
+  (`scripts/native/windmill.js`), loaded in the same realm with its own
+  preamble; anything else, and anything for a `//native` script, cannot be
+  loaded: a static import fails the load, a dynamic `import()` rejects
+  with an `Error` the script can catch. A named import that the module does
+  not export fails the link.
+- **The call.** nativets always calls `main`; `//native` calls the entry,
+  so an override applies. Each parameter takes its argument parsed in the
+  realm, `undefined` when missing, never hydrated; with no parameters, no
+  argument is passed. The result is `JSON.stringify(value ?? null)` in the
+  realm, with no replacer: `undefined` fields are left out, a value with no
+  JSON text is `null`, and a `BigInt` fails with V8's message.
+- **Errors.** A thrown value, from the module, the call or the
+  serialisation, is `{message, stack, name}`: for an `Error` of the realm
+  or of a web API, name and message decoded together, and the stack with
+  the source line its first frame points at in front when that frame is in
+  the script; three `null`s for anything else. A transpile error, a
+  signature that did not parse, a `//proxy` header (an EE feature) and a
+  load or link failure are the worker's `execution error:` object. Both
+  are `error` outcomes.
+- **Process-level errors** of a native invocation are its own: by its
+  async context (a timer), by the realm of the promise (a rejection nobody
+  handles, which has no context) or directly (a throw from a microtask it
+  queued). One fails a running invocation with its WR-43 object; after its
+  outcome it is a late error.
+
 Exit codes: 0 after `bye` or when the engine's end closes, 2 for a rejected
 or unusable welcome, 3 for a protocol error by the engine, 4 when the
 bundle cannot be read, 5 when no frame that ends an invocation fits
@@ -289,7 +353,10 @@ so the engine always learns how it ended, by that frame or by the exit.
 
 `test/frames.test.ts` checks this codec against the golden frames that the
 Go tests write, `conformance/protocol/frames.json`. `test/wrapper.test.ts`
-checks the wrapper's rules, and `test/fit.test.ts` how a warning's message
+checks the wrapper's rules, `test/native.test.ts` the native boundary
+mode (the build's native form, the realm's globals, the fetch user agent
+against a local endpoint, settlement, the error shapes), and
+`test/fit.test.ts` how a warning's message
 is cut to fit `max_message`. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation, partial writes and `whenFlushed`.

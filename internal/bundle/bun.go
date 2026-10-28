@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,12 @@ type BunScript struct {
 	Content string
 	// Lock is its lock in the format of WR-25; empty means no dependencies.
 	Lock string
+	// Language is the language a deploy records (ADR 0002): a nativets
+	// script is transpiled, not bundled, and a bun script with the
+	// `//native` header is bundled for the browser target; both are built
+	// into their native form, scripts/bun/<ID>.native.js (deviation D5).
+	// Empty means bun.
+	Language string
 }
 
 // HostModule is one host-provided module of the host contract (ADR 0010):
@@ -221,7 +228,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		})
 	}
 	for _, e := range cfg.Entries {
-		req.Entries = append(req.Entries, helperEntry{ID: e.ID, Path: e.Path, File: e.File, Content: e.Content, Deps: addDeps(e.Lock)})
+		req.Entries = append(req.Entries, helperEntry{ID: e.ID, Path: e.Path, File: e.File, Content: e.Content, Deps: addDeps(e.Lock), Language: e.Language})
 	}
 
 	res := &BunResult{Scripts: map[string]*ScriptMeta{}, HostModules: map[string]*HostModuleMeta{}}
@@ -311,7 +318,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 			return nil, err
 		}
 	}
-	res.Warnings = sharedDependencyWarnings(cfg, res)
+	res.Warnings = append(sharedDependencyWarnings(cfg, res), nativeImportWarnings(cfg, res)...)
 	if len(problems) > 0 {
 		return res, &BuildError{Problems: problems}
 	}
@@ -359,6 +366,17 @@ func decodeMeta(raw json.RawMessage) (*ScriptMeta, error) {
 	for _, s := range []*[]string{&m.Exports, &m.Imports, &m.Packages, &m.HostModules} {
 		if *s == nil {
 			*s = []string{}
+		}
+	}
+	if m.Boundary == "" {
+		m.Boundary = "bun"
+	}
+	if n := m.Native; n != nil {
+		if n.Imports == nil {
+			n.Imports = []string{}
+		}
+		if n.Links == nil {
+			n.Links = []NativeLink{}
 		}
 	}
 	if m.Signatures == nil {
@@ -445,6 +463,50 @@ func sharedDependencyWarnings(cfg BunConfig, res *BunResult) []Warning {
 	return out
 }
 
+// nativeImportWarnings reports each static import of a native-boundary
+// script that the native runtime cannot load: anything but the embedded
+// client, for a nativets script (WR-40). The script still builds, since
+// Windmill fails such a step only when it runs; the warning is the build's
+// check of D5's API surface (ADR 0010).
+func nativeImportWarnings(cfg BunConfig, res *BunResult) []Warning {
+	var out []Warning
+	for _, e := range cfg.Entries {
+		meta := res.Scripts[e.ID]
+		if meta == nil || meta.Native == nil {
+			continue
+		}
+		for _, spec := range meta.Native.Imports {
+			if meta.Native.Kind == "nativets" && nativeURL(spec) == nativeClientURL {
+				continue
+			}
+			out = append(out, Warning{WarningNativeImport, fmt.Sprintf(
+				"script %s (%s) imports %q, which the native runtime cannot load; the step fails when it runs", e.ID, meta.Path, spec)})
+		}
+	}
+	return out
+}
+
+// nativeClientURL is the embedded client's URL in the native runtime.
+const nativeClientURL = "file:///windmill.ts"
+
+// nativeURL resolves an import specifier as the native runtime does,
+// against file:///eval.ts: a path that starts with /, ./ or ../, or a URL;
+// "" for a bare specifier, which cannot be resolved.
+func nativeURL(spec string) string {
+	base := &url.URL{Scheme: "file", Path: "/eval.ts"}
+	if strings.HasPrefix(spec, "/") || strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
+		u, err := base.Parse(spec)
+		if err != nil {
+			return ""
+		}
+		return u.String()
+	}
+	if u, err := url.Parse(spec); err == nil && u.Scheme != "" {
+		return u.String()
+	}
+	return ""
+}
+
 func writeFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -483,11 +545,12 @@ type helperHostModule struct {
 }
 
 type helperEntry struct {
-	ID      string `json:"id"`
-	Path    string `json:"path"`
-	File    string `json:"file,omitempty"`
-	Content string `json:"content,omitempty"`
-	Deps    string `json:"deps,omitempty"`
+	ID       string `json:"id"`
+	Path     string `json:"path"`
+	File     string `json:"file,omitempty"`
+	Content  string `json:"content,omitempty"`
+	Deps     string `json:"deps,omitempty"`
+	Language string `json:"language,omitempty"`
 }
 
 type helperResponse struct {

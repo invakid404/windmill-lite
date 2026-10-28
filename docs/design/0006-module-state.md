@@ -94,6 +94,12 @@ run's trace:
   step cases run in `fresh` and `warm` ([0003](0003-semantics-placement.md)).
   Cases WR-1/a and WR-1/b expect `1` and `1` in `fresh`, and `1` then `2` in
   `warm`: the deviation is tested, not assumed.
+- **Native steps are fresh in every mode.** Each invocation of a `nativets`
+  or `//native` step runs in a realm of its own, as Windmill gives each
+  native job a new isolate ([WR-41](../semantics/languages.md#wr-41),
+  D5), so neither D1 nor the shared `globalThis` applies to them. On Bun
+  1.3.10 a realm with the module's compiled code reused costs about
+  0.06 ms per invocation (milestone C3n).
 - **`globalThis`** survives in `warm`, across invocations and across scripts.
   Code that keeps resources there on purpose, such as a connection cache
   registered on a global object, keeps working, and that is the point of a
@@ -113,4 +119,5 @@ run's trace:
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-27, Q-WR-19, and deviations D1, D2 and D9 to D12 of 0001.
+WR-1, WR-2, WR-27, WR-41, Q-WR-19, and deviations D1, D2, D5 and D9 to D12
+of 0001.

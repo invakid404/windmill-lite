@@ -34,6 +34,16 @@
         "node"
       ],
       "allowedVersions": "<23"
+    },
+    {
+      "description": "The native runtime's embedded client is the version Windmill v1.767.0 embeds (WR-40: OpenAPI.VERSION 1.326.0); it moves only with the semantics pin.",
+      "matchFileNames": [
+        "harnesses/bun/build/package.json"
+      ],
+      "matchPackageNames": [
+        "windmill-client"
+      ],
+      "allowedVersions": "1.326.0"
     }
   ]
 }

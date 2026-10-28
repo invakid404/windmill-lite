@@ -116,11 +116,18 @@ host-provided modules in registration order, and runs each case in a
 harness process of its own ([internal/harness](../../internal/harness/README.md)),
 its runs in order through the protocol: that is the `warm` configuration,
 in which module state and `globalThis` survive from one run to the next
-(D1). Each run's entrypoint is `engine.Entrypoint`'s, its job variables the
-core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the case's
-`step_id`, default `a`) or of a script job (`step_id: ""`), and its
+(D1); a native step runs in a realm of its own every time (D5). Each
+script is built with the language a deploy records
+(`ir.DeployedLanguage`), and invoked with that language's boundary
+(`ir.BoundaryOf`). Each run's entrypoint is `engine.Entrypoint`'s, its job
+variables the core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the
+case's `step_id`, default `a`) or of a script job (`step_id: ""`), and its
 outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
-compared by `conformance.CompareStep`. Every run is observed up to its
+compared by `conformance.CompareStep`; a case's `timeout` abandons the run
+when it passes, and its value is then `engine.TimeoutError`'s for the
+boundary. The harness is given the facade origin `http://127.0.0.1:9`,
+where nothing listens: a native step reads it as `BASE_URL` and
+`BASE_INTERNAL_URL`, and a platform call there gets a 501. Every run is observed up to its
 settlement (at most 10 s), since an outcome fixed early (an intercepted
 `process.exit`) comes before the call ends: its warnings are those
 collected until then, and its late reports are compared when the case
@@ -138,7 +145,7 @@ dependencies installed (`bun install --frozen-lockfile` in
 case.
 
 `go test ./cmd/wltest` runs the suite (`TestStepSuite`, milestone C3a's
-exit gate), checks that a wrong expectation of each kind fails
+exit gate, and with `wr-40.yaml` to `wr-45.yaml` milestone C3n's), checks that a wrong expectation of each kind fails
 (`TestStepCheckerReportsDifferences`), and that every catalogue case of a
 finding with a step file is a step case or deferred (`TestStepCatalogue`).
 The Bun tests need `WL_BUN`; without it they skip, unless `WL_REQUIRE_BUN`

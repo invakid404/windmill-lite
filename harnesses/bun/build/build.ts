@@ -2,7 +2,9 @@
 // annotations select, ESM output, syntax-only minification and only
 // `electron` external, after the import transforms of WR-26 and WR-28, with
 // workspace imports resolved from the sync folder (WR-28, WR-29) and the
-// env rewrite and host-provided-module shims of ADR 0010.
+// env rewrite and host-provided-module shims of ADR 0010. A native step
+// (`nativets`, or `//native`) is built into its native form instead
+// (native.ts, deviation D5).
 //
 // Sources are materialised under a dependency set's directory, so bare
 // imports resolve from its node_modules and the paths a bundle names are
@@ -18,6 +20,7 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
+import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
 import { importSpecifiers, liveBindings, parseModule, signatures } from "./signature.ts";
 import { detectWorkflowAsCode } from "./wac.ts";
 
@@ -73,13 +76,16 @@ function withEnvImport(text: string): string {
 
 // How imports of host-provided modules resolve in one bundle: to the shim
 // (build), or left external so the scan sees only the module's own exports.
-type HostMapping = { shims: boolean; self?: string };
+// A native bundle inlines them as any other import: it runs in a realm of
+// its own, which the process-wide registry does not reach (D5).
+type HostMapping = { shims: boolean; self?: string; inline?: boolean };
 
 export class Builder {
   private depDirs = new Map<string, string>();
   private transformed = new Map<string, string>();
   private hostByPackage = new Map<string, HostModuleRequest>();
   private hostByPath = new Map<string, HostModuleRequest>();
+  private client: Promise<NativeModule> | undefined;
 
   constructor(private readonly req: Request) {
     for (const hm of req.host_modules) {
@@ -193,6 +199,7 @@ export class Builder {
     const closure = new Set<string>();
     const used = new Set<string>();
     const host = (hm: HostModuleRequest) => {
+      if (hosts.inline) return undefined;
       used.add(hm.key);
       return hosts.shims ? { path: this.shimCopy(dir, hm) } : { path: hm.key, external: true };
     };
@@ -219,7 +226,7 @@ export class Builder {
             throw new Error(`Could not resolve: "${spec}"`);
           }
           const hm = this.hostByPath.get(path);
-          if (hm !== undefined && hm.key !== hosts.self) return host(hm);
+          if (hm !== undefined && hm.key !== hosts.self && !hosts.inline) return host(hm);
           if (own(this.req.scripts, path) === undefined) {
             throw new Error(`Could not resolve: "${spec}" from ${importer}: no script at ${path}`);
           }
@@ -381,6 +388,7 @@ export class Builder {
   async buildEntry(e: EntryRequest): Promise<EntryResult> {
     const source = e.file !== undefined ? this.readFolder(e.file) : (e.content ?? "");
     const meta: Record<string, unknown> = { path: e.path };
+    if (e.language === "nativets") return this.buildNativeTS(e, source, meta);
     let parsed;
     try {
       parsed = parse(source);
@@ -389,8 +397,12 @@ export class Builder {
     }
     const annotations = parseAnnotations(source);
     const target = targetFor(annotations);
+    // The header, not the stored language, selects the native runtime for
+    // a Bun-family script (WR-40).
+    const native = annotations.native;
     Object.assign(meta, {
       target,
+      boundary: native ? "native" : "bun",
       annotations,
       workflow_as_code: detectWorkflowAsCode(source, parsed),
       packages: directPackages(parsed),
@@ -404,7 +416,20 @@ export class Builder {
       const env = target === "bun";
       const text = transformSource(source, e.path);
       const entry = this.materialise(dir, join("entry", e.id + ".ts"), env ? withEnvImport(text) : text);
-      const b = await this.bundle(dir, entry, new Map([[entry, e.path]]), target, { shims: true }, env);
+      const b = await this.bundle(dir, entry, new Map([[entry, e.path]]), target, { shims: !native, inline: native }, env);
+      if (native) {
+        const nm = this.native(b.text, "bunnative");
+        this.writeOut(join("scripts", "bun", e.id + ".native.js"), nm.text);
+        Object.assign(meta, {
+          exports: nm.exports,
+          signatures: signatures(parsed, nm.exports),
+          imports: b.closure,
+          host_modules: b.hostModules,
+          metafile: b.metafile,
+          native: { ...nm.form, ...nativeHeader(source) },
+        });
+        return { meta };
+      }
       const exports = exportScanner.scan(b.text).exports;
       this.writeOut(join("scripts", "bun", e.id + ".mjs"), b.text);
       Object.assign(meta, {
@@ -419,6 +444,73 @@ export class Builder {
       if (err instanceof BuildProblem) return { meta, error: err.problem() };
       throw err;
     }
+  }
+
+  // A nativets script (WR-40): its TypeScript transpiled, not bundled, in
+  // its native form. Its imports are resolved when it runs, so it inlines
+  // nothing and installs nothing. Text the transpiler rejects is not a
+  // build problem: the step fails when it runs, as on Windmill (WR-43).
+  private async buildNativeTS(e: EntryRequest, source: string, meta: Record<string, unknown>): Promise<EntryResult> {
+    const annotations = parseAnnotations(source);
+    Object.assign(meta, {
+      target: "none",
+      boundary: "native",
+      annotations,
+      workflow_as_code: { wrapper: false, parsed: false, substring: false },
+      exports: [],
+      signatures: {},
+      imports: [],
+      packages: [],
+      host_modules: [],
+    });
+    const header = nativeHeader(source);
+    const t = transpile(source);
+    if ("error" in t) {
+      meta.native = { kind: "nativets", imports: [], links: [], ...header, transpile_error: t.error };
+      return { meta };
+    }
+    let parsed;
+    try {
+      parsed = parse(source);
+    } catch (err) {
+      return { meta, error: (err as BuildProblem).problem() };
+    }
+    meta.workflow_as_code = detectWorkflowAsCode(source, parsed);
+    try {
+      const nm = this.native(t.js, "nativets");
+      await this.nativeClient();
+      this.writeOut(join("scripts", "bun", e.id + ".native.js"), nm.text);
+      Object.assign(meta, { exports: nm.exports, signatures: signatures(parsed, nm.exports), native: { ...nm.form, ...header } });
+      return { meta };
+    } catch (err) {
+      if (err instanceof BuildProblem) return { meta, error: err.problem() };
+      throw err;
+    }
+  }
+
+  private native(js: string, kind: string): NativeModule {
+    try {
+      return nativeModule(js, kind);
+    } catch (e) {
+      throw new BuildProblem("bundle_failed", `the native form: ${buildMessage(e)}`);
+    }
+  }
+
+  // The embedded client a nativets script imports as ./windmill.ts
+  // (WR-40), written once per bundle as scripts/native/windmill.js, outside
+  // the scripts' own tree, with the record of its native form.
+  private nativeClient(): Promise<NativeModule> {
+    this.client ??= buildNativeClient().then(
+      (c) => {
+        this.writeOut(join("scripts", "native", "windmill.js"), c.text);
+        this.writeOut(join("scripts", "native", "windmill.meta.json"), JSON.stringify({ native: c.form }, null, 2) + "\n");
+        return c;
+      },
+      (e) => {
+        throw new BuildProblem("bundle_failed", `the embedded client (./windmill.ts): ${buildMessage(e)}`);
+      },
+    );
+    return this.client;
   }
 
   private writeOut(rel: string, text: string): void {

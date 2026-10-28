@@ -497,11 +497,7 @@ func (r *skelRun) module(ctx context.Context, m skelModule, prev jsonval.Value, 
 			return notLaunched()
 		case errors.Is(err, CancelTimeout):
 			rec.Abandoned = true
-			limit := "job-specific duration limit"
-			if instanceWide {
-				limit = "instance-wide job duration limit"
-			}
-			return fail(stepError(m.id, "execution error:\njob process terminated due to timeout after exceeding "+limit), OriginEngine)
+			return fail(TimeoutError(BoundaryBun, m.id, timeout, instanceWide), OriginEngine)
 		case err != nil && ctx.Err() != nil:
 			// The run was canceled (H4); the precedence check ends it.
 			rec.Abandoned = true

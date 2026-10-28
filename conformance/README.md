@@ -17,7 +17,8 @@ flows, milestone E1). The tests of the expression pipeline
 expression cases and the flow fixtures' unit cases through its shortcuts
 and textual stages on a fake engine; what the engine computes waits for
 B2b. The step cases in `steps/` run on windmill-lite's Bun harness through
-`wltest check` (milestone C3a).
+`wltest check` (milestone C3a); `steps/bun/wr-40.yaml` to `wr-45.yaml` are
+the native cases of milestone C3n, and `build/d5.json` their build.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -476,8 +477,9 @@ which it expects their results.
 A step file holds the step cases of one finding, or of a deviation of
 [ADR 0001](../docs/design/0001-equivalence-contract.md) §5 that has none
 (`d9.yaml`, `d11.yaml`, `d12.yaml`), and is named after it in lower case.
-Each case is one Bun script and the runs that one harness process serves
-in order, so a later run sees what an earlier one left in memory (D1). A
+Each case is one script and the runs that one harness process serves
+in order, so a later run sees what an earlier one left in memory (D1),
+except a native step's, which runs in a realm of its own each time (D5). A
 run's observation is the step's **stored** value,
 `{"status": "success" | "failure", "result": …}`: the result, or the
 failure value ([WR-21](../docs/semantics/languages.md#wr-21)).
@@ -501,10 +503,12 @@ cases:
 |---|---|
 | `spec`, `variant`, `provenance`, `scope`, `title`, `note` | as for the other levels; a case of a finding beyond the catalogue, or of a deviation, cites the finding and needs a `variant` |
 | `script`, `path` | the script, and its Windmill path (default `f/wl_step/<name in snake case>`), which is its import base |
+| `language` | `bun` (the default), `bunnative` or `nativets`; a deploy relabels `bun` and `bunnative` from the script's `//native` header, and `bunnative` and `nativets` run with the native boundary ([WR-40](../docs/semantics/languages.md#wr-40)). The catalogue's "both kinds" are two cases: `language: nativets`, and a script whose first line is `//native` |
+| `timeout` | the step's static timeout in seconds: when it passes, the run is abandoned and its observation is the engine's timeout error for the step's boundary ([WR-37](../docs/semantics/languages.md#wr-37), [WR-44](../docs/semantics/languages.md#wr-44)) |
 | `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` |
 | `env` | job variables that add to or replace the core `WM_*` ones |
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
-| `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared); `unordered` arrays; `strict_key_order` |
+| `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared) unless `keep_stack` is set, for a case that states the stack in claims; `unordered` arrays; `strict_key_order` |
 | `deviation` | the deviation whose two readings the case's `by_mode` gives |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
 | `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |

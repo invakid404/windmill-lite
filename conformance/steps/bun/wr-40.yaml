@@ -1,0 +1,185 @@
+# WR-40: which steps run in the native runtime, and how each kind is
+# prepared. The //native header, not the stored language, selects it for a
+# Bun-family step; a nativets step reaches the embedded client by every
+# spelling of file:///windmill.ts, and no other import loads.
+finding: WR-40
+scope: core
+cases:
+  - spec: WR-40/a
+    variant: header
+    provenance: source-derived
+    title: language bun with a first line //native runs in the native runtime
+    script: |
+      //native
+      export function main() { return typeof (globalThis as any).Bun; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "undefined"}
+  - spec: WR-40/a
+    variant: no-header
+    provenance: source-derived
+    title: language bunnative without the header runs as an ordinary Bun step
+    language: bunnative
+    script: |
+      export function main() { return typeof (globalThis as any).Bun; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "object"}
+  - spec: WR-40/b
+    provenance: source-derived
+    title: nativets imports the embedded client as ./windmill.ts
+    language: nativets
+    script: |
+      import * as wmill from "./windmill.ts";
+      export function main() { return typeof wmill.getVariable; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "function"}
+  - spec: WR-40
+    variant: client-version-and-env
+    provenance: source-derived
+    title: the embedded client is the 1.326.0 one, and reads BASE_INTERNAL_URL and WM_TOKEN from its own process.env
+    note: >-
+      setClient() with no arguments takes its base URL and token from the
+      client module's own preamble (WR-45); the base URL is the facade
+      origin wltest check gives the harness.
+    language: nativets
+    env: {WM_TOKEN: wl-step-token}
+    script: |
+      import * as wmill from "./windmill.ts";
+      export function main() {
+        wmill.setClient();
+        return [wmill.OpenAPI.VERSION, wmill.OpenAPI.BASE, wmill.OpenAPI.TOKEN];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ["1.326.0", "http://127.0.0.1:9/api", wl-step-token]}
+  - spec: WR-40/c
+    provenance: source-derived
+    title: a static import of a missing host file fails the load
+    language: nativets
+    script: |
+      import { x } from "./helper.ts";
+      export function main() { return x; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/step_id, equals: a}
+          - {at: /result/error/stack, absent: true}
+  - spec: WR-40/d
+    variant: absolute
+    provenance: source-derived
+    title: the client imported as /windmill.ts
+    language: nativets
+    script: |
+      import * as wmill from "/windmill.ts";
+      export function main() { return typeof wmill.getVariable; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "function"}
+  - spec: WR-40/d
+    variant: file-url
+    provenance: source-derived
+    title: the client imported as file:///windmill.ts
+    language: nativets
+    script: |
+      import * as wmill from "file:///windmill.ts";
+      export function main() { return typeof wmill.getVariable; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "function"}
+  - spec: WR-40/e
+    provenance: source-derived
+    title: a failed dynamic import is an ordinary rejection that main can catch
+    language: nativets
+    script: |
+      export async function main() {
+        try { await import("./missing.ts"); return "loaded"; }
+        catch (e) { return [e instanceof Error, String((e as Error).message).includes("file:///missing.ts")]; }
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [true, true]}
+  - spec: WR-40/f
+    provenance: source-derived
+    title: an uncaught failed dynamic import gives the exception shape, not a load failure
+    note: The error's name is Q-WR-21's; windmill-lite's is Error.
+    language: nativets
+    script: |
+      export async function main() { await import("./missing.ts"); return 1; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, prefix: "Failed to load file:///missing.ts", not_contains: [failed to load module]}
+          - {at: /result/error/name, not_contains: [ExecutionErr]}
+          - {at: /result/error/step_id, absent: true}
+          - {at: /result/error/extra, absent: true}
+  - spec: WR-40
+    variant: dynamic-client
+    provenance: source-derived
+    title: a dynamic import of the client's URL reaches the client too
+    language: nativets
+    script: |
+      export async function main() { const w = await import("./windmill.ts"); return typeof w.getVariable; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "function"}
+  - spec: WR-40
+    variant: bare-specifier
+    provenance: source-derived
+    title: a bare specifier cannot be loaded, so the static import fails the load
+    language: nativets
+    script: |
+      import x from "lodash";
+      export function main() { return x; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+          - {at: /result/error/name, equals: ExecutionErr}
+  - spec: WR-40
+    variant: other-scheme
+    provenance: source-derived
+    title: a URL with another scheme cannot be loaded either
+    language: nativets
+    script: |
+      export async function main() {
+        const out = [];
+        for (const s of ["npm:lodash", "https://example.invalid/x.ts"]) {
+          try { await import(s); out.push("loaded"); } catch (e) { out.push(e instanceof Error); }
+        }
+        return out;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [true, true]}
+  - spec: WR-40
+    variant: missing-named-import
+    provenance: policy
+    title: a named import the client does not export fails the load, as linking a module fails
+    language: nativets
+    script: |
+      import { noSuchExport } from "./windmill.ts";
+      export function main() { return typeof noSuchExport; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module: SyntaxError: The requested module './windmill.ts' does not provide an export named 'noSuchExport'"}
+          - {at: /result/error/name, equals: ExecutionErr}
+  - spec: WR-40
+    variant: no-client-for-bunnative
+    provenance: source-derived
+    title: a //native step's runtime does not load windmill.ts; its client is what its lock inlines
+    note: The specifier is an argument, so the bundler leaves the import to the runtime.
+    script: |
+      //native
+      export async function main(spec: string) {
+        try { await import(spec); return "loaded"; } catch (e) { return String((e as Error).message); }
+      }
+    runs:
+      - args: '{"spec":"./windmill.ts"}'
+        expect: {status: success, result: "Failed to load file:///windmill.ts"}

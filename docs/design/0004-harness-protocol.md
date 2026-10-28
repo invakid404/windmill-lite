@@ -589,9 +589,33 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the
     engine, not by the harness.
+- Milestone C3n added the native boundary. The Bun harness's `hello`
+  offers `native`, and the engine refuses a native invocation to a harness
+  whose `hello` does not.
+  - **A realm per invocation.** An invocation with boundary `native` runs in
+    a `node:vm` context of its own, with the native runtime's globals and
+    rules ([WR-40](../semantics/languages.md#wr-40) to
+    [WR-45](../semantics/languages.md#wr-45); D5 in
+    [0001](0001-equivalence-contract.md)). Its timers and fetches are
+    registered with the invocation and released when it settles.
+  - **Outcomes.** A native invocation ends `ok` or `error`, never `escaped`
+    or `empty`: a thrown value is the `{message, stack, name}` object, and a
+    failure before the module runs (a transpile, signature, load or link
+    failure, a `//proxy` header) is the worker's `execution error:` object,
+    both as an `error` body. A script built for one boundary and invoked
+    with the other escapes, naming the mismatch.
+  - **Attribution by realm.** Item 2 of the failure model cannot attribute a
+    rejection nobody handles, which carries no async context; for a native
+    invocation the promise's realm names it. Such a rejection, a throw from
+    one of its timers and a throw from a microtask it queued fail a running
+    native invocation with that value's WR-43 object (`settled` false), as
+    they fail a native job, and are `late` errors after its outcome.
+  - **The step's timeout** gives the boundary's text: WR-37's for Bun,
+    `Query timeout after (>Ns)` for native
+    ([WR-44](../semantics/languages.md#wr-44); `engine.TimeoutError`).
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-4, WR-7, WR-12, WR-13, WR-15, WR-18 to WR-23, WR-37, WR-V1,
-WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
+WR-1, WR-2, WR-4, WR-7, WR-12, WR-13, WR-15, WR-18 to WR-23, WR-37, WR-40 to
+WR-45, WR-V1, WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
 CF-4, CF-7, CF-28.

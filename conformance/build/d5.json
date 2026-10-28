@@ -1,0 +1,85 @@
+{
+  "finding": "D5",
+  "note": "The native boundary's build (ADR 0001 D5, ADR 0010): a nativets script is transpiled and not bundled, a //native one is bundled for the browser target, and both are written in their native form, scripts/bun/<id>.native.js, the source of one async function that the Bun harness compiles in a realm of its own. The step cases of WR-40 to WR-45 (conformance/steps/bun) run what these build.",
+  "cases": [
+    {
+      "spec": "D5",
+      "variant": "nativets-transpiled",
+      "provenance": "policy",
+      "deviation": "D5",
+      "title": "a nativets script is transpiled, not bundled: its imports stay for the harness to resolve, and the one it cannot load is a warning",
+      "given": {
+        "language": "nativets",
+        "source": "import * as wmill from \"./windmill.ts\";\nimport { x } from \"./helper.ts\";\ntype T = { a: number };\nexport function main(t: T, when: Date) { return [typeof wmill.getVariable, x, t, when]; }"
+      },
+      "expect": {
+        "target": "none",
+        "boundary": "native",
+        "exports": ["main"],
+        "signatures": {"main": {"params": [{"name": "t", "date": false}, {"name": "when", "date": true}]}},
+        "imports": [],
+        "host_modules": [],
+        "bundle_contains": ["(async function (__windmill_lite_native) {\"use strict\";", "wmill = __windmill_lite_native.imports[0]", "x = __windmill_lite_native.imports[1][\"x\"]", "get \"main\"() { return main; }"],
+        "bundle_not_contains": ["import * as", "from \"./helper.ts\"", "type T"],
+        "warnings": ["native_import_unavailable"]
+      }
+    },
+    {
+      "spec": "D5",
+      "variant": "nativets-syntax-error",
+      "provenance": "policy",
+      "deviation": "D5",
+      "title": "a nativets script that does not transpile builds; its diagnostic fails the step when it runs (WR-43)",
+      "given": {
+        "language": "nativets",
+        "source": "export function main( {"
+      },
+      "expect": {
+        "target": "none",
+        "boundary": "native",
+        "transpile_error": "file:///eval.ts:1:"
+      }
+    },
+    {
+      "spec": "D5",
+      "variant": "bunnative-native-form",
+      "provenance": "policy",
+      "deviation": "D5",
+      "title": "a //native script is bundled for the browser target, without the env rewrite, in its native form",
+      "given": {
+        "source": "//native\nimport { helper } from \"./lib\";\nexport default async function main(n: number) { return [helper(n), import.meta.url, Bun.env.X]; }",
+        "files": {"f/case/lib.ts": "export const helper = (n: number) => n + 1;\n"}
+      },
+      "expect": {
+        "target": "browser",
+        "boundary": "native",
+        "annotations": ["native"],
+        "exports": ["default"],
+        "imports": ["f/case/lib"],
+        "bundle_contains": ["__windmill_lite_native.meta.url", "Bun.env.X", "get \"default\"()"],
+        "bundle_not_contains": ["__windmill_lite_Bun", "import.meta", "export "]
+      }
+    },
+    {
+      "spec": "D5",
+      "variant": "bunnative-inlines-host-modules",
+      "provenance": "policy",
+      "deviation": "D5",
+      "title": "a //native script inlines a host-provided module instead of using its shim: a native realm does not reach the process registry (D12)",
+      "given": {
+        "entries": [
+          {"id": "native", "path": "f/a/native", "source": "//native\nimport { store } from \"../shared/ctx\";\nexport function main() { return store.value; }"},
+          {"id": "bun", "path": "f/a/bun", "source": "import { store } from \"../shared/ctx\";\nexport function main() { return store.value; }"}
+        ],
+        "files": {"f/shared/ctx.ts": "export const store = { value: \"initial\" };\n"},
+        "host_modules": [{"id": "ctx", "key": "f/shared/ctx.ts", "file": "f/shared/ctx.ts"}]
+      },
+      "expect": {
+        "entries": {
+          "native": {"boundary": "native", "host_modules": [], "imports": ["f/shared/ctx"], "bundle_contains": ["\"initial\""], "bundle_not_contains": ["windmill-lite.hostModules"]},
+          "bun": {"boundary": "bun", "host_modules": ["f/shared/ctx.ts"], "bundle_not_contains": ["\"initial\""]}
+        }
+      }
+    }
+  ]
+}
