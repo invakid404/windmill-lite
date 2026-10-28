@@ -21,16 +21,17 @@ flow fixture in a temporary directory, and writes its recordings to
 
 ```sh
 go build -o bin/wltest ./cmd/wltest
-bin/wltest record [flags] <fixture or directory>...
+bin/wltest record [flags] <fixture, expression file or directory>...
 ```
 
 Each argument is a fixture directory (one holding `fixture.yaml`), an
 expression-case file, or a directory searched for both: a `.yaml` file in a
 directory named `exprs`, other than `deferred.yaml` and outside any fixture,
 is an expression-case file. Arguments that overlap reach each fixture and
-file once, and an explicit file of any other kind is refused (exit 2). Flow fixtures are recorded first, then the expression files, with
-files marked `slow` last, so that what a slow case leaves running on the
-oracle (the spinning evaluation of [JE-2](../../docs/semantics/expressions.md#je-2))
+file once, and an explicit file of any other kind is refused (exit 2). Flow
+fixtures are recorded first, then the expression files, with files marked
+`slow` last, so that what a slow case leaves running on the oracle (the
+spinning evaluation of [JE-2](../../docs/semantics/expressions.md#je-2))
 cannot slow the others. It needs Docker, which pulls the CE image
 (1,373 MB compressed on amd64, [OR-2](../../docs/semantics/oracle.md#or-2))
 and Postgres, and `npx` on `PATH` to run `windmill-cli@1.767.0`. Pulls are
@@ -59,8 +60,11 @@ actual before expected). It exits 1 when a run failed, was refused, was
 unstable or did not match its `expect`, and in check mode also when a
 recording is new or changed. A run whose committed recording names another
 oracle, image or CLI is `refused` (`recording_identity_mismatch`) before
-anything runs; delete the recording to re-record it. A refusal of the whole session (for example
-`{"error":"insufficient_disk",…}`) is printed as JSON on standard output.
+anything runs; delete the recording to re-record it. A refusal of the whole
+session (for example `{"error":"insufficient_disk",…}`) is printed as JSON on
+standard output. A run's `claims`, `delays` and `unit` cases are not checked
+here: `go test ./internal/oracle` checks them against the committed
+recordings, so a contradicted claim still leaves a recording to inspect.
 
 ## Version
 

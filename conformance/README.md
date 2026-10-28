@@ -45,7 +45,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
-| `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8, JE-9, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
+| `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
 | `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. |
 | `flows/je/waits` | `sleep`, `timeout` and `retry_if` sites and retried arguments: JE-22/a–b, JE-28, JE-29/a, JE-32, JE-V2. |

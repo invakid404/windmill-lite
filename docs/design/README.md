@@ -102,7 +102,10 @@ Recording batches E3a to E3e record them on the oracle (E3e holds the
 contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
-keeps both readings.
+keeps both readings. Batch E3a has recorded the CF-19 / CF-V6 dispute
+([Q-CF-16](../semantics/control-flow.md#q-cf-16)): the direct lookup is
+line-anchored, the default; the reference still lists the finding as not
+settled until the semantics team records the result.
 
 ## Requests to the semantics team
 

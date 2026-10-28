@@ -51,11 +51,12 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    ([OR-31](../../docs/semantics/oracle.md#or-31)); pass the deployment gate
    ([OR-9](../../docs/semantics/oracle.md#or-9)) and check each deployed
    flow's module ids against the tree (OR-8/b). Once the fixture's runs are
-   recorded, delete its workspace: CE refuses a third workspace besides
-   `admins` ("You have reached the maximum number of workspaces (2 outside
-   of default workspace 'admins') without an enterprise license", observed by
-   batch E3a; OR-6 does not state the limit), so a workspace that cannot be
-   deleted ends the session.
+   recorded, or its check or deployment has failed, delete its workspace,
+   with a context of its own so that a canceled session still cleans up:
+   CE refuses a third workspace besides `admins` ("You have reached the
+   maximum number of workspaces (2 outside of default workspace 'admins')
+   without an enterprise license", observed by batch E3a; OR-6 does not
+   state the limit), so a workspace that cannot be deleted ends the session.
 5. **Per run.** Pre-assign the root job id, open the sink for it, submit
    asynchronously and poll `get_result_maybe` until completion, never
    `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
@@ -199,7 +200,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestSinkGroupsByOuterRoot` | OR-16/c | — |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
-| `TestSessionDeletesEachWorkspace` | three fixtures in one session on a fake oracle that, like CE, refuses a third workspace: each workspace is deleted after its runs | the smoke fixture |
+| `TestSessionDeletesEachWorkspace`, `TestSessionDeletesWorkspacesOnFailure` | three fixtures in one session on a fake oracle that, like CE, refuses a third workspace: each workspace is deleted after its runs, also when the check after creating it or the deployment gate failed, and a workspace that cannot be deleted ends the session | the smoke fixture |
 | `TestExprFilesLift`, `TestBatchFixturesDecode` | every expression file lifts into flows that the walker reads back as their cases describe them; every flow fixture's tree decodes and holds its runs' targets | `conformance/exprs`, `conformance/flows` |
 | `TestRecordingsSatisfyClaims`, `TestExprCasesAgreeWithRecordings`, `TestUnitCasesMatchRecordings` | the committed recordings of the recording batches against what their cases say: claims and delays hold, a recorded case is `oracle-observed`, an expected evaluator text has the recorded argument as its stored form, and each unit case's expression and previous id match its flow, and its flow input, previous result and database reads have the recorded texts as their stored forms | `conformance/exprs`, `conformance/flows` |
 | `TestBatchCoverage` | every JE case of the catalogue, and every CF-19 and CF-V6 case, is an expression case, a flow fixture's run, or deferred with a reason and a milestone | `conformance/exprs/deferred.yaml` |
