@@ -1,0 +1,31 @@
+# WA-4/a: step b sees its module id, the flow's path, its own job path and a
+# parent flow job; FX-45/a: WM_FLOW_STEP_ID is the module id. Steps a and c
+# return their job ids: their own job, and the root flow as parent,
+# innermost scope and root (WA-V1/a's direct step), each normalised to its
+# placeholder (OR-14). b's argument carries a's ids, normalised the same
+# way. A path script's job path is its own path (WA-4).
+spec: [WA-4/a, FX-45/a, WA-V1, OR-14]
+target: f/wl_e1_env/envs
+expect:
+  status: success
+  result: {flow_step: c, flow_path: f/wl_e1_env/envs, job_path: f/wl_e1_env/report, job: "<job:m:c>", flow_job: "<job:>"}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result: {flow_step: a, job: "<job:m:a>", flow_job: "<job:>", root_flow: "<job:>", root: "<job:>"}
+    "m:b":
+      status: success
+      args:
+        prev: {flow_step: a, job: "<job:m:a>", flow_job: "<job:>", root_flow: "<job:>", root: "<job:>"}
+      result:
+        flow_step: b
+        flow_path: f/wl_e1_env/envs
+        job_path: f/wl_e1_env/envs/b
+        flow_job_is_parent: true
+        job: "<job:m:b>"
+        prev: {flow_step: a, job: "<job:m:a>", flow_job: "<job:>", root_flow: "<job:>", root: "<job:>"}
+    "m:c":
+      status: success
+      args: {}
+      result: {flow_step: c, flow_path: f/wl_e1_env/envs, job_path: f/wl_e1_env/report, job: "<job:m:c>", flow_job: "<job:>"}

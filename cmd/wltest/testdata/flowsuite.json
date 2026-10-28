@@ -1,0 +1,21 @@
+{
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestone E1 of ADR 0012): the flow fixtures' runs that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton. Every other run is still run, reported, and must not fail to load.",
+  "implemented": ["E1"],
+  "runs": {
+    "conformance/flows/client-api/job-env/envs": "E1",
+    "conformance/flows/languages/bun-results/serialise": "E1",
+    "conformance/flows/languages/bun-results/thrown_string": "E1",
+    "conformance/flows/languages/bun-results/timeout": "E1",
+    "conformance/flows/languages/codebase/chain": "E1",
+    "conformance/flows/execution/fx-6/first_step": "E1",
+    "conformance/flows/execution/fx-7/js_and_static": "E1",
+    "conformance/flows/execution/fx-7/params_and_undefined": "E1",
+    "conformance/flows/execution/fx-12/error_extra": "E1",
+    "conformance/flows/execution/fx-12/object_throw": "E1",
+    "conformance/flows/execution/fx-36/empty": "E1",
+    "conformance/flows/execution/fx-36/last_module": "E1",
+    "conformance/flows/je/sites/je-v4": "E1",
+    "conformance/flows/je/sites/je49-a": "E1",
+    "conformance/flows/je/sites/je49-c": "E1"
+  }
+}

@@ -23,7 +23,7 @@ N1a replaces it with the engine core. The harness that executes steps is
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10) | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
-| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`, `StaticIntercepts`: the walking skeleton's interpreter (below) | W1's `windmill-lite host`; N1a replaces it |
+| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`, `StaticIntercepts`: the walking skeleton's interpreter (below) | W1's `windmill-lite host`; the flow runner of `wltest check` (E1); N1a replaces it |
 
 Site identities are `conformance.SitePath` values. Run statuses are
 `conformance.RunStatus` values, including the windmill-lite-only `latched`
@@ -204,6 +204,11 @@ modules written by hand, each with the `.meta.json` signature the build
 helper would record (the harness binds arguments by it), among them `scope_shim.mjs`, which reads the
 host-provided module `f/w1/scopes.ts` through a hand-written shim, and
 `scope_copy.mjs`, which bundles its own copy of it.
+
+`wltest check` ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures),
+milestone E1) runs the flow fixtures of `conformance/flows` on the skeleton
+and compares each run's observation with the oracle's; a flow the
+skeleton refuses at load is reported there as unsupported.
 
 `skeleton_test.go` checks the interpreter with a fake executor and the real
 QuickJS-ng engine. `skeleton_bun_test.go` runs it on the real Bun harness

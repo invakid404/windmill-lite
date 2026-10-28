@@ -1,0 +1,5 @@
+version: v2
+locks:
+  f/wl_e1_cb/chain.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_e1_cb/cjs/double: 63bde72ab214cd14c5fce324ed8e717c5a9810eec8edaf1fb72e993e536eff9f
+  f/wl_e1_cb/esm/double: bdcff6bad551c57621c2a62fdcc4687565e22e76067672ef806b11d2b6dccf32
