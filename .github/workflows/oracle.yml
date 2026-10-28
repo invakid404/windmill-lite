@@ -83,7 +83,7 @@ jobs:
         # npx runs the pinned windmill-cli@1.767.0 as a tool (OR-8).
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 26
 
       - name: Build wltest
         run: go build -o bin/wltest ./cmd/wltest
