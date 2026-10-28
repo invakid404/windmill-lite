@@ -1,0 +1,13 @@
+# CF-2/b: a non-array iterator fails the loop. The loop is the first step,
+# so the error is raised when the root flow is picked up (CF-23 route 1).
+spec: [CF-2/b]
+target: f/cf2/object_iterator
+args: {o: {p: 1}}
+note: "Recorded as route 1: name Anyhow, the message prefixed with \"Error: \" and ending in a Rust location. The catalogue asserts only that the message contains \"Expected an array value in the iterator expression, found: invalid type: map, expected a sequence\", which batches/e3d.json checks as a prefix after \"Error: \"."
+expect:
+  status: failure
+  result:
+    error:
+      name: Anyhow
+      message: "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"
+  steps: {"m:l": {status: failure, ran: false}}

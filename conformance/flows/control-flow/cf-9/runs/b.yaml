@@ -1,0 +1,17 @@
+# CF-9/b: the same for the first step of a branchone branch.
+spec: [CF-9/b]
+target: f/cf9/branch_first_step
+args: {z: 1}
+expect:
+  status: success
+  result: {z: 1}
+  steps:
+    "m:a": {status: success, args: {}, result: 100}
+    "m:br":
+      status: success
+      result: {z: 1}
+      branch_chosen: {type: default}
+    "m:br/b:default/m:b":
+      status: success
+      args: {x: {z: 1}}
+      result: {z: 1}

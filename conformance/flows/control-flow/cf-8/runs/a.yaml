@@ -1,0 +1,13 @@
+# CF-8/a, by path: the loop collapses, so each iteration's previous_result
+# is the previous iteration's result.
+spec: [CF-8/a]
+target: f/cf8/top_level
+expect:
+  status: success
+  result: [101, 103, 106]
+  steps:
+    "m:a": {status: success, args: {}, result: 100}
+    "m:l": {status: success, result: [101, 103, 106]}
+    "m:l/i:0/m:b": {status: success, args: {x: 101}, result: 101}
+    "m:l/i:1/m:b": {status: success, args: {x: 103}, result: 103}
+    "m:l/i:2/m:b": {status: success, args: {x: 106}, result: 106}

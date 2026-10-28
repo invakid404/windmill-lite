@@ -1,0 +1,26 @@
+# Recording batch E3d (ADR 0012): CF-15, branchall.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-15. Every run is by path after the
+# deployment gate saw the flow's dependency job succeed (the reference
+# configuration of ADR 0001 section 1); the job kinds of the root and of every
+# child flow are in each recording's provenance (timings.jobs).
+#
+# Deployed with oracle.deploy api: the harness creates the tree's items
+# through the REST API as written, so a field left out reaches the server
+# absent; each recording's provenance holds the target flow's submitted
+# value, the value the API answered after its dependency job, and what
+# generate-metadata writes for the same source (deployment).
+id: control-flow/cf-15
+spec:
+  - CF-15
+  - CF-15/a
+  - CF-15/b
+  - CF-15/c
+  - CF-15/d
+  - CF-15/f
+  - Q-CF-4
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+note: "CF-15/e is given as CF-12/e and recorded in control-flow/cf-12 (runs e-skip and e-fail)."

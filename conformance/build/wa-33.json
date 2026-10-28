@@ -1,0 +1,111 @@
+{
+  "finding": "WA-33",
+  "note": "The parser's two workflow-as-code detection paths, for the default entrypoint main. windmill-lite records them and its loader refuses such scripts (WA-33/c, A5).",
+  "cases": [
+    {
+      "spec": "WA-33/a",
+      "provenance": "source-derived",
+      "title": "the parsed path needs no task(",
+      "given": {
+        "source": "export const main = workflow(async (x: number) => x)"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": true,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WA-33/b",
+      "provenance": "source-derived",
+      "title": "the substring fallback does not run when a declaration gives main's parameters",
+      "given": {
+        "source": "// workflow( and task( from windmill-client\nexport async function main() { return 1; }"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WA-33",
+      "variant": "substring",
+      "provenance": "source-derived",
+      "title": "without a declaration of main, workflow(, task( and windmill-client anywhere select it",
+      "given": {
+        "source": "// workflow( and task( from windmill-client\nexport const main = async () => 1;"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": true
+        }
+      }
+    },
+    {
+      "spec": "WA-33",
+      "variant": "parenthesised",
+      "provenance": "source-derived",
+      "title": "a parenthesised async function expression as first argument",
+      "given": {
+        "source": "export let main = workflow((async function (x: number) { return x; }));"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": true,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WA-33",
+      "variant": "not-async",
+      "provenance": "source-derived",
+      "title": "a callback that is not async, and a call through a member, are not the parsed path",
+      "given": {
+        "source": "const w = { workflow: (f) => f };\nexport const main = workflow((x: number) => x);\nexport const other = w.workflow(async () => 1);"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WA-33",
+      "variant": "ambient-declaration",
+      "provenance": "policy",
+      "title": "an ambient declaration of main gives its parameters, so the parsed path does not run",
+      "note": "The build reads a declare function as a function declaration (open question in the PR).",
+      "given": {
+        "source": "declare function main(x: number): number;\nexport const main = workflow(async (x: number) => x);"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": false
+        },
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "x",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

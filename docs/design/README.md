@@ -15,7 +15,10 @@ interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [internal/expr/quickjs](../../internal/expr/quickjs/README.md), milestone
 C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
-harness, and milestone E2 the oracle harness of
+harness, milestone C2a the Bun side of the build of
+[0010](0010-packaging.md) in [internal/bundle](../../internal/bundle/README.md)
+and [harnesses/bun/build](../../harnesses/bun/build/README.md), and
+milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
 [internal/oracle](../../internal/oracle/README.md), on which recording batches
 E3c and E3b recorded the flow-execution error cases and core and settled
@@ -61,16 +64,16 @@ flowchart LR
 
 | Record | Decision |
 |---|---|
-| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and eight restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
+| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and nine restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
 | [0002 IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; a sync-folder loader that reads each item on demand; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
-| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a stack pinned at 1 MiB on threads the engine creates; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases, sync-folder load cases, compile cases and harness protocol cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
+| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a stack pinned at 1 MiB on threads the engine creates; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases, sync-folder load cases, compile cases, harness protocol cases and Bun build cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
 | [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and large messages in base64 part streams; validated entrypoint names; a shared-process failure model (handlers that never exit, attribution without guessing, D9–D11); `fetch` as the only platform transport in warm processes (other transports refused, unrecorded); no in-flight cap unless a host sets one (D15); host mode never tainted, drained by the host, and killed by the engine's watchdog when its event loop stops answering. |
 | [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
 | [0006 Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition. |
 | [0007 Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements; one interpolation walker with three modes and a host secret layer; a facade reached by intercepted `fetch` (warm) or per-invocation tokens (`fresh`), never by a shared token; unsupported routes fail with `UnsupportedPlatformCall`; hybrid dispatch built behind interfaces, its remote adapter held for a licence decision. |
 | [0008 Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins; mandatory host-provided call sites that fail closed; scopes reach steps through host-provided modules; seams defined in the first engine milestone. |
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
-| [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
+| [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
 | [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 51 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
 
@@ -107,7 +110,8 @@ and FX-33 (Q-FX-19), both for the stated default. It also found one
 confirmed finding contradicted, the id of a failure module copied into an
 inline body (FX-34, FX-32). E3b recorded Q-FX-16 (FX-42) and the half of
 Q-FX-15 that needs no failure module, also for the stated defaults. 0001 §6
-gives the results.
+gives the results. Batch E3d recorded CF-12 and FX-40 as reading (b), the
+default each already had (request 6 below).
 
 ## Requests to the semantics team
 
@@ -178,6 +182,27 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      Chaining errors end in Rust location suffixes, and at a child flow's
      pickup the message starts `Error: Error: ` and carries two suffixes
      ([FX-15](../semantics/execution.md#fx-15)).
+6. **Batch E3d's recordings**
+   ([conformance/flows/control-flow](../../conformance/flows/control-flow),
+   [conformance/flows/execution/fx-40](../../conformance/flows/execution/fx-40)):
+   the CF-2 to CF-15 and FX-40 cases they record can become
+   `oracle-observed`, and they answer
+   [Q-CF-14](../semantics/control-flow.md#q-cf-14) (reading (b)),
+   [Q-CF-4](../semantics/control-flow.md#q-cf-4) (both predictions hold),
+   [Q-FX-6](../semantics/execution.md#q-fx-6) (yes) and
+   [Q-FX-17](../semantics/execution.md#q-fx-17). Three observations go
+   beyond the reference's text. In FX-40/d, a deployed flow's inline
+   rawscript body without an explicit `path` also shares an entry between
+   collapsed iterations; it runs as `flowscript` jobs with one script hash,
+   though their paths end in `/loop-<index>`, and the correction expected
+   no sharing there (a body pinned by hash shares too, as both readings
+   expect). The pinned CLI's `generate-metadata` writes container defaults
+   into `flow.yaml`, as [CF-6](../semantics/control-flow.md#cf-6) says
+   `sync pull` does; CF-6/a's recording holds its output beside the value
+   the API answers after the dependency job. CF-7/d fails at pickup, with
+   name `Anyhow` and the message
+   `Error: Bad request: Cannot continue on same worker …` plus a location.
+   The design waits on none of this.
 
 ## Changing the design
 
