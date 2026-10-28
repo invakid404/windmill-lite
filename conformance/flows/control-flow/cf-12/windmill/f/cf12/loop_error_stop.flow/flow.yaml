@@ -1,0 +1,37 @@
+summary: 'CF-12/f: a one-step body error stop, skip_failures false'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms: {}
+              lock: '!inline b.lock'
+              language: bun
+            stop_after_if:
+              error_message: halt
+              expr: 'true'
+              skip_if_stopped: false
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
+    - id: n
+      value:
+        type: rawscript
+        content: '!inline n.ts'
+        input_transforms: {}
+        lock: '!inline n.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

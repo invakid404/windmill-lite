@@ -1,0 +1,11 @@
+# CF-7/d (later): several children in a same_worker flow fail to start.
+spec: [CF-7/d]
+target: f/cf7/same_worker_two
+note: "Recorded as a pickup error: name Anyhow, the catalogue's message after \"Error: Bad request: \", and a Rust location; batches/e3d.json checks the prefix."
+expect:
+  status: failure
+  result:
+    error:
+      name: Anyhow
+      message: "Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @worker.rs:3822:13"
+  steps: {"m:l": {status: failure, ran: false}}

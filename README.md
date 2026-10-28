@@ -12,7 +12,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Thirteen milestones have landed. The newest, F4, gives the
+Fourteen milestones have landed. The newest, F4, gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
@@ -37,14 +37,17 @@ No command uses two more yet: the jsonb canonicaliser in
 protocol between the engine ([internal/harness](internal/harness/README.md))
 and a skeleton Bun harness ([harnesses/bun](harnesses/bun/README.md)), which
 runs one exported function of a bundled module per step but not yet with
-Windmill's wrapper rules. The last three are the oracle's: E2, the oracle
+Windmill's wrapper rules. The last four are the oracle's: E2, the oracle
 harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
 which records synthetic flow fixtures on an unmodified Windmill CE image in
 public CI; recording batch E3c, which recorded the reference's
 flow-execution error cases on that oracle
 ([conformance/flows/execution](conformance/flows/execution)) and settled
-two contested findings; and recording batch E3b, which recorded the
-flow-execution core in the same directory and settled two more.
+two contested findings; recording batch E3b, which recorded the
+flow-execution core in the same directory and settled two more; and
+recording batch E3d, which recorded the control-flow cases
+([conformance/flows/control-flow](conformance/flows/control-flow)) and
+settled CF-12 and FX-40.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that

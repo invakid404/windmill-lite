@@ -1,0 +1,14 @@
+summary: ''
+description: ''
+lock: '!inline f/fx40/job_id.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v:
+      type: ''
+      description: ''
+      default: null
+  required:
+    - v

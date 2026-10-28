@@ -203,6 +203,38 @@ func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 	return err
 }
 
+// CreateFolder creates the folder name, POST /w/{ws}/folders/create.
+func (c *Client) CreateFolder(ctx context.Context, workspace, name string) error {
+	_, err := c.do(ctx, http.MethodPost, ws(workspace)+"/folders/create", nil, map[string]string{"name": name}, http.StatusOK, http.StatusCreated)
+	return err
+}
+
+// NewScript is the body of POST /w/{ws}/scripts/create: the fields an API
+// deployment sets (NewScript in the vendored schema).
+type NewScript struct {
+	Path        string `json:"path"`
+	Summary     string `json:"summary"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+	Language    string `json:"language"`
+	CacheTTL    *int   `json:"cache_ttl,omitempty"`
+}
+
+// CreateScript creates a script and returns the hash Windmill assigned it,
+// which the endpoint answers as text.
+func (c *Client) CreateScript(ctx context.Context, workspace string, s NewScript) (string, error) {
+	b, err := c.do(ctx, http.MethodPost, ws(workspace)+"/scripts/create", nil, s, http.StatusOK, http.StatusCreated)
+	return strings.TrimSpace(string(b)), err
+}
+
+// CreateFlow creates a flow, POST /w/{ws}/flows/create. body is the JSON
+// object the endpoint takes (path, summary, description, value, schema),
+// sent as it is, so its member order and number text reach the server.
+func (c *Client) CreateFlow(ctx context.Context, workspace string, body json.RawMessage) error {
+	_, err := c.do(ctx, http.MethodPost, ws(workspace)+"/flows/create", nil, body, http.StatusOK, http.StatusCreated)
+	return err
+}
+
 // QueueCount returns database_length of GET /w/{ws}/jobs/queue/count.
 func (c *Client) QueueCount(ctx context.Context, workspace string) (int, error) {
 	var v struct {

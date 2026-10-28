@@ -1,0 +1,27 @@
+summary: 'FX-40/b child: a flow cache_ttl, a failing step and a handler'
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms: {}
+      lock: '!inline failure.lock'
+      language: bun
+  cache_ttl: 60
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v:
+      type: string
+  required:
+    - v

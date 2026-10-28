@@ -1,0 +1,30 @@
+summary: 'CF-4/a: a parallel loop'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline b.lock'
+              language: bun
+        iterator:
+          type: static
+          value:
+            - 3
+            - 1
+            - 2
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
