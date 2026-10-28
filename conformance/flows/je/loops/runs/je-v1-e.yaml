@@ -1,0 +1,7 @@
+spec: [JE-V1/e]
+target: f/wl_je_loops/je_v1_e
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["cannot read property 'value' of undefined"]

@@ -1,0 +1,11 @@
+spec: [JE-28/a]
+target: f/wl_je_waits/je28_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/status
+    equals: success
+delays:
+  - from: m:a
+    to: m:b
+    at_least_ms: 1500

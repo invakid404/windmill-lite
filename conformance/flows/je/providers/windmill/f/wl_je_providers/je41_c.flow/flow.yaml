@@ -1,0 +1,15 @@
+summary: 'JE-41/c: expressions see the unresolved string'
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input.v.length
+        path: f/wl_je_providers/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

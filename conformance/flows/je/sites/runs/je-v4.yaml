@@ -1,0 +1,9 @@
+spec: [JE-V4/a, JE-V4/b, JE-V4/c]
+target: f/wl_je_sites/je_v4
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args
+    equals:
+      x: null
+      "y": null

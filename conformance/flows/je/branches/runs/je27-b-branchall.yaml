@@ -1,0 +1,7 @@
+spec: [JE-27/b]
+target: f/wl_je_branches/je27_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["Error evaluating stop_after_all_iters_if expression `nope`:"]

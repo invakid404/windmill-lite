@@ -1,0 +1,22 @@
+spec: [JE-9/l]
+target: f/wl_je_shortcuts/je9_l
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/status
+    equals: failure
+  - at: /steps/m:b/result/error/message
+    contains: ["QuickJS evaluation error:"]
+unit:
+  - spec: JE-9/l
+    site: m:b
+    input: x
+    expr: "results.a.length\nresults.a"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "[1, 2, 3]"
+    expect:
+      error:
+        contains: ["QuickJS evaluation error:"]

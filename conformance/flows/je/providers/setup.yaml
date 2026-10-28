@@ -1,0 +1,6 @@
+# Created after the push (OR-31).
+variables:
+  - path: f/wl_je_providers/v
+    value: s3cr3t
+  - path: f/wl_je_providers/s
+    value: s

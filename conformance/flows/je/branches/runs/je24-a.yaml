@@ -1,0 +1,11 @@
+spec: [JE-24/a]
+target: f/wl_je_branches/je24_a
+args:
+  "n": 5
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:br/branch_chosen
+    equals:
+      type: branch
+      branch: 0

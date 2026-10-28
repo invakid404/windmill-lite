@@ -1,0 +1,50 @@
+summary: 'CF-12/a: a clean body stop'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline b.lock'
+              language: bun
+            stop_after_if:
+              expr: result == 2
+              skip_if_stopped: false
+          - id: c
+            value:
+              type: rawscript
+              content: '!inline c.ts'
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              lock: '!inline c.lock'
+              language: bun
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+            - 3
+        parallel: false
+        skip_failures: false
+    - id: n
+      value:
+        type: rawscript
+        content: '!inline n.ts'
+        input_transforms: {}
+        lock: '!inline n.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

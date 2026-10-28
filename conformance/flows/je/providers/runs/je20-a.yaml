@@ -1,0 +1,7 @@
+spec: [JE-20/a]
+target: f/wl_je_providers/je20_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: s3cr3t

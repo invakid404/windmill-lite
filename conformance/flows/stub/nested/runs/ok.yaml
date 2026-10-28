@@ -1,0 +1,74 @@
+# Rows [[a, b], [c]]: three inner iterations of two steps each, in order.
+target: f/wl_stub/nested
+args: {rows: [[a, b], [c]]}
+replay:
+  "m:outer/i:0/m:inner/i:0/m:read": {result: A}
+  "m:outer/i:0/m:inner/i:0/m:write": {result: {row: 0, saved: A}}
+  "m:outer/i:0/m:inner/i:1/m:read": {result: B}
+  "m:outer/i:0/m:inner/i:1/m:write": {result: {row: 0, saved: B}}
+  "m:outer/i:1/m:inner/i:0/m:read": {result: C}
+  "m:outer/i:1/m:inner/i:0/m:write": {result: {row: 1, saved: C}}
+expect:
+  status: success
+  result: [[{row: 0, saved: A}, {row: 0, saved: B}], [{row: 1, saved: C}]]
+  steps:
+    "m:outer":
+      status: success
+      result: [[{row: 0, saved: A}, {row: 0, saved: B}], [{row: 1, saved: C}]]
+    "m:outer/i:0/m:inner": {status: success, result: [{row: 0, saved: A}, {row: 0, saved: B}]}
+    "m:outer/i:1/m:inner": {status: success, result: [{row: 1, saved: C}]}
+    "m:outer/i:0/m:inner/i:0/m:read": {status: success, args: {cell: a}, result: A}
+    "m:outer/i:0/m:inner/i:0/m:write": {status: success, args: {row: 0, value: A}, result: {row: 0, saved: A}}
+    "m:outer/i:0/m:inner/i:1/m:read": {status: success, args: {cell: b}, result: B}
+    "m:outer/i:0/m:inner/i:1/m:write": {status: success, args: {row: 0, value: B}, result: {row: 0, saved: B}}
+    "m:outer/i:1/m:inner/i:0/m:read": {status: success, args: {cell: c}, result: C}
+    "m:outer/i:1/m:inner/i:0/m:write": {status: success, args: {row: 1, value: C}, result: {row: 1, saved: C}}
+  effects:
+    - site: "m:outer/i:0/m:inner/i:0/m:read"
+      attempt: 0
+      step: read
+      job: "<job:m:outer/i:0/m:inner/i:0/m:read>"
+      flow: "<job:m:outer/i:0/m:inner/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [a]
+    - site: "m:outer/i:0/m:inner/i:0/m:write"
+      attempt: 0
+      step: write
+      job: "<job:m:outer/i:0/m:inner/i:0/m:write>"
+      flow: "<job:m:outer/i:0/m:inner/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [0, A]
+    - site: "m:outer/i:0/m:inner/i:1/m:read"
+      attempt: 0
+      step: read
+      job: "<job:m:outer/i:0/m:inner/i:1/m:read>"
+      flow: "<job:m:outer/i:0/m:inner/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [b]
+    - site: "m:outer/i:0/m:inner/i:1/m:write"
+      attempt: 0
+      step: write
+      job: "<job:m:outer/i:0/m:inner/i:1/m:write>"
+      flow: "<job:m:outer/i:0/m:inner/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [0, B]
+    - site: "m:outer/i:1/m:inner/i:0/m:read"
+      attempt: 0
+      step: read
+      job: "<job:m:outer/i:1/m:inner/i:0/m:read>"
+      flow: "<job:m:outer/i:1/m:inner/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [c]
+    - site: "m:outer/i:1/m:inner/i:0/m:write"
+      attempt: 0
+      step: write
+      job: "<job:m:outer/i:1/m:inner/i:0/m:write>"
+      flow: "<job:m:outer/i:1/m:inner/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [1, C]

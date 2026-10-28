@@ -1,0 +1,10 @@
+# JE-42/d: the workspace id is the session's own, so it is masked (compare.mask).
+spec: [JE-42/d]
+target: f/wl_je_providers/je42_d
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:d/result/1
+    equals: s
+  - at: /steps/m:d/result/0
+    equals: "<masked>"

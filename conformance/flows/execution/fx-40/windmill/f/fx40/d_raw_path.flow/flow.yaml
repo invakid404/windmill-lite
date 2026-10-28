@@ -1,0 +1,38 @@
+summary: 'FX-40/d: collapsed iterations, rawscript body with an explicit path'
+value:
+  modules:
+    - id: n
+      value:
+        type: rawscript
+        content: '!inline n.ts'
+        input_transforms: {}
+        lock: '!inline n.lock'
+        language: bun
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: results.n
+              lock: '!inline b.lock'
+              language: bun
+              path: f/fx40/shared_raw
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
+      cache_ttl: 60
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

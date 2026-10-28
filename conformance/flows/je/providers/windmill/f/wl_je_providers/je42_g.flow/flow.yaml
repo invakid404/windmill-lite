@@ -1,0 +1,65 @@
+summary: 'JE-42/g: depth 50 fails'
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              k:
+                k:
+                  k:
+                    k:
+                      k:
+                        k:
+                          k:
+                            k:
+                              k:
+                                k:
+                                  k:
+                                    k:
+                                      k:
+                                        k:
+                                          k:
+                                            k:
+                                              k:
+                                                k:
+                                                  k:
+                                                    k:
+                                                      k:
+                                                        k:
+                                                          k:
+                                                            k:
+                                                              k:
+                                                                k:
+                                                                  k:
+                                                                    k:
+                                                                      k:
+                                                                        k:
+                                                                          k:
+                                                                            k:
+                                                                              k:
+                                                                                k:
+                                                                                  k:
+                                                                                    k:
+                                                                                      k:
+                                                                                        k:
+                                                                                          k:
+                                                                                            k:
+                                                                                              k:
+                                                                                                k:
+                                                                                                  k:
+                                                                                                    k:
+                                                                                                      k:
+                                                                                                        k:
+                                                                                                          k:
+                                                                                                            k:
+                                                                                                              k:
+                                                                                                                k: $var:f/wl_je_providers/s
+        path: f/wl_je_providers/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

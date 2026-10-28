@@ -126,12 +126,14 @@ literal `.` (a one-character class such as `[.]` counts).
 
 Characters are UTF-16 code units, as in minimatch's JavaScript regular
 expressions. A character outside the Basic Multilingual Plane, such as `😀`,
-is two units: `?` matches half of it, so `f/?.ts` does not match `f/😀.ts`
-and `f/??.ts` does, and the class `[😀]` holds its two halves, so it matches
-either half as one unit but not the whole two-unit character by itself.
-Matching takes time polynomial in the
-pattern and the path: a mismatch lets only the last `*` take one more unit,
-and `**` states are memoized.
+is two units, its surrogate halves. `?` matches one unit: `f/?.ts` does not
+match `f/😀.ts`, and `f/??.ts` does. The class `[😀]` holds both halves and
+matches either one, but never the whole character: `f/[😀].ts` does not
+match `f/😀.ts`, while `f/[😀]?.ts`, `f/?[😀].ts` and `f/[😀][😀].ts` do.
+`testdata/minimatch.json` holds these observations.
+
+Matching takes time polynomial in the pattern and the path: a mismatch lets
+only the last `*` take one more unit, and `**` states are memoized.
 
 A sequence's step ignores its sign, counts 0 as 1, and gives only the start
 when it exceeds the distance between the ends, as minimatch does even for

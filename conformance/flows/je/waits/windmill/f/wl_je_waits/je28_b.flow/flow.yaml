@@ -1,0 +1,26 @@
+summary: 'JE-28/b: a negative static value fails'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_je_waits/echo
+      sleep:
+        type: static
+        value: -1
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_je_waits/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

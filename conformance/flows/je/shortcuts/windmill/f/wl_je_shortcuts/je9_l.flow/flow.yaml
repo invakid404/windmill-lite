@@ -1,0 +1,36 @@
+summary: "JE-9/l: 'results.a.length\\nresults.a'"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              - 1
+              - 2
+              - 3
+        path: f/wl_je_shortcuts/echo
+    - id: m
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/wl_je_shortcuts/echo
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: |-
+              results.a.length
+              results.a
+        path: f/wl_je_shortcuts/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

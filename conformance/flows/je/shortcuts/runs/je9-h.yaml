@@ -1,0 +1,19 @@
+spec: [JE-9/h]
+target: f/wl_je_shortcuts/je9_h
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: 7
+unit:
+  - spec: JE-9/h
+    site: m:b
+    input: x
+    expr: "100 +\nresults.a"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "7"
+    expect:
+      text: "7"

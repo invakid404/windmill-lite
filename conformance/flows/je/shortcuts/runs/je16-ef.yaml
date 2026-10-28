@@ -1,0 +1,31 @@
+# JE-16/e and JE-16/f (later): c reads a through the database, as the catalogue's y.
+spec: [JE-16/e, JE-16/f]
+target: f/wl_je_shortcuts/je16_ef
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: true
+  - at: /steps/m:c/args/x
+    equals: false
+unit:
+  - spec: JE-16/e
+    site: m:b
+    input: x
+    expr: "Object.is(previous_result.n, -0)"
+    context:
+      previous_id: a
+      previous_result: "{\"n\": -0.0}"
+    expect:
+      text: "true"
+  - spec: JE-16/f
+    site: m:c
+    input: x
+    expr: "Object.is((results.a).n, -0)"
+    context:
+      previous_id: b
+      previous_result: "true"
+      results:
+        a: "{\"n\": 0.0}"
+    expect:
+      text: "false"

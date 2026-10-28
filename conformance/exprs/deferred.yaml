@@ -1,0 +1,29 @@
+# The cases of the JE catalogue, and of CF-19 and CF-V6, that the recording
+# batch E3a encodes neither as an expression case here nor as a flow fixture
+# under conformance/flows, each with the reason and where it is checked;
+# and the cases it records only in part. TestBatchCoverage in
+# internal/oracle fails unless every such catalogue case is encoded or
+# listed here.
+deferred:
+  - case: JE-16/c
+    reason: an evaluator-level case (point O1) whose previous_result holds the raw token -0, which no flow input reaches (the job API stores the input as jsonb, which has no negative zero); JE-16/e and JE-16/f record the oracle side
+    checked_in: B2b
+  - case: JE-19/e
+    reason: needs a restarted run (restart from a step), which the oracle harness does not drive yet (Q-JE-8)
+    checked_in: E3e
+  - case: JE-V5/a
+    reason: the transforms are taken in a hash map's random order, so on the oracle which one fails first changes between runs and a recording cannot be stable; it is a host- or evaluator-level case, with a variable service that records its calls
+    checked_in: B2b, PF2
+partial:
+  - case: JE-36/d
+    recorded: the deployed run (flows/je/branches, je36-d)
+    remaining: the preview run (Q-JE-5), which needs the flow-preview API in the harness
+    checked_in: E3e
+  - case: JE-V1/a
+    recorded: that the parallelism expression is accepted and every child runs (flows/je/loops, je-v1-a)
+    remaining: how many children run at once, which needs at least three workers to tell a cap of two from none
+    checked_in: E3e
+  - case: JE-28/a
+    recorded: the sleep's delay, checked against the recording's provenance timings (a delay claim), not the compared observation
+    remaining: nothing; timings are never compared between recordings (OR-17)
+    checked_in: N2

@@ -1,0 +1,18 @@
+# CF-12/e (and CF-15/e) with skip_failure false on branch 0: the same stop,
+# now a failure.
+spec: [CF-12/e, CF-15/e]
+target: f/cf12/branchall_stop_fail
+expect:
+  status: failure
+  result: [{error: {name: EarlyStopError, message: halt}}]
+  steps:
+    "m:ba":
+      status: failure
+      result: [{error: {name: EarlyStopError, message: halt}}]
+    "m:ba/b:0/m:b0":
+      status: success
+      module: failure
+      args: {}
+      result: 7
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:n": {status: not_run, ran: false}

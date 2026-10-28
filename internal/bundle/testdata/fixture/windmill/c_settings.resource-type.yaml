@@ -1,0 +1,8 @@
+description: Synthetic settings
+schema:
+  type: object
+  properties:
+    greeting:
+      type: string
+    retries:
+      type: integer

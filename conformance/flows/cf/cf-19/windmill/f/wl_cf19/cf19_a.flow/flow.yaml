@@ -1,0 +1,89 @@
+summary: 'CF-19/a: visibility of inner and outer steps after containers'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_cf19/echo
+    - id: ba
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: x1
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.a
+              path: f/wl_cf19/inc
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: y1
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_cf19/echo
+          - id: y2
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.y1
+              path: f/wl_cf19/echo
+        iterator:
+          type: static
+          value:
+            - 10
+            - 20
+        parallel: false
+        skip_failures: false
+    - id: p
+      value:
+        type: forloopflow
+        modules:
+          - id: z1
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 5
+              path: f/wl_cf19/echo
+          - id: z2
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 0
+              path: f/wl_cf19/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: true
+        skip_failures: false
+    - id: f
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: '[results.x1, results.y1, results.z1, results.l, results.nope]'
+        path: f/wl_cf19/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

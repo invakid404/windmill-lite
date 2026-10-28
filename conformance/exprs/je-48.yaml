@@ -1,0 +1,55 @@
+# JE-48: the stack limit is quickjs-ng's built-in 1 MiB. The catalogue's
+# cases bracket the limit with depths 1 000 and 1 000 000, but on the oracle
+# depth 1 000 already overflows (reported to the semantics team, Q-JE-11).
+# Every catalogue case holds a ; outside quotes, so it runs in statement
+# mode (JE-13): an error still fails the step, but a value is discarded,
+# which is why JE-48/c gives null. The variants are written without ; so
+# that they return their value: one shows the overflow is a catchable
+# RangeError, one shows that depths up to 600 fit (so the limit is between
+# 600 and 1 000 frames of this shape on the oracle); none locates it.
+finding: JE-48
+scope: later
+cases:
+  - spec: JE-48/a
+    provenance: oracle-observed
+    title: a recursion of depth 1 000 overflows on the oracle
+    note: the catalogue expects 1000
+    expr: '(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: ['QuickJS evaluation error: Error: Maximum call stack size exceeded']
+  - spec: JE-48/b
+    provenance: oracle-observed
+    title: a recursion of depth 1 000 000 overflows
+    expr: '(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000000); })()'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: ['QuickJS evaluation error: Error: Maximum call stack size exceeded']
+  - spec: JE-48/c
+    provenance: oracle-observed
+    title: the catalogue's case is in statement mode, so its caught value is discarded
+    note: the catalogue expects ["RangeError","Maximum call stack size exceeded"]; its ; selects statement mode (JE-13), which gives null
+    expr: '(() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()'
+    expect: {value: 'null'}
+  - spec: JE-48
+    variant: catchable
+    provenance: oracle-observed
+    title: the overflow is a catchable RangeError, in expression mode
+    expr: '((f) => { try { return f(f, 0) } catch (e) { return [e.name, e.message] } })((g, n) => 1 + g(g, n + 1))'
+    expect: {value: '["RangeError","Maximum call stack size exceeded"]'}
+  - spec: JE-48
+    variant: depth-bracket
+    provenance: oracle-observed
+    title: which of four recursion depths fit, each caught on its own, in expression mode
+    expr: '[10, 100, 300, 600].map(k => ((f) => { try { return f(f, k) } catch (e) { return e instanceof RangeError ? "RangeError" : typeof e } })((g, n) => n === 0 ? 0 : 1 + g(g, n - 1)))'
+    expect: {value: '[10,100,300,600]'}
+  - spec: JE-48/d
+    provenance: oracle-observed
+    title: stringifying deeply nested JSON overflows
+    expr: '(() => { let v = []; for (let i = 0; i < 100000; i++) v = [v]; return JSON.stringify(v).length; })()'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: [Maximum call stack size exceeded]

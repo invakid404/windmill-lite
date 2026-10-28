@@ -1,0 +1,20 @@
+summary: 'JE-8: results.p returns the producer text in its own key order'
+value:
+  modules:
+    - id: p
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_je_shortcuts/pair
+    - id: q
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.p
+        path: f/wl_je_shortcuts/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

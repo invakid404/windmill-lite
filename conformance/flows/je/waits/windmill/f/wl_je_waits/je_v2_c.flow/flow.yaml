@@ -1,0 +1,19 @@
+summary: 'JE-V2/c: a retry after a failed transform runs with an empty map'
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: nope
+        path: f/wl_je_waits/echo
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

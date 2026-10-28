@@ -1,0 +1,9 @@
+spec: [JE-41/a]
+target: f/wl_je_providers/je41_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: "$var:f/wl_je_providers/v"
+  - at: /steps/m:b/result
+    equals: s3cr3t

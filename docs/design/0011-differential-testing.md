@@ -39,7 +39,11 @@ The `oracle` package implements the reference's design as written:
    `admins`;
    the sync tree pushed with `windmill-cli@1.767.0` from npm on the runner,
    never the CLI inside the image; setup applied after the push; the
-   deployment gate polls each lock job to success.
+   deployment gate polls each lock job to success. A fixture whose tree
+   must reach the server as written (`oracle.deploy: api`: a container
+   field left out, or a script pinned by the hash the deployment assigns
+   it) is created through the REST API instead, never regenerated or pushed
+   by the CLI, and passes the same gate.
 3. **Run and capture** ([OR-10](../semantics/oracle.md#or-10),
    [OR-V1](../semantics/oracle.md#or-v1), [OR-V2](../semantics/oracle.md#or-v2)):
    asynchronous submission and `get_result_maybe` polling, never
@@ -216,6 +220,65 @@ outer run, and two concurrent outer runs. Milestone E4b runs the same cases
 on windmill-lite, once the container and retry milestones they exercise have
 merged.
 
+**The stub (chosen by E4a).** A stub keeps what Windmill's signature parser
+reads and nothing that runs: `main`'s declaration with its parameter list
+verbatim, since the parser finds a `function main` declaration, exported or
+not, and binds arguments by the names found there
+([WR-6](../semantics/languages.md#wr-6), [WR-7](../semantics/languages.md#wr-7)),
+and every top-level type alias and interface verbatim, since local aliases
+decide `Date` hydration ([WR-8](../semantics/languages.md#wr-8),
+[WR-V3](../semantics/languages.md#wr-v3)) and types are erased before code
+runs. The declared `main` is never called, so its parameter defaults never
+run; the module exports a generated function under the name `main`, which
+the wrapper calls with the arguments that list binds, and which no
+parameter of the user's can shadow. It also keeps the leading block's
+`npm`, `nodejs`, `nobundling` and `sandbox` flags, which decide how Windmill
+runs the script ([WR-31](../semantics/languages.md#wr-31)). Imports,
+top-level code and the body are dropped. Only Bun scripts and `!inline` Bun rawscripts are stubbed; the
+generator refuses a tree in which some executed script would keep its body
+(another language, the `native` annotation, content written in
+`flow.yaml`, a hub or out-of-tree target, a script step pinned by hash,
+which selects a deployed version rather than the stub pushed at its path
+([OF-14](../semantics/openflow.md#of-14)), a `flowscript` step, an
+AI-agent step), a retry on a subflow, loop or branch step (the walk puts a
+failed attempt's inner steps under `r:<k>`, which a table does not
+address), and a script whose `main` Windmill would not call as the stub's
+(no `function main` declaration, one not exported directly or through an
+export list (a type-only entry exports nothing), a re-exported,
+default-exported, generic, generator or overloaded `main`, a
+`preprocessor`). `wltest stub` writes the stubbed copy to a new directory
+outside the tree, decided by file identity rather than spelling, never in
+place. Because the copy's metadata still describes the
+originals, `record` runs the CLI's `generate-metadata` in it and requires
+every path script's generated schema to equal the original's: the CLI
+derives the schema from the signature, so this checks on the oracle that the
+stub kept it. Inline scripts have no schema; for them the scanner's cases,
+and the arguments each recorded call shows, are the evidence.
+
+**The replay service (chosen by E4a).** It is served by the effect sink's
+server at `$WL_EFFECT_SINK/replay`, so the stub needs no new whitelisted
+variable. A stub POSTs `{root, root_flow, flow, job, step, args}`
+(`WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_JOB_ID`,
+`WM_FLOW_STEP_ID`, and the arguments it received in parameter order). The
+service routes by `root`, refusing a root that is no open run; resolves the
+job's module site (on the oracle by walking the job tree while the run is
+in progress: a module's job and its `failed_retries` are at the module's
+site, a leaf in `flow_jobs` is a collapsed iteration at `i:<n>/m:<body>`);
+counts the attempt as defined above; and answers the run's table, which a
+fixture gives per run as `replay:` (site to outcomes by attempt, each
+`{result: …}` or `{error: {message, name?, …}}`, the error's other members
+becoming the thrown error's own properties). A site or attempt the table
+lacks is refused (`replay_miss`), which fails the run. Every answered call
+is recorded as one of the run's effects, `{site, attempt, step, job, flow,
+root_flow, root, args}`, normalised like any value, so a recording shows
+where each call resolved and which scopes Windmill reported. After the run,
+each call must agree with the walk (a failed attempt `k` at
+`<site>/r:<k>`, the module's last job at `<site>`) and every walked job that
+executed a script must have called, or the run fails. A fixture opts in
+with `stub: true`; runs that share a `group` are submitted together as
+concurrent outer runs, and fail together when one of them fails or when
+their root jobs were not in flight together.
+
 ### CI
 
 1. **Every pull request** (no Docker): `wltest check` on all levels, in
@@ -229,7 +292,8 @@ merged.
 2. **Oracle workflow** (nightly, on a `oracle` label, and on changes under
    `conformance/` or to the harness itself, `internal/oracle/`,
    `internal/conformance/`, `cmd/wltest/`, the decoders it reads fixtures
-   with (`internal/openflow/`, `internal/yamlx/`) and the workflow): `wltest record`
+   with (`internal/openflow/`, `internal/yamlx/`), the sync-folder reader
+   the stub generator uses (`internal/syncfolder/`) and the workflow): `wltest record`
    on `ubuntu-latest` amd64, failing when a recording differs from the
    committed one, when a run has no recording, or when the sync trees'
    generated metadata drifts ([OR-8](../semantics/oracle.md#or-8)). A changed recording is
@@ -281,12 +345,45 @@ merged.
 - Milestone E2 chose that escape and the container sites above. It also
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.
+- Recording batch E3a lifted expression cases as this record says: one
+  generated fixture per expression file, whose tree (one flow per case,
+  each a single step that runs a sink script returning `null`, so the
+  recorded argument is the observation) lives only for the session and gets
+  its metadata from the CLI before each push; the recordings are committed
+  under `conformance/exprs/recorded/`. Runs gained `claims` (partial
+  assertions in the catalogue's terms, such as a message's prefix),
+  `delays` (lower bounds on a sleep, read from provenance timings, which are
+  never compared) and `unit` cases, all checked against the committed
+  recordings by Go tests rather than by `record`, so a contradicted claim
+  still leaves its recording to inspect.
+- E3a met the workspace limit and the completed `branchall` entry of E3c's
+  item independently; the session also deletes a workspace whose deployment
+  failed, under a context of its own.
+- Milestone E4a chose the stub's shape and the replay protocol above, and
+  answers [Q-OR-10](../semantics/oracle.md#q-or-10) with its recordings
+  (`conformance/flows/stub/scopes`): inside a named subflow and inside each
+  parallel iteration, beside a concurrent outer run, `WM_ROOT_JOB_ID` is
+  the submitted root, while `WM_ROOT_FLOW_JOB_ID` and `WM_FLOW_JOB_ID` are
+  the subflow's or the iteration's own job; in sequential iterations and a
+  collapsed body `WM_ROOT_FLOW_JOB_ID` stays the root. Its first recording
+  met CE's two-workspace limit independently of E3c. The stub locator
+  follows E3c's walker rules (a body's failure-module copy, `branchall`
+  from the fixture, the empty flow's entry).
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
+- Milestone E3d added the API deployment of item 2. The CLI path cannot
+  push a container field absent, because `generate-metadata` writes the
+  defaults and the drift gate requires its output, and a tree cannot hold a
+  script hash before the server assigns it. An API-deployed tree is read
+  narrowly (Bun scripts, flows, their `!inline` files, the hash
+  `0000000000000000` meaning "pin to the deployed version"), and each
+  recording's provenance holds the target flow's submitted value, the value
+  the API answers after the gate, and what `generate-metadata` writes for
+  the same source, run on a copy.
 - Disputed findings get settled by recordings, early, through a reviewed
   pull request that changes one function.
 
 ## Spec IDs relied on
 
-OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-16, Q-OR-17, LIC-1, Q-OF-7, and
-the conformance catalogue.
+OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-10, Q-OR-16, Q-OR-17, LIC-1,
+Q-OF-7, WR-6 to WR-8, WR-18, WR-V3, and the conformance catalogue.

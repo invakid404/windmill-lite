@@ -1,0 +1,33 @@
+# JE-24: predicates are wrapped as Boolean(<expr>). Each case is the
+# skip_if of the flow's first module; an error there fails the root flow at
+# its first pickup (JE-35 route (b)). The branchone case is in
+# flows/je/branches.
+finding: JE-24
+scope: core
+cases:
+  - spec: JE-24/b
+    provenance: oracle-observed
+    scope: later
+    title: statement mode yields a non-boolean
+    site: skip_if
+    flow_input: '{"s":"a;b"}'
+    expr: '/;/.test(flow_input.s)'
+    expect:
+      flow_error:
+        contains: ['Expected a boolean value, found: "null"']
+  - spec: JE-24/c
+    provenance: oracle-observed
+    title: a trailing newline rescues a line comment
+    site: skip_if
+    flow_input: '{"n":5}'
+    expr: "flow_input.n > 3 // big\n"
+    expect: {skipped: true}
+  - spec: JE-24/d
+    provenance: oracle-observed
+    title: without it the predicate is a syntax error
+    site: skip_if
+    flow_input: '{"n":5}'
+    expr: 'flow_input.n > 3 // big'
+    expect:
+      flow_error:
+        contains: ['QuickJS evaluation error:']

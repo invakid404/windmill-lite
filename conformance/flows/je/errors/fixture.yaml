@@ -1,0 +1,11 @@
+# Recording batch E3a: failure-module transforms and where expression errors
+# land (JE-17/a, JE-26/b and c, JE-35/a to d), which N1b implements.
+# Synthetic, written for this repository from docs/semantics/conformance.md.
+# F is a failure module that returns "ran".
+id: je/errors
+spec: [JE-17/a, JE-26/b, JE-26/c, JE-35/a, JE-35/b, JE-35/c, JE-35/d]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle:
+  workers: 1

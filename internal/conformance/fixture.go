@@ -26,7 +26,8 @@ const (
 // in windmill/, an optional setup.yaml, one runs/<name>.yaml per run and,
 // once recorded, recorded/<name>.json (OR-15, ADR 0003).
 type Fixture struct {
-	// Dir is the fixture directory.
+	// Dir is the fixture directory, or, for a fixture lifted from an
+	// expression file (LiftExprFile), that file.
 	Dir string `json:"-"`
 	// ID names the fixture, conventionally its path under
 	// conformance/flows.
@@ -41,12 +42,28 @@ type Fixture struct {
 	Languages []string    `json:"languages"`
 	Oracle    OracleNeeds `json:"oracle"`
 	Compare   CompareSpec `json:"compare"`
-	Note      string      `json:"note,omitempty"`
+	// Stub runs the fixture in stub mode (ADR 0011): every script body of
+	// the sync tree is replaced by a stub that keeps main's signature and
+	// takes its outcome from the run's replay table.
+	Stub bool   `json:"stub,omitempty"`
+	Note string `json:"note,omitempty"`
 
 	// Setup is setup.yaml, or nil when the fixture has none.
 	Setup *Setup `json:"-"`
 	// Runs are the runs, sorted by name.
 	Runs []Run `json:"-"`
+
+	// Tree, when set, is the sync tree's directory in place of
+	// Dir/windmill: a generated fixture's tree lives outside the
+	// repository (LiftExprFile).
+	Tree string `json:"-"`
+	// RecordedIn, when set, is the directory of the recordings in place of
+	// Dir/recorded.
+	RecordedIn string `json:"-"`
+	// Generated reports that the sync tree was generated, not committed,
+	// so the recorder writes its metadata with the CLI before every push
+	// and no drift gate applies to it (OR-8).
+	Generated bool `json:"-"`
 }
 
 // OracleNeeds is what a fixture needs from the oracle (OR-5, OR-16).
@@ -59,7 +76,23 @@ type OracleNeeds struct {
 	// Concurrency reports that the fixture asserts something about
 	// concurrency, which needs as many workers as it says (OR-5).
 	Concurrency bool `json:"concurrency,omitempty"`
+	// Deploy is how the harness deploys the sync tree: DeployCLI (the
+	// default) pushes it with the CLI, after generate-metadata when the
+	// session regenerates metadata (OR-8); DeployAPI creates its folders,
+	// scripts and flows through the REST API exactly as written, so a field
+	// the tree leaves out reaches the server absent and the dependency job
+	// fills it (CF-6).
+	Deploy string `json:"deploy,omitempty"`
 }
+
+// The deployment methods of OracleNeeds.Deploy.
+const (
+	DeployCLI = "cli"
+	DeployAPI = "api"
+)
+
+// DeploysThroughAPI reports whether the tree is deployed through the API.
+func (o OracleNeeds) DeploysThroughAPI() bool { return o.Deploy == DeployAPI }
 
 // NeedWorkers returns the number of workers the fixture needs.
 func (o OracleNeeds) NeedWorkers() int {
@@ -146,9 +179,28 @@ type Run struct {
 	// CancelAfterMS cancels the run that many milliseconds after it was
 	// submitted.
 	CancelAfterMS *int `json:"cancel_after_ms,omitempty"`
+	// Group names the runs that are submitted together, as concurrent
+	// outer runs; a run without a group runs alone (RunBatches).
+	Group string `json:"group,omitempty"`
+	// Replay is the run's replay table, for a fixture in stub mode: the
+	// outcome of each attempt at each stubbed site. A stub fixture's run
+	// without one answers every call with replay_miss.
+	Replay ReplayTable `json:"replay,omitempty"`
 	// Expect is the expected normalised observation, or nil.
 	Expect *Observation `json:"expect,omitempty"`
-	Note   string       `json:"note,omitempty"`
+	// Claims are what the catalogue says about the observation, where it
+	// says less than the whole of it (an error message's prefix, one
+	// argument). A test of the recording batch checks them against the
+	// committed recording; the recorder does not, so a contradicted claim
+	// still leaves its recording to inspect.
+	Claims []Claim `json:"claims,omitempty"`
+	// Delays are lower bounds on the time between two of the run's jobs,
+	// checked against the recording's provenance like Claims.
+	Delays []Delay `json:"delays,omitempty"`
+	// Unit restates the run's expressions at unit level, with the context
+	// each evaluation sees (UnitCase).
+	Unit []UnitCase `json:"unit,omitempty"`
+	Note string     `json:"note,omitempty"`
 
 	// Recorded is recorded/<name>.json, or nil when the run has no
 	// recording yet.
@@ -191,13 +243,28 @@ func WriteRecording(path string, rec Recording) error {
 	return os.WriteFile(path, out, 0o644)
 }
 
-// RecordingPath returns the path of the run's recording in f.
-func (f *Fixture) RecordingPath(run string) string {
-	return filepath.Join(f.Dir, RecordedDir, run+".json")
+// RecordingDir returns the directory of f's recordings: RecordedIn, or
+// Dir/recorded.
+func (f *Fixture) RecordingDir() string {
+	if f.RecordedIn != "" {
+		return f.RecordedIn
+	}
+	return filepath.Join(f.Dir, RecordedDir)
 }
 
-// SyncTree returns the fixture's sync tree directory.
-func (f *Fixture) SyncTree() string { return filepath.Join(f.Dir, SyncTreeDir) }
+// RecordingPath returns the path of the run's recording in f.
+func (f *Fixture) RecordingPath(run string) string {
+	return filepath.Join(f.RecordingDir(), run+".json")
+}
+
+// SyncTree returns the fixture's sync tree directory: Tree, or
+// Dir/windmill.
+func (f *Fixture) SyncTree() string {
+	if f.Tree != "" {
+		return f.Tree
+	}
+	return filepath.Join(f.Dir, SyncTreeDir)
+}
 
 // LoadFixture reads the fixture in dir and checks its fields.
 func LoadFixture(dir string) (*Fixture, error) {
@@ -238,6 +305,9 @@ func LoadFixture(dir string) (*Fixture, error) {
 		}
 		if err := r.check(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		if r.Replay != nil && !f.Stub {
+			return nil, fmt.Errorf("%s: replay needs stub: true in %s", p, FixtureFile)
 		}
 		rec, err := readRecording(f.RecordingPath(r.Name))
 		if err != nil {
@@ -335,6 +405,14 @@ func (f *Fixture) check() error {
 	if w := f.Oracle.Workers; w != 0 && w != 1 && w != 2 {
 		return fmt.Errorf("oracle.workers is %d, want 1 or 2", w)
 	}
+	switch f.Oracle.Deploy {
+	case "", DeployCLI, DeployAPI:
+	default:
+		return fmt.Errorf("oracle.deploy %q is not %s or %s", f.Oracle.Deploy, DeployCLI, DeployAPI)
+	}
+	if f.Stub && f.Oracle.DeploysThroughAPI() {
+		return fmt.Errorf("stub: true needs oracle.deploy %s: stub mode pushes a stubbed tree with the CLI", DeployCLI)
+	}
 	switch f.Compare.Mode {
 	case "", "exact", "subset":
 	default:
@@ -395,5 +473,41 @@ func (r *Run) check() error {
 	if r.CancelAfterMS != nil && *r.CancelAfterMS < 0 {
 		return errors.New("cancel_after_ms is negative")
 	}
+	for _, c := range r.Claims {
+		if err := c.check(); err != nil {
+			return err
+		}
+	}
+	for _, d := range r.Delays {
+		if err := d.check(); err != nil {
+			return err
+		}
+	}
+	for i := range r.Unit {
+		if err := r.Unit[i].check(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// RunBatches splits runs, sorted by name, into the batches a runner
+// submits together: each group's runs, in name order, at the place of the
+// group's first run, and every run without a group alone.
+func RunBatches(runs []Run) [][]Run {
+	var batches [][]Run
+	at := map[string]int{}
+	for _, r := range runs {
+		if r.Group == "" {
+			batches = append(batches, []Run{r})
+			continue
+		}
+		if i, ok := at[r.Group]; ok {
+			batches[i] = append(batches[i], r)
+			continue
+		}
+		at[r.Group] = len(batches)
+		batches = append(batches, []Run{r})
+	}
+	return batches
 }

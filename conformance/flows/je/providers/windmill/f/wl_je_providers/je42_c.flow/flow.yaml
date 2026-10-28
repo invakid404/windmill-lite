@@ -1,0 +1,16 @@
+summary: 'JE-42/c: no marker, no reserved-name lookup'
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              - $WM_WORKSPACE
+        path: f/wl_je_providers/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

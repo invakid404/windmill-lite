@@ -1,0 +1,21 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_je_sites/xyz.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    x:
+      type: ''
+      description: ''
+      default: null
+    y:
+      type: ''
+      description: ''
+      default: null
+    z:
+      type: ''
+      description: ''
+      default: null
+  required: []

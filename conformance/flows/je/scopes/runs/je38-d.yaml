@@ -1,0 +1,7 @@
+spec: [JE-38/d]
+target: f/wl_je_scopes/je38_d
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:S~1m:s/args/x"
+    equals: parent

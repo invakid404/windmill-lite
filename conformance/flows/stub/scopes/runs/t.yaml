@@ -1,0 +1,33 @@
+# Outer run T of OR-V6/a, concurrent with run r: other members, other
+# outcomes, and none of R's calls.
+target: f/wl_stub/notify
+args: {team: teal}
+group: rt
+replay:
+  "m:who/m:lookup": {result: [cy]}
+  "m:send/i:0/m:post": {result: {to: cy, sent: true}}
+expect:
+  status: success
+  result: [{to: cy, sent: true}]
+  steps:
+    "m:send": {status: success, result: [{to: cy, sent: true}]}
+    "m:who": {status: success, args: {team: teal}, result: [cy]}
+    "m:who/m:lookup": {status: success, args: {team: teal}, result: [cy]}
+    "m:send/i:0/m:post": {status: success, args: {team: teal, to: cy}, result: {to: cy, sent: true}}
+  effects:
+    - site: "m:who/m:lookup"
+      attempt: 0
+      step: lookup
+      job: "<job:m:who/m:lookup>"
+      flow: "<job:m:who>"
+      root_flow: "<job:m:who>"
+      root: "<job:>"
+      args: [teal]
+    - site: "m:send/i:0/m:post"
+      attempt: 0
+      step: post
+      job: "<job:m:send/i:0/m:post>"
+      flow: "<job:m:send/i:0>"
+      root_flow: "<job:m:send/i:0>"
+      root: "<job:>"
+      args: [cy, teal]
