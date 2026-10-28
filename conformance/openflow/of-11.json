@@ -1,0 +1,30 @@
+{
+  "finding": "OF-11",
+  "cases": [
+    {
+      "spec": "OF-11/a",
+      "provenance": "source-derived",
+      "part": "decode",
+      "note": "The decode half: two constant attempts with the 0 s default. Running two retries after the original execution is the engine's case (FX-26).",
+      "title": "constant retry defaults",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "retry": {"constant": {"attempts": 2}}}]},
+      "expect": {"accept": {"at": {"/modules/0/retry": {"constant": {"attempts": 2, "seconds": 0}}}}}
+    },
+    {
+      "spec": "OF-11/b",
+      "provenance": "source-derived",
+      "part": "decode",
+      "note": "The decode half: an empty policy with no constant or exponential part.",
+      "title": "empty retry",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "retry": {}}]},
+      "expect": {"accept": {"at": {"/modules/0/retry": {}}}}
+    },
+    {
+      "spec": "OF-11/c",
+      "provenance": "source-derived",
+      "title": "out-of-range seconds",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity"}, "retry": {"exponential": {"attempts": 1, "seconds": 70000}}}]},
+      "expect": {"reject": {"kind": "flow_value", "contains": ["70000", "u16"]}}
+    }
+  ]
+}

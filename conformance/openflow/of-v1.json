@@ -1,0 +1,47 @@
+{
+  "finding": "OF-V1",
+  "cases": [
+    {
+      "spec": "OF-V1/a",
+      "provenance": "source-derived",
+      "title": "unused field type-checked (identity)",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity", "language": "not-a-language"}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["unknown variant `not-a-language`"]}}
+    },
+    {
+      "spec": "OF-V1/b",
+      "provenance": "source-derived",
+      "title": "unused field type-checked (while-loop)",
+      "given": {"modules": [{"id": "a", "value": {"type": "whileloopflow", "modules": [], "parallel": "yes"}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["invalid type: string \"yes\""]}}
+    },
+    {
+      "spec": "OF-V1/c",
+      "provenance": "source-derived",
+      "title": "truly unknown field ignored",
+      "given": {"modules": [{"id": "a", "value": {"type": "identity", "unrecognized": 7}}]},
+      "expect": {"accept": {"at": {"/modules/0/value": {"type": "identity"}}}}
+    },
+    {
+      "spec": "OF-V1/d",
+      "provenance": "source-derived",
+      "title": "null selects the for-loop default",
+      "given": {"modules": [{"id": "l", "value": {"type": "forloopflow", "iterator": {"type": "static", "value": [1]}, "modules": [], "skip_failures": null}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/skip_failures": true}}}
+    },
+    {
+      "spec": "OF-V1/e",
+      "provenance": "source-derived",
+      "title": "null rejects for branch booleans",
+      "given": {"modules": [{"id": "b", "value": {"type": "branchall", "branches": [{"modules": [], "skip_failure": null}]}}]},
+      "expect": {"reject": {"kind": "module", "contains": ["invalid type: null"]}}
+    },
+    {
+      "spec": "OF-V1/f",
+      "provenance": "source-derived",
+      "title": "input_transform alias on a flow step",
+      "given": {"modules": [{"id": "a", "value": {"type": "flow", "path": "f/demo/child", "input_transform": {}}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/input_transforms": {}}}}
+    }
+  ]
+}
