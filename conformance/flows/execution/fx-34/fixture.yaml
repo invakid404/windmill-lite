@@ -1,8 +1,9 @@
 # FX-34/a: inside a loop body the copied failure module runs in the
 # iteration's child flow, once per failing iteration, and with
 # skip_failures its result is that iteration's entry; the flow's own
-# failure module does not run. Synthetic, written for this repository
-# from docs/semantics/conformance.md#fx-34.
+# failure module does not run. Run step_id observes each copy's id
+# (WM_FLOW_STEP_ID) with the loop at cursor 1. Synthetic, written for
+# this repository from docs/semantics/conformance.md#fx-34.
 id: execution/fx-34
 spec: [FX-34/a]
 scope: core

@@ -1,0 +1,7 @@
+# FX-34/a, the handler's id: the loop is the second module (cursor 1) and
+# both iterations fail, so each iteration's copy of the failure module
+# runs and returns its WM_FLOW_STEP_ID (FX-32), which the catalogue gives
+# as the failure module's id suffixed with the parent cursor and the
+# iteration: failure-1-0 and failure-1-1.
+spec: [FX-34/a, FX-32]
+target: f/wl_fx34/loop_step_id

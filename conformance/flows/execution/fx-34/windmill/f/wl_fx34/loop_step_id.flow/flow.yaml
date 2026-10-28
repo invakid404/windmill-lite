@@ -1,0 +1,39 @@
+summary: FX-34/a the copied failure module's step id
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        language: bun
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1, 2]'
+        parallel: false
+        skip_failures: true
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms: {}
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
