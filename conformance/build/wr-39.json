@@ -1,0 +1,192 @@
+{
+  "finding": "WR-39",
+  "cases": [
+    {
+      "spec": "WR-39/a",
+      "provenance": "source-derived",
+      "title": "a three-line block comment triggers the wrapper scan",
+      "part": "build",
+      "rest_in": "A5 refuses the script at load where Windmill fails the job with No workflow() entrypoint found",
+      "given": {
+        "source": "/*\nimport { workflow } from \"windmill-client\"\n*/\nexport function main() { return 1; }\n"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": true,
+          "parsed": false,
+          "substring": false
+        },
+        "signatures": {
+          "main": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-39/b",
+      "provenance": "source-derived",
+      "title": "a single-line block comment does not",
+      "part": "build",
+      "rest_in": "the result 1 is C3a's",
+      "given": {
+        "source": "/* import { workflow } from \"windmill-client\" */\nexport function main() { return 1; }\n"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WR-39/c",
+      "provenance": "source-derived",
+      "title": "a // comment line does not",
+      "part": "build",
+      "rest_in": "the result 1 is C3a's",
+      "given": {
+        "source": "// import { workflow } from \"windmill-client\"\nexport function main() { return 1; }\n"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WR-39/d",
+      "provenance": "source-derived",
+      "title": "comments do not affect the parsed signature",
+      "part": "build",
+      "rest_in": "C3a binds b",
+      "given": {
+        "source": "/* export function main(a: Date) {} */ export function main(b: number) { return b; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "b",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-39",
+      "variant": "strings",
+      "provenance": "source-derived",
+      "title": "a string holding a declaration does not affect the signature, but a line of it starting with import does affect the scan",
+      "given": {
+        "source": "const doc = `\nimport { workflow } from \"windmill-client\"\nexport function main(a: Date) {}\n`;\nexport function main(b: number) { return [b, doc.length]; }\n"
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": true,
+          "parsed": false,
+          "substring": false
+        },
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "b",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-39",
+      "variant": "comment-lines",
+      "provenance": "source-derived",
+      "title": "// lines are skipped inside an import block and as export lines",
+      "given": {
+        "source": "import {\n  // workflow,\n  getVariable,\n} from \"windmill-client\";\n// export const main = workflow(async () => 1);\nexport async function main() { return typeof getVariable; }\n",
+        "dependencies": {
+          "windmill-client": "1.767.0"
+        },
+        "packages": {
+          "windmill-client@1.767.0": {
+            "index.js": "export const getVariable = () => null;\n"
+          }
+        }
+      },
+      "expect": {
+        "workflow_as_code": {
+          "wrapper": false,
+          "parsed": false,
+          "substring": false
+        }
+      }
+    },
+    {
+      "spec": "WR-39",
+      "variant": "decorators",
+      "provenance": "policy",
+      "title": "decorators and auto-accessors parse, as Bun bundles them",
+      "note": "The parse accepts TypeScript's decorators (class, member and parameter) and auto-accessors; the reference does not say which syntax Windmill's parser accepts.",
+      "given": {
+        "source": "function tag(..._a: unknown[]) {}\n@tag class Store { @tag accessor size = 1; read(@tag key: string) { return key; } }\nexport function main(when: Date, n: number) { return [new Store().size, typeof when, n]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "when",
+                "date": true
+              },
+              {
+                "name": "n",
+                "date": false
+              }
+            ]
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "args": [
+                "x",
+                2
+              ],
+              "result": [
+                1,
+                "string",
+                2
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-39",
+      "variant": "import-assert",
+      "provenance": "policy",
+      "title": "the deprecated import … assert {} form does not parse",
+      "note": "Babel 8 has dropped it; ADR 0001 §5a lists the refusal.",
+      "given": {
+        "source": "import data from \"./data.json\" assert { type: \"json\" };\nexport function main() { return data; }"
+      },
+      "expect": {
+        "problem": {
+          "kind": "parse_failed",
+          "contains": [
+            "Missing semicolon"
+          ]
+        }
+      }
+    }
+  ]
+}

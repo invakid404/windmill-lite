@@ -187,7 +187,8 @@ sees only the error its client library raises, and nothing is recorded.
 |---|---|---|
 | In a warm or host-mode harness, step code reaches the platform only through `fetch`; other transports (`node:http`, raw sockets) find no listener | the step's client gets "connection refused"; nothing is recorded, because the refusal carries no invocation | [0007](0007-platform-interface.md) |
 | A by-path target of a local dispatch (`runScript*`, `runFlow*`) must be a root of the bundle | the dispatching step fails with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>` | [0007](0007-platform-interface.md) |
-| A host-provided module must not export a binding it reassigns (`export let` that changes) | build error `host_module_live_binding` | [0010](0010-packaging.md) |
+| A host-provided module must be an ES module that does not export a binding it reassigns (`export let` that changes); a CommonJS module, whose names are known only when it runs, is refused | build error `host_module_live_binding`, or `host_module_commonjs` | [0010](0010-packaging.md) |
+| A Bun script that Windmill's bundled mode cannot build, and so fails at every run: an import that resolves to no script of the folder, including one a `.ts` rewrite collision corrupted ([WR-28](../semantics/languages.md#wr-28), [WR-38](../semantics/languages.md#wr-38)). And scripts Windmill runs that the build refuses: an `//npm` script, which installs with npm; a bundle that emits a file besides its module (an asset through Bun's file loader); a source the build's TypeScript parser rejects (the deprecated `import … assert {}` form) | build error `bundle_failed`, `unsupported_feature` for `//npm`, or `parse_failed` | [0010](0010-packaging.md) |
 | Two codebase scripts may not extract different assets to the same relative path | build error `asset_collision` | [0002](0002-ir-and-loader.md) |
 | A hook selector that names a module id occurring more than once in one module list must give the occurrence; a mandatory provided-site selector must match exactly one site | load error `ambiguous_selector` | [0008](0008-host-hooks.md) |
 | A codebase entry with `customBundler`, and a script with a `schema_validation` annotation, until the reference covers them | load error `unsupported_feature` | [0002](0002-ir-and-loader.md), [0009](0009-host-adapters.md) |
@@ -269,6 +270,12 @@ switch through a change to this record, naming the reason.
 - §5a gained the sync-folder restriction, and §3 the JSON-mode and `later`
   sync-folder rows, when milestone A4 implemented the loader of
   [0002](0002-ir-and-loader.md).
+- §5a gained the bundling restriction when milestone C2a implemented the Bun
+  build of [0010](0010-packaging.md): windmill-lite bundles before any run,
+  so a script whose bundle Windmill's worker would fail to build (and fail
+  the job with `exit code for "bun build"`) fails the build instead; an
+  `//npm` script, a bundle with an extra output file and a source the
+  build's parser rejects are refused there.
 - Recording batch E3c recorded the two contested rules of §6 that it gates,
   Q-FX-15 (FX-10/FX-V6) and Q-FX-19 (FX-33). Both recordings agree with the
   stated default (b), so that default is now recorded behaviour. No engine

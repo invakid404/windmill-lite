@@ -1,0 +1,55 @@
+{
+  "finding": "WR-32",
+  "note": "The wrapper scan that selects Windmill's workflow-as-code wrapper. windmill-lite records it (workflow_as_code.wrapper) and its loader refuses such scripts (ADR 0001 §3); windmill-client here is a synthetic stand-in package.",
+  "cases": [
+    {
+      "spec": "WR-32/a",
+      "provenance": "source-derived",
+      "title": "misselection by a bare workflow import",
+      "part": "build",
+      "rest_in": "A5 refuses the script at load (unsupported_feature workflow_as_code) where Windmill fails the job with No workflow() entrypoint found",
+      "given": {
+        "source": "import { workflow } from \"windmill-client\"; export async function main() { return 1; }",
+        "dependencies": {"windmill-client": "1.767.0"},
+        "packages": {"windmill-client@1.767.0": {"index.js": "export const workflow = (f) => f;\n"}}
+      },
+      "expect": {"workflow_as_code": {"wrapper": true, "parsed": false, "substring": false}}
+    },
+    {
+      "spec": "WR-32",
+      "variant": "multi-line-import",
+      "provenance": "source-derived",
+      "title": "a multi-line import block that names windmill-client and workflow",
+      "given": {
+        "source": "import {\n  workflow,\n  getVariable,\n} from \"windmill-client\";\nexport async function main() { return typeof workflow; }",
+        "dependencies": {"windmill-client": "1.767.0"},
+        "packages": {"windmill-client@1.767.0": {"index.js": "export const workflow = (f) => f;\nexport const getVariable = () => null;\n"}}
+      },
+      "expect": {"workflow_as_code": {"wrapper": true, "parsed": false, "substring": false}}
+    },
+    {
+      "spec": "WR-32",
+      "variant": "export-line",
+      "provenance": "source-derived",
+      "title": "workflow( on an export line, with a namespace import of windmill-client",
+      "given": {
+        "source": "import * as wmill from \"windmill-client\";\nexport const main = wmill.workflow(async () => 1);",
+        "dependencies": {"windmill-client": "1.767.0"},
+        "packages": {"windmill-client@1.767.0": {"index.js": "export const workflow = (f) => f;\n"}}
+      },
+      "expect": {"workflow_as_code": {"wrapper": true, "parsed": false, "substring": false}}
+    },
+    {
+      "spec": "WR-32",
+      "variant": "import-without-workflow",
+      "provenance": "source-derived",
+      "title": "an import of windmill-client without workflow does not select the wrapper",
+      "given": {
+        "source": "import { getVariable } from \"windmill-client\";\nexport async function main() { return typeof getVariable; }",
+        "dependencies": {"windmill-client": "1.767.0"},
+        "packages": {"windmill-client@1.767.0": {"index.js": "export const getVariable = () => null;\n"}}
+      },
+      "expect": {"workflow_as_code": {"wrapper": false, "parsed": false, "substring": false}}
+    }
+  ]
+}

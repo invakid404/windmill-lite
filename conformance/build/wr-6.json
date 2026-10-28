@@ -1,0 +1,36 @@
+{
+  "finding": "WR-6",
+  "note": "The build half of argument binding: the parameter list the signature parse records for each export. Binding the arguments to it is the step runner's (C3a).",
+  "cases": [
+    {
+      "spec": "WR-6/a",
+      "provenance": "source-derived",
+      "title": "named parameters, a default and an optional one, in declaration order",
+      "part": "build",
+      "rest_in": "C3a binds the args of WR-6/a to WR-6/c through this signature",
+      "given": {"source": "export function main(a: number, b = \"dflt\", c?: string) { return [a, b, c ?? \"none\"]; }"},
+      "expect": {
+        "exports": ["main"],
+        "signatures": {"main": {"params": [{"name": "a", "date": false}, {"name": "b", "date": false}, {"name": "c", "date": false}]}}
+      }
+    },
+    {
+      "spec": "WR-6/d",
+      "provenance": "source-derived",
+      "title": "an arrow main is not recognised, so its rest parameter is not parsed and the list is empty",
+      "part": "build",
+      "rest_in": "C3a calls it with no arguments",
+      "given": {"source": "export const main = (...xs) => xs.length;"},
+      "expect": {"exports": ["main"], "signatures": {"main": {"params": []}}}
+    },
+    {
+      "spec": "WR-6/e",
+      "provenance": "source-derived",
+      "title": "a zero-parameter export reached by an override has an empty list",
+      "part": "build",
+      "rest_in": "C3a applies the WR-V1 fallback for the override",
+      "given": {"source": "export function other() { return [...arguments]; }"},
+      "expect": {"exports": ["other"], "signatures": {"other": {"params": []}}}
+    }
+  ]
+}
