@@ -304,10 +304,14 @@ change:
    host's supervisor needs is to restart the host when it exits, which
    supervisors already do. Callers with requests in flight on the killed host
    get the transport error their side gives when a server dies; the next
-   generation is admitted when it is up, by the supervisor's own rule. A
-   process the engine spawned is handled the same way: the engine kills it
-   after the same silence, fails its in-flight invocations as `escaped`
-   with the signal, and starts a replacement.
+   generation is admitted when it is up, by the supervisor's own rule.
+   **Spawned processes.** A `warm` process the engine spawned is handled the
+   same way: after the same silence the engine kills it, fails all its
+   in-flight invocations as `escaped` with the signal (co-resident ones
+   included, which were already stalled while the event loop was blocked)
+   and starts a replacement (D2). A `fresh` process is exempt: it is the
+   invocation, so only the step's own `timeout` ends it, with
+   [WR-37](../semantics/languages.md#wr-37)'s text, as on Windmill.
 5. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
    `onRunSettled` fires when the run's abandoned invocations have all
    settled, which may be never. A resource that an abandoned invocation may
@@ -332,10 +336,23 @@ settles: after that step's timeout, the other run's next step completes, a
 new run afterwards succeeds, and health reports one abandoned invocation.
 A step that spins forever, with a second run active: the engine kills the
 host within `watchdog.killAfter` plus one second, the second run's caller
-sees the host's exit, and a run on the restarted host succeeds. A step that
-spins for 2 s with `killAfter` 1 s kills the host; with the watchdog
-disabled it completes. A resource held by an abandoned invocation is not
-released before `onRunSettled`.
+sees the host's exit, and a run on the restarted host succeeds. A resource
+held by an abandoned invocation is not released before `onRunSettled`.
+
+**Case `watchdog/finite-cpu`** (C3b for `fresh` and `warm`, F3b for host
+mode): a step computes synchronously for 2 s and returns, with
+`watchdog.killAfter` 1 s and a step `timeout` of 10 s.
+
+- **`fresh`:** the step completes with its result; the watchdog does not
+  apply.
+- **`warm`:** the engine kills the process after about 1 s; the step, and a
+  second invocation already in the same process awaiting a timer, fail as
+  `escaped` with `process terminated by signal: SIGKILL`; the next
+  invocation runs on a replacement process.
+- **host mode:** the engine kills the host after about 1 s, and its
+  in-flight runs end with it; a run on the restarted host succeeds.
+- **With the watchdog disabled** (`killAfter` 0), the step completes in all
+  three.
 
 ### Parallel loops
 

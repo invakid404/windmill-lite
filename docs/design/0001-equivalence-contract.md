@@ -154,7 +154,7 @@ recorded in each run's trace.
 | Id | Deviation | Why | Record |
 |---|---|---|---|
 | D1 | Module state survives between invocations in the default `warm` mode, and every script in a process shares one `globalThis` | per-step re-evaluation costs 0.6 to 2.1 ms per invocation for 0.3 to 1.3 MB bundles, before any dependency initialisation | [0006](0006-module-state.md) |
-| D2 | A timed-out or canceled step is abandoned, not killed; its JavaScript may run on until it settles or the harness process is recycled. In host mode the engine neither recycles nor kills the host, except through the host-mode watchdog when the host's event loop stops answering; a step that blocks the event loop longer than the watchdog's threshold therefore ends the host and every run in it, even if it would have finished | one warm process serves many invocations; killing it would fail unrelated steps, and in host mode it is the host | [0004](0004-harness-protocol.md) |
+| D2 | A timed-out or canceled step is abandoned, not killed; its JavaScript may run on until it settles or the harness process is recycled. In host mode the engine neither recycles nor kills the host, except through the watchdog when the host's event loop stops answering; a step that blocks the event loop longer than the watchdog's threshold therefore ends the host and every run in it, even if it would have finished. In a `warm` process the engine spawned, the same watchdog kills the process and fails all its in-flight invocations; and while one step blocks a shared event loop, every co-resident invocation stalls and can reach its own `timeout`. `fresh` processes are exempt from the watchdog (case `watchdog/finite-cpu`) | one warm process serves many invocations; killing it would fail unrelated steps, and in host mode it is the host | [0004](0004-harness-protocol.md) |
 | D3 | Job ids are windmill-lite UUIDs; job introspection answers from the run, not from a job table | there is no queue | [0007](0007-platform-interface.md) |
 | D4 | The `cache_ttl` result cache is per process unless the host plugs in a shared store | Windmill's cache lives in its database | [0007](0007-platform-interface.md) |
 | D5 | `nativets` and `//native` scripts run in the Bun harness under a native boundary mode, not in Windmill's V8 isolate | one JavaScript harness; the reference covers the native runtime only in outline ([WR-31](../semantics/languages.md#wr-31), `later`), so the mode's rules wait for a semantics request (README) and the API surface is checked at build | [0004](0004-harness-protocol.md), [0002](0002-ir-and-loader.md) |
@@ -171,7 +171,8 @@ recorded in each run's trace.
 
 `fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10 and D11:
 it runs one process per invocation, in its own working directory, and kills
-it at the end, on timeout and on cancellation.
+it at the end, on timeout and on cancellation; the watchdog does not apply
+to it.
 
 ### 5a. Restrictions
 
