@@ -31,7 +31,9 @@
     "conformance/flows/execution/fx-21",
     "conformance/flows/execution/fx-42"
   ],
-  "deferred": [],
+  "deferred": [
+    {"case": "FX-10/c", "milestone": "E3e", "reason": "the empty-id spelling reads the step's own result inside stop_after_if; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level, and no recording exists yet; E3e records it, gating N1a"}
+  ],
   "parts": [],
   "prefixes": [
     {

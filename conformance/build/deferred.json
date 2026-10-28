@@ -9,6 +9,7 @@
     {"spec": "WR-8/f", "reason": "the same script as WR-8/d; an unparsable string becoming an Invalid Date is hydration at run time", "expected_in": "C3a (the step suite)"},
     {"spec": "WR-V3/c", "reason": "no Date for a missing input is hydration at run time; the parameter's Date marking is WR-8/d's", "expected_in": "C3a (the step suite)"},
     {"spec": "WR-26/b", "reason": "dependency inference: windmill-lite consumes the folder's locks and does not generate them (ADR 0002, validation 5)", "expected_in": "a later milestone that adds lock generation (L1)"},
+    {"spec": "WR-29/c", "reason": "a deployed failure module keeps its explicit path; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level", "expected_in": "a follow-up of C2a; the run half needs the failure module (N1b)"},
     {"spec": "WA-31/a", "reason": "per-invocation isolation in a warm process is the harness's env view and fetch interception", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"},
     {"spec": "WA-31/b", "reason": "the concurrent Bun.env reads run in the harness; the rewrite they rely on is checked by this directory's WA-31 cases", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"},
     {"spec": "WR-49/b", "reason": "later: windmill-lite refuses a bundle with several output files (unsupported_feature; this directory's WR-49 several-outputs-refused case), since the tar layout's naming is medium confidence (Q-WR-25)", "expected_in": "a later milestone that adds multi-file codebase bundles (L1)"},

@@ -3,9 +3,9 @@
   "cases": [
     {
       "spec": "CF-8/a",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "part": "compile",
-      "note": "Both readings agree on the by-path run; only the raw submission differs, which windmill-lite never runs (0001 §1, §6). The run half, [101,103,106], is N3a's.",
+      "note": "The catalogue records the by-path run as oracle-observed; the raw-submission half stays source-derived, and windmill-lite never runs raw submissions (0001 §1, §6). The run half, [101,103,106], is N3a's.",
       "title": "top-level loop: collapsed by path",
       "given": {
         "files": {
@@ -25,9 +25,9 @@
     },
     {
       "spec": "CF-8/b",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "part": "compile",
-      "note": "Contested is whether a successful dependency job makes the outer body a stored node, since DISABLE_FLOW_SCRIPT can select the full form. windmill-lite always runs the lite form, where it is one (0001 §1, §6), so the nested loop collapses. The run half, [[101,103,106]], is N3a's.",
+      "note": "The catalogue records the lite-form run, its outer body a flownode job, as oracle-observed; the full form that DISABLE_FLOW_SCRIPT selects stays source-derived. windmill-lite always runs the lite form, where the outer body is a stored node (0001 §1, §6), so the nested loop collapses. The run half, [[101,103,106]], is N3a's.",
       "title": "nested loop: collapses inside a stored-node body",
       "given": {
         "files": {
@@ -52,9 +52,9 @@
     },
     {
       "spec": "CF-8/c",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "part": "compile",
-      "note": "Both readings agree; the case is carried as disputed with its finding. The run half, every iteration getting the flow input, is N3a's.",
+      "note": "The catalogue records the case as oracle-observed and CF-8 as settled. The run half, every iteration getting the flow input, is N3a's.",
       "title": "a loop at step 0 collapses",
       "given": {
         "files": {
