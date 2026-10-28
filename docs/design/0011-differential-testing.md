@@ -1,0 +1,205 @@
+# 0011 · Differential testing and performance measurement
+
+**Status:** proposed · **Topic:** checking windmill-lite against a real
+Windmill (the oracle), the step identity encoding shared by every comparison,
+CI, and how performance is measured.
+
+## Context
+
+Almost every expectation in the reference is source-derived; only the
+oracle area has recorded observations (36 cases, run 1). The reference
+designs the oracle harness ([OR-1](../semantics/oracle.md#or-1) to
+[OR-31](../semantics/oracle.md#or-31)) and leaves two core items open: a
+collision-free identity for compared steps ([Q-OR-17](../semantics/oracle.md#q-or-17))
+and an executable reconstruction of the probe catalogue
+([Q-OR-16](../semantics/oracle.md#q-or-16)). Public CI may pull and run the
+unmodified CE image as a test oracle; windmill-lite never redistributes,
+modifies, wraps or bakes it ([LIC-1](../semantics/licensing.md#lic-1),
+[OR-3](../semantics/oracle.md#or-3)). The oracle is a semantic reference,
+never a latency baseline ([OR-17](../semantics/oracle.md#or-17)).
+
+## Decision
+
+### The oracle harness
+
+The `oracle` package implements the reference's design as written:
+
+1. **Topology** (image pins [OR-1](../semantics/oracle.md#or-1) and
+   [OR-2](../semantics/oracle.md#or-2); topology [OR-4](../semantics/oracle.md#or-4);
+   lifecycle and port binding [OR-18](../semantics/oracle.md#or-18)):
+   `ghcr.io/windmill-labs/windmill:1.767.0` pinned by its full index digest,
+   in `MODE=standalone`, next to `postgres:16-alpine` pinned by digest, data
+   on tmpfs, memory limits, ports on `127.0.0.1`; a preflight that requires
+   `/api/version` to be exactly `CE v1.767.0`. Fixtures that declare
+   `workers: 2` get a second worker container ([OR-5](../semantics/oracle.md#or-5)).
+2. **Bootstrap and push** ([OR-6](../semantics/oracle.md#or-6),
+   [OR-8](../semantics/oracle.md#or-8), [OR-9](../semantics/oracle.md#or-9),
+   [OR-31](../semantics/oracle.md#or-31)): a fresh workspace per fixture run;
+   the sync tree pushed with `windmill-cli@1.767.0` from npm on the runner,
+   never the CLI inside the image; setup applied after the push; the
+   deployment gate polls each lock job to success.
+3. **Run and capture** ([OR-10](../semantics/oracle.md#or-10),
+   [OR-V1](../semantics/oracle.md#or-v1), [OR-V2](../semantics/oracle.md#or-v2)):
+   asynchronous submission and `get_result_maybe` polling, never
+   `run_wait_result`; full arguments and results only from `get_args` and
+   `get_result_maybe`; status from job metadata.
+4. **Walk** ([OR-11](../semantics/oracle.md#or-11) topology,
+   [OR-V7](../semantics/oracle.md#or-v7)): by `flow_jobs` children in index
+   order, `failed_retries` as attempts, generated `-v` steps omitted, the
+   collapse rules never relied on.
+5. **Normalise** ([OR-14](../semantics/oracle.md#or-14),
+   [OR-V3](../semantics/oracle.md#or-v3), [OR-V5](../semantics/oracle.md#or-v5)):
+   only walked job ids replaced; stacks masked only with runtime-error
+   provenance; the NUL `InternalErr` location masked and nothing broader;
+   provenance kept apart from the compared observation. These rules govern
+   oracle-to-oracle comparisons unchanged. Comparing windmill-lite with the
+   oracle adds one narrow rule for Rust location suffixes on generated
+   messages only (§Location suffixes below,
+   [0001](0001-equivalence-contract.md) §2).
+6. **Effects** ([OR-16](../semantics/oracle.md#or-16), [OR-V6](../semantics/oracle.md#or-v6)):
+   an HTTP sink on the runner, grouped by `WM_ROOT_JOB_ID` against the
+   submitted root. windmill-lite injects the same sink variable.
+7. **Disk** ([OR-30](../semantics/oracle.md#or-30)): the fail-closed policy
+   for local runs (pull only with at least 8 GiB free and 5 GiB left after
+   the image; stop below 5 GiB; no automatic resume).
+
+### Step identity encoding (answers Q-OR-17)
+
+A **site path** is a sequence of typed segments, written as text by joining
+segments with `/`. Each segment is `<kind>:<value>`:
+
+| Kind | Value | Example |
+|---|---|---|
+| `m` | a module id in a module list, with `~<k>` appended when the id occurs more than once in that list (`k` counts those occurrences from 0, in list order) | `m:a`, `m:a~1` |
+| `i` | a loop iteration index | `i:2` |
+| `b` | a branch: `default` or an index for `branchone`, an index for `branchall` | `b:0` |
+| `s` | a special slot: `failure` or `preprocessor` | `s:failure` |
+| `r` | an attempt number of a retried module, from 0 | `r:1` |
+
+Values are percent-escaped for `%`, `/`, `:` and `~` (`%25`, `%2F`, `%3A`,
+`%7E`), so the escape character itself is escaped. Examples:
+`m:outer/i:1/m:inner/i:0/m:s`, `m:a/r:0` (the failed first attempt of `a`),
+`s:failure`, `m:failure` for an ordinary module that happens to be named
+`failure`, and `m:a~0` and `m:a~1` for two modules both named `a` in one list
+(Windmill does not require unique ids, [OF-2](../semantics/openflow.md#of-2)).
+A unique id carries no suffix, so adding a module elsewhere in a flow does
+not change the identities of the others, which keeps replay tables and
+recorded fixtures stable across flow revisions. The one exception: adding a
+second module with an id that was unique renames the first from `m:a` to
+`m:a~0`, so fixtures and replay tables keyed on it must be updated in the
+same change.
+
+The encoding is injective: the kind separates ordinary modules from slots,
+the occurrence separates repeated ids, and escaping covers the escape
+character and the occurrence marker. Negative tests of the encoder: two
+modules with one id in one list; the same id in different container bodies
+(distinct paths, no suffix needed); an ordinary module named `failure` beside
+a real failure handler, and one named `preprocessor` beside a real
+preprocessor; ids containing `%`, `/`, `:` and `~`; and cases OR-V8/a–c. A collapsed loop's iterations
+appear as `m:<loop>/i:<n>/m:<body>`, the same path a non-collapsed loop gives,
+so the shape of Windmill's job tree never leaks into identities. The same
+encoding is used by job-id placeholders (`<job:m:a/i:1/m:s>`), host-hook
+sites ([0008](0008-host-hooks.md)), run traces, and any replay service keyed
+by site. Cases OR-V8/a–c become negative tests of the encoder.
+
+### Fixtures and verbs
+
+Flow fixtures use the format of [OR-15](../semantics/oracle.md#or-15)
+(`fixture.yaml`, `windmill/`, `setup.yaml`, `runs/*.yaml`, `recorded/*.json`)
+under `conformance/flows/` ([0003](0003-semantics-placement.md)). The
+`wltest` command has three verbs:
+
+- `record`: run fixtures on the oracle and write `recorded/` with provenance;
+- `check`: run fixtures on windmill-lite and compare with `expect`, or with
+  `recorded` where `expect` is absent; a failure prints JSON-pointer diffs
+  (case OR-15/b);
+- `diff`: run both live and compare.
+
+`check` takes `--mode fresh|warm|host`; host mode drives the cases through a
+small public Bun test host built on the SDK. Exact comparison is the gate.
+Step cases, and expression cases (which are context-free by construction,
+[0003](0003-semantics-placement.md)), are lifted into generated one-step flow
+fixtures for `record`. Contextual expression cases are flow fixtures already
+and are recorded as such.
+
+**Location suffixes.** Comparing windmill-lite with the oracle adds one rule
+to [OR-14](../semantics/oracle.md#or-14)'s normaliser: at a path where
+windmill-lite's value is an error it generated (its trace records provenance
+for every error), and the oracle's message matches a catalogue template that
+carries `<loc>`, the oracle's Rust location suffix is stripped
+([0001](0001-equivalence-contract.md) §2, D14). Nothing else is stripped.
+Positive test: a generated `Internal: …` error whose oracle text ends in a
+location compares equal to windmill-lite's. Negative test: a user error
+`Error("boom @a.rs:1:2")` against `Error("boom @b.rs:3:4")` still differs,
+because windmill-lite's value at that path has user provenance.
+
+### Stub mode
+
+`wltest stub <folder>` rewrites a sync tree so that every executed script
+body is replaced by a recorder stub that keeps the original `main` signature
+(so hydration is unchanged) and asks a run-scoped replay service for its
+outcome, keyed by the outer root (`WM_ROOT_JOB_ID`), the site path and the
+attempt. On the oracle, the service resolves the site by walking the job
+tree; on windmill-lite it reads the run trace. Orchestration of flows whose
+real steps need private systems can then be compared on the oracle without
+those systems; the flows and tables stay with whoever owns them. Outcomes
+are idempotent per raw job id, and the attempt number counts from 0, as the
+`r:` segment does: it is the number of distinct job ids already seen at that
+site in the run. Milestone E4a owns the stub generator and the replay
+service, with acceptance cases on the oracle for a retry inside a loop, a
+collapsed body, nested loops, a named subflow and a parallel loop under one
+outer run, and two concurrent outer runs. Milestone E4b runs the same cases
+on windmill-lite, once the container and retry milestones they exercise have
+merged.
+
+### CI
+
+1. **Every pull request** (no Docker): `wltest check` on all levels, in
+   `fresh` and `warm`; host mode once milestone F3b lands; the
+   **image lint** (no Dockerfile `FROM ghcr.io/windmill-labs/`, no
+   `docker push`/`docker tag` of a Windmill image); the **manifest guard**,
+   which rejects AGPL-derived Windmill packages (for example
+   `windmill-parser-wasm-*`) and, until [Q-OF-7](../semantics/openflow.md#q-of-7)(a)
+   is decided, the metadata-only Apache packages, in windmill-lite's own
+   manifests (cases LIC-1/a, LIC-1/b).
+2. **Oracle workflow** (nightly, on a `oracle` label, and on changes under
+   `conformance/`): `wltest record` on `ubuntu-latest` amd64, failing when a
+   recording differs from the committed one. A changed recording is
+   committed by a pull request that also updates the case's provenance and,
+   where it settles a contested finding, the one engine function that
+   implements it ([0001](0001-equivalence-contract.md) §6).
+
+### Performance
+
+1. **Micro-benchmarks** (milestone G1): the boundary costs of
+   [0005](0005-json-step-boundaries.md) and the protocol round trip of
+   [0004](0004-harness-protocol.md). The expression engine has its own
+   **bounded-pool benchmark** in B2b, which gates that milestone
+   ([0003](0003-semantics-placement.md)): cold and warm bursts, sustained
+   concurrency below and above the pool size, replenishment under load,
+   inputs of 4, 64 and 256 KB, on the native backend, reporting p50, p95 and p99
+   latency (including the wait for a prepared slot), CPU per evaluation and
+   memory per slot.
+2. **Run spans.** Every run trace carries durations per module, per
+   invocation (queue, harness, serialisation), per expression evaluation and
+   per platform call, plus every requested wait.
+3. **Comparing against a baseline implementation** (a host's existing code,
+   never the oracle): run both on the same seeds with the `record` clock
+   (H10), so deliberate waits are recorded rather than slept; report elapsed
+   time, CPU and peak RSS at p50 and p95 over at least 50 runs after warm-up,
+   with request counts. Equal request counts and equal recorded waits are
+   checked first: a difference there is a semantic difference, not a
+   performance one.
+
+## Consequences
+
+- Every comparison, placeholder, hook and trace uses one identity encoding.
+- The oracle runs in public CI as a black box and only there, never inside a
+  windmill-lite artefact.
+- Disputed findings get settled by recordings, early, through a reviewed
+  pull request that changes one function.
+
+## Spec IDs relied on
+
+OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-16, Q-OR-17, LIC-1, Q-OF-7, and
+the conformance catalogue.
