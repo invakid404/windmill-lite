@@ -85,8 +85,9 @@ type Hooks interface {
 	// change. It must not modify t.
 	OnRunEnd(ctx context.Context, t *Trace) []Warning
 	// OnRunSettled (H9) is called once every invocation the run abandoned
-	// has settled, which may be never. Resources that step code can reach
-	// are released here, never on a timer (ADR 0004). t is a new snapshot
+	// has settled, which may be never: when the run's RunSettlement, fed by
+	// each invocation's Reporter.Settled, reports it. Resources that step
+	// code can reach are released here, never on a timer (ADR 0004). t is a new snapshot
 	// that adds what the abandoned invocations produced after the run ended;
 	// the trace returned at the run's end is never changed.
 	OnRunSettled(t *Trace)

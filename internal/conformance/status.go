@@ -96,3 +96,61 @@ func (s *StepStatus) UnmarshalText(text []byte) error {
 	*s = v
 	return nil
 }
+
+// ModuleStatus is a module's own status (FX-1), which is not its job's: a
+// module whose script succeeded fails when its stop_after_if gives an error
+// stop, while the job stays successful (FX-V2).
+type ModuleStatus string
+
+// The module statuses, from Windmill's module status kinds at the end of a
+// run (FX-1): Success, Failure, WaitingForPriorSteps (never reached), and
+// InProgress, WaitingForExecutor or WaitingForEvents (a run that ended while
+// the module was unfinished, which only cancellation leaves).
+const (
+	ModuleSuccess    ModuleStatus = "success"
+	ModuleFailure    ModuleStatus = "failure"
+	ModuleNotRun     ModuleStatus = "not_run"
+	ModuleInProgress ModuleStatus = "in_progress"
+)
+
+// Valid reports whether s is one of the module statuses.
+func (s ModuleStatus) Valid() bool {
+	switch s {
+	case ModuleSuccess, ModuleFailure, ModuleNotRun, ModuleInProgress:
+		return true
+	}
+	return false
+}
+
+// MarshalText returns s, failing on an unknown status.
+func (s ModuleStatus) MarshalText() ([]byte, error) {
+	if !s.Valid() {
+		return nil, fmt.Errorf("conformance: unknown module status %q", string(s))
+	}
+	return []byte(s), nil
+}
+
+// UnmarshalText accepts only the module statuses.
+func (s *ModuleStatus) UnmarshalText(text []byte) error {
+	v := ModuleStatus(text)
+	if !v.Valid() {
+		return fmt.Errorf("conformance: unknown module status %q", string(text))
+	}
+	*s = v
+	return nil
+}
+
+// ImpliedModule returns the module status that a site with job status s has
+// unless an observation says otherwise: success for a successful or skipped
+// job, failure for a failed or canceled one, not_run for a site with no job.
+func (s StepStatus) ImpliedModule() ModuleStatus {
+	switch s {
+	case StepSuccess, StepSkipped:
+		return ModuleSuccess
+	case StepFailure, StepCanceled:
+		return ModuleFailure
+	case StepNotRun:
+		return ModuleNotRun
+	}
+	return ""
+}

@@ -67,9 +67,15 @@ type StepRecord struct {
 	Site    conformance.SitePath
 	Attempt int
 
-	// Status is the site's status; Ran is false for a module that completed
-	// without running anything (OR-V2); Skipped is the module's skipped flag.
-	Status  conformance.StepStatus
+	// Status is the status of the site's job (OR-V2), or StepNotRun when it
+	// has none. Module is the module's own status (FX-1), for a site that is
+	// a module; it is empty for attempt, iteration and branch sites. The two
+	// are recorded apart because they differ after an error stop: the job
+	// succeeded and the module failed (FX-V2).
+	Status conformance.StepStatus
+	Module conformance.ModuleStatus
+	// Ran is false when no job ran for the site (OR-V2); Skipped is the
+	// module's skipped flag.
 	Ran     bool
 	Skipped bool
 	// Abandoned is true when the engine stopped waiting for the invocation
@@ -90,8 +96,10 @@ type StepRecord struct {
 	ResolvedArgs jsonval.Value
 
 	// Result is the stored result of the site's own job; Carried is the
-	// value the module carries on, which differs from Result after an error
-	// stop (FX-V2).
+	// value the module carries on to what follows it, which differs from
+	// Result after an error stop (FX-V2). Together with Module and
+	// ResolvedArgs they are the dimensions ADR 0001 §2 compares beyond
+	// OR-15's step record (conformance.StepObservation).
 	Result  jsonval.Value
 	Carried jsonval.Value
 	// ResultOrigin is who produced Result when it is an error, which decides
@@ -135,11 +143,17 @@ func (o Origin) Generated() bool {
 	return o == OriginEngine || o == OriginHarness || o == OriginFacade
 }
 
-// Late is something an invocation produced after it settled or was
-// abandoned: the late frame of ADR 0004.
+// Late is something an invocation produced after its outcome was settled or
+// it was abandoned: the late frame of ADR 0004.
 type Late struct {
 	Kind LateKind
 	Body jsonval.Value
+	// Final marks the late result or error that says how the entrypoint
+	// call ended, when it ended after the invocation was abandoned or after
+	// an intercepted process.exit fixed its outcome (D11). Settled follows
+	// it. Without Final, a LateError is an attributed error from work the
+	// call left running (D9) and says nothing about settlement.
+	Final bool
 }
 
 // LateKind is what a late frame carries.

@@ -25,6 +25,25 @@ import (
 // outcome means the invocation could not be run or its harness was lost
 // with it (host mode); the interpreter fails the module with an error it
 // generates.
+//
+// Settlement. Every call of Execute leads to exactly one inv.Report.Settled
+// call, which says that no code of the invocation's entrypoint call can run
+// any more, so resources it could reach may be released (H9, ADR 0004 host
+// mode item 5):
+//
+//   - when Execute returns an outcome, or an error that is not ctx's cause,
+//     Settled has already been called, except for an outcome that an
+//     intercepted process.exit fixed while the entrypoint's code went on
+//     (D11), whose call settles later;
+//   - when Execute returns ctx's cause, Settled comes before or after the
+//     return: SettleNotStarted if the invocation never reached a harness,
+//     otherwise SettleCompleted when the harness reports that the call
+//     ended, or SettleProcessExited when its process ends first. An
+//     abandoned call that never ends in a process that lives on never
+//     settles (ADR 0004: "possibly never").
+//
+// Work the call left running (D9: unawaited promises, timers) is not part of
+// settlement; its output keeps arriving as Late.
 type StepExecutor interface {
 	Execute(ctx context.Context, inv Invocation) (StepOutcome, error)
 }
@@ -85,15 +104,46 @@ const (
 )
 
 // Reporter receives what an invocation produces outside its outcome, so
-// that the run trace records it (deviation D9).
+// that the run trace records it (deviation D9), and when the invocation
+// settles, so that the engine knows when a run's resources may be released.
+//
+// The executor never calls one invocation's Reporter from two goroutines at
+// once, and calls it in this order:
+//
+//  1. Late and Warning calls;
+//  2. at most one Late with Final set: how an entrypoint call that ended
+//     after its outcome was settled or abandoned came to an end;
+//  3. Settled, exactly once;
+//  4. only Late calls, without Final: output of work the call left running
+//     (D9), never the invocation's outcome.
 type Reporter interface {
-	// Late reports something an invocation produced after it settled or was
-	// abandoned.
+	// Late reports something an invocation produced after its outcome was
+	// settled or it was abandoned.
 	Late(Late)
 	// Warning reports a process-level error that the harness could not
 	// attribute to any invocation, raised while this one was in flight.
 	Warning(Warning)
+	// Settled reports that the invocation's entrypoint call can run no more
+	// code, and how.
+	Settled(SettleKind)
 }
+
+// SettleKind is how an invocation settled.
+type SettleKind string
+
+const (
+	// SettleCompleted: the entrypoint call ended, by returning or throwing.
+	// For an abandoned call, or one that went on after an intercepted
+	// process.exit (D11), the harness reports it later, after the Final
+	// Late that says how the call ended.
+	SettleCompleted SettleKind = "completed"
+	// SettleNotStarted: the invocation never reached a harness: its context
+	// ended before dispatch, or it could not be dispatched.
+	SettleNotStarted SettleKind = "not_started"
+	// SettleProcessExited: the invocation's harness process ended (an exit,
+	// a signal, a lost host) before the entrypoint call did.
+	SettleProcessExited SettleKind = "process_exited"
+)
 
 // NopReporter discards everything.
 type NopReporter struct{}
@@ -103,6 +153,9 @@ func (NopReporter) Late(Late) {}
 
 // Warning discards w.
 func (NopReporter) Warning(Warning) {}
+
+// Settled discards k.
+func (NopReporter) Settled(SettleKind) {}
 
 // OutcomeKind is how an invocation ended, as the harness saw it
 // (ADR 0004).

@@ -58,8 +58,8 @@ step without failing the others.
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, facade origin, log limits) or `reject` with a reason | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
-| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` (the last log text for `escaped`) | step outcome |
-| `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body` | something an already settled or abandoned invocation produced (D9) |
+| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` (the last log text for `escaped`), `settled` (false only when an intercepted `process.exit` fixed the outcome while the entrypoint's code goes on, D11) | step outcome |
+| `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an abandoned or D11-continued entrypoint call ended) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
@@ -170,6 +170,17 @@ microtask see none.
 
 Each of D9, D10 and D11 has a case that runs in `warm` and in `fresh` and
 expects the two to differ as stated.
+
+**Settlement.** An invocation settles when its entrypoint call can run no
+more code. The harness reports it on exactly one frame: the `result` frame,
+normally, or else the `late` frame that says how an abandoned or
+D11-continued call ended, each with `settled` set. An invocation that never
+reached a harness settles at once, and one whose process ends first settles
+with the process. Work the call left running (D9) is not part of
+settlement. The engine releases the resources that step code can reach when
+a run's invocations have all settled (`onRunSettled`, host mode item 5
+below), so a late error from detached work, or the engine giving up on a
+step, never releases them.
 
 ### Per-invocation identity, logs and environment
 
@@ -415,6 +426,9 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   is still recovered, by the engine's watchdog and the host's supervisor.
 - The protocol is language-neutral; a Python harness implements the same
   frames.
+- Milestone K1 added the `settled` field and the settlement rule. Without
+  them the engine could not tell an abandoned call that ended from one that
+  only produced late output, so `onRunSettled` had no reliable trigger.
 - Milestone K1 widened the FX-38 exception in §Cancellation and deadlines
   item 3 from "the failure module" to whatever the continue decision asks
   for, to match FX-19 and the precedence of [0008](0008-host-hooks.md).

@@ -131,17 +131,20 @@ func Completion(s CompletionSignals) Verdict {
 }
 
 // ContinueSignals describe a completion once Windmill's continue decision
-// has been made.
+// has been made. The engine passes them for every completion of the module
+// that H8's haltAfter selects, including the completions of a container's
+// iterations and branches; Final tells them apart.
 type ContinueSignals struct {
 	// RunContinues: after this completion the run would start something
 	// else: a next module, a failure module, another attempt, iteration or
 	// branch, or a module of an enclosing flow.
 	RunContinues bool
-	// Retry: what the run would start next is another attempt of the same
-	// module, so the module has no final outcome yet. The attempt is due by
-	// FX-2 completion rule 7.6, or by the re-entry after rule 7.1 that
-	// FX-19 describes for an error stop.
-	Retry bool
+	// Final: the module has its final outcome. It is false while a
+	// container goes on with its next iteration or branch (FX-2 completion
+	// step 2), and while a retry of the module is due (FX-2 completion rule
+	// 7.6, or the re-entry after rule 7.1 that FX-19 describes for an error
+	// stop). Its zero value never halts.
+	Final bool
 	// ToFailureModule: what the run would start next is a failure module.
 	ToFailureModule bool
 	// Canceled: the run is canceled and goes on only because Completion let
@@ -152,13 +155,13 @@ type ContinueSignals struct {
 }
 
 // AfterContinue applies H8's haltAfter once the module has its final
-// outcome (no retry is due) and the run would go on: the run ends halted
-// instead, or canceled if it is canceled. A halt never applies when the run
+// outcome (its container is done and no retry is due) and the run would go
+// on: the run ends halted instead, or canceled if it is canceled. A halt never applies when the run
 // is about to enter a failure module, and a completion that ends the run
 // anyway keeps the status Windmill gives it, so halting never hides a
 // failure or a cancellation.
 func AfterContinue(s ContinueSignals) Verdict {
-	if !s.HaltAfter || !s.RunContinues || s.Retry || s.ToFailureModule {
+	if !s.HaltAfter || !s.RunContinues || !s.Final || s.ToFailureModule {
 		return Proceed
 	}
 	if s.Canceled {

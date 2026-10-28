@@ -130,8 +130,9 @@ Two further rules complete it:
 - **Halting never hides a failure or a cancellation.** `haltBefore` applies
   at a module's first attempt, never to a failure module. `haltAfter` is
   checked after the continue decision: it applies once the module has its
-  final outcome (no retry is due) and the run would start something other
-  than a failure module. A completion that ends the run anyway keeps the
+  final outcome (a container has finished its last iteration or branch, and
+  no retry is due) and the run would start something other than a failure
+  module. A completion that ends the run anyway keeps the
   status Windmill gives it. A halt that falls on a start the cancellation
   exception lets through stops that start, and the run ends canceled, not
   halted.

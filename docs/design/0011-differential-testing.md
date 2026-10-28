@@ -130,6 +130,27 @@ Step cases, and expression cases (which are context-free by construction,
 fixtures for `record`. Contextual expression cases are flow fixtures already
 and are recorded as such.
 
+**Observation fields beyond OR-15.** A step's observation adds three fields
+to OR-15's step record. [0001](0001-equivalence-contract.md) §2 compares
+them, and the stored fields cannot recover them:
+
+- `module`: the module's own status
+  ([FX-1](../semantics/execution.md#fx-1)), which differs from its job's
+  after an error stop ([FX-V2](../semantics/execution.md#fx-v2));
+- `carried`: the value the module carries on to what follows it;
+- `resolved_args`: the arguments after `$var:`/`$res:` resolution
+  ([JE-V3](../semantics/expressions.md#je-v3)).
+
+Each is written only where it differs from what the other fields imply
+(`module` from the job status, `carried` from `result`, `resolved_args` from
+`args`), so most expectations read as OR-15 writes them. The oracle's API
+exposes the module status but neither a carried value nor resolved
+arguments, so recordings hold neither. A comparison with a recording
+therefore leaves `carried` and `resolved_args` out, and a comparison with
+`expect` includes them. A fixture shows them to the oracle through what its
+flow returns: a step that returns its arguments, a later step's
+`previous_result`, or a failure handler's input.
+
 **Location suffixes.** Comparing windmill-lite with the oracle adds one rule
 to [OR-14](../semantics/oracle.md#or-14)'s normaliser: at a path where
 windmill-lite's value is an error it generated (its trace records provenance
@@ -202,6 +223,10 @@ merged.
 ## Consequences
 
 - Every comparison, placeholder, hook and trace uses one identity encoding.
+- Milestone K1 added the three observation fields beyond OR-15, so that a
+  successful job under a failed module, an error stop masked by a recovering
+  handler, and a wrongly resolved argument that the script ignores all stay
+  visible in a comparison.
 - Milestone K1 added the `%3E` rule for placeholders. Without it, a string
   holding module `a`'s job id followed by `b>` would normalise to the same
   text as the job id of a module named `a>b`. Windmill puts no restriction

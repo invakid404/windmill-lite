@@ -1,0 +1,135 @@
+{
+  "about": "Observation dimensions that the stored fields cannot recover (ADR 0001 §2, ADR 0011). distinct: each variant has the same root status and result and the same per-site job status, stored args and stored result as its base, and differs only in the module status, the carried value or the resolved arguments; it must still compare unequal. same: spellings of one observation that must compare equal, because each optional field has a canonical absence. reject: observations whose fields contradict each other. Provenance is policy: the cases test windmill-lite's observation format, with expectations taken from the cited catalogue cases.",
+  "distinct": [
+    {
+      "name": "FX-V2/a: the job succeeds, the module fails, the handler sees the EarlyStopError",
+      "spec": ["FX-V2/a", "FX-19", "OR-V2"],
+      "provenance": "policy",
+      "base": {
+        "status": "failure",
+        "result": {"p": {"error": {"name": "EarlyStopError", "message": "E"}}, "r": {"error": {"name": "EarlyStopError", "message": "E"}}, "x": 1},
+        "steps": {
+          "m:a": {"status": "success", "module": "failure", "args": {}, "result": {"x": 1}, "carried": {"error": {"name": "EarlyStopError", "message": "E"}}},
+          "s:failure": {"status": "success", "args": {"p": {"error": {"name": "EarlyStopError", "message": "E"}}, "r": {"error": {"name": "EarlyStopError", "message": "E"}}, "x": 1}, "result": {"p": {"error": {"name": "EarlyStopError", "message": "E"}}, "r": {"error": {"name": "EarlyStopError", "message": "E"}}, "x": 1}}
+        }
+      },
+      "variants": [
+        {
+          "why": "only the module status differs",
+          "steps": {"m:a": {"status": "success", "args": {}, "result": {"x": 1}, "carried": {"error": {"name": "EarlyStopError", "message": "E"}}}}
+        },
+        {
+          "why": "only the carried value differs: it equals the stored result",
+          "steps": {"m:a": {"status": "success", "module": "failure", "args": {}, "result": {"x": 1}}}
+        },
+        {
+          "why": "only the carried value differs: another error message",
+          "steps": {"m:a": {"status": "success", "module": "failure", "args": {}, "result": {"x": 1}, "carried": {"error": {"name": "EarlyStopError", "message": "F"}}}}
+        }
+      ]
+    },
+    {
+      "name": "FX-V2/a with a handler that recovers: the final result hides the error stop",
+      "spec": ["FX-V2/a", "FX-33"],
+      "provenance": "policy",
+      "base": {
+        "status": "success",
+        "result": {"handled": true},
+        "steps": {
+          "m:a": {"status": "success", "module": "failure", "args": {}, "result": {"x": 1}, "carried": {"error": {"name": "EarlyStopError", "message": "E"}}},
+          "s:failure": {"status": "success", "args": {"error": {"name": "EarlyStopError", "message": "E"}}, "result": {"handled": true}}
+        }
+      },
+      "variants": [
+        {
+          "why": "the module status and the carried value say no error stop happened",
+          "steps": {"m:a": {"status": "success", "args": {}, "result": {"x": 1}}}
+        }
+      ]
+    },
+    {
+      "name": "JE-V3/a with a step that returns a constant: only the resolved arguments show the resolution",
+      "spec": ["JE-V3/a", "JE-41"],
+      "provenance": "policy",
+      "base": {
+        "status": "success",
+        "result": "ok",
+        "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "resolved_args": {"x": "s"}, "result": "ok"}}
+      },
+      "variants": [
+        {
+          "why": "the reference was not resolved: resolved_args equals args",
+          "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "result": "ok"}}
+        },
+        {
+          "why": "the reference resolved to another value",
+          "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "resolved_args": {"x": "t"}, "result": "ok"}}
+        }
+      ]
+    }
+  ],
+  "same": [
+    {
+      "name": "a step that never ran",
+      "spec": ["OR-V2/a"],
+      "provenance": "policy",
+      "spellings": [
+        {"status": "success", "result": 1, "steps": {"m:b": {"status": "not_run"}}},
+        {"status": "success", "result": 1, "steps": {"m:b": {"status": "not_run", "ran": false}}},
+        {"status": "success", "result": 1, "steps": {"m:b": {"status": "not_run", "module": "not_run", "ran": false}}}
+      ]
+    },
+    {
+      "name": "a module status equal to the one the job status implies",
+      "spec": ["FX-1", "OR-V2"],
+      "provenance": "policy",
+      "spellings": [
+        {"status": "failure", "result": null, "steps": {"m:a": {"status": "success", "result": 1}, "m:b": {"status": "canceled"}}},
+        {"status": "failure", "result": null, "steps": {"m:a": {"status": "success", "module": "success", "result": 1}, "m:b": {"status": "canceled", "module": "failure"}}}
+      ]
+    },
+    {
+      "name": "a carried value equal to the stored result, in another key order",
+      "spec": ["FX-V2", "OR-13"],
+      "provenance": "policy",
+      "spellings": [
+        {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "result": {"a": 1, "b": 2}}}},
+        {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "result": {"a": 1, "b": 2}, "carried": {"b": 2, "a": 1}}}}
+      ]
+    },
+    {
+      "name": "resolved arguments equal to the stored arguments",
+      "spec": ["JE-V3", "JE-41"],
+      "provenance": "policy",
+      "spellings": [
+        {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "args": {"x": 1}}}},
+        {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "args": {"x": 1}, "resolved_args": {"x": 1}}}}
+      ]
+    },
+    {
+      "name": "a failed attempt with the module status its job implies",
+      "spec": ["OR-11", "Q-OR-17"],
+      "provenance": "policy",
+      "spellings": [
+        {"status": "success", "result": null, "steps": {"m:a/r:0": {"status": "failure"}}},
+        {"status": "success", "result": null, "steps": {"m:a/r:0": {"status": "failure", "module": "failure"}}}
+      ]
+    }
+  ],
+  "reject": [
+    {"name": "a step with no job whose module ran", "spec": ["OR-V2"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:b": {"status": "not_run", "module": "success"}}}},
+    {"name": "a module never reached whose job ran", "spec": ["OR-V2"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:b": {"status": "success", "module": "not_run"}}}},
+    {"name": "a step with no job that ran", "spec": ["OR-V2/a"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:b": {"status": "not_run", "ran": true}}}},
+    {"name": "a module status on an attempt site", "spec": ["FX-1", "Q-OR-17"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:a/r:0": {"status": "failure", "module": "success"}}}},
+    {"name": "a module status on an iteration site", "spec": ["FX-1", "Q-OR-17"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:l/i:0": {"status": "success", "module": "failure"}}}},
+    {"name": "a step without a status", "spec": ["OR-15"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:a": {"result": 1}}}},
+    {"name": "an unknown module status", "spec": ["FX-1"], "provenance": "policy",
+     "observation": {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "module": "Failure"}}}}
+  ]
+}

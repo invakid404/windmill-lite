@@ -12,12 +12,42 @@ yet (milestones E1 and E2).
 | File | Contents |
 |---|---|
 | `sitepath.go` | `SitePath`, `Segment` and the encoder of [ADR 0011](../../docs/design/0011-differential-testing.md), which answers [Q-OR-17](../../docs/semantics/oracle.md#q-or-17) |
-| `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`) and `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) |
-| `observation.go` | `Observation`, `StepObservation` and `BranchChosen`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15). A `not_run` step always encodes `"ran":false`, as [OR-V2/a](../../docs/semantics/conformance.md#or-v2) expects, and decoding sets it |
+| `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`), `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) and `ModuleStatus` ([FX-1](../../docs/semantics/execution.md#fx-1)) |
+| `observation.go` | `Observation`, `StepObservation` and `BranchChosen`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments (see below) |
 
 The engine, the harness, the oracle and `wltest` share this vocabulary, so
 the package imports no other windmill-lite package. Code that runs
 windmill-lite to produce an observation lives with its caller.
+
+## Observations
+
+A step's observation has OR-15's fields (`status`, `ran`, `args`, `result`,
+`branch_chosen`, `skipped`) and three more, which
+[ADR 0011](../../docs/design/0011-differential-testing.md) adds because the
+stored fields cannot recover them:
+
+- `module`: the module's own status, which differs from its job's after an
+  error stop ([FX-V2](../../docs/semantics/execution.md#fx-v2));
+- `carried`: the value the module carries on;
+- `resolved_args`: the arguments after resolution
+  ([JE-V3](../../docs/semantics/expressions.md#je-v3)).
+
+Encoding and decoding put every step in canonical form:
+
+- a `not_run` step has `"ran":false` ([OR-V2/a](../../docs/semantics/conformance.md#or-v2));
+- `module` is dropped when it equals what the job status implies;
+- `carried` is dropped when it equals `result`, and `resolved_args` when it
+  equals `args`.
+
+Steps whose fields contradict each other are rejected, as is a module
+status on an attempt, iteration or branch site that differs from the one
+the job implies. `testdata/observation/dimensions.json` holds the cases,
+which `TestObservationDimensionCases` runs:
+
+- observations that differ only in one of the three fields must compare
+  unequal, from FX-V2/a and JE-V3/a;
+- spellings that must compare equal;
+- observations that must be rejected.
 
 ## Site paths
 

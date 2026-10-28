@@ -12,7 +12,8 @@ steps with C1.
 
 | File | Contents | Built on by |
 |---|---|---|
-| `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)) | C1 implements it; W1, C3a, N1a call it |
+| `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it |
+| `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10) | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
@@ -50,9 +51,11 @@ case and checks the rules below over every combination of signals.
 2. **`Completion`**, when a module completes: the latch, then cancellation,
    then fatal error names (H7). Then Windmill's continue decision runs.
 3. **`AfterContinue`**, after that decision: `haltAfter` ends the run halted
-   once the module has its final outcome (no retry is due) and the run would
-   start something other than a failure module. A completion that ends the
-   run anyway keeps Windmill's status.
+   once the module has its final outcome and the run would start something
+   other than a failure module. A container's completion is final only after
+   its last iteration or branch, and a module's only when no retry is due;
+   `ContinueSignals.Final` says so, and its zero value never halts. A
+   completion that ends the run anyway keeps Windmill's status.
 
 Cancellation has one exception
 ([FX-38](../../docs/semantics/execution.md#fx-38)): an error stop that
@@ -77,3 +80,30 @@ A `StepOutcome` mirrors the harness's `result` frame (`ok`, `error`,
   `CancelReason` (`timeout`, `canceled`, `run_ended`). Anything the
   abandoned invocation produces later reaches the trace through `Reporter`
   as `Late` (deviations D2 and D9).
+
+## Settlement
+
+An invocation settles when its entrypoint call can run no more code, and
+`Reporter.Settled` says so exactly once per `Execute` call:
+
+| `SettleKind` | When | Relative to `Execute` returning |
+|---|---|---|
+| `completed` | the call returned or threw | before, normally; later for an abandoned call, or one that went on after an intercepted `process.exit` (D11) |
+| `not_started` | the invocation never reached a harness | before |
+| `process_exited` | the harness process ended before the call did | before when the invocation was in flight; later when it had been abandoned |
+
+- **Order.** One invocation's `Reporter` is never called from two goroutines
+  at once. Its calls come in this order: `Late` and `Warning`; at most one
+  `Late` with `Final` set, which says how a late-ending call ended;
+  `Settled`; then only non-final `Late`, which is output of work the call
+  left running (D9).
+- **Not settlement.** Abandonment is not settlement, and neither is a late
+  error without `Final`.
+- **Resources.** `RunSettlement` counts each tracked invocation until its
+  first `Settled` and drops duplicates. Once `End` has been called and
+  nothing is unsettled, it calls its callback once; that is where the engine
+  calls `OnRunSettled` and releases what step code can reach (ADR 0004 host
+  mode item 5).
+- **Tests.** `settle_test.go` drives a fake executor through completion,
+  abandonment with a late end, a non-final late error, a process exit and a
+  never-dispatched invocation.

@@ -118,19 +118,75 @@ func TestAfterContinue(t *testing.T) {
 		want Verdict
 		why  string
 	}{
-		{ContinueSignals{RunContinues: true}, Proceed, "no halt selected"},
-		{ContinueSignals{HaltAfter: true}, Proceed, "the completion ends the run anyway: Windmill's status stands"},
-		{ContinueSignals{HaltAfter: true, RunContinues: true}, EndHalted, "the module is final and the run would go on"},
-		{ContinueSignals{HaltAfter: true, RunContinues: true, Retry: true}, Proceed, "a retry is due: the module has no final outcome yet"},
-		{ContinueSignals{HaltAfter: true, RunContinues: true, ToFailureModule: true}, Proceed, "a failed module goes on to its failure module: halting would hide the failure"},
-		{ContinueSignals{HaltAfter: true, RunContinues: true, Canceled: true}, EndCanceled, "a halt on an FX-38 continuation stops it, but the run stays canceled"},
-		{ContinueSignals{HaltAfter: true, RunContinues: true, Canceled: true, ToFailureModule: true}, Proceed, "FX-38's failure module still starts"},
-		{ContinueSignals{HaltAfter: true, RunContinues: true, Canceled: true, Retry: true}, Proceed, "FX-38's retry still starts"},
+		{ContinueSignals{RunContinues: true, Final: true}, Proceed, "no halt selected"},
+		{ContinueSignals{HaltAfter: true, Final: true}, Proceed, "the completion ends the run anyway: Windmill's status stands"},
+		{ContinueSignals{HaltAfter: true, RunContinues: true, Final: true}, EndHalted, "the module is final and the run would go on"},
+		{ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed, "not final: a retry is due, or the container goes on"},
+		{ContinueSignals{HaltAfter: true, RunContinues: true, Final: true, ToFailureModule: true}, Proceed, "a failed module goes on to its failure module: halting would hide the failure"},
+		{ContinueSignals{HaltAfter: true, RunContinues: true, Final: true, Canceled: true}, EndCanceled, "a halt on an FX-38 continuation stops it, but the run stays canceled"},
+		{ContinueSignals{HaltAfter: true, RunContinues: true, Final: true, Canceled: true, ToFailureModule: true}, Proceed, "FX-38's failure module still starts"},
+		{ContinueSignals{HaltAfter: true, RunContinues: true, Canceled: true}, Proceed, "FX-38's retry still starts"},
 	}
 	for _, tt := range tests {
 		if got := AfterContinue(tt.s); got != tt.want {
 			t.Errorf("AfterContinue(%+v) = %v, want %v: %s", tt.s, got, tt.want, tt.why)
 		}
+	}
+}
+
+// completion is one completion of the module that haltAfter selects, as the
+// engine would describe it, with the verdict AfterContinue must give.
+type completion struct {
+	what string
+	s    ContinueSignals
+	want Verdict
+}
+
+func TestAfterContinueOnContainers(t *testing.T) {
+	scenarios := map[string][]completion{
+		// [l: sequential for loop over 3 items, b]; haltAfter(l).
+		"sequential loop, then a module": {
+			{"iteration 0 done, iteration 1 next", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"iteration 1 done, iteration 2 next", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"loop done, b next", ContinueSignals{HaltAfter: true, RunContinues: true, Final: true}, EndHalted},
+		},
+		// [ba: sequential branchall with 2 branches, b]; haltAfter(ba).
+		"sequential branchall, then a module": {
+			{"branch 0 done, branch 1 next", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"branchall done, b next", ContinueSignals{HaltAfter: true, RunContinues: true, Final: true}, EndHalted},
+		},
+		// [l]; the loop is the last module: the run ends as Windmill decides.
+		"loop as the last module": {
+			{"iteration 0 done", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"loop done, nothing next", ContinueSignals{HaltAfter: true, Final: true}, Proceed},
+		},
+		// [l with retry, b]: the first attempt fails, the retry succeeds.
+		"retried loop": {
+			{"attempt 0 iteration 0 done", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"attempt 0 failed, retry due", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"attempt 1 iteration 0 done", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"attempt 1 done, b next", ContinueSignals{HaltAfter: true, RunContinues: true, Final: true}, EndHalted},
+		},
+		// [l, b] with a failure module; an iteration fails and skip_failures is false.
+		"failing loop with a failure module": {
+			{"iteration 0 done", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"loop failed, failure module next", ContinueSignals{HaltAfter: true, RunContinues: true, Final: true, ToFailureModule: true}, Proceed},
+		},
+		// [l, b] with a failure module; the run is canceled when the loop's
+		// stop_after_all_iters_if gives an error stop under continue_on_error.
+		"canceled loop under the FX-38 exception": {
+			{"iteration 0 done", ContinueSignals{HaltAfter: true, RunContinues: true}, Proceed},
+			{"loop error-stopped, b next", ContinueSignals{HaltAfter: true, RunContinues: true, Final: true, Canceled: true}, EndCanceled},
+		},
+	}
+	for name, steps := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			for _, c := range steps {
+				if got := AfterContinue(c.s); got != c.want {
+					t.Errorf("%s: AfterContinue(%+v) = %v, want %v", c.what, c.s, got, c.want)
+				}
+			}
+		})
 	}
 }
 
@@ -140,7 +196,7 @@ func TestAfterContinueInvariants(t *testing.T) {
 		if !s.HaltAfter && got != Proceed {
 			t.Errorf("AfterContinue(%+v) = %v without a halt", s, got)
 		}
-		if (!s.RunContinues || s.Retry || s.ToFailureModule) && got != Proceed {
+		if (!s.RunContinues || !s.Final || s.ToFailureModule) && got != Proceed {
 			t.Errorf("AfterContinue(%+v) = %v: the module is not final, the run ends anyway, or a failure module is next", s, got)
 		}
 		if s.Canceled && got == EndHalted {
@@ -187,7 +243,7 @@ func allContinueSignals() []ContinueSignals {
 	for i := range 1 << 5 {
 		all = append(all, ContinueSignals{
 			RunContinues:    i&1 != 0,
-			Retry:           i&2 != 0,
+			Final:           i&2 != 0,
 			ToFailureModule: i&4 != 0,
 			Canceled:        i&8 != 0,
 			HaltAfter:       i&16 != 0,
