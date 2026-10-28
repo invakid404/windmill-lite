@@ -1,0 +1,54 @@
+finding: WR-10
+note: >-
+  WR-10 gives the key order a Bun step sees at each layer of the argument
+  boundary. ADR 0001 settles PD-2 (Q-WR-18) as emulating layer 2's jsonb
+  order, which is the stored text. Each entry checks the text the layer
+  hands on; rest_in names where the layer itself is checked. WR-10/c never
+  crosses a Go boundary and is in deferred.yaml.
+cases:
+  - spec: WR-10/a
+    provenance: source-derived
+    title: 'layer 2: an unresolved nested value arrives in jsonb order'
+    read: stored
+    given: '{"bb":1,"a":2,"ccc":3,"ab":4}'
+    expect:
+      keys: [a, ab, bb, ccc]
+      stored: '{"a":2,"ab":4,"bb":1,"ccc":3}'
+    rest_in: N1a, which stores the argument, and C3a, whose harness parses it (WR-9)
+  - spec: WR-10/b
+    provenance: source-derived
+    title: 'layer 3: a $jsonvar: value keeps the variable''s own order'
+    note: >-
+      The given text is the variable's contents. Resolution substitutes it
+      after the storage boundary and does not store it again (FX-V5), so the
+      step reads the producer text; whether its spelling survives too is
+      FX-42/h.
+    read: producer
+    given: '{"bb":2,"a":1}'
+    expect:
+      keys: [bb, a]
+      stored: '{"a":1,"bb":2}'
+    rest_in: 'PF2, which resolves $jsonvar:'
+  - spec: WR-10/d
+    provenance: source-derived
+    title: 'layer 5, then layer 2: integer-like keys come first'
+    note: >-
+      In jsonb order "2" already precedes "a" and "b"; JavaScript's own
+      enumeration, which lists integer-like keys first wherever they are, is
+      layer 5.
+    read: stored
+    given: '{"b":1,"2":0,"a":3}'
+    expect:
+      keys: ["2", a, b]
+      stored: '{"2":0,"a":3,"b":1}'
+    rest_in: C3a, whose step parses the stored text in JavaScript
+  - spec: WR-10/e
+    provenance: source-derived
+    title: 'layer 3: an unchanged stored resource keeps jsonb order'
+    note: The given text is the resource's value; resources are stored in jsonb.
+    read: stored
+    given: '{"bb":1,"a":2}'
+    expect:
+      keys: [a, bb]
+      stored: '{"a":2,"bb":1}'
+    rest_in: 'PF2, which substitutes $res: with the resource''s stored value'

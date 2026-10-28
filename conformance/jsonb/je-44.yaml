@@ -1,0 +1,254 @@
+finding: JE-44
+note: >-
+  JE-44 states what jsonb does to a value's text. The catalogue cases JE-44/a
+  to JE-44/c are flow cases: each entry checks the half internal/jsonval owns,
+  the two texts a Value holds, and rest_in names where the route half is
+  checked. The variants without a catalogue letter encode the finding's rule:
+  key order, duplicate keys, whitespace and number spelling. Variants with
+  provenance policy pin bytes that the rule leaves open (jsonb fixes the
+  parsed string, windmill-lite chooses jsonb's own escaping) or PostgreSQL
+  behaviour the reference does not state (numeric's range).
+cases:
+  - spec: JE-44/a
+    provenance: source-derived
+    title: the previous step is read from memory (producer order)
+    read: producer
+    given: '{"bbb":1,"a":2,"cc":3}'
+    expect:
+      keys: [bbb, a, cc]
+      stored: '{"a":2,"cc":3,"bbb":1}'
+    rest_in: N1a, which serves results.a directly after a from the producer text (JE-8)
+  - spec: JE-44/b
+    provenance: source-derived
+    title: an older step is read from the database (jsonb order)
+    read: stored
+    given: '{"bbb":1,"a":2,"cc":3}'
+    expect:
+      keys: [a, cc, bbb]
+      stored: '{"a":2,"cc":3,"bbb":1}'
+    rest_in: N1a, which serves results.a past a step in between from the stored text (JE-18)
+  - spec: JE-44/c
+    provenance: source-derived
+    title: exponents are expanded
+    read: stored
+    given: '{"n":1e3}'
+    expect:
+      stored: '{"n":1000}'
+    rest_in: B2a and N1a, whose flow_input.n shortcut returns the stored value verbatim (JE-7), observed at O2
+
+  - spec: JE-44
+    variant: length-first
+    provenance: source-derived
+    title: shorter keys come first, whatever their bytes
+    given: '{"ccc":4,"b":1,"aa":2,"a":3}'
+    expect:
+      stored: '{"a":3,"b":1,"aa":2,"ccc":4}'
+  - spec: JE-44
+    variant: bytewise
+    provenance: source-derived
+    title: keys of one length are in byte order, so digits and capitals precede lowercase
+    given: '{"b":1,"a":5,"_":3,"B":2,"1":4}'
+    expect:
+      stored: '{"1":4,"B":2,"_":3,"a":5,"b":1}'
+  - spec: JE-44
+    variant: utf8-length
+    provenance: source-derived
+    title: length is counted in UTF-8 bytes, so a two-byte character sorts with two-letter keys
+    given: '{"€":4,"é":1,"zz":2,"z":3}'
+    expect:
+      stored: '{"z":3,"zz":2,"é":1,"€":4}'
+  - spec: JE-44
+    variant: beyond-bmp
+    provenance: source-derived
+    title: a four-byte character sorts with four-letter keys, after them by its first byte
+    given: '{"😀":1,"abcd":2,"ｚ":3,"€":4}'
+    expect:
+      stored: '{"€":4,"ｚ":3,"abcd":2,"😀":1}'
+  - spec: JE-44
+    variant: decoded-key-length
+    provenance: source-derived
+    title: keys are compared decoded, so an escape counts as the one character it stands for
+    given: '{"ab":1,"a\"":2,"\u0063":3}'
+    expect:
+      stored: '{"c":3,"a\"":2,"ab":1}'
+  - spec: JE-44
+    variant: duplicate-last-wins
+    provenance: source-derived
+    title: of duplicate keys only the last is kept
+    given: '{"a":1,"b":2,"a":3}'
+    expect:
+      stored: '{"a":3,"b":2}'
+  - spec: JE-44
+    variant: duplicate-escaped-key
+    provenance: source-derived
+    title: keys that decode to the same string are duplicates
+    given: '{"a":1,"\u0061":2,"é":3,"\u00e9":4}'
+    expect:
+      stored: '{"a":2,"é":4}'
+  - spec: JE-44
+    variant: duplicate-other-type
+    provenance: source-derived
+    title: the last duplicate wins whatever the types of the values
+    given: '{"k":{"x":1},"k":[1],"k":"s"}'
+    expect:
+      stored: '{"k":"s"}'
+  - spec: JE-44
+    variant: nested
+    provenance: source-derived
+    title: objects at every depth are ordered, inside arrays too
+    given: '{"bb":{"zz":1,"y":2},"a":[{"cc":1,"b":2},{"b":3,"b":4}]}'
+    expect:
+      stored: '{"a":[{"b":2,"cc":1},{"b":4}],"bb":{"y":2,"zz":1}}'
+  - spec: JE-44
+    variant: arrays-keep-order
+    provenance: source-derived
+    title: array elements keep their order and their repeats
+    given: '[3,1,2,1,"b","a"]'
+    expect:
+      stored: '[3,1,2,1,"b","a"]'
+  - spec: JE-44
+    variant: whitespace
+    provenance: source-derived
+    title: whitespace between tokens is dropped
+    given: '  { "a" : [ 1 , 2 ] , "b" : { } }  '
+    expect:
+      stored: '{"a":[1,2],"b":{}}'
+  - spec: JE-44
+    variant: scalars
+    provenance: source-derived
+    title: literals, strings and empty containers keep their text
+    given: '[true,false,null,"s",0,{},[]]'
+    expect:
+      stored: '[true,false,null,"s",0,{},[]]'
+  - spec: JE-44
+    variant: exponent-expanded
+    provenance: source-derived
+    title: exponent numbers are written in plain decimal
+    given: '[1e3,1E3,1e+3,1.5e3,2.5E+25,1e21,1e+21]'
+    expect:
+      stored: '[1000,1000,1000,1500,25000000000000000000000000,1000000000000000000000,1000000000000000000000]'
+  - spec: JE-44
+    variant: exponent-negative
+    provenance: source-derived
+    title: a negative exponent moves the point left and keeps the digits it passes
+    given: '[1.5e-3,1e-7,-1.5e-7,100e-2,12.5e-1,0.05e1,10e-1]'
+    expect:
+      stored: '[0.0015,0.0000001,-0.00000015,1.00,1.25,0.5,1.0]'
+  - spec: JE-44
+    variant: exponent-scale
+    provenance: source-derived
+    note: >-
+      Q-FX-7 asks how numeric's rewriting handles scale. numeric keeps
+      max(0, fraction digits - exponent) digits after the point, so trailing
+      zeros of the mantissa survive only where the exponent leaves them in
+      the fraction. The PostgreSQL job checks this case against the oracle's
+      image.
+    title: the scale is the fraction digits less the exponent, never negative
+    given: '[1.50e3,1.500e2,1.5e-1,1.50e-1,0.000e2]'
+    expect:
+      stored: '[1500,150.0,0.15,0.150,0.0]'
+  - spec: JE-44
+    variant: plain-decimals
+    provenance: source-derived
+    title: plain decimals keep every digit, trailing zeros and large integers included
+    given: '[1.50,0.10,100,12345678901234567890,0.000001,-3.140]'
+    expect:
+      stored: '[1.50,0.10,100,12345678901234567890,0.000001,-3.140]'
+  - spec: JE-44
+    variant: zero-sign
+    provenance: source-derived
+    title: zero has no sign, but keeps its scale
+    given: '[-0,-0.0,0.0,-0e3,0e-2,-0.00e1]'
+    expect:
+      stored: '[0,0.0,0.0,0,0.00,0.0]'
+
+  - spec: JE-44
+    variant: escape-solidus
+    provenance: policy
+    title: an escaped solidus is written raw
+    given: '"\/a\/"'
+    expect:
+      stored: '"/a/"'
+  - spec: JE-44
+    variant: escape-decoded
+    provenance: policy
+    title: \u escapes of printable characters are written as raw UTF-8, surrogate pairs as one character
+    given: '"\u0041\u00e9\u20ac\ud83d\ude00"'
+    expect:
+      stored: '"Aé€😀"'
+  - spec: JE-44
+    variant: escape-hex-case
+    provenance: policy
+    title: hexadecimal digits of either case decode alike
+    given: '"\u00E9\u00e9\uD83D\uDE00"'
+    expect:
+      stored: '"éé😀"'
+  - spec: JE-44
+    variant: escape-short-forms
+    provenance: policy
+    title: control characters with a short escape are written with it
+    given: '"\u0008\u000c\u000a\u000d\u0009"'
+    expect:
+      stored: '"\b\f\n\r\t"'
+  - spec: JE-44
+    variant: escape-control
+    provenance: policy
+    title: other control characters are written as \u00xx with lowercase digits
+    given: '"\u001F\u0001\u001b"'
+    expect:
+      stored: '"\u001f\u0001\u001b"'
+  - spec: JE-44
+    variant: escape-quote-backslash
+    provenance: policy
+    title: a quote and a backslash are written with their short escapes
+    given: '"\u0022\u005c"'
+    expect:
+      stored: '"\"\\"'
+  - spec: JE-44
+    variant: raw-kept
+    provenance: policy
+    title: raw characters stay raw, with no HTML escaping
+    given: '"é€😀<>&\"\\"'
+    expect:
+      stored: '"é€😀<>&\"\\"'
+
+  - spec: JE-44
+    variant: numeric-range-integer
+    provenance: policy
+    note: >-
+      PostgreSQL numeric holds at most 131072 digits before the decimal point,
+      so jsonb input rejects a larger number. The reference does not state
+      this; see request 4 in docs/design/README.md.
+    title: a number with more than 131072 integer digits has no stored form
+    given: '[1e131072]'
+    expect:
+      reject:
+        kind: numeric
+        database: value overflows numeric format
+  - spec: JE-44
+    variant: numeric-range-scale
+    provenance: policy
+    note: numeric holds at most 16383 digits after the decimal point; as numeric-range-integer.
+    title: a number with more than 16383 fraction digits has no stored form
+    given: '{"x":1e-16384}'
+    expect:
+      reject:
+        kind: numeric
+        database: value overflows numeric format
+  - spec: JE-44
+    variant: numeric-range-zero-scale
+    provenance: policy
+    note: The scale limit applies to zero too; as numeric-range-integer.
+    title: zero with more than 16383 fraction digits has no stored form
+    given: '0e-16384'
+    expect:
+      reject:
+        kind: numeric
+  - spec: JE-44
+    variant: numeric-range-zero-exponent
+    provenance: policy
+    note: Zero has no integer digits to count, so a large positive exponent is accepted; as numeric-range-integer.
+    title: zero with a large exponent is zero
+    given: '0e131072'
+    expect:
+      stored: '0'
