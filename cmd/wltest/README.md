@@ -147,7 +147,10 @@ case.
 `go test ./cmd/wltest` runs the suite (`TestStepSuite`, milestone C3a's
 exit gate, and with `wr-40.yaml` to `wr-45.yaml` milestone C3n's), checks that a wrong expectation of each kind fails
 (`TestStepCheckerReportsDifferences`), and that every catalogue case of a
-finding with a step file is a step case or deferred (`TestStepCatalogue`).
+finding with a step file is a step case or deferred (`TestStepCatalogue`),
+and that a native invocation's unhandled rejection of a web API's promise
+fails it and no invocation beside it in the same process
+(`TestNativeRejectionIsItsInvocationsOwn`).
 The Bun tests need `WL_BUN`; without it they skip, unless `WL_REQUIRE_BUN`
 is set, as CI sets it.
 
