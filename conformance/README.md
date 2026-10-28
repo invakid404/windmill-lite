@@ -1,21 +1,23 @@
 # conformance
 
-**Current state:** one level of the shared conformance suite exists, the
-OpenFlow decode cases in `openflow/`. This README covers `conformance/`. The
-flow, step and expression levels that
+**Current state:** two levels of the shared conformance suite exist: the
+OpenFlow decode cases in `openflow/` and the stored-form cases in `jsonb/`.
+This README covers `conformance/`. The flow, step and expression levels that
 [0003](../docs/design/0003-semantics-placement.md) defines have no cases or
 runners yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
-catalogue case it encodes (`docs/semantics/conformance.md`), and fixtures are
-synthetic: invented for this repository to exercise one behaviour each.
+catalogue case it encodes (`docs/semantics/conformance.md`), or the finding
+whose rule it encodes, and fixtures are synthetic: invented for this
+repository to exercise one behaviour each.
 
 ## Levels
 
 | Level | Directory | Status |
 |---|---|---|
 | decode | `openflow/<finding>.json` | in use; run by `go test ./internal/openflow` |
+| jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | flow | `flows/<area>/<case>/` | not yet |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
@@ -61,3 +63,52 @@ Case fields:
 `deferred.json` lists the catalogue's OF cases that are not decode cases,
 each with the reason and where it is expected to be checked. A test fails
 unless every OF case of the catalogue is a decode case here or is deferred.
+
+## Stored-form cases
+
+A stored-form case gives a value's *producer text*, as a step, QuickJS-ng or
+a static transform writes it, and expects its *stored text*, the text
+PostgreSQL `jsonb` gives back without its output spaces, or the rejection
+that leaves it with no stored form. Both texts are described in
+[internal/jsonval](../internal/jsonval/README.md). The catalogue cases are
+flow cases; a stored-form case checks only the texts, and names where the
+rest of the case is checked.
+
+Each `<finding>.yaml` file holds the cases of one finding. Texts are YAML
+single-quoted strings, in which a backslash is literal and only a quote is
+doubled, so the JSON text stays byte for byte as written:
+
+```yaml
+finding: JE-44
+cases:
+  - spec: JE-44/b
+    provenance: source-derived
+    title: an older step is read from the database (jsonb order)
+    read: stored
+    given: '{"bbb":1,"a":2,"cc":3}'
+    expect:
+      keys: [a, cc, bbb]
+      stored: '{"a":2,"cc":3,"bbb":1}'
+    rest_in: N1a, which serves results.a past a step in between from the stored text (JE-18)
+```
+
+Case fields:
+
+| Field | Meaning |
+|---|---|
+| `spec` | the catalogue case id, or the finding id for a case that encodes the finding's rule beyond its catalogue cases |
+| `variant` | names a case that has only a finding id |
+| `provenance` | for a catalogue case, the catalogue's tag, which the runner checks; for a rule case, the finding's, or `policy` where the case pins bytes the rule leaves open or PostgreSQL behaviour the reference does not state |
+| `scope` | the catalogue's scope tag, where it gives one |
+| `read` | `producer` or `stored`: the text the catalogue case's consumer reads, by the routing table of [0005](../docs/design/0005-json-step-boundaries.md) |
+| `given` | the producer text |
+| `expect.stored` | the exact stored text |
+| `expect.keys` | the top-level keys of the `read` text, in order, as the catalogue expects them |
+| `expect.reject` | `kind` (`nul`, `surrogate`, `numeric`, `syntax`) and optionally `database`, PostgreSQL's message |
+| `rest_in` | for a catalogue case, the milestone that checks the rest of it |
+| `note` | why the case reads as it does |
+
+`deferred.yaml` lists the catalogue cases of these findings that are not
+stored-form cases, each with the reason and where it is expected to be
+checked. A test fails unless every catalogue case of a finding with a file
+here is a case or is deferred.

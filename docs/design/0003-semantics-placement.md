@@ -287,7 +287,8 @@ figures show the trend, not the gate.
 Every Windmill rule is single-sourced in one implementation, so the suite's
 job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
-as hand-written YAML and JSON, at three run levels and one decode level:
+as hand-written YAML and JSON, at three run levels and two levels that
+observe no run (decode and jsonb):
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
@@ -295,6 +296,7 @@ as hand-written YAML and JSON, at three run levels and one decode level:
 | step | `conformance/steps/<lang>/<case>.yaml` | one script, its arguments, environment and boundary mode, the expected **stored** result or error (Windmill-observable terms), and the expected platform calls | Go `wltest check`, driving the real harness through the protocol; the oracle via a generated one-step flow |
 | expr | `conformance/exprs/<case>.yaml` | a **context-free** expression: an input transform or predicate of a flow's first step, with `flow_input` and `flow_env` as its only bound values (producer text; the stored form is derived with `jsonval`), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
 | decode | `conformance/openflow/<finding>.json` | an OpenFlow flow value as JSON and the effective decoder's decision: the rejection's message substrings, or parts of the accepted value's decoded form ([OF-2](../semantics/openflow.md#of-2)) | Go `internal/openflow` tests; on the oracle, a create-flow request once [Q-OF-2](../semantics/openflow.md#q-of-2) is recorded |
+| jsonb | `conformance/jsonb/<finding>.yaml` | a producer text and its stored text or the rejection jsonb gives it ([FX-42](../semantics/execution.md#fx-42), [JE-44](../semantics/expressions.md#je-44), [FX-48](../semantics/execution.md#fx-48)); for a catalogue case, also the form its consumer reads and the top-level key order expected there | Go `internal/jsonval` tests; PostgreSQL in the oracle's pinned image ([0005](0005-json-step-boundaries.md)) |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
 reproduce an expression whose meaning depends on what ran before it: a
@@ -355,6 +357,10 @@ validation with `contextual_case_needs_flow_fixture`.
 - The decode level was added with milestone A3. A flow value's accept or
   reject decision has no run to observe, so it fits none of the three run
   levels, and the decoder is Go only, so no harness reads these cases.
+- The jsonb level was added with milestone A1, for the same reasons: a
+  value's stored text is observed without a run, and the canonicaliser is Go
+  only. Its catalogue cases are flow cases whose texts it checks; each names
+  the milestone that checks its route.
 
 ## Spec IDs relied on
 
