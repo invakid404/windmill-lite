@@ -67,7 +67,7 @@ step without failing the others.
      streams turns, one part frame each, so a small frame waits behind at
      most one part frame.
    - Messages about one invocation (`invoke`, `cancel`, `result`, `late`,
-     `log`) keep their order: one queued while a part stream about the same
+     `log`, `warning`) keep their order: one queued while a part stream about the same
      invocation is open waits for that stream's last part. A `cancel` never
      reaches a harness before the large `invoke` it cancels, and a `late`
      frame never reaches the engine before the large `result` it follows.
@@ -89,6 +89,7 @@ step without failing the others.
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
+| `warning` | harness → engine | `id`, `code` (`unattributed_error`), `message` | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
@@ -111,6 +112,13 @@ Windmill makes them:
    fails the step with `<name> function is missing` (`main function is
    missing` for `main`, `preprocessor function is missing` for the
    preprocessor), in the wrapper-catch shape.
+
+An export whose recorded signature did not parse (a rest parameter,
+[WR-7](../semantics/languages.md#wr-7)) fails the step before its module
+loads, as Windmill's worker fails the job before its process starts, with
+[WR-37](../semantics/languages.md#wr-37)'s object
+(`{"message":"execution error:\n<parse error>","name":"ExecutionErr","step_id":…}`),
+reported as an `error` outcome.
 
 The harness binds arguments with the signature the manifest records for that
 export ([0002](0002-ir-and-loader.md)), hydrates its `Date` parameters, and
@@ -168,7 +176,8 @@ microtask see none.
    invocation, because the harness cannot know whose they are and never
    guesses. Each is counted in `pong`, logged with its text and stack, and
    attached as a warning to every run that had an invocation in flight in
-   that process at that moment (D9).
+   that process at that moment (D9), as a `warning` frame for each
+   invocation then in flight.
 4. **Work after the result** (unawaited promises, timers, open handles)
    keeps running; Windmill cuts it off at `process.exit`
    ([WR-2](../semantics/languages.md#wr-2)). Its output and errors are
@@ -524,9 +533,65 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   signalling the host: the host-mode rules kill a host only through the
   watchdog. It also recorded that the environment view covers `Bun.env` at
   run time (§Per-invocation identity, logs and environment).
+- Milestone C3a implemented the step runtime's rules and fixed what they
+  left open:
+  - **`warning`**, a new message, carries an unattributed process-level
+    error to each invocation in flight (failure model item 3), so the
+    engine's `Reporter.Warning` hears of it; health's `errors` counts only
+    those, not attributed ones. Its message is cut to fit `max_message`,
+    and the handlers never throw (item 1): a throw from one would reach the
+    other, and one from there ends the process.
+  - **A signature that did not parse** fails the step before its module
+    loads (§Entrypoints).
+  - **`process.exit`** checks its code as Bun 1.3.10 does: a safe integer
+    (within ±(2^53 − 1)), or a string other than `""` that `Number` reads
+    as one (`" "` is 0), modulo 256 (`process.exit(258)` exits 2), no code
+    being `process.exitCode` or 0; any other code makes Bun throw before it
+    exits, so the call throws Bun's own error, which the wrapper catches,
+    and fixes no outcome. The outcome's `result` frame has `settled` false; the
+    call's end is the settling `late` frame, without a body when the
+    sentinel ended it. An exit during a module's evaluation fails every
+    invocation of that script with that exit, as every Windmill job of it
+    would. `process.reallyExit`, `process.abort` and a signal still end the
+    process (item 6 replaces `process.exit` only).
+  - **Attribution** uses the invocation's `AsyncLocalStorage` store: an
+    error raised in a running invocation's context fixes it as `escaped`
+    with `settled` false; in one whose outcome is fixed, that was
+    abandoned, or that has settled, it is a `late` error that settles
+    nothing.
+  - **The per-invocation registry.** The store holds the invocation's
+    resource registry, which the runtime settles with the invocation, so
+    the settle-time fence that milestone C3b adds to D9 (timers and
+    `fetch` requests an invocation started) registers there and needs no
+    global table. Its counts are the leak report: Bun 1.3.10's
+    `process._getActiveHandles()` lists nothing.
+  - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
+    returns a runner for the caller's async context without the
+    invocation's store, so a pooled client or a host-provided module that
+    captures it at load, and runs its factories through it, starts its
+    maintenance timers in no invocation: they are never attributed, and
+    never fenced. A factory a step calls runs in the step's context unless
+    it re-enters the captured scope; loading outside every invocation is
+    not enough. The API is published when the harness runtime's module is
+    evaluated, so it exists before a spawned harness registers its
+    host-provided copies, and in host mode as soon as the host imports the
+    host SDK.
+  - **Host-provided modules in a spawned harness** are the bundle's copies,
+    registered in the manifest's `host_modules` order before any step loads
+    and before the harness's `hello`, once every process-wide hook (the
+    process scope included) is installed ([0010](0010-packaging.md), D12).
+  - **Signatures by name.** The build records the signature of every
+    top-level function declaration, exported or not, beside every export's
+    ([0002](0002-ir-and-loader.md)), so an entrypoint whose declaration
+    does not parse fails before its module loads even when the module does
+    not export it ([WR-7](../semantics/languages.md#wr-7)).
+  - **Results above `max_message`** stay a protocol refusal (an `escaped`
+    outcome whose tail says so). Windmill's size limits are applied at
+    completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the
+    engine, not by the harness.
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-4, WR-12, WR-13, WR-15, WR-18, WR-20 to WR-23, WR-37, WR-V1,
+WR-1, WR-2, WR-4, WR-7, WR-12, WR-13, WR-15, WR-18 to WR-23, WR-37, WR-V1,
 WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
 CF-4, CF-7, CF-28.

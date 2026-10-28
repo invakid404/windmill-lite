@@ -35,7 +35,9 @@ func (f *fakeSteps) Execute(ctx context.Context, inv Invocation) (StepOutcome, e
 		return StepOutcome{Kind: OutcomeOK, Body: inv.Args}, nil
 	case "f/w1/throws":
 		inv.Report.Settled(SettleCompleted)
-		return StepOutcome{Kind: OutcomeError, Body: jsonval.FromProducer([]byte(`{"message":"boom","name":"Error","stack":"Error: boom"}`))}, nil
+		// The wrapper's object carries the step id it read from
+		// WM_FLOW_STEP_ID (WR-18).
+		return StepOutcome{Kind: OutcomeError, Body: jsonval.FromProducer([]byte(`{"message":"boom","name":"Error","stack":"Error: boom","step_id":"` + inv.Env["WM_FLOW_STEP_ID"] + `"}`))}, nil
 	case "f/w1/escapes":
 		inv.Report.Settled(SettleCompleted)
 		return StepOutcome{Kind: OutcomeEscaped, Tail: "last line\n", ExitCode: 1}, nil
@@ -246,7 +248,7 @@ func TestSkeletonFailureValues(t *testing.T) {
 			t.Fatal("must_not_run ran")
 		}
 	}
-	if got := string(escapedError("a", StepOutcome{Kind: OutcomeEscaped, Tail: "x\nlast\n", ExitCode: 1}).Producer()); got !=
+	if got := string(StoreOutcome(StepOutcome{Kind: OutcomeEscaped, Tail: "x\nlast\n", ExitCode: 1}, "a").Value.Producer()); got !=
 		`{"error":{"message":"exit code for \"bun run\": 1, last log lines:\nx\nlast","name":"ExecutionErr","step_id":"a","exit_code":1}}` {
 		t.Fatalf("WR-20: %s", got)
 	}

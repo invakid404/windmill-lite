@@ -1,0 +1,67 @@
+# WR-6: how the arguments bind to the entrypoint, through the signature the
+# build recorded (conformance/build/wr-6.json is the build half).
+finding: WR-6
+scope: core
+cases:
+  - spec: WR-6/a
+    provenance: source-derived
+    title: a missing key gives undefined, so the defaults apply
+    script: |
+      export function main(a: number, b = "dflt", c?: string) { return [a, b, c ?? "none"]; }
+    runs:
+      - args: '{"a":1}'
+        expect: {status: success, result: [1, dflt, none]}
+  - spec: WR-6/b
+    provenance: source-derived
+    title: null is kept, and unknown keys are dropped
+    script: |
+      export function main(a: number, b = "dflt", c?: string) { return [a, b, c ?? "none"]; }
+    runs:
+      - args: '{"a":1,"b":null,"zzz":9}'
+        expect: {status: success, result: [1, null, none]}
+  - spec: WR-6/c
+    provenance: source-derived
+    title: no coercion
+    script: |
+      export function main(a: number, b = "dflt", c?: string) { return [a, b, c ?? "none"]; }
+    runs:
+      - args: '{"a":"5"}'
+        expect: {status: success, result: ["5", dflt, none]}
+  - spec: WR-6/d
+    provenance: source-derived
+    title: an arrow main without an override gets no arguments
+    script: |
+      export const main = (...xs) => xs.length;
+    runs:
+      - args: '{"a":1}'
+        expect: {status: success, result: 0}
+  - spec: WR-6/e
+    provenance: source-derived
+    title: the override fallback passes the non-underscore values, integer-like keys first and ascending
+    script: |
+      export function other() { return [...arguments]; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"other","9":9,"2":2,"_hidden":7}'
+        expect: {status: success, result: [2, 9]}
+  - spec: WR-6/f
+    provenance: source-derived
+    title: with non-integer keys the fallback's order is unspecified, so any permutation passes
+    script: |
+      export function other() { return [...arguments]; }
+    compare: {unordered: [/result]}
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"other","a":1,"bb":2,"ccc":3}'
+        expect: {status: success, result: [1, 2, 3]}
+  - spec: WR-6
+    variant: fallback-text-order
+    provenance: policy
+    title: the harness passes the fallback's non-integer keys in the order the argument text gives them
+    note: >-
+      The reference leaves this order unspecified (the worker's outer map is
+      a hash map, WR-10 layer 1); windmill-lite's engine hands the harness
+      one text, whose order JavaScript keeps after the integer-like keys.
+    script: |
+      export function other() { return [...arguments]; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"other","ccc":3,"a":1,"10":0,"bb":2}'
+        expect: {status: success, result: [0, 3, 1, 2]}

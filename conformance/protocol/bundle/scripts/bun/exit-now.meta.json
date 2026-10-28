@@ -1,0 +1,12 @@
+{
+  "signatures": {
+    "main": {
+      "params": [
+        {
+          "name": "code",
+          "date": false
+        }
+      ]
+    }
+  }
+}

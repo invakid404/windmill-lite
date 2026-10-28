@@ -432,6 +432,18 @@ error, with the database route (a step in between) as its control.
   where its run is checked (the step suite, C3a), and a case can run the
   built modules directly to show that the transforms behave as Windmill's.
   The parse lives in the Bun build helper, but Go is the one comparator.
+- The step level took its format with milestone C3a: one
+  `conformance/steps/<lang>/<finding>.yaml` per finding (or per deviation
+  without one, such as `d11.yaml`), as the expression level has, each case
+  one script and the runs one harness process serves in order, so module
+  state across runs is observable. A run's check (the stored value as an
+  observation, claims, late reports, settlement, warnings) holds in every
+  configuration; a case of a deviation gives one check per configuration
+  instead (`by_mode`, `warm` and `fresh`). `deferred.yaml` lists the
+  catalogue cases of those findings that are not step cases. `wltest
+  check` builds each file's scripts with the Bun build helper, maps every
+  outcome to Windmill's stored value with the engine's mapping, and
+  compares in Go. Expected platform calls arrive with the facade (PF1).
 
 ## Spec IDs relied on
 

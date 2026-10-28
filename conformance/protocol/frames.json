@@ -253,6 +253,25 @@
       "payload": "{\"t\":\"log\",\"id\":\"i1\",\"lines\":[\"one\",\"two\"]}"
     },
     {
+      "case": "warning",
+      "title": "a process-level error no invocation owned, sent to each invocation in flight",
+      "message": {
+        "t": "warning",
+        "id": "i1",
+        "code": "unattributed_error",
+        "message": "unhandledRejection: Error: detached"
+      },
+      "payload": "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"unattributed_error\",\"message\":\"unhandledRejection: Error: detached\"}"
+    },
+    {
+      "case": "warning-missing-message",
+      "title": "a warning needs its message",
+      "frames": [
+        "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"unattributed_error\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
       "case": "welcome-config-facade",
       "title": "a welcome whose engine serves platform calls names the facade origin, after the other config fields",
       "message": {

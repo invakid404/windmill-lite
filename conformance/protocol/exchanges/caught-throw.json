@@ -1,6 +1,6 @@
 {
   "case": "caught-throw",
-  "title": "a throw the wrapper catches is an error outcome with the error's message, name and stack",
+  "title": "a throw the wrapper catches is an error outcome with WR-18's object: the error's message, name and stack, then step_id from WM_FLOW_STEP_ID",
   "provenance": "policy",
   "relies_on": [
     "WR-18"
@@ -64,7 +64,8 @@
         "body": {
           "message": "boom",
           "name": "Error",
-          "stack": "<string>"
+          "stack": "<string>",
+          "step_id": "a"
         },
         "settled": true
       }

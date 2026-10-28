@@ -2,7 +2,9 @@
   "case": "cancel-error-late",
   "title": "an abandoned call that throws settles with a late error",
   "provenance": "policy",
-  "relies_on": [],
+  "relies_on": [
+    "WR-18"
+  ],
   "design": "docs/design/0004-harness-protocol.md#cancellation-and-deadlines",
   "steps": [
     {
@@ -91,7 +93,8 @@
         "body": {
           "message": "after cancel",
           "name": "Error",
-          "stack": "<string>"
+          "stack": "<string>",
+          "step_id": "a"
         },
         "settled": true
       }

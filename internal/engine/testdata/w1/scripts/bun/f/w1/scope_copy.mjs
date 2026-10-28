@@ -5,6 +5,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 const store = new AsyncLocalStorage();
 
-export async function main(args) {
-  return { shim: args.shim, copy: store.getStore()?.tenant ?? null };
+export async function main(shim) {
+  return { shim, copy: store.getStore()?.tenant ?? null };
 }

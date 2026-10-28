@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, realpathSync } from "node:fs";
 import type { Socket } from "node:net";
 import { join } from "node:path";
+import { exitProcess } from "../runtime/context.ts";
 import { type HostHealth, Runtime } from "../runtime/runtime.ts";
 
 /** The process-wide registry of host-provided modules: module path to the
@@ -176,7 +177,9 @@ export async function connect(o: ConnectOptions): Promise<Host> {
         if (closing) return;
         if (o.onEngineExit) return o.onEngineExit(status);
         diag(`windmill-lite: the engine exited (${status.signal ?? `code ${status.code}`}); exiting so that the supervisor restarts the host`);
-        process.exit(1);
+        // The real exit: this may run in an invocation's context, where
+        // process.exit is intercepted (D11).
+        exitProcess(1);
       });
     },
   });

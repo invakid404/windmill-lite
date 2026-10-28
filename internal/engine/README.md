@@ -1,8 +1,10 @@
 # internal/engine
 
 **Current state:** the contracts of milestone K1
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)) and the
-walking skeleton's interpreter (W1). This README covers `internal/engine`
+([ADR 0012](../../docs/design/0012-layout-and-milestones.md)), the
+walking skeleton's interpreter (W1), and the mapping of a Bun step's
+outcome to Windmill's stored value with the entrypoint's selection
+(milestone C3a). This README covers `internal/engine`
 and its `testdata/`. The package holds the seams that the flow interpreter
 is built against: the step executor, the hook interface with no-op
 defaults, the precedence of host signals, and the run trace.
@@ -16,6 +18,7 @@ N1a replaces it with the engine core. The harness that executes steps is
 | File | Contents | Built on by |
 |---|---|---|
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it |
+| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below) | C3a; the step-case runner (`wltest check`) and the skeleton call them; N1a's interpreter will |
 | `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10) | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
@@ -85,6 +88,39 @@ A `StepOutcome` mirrors the harness's `result` frame (`ok`, `error`,
   abandoned invocation produces later reaches the trace through `Reporter`
   as `Late` (deviations D2 and D9).
 
+## Stored values and the entrypoint
+
+`StoreOutcome(out, stepID)` is the outcome table of
+[ADR 0004](../../docs/design/0004-harness-protocol.md): what Windmill
+stores for a Bun step, which is also what the flow sees of a failed one.
+
+| Outcome | Stored | Origin |
+|---|---|---|
+| `ok` | the result's producer text | — |
+| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user |
+| `escaped`, by a signal | `execution error:\nprocess terminated by signal: <signal>`, `ExecutionErr`, `step_id` ([WR-4](../../docs/semantics/languages.md#wr-4), [WR-37](../../docs/semantics/languages.md#wr-37)) | harness |
+| `escaped`, by an exit | `exit code for "bun run": <code>, last log lines:\n<tail>`, `ExecutionErr`, `step_id`, `exit_code` ([WR-20](../../docs/semantics/languages.md#wr-20)) | harness |
+| `empty` | `Internal: Result of job is invalid json (empty)`, `InternalErr`, no `step_id` ([WR-V2](../../docs/semantics/languages.md#wr-v2)), and no Rust location (D14) | harness |
+
+`step_id` is added only for a flow step (`stepID` not empty). The tail is
+`LogTail`'s: the last 600 characters, what follows the last `CODE EXECUTION
+---` marker, without ANSI escapes, trimmed. Windmill's size limits on a
+result ([WR-15](../../docs/semantics/languages.md#wr-15), `later`) are not
+applied here.
+
+`Entrypoint(args)` is the export an invocation calls
+([WR-12](../../docs/semantics/languages.md#wr-12)): the value of
+`_ENTRYPOINT_OVERRIDE` when the argument object carries it, as the flow
+preprocessor step's always does, and `main` otherwise. An override that is
+not a string matching `^[A-Za-z_][A-Za-z0-9_]*$` is refused with an error
+wrapping `ErrInvalidEntrypoint`, whose text begins `Invalid entrypoint
+override`, before any wrapper runs; the failure value that error becomes is
+the interpreter's (N1a). The harness selects WR-V1's fallback from the same
+argument.
+
+`outcome_test.go` checks every row, the bypass's edges, the tail and the
+entrypoint's rules.
+
 ## Settlement
 
 An invocation settles when its entrypoint call can run no more code, and
@@ -146,10 +182,12 @@ C3a and F4 replace its parts.
   is abandoned and fails with
   [WR-37](../../docs/semantics/languages.md#wr-37)'s text.
 - **Failure.** The flow stops at the first failed step, whose result is the
-  flow's ([FX-36](../../docs/semantics/execution.md#fx-36)). The failure
-  values follow [FX-12](../../docs/semantics/execution.md#fx-12) and
-  [FX-14](../../docs/semantics/execution.md#fx-14); C3a and N1a own the
-  final mapping. The final result is stored as jsonb.
+  flow's ([FX-36](../../docs/semantics/execution.md#fx-36)). A step's
+  failure value is `StoreOutcome`'s; those the engine raises around a step
+  (a timeout, a transform's error) follow
+  [FX-12](../../docs/semantics/execution.md#fx-12) and
+  [FX-14](../../docs/semantics/execution.md#fx-14), and N1a owns them. The
+  final result is stored as jsonb.
 - **Host signals.** `Start` and `Completion` decide the latch and
   cancellation at every module, and a hook that latches the run on the way
   to a launch (`OnModuleStart`, `Intercept`, `InvocationEnv`) stops the
@@ -159,7 +197,8 @@ C3a and F4 replace its parts.
   `StaticIntercepts` is H1's no-code form, a fixed result per module id.
 
 `testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step
-modules written by hand, among them `scope_shim.mjs`, which reads the
+modules written by hand, each with the `.meta.json` signature the build
+helper would record (the harness binds arguments by it), among them `scope_shim.mjs`, which reads the
 host-provided module `f/w1/scopes.ts` through a hand-written shim, and
 `scope_copy.mjs`, which bundles its own copy of it.
 

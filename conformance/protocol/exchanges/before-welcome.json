@@ -32,7 +32,9 @@
         "site": "m:a",
         "script": "echo",
         "entry": "main",
-        "args": {},
+        "args": {
+          "value": {}
+        },
         "env": {
           "WM_FLOW_STEP_ID": "a"
         },

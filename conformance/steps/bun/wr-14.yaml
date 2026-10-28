@@ -1,0 +1,15 @@
+# WR-14: object fields holding undefined are kept as null.
+finding: WR-14
+scope: core
+cases:
+  - spec: WR-14/a
+    provenance: source-derived
+    title: the key survives with null
+    note: >-
+      The step half: its stored result. That a next step's transform sees the
+      key (results.a.hasOwnProperty("a")) is the flow runner's (N1a, E1).
+    script: |
+      export function main() { return { a: undefined, b: 1 }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {a: null, b: 1}}

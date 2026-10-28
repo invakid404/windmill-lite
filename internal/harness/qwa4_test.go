@@ -234,17 +234,17 @@ func qwa4Bundle(t *testing.T, bun, client string) (string, []string) {
 		return imp + `
 import { jobId } from "wl-env-reader";
 
-export async function main(args) {
-  await Bun.sleep(args.delay);
+export async function main(delay, del) {
+  await Bun.sleep(delay);
   const process_ = process.env.WM_JOB_ID;
   const bun = Bun.env.WM_JOB_ID;
   const meta = import.meta.env.WM_JOB_ID;
   const copy = { ...process.env }.WM_JOB_ID;
   process.env.WL_WRITTEN = "wrote-" + process.env.WM_JOB_ID;
-  if (args.del) delete process.env.WL_QWA4_PROCESS;
+  if (del) delete process.env.WL_QWA4_PROCESS;
   const dep = jobId();
   const root = await wmill.getRootJobId();
-  await Bun.sleep(args.delay);
+  await Bun.sleep(delay);
   return { process: process_, bun, meta, copy, written: process.env.WL_WRITTEN, kept: Bun.env.WL_QWA4_PROCESS ?? null, dep, root, after: process.env.WM_JOB_ID, afterbun: Bun.env.WM_JOB_ID };
 }
 `
@@ -280,6 +280,10 @@ export async function main(args) {
 		variants = append(variants, "source-"+name)
 	}
 	slices.Sort(variants)
+	// The signature the build helper would record for main (ADR 0002).
+	for _, v := range variants {
+		write("bundle/scripts/bun/qwa4/"+v+".meta.json", `{"signatures":{"main":{"params":[{"name":"delay","date":false},{"name":"del","date":false}]}}}`)
+	}
 	// The bundled variants must have inlined the client and kept the
 	// dependency external, and the define rewrite must have applied.
 	for _, v := range variants {

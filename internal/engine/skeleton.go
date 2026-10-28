@@ -511,21 +511,15 @@ func (r *skelRun) module(ctx context.Context, m skelModule, prev jsonval.Value, 
 			return fail(engineError("InternalErr", err.Error()), OriginEngine)
 		}
 	}
-	switch out.Kind {
-	case OutcomeOK:
-		rec.Status, rec.Module, rec.Result, rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, out.Body, out.Body
-		return rec, true
-	case OutcomeError:
-		// FX-12: the Bun wrapper's object, with step_id added.
-		return fail(wrapError(withStepID(out.Body, m.id)), origin)
-	case OutcomeEscaped:
-		if out.Signal != "" {
-			return fail(stepError(m.id, "execution error:\nprocess terminated by signal: "+out.Signal), OriginHarness)
+	stored := StoreOutcome(out, m.id)
+	if stored.Failed {
+		if origin == OriginHost {
+			stored.Origin = OriginHost
 		}
-		return fail(escapedError(m.id, out), OriginHarness)
-	default:
-		return fail(engineError("InternalErr", "the step produced no result"), OriginHarness)
+		return fail(stored.Value, stored.Origin)
 	}
+	rec.Status, rec.Module, rec.Result, rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, stored.Value, stored.Value
+	return rec, true
 }
 
 // args evaluates the module's input transforms in order (JE-23), and
@@ -688,8 +682,8 @@ func (h StaticIntercepts) Intercept(_ context.Context, _ Run, s Site, _ jsonval.
 	return StepOutcome{Kind: OutcomeOK, Body: v}, true, nil
 }
 
-// The failure values below are the skeleton's; C3a and N1a own the final
-// mapping (WR-18, WR-20, WR-21, WR-37, WR-V2, FX-12).
+// The failure values below are the engine's own, around a step's outcome,
+// which StoreOutcome maps (milestone C3a); N1a owns the rest of them.
 
 // wrapError wraps E as {"error": E} (WR-21).
 func wrapError(e []byte) jsonval.Value {
@@ -698,25 +692,7 @@ func wrapError(e []byte) jsonval.Value {
 
 // stepError is a worker-side failure: {"message", "name": "ExecutionErr",
 // "step_id"} (FX-12, WR-37).
-func stepError(stepID, message string) jsonval.Value {
-	b, _ := json.Marshal(struct {
-		Message string `json:"message"`
-		Name    string `json:"name"`
-		StepID  string `json:"step_id"`
-	}{message, "ExecutionErr", stepID})
-	return wrapError(b)
-}
-
-// escapedError is WR-20's log-tail error.
-func escapedError(stepID string, out StepOutcome) jsonval.Value {
-	b, _ := json.Marshal(struct {
-		Message  string `json:"message"`
-		Name     string `json:"name"`
-		StepID   string `json:"step_id"`
-		ExitCode int    `json:"exit_code"`
-	}{fmt.Sprintf("exit code for \"bun run\": %d, last log lines:\n%s", out.ExitCode, strings.TrimSpace(out.Tail)), "ExecutionErr", stepID, out.ExitCode})
-	return wrapError(b)
-}
+func stepError(stepID, message string) jsonval.Value { return workerError(stepID, message) }
 
 // engineError is a pre-run failure: {"message", "name"} with no step_id
 // (FX-12, FX-14).
@@ -726,22 +702,6 @@ func engineError(name, message string) jsonval.Value {
 		Name    string `json:"name"`
 	}{message, name})
 	return wrapError(b)
-}
-
-// withStepID appends "step_id" to the error object the wrapper produced,
-// keeping its own text and key order (FX-12).
-func withStepID(body jsonval.Value, stepID string) []byte {
-	b := bytes.TrimSpace(body.Producer())
-	id, _ := json.Marshal(stepID)
-	if len(b) < 2 || b[0] != '{' || b[len(b)-1] != '}' {
-		return b
-	}
-	out := append([]byte(nil), b[:len(b)-1]...)
-	if len(bytes.TrimSpace(b[1:len(b)-1])) > 0 {
-		out = append(out, ',')
-	}
-	out = append(out, `"step_id":`...)
-	return append(append(out, id...), '}')
 }
 
 // newUUID returns a random (version 4) UUID: windmill-lite's job ids (D3).

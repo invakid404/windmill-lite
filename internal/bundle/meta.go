@@ -18,7 +18,8 @@ type ScriptMeta struct {
 	WorkflowAsCode WorkflowAsCode `json:"workflow_as_code"`
 	// Exports are the bundled module's export names.
 	Exports []string `json:"exports"`
-	// Signatures holds the parsed signature of every export (ADR 0002).
+	// Signatures holds the parsed signature of every export, and of every
+	// other top-level function declaration, by name (ADR 0002, WR-7).
 	Signatures map[string]Signature `json:"signatures"`
 	// Imports is the closure of workspace scripts the bundle inlined, by
 	// Windmill path (WR-28).
