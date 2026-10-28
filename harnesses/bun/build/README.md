@@ -113,7 +113,10 @@ For each script the build:
    workflow-as-code markers, the workspace scripts inlined, the packages the
    source imports, the host-provided modules used, and the metafile with
    paths relative to the dependency set's directory. It writes
-   `scripts/bun/<id>.mjs` into the bundle; Go writes `<id>.meta.json`.
+   `scripts/bun/<id>.mjs` into the bundle; Go writes `<id>.meta.json`. An
+   id is the script's inventory id: one or more `/`-separated segments,
+   none empty, `.` or `..`, and none holding a backslash or NUL, so the
+   path script `f/app/x` is written to `scripts/bun/f/app/x.mjs`.
 
 Sources are written under the dependency set's directory before bundling,
 so the paths a bundle's comments name are the same on every machine:
@@ -175,7 +178,8 @@ D12) is a script of the folder or an installed package.
   module's bundled copy is written to `scripts/bun/provided/<id>.mjs`, from
   an entry that imports the env support module and re-exports the scanned
   names, with the module's own imports of other listed modules resolved to
-  their shims. A copy whose
+  their shims. The build reports the workspace scripts each copy inlined,
+  which the Go build adds to the bundle's sources. A copy whose
   exports differ from its scan (it re-exports another listed module with
   `export *`) is a problem in Go.
 

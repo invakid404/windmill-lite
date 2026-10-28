@@ -1,6 +1,6 @@
 {
   "finding": "WA-33",
-  "note": "The parser's two workflow-as-code detection paths, for the default entrypoint main. windmill-lite records them and its loader refuses such scripts (WA-33/c, A5).",
+  "note": "The parser's two workflow-as-code detection paths, for the default entrypoint main. windmill-lite records them, and its build refuses such scripts (WA-33/c).",
   "cases": [
     {
       "spec": "WA-33/a",
@@ -105,6 +105,26 @@
             ]
           }
         }
+      }
+    },
+    {
+      "spec": "WA-33/c",
+      "provenance": "policy",
+      "title": "the build refuses a script either detection path classifies as workflow-as-code",
+      "note": "A root path script classified by the parsed path and an inline flow step classified by the substring fallback both fail with unsupported_feature, unsupported: workflow_as_code (ADR 0001 §3); the plain step beside them builds.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/case/parsed.ts": "export const main = workflow(async (x: number) => x);\n",
+          "f/case/plain.ts": "export async function main() { return 1; }\n",
+          "f/case/flow.flow/flow.yaml": "summary: workflow-as-code by the substring fallback\nvalue:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"// workflow( and task( from windmill-client\\nexport const main = async () => 1;\\n\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {"item": "script f/case/parsed", "kind": "unsupported_feature", "contains": ["unsupported: workflow_as_code"]},
+          {"item": "f/case/flow step 'a' (script inline-", "kind": "unsupported_feature", "contains": ["unsupported: workflow_as_code"]}
+        ]
       }
     }
   ]

@@ -228,6 +228,55 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 - The pinned Bun is the reference's; a host on another Bun gets a visible
   `nonconformant_runtime` flag, not a silent difference.
 - One-file deployment is available for the common case of a single language.
+- Milestone F4 built the bundle (`internal/bundle`, `windmill-lite build`,
+  `verify` and `selfcheck`) and settled what this record left open:
+  - **Names.** A script's files are named by its inventory id
+    ([0002](0002-ir-and-loader.md)), whose `/`-separated segments become
+    directories (`scripts/bun/f/app/report.mjs`), as the harness runtime
+    already resolved an id; a host-provided module's by its script path.
+  - **Canonical form.** `manifest.json` is written in its canonical form:
+    keys sorted by their UTF-8 bytes, numbers as written, minimal string
+    escapes, two-space indentation and a final newline. The bundle digest is
+    the SHA-256 of those bytes, which the harness computes from the file. A
+    manifest in any other form is refused.
+  - **Manifest.** Beyond the table above, it records the expression
+    engine's stack limit ([0003](0003-semantics-placement.md)), the
+    host-provided modules in registration order, and the harness runtime
+    as the digest of its directory tree, which refuses a symbolic link
+    below the runtime's directory. Its deviations are the program's,
+    those of the module-state mode (D1, D2, D9 to D11 in `warm`) and those
+    every bundle has (D3, D8, D14).
+  - **Source inventory.** It lists the files the build read: what the
+    compiler read through a recording file system, the workspace scripts
+    the bundles inline, and each host-provided module's file, metadata and
+    lock. A file nothing reaches is not an input, so editing it leaves the
+    digest. Nor is a secret variable's file: with `plainSecrets` its digest
+    would let a reader of the manifest test guesses of the value.
+  - **`data/`** holds one JSON file per kind: resources, resource types,
+    and variables without secrets, whose values a folder holds as
+    ciphertext or, with `plainSecrets`, plain text; the host supplies
+    secrets.
+  - **Archive.** A `.wlb` is a tar file with `manifest.json` first, then the
+    listed files in path order, with fixed headers, so one bundle gives one
+    archive, byte for byte. Reading one, `verify` accepts only regular files
+    and the bundle's own directories, with clean relative names that form
+    one tree even where names compare without case (as on macOS), so an
+    archive that verifies extracts to the tree its manifest lists; a
+    manifest whose paths would collide that way is refused.
+  - **`verify`** checks the files against a release manifest when given one
+    (and the bundle's own manifest must then be its bytes), otherwise
+    against the bundle's own: alone, that proves a bundle intact, not that
+    it is the one released.
+  - **Refusals.** The build applies validation rule 5 of
+    [0002](0002-ir-and-loader.md) (`missing_lock`) and refuses
+    workflow-as-code (`unsupported: workflow_as_code`, from the helper's
+    markers). Until their milestones, it also refuses codebase scripts
+    (C2b) and host-provided packages: a package needs a lock to install
+    from, and the host contract has no place for one yet.
+  - **Drift guard 5** is the `Static Linux engine` CI job: it builds the
+    engine with `zig cc` against musl for `amd64` and `arm64`, checks that
+    it is static, and runs `windmill-lite selfcheck`, which starts the
+    expression engine, and `verify` in an image built `FROM scratch`.
 - Milestone W1 measured on Bun 1.3.10 that the harness's environment view
   isolates `Bun.env` and `import.meta.env` reads at run time even without
   the env rewrite of step 5 ([0004](0004-harness-protocol.md)), including

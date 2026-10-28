@@ -6,7 +6,8 @@
 //
 // Sources are materialised under a dependency set's directory, so bare
 // imports resolve from its node_modules and the paths a bundle names are
-// relative to it: entries at `entry/<id>.ts`, workspace scripts at
+// relative to it: entries at `entry/<id>.ts` (an id may have `/`-separated
+// segments), workspace scripts at
 // `src/<Windmill path>.ts`, shims at `host/<id>.mjs`, a host-provided copy's
 // entry at `host/<id>.entry.mjs`, the env support module at
 // `wl/env-<binding>.mjs`.
@@ -32,7 +33,11 @@ export class BuildProblem extends Error {
   }
 }
 
-const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// An id names files: one or more `/`-separated segments, none empty, `.`
+// or `..`, and none holding a backslash or NUL (the Go build's rule).
+function validId(id: string): boolean {
+  return id.split("/").every((s) => s !== "" && s !== "." && s !== ".." && !s.includes("\\") && !s.includes("\0"));
+}
 const SAFE_KEY = /^[A-Za-z0-9_-]+$/;
 
 function own(m: Record<string, string>, key: string): string | undefined {
@@ -78,13 +83,13 @@ export class Builder {
 
   constructor(private readonly req: Request) {
     for (const hm of req.host_modules) {
-      if (!SAFE_ID.test(hm.id)) throw new BuildProblem("invalid_request", `host module id ${JSON.stringify(hm.id)}`);
+      if (!validId(hm.id)) throw new BuildProblem("invalid_request", `host module id ${JSON.stringify(hm.id)}`);
       if (hm.package !== undefined) this.hostByPackage.set(hm.package, hm);
       else if (hm.path !== undefined && hm.file !== undefined) this.hostByPath.set(hm.path, hm);
       else throw new BuildProblem("invalid_request", `host module ${hm.id} names neither a package nor a file`);
     }
     for (const e of req.entries) {
-      if (!SAFE_ID.test(e.id)) throw new BuildProblem("invalid_request", `entry id ${JSON.stringify(e.id)}`);
+      if (!validId(e.id)) throw new BuildProblem("invalid_request", `entry id ${JSON.stringify(e.id)}`);
     }
     for (const k of Object.keys(req.deps)) {
       if (!SAFE_KEY.test(k)) throw new BuildProblem("invalid_request", `dependency set ${JSON.stringify(k)}`);
@@ -356,11 +361,12 @@ export class Builder {
   async buildHostModule(hm: HostModuleRequest): Promise<HostModuleResult> {
     const { dir, entry, source, seeds } = await this.hostEntry(hm);
     // The copy's entry re-exports the scanned names and imports the env
-    // support module first.
-    const target = JSON.stringify("./" + relative(join(dir, "host"), entry));
+    // support module first. An id with segments puts it in a subdirectory.
+    const rel = join("host", hm.id + ".entry.mjs");
+    const target = JSON.stringify("./" + relative(dirname(join(dir, rel)), entry));
     const wrapper = this.materialise(
       dir,
-      join("host", hm.id + ".entry.mjs"),
+      rel,
       withEnvImport(
         `export * from ${target};\n` +
           ((hm.exports ?? []).includes("default") ? `export { default } from ${target};\n` : ""),
@@ -369,7 +375,7 @@ export class Builder {
     const b = await this.bundle(dir, wrapper, seeds, "bun", { shims: true, self: hm.key }, true);
     const exports = exportScanner.scan(b.text).exports;
     this.writeOut(join("scripts", "bun", "provided", hm.id + ".mjs"), b.text);
-    return { exports, host_modules: b.hostModules, packages: directPackages(parse(source)) };
+    return { exports, host_modules: b.hostModules, packages: directPackages(parse(source)), imports: b.closure };
   }
 
   async buildEntry(e: EntryRequest): Promise<EntryResult> {

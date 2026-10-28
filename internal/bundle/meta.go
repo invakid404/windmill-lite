@@ -116,6 +116,9 @@ type HostModuleMeta struct {
 	HostModules []string
 	// Packages are the npm packages its own source imports.
 	Packages []string
+	// Imports is the closure of workspace scripts its bundled copy
+	// inlined, by Windmill path (WR-28).
+	Imports []string
 }
 
 // Problem is something the build could not do for one script or module.
