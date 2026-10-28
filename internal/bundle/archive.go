@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ArchiveExt is the extension of a bundle archive: the bundle tree as one
@@ -134,10 +136,11 @@ func Verify(artifact string, opts VerifyOptions) (*Verification, error) {
 	}
 	var manifest []byte
 	var found map[string]string
+	var dirs []string
 	if fi.IsDir() {
 		manifest, found, err = readTree(artifact)
 	} else {
-		manifest, found, err = readArchive(artifact)
+		manifest, found, dirs, err = readArchive(artifact)
 	}
 	if err != nil {
 		return nil, err
@@ -184,6 +187,20 @@ func Verify(artifact string, opts VerifyOptions) (*Verification, error) {
 			problems = append(problems, p+": not in the manifest")
 		case got != w:
 			problems = append(problems, fmt.Sprintf("%s: digest %s, the manifest says %s", p, got, w))
+		}
+	}
+	// An archive's directory entries must be directories of the bundle, as
+	// the manifest spells them; any other could alias a listed file where
+	// names compare without case or normalisation, as on macOS.
+	ancestors := map[string]bool{}
+	for p := range want.Files {
+		for i := strings.LastIndexByte(p, '/'); i > 0; i = strings.LastIndexByte(p[:i], '/') {
+			ancestors[p[:i]] = true
+		}
+	}
+	for _, d := range dirs {
+		if !ancestors[d] {
+			problems = append(problems, d+"/: a directory entry that is not a directory of the bundle")
 		}
 	}
 	if len(problems) > 0 {
@@ -235,16 +252,25 @@ func readTree(dir string) ([]byte, map[string]string, error) {
 // maxManifest bounds the manifest read from an archive.
 const maxManifest = 64 << 20
 
-// readArchive reads a .wlb archive: the manifest's bytes and the digest of
-// every other entry. Entries must be regular files, each named once, or
-// directories, all with clean relative names (a leading "./" and a
-// directory's trailing "/" aside). Together they must form one tree, as
-// extraction would make it: no name is both a file and a directory, and
-// nothing lies below a file, whatever the order of the entries.
-func readArchive(path string) ([]byte, map[string]string, error) {
+// readArchive reads a .wlb archive: the manifest's bytes, the digest of
+// every other entry and the directory entries, sorted. Entries must be
+// regular files, each named once, or directories, all with clean relative
+// names (a leading "./" and a directory's trailing "/" aside). Together
+// they must form one tree, as extraction would make it on a file system
+// that ignores case (oneTree), whatever the order of the entries.
+func readArchive(path string) ([]byte, map[string]string, []string, error) {
+	manifest, found, dirs, err := readArchiveEntries(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	names := slices.Sorted(maps.Keys(dirs))
+	return manifest, found, names, nil
+}
+
+func readArchiveEntries(path string) ([]byte, map[string]string, map[string]bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer f.Close()
 	var manifest []byte
@@ -257,7 +283,7 @@ func readArchive(path string) ([]byte, map[string]string, error) {
 			break
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("bundle: %s: %w", path, err)
+			return nil, nil, nil, fmt.Errorf("bundle: %s: %w", path, err)
 		}
 		name := strings.TrimPrefix(hdr.Name, "./")
 		switch hdr.Typeflag {
@@ -267,63 +293,94 @@ func readArchive(path string) ([]byte, map[string]string, error) {
 				continue // the archive's root
 			}
 			if !cleanRel(name) {
-				return nil, nil, fmt.Errorf("bundle: %s: directory entry %q does not have a clean relative name", path, hdr.Name)
+				return nil, nil, nil, fmt.Errorf("bundle: %s: directory entry %q does not have a clean relative name", path, hdr.Name)
 			}
 			dirs[name] = true
 			continue
 		case tar.TypeReg:
 		default:
-			return nil, nil, fmt.Errorf("bundle: %s: entry %q is neither a regular file nor a directory", path, hdr.Name)
+			return nil, nil, nil, fmt.Errorf("bundle: %s: entry %q is neither a regular file nor a directory", path, hdr.Name)
 		}
 		if !cleanRel(name) {
-			return nil, nil, fmt.Errorf("bundle: %s: entry %q does not have a clean relative name", path, hdr.Name)
+			return nil, nil, nil, fmt.Errorf("bundle: %s: entry %q does not have a clean relative name", path, hdr.Name)
 		}
 		if files[name] {
-			return nil, nil, fmt.Errorf("bundle: %s: entry %q appears twice", path, name)
+			return nil, nil, nil, fmt.Errorf("bundle: %s: entry %q appears twice", path, name)
 		}
 		files[name] = true
 		if name == ManifestFile {
 			if manifest, err = io.ReadAll(io.LimitReader(tr, maxManifest+1)); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			if len(manifest) > maxManifest {
-				return nil, nil, fmt.Errorf("bundle: %s: the manifest is larger than %d bytes", path, maxManifest)
+				return nil, nil, nil, fmt.Errorf("bundle: %s: the manifest is larger than %d bytes", path, maxManifest)
 			}
 			continue
 		}
 		h := sha256.New()
 		if _, err := io.Copy(h, tr); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		found[name] = "sha256:" + hex.EncodeToString(h.Sum(nil))
 	}
 	if err := oneTree(files, dirs); err != nil {
-		return nil, nil, fmt.Errorf("bundle: %s: %w", path, err)
+		return nil, nil, nil, fmt.Errorf("bundle: %s: %w", path, err)
 	}
-	return manifest, found, nil
+	return manifest, found, dirs, nil
 }
 
 // oneTree checks that an archive's file and directory entries form one
-// tree: extracting a directory where a file is, or a file where a
-// directory or another file's ancestor is, would replace or lose an entry.
+// tree, as extraction makes it on a file system that compares names
+// without case, as macOS does by default: two names that differ only in
+// case, a name that is both a file and a directory, and an entry below a
+// file would each replace or lose an entry.
 func oneTree(files, dirs map[string]bool) error {
-	var names []string
-	for n := range files {
-		names = append(names, n)
-	}
-	for n := range dirs {
-		if files[n] {
+	spelled := map[string]string{} // fold key → the name
+	isFile := map[string]bool{}    // by fold key
+	add := func(n string, file bool) error {
+		k := foldKey(n)
+		prev, seen := spelled[k]
+		switch {
+		case seen && prev != n:
+			return fmt.Errorf("%q and %q differ only in case", prev, n)
+		case seen && isFile[k] != file:
 			return fmt.Errorf("%q is both a file and a directory", n)
 		}
-		names = append(names, n)
+		spelled[k], isFile[k] = n, file
+		return nil
 	}
-	slices.Sort(names)
-	for _, n := range names {
+	fileNames, dirNames := slices.Sorted(maps.Keys(files)), slices.Sorted(maps.Keys(dirs))
+	for _, n := range fileNames {
+		if err := add(n, true); err != nil {
+			return err
+		}
+	}
+	for _, n := range dirNames {
+		if err := add(n, false); err != nil {
+			return err
+		}
+	}
+	for _, n := range append(fileNames, dirNames...) {
 		for i := strings.LastIndexByte(n, '/'); i > 0; i = strings.LastIndexByte(n[:i], '/') {
-			if files[n[:i]] {
-				return fmt.Errorf("%q lies below the file %q", n, n[:i])
+			if isFile[foldKey(n[:i])] {
+				return fmt.Errorf("%q lies below the file %q", n, spelled[foldKey(n[:i])])
 			}
 		}
 	}
 	return nil
+}
+
+// foldKey is the key under which a file system that ignores case compares
+// a name: each rune replaced by the smallest rune of its Unicode case-fold
+// orbit, so two names have one key exactly when strings.EqualFold holds.
+func foldKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		b.WriteRune(least)
+	}
+	return b.String()
 }

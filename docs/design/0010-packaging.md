@@ -259,8 +259,10 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - **Archive.** A `.wlb` is a tar file with `manifest.json` first, then the
     listed files in path order, with fixed headers, so one bundle gives one
     archive, byte for byte. Reading one, `verify` accepts only regular files
-    and directories with clean relative names that form one tree, so an
-    archive that verifies extracts to the tree its manifest lists.
+    and the bundle's own directories, with clean relative names that form
+    one tree even where names compare without case (as on macOS), so an
+    archive that verifies extracts to the tree its manifest lists; a
+    manifest whose paths would collide that way is refused.
   - **`verify`** checks the files against a release manifest when given one
     (and the bundle's own manifest must then be its bytes), otherwise
     against the bundle's own: alone, that proves a bundle intact, not that

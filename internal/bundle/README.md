@@ -75,7 +75,9 @@ bytes, numbers as written, strings escaped only where JSON requires it
 runtime computes from `manifest.json` for its handshake.
 `ParseManifest` refuses a manifest that is not in canonical form, has an
 unknown field, another format, a file path that is not a clean relative
-path, or a host-provided module whose bundled copy it does not list.
+path, paths that would not extract to one tree where names compare without
+case (two that differ only in case, or a file that is a directory of
+another), or a host-provided module whose bundled copy it does not list.
 
 **Sources.** The build reads the folder through a file system that records
 every file read: `wmill.yaml`, the flows and scripts the roots reach with
@@ -145,12 +147,14 @@ own manifest must then be the same bytes), otherwise the bundle's own.
 `VerifyOptions.Digest` pins the bundle digest. The artifact must hold
 exactly the listed files, as regular files. An archive's entries must be
 regular files, each named once, or directories, all with clean relative
-names (a leading `./` and a directory's trailing `/` aside), and they must
-form one tree, as extraction would make it: no name may be both a file and
-a directory, and nothing may lie below a file, whatever the order of the
-entries. Otherwise extracting a verified archive could replace a file the
-manifest lists with a directory. Differences come back together as a
-`*MismatchError`. A
+names (a leading `./` and a directory's trailing `/` aside). They must form
+one tree as extraction makes it where names compare without case, as on
+macOS by default: no two names may differ only in case, no name may be both
+a file and a directory, and nothing may lie below a file, whatever the
+order of the entries. A directory entry must also be a directory of the
+bundle, spelled as the manifest spells it. Otherwise extracting a verified
+archive could replace a file the manifest lists with a directory.
+Differences come back together as a `*MismatchError`. A
 bundle checked only against its own manifest proves it is intact, not that
 it is the one released: a changed file with a manifest rewritten to match
 passes alone and fails against the release manifest or digest.
@@ -310,10 +314,12 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestManifestDeviations` need
   no Bun: they cover a changed, extra or missing file, a symbolic link, a
   forgery whose own manifest matches, archive entries that repeat or escape,
-  directory entries that collide with a file or lie below one (before or
-  after it, against a release manifest and a digest), ordinary directory
+  directory entries that collide with a file or lie below one, in the same
+  or another case (before or after it, against a release manifest and a
+  digest), directory entries the bundle does not have, ordinary directory
   headers, links below a harness runtime's directory, and the canonical
-  form.
+  form. `TestFoldKey` checks the case-folding key against
+  `strings.EqualFold`.
 - `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
   support module and generated shims in `testdata/`; `go test ./internal/bundle -run
   Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.

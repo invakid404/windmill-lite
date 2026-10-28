@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -153,6 +154,9 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 			return nil, "", fmt.Errorf("bundle: %s lists the file %q", ManifestFile, p)
 		}
 	}
+	if err := portablePaths(m.Files); err != nil {
+		return nil, "", fmt.Errorf("bundle: %s: %w", ManifestFile, err)
+	}
 	for _, h := range m.HostModules {
 		if _, ok := m.Files["scripts/bun/provided/"+h.ID+".mjs"]; !ok || !validID(h.ID) {
 			return nil, "", fmt.Errorf("bundle: %s lists the host-provided module %q (%s) without its bundled copy", ManifestFile, h.Key, h.ID)
@@ -191,4 +195,19 @@ func deviationNumber(d string) int {
 	n := 0
 	fmt.Sscanf(d, "D%d", &n)
 	return n
+}
+
+// portablePaths checks that a bundle's paths, the manifest's included,
+// extract to one tree where names compare without case: no two differ
+// only in case, and no file is a directory of another.
+func portablePaths(files map[string]string) error {
+	isFile := map[string]bool{ManifestFile: true}
+	dirs := map[string]bool{}
+	for p := range files {
+		isFile[p] = true
+		for i := strings.LastIndexByte(p, '/'); i > 0; i = strings.LastIndexByte(p[:i], '/') {
+			dirs[p[:i]] = true
+		}
+	}
+	return oneTree(isFile, dirs)
 }

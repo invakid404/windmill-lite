@@ -219,6 +219,19 @@ func TestParseManifest(t *testing.T) {
 		"another format":      edit(func(m *Manifest) { m.Format = 2 }),
 		"a path that escapes": edit(func(m *Manifest) { m.Files["../x"] = Digest(nil) }),
 		"the manifest itself": edit(func(m *Manifest) { m.Files[ManifestFile] = Digest(nil) }),
+		"two paths that differ only in case": edit(func(m *Manifest) {
+			m.Files["scripts/bun/f/a.mjs"] = Digest(nil)
+			m.Files["scripts/bun/f/A.mjs"] = Digest(nil)
+		}),
+		"a file that is a directory of another": edit(func(m *Manifest) {
+			m.Files["ir.json"] = Digest(nil)
+			m.Files["ir.json/x"] = Digest(nil)
+		}),
+		"a file that is a directory of another in another case": edit(func(m *Manifest) {
+			m.Files["data/x.json"] = Digest(nil)
+			m.Files["DATA"] = Digest(nil)
+		}),
+		"a file named like the manifest in another case": edit(func(m *Manifest) { m.Files["Manifest.json"] = Digest(nil) }),
 		"a host-provided module without its copy": edit(func(m *Manifest) {
 			m.HostModules = []HostModuleEntry{{Key: "f/a/ctx.ts", ID: "f/a/ctx"}}
 		}),
@@ -385,6 +398,14 @@ func TestVerifyArchiveEntries(t *testing.T) {
 		"a directory that is not clean":       append(slices.Clone(files), entry{"scripts//bun/", "", tar.TypeDir}),
 		"a file below a file":                 append(slices.Clone(files), entry{"ir.json/x", "{}\n", tar.TypeReg}),
 		"a directory below a file":            append(slices.Clone(files), entry{"ir.json/sub/", "", tar.TypeDir}),
+		// Where names compare without case, as on macOS, these alias
+		// ir.json or scripts/ when extracted.
+		"a directory over a file in another case, after it":  append(slices.Clone(files), entry{"IR.JSON/", "", tar.TypeDir}),
+		"a directory over a file in another case, before it": append([]entry{{"IR.JSON/", "", tar.TypeDir}}, files...),
+		"a directory below a file in another case":           append(slices.Clone(files), entry{"IR.JSON/sub/", "", tar.TypeDir}),
+		"a file in another case":                             append(slices.Clone(files), entry{"IR.JSON", "{}\n", tar.TypeReg}),
+		"a directory in another case":                        append(slices.Clone(files), entry{"Scripts/", "", tar.TypeDir}),
+		"a directory the bundle does not have":               append(slices.Clone(files), entry{"extra/", "", tar.TypeDir}),
 	} {
 		p := write(append(entries, entry{ManifestFile, string(manifest), tar.TypeReg}))
 		for _, opts := range []VerifyOptions{{Release: manifest}, {Digest: Digest(manifest)}} {
@@ -406,5 +427,18 @@ func TestVerifyArchiveEntries(t *testing.T) {
 	}
 	if _, err := Verify(write(files), VerifyOptions{}); err == nil || !strings.Contains(err.Error(), "no manifest.json") {
 		t.Errorf("no manifest: %v", err)
+	}
+}
+
+// TestFoldKey checks that two names share a fold key exactly when they are
+// equal under Unicode case folding.
+func TestFoldKey(t *testing.T) {
+	names := []string{"ir.json", "IR.JSON", "Ir.Json", "ir.jsn", "k", "K", "\u212a", "ß", "\u1e9e", "ss", "σ", "Σ", "ς", "é", "É", "e\u0301"}
+	for _, a := range names {
+		for _, b := range names {
+			if (foldKey(a) == foldKey(b)) != strings.EqualFold(a, b) {
+				t.Errorf("foldKey(%q) and foldKey(%q): equal %v, EqualFold %v", a, b, foldKey(a) == foldKey(b), strings.EqualFold(a, b))
+			}
+		}
 	}
 }
