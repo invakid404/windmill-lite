@@ -1,11 +1,11 @@
 # conformance
 
-**Current state:** eight levels of the shared conformance suite exist: the
+**Current state:** nine levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
 harness protocol cases in `protocol/`, the Bun build cases in `build/`, the
-flow fixtures in `flows/`, and the context-free expression cases in
-`exprs/`. `wltest record` records the flow fixtures and the expression cases
+flow fixtures in `flows/`, the Bun step cases in `steps/`, and the
+context-free expression cases in `exprs/`. `wltest record` records the flow fixtures and the expression cases
 on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
 recording batches E3c (flow execution errors), E3b (flow execution core)
 and E3d (loops, branches and the result cache), the stub-mode acceptance
