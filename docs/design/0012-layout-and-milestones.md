@@ -44,7 +44,7 @@ internal/oracle/            the oracle harness (0011)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
-conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, protocol/, build/: the shared cases (0003)
+conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/, build/: the shared cases (0003)
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
@@ -154,6 +154,9 @@ waits on an external gate except R1.
   `conformance/jsonb/` the stored-form cases, a level added with milestone A1.
 - `conformance/syncfolder/` holds the sync-folder load cases, a level that
   [0003](0003-semantics-placement.md) added with milestone A4.
+- `conformance/ir/` holds the compile cases, a level that
+  [0003](0003-semantics-placement.md) added with milestone A5; they are the
+  exit gate's IR cases, with the golden programs in `internal/ir/testdata/`.
 - `conformance/protocol/` holds the harness protocol's golden frames and
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against

@@ -1,0 +1,59 @@
+{
+  "finding": "CF-V5",
+  "cases": [
+    {
+      "spec": "CF-V5/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The run half, [101,103,106], is N3a's. CF-V5/b, a raw preview, is not applicable (deferred.json).",
+      "title": "deployed by path: the loop collapses",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 100 }\"\n        input_transforms: {}\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1, 2, 3]}\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main(x: number) { return x }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "CF-V5",
+      "variant": "preprocessor",
+      "provenance": "source-derived",
+      "note": "A deploy does not reduce the preprocessor module to stored nodes (OF-3), so its bodies run as inline raw flows, in which a for loop never collapses and a while loop still does (CF-V5). The preprocessor loop itself has a branchall body, so it does not collapse either.",
+      "title": "the preprocessor module's bodies run as raw flows",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  preprocessor_module:\n    id: preprocessor\n    value:\n      type: forloopflow\n      iterator: {type: static, value: [1]}\n      modules:\n        - id: p\n          value:\n            type: branchall\n            branches:\n              - modules:\n                  - id: f\n                    value:\n                      type: forloopflow\n                      iterator: {type: static, value: [1]}\n                      modules:\n                        - id: x\n                          value:\n                            type: rawscript\n                            language: bun\n                            content: \"export async function main() { return 1 }\"\n                            input_transforms: {}\n                  - id: w\n                    value:\n                      type: whileloopflow\n                      modules:\n                        - id: y\n                          value:\n                            type: rawscript\n                            language: bun\n                            content: \"export async function main() { return 1 }\"\n                            input_transforms: {}\n  modules:\n    - id: a\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main s:preprocessor": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          },
+          "f/x/main s:preprocessor/m:p/b:0/m:f": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          },
+          "f/x/main s:preprocessor/m:p/b:0/m:w": {
+            "at": {
+              "/whileloop/collapse": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}

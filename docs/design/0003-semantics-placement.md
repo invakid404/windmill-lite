@@ -287,9 +287,9 @@ figures show the trend, not the gate.
 Every Windmill rule is single-sourced in one implementation, so the suite's
 job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
-as hand-written YAML and JSON, at three run levels, three levels that
-observe no run (decode, jsonb and load), one protocol level (whose golden
-payloads the Go run writes) and one build level:
+as hand-written YAML and JSON, at three run levels, four levels that
+observe no run (decode, jsonb, load and compile), one protocol level (whose
+golden payloads the Go run writes) and one build level:
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
@@ -299,6 +299,7 @@ payloads the Go run writes) and one build level:
 | decode | `conformance/openflow/<finding>.json` | an OpenFlow flow value as JSON and the effective decoder's decision: the rejection's message substrings, or parts of the accepted value's decoded form ([OF-2](../semantics/openflow.md#of-2)) | Go `internal/openflow` tests; on the oracle, a create-flow request once [Q-OF-2](../semantics/openflow.md#q-of-2) is recorded |
 | jsonb | `conformance/jsonb/<finding>.yaml` | a producer text and its stored text or the rejection jsonb gives it ([FX-42](../semantics/execution.md#fx-42), [JE-44](../semantics/expressions.md#je-44), [FX-48](../semantics/execution.md#fx-48)); for a catalogue case, also the form its consumer reads and the top-level key order expected there | Go `internal/jsonval` tests; PostgreSQL in the oracle's pinned image ([0005](0005-json-step-boundaries.md)) |
 | load | `conformance/syncfolder/<finding>.json` | a sync folder as a map of files and what the loader makes of it: whether it opens, the items it lists or filters out, and parts of the records it reads or their errors ([SY-1](../semantics/openflow.md#sy-1) to [SY-15](../semantics/openflow.md#sy-15)) | Go `internal/syncfolder` tests |
+| compile | `conformance/ir/<finding>.json` | a sync folder, a host contract and build options, and what the compiler makes of them ([0002](0002-ir-and-loader.md)): its errors, or parts of the program, addressed by flow, by a step's site and by inventory id; for a flow case, the part a deploy decides (defaults, the native switch, virtual steps, collapse) | Go `internal/ir` tests |
 | protocol | `conformance/protocol/frames.json`, `conformance/protocol/exchanges/<case>.json` | the harness protocol of [0004](0004-harness-protocol.md), which is windmill-lite's own (provenance `policy`): golden frames of the codec (a message and its canonical payload, a part split, a byte stream and the protocol error it raises), and exchange transcripts (the frames the engine sends and those the harness must answer with) over a synthetic fixture bundle | Go `internal/harness` tests, the exchanges against the real harness on the pinned runtime; each harness's own developer tests run the codec cases |
 | build | `conformance/build/<finding>.json` | a sync folder and Bun scripts, and what the Bun build records for each (the signature of every export, annotations, the bundler target, workflow-as-code markers, the workspace scripts inlined) or refuses; optionally a run of the built modules' exports, with `process.env` replaced and host-provided modules registered ([WR-6](../semantics/languages.md#wr-6) to [WR-8](../semantics/languages.md#wr-8), [WR-26](../semantics/languages.md#wr-26) to [WR-32](../semantics/languages.md#wr-32), [WR-38](../semantics/languages.md#wr-38), [WR-39](../semantics/languages.md#wr-39), [WA-31](../semantics/client-api.md#wa-31), D12) | Go `internal/bundle` tests, running the Bun build helper and the modules on the pinned Bun; the helper's own developer tests run its scans |
 
@@ -369,6 +370,11 @@ validation with `contextual_case_needs_flow_fixture`.
   a sync folder has no run to observe, and the loader is Go only. A load
   case may also cite only its finding, for a case that extends the
   catalogue.
+- The compile level was added with milestone A5, for the same reasons:
+  compiling a folder has no run to observe, and the compiler is Go only.
+  Most of its catalogue cases are flow cases whose expectation depends on
+  what a deploy applies; a compile case checks that part and names the
+  milestone that checks the run, as a stored-form case does.
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that

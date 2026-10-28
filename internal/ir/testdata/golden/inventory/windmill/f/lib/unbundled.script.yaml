@@ -1,0 +1,5 @@
+summary: ''
+description: ''
+lock: |-
+  {"dependencies":{"left-pad":"1.3.0"}}
+kind: script

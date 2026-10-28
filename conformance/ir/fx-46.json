@@ -1,0 +1,475 @@
+{
+  "finding": "FX-46",
+  "cases": [
+    {
+      "spec": "FX-46/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The program marks the loop collapsed and keeps the body's envelope; ignoring the body's continue_on_error, and the deployed result, is N3a's. A preview's result is not applicable (0001 §1).",
+      "title": "a collapsed loop: the body's continue_on_error is ignored",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        parallel: false\n        skip_failures: false\n        modules:\n          - id: x\n            continue_on_error: true\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { throw new Error(\\\"e\\\") }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true,
+              "/forloop/skip_failures": false
+            }
+          },
+          "f/x/main m:l/m:x": {
+            "at": {
+              "/continue_on_error": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "script-body",
+      "provenance": "source-derived",
+      "title": "script body: collapse true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "while",
+      "provenance": "source-derived",
+      "title": "while: collapse true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: whileloopflow\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/whileloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "while-parallel-field",
+      "provenance": "source-derived",
+      "title": "while parallel field: collapse true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: whileloopflow\n        parallel: true\n        parallelism: 4\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/whileloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "parallel-for",
+      "provenance": "source-derived",
+      "title": "parallel for: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        parallel: true\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "sleep",
+      "provenance": "source-derived",
+      "title": "sleep: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            sleep: {type: static, value: 1}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "cache-ttl",
+      "provenance": "source-derived",
+      "title": "cache ttl: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            cache_ttl: 60\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "retry-empty",
+      "provenance": "source-derived",
+      "title": "retry empty: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            retry: {}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "stop-after-if",
+      "provenance": "source-derived",
+      "title": "stop after if: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            stop_after_if: {expr: 'false', skip_if_stopped: false}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "stop-after-all-iters-if",
+      "provenance": "source-derived",
+      "title": "stop after all iters if: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            stop_after_all_iters_if: {expr: 'false', skip_if_stopped: false}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "skip-if",
+      "provenance": "source-derived",
+      "title": "skip if: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            skip_if: {expr: 'false'}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "mock-enabled",
+      "provenance": "source-derived",
+      "title": "mock enabled: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            mock: {enabled: true, return_value: 1}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "mock-disabled",
+      "provenance": "source-derived",
+      "title": "mock disabled: collapse true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            mock: {enabled: false}\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "timeout",
+      "provenance": "source-derived",
+      "title": "timeout: collapse true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            timeout: 5\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "continue-on-error",
+      "provenance": "source-derived",
+      "title": "continue on error: collapse true",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            continue_on_error: true\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "two-modules",
+      "provenance": "source-derived",
+      "title": "two modules: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n          - id: y\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "identity-body",
+      "provenance": "source-derived",
+      "title": "identity body: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            value: {type: identity}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "flow-body",
+      "provenance": "source-derived",
+      "title": "flow body: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            value: {type: flow, path: f/x/sub}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "empty-body",
+      "provenance": "source-derived",
+      "title": "empty body: collapse false",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules: []\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-46",
+      "variant": "failure-module",
+      "provenance": "source-derived",
+      "note": "Inline bodies get the parent's failure module (FX-5), and stored nodes hold a copy of it (CF-V4), so no loop of such a flow collapses.",
+      "title": "a flow with a failure module collapses nothing, at any depth",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  failure_module:\n    id: failure\n    value: {type: identity}\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n    - id: w\n      value:\n        type: whileloopflow\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          },
+          "f/x/main m:w": {
+            "at": {
+              "/whileloop/collapse": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "Which loops collapse (FX-46, CF-8): a sequential for loop or any while loop whose body is one script or rawscript step with none of the disqualifying fields, in a flow with no failure module."
+}

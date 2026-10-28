@@ -1,0 +1,171 @@
+{
+  "finding": "CF-6",
+  "cases": [
+    {
+      "spec": "CF-6/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The run half, the result [ERR(..), 2], is N3a's.",
+      "title": "an absent skip_failures is true after a deploy",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1, 2]}\n        modules:\n          - id: b\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/skip_failures": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "CF-6",
+      "variant": "defaults",
+      "provenance": "source-derived",
+      "title": "the other deployed defaults",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: w\n      value:\n        type: whileloopflow\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n    - id: z\n      value:\n        type: branchall\n        branches:\n          - modules: []\n    - id: o\n      value:\n        type: branchone\n        branches:\n          - modules: []\n        default: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:w": {
+            "at": {
+              "/whileloop/skip_failures": false
+            }
+          },
+          "f/x/main m:z": {
+            "at": {
+              "/branchall/parallel": true,
+              "/branchall/branches/0/skip_failure": true
+            }
+          },
+          "f/x/main m:o": {
+            "at": {
+              "/branchone/branches/0/expr/text": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "CF-6",
+      "variant": "strict-forloop",
+      "provenance": "policy",
+      "policy": "Q-CF-13 strict",
+      "title": "strict: an absent for-loop skip_failures is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules: []\n"
+        },
+        "options": {
+          "strict": true
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "absent_skip_flag",
+            "contains": [
+              "f/x/main step 'l'",
+              "skip_failures"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "CF-6",
+      "variant": "strict-null",
+      "provenance": "policy",
+      "policy": "Q-CF-13 strict",
+      "title": "strict: a null skip_failures says nothing either",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        skip_failures: null\n        modules: []\n"
+        },
+        "options": {
+          "strict": true
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "absent_skip_flag",
+            "contains": [
+              "step 'l'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "CF-6",
+      "variant": "strict-branchall",
+      "provenance": "policy",
+      "policy": "Q-CF-13 strict",
+      "title": "strict: an absent branchall skip_failure is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: z\n      value:\n        type: branchall\n        branches:\n          - skip_failure: false\n            modules: []\n          - modules: []\n"
+        },
+        "options": {
+          "strict": true
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "absent_skip_flag",
+            "contains": [
+              "step 'z'",
+              "branch 1"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "CF-6",
+      "variant": "strict-explicit",
+      "provenance": "policy",
+      "policy": "Q-CF-13 strict",
+      "note": "Only the for-loop and branchall flags default differently before and after a deploy (OF-7); the while-loop default is the same everywhere.",
+      "title": "strict: explicit flags, while loops and branchone compile",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        skip_failures: false\n        modules: []\n    - id: z\n      value:\n        type: branchall\n        branches:\n          - skip_failure: false\n            modules: []\n    - id: w\n      value:\n        type: whileloopflow\n        modules: []\n    - id: o\n      value:\n        type: branchone\n        branches: []\n        default: []\n"
+        },
+        "options": {
+          "strict": true
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/skip_failures": false
+            }
+          },
+          "f/x/main m:z": {
+            "at": {
+              "/branchall/branches/0/skip_failure": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "Absent container fields take their deployed defaults (0001 §1, §7); with the strict option, the two whose default differs before a deploy are refused instead (Q-CF-13). CF-6/b and CF-6/c are in deferred.json."
+}

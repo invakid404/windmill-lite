@@ -1,20 +1,23 @@
 # internal/openflow
 
 **Current state:** implemented (milestone A3 of
-[0012](../../docs/design/0012-layout-and-milestones.md)); no other package
-calls it yet. This README covers `internal/openflow/` and its `schema/`
-directory. The package holds windmill-lite's OpenFlow types and the
+[0012](../../docs/design/0012-layout-and-milestones.md)). The sync-folder
+loader ([internal/syncfolder](../syncfolder/README.md)) decodes every
+`flow.yaml` with it, and the compiler ([internal/ir](../ir/README.md))
+compiles the decoded model. This README covers `internal/openflow/` and its
+`schema/` directory. The package holds windmill-lite's OpenFlow types and the
 *effective decoder*: the rules by which Windmill `v1.767.0` accepts, rejects
 and defaults a flow value, which differ from the OpenFlow schema in both
-directions ([OF-1](../../docs/semantics/openflow.md#of-1)). The sync-folder
-loader (A4) and the compiler (A5), which will call it, do not exist yet.
+directions ([OF-1](../../docs/semantics/openflow.md#of-1)).
 
 What the package does not do:
 
 - read YAML or a sync folder, or resolve `!inline` references (A2 and A4);
-- apply what a successful deploy adds: the `bun` to `bunnative` switch,
+- apply what a successful deploy adds: the `bun` and `bunnative` switch,
   virtual `<id>-v` steps, the lock policy and validation of out-of-scope
-  features (A5, per [0002](../../docs/design/0002-ir-and-loader.md)).
+  features, including the refusal of `aiagent` and `flowscript` modules
+  ([internal/ir](../ir/README.md), per
+  [0002](../../docs/design/0002-ir-and-loader.md)).
 
 ## API
 
@@ -43,10 +46,11 @@ JSON Pointers.
 Writing defaults out loses whether a field was written. An absent
 `skip_failures` or branch `skip_failure` is rendered `true`, and a derived id
 as an ordinary id. Decoding the decoded form therefore gives the same
-decoded form, but not an equal model: `ForLoop.SkipFailures`,
-`Branch.SkipFailure` and `Module.IDDerived` are set where the original had
-them unset. Never decode it before a check that depends on presence, such as
-the compiler's `strict` option.
+decoded form, but not an equal model: `ForLoop.SkipFailures` and
+`Branch.SkipFailure` are set where the original had them unset, and
+`Module.IDDerived` is cleared where the original had it set. Never decode it
+before a check that depends on presence, such as the compiler's `strict`
+option, which [internal/ir](../ir/README.md) applies to the decoded model.
 
 ## Decode rules
 

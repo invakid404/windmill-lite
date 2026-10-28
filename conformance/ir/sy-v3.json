@@ -1,0 +1,167 @@
+{
+  "finding": "SY-V3",
+  "cases": [
+    {
+      "spec": "SY-V3",
+      "variant": "bunnative-without",
+      "provenance": "source-derived",
+      "title": "bunnative without: bun",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bunnative\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "variant": "bun-with",
+      "provenance": "source-derived",
+      "title": "bun with: bunnative",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"// native\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bunnative"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "variant": "value-ignored",
+      "provenance": "source-derived",
+      "title": "value ignored: bunnative",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"//native=false\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bunnative"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "variant": "indented",
+      "provenance": "source-derived",
+      "title": "indented: bun",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \" //native\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "variant": "after-code",
+      "provenance": "source-derived",
+      "title": "after code: bun",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export const x = 1\\n//native\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "variant": "after-blank-and-comments",
+      "provenance": "source-derived",
+      "title": "after blank and comments: bunnative",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"\\n// a comment\\n//nobundling\\n// native\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "bunnative"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-V3",
+      "variant": "nativets-unchanged",
+      "provenance": "source-derived",
+      "title": "nativets unchanged: nativets",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: nativets\n        content: \"// native\\nexport async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/language": "nativets"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "The native annotation decides between bun and bunnative for rawscripts, as a deploy relabels them (OF-15, WR-40); path scripts are A4's (conformance/syncfolder/sy-v3.json)."
+}

@@ -1,0 +1,91 @@
+{
+  "finding": "WR-31",
+  "cases": [
+    {
+      "spec": "WR-31/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "deviation": "D7",
+      "note": "windmill-lite bundles a nobundling script at build time all the same (D7); the run half, the result 1, is the step suite's (C3a).",
+      "title": "an annotation after a blank first line",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/s.ts": "\n// nobundling\nexport function main(){return 1}\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "nobundling",
+              "/annotations": [
+                "nobundling"
+              ]
+            }
+          }
+        },
+        "at": {
+          "/deviations": [
+            "D7"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-31/b",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The run half is the step suite's (C3a).",
+      "title": "a comment after code is not an annotation",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/s.ts": "const x = 1;\n//nobundling\nexport function main(){return 1}\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "bundled",
+              "/dependency_set": "bundled"
+            },
+            "absent": [
+              "/annotations"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "flags",
+      "provenance": "source-derived",
+      "title": "every recognised flag, in table order",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/s.ts": "//sandbox\n// nodejs\n//npm\n//unknown\nexport function main(){return 1}\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/annotations": [
+                "npm",
+                "nodejs",
+                "sandbox"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "The header annotations the inventory records (WR-31), by the header rule of SY-V3."
+}
