@@ -67,6 +67,9 @@ type exStep struct {
 	// Stdout asserts that the process's stdout contains the text within
 	// the step's time limit.
 	Stdout string `json:"stdout_contains"`
+	// Release creates the file of this name in the harness's working
+	// directory, which ends a gate step waiting for it.
+	Release string `json:"release"`
 }
 
 func TestExchanges(t *testing.T) {
@@ -107,6 +110,7 @@ type exRun struct {
 	t      *testing.T
 	nc     net.Conn
 	cmd    *exec.Cmd
+	dir    string // the harness's working directory
 	digest string
 	pid    int
 	msgs   chan received
@@ -135,7 +139,7 @@ func runExchange(t *testing.T, bun string, x exchange) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &exRun{t: t, nc: nc, cmd: cmd, digest: digest, pid: cmd.Process.Pid,
+	r := &exRun{t: t, nc: nc, cmd: cmd, dir: cmd.Dir, digest: digest, pid: cmd.Process.Pid,
 		msgs: make(chan received, 64), exited: make(chan struct{}), stdout: stdout}
 	go func() {
 		cmd.Wait()
@@ -279,6 +283,13 @@ func (r *exRun) step(i int, s exStep) {
 				t.Fatalf("step %d: stdout %q lacks %q", i, r.stdout.String(), s.Stdout)
 			}
 			time.Sleep(10 * time.Millisecond)
+		}
+	case s.Release != "":
+		if s.Release != filepath.Base(s.Release) || strings.HasPrefix(s.Release, ".") {
+			t.Fatalf("step %d: release %q is not a file name", i, s.Release)
+		}
+		if err := os.WriteFile(filepath.Join(r.dir, s.Release), nil, 0o600); err != nil {
+			t.Fatalf("step %d: %v", i, err)
 		}
 	default:
 		t.Fatalf("step %d: no action", i)

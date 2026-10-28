@@ -207,9 +207,10 @@ module-state mode.
   process whose lag exceeds `LagThreshold` (250 ms by default) is used only
   when no other process can take the invocation and none can be started.
 - **Cap.** `Cap` bounds invocations in flight per process (deviation D15);
-  abandoned ones do not count. None by default. A finished invocation frees
-  its slot before its Reporter hears of it, so a Reporter may run another
-  step on the same pool.
+  abandoned ones do not count. None by default. A finished or abandoned
+  invocation frees its slot before its Reporter hears of it (an abandoned
+  one before `Execute` returns), so a Reporter may run another step on the
+  same pool.
 - **Tainting.** An abandoned invocation taints its process: it gets no new
   invocations and does not count toward `Max`. Once nothing else is in
   flight in it, it is drained (killed after `RecycleTimeout`, 5 s) and
@@ -219,8 +220,10 @@ module-state mode.
   finishes starting when the pool has reached `Max` is surplus itself. The
   pool applies these rules before an abandoned invocation's Reporter hears
   `Settled(completed)`.
-- **Replacement.** A process that dies is replaced up to `Min`; a failed
-  start is logged and retried by the next `Execute`.
+- **Replacement.** A process that dies leaves the pool, which starts its
+  replacements up to `Min`, before the Reporters of its invocations hear
+  `Settled(process_exited)`; a failed start is logged and retried by the
+  next `Execute`.
 - **Close.** It refuses new invocations, waits for those in flight until
   its context ends, then drains every process, including one that finishes
   starting afterwards.
@@ -264,15 +267,22 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   timer's error and the warning of an unattributed rejection, a detached
   rejection that ends nothing, cancel and late settlement, limits,
   the working directory, the watchdog case `watchdog/finite-cpu` in warm
-  mode, and the pool rules above.
-  `TestBunPoolTaintedProcessReturnsToService` holds its steps on the `gate`
-  fixture step, which reports that it has started and ends when the test
-  opens it, and turns lag routing off, so it does not depend on timing.
+  mode, and the pool rules above. A step that must still run when the test
+  acts is a `gate` fixture step, which reports that it has started and ends
+  when the test opens it, or `spin-gate`, which blocks its process's event
+  loop the same way. The cancel, taint, recycle and affinity tests hold
+  their steps on gates and cancel only once a step runs; the lag test waits
+  for the lag to show; and `TestBunPoolTaintClearsWhileTheReplacementStarts`
+  also holds every start after the first on a gate file. The affinity and
+  taint tests turn lag routing off, which is not under test there, so none
+  of these depends on timing.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
   outcomes fixed before the call ends, late output, protocol violations, an
-  exit while a child holds the socket, a slow start, a slow or re-entrant
-  Reporter.
+  exit while a child holds the socket or stdout, a slow start, a slow or
+  re-entrant Reporter, and an abandoned call that settles the moment its
+  cancel arrives. It checks that the pool hears of an abandonment and of a
+  death before any Reporter does.
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher.
 

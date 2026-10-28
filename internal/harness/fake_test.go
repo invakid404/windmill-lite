@@ -120,12 +120,39 @@ func fakeHarness(mode string) int {
 	}
 	for {
 		m := recv()
+		switch m := m.(type) {
+		case Cancel:
+			if mode == "settle-on-cancel" {
+				// The abandoned call ends the moment its cancel arrives.
+				send(Late{ID: m.ID, Kind: LateError, Body: jsonval.FromProducer([]byte(`{"message":"canceled"}`)), Settled: true})
+			}
+			continue
+		case Drain:
+			if mode == "exit-leaving-stdout" {
+				send(Bye{})
+				return 0
+			}
+			continue
+		}
 		inv, ok := m.(Invoke)
 		if !ok {
 			continue
 		}
 		body := jsonval.FromProducer([]byte(`"done"`))
 		switch mode {
+		case "settle-on-cancel":
+			// The call runs until it is canceled.
+		case "exit-leaving-stdout":
+			// Exits with the invocation in flight, while a child keeps
+			// stdout (but not the socket) open, so the engine sees the end of
+			// the stream at once and then waits for the pipe.
+			f.Close()
+			child := exec.Command("/bin/sleep", "3")
+			child.Stdout = os.Stdout
+			if err := child.Start(); err != nil {
+				return 72
+			}
+			return 5
 		case "unsettled":
 			// The outcome is fixed at once while the call goes on, then
 			// the call ends.
@@ -533,5 +560,69 @@ func TestOutputPipesCloseAfterExit(t *testing.T) {
 	}
 	if _, err := p.outR.Stat(); err == nil {
 		t.Fatal("the stdout read end is still open")
+	}
+}
+
+// An abandoned invocation's slot is freed, and the pool is told of the
+// abandonment, before its Reporter hears anything, however soon the call
+// ends: the fake settles it the moment the cancel arrives, while freeing
+// the slot takes its time. Execute returns only once both have run.
+func TestAbandonmentComesBeforeTheReporter(t *testing.T) {
+	cfg, _ := fakeConfig(t, "settle-on-cancel")
+	rec := newRecorder()
+	cfg.notify = func(*Process) { rec.note("notified") }
+	p := spawn(t, cfg)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go func() {
+		for in, _ := p.Load(); in == 0; in, _ = p.Load() {
+			time.Sleep(time.Millisecond)
+		}
+		cancel(engine.CancelCanceled)
+	}()
+	_, d, err := p.exec(ctx, newInvocation("x", `{}`, rec), func() {
+		// Time enough for a late frame that overtook the release to reach
+		// the Reporter.
+		time.Sleep(200 * time.Millisecond)
+		rec.note("slot freed")
+	})
+	if d != abandoned || !errors.Is(err, engine.CancelCanceled) {
+		t.Fatalf("got %v, %v", d, err)
+	}
+	if got := rec.log(); !strings.HasPrefix(got, "slot freed; notified") {
+		t.Fatalf("calls when Execute returned: %q", got)
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s", k)
+	}
+	if got, want := rec.log(), `slot freed; notified; late error final=true {"message":"canceled"}; notified; settled completed`; got != want {
+		t.Fatalf("calls %q, want %q", got, want)
+	}
+}
+
+// A process that dies leaves its pool before the Reporters of the
+// invocations in it hear Settled(process_exited), as a tainted process's
+// rules are applied before Settled(completed). A child of the fake keeps
+// stdout open, so the engine's exit handling waits a second for the pipe
+// after the end of the stream; the pool must not wait with it.
+func TestDeadProcessLeavesThePoolBeforeTheReporter(t *testing.T) {
+	cfg, _ := fakeConfig(t, "exit-leaving-stdout")
+	pool := newPool(t, PoolConfig{Process: cfg})
+	if err := pool.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dead := pool.Stats()[0].PID
+	rec := &statsRecorder{recorder: newRecorder(), pool: pool}
+	out, err := execute(t, pool, newInvocation("x", `{}`, rec), 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 5 {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+		t.Fatalf("settled %s", k)
+	}
+	for _, s := range rec.atSettled {
+		if s.PID == dead {
+			t.Fatalf("the pool still had the dead process %d when its invocation settled: %+v", dead, rec.atSettled)
+		}
 	}
 }

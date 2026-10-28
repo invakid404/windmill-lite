@@ -45,9 +45,11 @@
         "id": "i1",
         "run": "r1",
         "site": "m:a",
-        "script": "throws",
+        "script": "gate",
         "entry": "main",
         "args": {
+          "started": "i1.started",
+          "release": "i1.release",
           "message": "after cancel"
         },
         "env": {
@@ -62,6 +64,26 @@
         "id": "i1",
         "reason": "canceled"
       }
+    },
+    {
+      "send": {
+        "t": "ping",
+        "id": "e1"
+      }
+    },
+    {
+      "expect": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 1,
+        "errors": 0,
+        "lag_ms": "<int>",
+        "rss": "<int>"
+      }
+    },
+    {
+      "release": "i1.release"
     },
     {
       "expect": {

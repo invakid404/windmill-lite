@@ -157,6 +157,14 @@ func (r *recorder) Settled(k engine.SettleKind) {
 	r.settled <- k
 }
 
+// note records a call of the test's own, such as a pool's slot release,
+// in the same log.
+func (r *recorder) note(s string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, s)
+}
+
 func (r *recorder) log() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()

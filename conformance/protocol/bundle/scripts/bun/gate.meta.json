@@ -9,6 +9,10 @@
         {
           "name": "release",
           "date": false
+        },
+        {
+          "name": "message",
+          "date": false
         }
       ]
     }
