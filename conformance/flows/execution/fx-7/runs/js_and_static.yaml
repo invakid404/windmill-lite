@@ -1,0 +1,9 @@
+# FX-7/a: a JavaScript transform is evaluated, a static one passed verbatim.
+spec: [FX-7/a]
+target: f/wl_fx7/js_and_static
+args: {n: 3}
+expect:
+  status: success
+  result: {x: 6, y: [1, s]}
+  steps:
+    "m:a": {status: success, args: {x: 6, y: [1, s]}, result: {x: 6, y: [1, s]}}

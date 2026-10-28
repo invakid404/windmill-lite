@@ -1,0 +1,66 @@
+{
+  "fixture": "conformance/flows/execution/fx-10",
+  "run": "handler_reads",
+  "repeat": 0,
+  "workspace": "wl-243a87-1",
+  "root": "6ffebbf3-9b85-4b2e-9f7e-175bb5489e97",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/get/6ffebbf3-9b85-4b2e-9f7e-175bb5489e97?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-1\",\"id\":\"6ffebbf3-9b85-4b2e-9f7e-175bb5489e97\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:00.924747Z\",\"started_at\":\"2026-10-28T12:15:00.947177Z\",\"completed_at\":\"2026-10-28T12:15:01.101079Z\",\"duration_ms\":154,\"success\":false,\"script_hash\":\"0000000000000001\",\"script_path\":\"f/wl_fx10/handler_reads\",\"args\":{},\"result\":{\"k\": [\"error\"], \"p\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}, \"x\": 1},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 2, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826f-6554-063d-930c-6428453e8d55\", \"type\": \"Failure\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"job\": \"01a1826f-6599-c9b9-1fe0-d0cb2bd628ba\", \"type\": \"Success\", \"skipped\": false, \"parent_module\": \"a\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"stop_after_if\":{\"expr\":\"true\",\"skip_if_stopped\":false,\"error_message\":\"E\"}}],\"failure_module\":{\"id\":\"failure\",\"value\":{\"lock\": \"{\\n  \\\"dependencies\\\": {}\\n}\\n//bun.lock\\n\u003cempty\u003e\", \"type\": \"rawscript\", \"content\": \"export async function main(p: any, x: any, k: any) {\\n  return { p, x, k };\\n}\\n\", \"language\": \"bun\", \"input_transforms\": {\"k\": {\"expr\": \"Object.keys(results.a)\", \"type\": \"javascript\"}, \"p\": {\"expr\": \"results.a\", \"type\": \"javascript\"}, \"x\": {\"expr\": \"results.a.x\", \"type\": \"javascript\"}}}}},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/completed/get_result_maybe/6ffebbf3-9b85-4b2e-9f7e-175bb5489e97?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"k\": [\"error\"], \"p\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}, \"x\": 1}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/get/01a1826f-6554-063d-930c-6428453e8d55?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-1\",\"id\":\"01a1826f-6554-063d-930c-6428453e8d55\",\"parent_job\":\"6ffebbf3-9b85-4b2e-9f7e-175bb5489e97\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:00.948305Z\",\"started_at\":\"2026-10-28T12:15:00.952343Z\",\"completed_at\":\"2026-10-28T12:15:01.000254Z\",\"duration_ms\":45,\"success\":true,\"script_hash\":\"0000000000000001\",\"script_path\":\"f/wl_fx10/handler_reads/a\",\"args\":{},\"result\":{\"x\": 1},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":20024,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/get_args/01a1826f-6554-063d-930c-6428453e8d55",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/completed/get_result_maybe/01a1826f-6554-063d-930c-6428453e8d55?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"x\": 1}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/get/01a1826f-6599-c9b9-1fe0-d0cb2bd628ba?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-1\",\"id\":\"01a1826f-6599-c9b9-1fe0-d0cb2bd628ba\",\"parent_job\":\"6ffebbf3-9b85-4b2e-9f7e-175bb5489e97\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:01.017253Z\",\"started_at\":\"2026-10-28T12:15:01.052309Z\",\"completed_at\":\"2026-10-28T12:15:01.094901Z\",\"duration_ms\":40,\"success\":true,\"script_path\":\"f/wl_fx10/handler_reads/failure\",\"args\":{\"x\":1,\"p\":{\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}},\"k\":[\"error\"]},\"result\":{\"k\": [\"error\"], \"p\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}, \"x\": 1},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"preview\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":18348,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/get_args/01a1826f-6599-c9b9-1fe0-d0cb2bd628ba",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"k\": [\"error\"], \"p\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}, \"x\": 1}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-1/jobs_u/completed/get_result_maybe/01a1826f-6599-c9b9-1fe0-d0cb2bd628ba?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [\"error\"], \"p\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}, \"x\": 1}}"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# FX-19/b: an error-stop with error_include_result: the module fails with
+# an EarlyStopError holding the stopping result, while a's stored job
+# result stays the success value 3 (FX-V2).
+spec: [FX-19/b, FX-V2]
+target: f/wl_fx19/error_include
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError, message: too big, result: 3}}
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 3}

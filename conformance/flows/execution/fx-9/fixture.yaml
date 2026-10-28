@@ -1,0 +1,13 @@
+# FX-9: boolean predicates use JavaScript truthiness. One flow puts a
+# skip_if with each value the rule lists on a step of its own: the strings
+# 'false', [] and {} skip (FX-9/a); 0, '', null, undefined, NaN and false
+# do not (FX-9/b). Every step runs the path script f/wl_fx9/ret, which
+# returns its own id; a skipped step passes the previous result through
+# (FX-17). Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-9.
+id: execution/fx-9
+spec: [FX-9, FX-9/a, FX-9/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

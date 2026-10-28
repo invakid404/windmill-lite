@@ -167,6 +167,7 @@ type fakeOracle struct {
 	// fake refuses a third (deleted counts them).
 	workspaces map[string]bool
 	deleted    int
+	failDelete bool // deleting a workspace answers 500
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
@@ -221,6 +222,10 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ws, ok := strings.CutPrefix(p, "/workspaces/delete/"); ok && r.Method == http.MethodDelete {
+		if o.failDelete {
+			write(500, "internal error")
+			return
+		}
 		if !o.workspaces[ws] {
 			write(404, "no workspace "+ws)
 			return
@@ -554,6 +559,25 @@ func TestSessionDeletesEachWorkspace(t *testing.T) {
 		if r.Outcome != OutcomeFailed || !strings.Contains(r.Error, "maximum number of workspaces") {
 			t.Errorf("%s at the limit: %s %s", r.Run, r.Outcome, r.Error)
 		}
+	}
+}
+
+// TestSessionFailsWhenAWorkspaceCannotBeDeleted: a workspace left behind
+// would take one of CE's two places, so the session ends with the error
+// after the fixture's runs, and still tears down.
+func TestSessionFailsWhenAWorkspaceCannotBeDeleted(t *testing.T) {
+	// spec: OR-6
+	rig := newRig(t)
+	rig.oracle.failDelete = true
+	rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err == nil || !strings.Contains(err.Error(), "deleting workspace wl-") || !strings.Contains(err.Error(), "HTTP 500") {
+		t.Fatalf("session error %v", err)
+	}
+	if len(rep.Runs) != 3 {
+		t.Fatalf("%d runs, want the fixture's 3 before the error: %+v", len(rep.Runs), rep.Runs)
+	}
+	if rig.docker.calledWith(" down -v") != 1 || rig.docker.up {
+		t.Fatalf("not torn down: docker calls %q", rig.docker.calls)
 	}
 }
 

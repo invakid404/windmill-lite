@@ -1,0 +1,10 @@
+# FX-19: skip_if_stopped wins over error_message, so this is the clean
+# skipped stop of FX-19/a, not an error-stop.
+spec: [FX-19]
+target: f/wl_fx19/skipped_wins
+expect:
+  status: skipped
+  result: 3
+  steps:
+    "m:a": {status: success, skipped: true, args: {}, result: 3}
+    "m:b": {status: not_run}

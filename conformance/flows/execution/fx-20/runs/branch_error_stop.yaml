@@ -1,0 +1,12 @@
+# FX-20: an error-stop in the branch body fails the body, and the parent
+# handles br as a plain failed module: with no tolerance or failure module
+# the flow fails with the body's EarlyStopError, and y never runs.
+spec: [FX-20, FX-19]
+target: f/wl_fx20/branch_error_stop
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError, message: E}}
+  steps:
+    "m:br": {status: failure, branch_chosen: {type: default}, result: {error: {name: EarlyStopError, message: E}}}
+    "m:br/b:default/m:x": {status: success, module: failure, args: {}, result: 1}
+    "m:y": {status: not_run}

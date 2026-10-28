@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/execution/fx-8",
+  "run": "sleep_no_results",
+  "repeat": 0,
+  "workspace": "wl-243a87-11",
+  "root": "1d6ee8e1-6614-4b1a-9885-25b3159de1c4",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-11/jobs_u/get/1d6ee8e1-6614-4b1a-9885-25b3159de1c4?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-11\",\"id\":\"1d6ee8e1-6614-4b1a-9885-25b3159de1c4\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:41.705542Z\",\"started_at\":\"2026-10-28T12:15:41.721823Z\",\"completed_at\":\"2026-10-28T12:15:41.752742Z\",\"duration_ms\":31,\"success\":false,\"script_hash\":\"0000000000000023\",\"script_path\":\"f/wl_fx8/sleep_no_results\",\"args\":{},\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Expected a number value, had error instead: ExecutionErr(\\\"Error during evaluation of expression `results.a`:\\\\nQuickJS evaluation error: Error: results is not defined\\\\n    at \u003canonymous\u003e (eval_script:1:1)\\\\n    at \u003ceval\u003e (eval_script:1:46)\\\\n\\\")\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a18270-049c-897d-0bda-d418a58dc1f9\", \"type\": \"Success\", \"skipped\": false}, {\"id\": \"b\", \"type\": \"WaitingForPriorSteps\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"sleep\":{\"type\":\"javascript\",\"expr\":\"results.a\"}},{\"id\":\"b\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-11/jobs_u/completed/get_result_maybe/1d6ee8e1-6614-4b1a-9885-25b3159de1c4?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Expected a number value, had error instead: ExecutionErr(\\\"Error during evaluation of expression `results.a`:\\\\nQuickJS evaluation error: Error: results is not defined\\\\n    at \u003canonymous\u003e (eval_script:1:1)\\\\n    at \u003ceval\u003e (eval_script:1:46)\\\\n\\\")\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-11/jobs_u/get/01a18270-049c-897d-0bda-d418a58dc1f9?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-11\",\"id\":\"01a18270-049c-897d-0bda-d418a58dc1f9\",\"parent_job\":\"1d6ee8e1-6614-4b1a-9885-25b3159de1c4\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:41.724003Z\",\"started_at\":\"2026-10-28T12:15:41.726298Z\",\"completed_at\":\"2026-10-28T12:15:41.746548Z\",\"duration_ms\":17,\"success\":true,\"script_hash\":\"0000000000000028\",\"script_path\":\"f/wl_fx8/sleep_no_results/a\",\"args\":{},\"result\":1,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":10832,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-11/jobs_u/get_args/01a18270-049c-897d-0bda-d418a58dc1f9",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-11/jobs_u/completed/get_result_maybe/01a18270-049c-897d-0bda-d418a58dc1f9?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":1}"
+    }
+  ]
+}

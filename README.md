@@ -13,7 +13,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Eleven milestones have landed: the OpenFlow decoder in
+Twelve milestones have landed: the OpenFlow decoder in
 [internal/openflow](internal/openflow/README.md) (A3); the YAML dialect of
 the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2); the
 jsonb canonicaliser in [internal/jsonval](internal/jsonval/README.md) (A1);
@@ -32,7 +32,9 @@ the oracle harness ([internal/oracle](internal/oracle/README.md),
 Windmill CE image in public CI; E3c, the recording batch of the
 reference's flow-execution error cases on that oracle
 ([conformance/flows/execution](conformance/flows/execution)), which settled
-two contested findings; and W1, the walking skeleton. W1 runs one
+two contested findings; E3b, the recording batch of the flow-execution
+core in the same directory, which settled two more; and W1, the walking
+skeleton. W1 runs one
 sequential flow end to end on the pinned Bun, in a spawned harness and in
 host mode, where a Bun program embeds the host SDK and starts
 `windmill-lite host` as its engine. It is scaffolding that later milestones
@@ -84,7 +86,7 @@ WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client go test -race 
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
 | [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, pools, platform calls, and host mode. It implements the step executor. |
 | [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol with the per-invocation environment and facade fetch, a skeleton step runner, and a minimal host SDK. |
-| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, and the flow fixtures the oracle records: the smoke fixture and recording batch E3c's flow-execution fixtures. |
+| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, and the flow fixtures the oracle records: the smoke fixture and recording batches E3c's and E3b's flow-execution fixtures. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |

@@ -1,0 +1,25 @@
+summary: FX-18 a mocked step with a false skip_if is classified as skipped
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      mock:
+        enabled: true
+        return_value: 5
+      skip_if:
+        expr: 'false'
+      stop_after_if:
+        expr: result === 5
+        skip_if_stopped: true
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun

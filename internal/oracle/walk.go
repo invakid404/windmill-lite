@@ -568,8 +568,14 @@ func (s *walkState) job(site conformance.SitePath, id string) (Job, error) {
 	return j, nil
 }
 
+// record maps id to site, unless an earlier site already holds it: a
+// failure module's Success status lists the flow's failed attempts again
+// (FX-27), and such a job keeps the attempt site of the module it belongs
+// to, which the walk reaches first, for its placeholder.
 func (s *walkState) record(site conformance.SitePath, id string, j Job) {
-	s.w.IDs[id] = site
+	if _, ok := s.w.IDs[id]; !ok {
+		s.w.IDs[id] = site
+	}
 	s.w.Timings[site.String()] = JobTiming{Kind: j.JobKind, CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, CompletedAt: j.CompletedAt, DurationMS: j.DurationMS}
 }
 

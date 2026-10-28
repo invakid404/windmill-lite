@@ -1,0 +1,31 @@
+summary: FX-10/a a failure module reads an error-stopped step three ways
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      stop_after_if:
+        error_message: E
+        expr: 'true'
+        skip_if_stopped: false
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms:
+        k:
+          type: javascript
+          expr: Object.keys(results.a)
+        p:
+          type: javascript
+          expr: results.a
+        x:
+          type: javascript
+          expr: results.a.x
+      lock: '!inline failure.lock'
+      language: bun
