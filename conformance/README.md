@@ -11,8 +11,11 @@ recording batches E3c (flow execution errors), E3b (flow execution core)
 and E3d (loops, branches and the result cache), the stub-mode acceptance
 cases, and those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
-Nothing runs the flow fixtures on windmill-lite yet (`wltest check` for
-flows, milestone E1). The tests of the expression pipeline
+`wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
+walking skeleton's interpreter (milestone E1), which runs sequential flows
+of Bun steps only: the runs it cannot run are reported as unsupported, and
+the runs it must pass are listed in `cmd/wltest/testdata/flowsuite.json`
+([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression pipeline
 ([internal/expr](../internal/expr/README.md), milestone B2a) run the
 expression cases and the flow fixtures' unit cases through its shortcuts
 and textual stages on a fake engine; what the engine computes waits for
@@ -36,7 +39,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle` |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm` (E1) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
 
@@ -80,6 +83,9 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/je/scopes` | Cross-scope cases: JE-19/b and d, JE-38/d. |
 | `flows/je/providers` | Variable helpers, `flow_env` resolution and `$var:` resolution: JE-20, JE-38/a–b, JE-41, JE-42, JE-V3/a. |
 | `flows/cf/cf-19` | `results` lookups across containers, CF-19/a–c, and the contested CF-V6/a–b of [Q-CF-16](../docs/semantics/control-flow.md#q-cf-16). |
+| `flows/languages/bun-results` | Milestone E1: a Bun step's outcome in a sequential flow. Run `serialise`: [WR-13](../docs/semantics/languages.md#wr-13)/a's value as stored, what the next step sees of a key that held `undefined` ([WR-14](../docs/semantics/languages.md#wr-14)), and WR-13/b's `null` as the flow's result. Run `thrown_string`: [FX-47](../docs/semantics/execution.md#fx-47)/a. Run `timeout`: [WR-37](../docs/semantics/languages.md#wr-37)/a and [FX-24](../docs/semantics/execution.md#fx-24)/a. After each failure the next module is `not_run` ([OR-11](../docs/semantics/oracle.md#or-11)). |
+| `flows/languages/codebase` | Milestone E1's codebase-script fixture: a flow of two path steps that are codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)), one in an `esm` entry and one in an entry with no `format`, CommonJS ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)). The CLI bundles them with esbuild on the oracle, and `wltest check` with esbuild too, as milestone C2b builds codebase scripts (`bundle.BuildCodebase`); the CommonJS one runs on Bun's CommonJS loader (D13). The scripts are self-contained. |
+| `flows/client-api/job-env` | Milestone E1: the contextual variables of inline and path steps ([WA-4](../docs/semantics/client-api.md#wa-4)/a, [FX-45](../docs/semantics/execution.md#fx-45)/a, [WR-22](../docs/semantics/languages.md#wr-22)), with each step's job ids normalised to placeholders ([OR-14](../docs/semantics/oracle.md#or-14)): its own job, and the root flow as the parent, the innermost flow scope and the effective root of a step directly in the flow ([WA-V1](../docs/semantics/client-api.md#wa-v1)). |
 
 `internal/oracle/testdata/batches/<batch>.json` names each batch's
 findings, fixtures and the cases it defers, and `TestRecordingBatches`
