@@ -214,3 +214,32 @@ cases:
     runs:
       - args: '{}'
         expect: {status: success, result: [["undefined", false], "undefined", 2]}
+  - spec: WR-40
+    variant: nativets-without-header
+    provenance: source-derived
+    title: a nativets script runs in the native runtime with no //native line
+    note: >-
+      WR-40's note (SC1): the worker dispatches a nativets step on its
+      stored language alone; only bun and bunnative follow the header.
+    language: nativets
+    script: |
+      export function main() { const g = globalThis as any; return [typeof g.Bun, typeof g.process, typeof process.env.WM_WORKSPACE, typeof WM_WORKSPACE]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ["undefined", "undefined", string, string]}
+  - spec: WR-40
+    variant: nativets-with-header
+    provenance: source-derived
+    title: a nativets script with a //native line is transpiled all the same, not bundled, so its imports follow the URL rule
+    note: >-
+      WR-40's note (SC1). Bundled, ./windmill.ts would resolve as a
+      workspace script (WR-28) and fail to build; transpiled, it reaches
+      the embedded client, and the nativets preamble's bare names are there.
+    language: nativets
+    script: |
+      //native
+      import * as wmill from "./windmill.ts";
+      export function main() { return [typeof wmill.getVariable, typeof (globalThis as any).Bun, typeof WM_WORKSPACE]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [function, "undefined", string]}

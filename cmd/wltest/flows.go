@@ -168,7 +168,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		if err := os.WriteFile(file, t.flowJSON, 0o644); err != nil {
 			return failRuns(results, err.Error())
 		}
-		s, err := engine.NewSkeleton(engine.SkeletonConfig{BundleDir: dir, Bundle: b.digest, Exec: pool, JS: fc.js})
+		s, err := engine.NewSkeleton(engine.SkeletonConfig{BundleDir: dir, ScriptsDir: b.out, Bundle: b.digest, Exec: pool, JS: fc.js})
 		switch {
 		case errors.Is(err, engine.ErrSkeletonUnsupported):
 			t.unsupported = "the walking skeleton does not run it: " + err.Error()
@@ -307,7 +307,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 			continue
 		}
 		for _, s := range t.reached {
-			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock)}
+			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock), Language: string(s.Language)}
 			if s.Kind == ir.PathScript {
 				e.File = s.File
 			} else {
@@ -407,11 +407,10 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, r *os.Root, path strin
 	t.names = map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
 		s := prog.Scripts[id]
-		if s.Harness != ir.ClassBun || s.Boundary != ir.BoundaryBun {
-			// The Bun harness runs the native boundary (C3n), but the walking
-			// skeleton invokes every step with the Bun boundary; the flow
-			// engine that invokes a step with its own is N1a's.
-			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which the walking skeleton does not invoke (N1a)", s.Path, s.Boundary, s.Harness)
+		// The Bun harness runs both its boundaries, and the skeleton
+		// invokes each step with its own (C3n); other harnesses are L1's.
+		if s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative) {
+			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which windmill-lite does not have yet", s.Path, s.Boundary, s.Harness)
 			return nil
 		}
 		if s.Bundling == ir.BundlingCodebase {

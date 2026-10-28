@@ -26,6 +26,25 @@
     },
     {
       "spec": "D5",
+      "variant": "nativets-with-native-header",
+      "provenance": "source-derived",
+      "deviation": "D5",
+      "title": "a nativets script with a //native line is transpiled, not bundled for the browser target: its language decides, not its header (WR-40's note, SC1)",
+      "given": {
+        "language": "nativets",
+        "source": "//native\nimport * as wmill from \"./windmill.ts\";\nexport function main() { return typeof wmill.getVariable; }"
+      },
+      "expect": {
+        "target": "none",
+        "boundary": "native",
+        "annotations": ["native"],
+        "imports": [],
+        "bundle_contains": ["wmill = __windmill_lite_native.imports[0]"],
+        "bundle_not_contains": ["import * as"]
+      }
+    },
+    {
+      "spec": "D5",
       "variant": "nativets-syntax-error",
       "provenance": "policy",
       "deviation": "D5",

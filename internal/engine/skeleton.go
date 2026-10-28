@@ -17,6 +17,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/openflow"
 )
@@ -30,12 +31,14 @@ import (
 // its code survives.
 //
 // It runs one sequential flow at a time per run: script steps by path and
-// inline Bun steps, their static and javascript input transforms, a static
-// step timeout, H1 interception and the start and completion precedence of
-// the latch and cancellation. Anything else fails at load with
+// inline Bun-family steps (bun, bunnative, nativets), each invoked with its
+// boundary, their static and javascript input transforms, a static step
+// timeout, H1 interception and the start and completion precedence of the
+// latch and cancellation. Anything else fails at load with
 // ErrSkeletonUnsupported. A Skeleton is safe for concurrent use.
 type Skeleton struct {
 	bundle    string
+	scripts   string
 	exec      StepExecutor
 	js        expr.Engine
 	workspace string
@@ -51,6 +54,10 @@ type SkeletonConfig struct {
 	// digest, recorded in every trace.
 	BundleDir string
 	Bundle    string
+	// ScriptsDir holds the bundle's scripts/bun/ tree, whose metadata says
+	// which boundary a path script runs with (bundle.ScriptMeta); empty
+	// means BundleDir.
+	ScriptsDir string
 	// Exec runs the steps unless a run names its own; JS evaluates
 	// javascript input transforms.
 	Exec StepExecutor
@@ -76,6 +83,7 @@ type skelModule struct {
 	script     string // inventory id: the path, or <flow path>/<id> inline
 	transforms []skelTransform
 	timeout    *int64 // seconds, when the step has a static timeout
+	boundary   Boundary
 }
 
 type skelTransform struct {
@@ -93,7 +101,10 @@ func NewSkeleton(cfg SkeletonConfig) (*Skeleton, error) {
 	if cfg.JS == nil {
 		return nil, errors.New("engine: the skeleton needs JS")
 	}
-	s := &Skeleton{bundle: cfg.Bundle, exec: cfg.Exec, js: cfg.JS, workspace: cfg.Workspace, cap: cfg.InstanceTimeout, flows: map[string]*skelFlow{}}
+	s := &Skeleton{bundle: cfg.Bundle, scripts: cfg.ScriptsDir, exec: cfg.Exec, js: cfg.JS, workspace: cfg.Workspace, cap: cfg.InstanceTimeout, flows: map[string]*skelFlow{}}
+	if s.scripts == "" {
+		s.scripts = cfg.BundleDir
+	}
 	if s.workspace == "" {
 		s.workspace = "windmill-lite"
 	}
@@ -188,8 +199,22 @@ func (s *Skeleton) compileModule(flowPath string, m openflow.Module) (skelModule
 	switch val := m.Value.(type) {
 	case *openflow.PathScript:
 		sm.script, transforms = val.Path, val.InputTransforms
+		b, err := s.pathBoundary(val.Path)
+		if err != nil {
+			return sm, err
+		}
+		sm.boundary = b
 	case *openflow.RawScript:
-		if val.Language != openflow.LangBun {
+		// A Bun-family step's boundary follows the compiler's rule: a bun
+		// or bunnative step its //native header, a nativets step its
+		// language, with or without the header (WR-40, SC1).
+		lang := ir.DeployedLanguage(val.Language, val.Content)
+		switch b, _ := ir.BoundaryOf(lang); b {
+		case ir.BoundaryBun:
+			sm.boundary = BoundaryBun
+		case ir.BoundaryNative:
+			sm.boundary = BoundaryNative
+		default:
 			return sm, unsupported("%s steps", val.Language)
 		}
 		// The bundle holds the inline script's module under the job path
@@ -220,6 +245,33 @@ func (s *Skeleton) compileModule(flowPath string, m openflow.Module) (skelModule
 		sm.transforms = append(sm.transforms, st)
 	}
 	return sm, nil
+}
+
+// pathBoundary is the boundary of the path script at path: what its
+// metadata in the bundle records (bundle.ScriptMeta's boundary), bun when
+// the bundle has none for it.
+func (s *Skeleton) pathBoundary(path string) (Boundary, error) {
+	rel := filepath.FromSlash(path) + ".meta.json"
+	if !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("script path %q leaves the bundle", path)
+	}
+	b, err := os.ReadFile(filepath.Join(s.scripts, "scripts", "bun", rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return BoundaryBun, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var meta struct {
+		Boundary Boundary `json:"boundary"`
+	}
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return "", fmt.Errorf("script %s: metadata: %w", path, err)
+	}
+	if meta.Boundary == BoundaryNative {
+		return BoundaryNative, nil
+	}
+	return BoundaryBun, nil
 }
 
 // program compiles source once.
@@ -497,7 +549,7 @@ func (r *skelRun) module(ctx context.Context, m skelModule, prev jsonval.Value, 
 			return notLaunched()
 		case errors.Is(err, CancelTimeout):
 			rec.Abandoned = true
-			return fail(TimeoutError(BoundaryBun, m.id, timeout, instanceWide), OriginEngine)
+			return fail(TimeoutError(m.boundary, m.id, timeout, instanceWide), OriginEngine)
 		case err != nil && ctx.Err() != nil:
 			// The run was canceled (H4); the precedence check ends it.
 			rec.Abandoned = true
@@ -605,7 +657,7 @@ func (r *skelRun) invoke(ctx context.Context, m skelModule, site Site, args json
 		Script:      m.script,
 		Entry:       "main",
 		Args:        args,
-		Boundary:    BoundaryBun,
+		Boundary:    m.boundary,
 		ModuleState: ModuleStateWarm,
 	}
 	inv.Env = map[string]string{

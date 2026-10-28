@@ -218,8 +218,7 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with `setup.yaml` (resources and variables,
 PF2) or effects (the effect sink), a script run (`kind: script`), a flow the
 compiler refuses as an unsupported feature, language or pinned hash, a
-script of another harness, or of the native boundary, which the Bun harness
-runs (C3n) but the walking skeleton never invokes (N1a), or a flow the walking
+script of another harness (L1), or a flow the walking
 skeleton refuses at load (containers, failure modules, `skip_if`, retries
 and the other features N1a and its successors implement).
 

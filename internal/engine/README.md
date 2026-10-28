@@ -158,11 +158,20 @@ from a bundle directory that holds each flow as
 scaffolding: its review bar was that it retires W1's gates, and N1a, B2b,
 C3a and F4 replace its parts.
 
-- **What it runs.** Script steps by path and inline Bun steps (whose module
-  is the bundle's `scripts/bun/<flow path>/<id>.mjs`), with `static` and
+- **What it runs.** Script steps by path and inline Bun-family steps
+  (`bun`, `bunnative`, `nativets`; whose module is the bundle's
+  `scripts/bun/<flow path>/<id>.mjs`, or `.native.js`), with `static` and
   `javascript` input transforms, a static step `timeout`, and H1
   interception at launch. `NewSkeleton` refuses any other module kind or
   feature with `ErrSkeletonUnsupported`, at load.
+- **Boundaries.** Each step is invoked with its boundary (C3n): an inline
+  step's follows the compiler's rule (`ir.DeployedLanguage`,
+  `ir.BoundaryOf`): native for a `nativets` step, with or without a
+  `//native` header ([WR-40](../../docs/semantics/languages.md#wr-40)'s
+  note), and for a `bun` or `bunnative` step whose header says
+  `//native`; a path script's is what its metadata in the bundle records
+  (`SkeletonConfig.ScriptsDir`, by default the bundle directory), Bun when
+  it has none.
 - **Transforms.** Static values are copied verbatim
   ([JE-40](../../docs/semantics/expressions.md#je-40)). A javascript
   transform is a stand-in for B2b's pipeline: the text trimmed, in
@@ -179,11 +188,10 @@ C3a and F4 replace its parts.
 - **Steps.** Each runs through the `StepExecutor` with the core `WM_*`
   variables, with the run's id as `WM_FLOW_JOB_ID` and the invocation's as
   `WM_JOB_ID`. The timeout is a timer in the engine; when it fires the step
-  is abandoned and fails with `TimeoutError`'s value for its boundary,
-  [WR-37](../../docs/semantics/languages.md#wr-37)'s text for a Bun step.
-  The skeleton runs Bun steps only; `TimeoutError` gives a native step
+  is abandoned and fails with `TimeoutError`'s value for its boundary:
+  [WR-37](../../docs/semantics/languages.md#wr-37)'s text for a Bun step,
   [WR-44](../../docs/semantics/languages.md#wr-44)'s
-  `Query timeout after (>Ns)`, which `wltest check` applies (C3n).
+  `Query timeout after (>Ns)` for a native one.
 - **Failure.** The flow stops at the first failed step, whose result is the
   flow's ([FX-36](../../docs/semantics/execution.md#fx-36)). A step's
   failure value is `StoreOutcome`'s; those the engine raises around a step

@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "CF-6/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "part": "compile",
       "note": "The run half, the result [ERR(..), 2], is N3a's.",
       "title": "an absent skip_failures is true after a deploy",

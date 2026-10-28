@@ -9,6 +9,7 @@
     {"spec": "OF-7/b", "reason": "run-time behaviour of the deployed skip-flag default", "expected_in": "N3a"},
     {"spec": "OF-7/c", "reason": "run-time behaviour of the deployed skip-flag default", "expected_in": "N3b"},
     {"spec": "OF-7/d", "reason": "run-time behaviour of the deployed skip-flag default", "expected_in": "N3a and N3b"},
+    {"spec": "OF-14/f", "reason": "an unknown pin deploys and fails at run time; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level", "expected_in": "a follow-up of A5"},
     {"spec": "OF-15/a", "reason": "Windmill's relock on deploy; windmill-lite preserves the supplied lock text and does not relock (docs/design/0002, Validation)", "expected_in": "conformance/ir (A5)"},
     {"spec": "OF-15/b", "reason": "Windmill's relock on deploy; windmill-lite does not relock", "expected_in": "conformance/ir (A5)"},
     {"spec": "OF-15/c", "reason": "Windmill's relock of a selected module on deploy; windmill-lite never relocks and keeps the supplied lock (conformance/ir/of-15.json)", "expected_in": "not applicable"},

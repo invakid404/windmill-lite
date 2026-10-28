@@ -406,8 +406,11 @@ only hand-written files.
   the textual pipeline of milestone B2a fills in the rest.
 - Milestone C3n exported the deploy's relabelling of a Bun-family rawscript
   (`ir.DeployedLanguage`) and the boundary of a language (`ir.BoundaryOf`),
-  so that the step-case runner applies the compiler's rule rather than one
-  of its own.
+  so that the step-case runner and the walking skeleton apply the
+  compiler's rule rather than one of their own. The header decides only
+  for `bun` and `bunnative`: a `nativets` step is native with or without a
+  `//native` line, and is always transpiled, never bundled
+  ([WR-40](../semantics/languages.md#wr-40)'s note, from SC1).
 - Milestone F4's build applies rule 5 (`missing_lock`, for a script whose
   own source imports a package and that has no lock or a blank one) and the
   workflow-as-code refusal, from the Bun helper's scans; the relative-import
