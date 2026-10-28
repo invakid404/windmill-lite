@@ -1,0 +1,17 @@
+# Stub mode (ADR 0011): a named subflow and a parallel loop under one outer
+# run, and two concurrent outer runs (OR-V6/a, Q-OR-10). Each stub call
+# reports WM_ROOT_JOB_ID, WM_ROOT_FLOW_JOB_ID, WM_FLOW_JOB_ID and
+# WM_JOB_ID: the subflow and the parallel iterations are new innermost
+# root flows, and every call still names the submitted root, so the
+# replay service and the effects group them under it. Runs r and t are
+# submitted together and keep apart. The parallel iterations may run in
+# either order, so effects compare as a multiset. Synthetic, written for
+# this repository.
+id: stub/scopes
+spec: [OR-V6/a, OR-16, OR-29, CF-7, CF-17]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, effects: true}
+compare: {unordered: [/effects]}
+stub: true

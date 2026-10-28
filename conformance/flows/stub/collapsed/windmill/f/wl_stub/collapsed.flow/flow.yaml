@@ -1,0 +1,41 @@
+summary: wl stub collapsed loop body
+value:
+  modules:
+    - id: each
+      value:
+        type: forloopflow
+        modules:
+          - id: book
+            value:
+              type: rawscript
+              content: '!inline book.ts'
+              input_transforms:
+                at:
+                  type: javascript
+                  expr: flow_input.iter.value
+                n:
+                  type: javascript
+                  expr: flow_input.iter.index
+              lock: '!inline book.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: flow_input.days
+        parallel: false
+        skip_failures: false
+    - id: total
+      value:
+        type: script
+        input_transforms:
+          slots:
+            type: javascript
+            expr: results.each
+        path: f/wl_stub/total
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    days:
+      type: array
+  required:
+    - days

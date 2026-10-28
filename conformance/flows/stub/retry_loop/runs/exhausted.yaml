@@ -1,0 +1,55 @@
+# Iteration 1's step fails on all three attempts, so its retries run out,
+# the iteration fails, and with skip_failures false the loop and the flow
+# fail with the array of results so far (CF-5).
+target: f/wl_stub/retry_loop
+args: {items: [apple, pear]}
+replay:
+  "m:loop/i:0/m:call": {result: {item: apple, held: 1}}
+  "m:loop/i:1/m:call":
+    - {error: {message: "inventory down"}}
+    - {error: {message: "inventory down"}}
+    - {error: {message: "inventory down"}}
+expect:
+  status: failure
+  result: [{item: apple, held: 1}, {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}]
+  steps:
+    "m:loop":
+      status: failure
+      result: [{item: apple, held: 1}, {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}]
+    "m:loop/i:0/m:call": {status: success, args: {item: apple}, result: {item: apple, held: 1}}
+    "m:loop/i:1/m:call/r:0": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}}
+    "m:loop/i:1/m:call/r:1": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}}
+    "m:loop/i:1/m:call": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory down", stack: "<stack>", step_id: call}}}
+  effects:
+    - site: "m:loop/i:0/m:call"
+      attempt: 0
+      step: call
+      job: "<job:m:loop/i:0/m:call>"
+      flow: "<job:m:loop/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [apple]
+    - site: "m:loop/i:1/m:call"
+      attempt: 0
+      step: call
+      job: "<job:m:loop/i:1/m:call/r:0>"
+      flow: "<job:m:loop/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [pear]
+    - site: "m:loop/i:1/m:call"
+      attempt: 1
+      step: call
+      job: "<job:m:loop/i:1/m:call/r:1>"
+      flow: "<job:m:loop/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [pear]
+    - site: "m:loop/i:1/m:call"
+      attempt: 2
+      step: call
+      job: "<job:m:loop/i:1/m:call>"
+      flow: "<job:m:loop/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [pear]

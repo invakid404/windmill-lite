@@ -1,0 +1,11 @@
+# Stub mode (ADR 0011): a retry inside a loop. The loop's body step calls a
+# service the oracle cannot reach; stubbed, each attempt takes its outcome
+# from the run's replay table, by site and attempt number. Synthetic,
+# written for this repository.
+id: stub/retry_loop
+spec: [OR-11, OR-V2, FX-26, CF-4, CF-5]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, effects: true}
+stub: true

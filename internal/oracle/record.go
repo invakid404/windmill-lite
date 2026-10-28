@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
@@ -191,7 +192,10 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	}
 	defer os.RemoveAll(tmp)
 
-	var sink Sink
+	// One server is the effect sink and, below it, the replay service of
+	// stub mode (ADR 0011): stubs post to $WL_EFFECT_SINK/replay.
+	replay := &conformance.ReplayService{}
+	sink := Sink{Replay: replay}
 	listen := s.SinkListen
 	if listen == "" {
 		listen = "0.0.0.0:0"
@@ -216,7 +220,7 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 		if err := compose.Up(ctx); err != nil {
 			return err
 		}
-		return s.session(ctx, rep, fixtures, tmp, sinkURL, &sink, upAt)
+		return s.session(ctx, rep, fixtures, tmp, sinkURL, &sink, replay, upAt)
 	})
 	if err := s.teardown(compose, rep); err != nil && runErr == nil {
 		runErr = err
@@ -329,7 +333,7 @@ func (s *Session) teardown(c Compose, rep *Report) error {
 	return nil
 }
 
-func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conformance.Fixture, tmp, sinkURL string, sink *Sink, upAt time.Time) error {
+func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conformance.Fixture, tmp, sinkURL string, sink *Sink, replay *conformance.ReplayService, upAt time.Time) error {
 	c := &Client{BaseURL: s.base()}
 	sinceUp := time.Since(upAt)
 	boot, err := WaitReady(ctx, c, s.Workers, time.Second, 180*time.Second)
@@ -415,12 +419,10 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		if err != nil {
 			failAll(err)
 		} else {
-			for _, r := range runs {
-				rb := base
-				if fd, ok := flows[r.Target]; ok && !r.IsScript() {
-					rb.Deployment = &fd
-				}
-				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, rb))
+			// Runs of one group are submitted together, as concurrent
+			// outer runs; every other run alone.
+			for _, batch := range conformance.RunBatches(runs) {
+				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, batch, tree, sink, replay, base, flows)...)
 			}
 		}
 		// CE refuses a third workspace besides admins, so the next
@@ -452,15 +454,22 @@ func (s *Session) rel(p string) string {
 // deploy optionally regenerates the fixture's metadata, pushes a copy of
 // its sync tree with the CLI into its new workspace ws, applies its setup
 // and passes the deployment gate. A fixture with oracle.deploy api is
-// deployed by deployAPI instead.
+// deployed by deployAPI instead; a stub fixture always goes through the
+// CLI, which pushes its stubbed tree.
 func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, map[string]FlowDeployment, error) {
 	if f.Oracle.DeploysThroughAPI() {
+		if f.Stub {
+			return nil, Deployment{}, nil, fmt.Errorf("oracle: fixture %s: stub mode pushes a stubbed tree with the CLI and cannot deploy through the API", s.rel(f.Dir))
+		}
 		return s.deployAPI(ctx, c, cli, f, ws, tmp)
 	}
 	tree, dep, err := s.deployCLI(ctx, c, cli, f, ws, tmp)
 	return tree, dep, nil, err
 }
 
+// deployCLI is deploy through the CLI. A stub fixture's copy is its
+// stubbed tree (StubTree), whose metadata the CLI regenerates before the
+// push; the stub must keep every path script's schema (CheckStubSignatures).
 func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
@@ -477,7 +486,19 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 		return nil, dep, err
 	}
 	copyDir := filepath.Join(tmp, "push", ws)
-	if err := CopyTree(f.SyncTree(), copyDir); err != nil {
+	if f.Stub {
+		st, err := StubTree(f.SyncTree(), copyDir)
+		if err != nil {
+			return nil, dep, err
+		}
+		dep.Stubbed = st.Files
+		if err := cli.GenerateMetadata(ctx, copyDir, t); err != nil {
+			return nil, dep, err
+		}
+		if err := CheckStubSignatures(f.SyncTree(), copyDir); err != nil {
+			return nil, dep, err
+		}
+	} else if err := CopyTree(f.SyncTree(), copyDir); err != nil {
 		return nil, dep, err
 	}
 	if err := cli.Push(ctx, copyDir, t); err != nil {
@@ -486,9 +507,11 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 	if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
 		return nil, dep, err
 	}
+	stubbed := dep.Stubbed
 	if dep, err = Gate(ctx, c, ws, s.pollInterval, 2*time.Minute); err != nil {
 		return nil, dep, err
 	}
+	dep.Stubbed = stubbed
 	return tree, dep, CheckDeployedModules(tree, dep)
 }
 
@@ -559,12 +582,145 @@ func (s *Session) deployAPI(ctx context.Context, c *Client, cli CLI, f *conforma
 	return tree, dep, flows, nil
 }
 
-// record runs one fixture run Repeat times, compares the observations with
-// each other, with the run's expect and with its committed recording, and
-// writes the recording as the session's policy says.
-func (s *Session) record(ctx context.Context, c *Client, ws string, f *conformance.Fixture, r conformance.Run, tree *SyncTree, sink *Sink, base Provenance) RunReport {
-	out := RunReport{Fixture: s.rel(f.Dir), Run: r.Name}
-	fail := func(outcome string, err error, diffs []conformance.Difference) RunReport {
+// record runs a batch of runs (one run, or a group of concurrent outer
+// runs) Repeat times, compares each run's observations with each other,
+// with the run's expect and with its committed recording, and writes the
+// recordings as the session's policy says.
+// flows holds the deployment evidence of an API deployment, by flow path;
+// a run that targets one of those flows carries it in its provenance.
+func (s *Session) record(ctx context.Context, c *Client, ws string, f *conformance.Fixture, batch []conformance.Run, tree *SyncTree, sink *Sink, replay *conformance.ReplayService, base Provenance, flows map[string]FlowDeployment) []RunReport {
+	out := make([]*RunReport, len(batch))
+	fail := func(k int, outcome string, err error, diffs []conformance.Difference) {
+		r := &RunReport{Fixture: s.rel(f.Dir), Run: batch[k].Name, Outcome: outcome}
+		if err != nil {
+			r.Error = err.Error()
+		}
+		for _, d := range diffs {
+			r.Differences = append(r.Differences, d.String())
+		}
+		out[k] = r
+	}
+	repeat := max(s.Repeat, 1)
+	// The run's expect may be a subset assertion; two oracle observations
+	// are compared exactly, so an extra member or step is a change.
+	expectOpts := f.Compare.Options()
+	opts := expectOpts
+	opts.Subset = false
+	first := make([]conformance.Observation, len(batch))
+	prov := make([]Provenance, len(batch))
+	group := ""
+	if len(batch) > 1 {
+		group = batch[0].Group
+	}
+	for i := 0; i < repeat; i++ {
+		var live []int
+		for k := range batch {
+			if out[k] == nil {
+				live = append(live, k)
+			}
+		}
+		results := make([]executed, len(batch))
+		var wg sync.WaitGroup
+		for _, k := range live {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				rb := base
+				if fd, ok := flows[batch[k].Target]; ok && !batch[k].IsScript() {
+					rb.Deployment = &fd
+				}
+				results[k].obs, results[k].prov, results[k].err = s.execute(ctx, c, ws, f, batch[k], tree, sink, replay, rb, i)
+			}()
+		}
+		wg.Wait()
+		if group != "" {
+			// A group is one test of concurrent outer runs: if a run
+			// failed, or the runs did not overlap on the oracle, none of
+			// them showed what the group is for.
+			var failedRun string
+			for _, k := range live {
+				if results[k].err != nil {
+					failedRun = batch[k].Name
+					break
+				}
+			}
+			var gerr error
+			if failedRun != "" {
+				gerr = refusal("group_member_failed", "group", jsonString(group), "run", jsonString(failedRun))
+			} else if err := checkOverlap(batch, live, results); err != nil {
+				gerr = refusal("group_not_concurrent", "group", jsonString(group), "reason", jsonString(err.Error()))
+			}
+			if gerr != nil {
+				for _, k := range live {
+					if results[k].err == nil {
+						results[k].err = gerr
+					}
+				}
+			}
+		}
+		for _, k := range live {
+			res := results[k]
+			switch {
+			case res.err != nil:
+				fail(k, OutcomeFailed, res.err, nil)
+			case i == 0:
+				first[k], prov[k] = res.obs, res.prov
+				prov[k].Group = group
+			default:
+				if diffs, err := conformance.Compare(res.obs, first[k], opts); err != nil || len(diffs) > 0 {
+					fail(k, OutcomeUnstable, err, diffs)
+				}
+			}
+		}
+	}
+	reports := make([]RunReport, len(batch))
+	for k, r := range batch {
+		if out[k] == nil {
+			prov[k].Repeats = repeat
+			out[k] = s.conclude(f, r, first[k], prov[k], expectOpts, opts)
+		}
+		reports[k] = *out[k]
+	}
+	return reports
+}
+
+type executed struct {
+	obs  conformance.Observation
+	prov Provenance
+	err  error
+}
+
+// checkOverlap requires the root jobs of a group's runs to have been in
+// flight together: each created before every other completed, by the
+// oracle's own timestamps.
+func checkOverlap(batch []conformance.Run, live []int, results []executed) error {
+	type span struct{ from, to time.Time }
+	spans := map[int]span{}
+	for _, k := range live {
+		j := results[k].prov.Timings.Jobs[""]
+		from, err1 := time.Parse(time.RFC3339Nano, j.CreatedAt)
+		to, err2 := time.Parse(time.RFC3339Nano, j.CompletedAt)
+		if err1 != nil || err2 != nil {
+			return fmt.Errorf("run %s has no root created_at and completed_at", batch[k].Name)
+		}
+		spans[k] = span{from, to}
+	}
+	for _, a := range live {
+		for _, b := range live {
+			if a != b && !spans[a].from.Before(spans[b].to) {
+				return fmt.Errorf("run %s started after run %s completed", batch[a].Name, batch[b].Name)
+			}
+		}
+	}
+	return nil
+}
+
+// conclude compares a run's stable observation with its expect and its
+// committed recording, and writes the recording as the session's policy
+// says.
+func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conformance.Observation, prov Provenance, expectOpts, opts conformance.CompareOptions) *RunReport {
+	out := &RunReport{Fixture: s.rel(f.Dir), Run: r.Name}
+	fail := func(outcome string, err error, diffs []conformance.Difference) *RunReport {
 		out.Outcome = outcome
 		if err != nil {
 			out.Error = err.Error()
@@ -574,29 +730,6 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 		}
 		return out
 	}
-	repeat := max(s.Repeat, 1)
-	// The run's expect may be a subset assertion; two oracle observations
-	// are compared exactly, so an extra member or step is a change.
-	expectOpts := f.Compare.Options()
-	opts := expectOpts
-	opts.Subset = false
-	var first conformance.Observation
-	var prov Provenance
-	for i := 0; i < repeat; i++ {
-		obs, p, err := s.execute(ctx, c, ws, f, r, tree, sink, base, i)
-		if err != nil {
-			return fail(OutcomeFailed, err, nil)
-		}
-		if i == 0 {
-			first, prov = obs, p
-			continue
-		}
-		diffs, err := conformance.Compare(obs, first, opts)
-		if err != nil || len(diffs) > 0 {
-			return fail(OutcomeUnstable, err, diffs)
-		}
-	}
-	prov.Repeats = repeat
 	if r.Expect != nil {
 		ro := expectOpts
 		ro.WithRecording = true
@@ -644,11 +777,19 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 	return out
 }
 
-// execute submits one run, waits for it, walks it and normalises it.
-func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conformance.Fixture, r conformance.Run, tree *SyncTree, sink *Sink, base Provenance, rep int) (conformance.Observation, Provenance, error) {
+// execute submits one run, waits for it, walks it and normalises it. In
+// stub mode the replay service answers the run's stubs from its table
+// while it runs, and the walk must agree with every answered call
+// (checkReplay); the calls are the run's effects after the sink's.
+func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conformance.Fixture, r conformance.Run, tree *SyncTree, sink *Sink, replay *conformance.ReplayService, base Provenance, rep int) (conformance.Observation, Provenance, error) {
 	root := newUUID()
 	sink.Open(root)
-	defer sink.Close()
+	defer sink.Close(root)
+	foreignReplays := replay.Foreign()
+	if f.Stub {
+		replay.Open(root, r.Replay, &Locator{Client: c, Workspace: ws, Tree: tree, Interval: s.pollInterval})
+		defer replay.Close(root)
+	}
 	submitted := time.Now()
 	var id string
 	var err error
@@ -683,7 +824,11 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 		return conformance.Observation{}, base, fmt.Errorf("oracle: run %s did not complete (canceled): %w", r.Name, err)
 	}
 	elapsed := time.Since(submitted)
-	effects, foreign := sink.Close()
+	effects, foreign := sink.Close(root)
+	var calls []conformance.ReplayCall
+	if f.Stub {
+		calls = replay.Close(root)
+	}
 
 	capture := &Capture{}
 	wc := *c
@@ -697,6 +842,14 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	if err != nil {
 		return conformance.Observation{}, base, err
 	}
+	if f.Stub {
+		if err := checkReplay(w, calls); err != nil {
+			return conformance.Observation{}, base, err
+		}
+		for _, call := range calls {
+			effects = append(effects, call.Effect)
+		}
+	}
 	obs, err := Observe(w, effects, f.Compare)
 	if err != nil {
 		return obs, base, err
@@ -705,6 +858,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	p.RecordedAt = time.Now().UTC().Format(time.RFC3339)
 	p.Timings = RunTimings{SubmitToCompleteMS: elapsed.Milliseconds(), Jobs: w.Timings}
 	p.ForeignEffects = foreign
+	p.ForeignReplayCalls = replay.Foreign() - foreignReplays
 	return obs, p, nil
 }
 
@@ -783,6 +937,12 @@ type Provenance struct {
 	Repeats        int               `json:"repeats"`
 	Timings        RunTimings        `json:"timings"`
 	ForeignEffects int               `json:"foreign_effects,omitempty"`
+	// ForeignReplayCalls counts the stub calls refused while the run was
+	// open, because their root was no open run.
+	ForeignReplayCalls int `json:"foreign_replay_calls,omitempty"`
+	// Group names the batch of concurrent outer runs the run was
+	// submitted with.
+	Group string `json:"group,omitempty"`
 	// Deployment is the target flow's deployment evidence when the fixture
 	// is deployed through the API (oracle.deploy api).
 	Deployment *FlowDeployment `json:"deployment,omitempty"`

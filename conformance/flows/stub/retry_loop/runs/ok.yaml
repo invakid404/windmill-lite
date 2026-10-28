@@ -1,0 +1,77 @@
+# Iteration 1's step fails once and iteration 2's twice before they
+# succeed, within the step's two retries (FX-26). Each attempt is the
+# number of distinct jobs already seen at the site: the failed attempts
+# are walked at r:<k>, the last at the module's site (OR-11, ADR 0011).
+target: f/wl_stub/retry_loop
+args: {items: [apple, pear, fig]}
+replay:
+  "m:loop/i:0/m:call": {result: {item: apple, held: 1}}
+  "m:loop/i:1/m:call":
+    - {error: {message: "inventory busy"}}
+    - {result: {item: pear, held: 2}}
+  "m:loop/i:2/m:call":
+    - {error: {name: Busy, message: "inventory busy", retry_in: 0}}
+    - {error: {message: "inventory busy"}}
+    - {result: {item: fig, held: 3}}
+expect:
+  status: success
+  result: [{item: apple, held: 1}, {item: pear, held: 2}, {item: fig, held: 3}]
+  steps:
+    "m:loop":
+      status: success
+      result: [{item: apple, held: 1}, {item: pear, held: 2}, {item: fig, held: 3}]
+    "m:loop/i:0/m:call": {status: success, args: {item: apple}, result: {item: apple, held: 1}}
+    "m:loop/i:1/m:call/r:0": {status: failure, args: {item: pear}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: call}}}
+    "m:loop/i:1/m:call": {status: success, args: {item: pear}, result: {item: pear, held: 2}}
+    "m:loop/i:2/m:call/r:0": {status: failure, args: {item: fig}, result: {error: {name: Busy, message: "inventory busy", stack: "<stack>", extra: {retry_in: 0}, step_id: call}}}
+    "m:loop/i:2/m:call/r:1": {status: failure, args: {item: fig}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: call}}}
+    "m:loop/i:2/m:call": {status: success, args: {item: fig}, result: {item: fig, held: 3}}
+  effects:
+    - site: "m:loop/i:0/m:call"
+      attempt: 0
+      step: call
+      job: "<job:m:loop/i:0/m:call>"
+      flow: "<job:m:loop/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [apple]
+    - site: "m:loop/i:1/m:call"
+      attempt: 0
+      step: call
+      job: "<job:m:loop/i:1/m:call/r:0>"
+      flow: "<job:m:loop/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [pear]
+    - site: "m:loop/i:1/m:call"
+      attempt: 1
+      step: call
+      job: "<job:m:loop/i:1/m:call>"
+      flow: "<job:m:loop/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [pear]
+    - site: "m:loop/i:2/m:call"
+      attempt: 0
+      step: call
+      job: "<job:m:loop/i:2/m:call/r:0>"
+      flow: "<job:m:loop/i:2>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [fig]
+    - site: "m:loop/i:2/m:call"
+      attempt: 1
+      step: call
+      job: "<job:m:loop/i:2/m:call/r:1>"
+      flow: "<job:m:loop/i:2>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [fig]
+    - site: "m:loop/i:2/m:call"
+      attempt: 2
+      step: call
+      job: "<job:m:loop/i:2/m:call>"
+      flow: "<job:m:loop/i:2>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [fig]

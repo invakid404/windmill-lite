@@ -1,0 +1,340 @@
+[
+  {
+    "name": "a plain async main",
+    "source": "export async function main(x: number) {\n  return x * 2;\n}\n",
+    "params": "x: number",
+    "keep": []
+  },
+  {
+    "name": "a sync main",
+    "source": "export function main(a: string, b?: number) { return a }",
+    "params": "a: string, b?: number",
+    "keep": []
+  },
+  {
+    "name": "imports, top-level code and the body are dropped",
+    "source": "import { db } from \"@private/db\";\nconst conn = db.connect(process.env.DSN);\nexport async function main(id: string) {\n  return conn.get(id);\n}\n",
+    "params": "id: string",
+    "keep": []
+  },
+  {
+    "name": "a local alias to Date is kept for hydration (WR-V3)",
+    "source": "type When = Date;\n\nexport async function main(at: When, n: number) {\n  return at;\n}\n",
+    "params": "at: When, n: number",
+    "keep": [
+      "type When = Date;"
+    ]
+  },
+  {
+    "name": "an alias without a semicolon ends at the line break",
+    "source": "type When = Date\nexport async function main(at: When) {}\n",
+    "params": "at: When",
+    "keep": [
+      "type When = Date"
+    ]
+  },
+  {
+    "name": "a union alias over several lines",
+    "source": "type U =\n  | 'a'\n  | 'b';\nexport function main(u: U) {}\n",
+    "params": "u: U",
+    "keep": [
+      "type U =\n  | 'a'\n  | 'b';"
+    ]
+  },
+  {
+    "name": "an exported generic alias with an object type",
+    "source": "export type Box<T = string> = { value: T; at: Date }\nexport async function main(b: Box) {}\n",
+    "params": "b: Box",
+    "keep": [
+      "export type Box<T = string> = { value: T; at: Date }"
+    ]
+  },
+  {
+    "name": "an interface with a generic bound",
+    "source": "export interface Row<T extends {a: 1}> { a: T }\nexport function main(r: Row<{a: 1}>) {}",
+    "params": "r: Row<{a: 1}>",
+    "keep": [
+      "export interface Row<T extends {a: 1}> { a: T }"
+    ]
+  },
+  {
+    "name": "defaults that are literals, globals or earlier parameters",
+    "source": "export async function main(a = 1, b = \"x\", c = [1, {k: true}], d = new Date(0), e = a + 1, f = Math.PI, g = `t${a}`) {}",
+    "params": "a = 1, b = \"x\", c = [1, {k: true}], d = new Date(0), e = a + 1, f = Math.PI, g = `t${a}`",
+    "keep": []
+  },
+  {
+    "name": "generic annotations with commas and a default after >=",
+    "source": "export async function main(m: Map<string, Array<number>>, n: Array<number>= [], cb?: (x: number) => void) {}",
+    "params": "m: Map<string, Array<number>>, n: Array<number>= [], cb?: (x: number) => void",
+    "keep": []
+  },
+  {
+    "name": "a destructured parameter (anon1, WR-7)",
+    "source": "export async function main({ a, b }: { a: string; b: number }) {}",
+    "params": "{ a, b }: { a: string; b: number }",
+    "keep": []
+  },
+  {
+    "name": "comments and strings that look like code",
+    "source": "// export async function main(fake) {}\nconst s = \"function main(also) {}\";\nconst r = /function main\\(x\\)/g;\nconst t = `${(() => { function main(nope) {} })()}`;\n/* type Nope = Date */\nexport async function main(real: string /* kept */) {}\n",
+    "params": "real: string /* kept */",
+    "keep": []
+  },
+  {
+    "name": "a function expression named main is not the entrypoint",
+    "source": "const f = function main(x) {};\nexport async function main(y: number) {}\n",
+    "params": "y: number",
+    "keep": []
+  },
+  {
+    "name": "type and interface used as names are not declarations",
+    "source": "const type = 1;\nconst interface_ = { type: 2 };\nlet x = type\nexport async function main(z: number) {}\n",
+    "params": "z: number",
+    "keep": []
+  },
+  {
+    "name": "a hashbang and division",
+    "source": "#!/usr/bin/env bun\nconst half = 4 / 2 / 1;\nexport async function main(q: number) {}\n",
+    "params": "q: number",
+    "keep": []
+  },
+  {
+    "name": "an empty parameter list",
+    "source": "export async function main() { return 1 }",
+    "params": "",
+    "keep": []
+  },
+  {
+    "name": "an arrow-function main",
+    "source": "export const main = async (x: number) => x;",
+    "refuse": "no exported function declaration main"
+  },
+  {
+    "name": "no main",
+    "source": "export async function run(x: number) {}",
+    "refuse": "no exported function declaration main"
+  },
+  {
+    "name": "a main exported through an export list",
+    "source": "function main(x) {}\nexport { main };",
+    "params": "x",
+    "keep": []
+  },
+  {
+    "name": "a default-exported main",
+    "source": "export default async function main(x) {}",
+    "refuse": "default export"
+  },
+  {
+    "name": "a generator main",
+    "source": "export function* main(x) {}",
+    "refuse": "generator"
+  },
+  {
+    "name": "a generic main",
+    "source": "export async function main<T>(x: T) {}",
+    "refuse": "type parameters"
+  },
+  {
+    "name": "overloads",
+    "source": "export function main(x: string): void;\nexport function main(x: any) {}",
+    "refuse": "more than once"
+  },
+  {
+    "name": "a preprocessor",
+    "source": "export async function preprocessor(e: object) { return e }\nexport async function main(x: number) {}",
+    "refuse": "preprocessor"
+  },
+  {
+    "name": "a default that names a dropped binding is kept, and never runs",
+    "source": "const LIMIT = 10;\nexport async function main(limit = LIMIT) {}",
+    "params": "limit = LIMIT",
+    "keep": []
+  },
+  {
+    "name": "a parameter named like the stub's helpers is out of their scope",
+    "source": "export async function main(__wlReplay: number) {}",
+    "params": "__wlReplay: number",
+    "keep": []
+  },
+  {
+    "name": "an unterminated string",
+    "source": "export async function main(x = \"oops) {}",
+    "refuse": "unterminated string"
+  },
+  {
+    "name": "an unterminated template",
+    "source": "export async function main(x = `oops) {}",
+    "refuse": "unterminated template"
+  },
+  {
+    "name": "an unterminated comment",
+    "source": "/* export async function main(x) {}",
+    "refuse": "unterminated comment"
+  },
+  {
+    "name": "unbalanced brackets",
+    "source": "export async function main(x) { if (x) {",
+    "refuse": "unbalanced"
+  },
+  {
+    "name": "an alias after a line that ends in >",
+    "source": "type Rows = Array<string>\ntype When = Date\nexport async function main(at: When, r: Rows) {}\n",
+    "params": "at: When, r: Rows",
+    "keep": [
+      "type Rows = Array<string>",
+      "type When = Date"
+    ]
+  },
+  {
+    "name": "an interface after a line that ends in >",
+    "source": "type R = Record<string, number>\ninterface Box { at: Date }\nexport function main(b: Box) {}\n",
+    "params": "b: Box",
+    "keep": [
+      "type R = Record<string, number>",
+      "interface Box { at: Date }"
+    ]
+  },
+  {
+    "name": "code on the line after an alias is not part of it",
+    "source": "type A = { a: string }\n[1, 2].forEach((x) => console.log(x))\nexport async function main(a: A) {}\n",
+    "params": "a: A",
+    "keep": [
+      "type A = { a: string }"
+    ]
+  },
+  {
+    "name": "a type argument list does not continue an alias on the next line",
+    "source": "type A = string\n<number>foo\nexport async function main(a: A) {}\n",
+    "params": "a: A",
+    "keep": [
+      "type A = string"
+    ]
+  },
+  {
+    "name": "defaults inside a pattern may use literals and earlier names",
+    "source": "export async function main({ a = 1, b = a, c: { d = [true] } = {} }: T) {}",
+    "params": "{ a = 1, b = a, c: { d = [true] } = {} }: T",
+    "keep": []
+  },
+  {
+    "name": "a default inside a pattern is kept, and never runs",
+    "source": "const LIMIT = 3;\nexport async function main({ a = LIMIT }: { a?: number }) {}",
+    "params": "{ a = LIMIT }: { a?: number }",
+    "keep": []
+  },
+  {
+    "name": "a default that calls through globalThis is kept, and never runs",
+    "source": "export async function main(x = globalThis.fetch(\"http://private.invalid/\")) {}",
+    "params": "x = globalThis.fetch(\"http://private.invalid/\")",
+    "keep": []
+  },
+  {
+    "name": "a default that reads process is kept, and never runs",
+    "source": "export async function main(x = process.env.X) {}",
+    "params": "x = process.env.X",
+    "keep": []
+  },
+  {
+    "name": "a default that spawns through Bun is kept, and never runs",
+    "source": "export async function main(x = Bun.spawnSync([\"id\"])) {}",
+    "params": "x = Bun.spawnSync([\"id\"])",
+    "keep": []
+  },
+  {
+    "name": "the annotation flags of the leading block are kept (WR-31)",
+    "source": "//nodejs\n// owned by the payments team\n\n// sandbox\n//nobundling\n//npm\nimport x from \"y\";\nexport async function main(n: number) {}\n",
+    "params": "n: number",
+    "keep": [],
+    "annotations": [
+      "//nodejs",
+      "// sandbox",
+      "//nobundling",
+      "//npm"
+    ]
+  },
+  {
+    "name": "a flag after the leading block is not an annotation",
+    "source": "const a = 1;\n//nodejs\nexport async function main(n: number) {}\n",
+    "params": "n: number",
+    "keep": [],
+    "annotations": []
+  },
+  {
+    "name": "an indented flag ends the leading block",
+    "source": "  //nodejs\nexport async function main(n: number) {}\n",
+    "params": "n: number",
+    "keep": [],
+    "annotations": []
+  },
+  {
+    "name": "a ternary default that calls fetch is kept, and never runs",
+    "source": "export async function main(x = (true ? fetch : null)(\"https://synthetic.invalid\", {method: \"POST\"})) { return x }",
+    "params": "x = (true ? fetch : null)(\"https://synthetic.invalid\", {method: \"POST\"})",
+    "keep": []
+  },
+  {
+    "name": "a ternary default that names a dropped binding is kept, and never runs",
+    "source": "const LIMIT = 5; export async function main(x = true ? LIMIT : 0) { return x }",
+    "params": "x = true ? LIMIT : 0",
+    "keep": []
+  },
+  {
+    "name": "a parameter named Array",
+    "source": "export async function main(Array: string) { return Array }",
+    "params": "Array: string",
+    "keep": []
+  },
+  {
+    "name": "a destructured binding named Array",
+    "source": "export async function main({ Array }: { Array: string }) { return Array }",
+    "params": "{ Array }: { Array: string }",
+    "keep": []
+  },
+  {
+    "name": "main exported under its name from another local",
+    "source": "function main(a: number) {}\nconst run = (a: number) => a;\nexport { run as main };",
+    "params": "a: number",
+    "keep": []
+  },
+  {
+    "name": "a main declared and never exported",
+    "source": "function main(x) {}\nexport { other };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "a main re-exported from another module",
+    "source": "function main(x) {}\nexport { main } from \"./elsewhere\";",
+    "refuse": "re-exported from another module"
+  },
+  {
+    "name": "a type-only export list entry is no runtime main",
+    "source": "function main(x: string) { return x }; export { type main };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "a type-only export list is no runtime main",
+    "source": "function main(x: string) { return x }\nexport type { main };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "a type-only alias of main is no runtime main",
+    "source": "function main(x: string) { return x }\nexport { type main as main };",
+    "refuse": "declared but not exported"
+  },
+  {
+    "name": "main beside a type-only entry in one export list",
+    "source": "type Foo = string;\nfunction main(x: Foo) { return x }\nexport { type Foo, main };",
+    "params": "x: Foo",
+    "keep": [
+      "type Foo = string;"
+    ]
+  },
+  {
+    "name": "a binding named type in an export list",
+    "source": "const type = 1;\nfunction main(x: number) { return x }\nexport { type, main };",
+    "params": "x: number",
+    "keep": []
+  }
+]

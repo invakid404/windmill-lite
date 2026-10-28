@@ -1,0 +1,21 @@
+summary: wl stub members of a team
+value:
+  modules:
+    - id: lookup
+      value:
+        type: rawscript
+        content: '!inline lookup.ts'
+        input_transforms:
+          team:
+            type: javascript
+            expr: flow_input.team
+        lock: '!inline lookup.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    team:
+      type: string
+  required:
+    - team
