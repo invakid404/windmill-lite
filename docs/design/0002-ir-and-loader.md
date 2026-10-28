@@ -213,7 +213,11 @@ is TypeScript-specific and the harness must agree with it
 [WR-39](../semantics/languages.md#wr-39)). The helper records **every export**,
 not only `main` and `preprocessor`, because `_ENTRYPOINT_OVERRIDE` can name
 any export at run time, from a flow input
-([WR-12](../semantics/languages.md#wr-12)). For each exported function
+([WR-12](../semantics/languages.md#wr-12)), and every other top-level
+function declaration, since Windmill's parser reads a declaration whether
+it is exported or not ([WR-7](../semantics/languages.md#wr-7)): a job whose
+entrypoint names one whose parameters do not parse fails before it runs
+(milestone C3a). For each exported function
 declaration the manifest records the parameter names and which parameters
 hydrate to `Date`; an export the signature parser does not recognise (an
 arrow function, a `const` holding a function) is recorded with an empty

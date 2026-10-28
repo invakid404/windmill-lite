@@ -538,14 +538,17 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   - **`warning`**, a new message, carries an unattributed process-level
     error to each invocation in flight (failure model item 3), so the
     engine's `Reporter.Warning` hears of it; health's `errors` counts only
-    those, not attributed ones.
+    those, not attributed ones. Its message is cut to fit `max_message`,
+    and the handlers never throw (item 1): a throw from one would reach the
+    other, and one from there ends the process.
   - **A signature that did not parse** fails the step before its module
     loads (§Entrypoints).
-  - **`process.exit`** checks its code as Bun 1.3.10 does: an integer, or a
-    non-empty string that reads as one, modulo 256 (`process.exit(258)`
-    exits 2), no code being `process.exitCode` or 0; any other code makes
-    Bun throw before it exits, so the call throws Bun's own error, which the
-    wrapper catches. The outcome's `result` frame has `settled` false; the
+  - **`process.exit`** checks its code as Bun 1.3.10 does: a safe integer
+    (within ±(2^53 − 1)), or a string other than `""` that `Number` reads
+    as one (`" "` is 0), modulo 256 (`process.exit(258)` exits 2), no code
+    being `process.exitCode` or 0; any other code makes Bun throw before it
+    exits, so the call throws Bun's own error, which the wrapper catches,
+    and fixes no outcome. The outcome's `result` frame has `settled` false; the
     call's end is the settling `late` frame, without a body when the
     sentinel ended it. An exit during a module's evaluation fails every
     invocation of that script with that exit, as every Windmill job of it
@@ -565,11 +568,20 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
     returns a runner for the caller's async context without the
     invocation's store, so a pooled client or a host-provided module that
-    captures it at load starts its maintenance timers in no invocation:
-    they are never attributed, and never fenced.
+    captures it at load, and runs its factories through it, starts its
+    maintenance timers in no invocation: they are never attributed, and
+    never fenced. A factory a step calls runs in the step's context unless
+    it re-enters the captured scope; loading outside every invocation is
+    not enough.
   - **Host-provided modules in a spawned harness** are the bundle's copies,
     registered in the manifest's `host_modules` order before any step loads
-    ([0010](0010-packaging.md), D12).
+    and before the harness's `hello`, once every process-wide hook (the
+    process scope included) is installed ([0010](0010-packaging.md), D12).
+  - **Signatures by name.** The build records the signature of every
+    top-level function declaration, exported or not, beside every export's
+    ([0002](0002-ir-and-loader.md)), so an entrypoint whose declaration
+    does not parse fails before its module loads even when the module does
+    not export it ([WR-7](../semantics/languages.md#wr-7)).
   - **Results above `max_message`** stay a protocol refusal (an `escaped`
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the

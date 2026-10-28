@@ -22,6 +22,7 @@ import {
   Assembler,
   decodeAssembled,
   decodeFrame,
+  encode,
   FrameReader,
   type Health,
   type Message,
@@ -409,6 +410,21 @@ export class Runtime {
    * context fails nothing: it is counted in health, written to the
    * diagnostics, and attached as a warning to every invocation in flight. */
   private onProcessError(kind: string, e: unknown) {
+    // A handler must never throw: its exception would reach the other
+    // handler, and one thrown from there ends the process (Bun exits 7),
+    // which item 1 forbids.
+    try {
+      this.processError(kind, e);
+    } catch (err) {
+      try {
+        this.diag(`windmill-lite harness: could not report a ${kind}: ${describe(err)}`);
+      } catch {
+        // Nothing is left to report it to.
+      }
+    }
+  }
+
+  private processError(kind: string, e: unknown) {
     const c = current();
     if (c !== undefined) {
       this.diag(`windmill-lite harness: ${kind} in invocation ${JSON.stringify(c.id)}: ${describe(e)}`);
@@ -420,7 +436,23 @@ export class Runtime {
     this.errors++;
     this.diag(`windmill-lite harness: ${kind} that no invocation owns: ${describe(e)}`);
     const message = `${kind}: ${describe(e)}`;
-    for (const inv of this.invocations.values()) this.send({ t: "warning", id: inv.id, code: UNATTRIBUTED, message });
+    for (const inv of this.invocations.values()) this.sendWarning(inv.id, message);
+  }
+
+  /** Sends a warning, its message cut to fit max_message: the error's
+   * text can be as long as the step made it. A warning that cannot fit at
+   * all is only written to the diagnostics. It never throws. */
+  private sendWarning(id: string, message: string) {
+    const m = fitString({ t: "warning", id, code: UNATTRIBUTED, message: "" }, "message", message, this.sender.maxMessage);
+    if (m === undefined) {
+      this.diag(`windmill-lite harness: a warning for invocation ${JSON.stringify(id)} does not fit max_message`);
+      return;
+    }
+    try {
+      this.send(m);
+    } catch (err) {
+      this.diag(`windmill-lite harness: ${describe(err)}`);
+    }
   }
 
   /** Reports a running invocation's outcome while its call goes on: a
@@ -452,10 +484,14 @@ export class Runtime {
     } catch {
       body = undefined;
     }
-    try {
-      this.send({ t: "late", id, kind: "error", body, settled: false });
-    } catch (err) {
-      this.diag(`windmill-lite harness: ${describe(err)}`);
+    // One too large for max_message goes without its body.
+    for (const b of body === undefined ? [undefined] : [body, undefined]) {
+      try {
+        this.send({ t: "late", id, kind: "error", body: b, settled: false });
+        return;
+      } catch (err) {
+        this.diag(`windmill-lite harness: ${describe(err)}`);
+      }
     }
   }
 
@@ -607,6 +643,28 @@ export class Runtime {
     this.opts.transport.end();
     this.opts.exit(code);
   }
+}
+
+/** The message m with its string field set to as much of text, from the
+ * start, as keeps the message's canonical payload within limit bytes,
+ * ending in "…" when cut; undefined when not even an empty string fits. A
+ * cut never splits a surrogate pair. */
+export function fitString(m: Outgoing, field: string, text: string, limit: number): Outgoing | undefined {
+  const size = (t: string) => encode({ ...m, [field]: t }).length;
+  if (size(text) <= limit) return { ...m, [field]: text };
+  const cut = (k: number) => {
+    if (k > 0 && k < text.length && /[\uD800-\uDBFF]/.test(text[k - 1])) k--;
+    return text.slice(0, k) + "…";
+  };
+  if (size(cut(0)) > limit) return size("") <= limit ? { ...m, [field]: "" } : undefined;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (size(cut(mid)) <= limit) lo = mid;
+    else hi = mid - 1;
+  }
+  return { ...m, [field]: cut(lo) };
 }
 
 function rawBody(o: Outcome): Record<string, unknown> {

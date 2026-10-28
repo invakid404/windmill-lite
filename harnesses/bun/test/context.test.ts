@@ -126,11 +126,34 @@ test("a process scope captured inside an invocation leaves the invocation out an
   expect(Object.isFrozen(scope)).toBe(true);
 });
 
-test("process.exit's status is Bun's: integers and numeric strings modulo 256, Bun's own error otherwise", () => {
-  expect([exitStatus(0), exitStatus(3), exitStatus(256), exitStatus(258), exitStatus(-1), exitStatus("2"), exitStatus(" 7 "), exitStatus("0x10"), exitStatus(-0)]).toEqual([0, 3, 0, 2, 255, 2, 7, 16, 0]);
+// Each code as JavaScript source, for exitStatus and for a real Bun.
+const EXIT_CODES = [
+  "0", "3", "256", "258", "-1", "-256", "4294967301", "9007199254740991", "-9007199254740991",
+  "9007199254740992", "-9007199254740992", "1e21", "1.5", "NaN", "Infinity", "-0",
+  '"2"', '" 7 "', '" "', '"\\t\\n"', '""', '"x"', '"2.5"', '"0x10"', '"0b11"', '"+5"', '"1e3"', '"-0"',
+  '"9007199254740991"', '"9007199254740993"', '"Infinity"',
+  "true", "false", "{}", "[]", "[5]", "3n", "new Number(3)",
+];
+
+test("process.exit's status, or its refusal, is what a real Bun does with the same code", () => {
+  for (const src of EXIT_CODES) {
+    const code = eval(`(${src})`);
+    let want: unknown;
+    try {
+      want = exitStatus(code);
+    } catch (e) {
+      want = [(e as Error).name, (e as Error).message];
+    }
+    const r = Bun.spawnSync([process.execPath, "-e", `try { process.exit(${src}); } catch (e) { process.stdout.write(JSON.stringify([e.name, e.message])); process.reallyExit(99); }`]);
+    const got = r.exitCode === 99 ? JSON.parse(r.stdout.toString()) : r.exitCode;
+    expect([src, got]).toEqual([src, want]);
+  }
+});
+
+test("a code exitStatus refuses leaves process.exitCode as it was", () => {
   const before = process.exitCode;
   expect(exitStatus(undefined)).toBe(typeof before === "number" ? before : 0);
-  for (const bad of [1.5, "x", "", true, {}, NaN]) {
+  for (const bad of [1.5, "x", "", true, {}, NaN, 2 ** 53]) {
     expect(() => exitStatus(bad)).toThrow();
   }
   expect(process.exitCode).toBe(before);

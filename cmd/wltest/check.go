@@ -116,11 +116,13 @@ type caseResult struct {
 	diag     string
 }
 
-// runTimeout bounds each run's invocation, and settleTimeout the wait for
-// the settlement a run expects.
+// runTimeout bounds each run's invocation; settleTimeout the wait for its
+// settlement, through which its warnings and late reports are observed;
+// pendingWindow how long a call that must not settle is observed.
 const (
 	runTimeout    = 30 * time.Second
 	settleTimeout = 10 * time.Second
+	pendingWindow = 500 * time.Millisecond
 )
 
 // runFile builds f's scripts into one bundle and runs every case, a few at
@@ -333,15 +335,24 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 	if len(problems) > 0 {
 		problems = append(problems, "observed "+compactJSON(got))
 	}
+	// The run is observed up to its settlement: an outcome fixed early (an
+	// intercepted process.exit, D11) comes before the call ends, and its
+	// warnings until then belong to it (ADR 0004).
 	k := r.Check(sc.mode)
-	if k.Settled != "" || len(k.Late) > 0 {
+	if k.Settled == conformance.StepPending {
+		if kind, ok := rec.waitSettled(pendingWindow); ok {
+			problems = append(problems, fmt.Sprintf("settled %s within %s, want pending", kind, pendingWindow))
+		}
+	} else {
 		kind, ok := rec.waitSettled(settleTimeout)
 		switch {
 		case !ok:
-			problems = append(problems, fmt.Sprintf("not settled within %s", settleTimeout))
+			problems = append(problems, fmt.Sprintf("not settled within %s; a call that must not settle says settled: pending", settleTimeout))
 		case k.Settled != "" && string(kind) != k.Settled:
 			problems = append(problems, fmt.Sprintf("settled %s, want %s", kind, k.Settled))
 		}
+	}
+	if k.Settled != "" || len(k.Late) > 0 {
 		problems = append(problems, compareLate(rec.lates(), k.Late)...)
 	}
 	if got, want := rec.warningCodes(), k.Warnings; strings.Join(got, ",") != strings.Join(want, ",") {

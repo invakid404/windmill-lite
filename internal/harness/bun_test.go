@@ -242,6 +242,80 @@ func TestBunProcessErrorAttribution(t *testing.T) {
 	}
 }
 
+// ADR 0004, the shared-process failure model, items 2 and 4 (D9, D11): an
+// error a timer throws, or a process.exit it calls, after the invocation
+// settled changes nothing: the outcome stands, the invocation does not
+// settle again, the error is a late error that settles nothing, and the
+// process serves the next invocation (c3a review 1, finding 8).
+func TestBunWorkAfterTheResultIsLate(t *testing.T) {
+	for _, tc := range []struct{ script, body string }{
+		{"late-throw", `"message":"after the result"`},
+		{"late-exit", `"name":"ProcessExit"`},
+	} {
+		t.Run(tc.script, func(t *testing.T) {
+			cfg, _ := bunConfig(t)
+			p := spawn(t, cfg)
+			rec := newRecorder()
+			out, err := execute(t, p, newInvocation(tc.script, `{"ms":20}`, rec), 5*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `"done"` {
+				t.Fatalf("got %+v, %v", out, err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for !strings.Contains(rec.log(), "late error") && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			got := rec.log()
+			if !strings.HasPrefix(got, "settled completed; late error final=false {") || strings.Count(got, "settled") != 1 || !strings.Contains(got, tc.body) {
+				t.Fatalf("reporter calls %q", got)
+			}
+			out, err = execute(t, p, newInvocation("sleep", `{"ms":1}`, newRecorder()), 5*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK {
+				t.Fatalf("the next invocation: %+v, %v", out, err)
+			}
+		})
+	}
+}
+
+// The handlers never throw, whatever the error (c3a review 1, finding 2): a
+// rejection whose text is longer than max_message still fails nothing, and
+// the co-resident invocation's warning carries as much of it as fits.
+func TestBunLongUnattributedErrorUnderASmallMessageLimit(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	cfg.MaxMessage = 1024
+	p := spawn(t, cfg)
+	bystander := newRecorder()
+	done := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, _ := execute(t, p, newInvocation("sleep", `{"ms":400}`, bystander), 5*time.Second)
+		done <- out
+	}()
+	time.Sleep(50 * time.Millisecond)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go p.Execute(ctx, newInvocation("detached-reject", `{"ms":20,"size":5000}`, newRecorder()))
+	if out := <-done; out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "400" {
+		t.Fatalf("bystander: %+v", out)
+	}
+	if got := bystander.log(); got != "warning unattributed_error; settled completed" {
+		t.Fatalf("bystander's reporter calls %q", got)
+	}
+	bystander.mu.Lock()
+	w := bystander.warnings
+	bystander.mu.Unlock()
+	if len(w) != 1 || !strings.HasPrefix(w[0].Message, "unhandledRejection: Error: xxxx") || !strings.HasSuffix(w[0].Message, "…") || len(w[0].Message) > 1024 {
+		t.Fatalf("warning %+v", w)
+	}
+	h, err := p.Ping(context.Background())
+	if err != nil || h.Errors != 1 {
+		t.Fatalf("health %+v, %v; want the one unattributed error", h, err)
+	}
+	select {
+	case <-p.Done():
+		t.Fatalf("the process ended: %v", p.ExitStatus())
+	default:
+	}
+}
+
 // ADR 0004, the shared-process failure model, item 1 (W1's exit gate): one
 // detached rejection does not end the process; it fails no invocation, the
 // co-resident one completes, and it is counted in health as an error no

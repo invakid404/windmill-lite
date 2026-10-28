@@ -207,8 +207,9 @@ aside, and `IsStepFile` tells one by its path. The format is described in
 
 `CompareStep` compares one run's observation, the step's stored value as
 `{"status", "result"}`, with the run's check for a configuration: it masks
-`/result/error/stack` (`DefaultStepStack`) and the case's own `stack` and
-`mask` pointers on both sides, compares with `Compare` and the case's
+the case's own `stack` and `mask` pointers on both sides, and
+`/result/error/stack` (`DefaultStepStack`) on a side whose status is
+`failure`, since a successful result is data, compares with `Compare` and the case's
 `unordered` and `strict_key_order`, and checks the claims. A run's `late`,
 `settled` and `warnings` are the runner's to check, since only it sees the
 invocation's Reporter.

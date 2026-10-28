@@ -121,3 +121,29 @@ cases:
 		t.Fatalf("a different message is a difference and a failed claim: %v, %v", diffs, err)
 	}
 }
+
+// A successful result is data: an error.stack field in it is compared,
+// not masked (c3a review 1, finding 4).
+func TestCompareStepMasksOnlyAFailuresStack(t *testing.T) {
+	f, err := LoadStepFile(writeStepFile(t, "wr-13.yaml", `finding: WR-13
+scope: core
+cases:
+  - spec: WR-13/a
+    provenance: source-derived
+    title: t
+    script: |
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {error: {stack: "expected data"}}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &f.Cases[0]
+	got := Observation{Status: RunSuccess, Result: json.RawMessage(`{"error":{"stack":"actual data"}}`)}
+	diffs, err := CompareStep(c, &c.Runs[0], ModeWarm, got)
+	if err != nil || len(diffs) != 1 || !strings.Contains(diffs[0], "/result/error/stack") {
+		t.Fatalf("a successful result's error.stack must be compared: %v, %v", diffs, err)
+	}
+}

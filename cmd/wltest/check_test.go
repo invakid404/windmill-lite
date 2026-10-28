@@ -102,6 +102,27 @@ cases:
         claims: [{at: /result/error/exit_code, equals: 4}]
         late: [{kind: result, final: true, body: '"before"'}]
         warnings: [unattributed_error]
+  - spec: WR-6/d
+    provenance: source-derived
+    title: a warning that arrives after the outcome was fixed, before the call ends, is not missed
+    script: |
+      export async function main() {
+        try { process.exit(3); } catch {}
+        setTimeout(() => Promise.reject(new Error("detached")), 10);
+        await Bun.sleep(100);
+        return "after";
+      }
+    runs:
+      - args: '{}'
+        claims: [{at: /result/error/exit_code, equals: 3}]
+  - spec: WR-6/e
+    provenance: source-derived
+    title: a successful result's error.stack is data, compared as any field
+    script: |
+      export function main() { return { error: { stack: "actual data" } }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {error: {stack: "expected data"}}}
   - spec: WR-6/c
     provenance: source-derived
     title: a case that holds
@@ -126,8 +147,12 @@ cases:
 		"run 1: /result/error/exit_code: 3 (",
 		"run 1: late 1: body \"after\", want \"before\"",
 		"run 1: warnings [], want [unattributed_error]",
+		"fail wr-6-d ",
+		"run 1: warnings [unattributed_error], want []",
+		"fail wr-6-e ",
+		"run 1: /result/error/stack: \"actual data\" != \"expected data\"",
 		"pass wr-6-c ",
-		"1 passed, 2 failed (mode warm)",
+		"1 passed, 4 failed (mode warm)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

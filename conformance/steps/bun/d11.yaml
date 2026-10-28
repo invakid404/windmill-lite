@@ -94,6 +94,20 @@ cases:
       - args: '{}'
         note: No code is process.exitCode, which nothing set, so 0.
         expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
+      - args: '{"code":9007199254740991}'
+        note: The largest safe integer is a valid code.
+        claims:
+          - {at: /result/error/exit_code, equals: 255}
+      - args: '{"code":-9007199254740991}'
+        claims:
+          - {at: /result/error/exit_code, equals: 1}
+      - args: '{"code":"  12  "}'
+        note: A string is read as Number reads it.
+        claims:
+          - {at: /result/error/exit_code, equals: 12}
+      - args: '{"code":" "}'
+        note: A string of white space reads as 0, so the result is the empty one.
+        expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
   - spec: D11
     variant: invalid-code
     provenance: policy
@@ -112,6 +126,47 @@ cases:
           - {at: /result/error/message, prefix: "The value of \"code\" is out of range. It must be an integer. Received 1.5"}
           - {at: /result/error/extra, absent: true}
           - {at: /result/error/step_id, equals: a}
+  - spec: D11
+    variant: refused-codes
+    provenance: policy
+    title: codes beyond the safe integers, the empty string and non-numbers are refused with Bun's own error, which the wrapper catches
+    note: Observed on Bun 1.3.10 (c3a review 1, finding 3). The error's code is not an own property, so there is no extra.
+    script: |
+      export function main(code: unknown) { process.exit(code as number); }
+    runs:
+      - args: '{"code":9007199254740992}'
+        claims:
+          - {at: /result/error/name, equals: RangeError}
+          - {at: /result/error/message, contains: ["must be >= -9007199254740991 and <= 9007199254740991. Received 9007199254740992"]}
+      - args: '{"code":-9007199254740992}'
+        claims:
+          - {at: /result/error/name, equals: RangeError}
+      - args: '{"code":"9007199254740993"}'
+        claims:
+          - {at: /result/error/name, equals: RangeError}
+      - args: '{"code":""}'
+        claims:
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/message, contains: ["Received type string ('')"]}
+      - args: '{"code":"x"}'
+        claims:
+          - {at: /result/error/name, equals: TypeError}
+      - args: '{"code":[5]}'
+        claims:
+          - {at: /result/error/name, equals: TypeError}
+  - spec: D11
+    variant: refused-code-caught
+    provenance: policy
+    title: a refused code fixes no outcome, so a step that catches Bun's error goes on to its own result, and process.exitCode is untouched
+    script: |
+      export function main(code: unknown) {
+        try { process.exit(code as number); } catch (e) { return [e.name, process.exitCode ?? null]; }
+      }
+    runs:
+      - args: '{"code":9007199254740992}'
+        expect: {status: success, result: [RangeError, null]}
+      - args: '{"code":""}'
+        expect: {status: success, result: [TypeError, null]}
   - spec: D11
     variant: top-level
     provenance: policy
@@ -139,14 +194,45 @@ cases:
             expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 5, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 5}}}
             settled: process_exited
   - spec: D11
+    variant: exit-from-timer
+    provenance: policy
+    title: an exit from a timer of a call that never ends fixes its outcome, and the call stays in flight
+    deviation: D11
+    script: |
+      export async function main() { setTimeout(() => process.exit(2), 10); return new Promise(() => {}); }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /result/error/exit_code, equals: 2}
+            settled: pending
+          fresh:
+            claims:
+              - {at: /result/error/exit_code, equals: 2}
+            settled: process_exited
+  - spec: D11
     variant: exit-after-result
     provenance: source-derived
-    title: a process.exit from a timer after the result changes nothing; Windmill's exit came first (WR-2)
+    title: a process.exit from a timer after the result changes nothing; Windmill's exit came first (WR-2), and the warm process lives on
+    note: >-
+      The second run waits until the timer has called process.exit, which it
+      sees only in warm mode (D1). The late error it reports is
+      internal/harness's TestBunWorkAfterTheResultIsLate.
+    deviation: D11
     script: |
-      export function main() { setTimeout(() => process.exit(9), 10); return "done"; }
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 200 && !globalThis.wlLateExit; i++) await Bun.sleep(10);
+          return globalThis.wlLateExit ?? false;
+        }
+        setTimeout(() => { globalThis.wlLateExit = true; process.exit(9); }, 10);
+        return "done";
+      }
     runs:
       - args: '{}'
         expect: {status: success, result: done}
-      - args: '{}'
-        note: The process lives on.
-        expect: {status: success, result: done}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: true}}
+          fresh: {expect: {status: success, result: false}}

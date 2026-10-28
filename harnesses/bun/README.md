@@ -59,8 +59,10 @@ cannot corrupt the protocol.
   bundle's copy of each, `scripts/bun/provided/<id>.mjs`, in the order of
   the manifest's `host_modules`, before it greets the engine
   ([ADR 0010](../../docs/design/0010-packaging.md), D12); a copy that fails
-  to load fails the start (exit code 4). In host mode the host registers
-  its own instances instead.
+  to load fails the start (exit code 4). `main.ts` makes the runtime
+  first, so every process-wide hook below (the process scope included) is
+  in place when the copies load. In host mode the host registers its own
+  instances instead.
 - **Cancel** abandons the invocation. When its call ends, the outcome goes
   out as the `late` frame that settles it.
 - **Drain** stops the heartbeat. Once everything queued has gone out, the
@@ -120,16 +122,24 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     has settled, it is a `late` error that settles nothing (D9).
   - In **no** invocation's context it fails nothing (item 3): it is counted
     in health's `errors`, and every invocation in flight gets a `warning`
-    frame with code `unattributed_error`.
+    frame with code `unattributed_error`, whose message is cut, ending in
+    `…`, to fit `max_message` (`fitString`).
+
+  The handlers never throw: a failure to report an error is written to the
+  diagnostics, since a throw from one handler would reach the other, and
+  one thrown from there ends the process.
 - **`process.exit`** is replaced (item 6, D11). Inside an invocation the
   call fixes its outcome, `empty` for status 0 and `escaped` with the
   status otherwise, and throws a `ProcessExit` sentinel, so `finally`
   blocks run and a `catch` can swallow it; the call's end is reported late,
   and a sentinel that ends it gives a `late` error without a body. The
-  status is Bun's: an integer, or a non-empty string that reads as one,
-  modulo 256; no code means `process.exitCode`, or 0. A code Bun refuses
-  makes the call throw Bun's own error (it is assigned to
-  `process.exitCode`, which Bun checks the same way). A call from an
+  status is Bun's (`exitStatus`): a safe integer (within ±(2^53 − 1)), or
+  a string other than `""` that `Number` reads as one (`" "` is 0), modulo
+  256; no code means `process.exitCode`, or 0. A code Bun refuses makes
+  the call throw Bun's own `RangeError` or `TypeError` and fixes nothing:
+  the code is assigned to `process.exitCode`, which Bun checks the same
+  way and leaves unchanged when it refuses. `test/context.test.ts` checks
+  `exitStatus` against a real Bun's `process.exit` for each of 38 codes. A call from an
   invocation whose outcome is already fixed, or that has settled, changes
   nothing and is reported late. Outside every invocation it is the real
   `process.exit`; the runtime and the host SDK exit through `exitProcess`,
@@ -148,11 +158,14 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 - **The process scope.** `globalThis[Symbol.for("windmill-lite.processScope")].capture()`
   returns a runner for the caller's async context without the invocation's
   store: every other store (a host's tenant scope) stays. A pooled client
-  or a host-provided module that captures it at load and creates its
-  clients through it starts their maintenance timers in no invocation, so
-  they are never attributed to the step that happened to create the first
-  client, and C3b's fence never clears them; an error they throw is
-  unattributed.
+  or a host-provided module captures it at load and runs its factories
+  through it: their maintenance timers then belong to no invocation, are
+  never attributed to the step that happened to create the first client,
+  and C3b's fence never clears them; an error they throw is unattributed.
+  Loading outside every invocation is not enough: a function a module
+  exports runs in its caller's context, so a factory a step calls must
+  re-enter the captured scope (case `D12/pool-process-scope`, and
+  `D12/pool-without-scope` as its control).
 
 The fetch wrapper, the handlers and the `process.exit` interception are
 installed once per process and answer to the runtime that installed them
@@ -209,7 +222,9 @@ written by hand.
 order ([WR-2](../../docs/semantics/languages.md#wr-2)):
 
 1. **The signature.** The entrypoint's signature is what the build
-   recorded for that export in `<id>.meta.json`
+   recorded under its name in `<id>.meta.json`: for every export, and for
+   every top-level function declaration, exported or not, as Windmill's
+   parser reads them ([WR-7](../../docs/semantics/languages.md#wr-7))
    ([ADR 0002](../../docs/design/0002-ir-and-loader.md)). One that did not
    parse fails the step before its module loads, as Windmill's worker
    fails the job before its process starts, with
@@ -270,7 +285,8 @@ so the engine always learns how it ended, by that frame or by the exit.
 
 `test/frames.test.ts` checks this codec against the golden frames that the
 Go tests write, `conformance/protocol/frames.json`. `test/wrapper.test.ts`
-checks the wrapper's rules. `test/sender.test.ts`
+checks the wrapper's rules, and `test/fit.test.ts` how a warning's message
+is cut to fit `max_message`. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation, partial writes and `whenFlushed`.
 `test/context.test.ts` checks the environment view's rules in one process

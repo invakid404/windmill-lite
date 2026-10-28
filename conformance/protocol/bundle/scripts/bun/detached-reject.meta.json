@@ -5,6 +5,10 @@
         {
           "name": "ms",
           "date": false
+        },
+        {
+          "name": "size",
+          "date": false
         }
       ]
     }

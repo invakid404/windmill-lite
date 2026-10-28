@@ -89,14 +89,14 @@ func FailureValue(raw []byte) jsonval.Value {
 			Message string `json:"message"`
 		}{"Non serializable error: " + string(raw)})
 	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(raw, &top) == nil && top != nil {
-		var e struct {
-			Name *string `json:"name"`
-		}
-		if b, ok := top["error"]; ok && bytes.HasPrefix(bytes.TrimSpace(b), []byte("{")) && json.Unmarshal(b, &e) == nil && e.Name != nil && *e.Name == "ManualFailure" {
-			return jsonval.FromProducer(append([]byte(nil), raw...))
-		}
+	// The marker is the exact key path error.name: maps, not structs, since
+	// encoding/json matches struct fields without regard to case.
+	var top, inner map[string]json.RawMessage
+	var name string
+	if json.Unmarshal(raw, &top) == nil && top != nil &&
+		json.Unmarshal(top["error"], &inner) == nil && inner != nil &&
+		json.Unmarshal(inner["name"], &name) == nil && name == "ManualFailure" {
+		return jsonval.FromProducer(append([]byte(nil), raw...))
 	}
 	return jsonval.FromProducer(append(append([]byte(`{"error":`), raw...), '}'))
 }

@@ -111,11 +111,12 @@ func (s *syncBuffer) String() string {
 // every expected call log: the executor must never call one invocation's
 // Reporter from two goroutines at once.
 type recorder struct {
-	busy    atomic.Int32
-	mu      sync.Mutex
-	calls   []string
-	late    []engine.Late
-	settled chan engine.SettleKind
+	busy     atomic.Int32
+	mu       sync.Mutex
+	calls    []string
+	late     []engine.Late
+	warnings []engine.Warning
+	settled  chan engine.SettleKind
 }
 
 func newRecorder() *recorder { return &recorder{settled: make(chan engine.SettleKind, 4)} }
@@ -145,6 +146,7 @@ func (r *recorder) Warning(w engine.Warning) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, "warning "+w.Code)
+	r.warnings = append(r.warnings, w)
 }
 
 func (r *recorder) Settled(k engine.SettleKind) {

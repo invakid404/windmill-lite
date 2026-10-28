@@ -38,8 +38,10 @@ const (
 	ModeFresh = "fresh"
 )
 
-// DefaultStepStack is the stack pointer every step case masks: an error's
-// stack is never compared as text (the catalogue's <stack>, Q-WR-10).
+// DefaultStepStack is the stack pointer every failed step's observation
+// masks: the wrapper's error object carries the runtime's stack, which is
+// never compared as text (the catalogue's <stack>, Q-WR-10). A successful
+// result is data, so nothing in it is masked unless the case says so.
 const DefaultStepStack = "/result/error/stack"
 
 // StepFile is one conformance/steps/<lang>/<name>.yaml: the step cases of
@@ -128,18 +130,25 @@ type StepCheck struct {
 	// catalogue states only in part (a name, a message prefix).
 	Claims []Claim `json:"claims,omitempty"`
 	// Late lists what the invocation reports after its outcome, in order,
-	// before it settles (an intercepted process.exit, D11); Settled is how
-	// it settles, waited for when given.
+	// before it settles (an intercepted process.exit, D11); it is compared
+	// when Late or Settled is given. Settled is how it settles: completed,
+	// not_started or process_exited, or StepPending for a call that must
+	// still be running at the end of the observation window.
 	Late    []StepLate `json:"late,omitempty"`
 	Settled string     `json:"settled,omitempty"`
 	// Warnings lists the codes of the warnings the invocation gets while
-	// in flight (D9).
+	// in flight (D9), all of them up to its settlement (or the end of the
+	// observation window): no warnings when empty.
 	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (k *StepCheck) empty() bool {
 	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0
 }
+
+// StepPending is the Settled of a call that does not settle: the runner
+// observes it for a fixed window, and it must not settle in it.
+const StepPending = "pending"
 
 // StepLate is one late report: its kind (result, error or log), whether it
 // is the final one that says how the call ended, and its body's JSON text
@@ -381,9 +390,9 @@ func (k *StepCheck) check() error {
 		}
 	}
 	switch k.Settled {
-	case "", "completed", "not_started", "process_exited":
+	case "", "completed", "not_started", "process_exited", StepPending:
 	default:
-		return fmt.Errorf("settled %q is not completed, not_started or process_exited", k.Settled)
+		return fmt.Errorf("settled %q is not completed, not_started, process_exited or pending", k.Settled)
 	}
 	return nil
 }
@@ -454,21 +463,27 @@ func LoadStepDeferred(path string) ([]StepDeferred, error) {
 }
 
 // CompareStep compares a step run's observation with what its check in
-// configuration mode expects: the stack at DefaultStepStack and the case's
-// own stack and mask pointers are masked on both sides first, then the two
-// are compared with the case's options, and the check's claims are checked
-// against the masked observation. It returns one line per difference or
-// failed claim.
+// configuration mode expects: each side is masked first, at the case's own
+// stack and mask pointers and, when that side is a failure, at
+// DefaultStepStack; then the two are compared with the case's options, and
+// the check's claims are checked against the masked observation. It
+// returns one line per difference or failed claim.
 func CompareStep(c *StepCase, r *StepRun, mode string, got Observation) ([]string, error) {
 	k := r.Check(mode)
-	stack := append([]string{DefaultStepStack}, c.Compare.Stack...)
-	masked, err := MaskPaths(got, stack, c.Compare.Mask)
+	mask := func(o Observation) (Observation, error) {
+		stack := c.Compare.Stack
+		if o.Status == RunFailure {
+			stack = append([]string{DefaultStepStack}, stack...)
+		}
+		return MaskPaths(o, stack, c.Compare.Mask)
+	}
+	masked, err := mask(got)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	if k.Expect != nil {
-		w, err := MaskPaths(*k.Expect, stack, c.Compare.Mask)
+		w, err := mask(*k.Expect)
 		if err != nil {
 			return nil, err
 		}

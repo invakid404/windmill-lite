@@ -41,3 +41,58 @@ cases:
     runs:
       - args: '{}'
         expect: {status: success, result: 2}
+  - spec: D12
+    variant: pool-process-scope
+    provenance: policy
+    title: a host-provided pool that captures the process scope at load starts its maintenance through it, so a step that triggers it owns none of it
+    note: >-
+      The process scope is published before the harness registers the
+      bundle's host-provided modules, so a capture at load finds it. A
+      factory called later runs in its caller's context unless it re-enters
+      the captured one, as start() does here; its timer's error is then
+      unattributed, not the step's (c3a review 1, finding 1).
+    deviation: D9
+    host_modules:
+      - path: f/wl_step/pool
+        script: |
+          const scope = globalThis[Symbol.for("windmill-lite.processScope")];
+          if (!scope) throw new Error("the process scope is not published");
+          const inProcess = scope.capture();
+          export function start() {
+            inProcess(() => setTimeout(() => { throw new Error("pool maintenance"); }, 10));
+          }
+    script: |
+      import { start } from "./pool.ts";
+      export async function main() { start(); await Bun.sleep(150); return "done"; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: done}
+            warnings: [unattributed_error]
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/exit_code, equals: 1}
+  - spec: D12
+    variant: pool-without-scope
+    provenance: policy
+    title: the same pool without the process scope starts its timer in the calling step's context, which then owns its error
+    note: 'The control of pool-process-scope: a module that loaded outside every invocation is not enough.'
+    host_modules:
+      - path: f/wl_step/bare_pool
+        script: |
+          export function start() {
+            setTimeout(() => { throw new Error("pool maintenance"); }, 10);
+          }
+    script: |
+      import { start } from "./bare_pool.ts";
+      export async function main() { start(); await Bun.sleep(150); return "done"; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/exit_code, equals: 1}
+          - {at: /result/error/message, contains: [pool maintenance]}

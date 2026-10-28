@@ -54,7 +54,13 @@ func TestFailureValue(t *testing.T) {
 		`{"error":"ManualFailure"}`:                    `{"error":{"error":"ManualFailure"}}`,
 		`{"extra":{"error":{"name":"ManualFailure"}}}`: `{"error":{"extra":{"error":{"name":"ManualFailure"}}}}`,
 		`[{"error":{"name":"ManualFailure"}}]`:         `{"error":[{"error":{"name":"ManualFailure"}}]}`,
-		`not json`:                                     `{"error":{"message":"Non serializable error: not json"}}`,
+		// Exact keys only: a key spelt in another case is another key.
+		`{"error":{"NAME":"ManualFailure"},"k":1}`:                `{"error":{"error":{"NAME":"ManualFailure"},"k":1}}`,
+		`{"error":{"name":"Other","Name":"ManualFailure"}}`:       `{"error":{"error":{"name":"Other","Name":"ManualFailure"}}}`,
+		`{"ERROR":{"name":"ManualFailure"}}`:                      `{"error":{"ERROR":{"name":"ManualFailure"}}}`,
+		`{"error":{"Name":"Other","name":"ManualFailure"},"k":1}`: `{"error":{"Name":"Other","name":"ManualFailure"},"k":1}`,
+		`{"error":{"name":["ManualFailure"]}}`:                    `{"error":{"error":{"name":["ManualFailure"]}}}`,
+		`not json`:                                                `{"error":{"message":"Non serializable error: not json"}}`,
 	} {
 		if got := string(FailureValue([]byte(raw)).Producer()); got != want {
 			t.Errorf("FailureValue(%s) = %s, want %s", raw, got, want)

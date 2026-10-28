@@ -5,7 +5,7 @@ scope: core
 cases:
   - spec: WR-21/a
     provenance: source-derived
-    title: 'the usual {"error": …} wrapping' 
+    title: 'the usual {"error": …} wrapping'
     script: |
       export function main() { throw new TypeError("bad"); }
     runs:

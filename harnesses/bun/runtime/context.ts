@@ -107,7 +107,13 @@ export function current(): InvocationContext | undefined {
  * through the symbol, as shims reach the host-provided modules:
  *
  *   const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
- *   const pool = inProcess(() => createPool());
+ *   export function getClient() { return inProcess(() => pool.connect()); }
+ *
+ * The runtime publishes it before the bundle's host-provided modules load,
+ * so a capture at load finds it. Loading outside every invocation is not
+ * enough on its own: a function a module exports runs in its caller's
+ * context, so a factory a step calls later must re-enter the captured
+ * scope, as getClient does, for what it starts to belong to no invocation.
  */
 export const PROCESS_SCOPE = Symbol.for("windmill-lite.processScope");
 
@@ -401,16 +407,28 @@ export function installExit(onExit: (c: InvocationContext, status: number) => vo
   } as typeof process.exit;
 }
 
-/** The exit status process.exit(code) gives on Bun 1.3.10: an integer, or
- * a non-empty string that reads as one, modulo 256; no code means
- * process.exitCode, else 0. Any other code makes Bun throw before exiting:
- * assigning it to process.exitCode, which Bun checks the same way, throws
- * that error here. */
+/** The exit status process.exit(code) gives on Bun 1.3.10, which checks a
+ * code before it exits:
+ *
+ * - no code (undefined or null) is process.exitCode, or 0;
+ * - a number must be an integer within ±(2^53 − 1);
+ * - a string other than "" is read as Number reads it (so " " is 0 and
+ *   " 0x1F " 31) and must then be such an integer;
+ * - anything else is refused.
+ *
+ * A valid code exits with it modulo 256. Bun refuses an invalid one with
+ * its own RangeError or TypeError (code ERR_OUT_OF_RANGE or
+ * ERR_INVALID_ARG_TYPE) and does not exit; assigning such a code to
+ * process.exitCode, which Bun checks the same way, throws that very error
+ * here and leaves process.exitCode as it was. */
 export function exitStatus(code: unknown): number {
   if (code === undefined || code === null) code = process.exitCode ?? 0;
-  const n = typeof code === "number" ? code : typeof code === "string" && code.trim() !== "" ? Number(code) : NaN;
-  if (Number.isInteger(n)) return ((n % 256) + 256) % 256;
+  const n = typeof code === "number" ? code : typeof code === "string" && code !== "" ? Number(code) : NaN;
+  if (Number.isSafeInteger(n)) return ((n % 256) + 256) % 256;
+  const before = process.exitCode;
   process.exitCode = code as number;
-  // Not reached on Bun 1.3.10, which refuses every such code.
+  // Not reached on Bun 1.3.10, which refuses every such code. Should a
+  // later Bun accept one, the step's exit is not changed by the probe.
+  if (before !== undefined) process.exitCode = before;
   throw new TypeError(`windmill-lite: process.exit(${String(code)}) was accepted as an exit code`);
 }

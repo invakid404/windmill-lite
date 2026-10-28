@@ -120,8 +120,12 @@ in which module state and `globalThis` survive from one run to the next
 core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the case's
 `step_id`, default `a`) or of a script job (`step_id: ""`), and its
 outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
-compared by `conformance.CompareStep`. It waits for the settlement a run
-expects and compares its late reports and warnings.
+compared by `conformance.CompareStep`. Every run is observed up to its
+settlement (at most 10 s), since an outcome fixed early (an intercepted
+`process.exit`) comes before the call ends: its warnings are those
+collected until then, and its late reports are compared when the case
+states them. A run whose call must not settle says `settled: pending` and
+is observed for 500 ms instead.
 
 It prints `pass` or `fail`, the case and its file, then each difference,
 and a summary; it exits 1 when a case failed or a file is invalid, and 2

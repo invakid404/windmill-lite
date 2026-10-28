@@ -64,6 +64,30 @@ cases:
               - {at: /result/error/name, equals: ExecutionErr}
               - {at: /result/error/exit_code, equals: 1}
   - spec: D9
+    variant: warning-after-fixed-outcome
+    provenance: policy
+    title: a call whose outcome an exit fixed is still in flight, so an unattributed error before it ends reaches it as a warning
+    note: The runner observes a run up to its settlement, not only up to its outcome (c3a review 1, finding 5).
+    deviation: D9
+    script: |
+      export async function main() {
+        try { process.exit(3); } catch {}
+        setTimeout(() => Promise.reject(new Error("detached")), 10);
+        await Bun.sleep(100);
+        return "after";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /result/error/exit_code, equals: 3}
+            warnings: [unattributed_error]
+          fresh:
+            claims:
+              - {at: /result/error/exit_code, equals: 3}
+            settled: process_exited
+  - spec: D9
     variant: process-scope
     provenance: policy
     title: work a module starts through the process scope it captured at load belongs to no invocation, so its error is unattributed
@@ -95,11 +119,27 @@ cases:
   - spec: D9
     variant: error-after-result
     provenance: source-derived
-    title: an error thrown from a timer after the result changes nothing; Windmill's exit came first (WR-2)
+    title: an error thrown from a timer after the result changes nothing; Windmill's exit came first (WR-2), and the warm process lives on
+    note: >-
+      The second run waits until the timer has thrown, which it sees only
+      in warm mode, where globalThis survives (D1). That the error reaches
+      the engine as a late error that settles nothing is
+      internal/harness's TestBunWorkAfterTheResultIsLate (c3a review 1,
+      finding 8).
+    deviation: D9
     script: |
-      export function main() { setTimeout(() => { throw new Error("late"); }, 10); return "done"; }
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 200 && !globalThis.wlLateThrown; i++) await Bun.sleep(10);
+          return globalThis.wlLateThrown ?? false;
+        }
+        setTimeout(() => { globalThis.wlLateThrown = true; throw new Error("late"); }, 10);
+        return "done";
+      }
     runs:
       - args: '{}'
         expect: {status: success, result: done}
-      - args: '{}'
-        expect: {status: success, result: done}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: true}}
+          fresh: {expect: {status: success, result: false}}

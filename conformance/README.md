@@ -495,12 +495,12 @@ cases:
 | `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` |
 | `env` | job variables that add to or replace the core `WM_*` ones |
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
-| `compare` | `stack` and `mask` pointers beyond `/result/error/stack`, which is always masked; `unordered` arrays; `strict_key_order` |
+| `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared); `unordered` arrays; `strict_key_order` |
 | `deviation` | the deviation whose two readings the case's `by_mode` gives |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
 | `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |
-| `runs[].late`, `settled` | what the invocation reports after its outcome before it settles (`kind`, `final`, `body`), and how it settles |
-| `runs[].warnings` | the codes of the warnings the invocation gets while in flight (D9) |
+| `runs[].late`, `settled` | what the invocation reports after its outcome before it settles (`kind`, `final`, `body`), compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
+| `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9); none when absent |
 | `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own; `fresh` is checked from milestone C3b |
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
