@@ -30,12 +30,12 @@ func golden(t *testing.T, name string, got []byte) {
 	}
 }
 
-// TestEnvRewriteGolden pins the one define table and prelude both bundlers
-// receive (ADR 0010 step 5), per output format.
+// TestEnvRewriteGolden pins the one define table and support module both
+// bundlers receive (ADR 0010 step 5), per output format.
 func TestEnvRewriteGolden(t *testing.T) {
 	var first string
 	for _, f := range []Format{ESM, CJS} {
-		define, prelude, err := EnvRewrite(f)
+		define, support, err := EnvRewrite(f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,10 +48,10 @@ func TestEnvRewriteGolden(t *testing.T) {
 		}
 		golden(t, filepath.Join("env", "define-"+string(f)+".json"), b.Bytes())
 		if first == "" {
-			first = prelude
-			golden(t, filepath.Join("env", "prelude.js"), []byte(prelude+"\n"))
-		} else if prelude != first {
-			t.Errorf("the %s prelude differs from the ESM one", f)
+			first = support
+			golden(t, filepath.Join("env", "support.js"), []byte(support))
+		} else if support != first {
+			t.Errorf("the %s support module differs from the ESM one", f)
 		}
 	}
 }
@@ -59,13 +59,13 @@ func TestEnvRewriteGolden(t *testing.T) {
 func TestEnvRewriteFormats(t *testing.T) {
 	esm, _, _ := EnvRewrite(ESM)
 	cjs, _, _ := EnvRewrite(CJS)
-	if esm["import.meta.env"] != "process.env" {
+	if esm["import.meta.env"] != EnvBinding+".env" {
 		t.Errorf("ESM output rewrites import.meta.env: %q", esm["import.meta.env"])
 	}
 	if _, ok := cjs["import.meta.env"]; ok {
 		t.Error("CommonJS output must leave import.meta.env alone (it stays empty, as in the CLI's esbuild bundles)")
 	}
-	for _, k := range []string{"Bun", "Bun.env", "globalThis.Bun", "global.Bun"} {
+	for _, k := range []string{"Bun", "Bun.env", "globalThis.Bun", "global.Bun", "self.Bun"} {
 		if esm[k] == "" || esm[k] != cjs[k] {
 			t.Errorf("%s: ESM %q, CJS %q; both formats rewrite it alike", k, esm[k], cjs[k])
 		}

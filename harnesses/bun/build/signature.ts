@@ -168,7 +168,8 @@ function describe(p: Node): string {
 export function signatures(p: Parsed, exports: string[]): Record<string, Signature> {
   const fns = functionDeclarations(p);
   const aliases = typeAliases(p);
-  const out: Record<string, Signature> = {};
+  // No prototype: `__proto__` and `constructor` are export names too.
+  const out: Record<string, Signature> = Object.create(null);
   for (const name of exports) {
     const fn = fns.get(name);
     out[name] = fn === undefined ? { params: [] } : paramsOf(fn, aliases);

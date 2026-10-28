@@ -149,6 +149,10 @@ const (
 	// ProblemHostModuleCycle: host-provided modules import each other in a
 	// cycle, so none can be registered first.
 	ProblemHostModuleCycle = "host_module_cycle"
+	// ProblemHostModuleCommonJS: a host-provided module is CommonJS. Its
+	// export names are its exports object's properties, known only when it
+	// runs, so a shim cannot take them by name (ADR 0001 §5a).
+	ProblemHostModuleCommonJS = "host_module_commonjs"
 )
 
 // ItemProblem is a Problem of one script or host-provided module.

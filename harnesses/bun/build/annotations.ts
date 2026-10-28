@@ -1,5 +1,7 @@
-// Leading-comment annotations of a TypeScript script (WR-31, WR-39): a
-// textual scan of the leading block of `//` lines, not a parse.
+// Leading-comment annotations of a TypeScript script (WR-31, WR-39, SY-V3):
+// a textual scan of the leading block of `//` lines, not a parse. The Go
+// loader reads the same rules (internal/syncfolder HasAnnotation); the cases
+// in conformance/build/annotations.json pin both.
 
 import { rustLines, rustTrim } from "./text.ts";
 
@@ -20,7 +22,11 @@ export function parseAnnotations(source: string): Annotations {
     // trimmed, so an indented comment ends the block.
     if (rustTrim(line) === "") continue;
     if (!line.startsWith("//")) break;
-    const key = rustTrim(line.slice(2));
+    // The key is the comment trimmed, then cut at the first `=` and not
+    // trimmed again: `native=false` is `native`, `native =true` is not.
+    const text = rustTrim(line.slice(2));
+    const eq = text.indexOf("=");
+    const key = eq < 0 ? text : text.slice(0, eq);
     if ((FLAGS as readonly string[]).includes(key)) found[key as keyof Annotations] = true;
   }
   return found;

@@ -496,6 +496,193 @@
           ]
         }
       }
+    },
+    {
+      "spec": "D12",
+      "variant": "commonjs-module-exports",
+      "provenance": "policy",
+      "title": "a CommonJS package is refused as a host-provided module (module.exports = …)",
+      "note": "Its names are its exports object's properties, known only when it runs; ADR 0001 §5a (c2a review 2). The same package works when it is not listed.",
+      "given": {
+        "entries": [
+          {
+            "id": "listed",
+            "path": "f/a/listed",
+            "source": "import def, { store } from \"fixture-cjs\";\nexport function main() { return [store.value, typeof def]; }",
+            "dependencies": {
+              "fixture-cjs": "1.0.0"
+            }
+          }
+        ],
+        "packages": {
+          "fixture-cjs@1.0.0": {
+            "index.cjs": "module.exports = { store: { value: 42 } };\n",
+            "package.json": "{\"name\":\"fixture-cjs\",\"version\":\"1.0.0\",\"main\":\"index.cjs\"}"
+          }
+        },
+        "host_modules": [
+          {
+            "id": "cjs",
+            "key": "fixture-cjs",
+            "package": "fixture-cjs",
+            "dependencies": {
+              "fixture-cjs": "1.0.0"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "cjs": {
+            "problem": {
+              "kind": "host_module_commonjs",
+              "contains": [
+                "fixture-cjs",
+                "ES module"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "commonjs-module-exports-unlisted",
+      "provenance": "policy",
+      "title": "the same CommonJS package, not listed, gives a script its default and named imports",
+      "given": {
+        "source": "import def, { store } from \"fixture-cjs\";\nexport function main() { return [store.value, typeof def, def.store === store]; }",
+        "dependencies": {
+          "fixture-cjs": "1.0.0"
+        },
+        "packages": {
+          "fixture-cjs@1.0.0": {
+            "index.cjs": "module.exports = { store: { value: 42 } };\n",
+            "package.json": "{\"name\":\"fixture-cjs\",\"version\":\"1.0.0\",\"main\":\"index.cjs\"}"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                "object",
+                true
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "commonjs-exports-property",
+      "provenance": "policy",
+      "title": "a CommonJS package is refused as a host-provided module (exports.x = …)",
+      "note": "Its names are its exports object's properties, known only when it runs; ADR 0001 §5a (c2a review 2). The same package works when it is not listed.",
+      "given": {
+        "entries": [
+          {
+            "id": "listed",
+            "path": "f/a/listed",
+            "source": "import def, { store } from \"fixture-cjs\";\nexport function main() { return [store.value, typeof def]; }",
+            "dependencies": {
+              "fixture-cjs": "1.0.0"
+            }
+          }
+        ],
+        "packages": {
+          "fixture-cjs@1.0.0": {
+            "index.cjs": "exports.store = { value: 42 };\n",
+            "package.json": "{\"name\":\"fixture-cjs\",\"version\":\"1.0.0\",\"main\":\"index.cjs\"}"
+          }
+        },
+        "host_modules": [
+          {
+            "id": "cjs",
+            "key": "fixture-cjs",
+            "package": "fixture-cjs",
+            "dependencies": {
+              "fixture-cjs": "1.0.0"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "cjs": {
+            "problem": {
+              "kind": "host_module_commonjs",
+              "contains": [
+                "fixture-cjs",
+                "ES module"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "commonjs-exports-property-unlisted",
+      "provenance": "policy",
+      "title": "the same CommonJS package, not listed, gives a script its default and named imports",
+      "given": {
+        "source": "import def, { store } from \"fixture-cjs\";\nexport function main() { return [store.value, typeof def, def.store === store]; }",
+        "dependencies": {
+          "fixture-cjs": "1.0.0"
+        },
+        "packages": {
+          "fixture-cjs@1.0.0": {
+            "index.cjs": "exports.store = { value: 42 };\n",
+            "package.json": "{\"name\":\"fixture-cjs\",\"version\":\"1.0.0\",\"main\":\"index.cjs\"}"
+          }
+        }
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                42,
+                "object",
+                true
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "folder-commonjs",
+      "provenance": "policy",
+      "title": "a CommonJS module of the folder is refused as a host-provided module too",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "files": {
+          "f/shared/legacy.ts": "module.exports = { store: {} };\n"
+        },
+        "host_modules": [
+          {
+            "id": "legacy",
+            "key": "f/shared/legacy.ts",
+            "file": "f/shared/legacy.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "legacy": {
+            "problem": {
+              "kind": "host_module_commonjs"
+            }
+          }
+        }
+      }
     }
   ]
 }

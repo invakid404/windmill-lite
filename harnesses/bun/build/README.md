@@ -92,12 +92,19 @@ For each script the build:
    import inlined. The target is `bun`, or `browser` for `//native` and
    `node` for `//nodejs`, checked in that order
    ([WR-40](../../../docs/semantics/languages.md#wr-40)). `//nobundling`
-   scripts are bundled the same way (D7). The define table and prelude of the
-   env rewrite come from the Go build (ADR 0010 step 5) and apply to
-   Bun-target bundles only: there `Bun.env`, `Bun["env"]`,
-   `import.meta.env`, aliases and destructuring of `Bun` read `process.env`.
-   `//native` and `//nodejs` bundles are left as written; their environment
-   is the native boundary's (C3n). The Go build runs the helper without
+   scripts are bundled the same way (D7). The define table and support
+   module of the env rewrite come from the Go build (ADR 0010 step 5) and
+   apply to Bun-target bundles only: there `Bun.env`, `Bun["env"]`,
+   `import.meta.env`, aliases and destructuring of `Bun` read `process.env`,
+   through a global proxy that the support module defines. The entry
+   imports the support module (`windmill-lite:env`) before its own imports,
+   after a hashbang line; the module is bundled like any other, so the
+   bundler renames a script's own top-level `Object`, `process`,
+   `globalThis` and the like around its references. The define table's
+   binding is the Go build's name, or that name with a suffix (`_2`, `_3`,
+   …) when an input of the bundle contains it, so no binding of a script or
+   a dependency can capture it. `//native` and `//nodejs` bundles are left
+   as written; their environment is the native boundary's (C3n). The Go build runs the helper without
    `NODE_ENV`, which `Bun.build` inlines, so every bundle reads
    `"development"` there. A bundle must be a single module; one that emits
    other files fails.
@@ -132,9 +139,15 @@ which the parser's version has dropped.
   `date` when its annotation is `Date`, a local alias of it (looked up by
   snake-case name, recursively, wherever declared), parentheses around one,
   or a two-member union of one with `undefined` or `null`.
-- **Annotations** ([WR-31](../../../docs/semantics/languages.md#wr-31)) are
-  the leading block of `//` lines: blank lines skipped, an indented line ends
-  the block, the text after `//` trimmed.
+- **Annotations** ([WR-31](../../../docs/semantics/languages.md#wr-31),
+  [SY-V3](../../../docs/semantics/openflow.md#sy-v3)) are the leading block
+  of `//` lines: blank lines (white space only included) skipped, an
+  indented line ends the block. A comment's key is its text after `//`,
+  trimmed, then cut at the first `=` and not trimmed again, so
+  `//native=false` sets `native` and `//native =true` does not. The Go
+  loader reads them the same way (`syncfolder.HasAnnotation`, which
+  `internal/ir` uses); `conformance/build/annotations.json` holds the cases
+  both run.
 - **Workflow-as-code**, for the default entrypoint `main`, three markers the
   loader refuses (ADR 0001 §3): `wrapper`, the worker's line scan
   ([WR-32](../../../docs/semantics/languages.md#wr-32)); `parsed`, an
@@ -148,17 +161,21 @@ which the parser's version has dropped.
 A host-provided module ([ADR 0010](../../../docs/design/0010-packaging.md),
 D12) is a script of the folder or an installed package.
 
-- **Scan.** The module's own source must not declare `export let` or
-  `export var`; otherwise it is refused with `host_module_live_binding`,
-  naming the bindings. Its export names are the scan of its bundled copy,
+- **Scan.** The module must be an ES module: a CommonJS one, whose names
+  are its exports object's properties and are known only when it runs, is
+  refused with `host_module_commonjs`. Its own source must not declare
+  `export let` or `export var`; otherwise it is refused with
+  `host_module_live_binding`, naming the bindings. Its export names are the scan of its bundled copy,
   with other host-provided modules left external, so `export *` of a local
   file is listed. The scan also reports which other host-provided modules it
   imports and which packages its source imports.
 - **Build.** Every import of a listed module, by a script or by one of its
   dependencies, resolves to the shim the Go build generated. A listed
-  package's entry is the file the bundler resolves it to for a script. Each module's
-  bundled copy is written to `scripts/bun/provided/<id>.mjs`, with its own
-  imports of other listed modules resolved to their shims. A copy whose
+  package's entry is the file the bundler resolves it to for a script. Each
+  module's bundled copy is written to `scripts/bun/provided/<id>.mjs`, from
+  an entry that imports the env support module and re-exports the scanned
+  names, with the module's own imports of other listed modules resolved to
+  their shims. A copy whose
   exports differ from its scan (it re-exports another listed module with
   `export *`) is a problem in Go.
 
@@ -168,7 +185,6 @@ Where the reference leaves a detail open, the build takes the reading below
 and the case that pins it carries provenance `policy` or a note
 (`conformance/build`). Each is an open question for the semantics team.
 
-- A whitespace-only line counts as blank in the annotation block.
 - The wrapper scan trims each line; an import is a line starting with
   `import` or `from` that names `windmill-client`, or a block from an
   `import` line with `{` and no `}` to the first line holding `}`.

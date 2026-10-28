@@ -180,13 +180,13 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		}
 	}
 
-	define, prelude, err := EnvRewrite(ESM)
+	define, support, err := EnvRewrite(ESM)
 	if err != nil {
 		return nil, err
 	}
 	req := helperRequest{
 		Version: 1, Folder: cfg.Folder, Work: cfg.Work, Out: cfg.Out,
-		Scripts: cfg.Scripts, Deps: map[string]string{}, Define: define, Banner: prelude,
+		Scripts: cfg.Scripts, Deps: map[string]string{}, Define: define, EnvSupport: support, EnvBinding: EnvBinding,
 		HostModules: []helperHostModule{}, Entries: []helperEntry{},
 	}
 	if req.Scripts == nil {
@@ -242,6 +242,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 				return nil, err
 			}
 			req.HostModules[i].Shim = filepath.Join(cfg.Out, rel)
+			req.HostModules[i].Exports = r.Exports
 		}
 		if len(problems) > 0 {
 			return res, &BuildError{Problems: problems}
@@ -440,7 +441,8 @@ type helperRequest struct {
 	Scripts     map[string]string  `json:"scripts"`
 	Deps        map[string]string  `json:"deps"`
 	Define      map[string]string  `json:"define"`
-	Banner      string             `json:"banner"`
+	EnvSupport  string             `json:"env_support"`
+	EnvBinding  string             `json:"env_binding"`
 	HostModules []helperHostModule `json:"host_modules"`
 	Entries     []helperEntry      `json:"entries"`
 }
@@ -453,6 +455,9 @@ type helperHostModule struct {
 	Package string `json:"package,omitempty"`
 	Deps    string `json:"deps,omitempty"`
 	Shim    string `json:"shim,omitempty"`
+	// Exports are the scan's export names (build only), which the bundled
+	// copy's entry re-exports.
+	Exports []string `json:"exports,omitempty"`
 }
 
 type helperEntry struct {
@@ -511,7 +516,18 @@ func runHelper(ctx context.Context, cfg *BunConfig, req *helperRequest) (*helper
 	}
 	cmd.Stdout, cmd.Stderr = w, w
 	cmd.WaitDelay = 5 * time.Second
+	// The helper runs `bun install`, whose lifecycle scripts may start
+	// processes of their own: the helper gets a process group, and the
+	// whole group goes when the run ends, by timeout, cancellation or
+	// otherwise, before runHelper returns.
+	ownProcessGroup(cmd)
 	runErr := cmd.Run()
+	if err := endProcessGroup(cmd); err != nil {
+		return nil, fmt.Errorf("bundle: build helper (%s): %w", req.Op, err)
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("bundle: build helper (%s): %w: %s", req.Op, context.Cause(ctx), tail(out.String()))
+	}
 	data, readErr := os.ReadFile(respPath)
 	if readErr != nil {
 		return nil, fmt.Errorf("bundle: build helper (%s): %w: %s", req.Op, errors.Join(runErr, readErr), tail(out.String()))

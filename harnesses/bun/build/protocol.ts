@@ -13,8 +13,10 @@ export type HostModuleRequest = {
   // A package module: the specifier and the dependency set it installs from.
   package?: string;
   deps?: string;
-  // The generated shim, in the bundle tree (build only).
+  // The generated shim, in the bundle tree, and the scan's export names
+  // (build only).
   shim?: string;
+  exports?: string[];
 };
 
 export type EntryRequest = {
@@ -39,9 +41,11 @@ export type Request = {
   scripts: Record<string, string>;
   // Dependency sets: key → lock text in the format of WR-25.
   deps: Record<string, string>;
-  // The env rewrite owned by the Go build (ADR 0010 step 5).
+  // The env rewrite owned by the Go build (ADR 0010 step 5): the define
+  // table, the support module's source, and the binding name both use.
   define: Record<string, string>;
-  banner: string;
+  env_support: string;
+  env_binding: string;
   host_modules: HostModuleRequest[];
   entries: EntryRequest[];
 };

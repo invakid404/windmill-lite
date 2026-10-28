@@ -158,7 +158,7 @@ func loadCaseFiles(t *testing.T) []caseFile {
 	}
 	var files []caseFile
 	for _, p := range paths {
-		if filepath.Base(p) == "deferred.json" {
+		if base := filepath.Base(p); base == "deferred.json" || base == "annotations.json" {
 			continue
 		}
 		var f caseFile

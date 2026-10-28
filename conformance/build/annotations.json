@@ -1,0 +1,174 @@
+{
+  "relies_on": [
+    "WR-31",
+    "SY-V3"
+  ],
+  "note": "Leading-comment annotations, read the same way by the Go loader (internal/syncfolder HasAnnotation) and the Bun build helper (harnesses/bun/build/annotations.ts). internal/bundle's TestAnnotationCases runs every case through both, the helper on the pinned Bun; bun test in harnesses/bun runs them through the helper's parser. flags lists the recognised flags (npm, nodejs, native, nobundling, sandbox) that are set.",
+  "cases": [
+    {
+      "spec": "WR-31/a",
+      "provenance": "source-derived",
+      "title": "an annotation after a blank first line",
+      "source": "\n// nobundling\nexport function main(){return 1}\n",
+      "flags": [
+        "nobundling"
+      ]
+    },
+    {
+      "spec": "WR-31/b",
+      "provenance": "source-derived",
+      "title": "a comment after code is not an annotation",
+      "source": "const x = 1;\n//nobundling\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3/a",
+      "provenance": "source-derived",
+      "variant": "spaced",
+      "title": "the text after // is trimmed",
+      "source": "// native\nexport function main(){return 1}\n",
+      "flags": [
+        "native"
+      ]
+    },
+    {
+      "spec": "SY-V3/a",
+      "provenance": "source-derived",
+      "variant": "value",
+      "title": "a value after = is ignored for a flag",
+      "source": "//native=false\nexport function main(){return 1}\n",
+      "flags": [
+        "native"
+      ]
+    },
+    {
+      "spec": "SY-V3/b",
+      "provenance": "source-derived",
+      "variant": "indented",
+      "title": "an indented // line ends the header",
+      "source": " //native\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3/b",
+      "provenance": "source-derived",
+      "variant": "case",
+      "title": "keys are case-sensitive",
+      "source": "//Native\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3/b",
+      "provenance": "source-derived",
+      "variant": "space-before-equals",
+      "title": "whitespace before = stays in the key",
+      "source": "//native =true\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3/c",
+      "provenance": "source-derived",
+      "title": "a comment after the first executable line",
+      "source": "export const a = 1;\n//native\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "values",
+      "title": "every flag takes a value, cut at the first =",
+      "source": "//nobundling=x\n//sandbox=\n//nodejs=a=b\nexport function main(){return 1}\n",
+      "flags": [
+        "nobundling",
+        "nodejs",
+        "sandbox"
+      ]
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "spaced-equals",
+      "title": "the key is not trimmed again after the cut",
+      "source": "// nobundling = x\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "empty-key",
+      "title": "an empty key is no flag",
+      "source": "//=native\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "empty-value",
+      "title": "an empty value",
+      "source": "//native=\nexport function main(){return 1}\n",
+      "flags": [
+        "native"
+      ]
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "blank-lines",
+      "title": "blank lines, whitespace-only ones included, are skipped anywhere in the header",
+      "source": "\n  \t\n//native\n\n//nobundling\nexport function main(){return 1}\n",
+      "flags": [
+        "native",
+        "nobundling"
+      ]
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "crlf",
+      "title": "CRLF line ends",
+      "source": "//npm\r\n//native\r\nexport function main(){return 1}\r\n",
+      "flags": [
+        "native",
+        "npm"
+      ]
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "unknown-keys",
+      "title": "unknown keys, with or without a value, are ignored and do not end the header",
+      "source": "//foo=bar\n// some comment\n//nobundling\nexport function main(){return 1}\n",
+      "flags": [
+        "nobundling"
+      ]
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "unicode-space",
+      "title": "Unicode white space trims and blanks a line, as Rust's trim does",
+      "source": " \n//　native \nexport function main(){return 1}\n",
+      "flags": [
+        "native"
+      ]
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "byte-order-mark",
+      "title": "a byte order mark is not white space, so it ends the header",
+      "source": "﻿//native\nexport function main(){return 1}\n",
+      "flags": []
+    },
+    {
+      "spec": "SY-V3",
+      "provenance": "source-derived",
+      "variant": "last-line",
+      "title": "a header comment on the last line, without a newline",
+      "source": "//native",
+      "flags": [
+        "native"
+      ]
+    }
+  ]
+}

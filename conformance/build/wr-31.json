@@ -46,9 +46,9 @@
     {
       "spec": "WR-31",
       "variant": "whitespace-line",
-      "provenance": "policy",
+      "provenance": "source-derived",
       "title": "a line of only whitespace counts as blank",
-      "note": "The reference says blank lines are skipped; this build reads a whitespace-only line as blank (open question in the PR).",
+      "note": "SY-V3 skips blank lines, white space only included; Go's HasAnnotation reads it the same way (conformance/build/annotations.json).",
       "given": {
         "source": "  \t\n//nobundling\nexport function main(){return 1}\n"
       },

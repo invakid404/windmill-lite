@@ -290,6 +290,45 @@
           }
         }
       }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "inherited-names",
+      "provenance": "source-derived",
+      "title": "exports named like Object.prototype members get their signatures",
+      "note": "Any export can be an entrypoint (WR-12), so __proto__ and constructor are recorded like any other name (c2a review 4).",
+      "given": {
+        "source": "export function __proto__(x: Date) { return x; }\nexport function constructor(a: number) { return a; }\nexport function toString() { return \"s\"; }\nexport function main() { return 1; }"
+      },
+      "expect": {
+        "exports": [
+          "__proto__",
+          "constructor",
+          "main",
+          "toString"
+        ],
+        "signatures": {
+          "__proto__": {
+            "params": [
+              {
+                "name": "x",
+                "date": true
+              }
+            ]
+          },
+          "constructor": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              }
+            ]
+          },
+          "toString": {
+            "params": []
+          }
+        }
+      }
     }
   ]
 }

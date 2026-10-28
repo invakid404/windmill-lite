@@ -143,6 +143,31 @@
           ]
         }
       }
+    },
+    {
+      "spec": "WR-27",
+      "variant": "shadowed-globals",
+      "provenance": "policy",
+      "title": "a script's own top-level Object, Proxy, Reflect, process and globalThis keep working",
+      "note": "The env rewrite's support module refers to these globals; the bundler renames the script's bindings around it, so a script that never reads Bun is unaffected (c2a review 1).",
+      "given": {
+        "source": "const Object = { x: 2 };\nconst Proxy = \"p\", Reflect = \"r\";\nconst process = { pid: \"mine\" };\nconst globalThis = { v: 1 };\nexport function main() { return [Object.x, Proxy, Reflect, process.pid, globalThis.v]; }\n"
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "result": [
+                2,
+                "p",
+                "r",
+                "mine",
+                1
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }

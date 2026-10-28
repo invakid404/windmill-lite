@@ -340,3 +340,10 @@ Case fields beyond those of the decode cases:
 build cases, each with the reason and where it is checked. A test fails
 unless every catalogue case of a finding with a file here is a case or is
 deferred.
+
+`annotations.json` holds the leading-comment annotation cases
+([WR-31](../docs/semantics/languages.md#wr-31),
+[SY-V3](../docs/semantics/openflow.md#sy-v3)): a `source` and the `flags` it
+sets. Both readers of the rule run them: the Go loader's
+`syncfolder.HasAnnotation` and the Bun build helper, in
+`go test ./internal/bundle`, and the helper's parser in `bun test`.

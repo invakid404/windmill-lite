@@ -163,7 +163,7 @@ waits on an external gate except R1.
   the Bun harness on Bun 1.3.10.
 - `conformance/build/` holds the Bun build cases, a level that
   [0003](0003-semantics-placement.md) added with milestone C2a. C2a placed
-  the shared build transforms (the define table, its prelude and the shim
+  the shared build transforms (the define table, its support module and the shim
   generator) in `internal/bundle`, which F4 extends with the bundle format,
   and the Bun build helper in `harnesses/bun/build`.
 

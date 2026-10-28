@@ -14,7 +14,7 @@ same env rewrite and shims, is C2b.
 
 | File | Contents |
 |---|---|
-| `env.go` | `EnvRewrite`: the define table and prelude of the env rewrite |
+| `env.go` | `EnvRewrite`: the define table and support module of the env rewrite |
 | `shim.go` | `Shim`: the shim of a host-provided module; the registry key |
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
@@ -31,18 +31,25 @@ read-only and non-configurable, so the runtime cannot replace them.
 
 | Define | Becomes | Formats |
 |---|---|---|
-| `Bun.env` (also as `Bun["env"]`) | `process.env` | ESM and CJS |
-| `import.meta.env` | `process.env` | ESM only: in CJS output `import.meta` stays empty, as in the CLI's esbuild bundles |
+| `Bun.env` (also as `Bun["env"]`) | `__windmill_lite_Bun.env` | ESM and CJS |
+| `import.meta.env` | `__windmill_lite_Bun.env` | ESM only: in CJS output `import.meta` stays empty, as in the CLI's esbuild bundles |
 | `Bun`, `globalThis.Bun`, `global.Bun`, `self.Bun` | `__windmill_lite_Bun` | ESM and CJS |
 
-The prelude, put before the bundle as a banner, binds `__windmill_lite_Bun`
-to a proxy of the real `Bun` whose `env` is `process.env`; it forwards every
-other read, key listing and descriptor, and sends writes and deletes to the
-real `Bun`, so they fail as they would there; freezing or sealing it, or
-defining a non-configurable property on it, throws. So an alias
-(`const B = Bun`), destructuring (`const { env } = Bun`) and a dependency's
-reads all see the invocation's environment. A local binding named `Bun` is
-left alone. What a define cannot see still reads the real environment:
+`__windmill_lite_Bun` (`EnvBinding`) is a global that the support module
+defines, once per process, as a proxy of the real `Bun` whose `env` is
+`process.env`. The proxy forwards every other read, key listing and
+descriptor, and sends writes and deletes to the real `Bun`, so they fail as
+they would there; freezing or sealing it, or defining a non-configurable
+property on it, throws. Every bundle imports the support module before its
+own code. It is a module of its own, so the bundler links its references to
+`globalThis`, `Reflect`, `Proxy`, `Object` and `process` to the real
+globals, renaming a script's own top-level bindings of those names; nothing
+is inserted into a script's scope. A bundler replaces only free references
+with a define, and the build uses `__windmill_lite_Bun` only when no input
+of the bundle spells it (otherwise the name with a suffix), so no binding of
+a script can capture the rewrite. So an alias (`const B = Bun`),
+destructuring (`const { env } = Bun`) and a dependency's reads all see the
+invocation's environment, and a local binding named `Bun` is left alone. What a define cannot see still reads the real environment:
 imports of the `bun` module (`import { env } from "bun"`), optional chaining
 through the global object (`globalThis?.Bun`), reflection, an alias of the
 global object, and `eval` or `new Function`. The Bun build applies the
@@ -71,7 +78,8 @@ of a bundle:
 
 1. **Scan**, when there are host-provided modules: the helper reports each
    module's export names, the listed modules it imports and the packages it
-   imports, or `host_module_live_binding` for `export let` or `export var`.
+   imports, or `host_module_live_binding` for `export let` or `export var`,
+   or `host_module_commonjs` for a CommonJS module.
    `BuildBun` writes `scripts/bun/provided/shims/<id>.mjs` for each and
    orders them, failing on a cycle (`host_module_cycle`).
 2. **Build**: the helper bundles the host-provided copies and every script.
@@ -90,7 +98,10 @@ share one dependency set, keyed by its digest. The build runs on
 `runtime_mismatch`) unless `AllowBunMismatch` is set, in which case
 `BunResult.NonconformantRuntime` says so. The helper runs without
 `NODE_ENV`, which `Bun.build` inlines, so a bundle does not depend on the
-builder's. `BunConfig` refuses IDs that differ only in case (they name
+builder's. The helper runs in a process group of its own; when a run
+ends, by its timeout, cancellation or otherwise, `BuildBun` kills what is
+left of the group (an install's lifecycle scripts) and waits until none of
+it remains. `BunConfig` refuses IDs that differ only in case (they name
 files) and a folder host module whose file is not the script at its path.
 Problems with scripts or modules
 come back together as a `*BuildError`, with the result so far; a script that
@@ -138,9 +149,13 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestConformanceBuildCatalogue` fails unless every catalogue case of a
   finding with a case file is a case or listed in `deferred.json`.
 - `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
-  prelude and generated shims in `testdata/`; `go test ./internal/bundle -run
+  support module and generated shims in `testdata/`; `go test ./internal/bundle -run
   Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.
 - `TestBuildIsReproducible`, `TestMetaFile`, `TestBuildLocks`,
   `TestBuildRefusesAnotherBun`, `TestBuildIgnoresNodeEnv`,
   `TestBuildRefusesAncestorPackages`, `TestHelperRefusesPathsOutsideTheFolder`,
-  `TestBunConfigValidation` and `TestImportBase` cover the rest.
+  `TestBuildCancelsInstallTree`, `TestBunConfigValidation` and
+  `TestImportBase` cover the rest.
+- `TestAnnotationCases` runs `conformance/build/annotations.json` through
+  both readers of leading-comment annotations: `syncfolder.HasAnnotation`
+  and the helper.

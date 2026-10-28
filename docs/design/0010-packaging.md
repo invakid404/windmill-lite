@@ -60,17 +60,22 @@ host upgrades the engine and rebuilds the bundle together.
    imports and globals the native runtime lacks (D5);
 5. applies the **env rewrite** for per-invocation environments
    ([WA-31](../semantics/client-api.md#wa-31)) in both bundlers, from one
-   define table and one prelude owned by the Go build: `Bun.env` (also
-   written `Bun["env"]`) becomes `process.env` in every output, and
-   `import.meta.env` becomes `process.env` only in ESM output. In CommonJS
-   output `import.meta` stays empty, as it does in the CLI's esbuild
-   bundles, so code that reads `import.meta.env` there fails as it would on
-   Windmill. Every other reference to the global `Bun`, also through
+   define table and one support module owned by the Go build. The support
+   module defines, once per process, a global proxy of the real `Bun` whose
+   `env` is `process.env`. Every reference to the global `Bun`, also through
    `globalThis`, `global` or `self` (so an alias, or destructuring such as
-   `const { env } = Bun`), becomes a binding that the prelude, put before the
-   bundle, defines: a proxy of the real `Bun` whose `env` is `process.env`.
-   A rewrite at run time cannot do this: on Bun 1.3.10 the global `Bun` and
-   its `env` are read-only and non-configurable. What a define cannot see
+   `const { env } = Bun`), becomes that global; `Bun.env` (also written
+   `Bun["env"]`) becomes its `env` in every output, and `import.meta.env`
+   does only in ESM output. In CommonJS output `import.meta` stays empty, as
+   it does in the CLI's esbuild bundles, so code that reads
+   `import.meta.env` there fails as it would on Windmill. A rewrite at run
+   time cannot do this: on Bun 1.3.10 the global `Bun` and its `env` are
+   read-only and non-configurable. Every bundle imports the support module
+   before its own code; being a module of its own, its references to the
+   real globals are kept apart from a script's bindings by the bundler,
+   which renames those. The global's name is one that no input of the
+   bundle spells, so no binding of a script can capture a replaced
+   reference. What a define cannot see
    reads the real environment: imports of the `bun` module, optional
    chaining or reflection through the global object, and code built at run
    time. The Bun helper applies the rewrite to Bun-target bundles; `//native`
@@ -113,7 +118,10 @@ the host was a compiled Bun executable.
    every export, by name, from a process-wide registry: a `Map` at
    `globalThis[Symbol.for("windmill-lite.hostModules")]` from the module's
    key in the host contract to its exports. Export names come from the one
-   scan above. A shim cannot follow a live binding, so a module that declares
+   scan above, so a host-provided module must be an ES module: a CommonJS
+   module's names are its exports object's properties, known only when it
+   runs, and it is refused with `host_module_commonjs`. A shim cannot follow
+   a live binding, so a module that declares
    `export let` or `export var` is refused with `host_module_live_binding`;
    other ways of exporting a binding that is later reassigned are not
    detected, and the shim then sees the value as it was when the step's
@@ -204,8 +212,11 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 - A deployed worker can prove which flows it runs, not just which code.
 - Milestone C2a built the Bun side (`internal/bundle`, `harnesses/bun/build`)
   and found that Bun 1.3.10's global `Bun` and its `env` are read-only and
-  non-configurable, so step 5 gained the prelude: the define table alone
-  missed aliases and destructuring of `Bun`. A script that
+  non-configurable, so step 5 gained the support module: the define table
+  alone missed aliases and destructuring of `Bun`. A first version put the
+  proxy in a banner, where a script's own `Object`, `process` or
+  `globalThis` captured its names; the support module and a binding name no
+  input spells replaced it in the first fix round. A script that
   Windmill would fail to bundle at every run fails the build instead
   (`bundle_failed`, [0001](0001-equivalence-contract.md) §5a). The build
   helper's one dependency is its TypeScript parser, `@babel/parser` (MIT),

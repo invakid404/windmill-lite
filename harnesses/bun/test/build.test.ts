@@ -9,6 +9,24 @@ import { liveBindings, parseModule, signatures, snakeCase } from "../build/signa
 import { detectWorkflowAsCode, wrapperScan } from "../build/wac.ts";
 import { rustTrim } from "../build/text.ts";
 
+// The shared cases that the Go loader's HasAnnotation also runs (internal/bundle).
+const annotationCases: { spec: string; variant?: string; title: string; source: string; flags: string[] }[] = (
+  await Bun.file(new URL("../../../conformance/build/annotations.json", import.meta.url)).json()
+).cases;
+
+describe("annotations: conformance/build/annotations.json (WR-31, SY-V3)", () => {
+  for (const c of annotationCases) {
+    test(`${c.spec} ${c.variant ?? ""} ${c.title}`, () => {
+      const a = parseAnnotations(c.source);
+      const set = Object.entries(a)
+        .filter(([, on]) => on)
+        .map(([flag]) => flag)
+        .sort();
+      expect(set).toEqual(c.flags);
+    });
+  }
+});
+
 describe("annotations (WR-31)", () => {
   test("leading block only, trimmed after //, blank lines skipped", () => {
     const a = parseAnnotations("\n// nobundling\n\n//native\nconst x = 1;\n//sandbox\n");

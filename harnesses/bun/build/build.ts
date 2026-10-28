@@ -7,11 +7,13 @@
 // Sources are materialised under a dependency set's directory, so bare
 // imports resolve from its node_modules and the paths a bundle names are
 // relative to it: entries at `entry/<id>.ts`, workspace scripts at
-// `src/<Windmill path>.ts`, shims at `host/<id>.mjs`.
+// `src/<Windmill path>.ts`, shims at `host/<id>.mjs`, a host-provided copy's
+// entry at `host/<id>.entry.mjs`, the env support module at
+// `wl/env-<binding>.mjs`.
 
 import type { BunPlugin } from "bun";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
@@ -49,6 +51,20 @@ type Bundled = {
   closure: string[];
   hostModules: string[];
 };
+
+// The specifier a Bun-target entry imports the env support module by,
+// before its own imports, so that the binding exists when any of its
+// modules runs (ADR 0010 step 5).
+const ENV_SPECIFIER = "windmill-lite:env";
+
+// The text of an entry that imports the env support module first, after a
+// hashbang line if it has one.
+function withEnvImport(text: string): string {
+  const line = `import ${JSON.stringify(ENV_SPECIFIER)};\n`;
+  if (!text.startsWith("#!")) return line + text;
+  const nl = text.indexOf("\n");
+  return nl < 0 ? text + "\n" + line : text.slice(0, nl + 1) + line + text.slice(nl + 1);
+}
 
 // How imports of host-provided modules resolve in one bundle: to the shim
 // (build), or left external so the scan sees only the module's own exports.
@@ -127,15 +143,48 @@ export class Builder {
     return this.materialise(dir, join("host", hm.id + ".mjs"), readFileSync(hm.shim, "utf8"));
   }
 
+  // A bundle of one entry. seeds names the workspace modules among its
+  // files (absolute path to Windmill path), whose imports resolve from the
+  // folder. With env, the entry imports the env support module, and the
+  // env rewrite applies (Bun-target bundles only): its binding is the Go
+  // build's name, or the name with a suffix when an input of the bundle
+  // spells it, so that no binding of a script can capture the rewrite.
   async bundle(
     dir: string,
     entry: string,
-    entryPath: string | undefined,
+    seeds: Map<string, string>,
     target: "bun" | "browser" | "node",
     hosts: HostMapping,
+    env: boolean,
   ): Promise<Bundled> {
-    const modules = new Map<string, string>();
-    if (entryPath !== undefined) modules.set(entry, entryPath);
+    if (!env) return (await this.bundleOnce(dir, entry, seeds, target, hosts, undefined)).bundled;
+    const base = this.req.env_binding;
+    for (let n = 1; n <= 20; n++) {
+      const name = n === 1 ? base : `${base}_${n}`;
+      const { bundled, inputs } = await this.bundleOnce(dir, entry, seeds, target, hosts, name);
+      if (!inputs.some((text) => text.includes(name))) return bundled;
+    }
+    throw new BuildProblem("bundle_failed", `every candidate name for ${base} occurs in the bundle's sources`);
+  }
+
+  private async bundleOnce(
+    dir: string,
+    entry: string,
+    seeds: Map<string, string>,
+    target: "bun" | "browser" | "node",
+    hosts: HostMapping,
+    binding: string | undefined,
+  ): Promise<{ bundled: Bundled; inputs: string[] }> {
+    const modules = new Map(seeds);
+    const base = this.req.env_binding;
+    const envFile =
+      binding === undefined
+        ? undefined
+        : this.materialise(dir, join("wl", `env-${binding}.mjs`), this.req.env_support.split(base).join(binding));
+    const define =
+      binding === undefined
+        ? undefined
+        : Object.fromEntries(Object.entries(this.req.define).map(([k, v]) => [k, v.split(base).join(binding)]));
     const closure = new Set<string>();
     const used = new Set<string>();
     const host = (hm: HostModuleRequest) => {
@@ -148,6 +197,10 @@ export class Builder {
         b.onResolve({ filter: /.*/ }, (args) => {
           if (args.kind === "entry-point-build" || args.kind === "entry-point-run") return undefined;
           const spec = args.path;
+          if (spec === ENV_SPECIFIER) {
+            if (envFile === undefined) throw new Error(`Could not resolve: "${spec}"`);
+            return { path: envFile };
+          }
           const pkg = this.hostByPackage.get(spec);
           if (pkg !== undefined && pkg.key !== hosts.self) return host(pkg);
           const importer = modules.get(args.importer);
@@ -182,10 +235,7 @@ export class Builder {
         format: "esm",
         minify: { syntax: true, identifiers: false, whitespace: false },
         external: ["electron"],
-        // The env rewrite is for the shared Bun process (WA-31); native and
-        // Node-target scripts do not run there with Bun's globals, and
-        // their environment is the native boundary's (C3n).
-        ...(target === "bun" ? { define: this.req.define, banner: this.req.banner } : {}),
+        ...(define === undefined ? {} : { define }),
         metafile: true,
         plugins: [plugin],
       });
@@ -212,11 +262,21 @@ export class Builder {
         `the bundle resolved files outside its dependency set: ${outside.join(", ")}`,
       );
     }
+    const inputs: string[] = [];
+    if (binding !== undefined) {
+      for (const key of Object.keys((metafile.inputs ?? {}) as object)) {
+        const abs = join(dir, key);
+        if (abs !== envFile) inputs.push(readFileSync(abs, "utf8"));
+      }
+    }
     return {
-      text: await result.outputs[0].text(),
-      metafile,
-      closure: [...closure].sort(),
-      hostModules: [...used].sort(),
+      bundled: {
+        text: await result.outputs[0].text(),
+        metafile,
+        closure: [...closure].sort(),
+        hostModules: [...used].sort(),
+      },
+      inputs,
     };
   }
 
@@ -245,23 +305,25 @@ export class Builder {
 
   // A host-provided module: its entry file, its source and the import base
   // of a folder module.
-  private async hostEntry(hm: HostModuleRequest): Promise<{ dir: string; entry: string; source: string; path?: string }> {
+  private async hostEntry(
+    hm: HostModuleRequest,
+  ): Promise<{ dir: string; entry: string; source: string; seeds: Map<string, string> }> {
     if (hm.package !== undefined) {
       const dir = this.depDir(hm.deps);
       const entry = await this.resolvePackage(dir, hm);
-      return { dir, entry, source: readFileSync(entry, "utf8") };
+      return { dir, entry, source: readFileSync(entry, "utf8"), seeds: new Map() };
     }
     const dir = this.depDir(hm.deps);
     const source = this.readFolder(hm.file!);
     const entry = this.materialise(dir, join("src", hm.path! + ".ts"), this.workspaceSource(hm.path!));
-    return { dir, entry, source, path: hm.path };
+    return { dir, entry, source, seeds: new Map([[entry, hm.path!]]) };
   }
 
   // Scan: the exports of each host-provided module, from its bundled copy
   // with other host-provided modules left external, after the live-binding
   // check (ADR 0010).
   async scanHostModule(hm: HostModuleRequest): Promise<HostModuleResult> {
-    const { dir, entry, source, path } = await this.hostEntry(hm);
+    const { dir, entry, source, seeds } = await this.hostEntry(hm);
     const parsed = parse(source);
     const live = liveBindings(parsed);
     if (live.length > 0) {
@@ -270,7 +332,18 @@ export class Builder {
         `host-provided module ${hm.key} exports a binding it can reassign (export let or export var): ${live.join(", ")}`,
       );
     }
-    const b = await this.bundle(dir, entry, path, "bun", { shims: false, self: hm.key });
+    const b = await this.bundle(dir, entry, seeds, "bun", { shims: false, self: hm.key }, false);
+    // A shim takes exports by name from the scan. A CommonJS module's names
+    // are its exports object's properties, known only when it runs, and
+    // Bun lists them differently as an entry and as a dependency, so it
+    // cannot be shared through a shim (ADR 0001 §5a).
+    const inputs = (b.metafile.inputs ?? {}) as Record<string, { format?: string }>;
+    if (inputs[relative(dir, entry)]?.format === "cjs") {
+      throw new BuildProblem(
+        "host_module_commonjs",
+        `host-provided module ${hm.key} is CommonJS; a host-provided module must be an ES module`,
+      );
+    }
     return {
       exports: exportScanner.scan(b.text).exports,
       host_modules: b.hostModules,
@@ -281,8 +354,19 @@ export class Builder {
   // Build: the bundled copy that a harness registers when no host does,
   // with other host-provided modules resolved to their shims.
   async buildHostModule(hm: HostModuleRequest): Promise<HostModuleResult> {
-    const { dir, entry, source, path } = await this.hostEntry(hm);
-    const b = await this.bundle(dir, entry, path, "bun", { shims: true, self: hm.key });
+    const { dir, entry, source, seeds } = await this.hostEntry(hm);
+    // The copy's entry re-exports the scanned names and imports the env
+    // support module first.
+    const target = JSON.stringify("./" + relative(join(dir, "host"), entry));
+    const wrapper = this.materialise(
+      dir,
+      join("host", hm.id + ".entry.mjs"),
+      withEnvImport(
+        `export * from ${target};\n` +
+          ((hm.exports ?? []).includes("default") ? `export { default } from ${target};\n` : ""),
+      ),
+    );
+    const b = await this.bundle(dir, wrapper, seeds, "bun", { shims: true, self: hm.key }, true);
     const exports = exportScanner.scan(b.text).exports;
     this.writeOut(join("scripts", "bun", "provided", hm.id + ".mjs"), b.text);
     return { exports, host_modules: b.hostModules, packages: directPackages(parse(source)) };
@@ -308,8 +392,13 @@ export class Builder {
     try {
       if (annotations.npm) throw new BuildProblem("unsupported_feature", "unsupported: npm");
       const dir = this.depDir(e.deps);
-      const entry = this.materialise(dir, join("entry", e.id + ".ts"), transformSource(source, e.path));
-      const b = await this.bundle(dir, entry, e.path, target, { shims: true });
+      // The env rewrite is for the shared Bun process (WA-31); native and
+      // Node-target scripts do not run there with Bun's globals, and their
+      // environment is the native boundary's (C3n).
+      const env = target === "bun";
+      const text = transformSource(source, e.path);
+      const entry = this.materialise(dir, join("entry", e.id + ".ts"), env ? withEnvImport(text) : text);
+      const b = await this.bundle(dir, entry, new Map([[entry, e.path]]), target, { shims: true }, env);
       const exports = exportScanner.scan(b.text).exports;
       this.writeOut(join("scripts", "bun", e.id + ".mjs"), b.text);
       Object.assign(meta, {

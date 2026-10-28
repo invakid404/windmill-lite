@@ -1,8 +1,8 @@
 // Package bundle builds windmill-lite bundles (ADR 0010). Milestone C2a
 // provides the parts shared by both bundlers and the Bun side of the build:
 //
-//   - the env rewrite, one define table and one prelude passed to every
-//     bundler (EnvRewrite; WA-31);
+//   - the env rewrite, one define table and one support module passed to
+//     every bundler (EnvRewrite; WA-31);
 //   - the shim generator for host-provided modules (Shim; D12);
 //   - the import base of an inline script (ImportBase; WR-29);
 //   - BuildBun, which runs the Bun build helper (harnesses/bun/build) on the

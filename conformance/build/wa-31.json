@@ -181,6 +181,85 @@
           }
         }
       }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "shadowed-names",
+      "provenance": "policy",
+      "title": "the rewrite reads the invocation's environment whatever the script and its dependencies bind",
+      "note": "A script that spells the binding name moves the build to another one (c2a review 1).",
+      "given": {
+        "source": "import { depRead } from \"fixture-shadow\";\nconst Object = { x: 2 };\nconst Proxy = 1, Reflect = 2;\nconst process = { env: { WL_CASE: \"local\" } };\nconst __windmill_lite_Bun = \"mine\";\nfunction inner() { const process = 5; const __windmill_lite_Bun = 6; return [Bun.env.WL_CASE, process, __windmill_lite_Bun]; }\nexport function main() {\n  const B = Bun;\n  const { env } = Bun;\n  return [Object.x, Proxy, Reflect, process.env.WL_CASE, __windmill_lite_Bun, Bun.env.WL_CASE, Bun[\"env\"].WL_CASE, B.env.WL_CASE, env.WL_CASE, import.meta.env.WL_CASE, inner(), depRead()];\n}\n",
+        "dependencies": {
+          "fixture-shadow": "1.0.0"
+        },
+        "packages": {
+          "fixture-shadow@1.0.0": {
+            "index.js": "const globalThis = { Bun: \"fake\" };\nconst process = 3;\nconst Object = 4;\nexport const depRead = () => [Bun.env.WL_CASE, globalThis.Bun, process, Object];\n"
+          }
+        }
+      },
+      "expect": {
+        "bundle_contains": [
+          "__windmill_lite_Bun_2.env"
+        ],
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "result": [
+                2,
+                1,
+                2,
+                "local",
+                "mine",
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                [
+                  "view",
+                  5,
+                  6
+                ],
+                [
+                  "view",
+                  "fake",
+                  3,
+                  4
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "shadowed-globalthis",
+      "provenance": "policy",
+      "title": "a script's own globalThis is its own; a free Bun still reads the view",
+      "given": {
+        "source": "const globalThis = { Bun: { env: { WL_CASE: \"own\" } } };\nexport function main() { return [globalThis.Bun.env.WL_CASE, Bun.env.WL_CASE]; }\n"
+      },
+      "expect": {
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "result": [
+                "own",
+                "view"
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }
