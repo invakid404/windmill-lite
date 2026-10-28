@@ -49,12 +49,12 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [OpenFlow model and the sync folder](#openflow) | 147 | 127 | 20 | 0 | 0 | 0 | 4 | 0 |
 | [Flow execution](#execution) | 125 | 95 | 29 | 1 | 0 | 64 | 8 | 1 |
 | [Loops, branches and subflows](#control-flow) | 87 | 68 | 17 | 0 | 2 | 43 | 0 | 0 |
-| [Expressions](#expressions) | 170 | 122 | 48 | 0 | 0 | 164 | 0 | 0 |
+| [Expressions](#expressions) | 175 | 123 | 52 | 0 | 0 | 164 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 184 | 125 | 59 | 0 | 0 | 0 | 12 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 40 | 15 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 891 | 667 | 214 | 6 | 4 | 311 | 39 | 7 |
+| **Total** | 896 | 668 | 218 | 6 | 4 | 311 | 39 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -3070,7 +3070,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **Rust location suffix:** strip ` @<file>.rs:<line>:<col>` before comparing. `<loc>` in an expected message stands for one such suffix **including its leading space** (or the parenthesised not-found form ` (<file>.rs:<line>)`), with nothing else between it and the text before it; a message that ends in `<loc><loc>` carries two ([FX-50](execution.md#fx-50)).
 - **`…`** in an expected message marks elided text: a stack, a location suffix, or the rest of a library message.
 
-**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); recording batch E3e) and JE-V5/a (which transform fails first changes between runs, so it is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 (JE-50/a, JE-51/a, JE-52/a) are `source-derived` until recorded ([Q-JE-12](expressions.md#q-je-12)).
+**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); recording batch E3e) and JE-V5/a (which transform fails first changes between runs, so it is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)).
 
 <a id="je-1"></a>
 ### JE-1 · QuickJS-ng evaluates every expression that reaches the engine
@@ -3288,6 +3288,9 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `x = typeof globalThis.results` (the trailing `results` is not followed by `.` or `["`, so it is not rewritten)
   - **Expect:** `"undefined"`
   - **Recorded:** [`exprs/je-10.yaml`](../../conformance/exprs/je-10.yaml) case `JE-10/d`, oracle run 40687124625.
+- **JE-10/e** · source-derived · later · `results` is a constant, `error` is not
+  - **Given:** two runs of the default fixture: in one, `x = (results = 1, 2)`; in the other, `x = (error = "e", error)` (neither holds `;`, so both run in expression mode)
+  - **Expect:** in the first run `b` fails with a message containing `QuickJS evaluation error: Error: 'results' is read-only`; in the second, `x` = `"e"`.
 
 <a id="je-11"></a>
 ### JE-11 · Calls to `variable(`, `resource(` and `flow_user_state(` are rewritten textually
@@ -3416,6 +3419,9 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `x = Promise.resolve({k: 1})`
   - **Expect:** `{"k":1}`
   - **Recorded:** [`exprs/je-15.yaml`](../../conformance/exprs/je-15.yaml) case `JE-15/i`, oracle run 40687124625.
+- **JE-15/j** · source-derived · later · a replaced `JSON.stringify` supplies the result text unchecked ([Q-JE-14](expressions.md#q-je-14))
+  - **Given:** two runs: `x = (JSON.stringify = () => "7", 1)`; and `x = (JSON.stringify = () => 5, 1)` (no `;`, so expression mode)
+  - **Expect:** O2 `x` = `7` in the first run (the replacement's string is the result text) and `null` in the second (a result that is not a string reads as `null`). Neither evaluation fails.
 
 <a id="je-16"></a>
 ### JE-16 · Context values arrive as converted JSON
@@ -3445,6 +3451,9 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** as JE-16/e, plus a step `c` after `b` with `y = Object.is((results.a).n, -0)` (`a` is no longer the previous step, so this is a database read)
   - **Expect:** O2 `y` = `false`
   - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je16-ef`, oracle run 40687124625.
+- **JE-16/g** · source-derived · later · a `__proto__` key sets the prototype, not an own property
+  - **Given:** flow input `{"o":{"__proto__":{"x":1}}}`; `x = [Object.keys(flow_input.o), flow_input.o.x, Object.getPrototypeOf(flow_input.o) === Object.prototype]`
+  - **Expect:** `[[],1,false]`. (Built with `JSON.parse`, the value would give `[["__proto__"],undefined,true]`, which serialises as `[["__proto__"],null,true]`.)
 
 <a id="je-17"></a>
 ### JE-17 · The `error` helper variable
@@ -3463,6 +3472,9 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `b` is module 0; flow input `{}`; `x = error.name`
   - **Expect:** `"UnknownError"`
   - **Recorded:** [`exprs/je-17.yaml`](../../conformance/exprs/je-17.yaml) case `JE-17/c`, oracle run 40687124625.
+- **JE-17/d** · source-derived · the entry fallbacks are falsy tests
+  - **Given:** `a` returns `[{"error":{"step_id":"","message":"","name":"N"}},{"error":{"message":"m"}}]`; `b` directly after `a`; `x = error.message`
+  - **Expect:** `"[0] N; [1] m"`. (Nullish tests would give `"[] ; [1] m"`.)
 
 <a id="je-18"></a>
 ### JE-18 · How a `results.<id>` read resolves on the QuickJS path
@@ -3534,6 +3546,9 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `x = nope`
   - **Expect:** `b` fails with the message ``Error during isolated evaluation of expression `nope`:\nQuickJS evaluation error: Error: nope is not defined``, followed by `\n<stack>`; on the oracle the stack is `    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:33)\n` ([JE-21](expressions.md#je-21)). Compare the prefix through `Error: nope is not defined`.
   - **Recorded:** [`exprs/je-21.yaml`](../../conformance/exprs/je-21.yaml) case `JE-21/a`, oracle run 40687124625.
+- **JE-21/b** · source-derived · later · a thrown non-Error value shows its debug form ([Q-JE-1](expressions.md#q-je-1))
+  - **Given:** two runs: `x = (() => { throw "s" })()` and `x = (() => { throw 1 })()` (no `;`, so expression mode)
+  - **Expect:** `b` fails with ``Error during isolated evaluation of expression `(() => { throw "s" })()`:\nQuickJS evaluation error: Exception generated by quickjs: String(Ok("s"))\n`` in the first run, and with the same structure ending `Exception generated by quickjs: Int(1)\n` in the second. Not the string form (`s`, `1`).
 
 <a id="je-22"></a>
 ### JE-22 · Scope table
