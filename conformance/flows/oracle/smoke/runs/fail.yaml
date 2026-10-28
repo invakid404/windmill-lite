@@ -1,0 +1,15 @@
+# OR-20/b: the observation of OR-12/a. Step b's stack is masked because b
+# is a failed leaf that ran a script; the root result is masked because it
+# equals b's (OR-V3 clauses a and b).
+spec: [OR-20/b, OR-12/a]
+target: f/wl_smoke/two_step
+args: {x: 60}
+expect:
+  status: failure
+  result: {error: {name: Error, message: "too big: 120", stack: "<stack>", step_id: b}}
+  steps:
+    "m:a": {status: success, args: {x: 60}, result: {doubled: 120, seen: 60}}
+    "m:b":
+      status: failure
+      args: {n: 120, tag: hi}
+      result: {error: {name: Error, message: "too big: 120", stack: "<stack>", step_id: b}}

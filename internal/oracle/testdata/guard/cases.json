@@ -1,0 +1,145 @@
+{
+  "about": "The repository checks of OR-3 and LIC-1. Each case is a small repository tree (files), the check to run on it (images: the image lint; manifests: the manifest guard) and the findings it must report, as file and rule. The metadata-only Apache packages are rejected because the anchor decided Q-OF-7(a) no. Running the published wmill CLI as a tool is not a dependency, so naming it outside a manifest is not a finding.",
+  "cases": [
+    {
+      "name": "LIC-1/a: the allowed Windmill inputs pass",
+      "spec": ["LIC-1/a"], "provenance": "source-derived", "check": "manifests",
+      "files": {
+        "go.mod": "module example.com/x\n\ngo 1.27\n\nrequire (\n\tgithub.com/windmill-labs/windmill-go-client v1.767.0\n\tgo.yaml.in/yaml/v3 v3.0.5\n)\n",
+        "go.sum": "github.com/windmill-labs/windmill-go-client v1.767.0 h1:abc=\ngithub.com/windmill-labs/windmill-go-client v1.767.0/go.mod h1:def=\n",
+        "harnesses/bun/package.json": "{\"name\": \"windmill-lite-bun\", \"dependencies\": {\"windmill-client\": \"1.767.0\", \"zod\": \"3.0.0\"}}",
+        "harnesses/bun/bun.lock": "{\n  \"packages\": {\n    \"windmill-client\": [\"windmill-client@1.767.0\"]\n  }\n}\n",
+        "internal/openflow/schema/NOTICE": "Copied from the Windmill repository (https://github.com/windmill-labs/windmill) at v1.767.0:\n  openflow.openapi.yaml\n",
+        "internal/openflow/schema/openflow.openapi.yaml": "openapi: 3.0.3\n",
+        "internal/openflow/schema/LICENSE-APACHE": "Apache License\n",
+        "internal/oracle/openapi/NOTICE": "Copied from the Windmill repository (https://github.com/windmill-labs/windmill):\n  openapi.yaml  the REST API schema, backend/windmill-api/openapi.yaml\n",
+        "internal/oracle/openapi/openapi.yaml": "openapi: 3.0.3\n",
+        "internal/oracle/openapi/LICENSE-APACHE": "Apache License\n"
+      },
+      "findings": []
+    },
+    {
+      "name": "LIC-1/b: an AGPL-derived parser package in package.json",
+      "spec": ["LIC-1/b"], "provenance": "source-derived", "check": "manifests",
+      "files": {"harnesses/bun/package.json": "{\"devDependencies\": {\"windmill-parser-wasm-ts\": \"1.767.0\"}}"},
+      "findings": [{"file": "harnesses/bun/package.json", "rule": "manifest-dependency"}]
+    },
+    {
+      "name": "LIC-1/b: a transitive parser package in a lockfile",
+      "spec": ["LIC-1/b"], "provenance": "source-derived", "check": "manifests",
+      "files": {"harnesses/bun/bun.lock": "{\n  \"packages\": {\n    \"windmill-parser-wasm-py\": [\"windmill-parser-wasm-py@1.0.0\"]\n  }\n}\n"},
+      "findings": [{"file": "harnesses/bun/bun.lock", "rule": "manifest-dependency"}]
+    },
+    {
+      "name": "LIC-1/b: a vendored file that comes from backend source",
+      "spec": ["LIC-1/b"], "provenance": "source-derived", "check": "manifests",
+      "files": {
+        "internal/x/vendor/NOTICE": "Copied from https://github.com/windmill-labs/windmill:\n  backend/windmill-worker/src/bun_executor.rs\n",
+        "internal/x/vendor/openapi.yaml": "x\n"
+      },
+      "findings": [{"file": "internal/x/vendor/NOTICE", "rule": "vendored-path"}]
+    },
+    {
+      "name": "LIC-1/b: a vendored Windmill directory with a file that is not an allowed input",
+      "spec": ["LIC-1/b"], "provenance": "source-derived", "check": "manifests",
+      "files": {
+        "internal/x/vendor/NOTICE": "Copied from https://github.com/windmill-labs/windmill at v1.767.0.\n",
+        "internal/x/vendor/openflow.openapi.yaml": "x\n",
+        "internal/x/vendor/flows.rs": "x\n"
+      },
+      "findings": [{"file": "internal/x/vendor/flows.rs", "rule": "vendored-file"}]
+    },
+    {
+      "name": "Q-OF-7(a): the metadata-only Apache packages are rejected, also through an npm alias",
+      "spec": ["LIC-1/b", "Q-OF-7"], "provenance": "policy", "check": "manifests",
+      "files": {"tools/package.json": "{\"dependencies\": {\"windmill-yaml-validator\": \"1.1.1\", \"windmill-utils-internal\": \"1.8.2\", \"cli\": \"npm:windmill-cli@1.767.0\"}, \"devDependencies\": {\"windmill-cli\": \"1.767.0\"}}"},
+      "findings": [{"file": "tools/package.json", "rule": "manifest-dependency"}, {"file": "tools/package.json", "rule": "manifest-dependency"}, {"file": "tools/package.json", "rule": "manifest-dependency"}, {"file": "tools/package.json", "rule": "manifest-dependency"}]
+    },
+    {
+      "name": "LIC-1/b: a Go dependency on the Windmill repository",
+      "spec": ["LIC-1/b"], "provenance": "source-derived", "check": "manifests",
+      "files": {
+        "go.mod": "module example.com/x\n\nrequire github.com/windmill-labs/windmill v1.767.0\n",
+        "go.sum": "github.com/windmill-labs/windmill/backend v0.0.0 h1:x=\n"
+      },
+      "findings": [{"file": "go.mod", "rule": "manifest-dependency"}, {"file": "go.sum", "rule": "manifest-dependency"}]
+    },
+    {
+      "name": "LIC-1/b: a git dependency on the Windmill repository",
+      "spec": ["LIC-1/b"], "provenance": "source-derived", "check": "manifests",
+      "files": {"a/package.json": "{\"dependencies\": {\"wm\": \"github:windmill-labs/windmill#v1.767.0\"}}"},
+      "findings": [{"file": "a/package.json", "rule": "manifest-dependency"}]
+    },
+    {
+      "name": "the Rust client and Windmill crates in Cargo.toml",
+      "spec": ["LIC-1/b", "Q-OF-7"], "provenance": "policy", "check": "manifests",
+      "files": {"x/Cargo.toml": "[dependencies]\nwmill = \"1.767.0\"\nwindmill-common = { git = \"https://github.com/windmill-labs/windmill\" }\nserde = \"1\"\n"},
+      "findings": [{"file": "x/Cargo.toml", "rule": "manifest-dependency"}, {"file": "x/Cargo.toml", "rule": "manifest-dependency"}]
+    },
+    {
+      "name": "running the published CLI is not a dependency",
+      "spec": ["OR-8", "LIC-1"], "provenance": "policy", "check": "manifests",
+      "files": {
+        ".github/workflows/oracle.yml": "steps:\n  - run: npx -y windmill-cli@1.767.0 --version\n",
+        "README.md": "The harness runs windmill-cli@1.767.0 as a tool.\n",
+        "third_party/NOTICE": "Copied from github.com/someone/else.\n",
+        "third_party/anything.c": "int x;\n"
+      },
+      "findings": []
+    },
+    {
+      "name": "OR-3: a Dockerfile built FROM the Windmill image",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {"Dockerfile": "FROM ghcr.io/windmill-labs/windmill:1.767.0\nRUN true\n"},
+      "findings": [{"file": "Dockerfile", "rule": "image-from"}]
+    },
+    {
+      "name": "OR-3: FROM with a platform flag, a stage name and another variant",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {"deploy/Containerfile.dev": "FROM golang:1.27 AS build\nfrom --platform=linux/amd64 ghcr.io/windmill-labs/windmill-ee:main AS base\n"},
+      "findings": [{"file": "deploy/Containerfile.dev", "rule": "image-from"}]
+    },
+    {
+      "name": "OR-3: a Dockerfile FROM another image passes",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {"build/app.Dockerfile": "FROM gcr.io/distroless/static\nCOPY wl /wl\n"},
+      "findings": []
+    },
+    {
+      "name": "OR-3: a workflow that re-tags the Windmill image",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {".github/workflows/x.yml": "jobs:\n  a:\n    steps:\n      - run: docker pull ghcr.io/windmill-labs/windmill:1.767.0\n      - run: docker tag ghcr.io/windmill-labs/windmill:1.767.0 example.com/w:1\n"},
+      "findings": [{"file": ".github/workflows/x.yml", "rule": "image-repush"}]
+    },
+    {
+      "name": "OR-3: a continued docker image push line",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {".github/workflows/x.yaml": "steps:\n  - run: |\n      docker image push \\\n        ghcr.io/windmill-labs/windmill:1.767.0\n"},
+      "findings": [{"file": ".github/workflows/x.yaml", "rule": "image-repush"}]
+    },
+    {
+      "name": "OR-3: a script that copies the image through a variable",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {"scripts/mirror.sh": "IMG=ghcr.io/windmill-labs/windmill:1.767.0\nskopeo copy docker://$IMG docker://example.com/w\n"},
+      "findings": [{"file": "scripts/mirror.sh", "rule": "image-repush"}]
+    },
+    {
+      "name": "OR-3: pulling and running the image is allowed",
+      "spec": ["OR-3", "OR-19"], "provenance": "policy", "check": "images",
+      "files": {".github/workflows/oracle.yml": "steps:\n  - run: docker pull ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239\n  - run: docker compose -p wl-oracle up -d\n"},
+      "findings": []
+    },
+    {
+      "name": "OR-3: pushing an unrelated image is outside the lint",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {".github/workflows/release.yml": "steps:\n  - run: docker push example.com/windmill-lite:1\n"},
+      "findings": []
+    },
+    {
+      "name": "test data is not scanned",
+      "spec": ["OR-3"], "provenance": "policy", "check": "images",
+      "files": {"internal/x/testdata/Dockerfile": "FROM ghcr.io/windmill-labs/windmill\n"},
+      "findings": []
+    }
+  ]
+}

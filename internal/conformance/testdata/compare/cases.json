@@ -1,0 +1,168 @@
+{
+  "about": "The comparator (OR-13, OR-14 item 8, OR-15, ADR 0011): exact by default, objects without regard to key order, arrays in order, numbers by their JSON text; unordered paths are multisets; strict key order applies to values, never to the observation's own fields; a comparison with a recording leaves carried and resolved_args out. Each case gives the actual observation (got), the expected one (want), the options and the differences, written <pointer>: <got> != <want>. Cases that encode a catalogue harness self-test carry its provenance; the others are policy.",
+  "cases": [
+    {
+      "name": "OR-15/a: an expectation equal to the observation passes",
+      "spec": ["OR-15/a", "OR-11/a"], "provenance": "source-derived",
+      "got": {"status": "success", "result": "hi:6", "steps": {"m:a": {"status": "success", "args": {"x": 3}, "result": {"doubled": 6, "seen": 3}}, "m:b": {"status": "success", "args": {"n": 6, "tag": "hi"}, "result": "hi:6"}}},
+      "want": {"status": "success", "result": "hi:6", "steps": {"m:a": {"status": "success", "args": {"x": 3}, "result": {"seen": 3, "doubled": 6}}, "m:b": {"status": "success", "args": {"tag": "hi", "n": 6}, "result": "hi:6"}}},
+      "differences": []
+    },
+    {
+      "name": "OR-15/b: a changed expectation is reported as a JSON-pointer difference",
+      "spec": ["OR-15/b"], "provenance": "source-derived",
+      "got": {"status": "success", "result": "hi:6", "steps": {"m:a": {"status": "success", "args": {"x": 3}, "result": {"doubled": 6, "seen": 3}}, "m:b": {"status": "success", "args": {"n": 6, "tag": "hi"}, "result": "hi:6"}}},
+      "want": {"status": "success", "result": "hi:6", "steps": {"m:a": {"status": "success", "args": {"x": 3}, "result": {"doubled": 6, "seen": 3}}, "m:b": {"status": "success", "args": {"n": 6, "tag": "ho"}, "result": "hi:6"}}},
+      "differences": ["/steps/m:b/args/tag: \"hi\" != \"ho\""]
+    },
+    {
+      "name": "OR-V5/a: a different result fails at /result",
+      "spec": ["OR-V5/a"], "provenance": "source-derived",
+      "got": {"status": "success", "result": "hi:7"},
+      "want": {"status": "success", "result": "hi:6"},
+      "differences": ["/result: \"hi:7\" != \"hi:6\""]
+    },
+    {
+      "name": "OR-23/a: a permutation passes at an unordered path",
+      "spec": ["OR-23/a"], "provenance": "policy",
+      "options": {"unordered": ["/steps/m:a0/args/fi_keys"]},
+      "got": {"status": "success", "result": null, "steps": {"m:a0": {"status": "success", "args": {"fi_keys": ["zz", "a", "mmm"]}, "result": null}}},
+      "want": {"status": "success", "result": null, "steps": {"m:a0": {"status": "success", "args": {"fi_keys": ["a", "mmm", "zz"]}, "result": null}}},
+      "differences": []
+    },
+    {
+      "name": "OR-23/b: unordered is multiset equality, so a duplicate fails",
+      "spec": ["OR-23/b"], "provenance": "source-derived",
+      "options": {"unordered": ["/steps/m:a0/args/fi_keys"]},
+      "got": {"status": "success", "result": null, "steps": {"m:a0": {"status": "success", "args": {"fi_keys": ["a", "a", "mmm", "zz"]}, "result": null}}},
+      "want": {"status": "success", "result": null, "steps": {"m:a0": {"status": "success", "args": {"fi_keys": ["a", "mmm", "zz"]}, "result": null}}},
+      "differences": ["/steps/m:a0/args/fi_keys: [\"a\",\"a\",\"mmm\",\"zz\"] != [\"a\",\"mmm\",\"zz\"]"]
+    },
+    {
+      "name": "OR-23: a multiset with the right elements but wrong multiplicities fails",
+      "spec": ["OR-23/b"], "provenance": "policy",
+      "options": {"unordered": ["/result"]},
+      "got": {"status": "success", "result": ["a", "a", "b"]},
+      "want": {"status": "success", "result": ["a", "b", "b"]},
+      "differences": ["/result: [\"a\",\"a\",\"b\"] != [\"a\",\"b\",\"b\"]"]
+    },
+    {
+      "name": "arrays compare in order everywhere else (OR-23)",
+      "spec": ["OR-23", "OR-14"], "provenance": "policy",
+      "got": {"status": "success", "result": ["zz", "a"]},
+      "want": {"status": "success", "result": ["a", "zz"]},
+      "differences": ["/result/0: \"zz\" != \"a\"", "/result/1: \"a\" != \"zz\""]
+    },
+    {
+      "name": "OR-V4/b: object-key sorting never reorders arrays of keys",
+      "spec": ["OR-V4/b", "OR-V4/a"], "provenance": "source-derived",
+      "got": {"status": "success", "result": {"r_whole_keys": ["a", "cc", "bbb"], "p_keys": ["bbb", "a", "cc"], "r_keys": ["bbb", "a", "cc"], "p_whole_keys": ["a", "cc", "bbb"]}},
+      "want": {"status": "success", "result": {"p_keys": ["bbb", "a", "cc"], "r_keys": ["bbb", "a", "cc"], "p_whole_keys": ["a", "cc", "bbb"], "r_whole_keys": ["a", "cc", "bbb"]}},
+      "differences": []
+    },
+    {
+      "name": "OR-V4/b: a reordered array of keys still differs",
+      "spec": ["OR-V4/b"], "provenance": "source-derived",
+      "got": {"status": "success", "result": {"p_keys": ["a", "bbb", "cc"]}},
+      "want": {"status": "success", "result": {"p_keys": ["bbb", "a", "cc"]}},
+      "differences": ["/result/p_keys/0: \"a\" != \"bbb\"", "/result/p_keys/1: \"bbb\" != \"a\""]
+    },
+    {
+      "name": "OR-13: objects compare without regard to key order",
+      "spec": ["OR-13"], "provenance": "policy",
+      "got": {"status": "success", "result": {"a": 2, "zz": 1, "mmm": 3}},
+      "want": {"status": "success", "result": {"zz": 1, "a": 2, "mmm": 3}},
+      "differences": []
+    },
+    {
+      "name": "key_order strict: the same objects differ",
+      "spec": ["OR-14", "OR-24"], "provenance": "policy",
+      "options": {"strict_key_order": true},
+      "got": {"status": "success", "result": {"a": 2, "zz": 1, "mmm": 3}},
+      "want": {"status": "success", "result": {"zz": 1, "a": 2, "mmm": 3}},
+      "differences": ["/result: {\"a\":2,\"zz\":1,\"mmm\":3} != {\"zz\":1,\"a\":2,\"mmm\":3}"]
+    },
+    {
+      "name": "key_order strict never applies to the observation's own fields",
+      "spec": ["OR-14", "OR-15"], "provenance": "policy",
+      "options": {"strict_key_order": true},
+      "got": {"result": 1, "status": "success", "steps": {"m:b": {"result": 1, "status": "success", "module": "success"}, "m:a": {"status": "success"}}},
+      "want": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success"}, "m:b": {"status": "success", "result": 1}}},
+      "differences": []
+    },
+    {
+      "name": "numbers compare by their JSON text",
+      "spec": ["OR-14", "OR-13"], "provenance": "policy",
+      "got": {"status": "success", "result": 1.0},
+      "want": {"status": "success", "result": 1},
+      "differences": ["/result: 1.0 != 1"]
+    },
+    {
+      "name": "OR-V3/a: unknown UUIDs are kept, so different ones differ",
+      "spec": ["OR-V3/a"], "provenance": "disputed",
+      "got": {"status": "success", "result": "22222222-2222-4222-8222-222222222222"},
+      "want": {"status": "success", "result": "11111111-1111-4111-8111-111111111111"},
+      "differences": ["/result: \"22222222-2222-4222-8222-222222222222\" != \"11111111-1111-4111-8111-111111111111\""]
+    },
+    {
+      "name": "a missing step and an extra step are both reported",
+      "spec": ["OR-15", "OR-V2"], "provenance": "policy",
+      "got": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success", "result": 1}, "m:x": {"status": "not_run"}}},
+      "want": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success", "result": 1}, "m:b": {"status": "not_run"}}},
+      "differences": ["/steps/m:b: (absent) != {\"status\":\"not_run\",\"ran\":false}", "/steps/m:x: {\"status\":\"not_run\",\"ran\":false} != (absent)"]
+    },
+    {
+      "name": "subset mode accepts extra members and steps",
+      "spec": ["OR-15"], "provenance": "policy",
+      "options": {"subset": true},
+      "got": {"status": "success", "result": {"a": 1, "b": 2}, "steps": {"m:a": {"status": "success", "result": 1}, "m:x": {"status": "not_run"}}},
+      "want": {"status": "success", "result": {"a": 1}, "steps": {"m:a": {"status": "success", "result": 1}}},
+      "differences": []
+    },
+    {
+      "name": "subset mode still fails on a differing value",
+      "spec": ["OR-15"], "provenance": "policy",
+      "options": {"subset": true},
+      "got": {"status": "success", "result": {"a": 1, "b": 2}},
+      "want": {"status": "success", "result": {"a": 2}},
+      "differences": ["/result/a: 1 != 2"]
+    },
+    {
+      "name": "with a recording, carried and resolved_args are left out",
+      "spec": ["JE-V3/a", "FX-V2/a"], "provenance": "policy",
+      "options": {"with_recording": true},
+      "got": {"status": "success", "result": "ok", "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "result": "ok"}}},
+      "want": {"status": "success", "result": "ok", "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "resolved_args": {"x": "s"}, "result": "ok", "carried": "other"}}},
+      "differences": []
+    },
+    {
+      "name": "with an expectation, carried and resolved_args are compared",
+      "spec": ["JE-V3/a", "FX-V2/a"], "provenance": "policy",
+      "got": {"status": "success", "result": "ok", "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "result": "ok"}}},
+      "want": {"status": "success", "result": "ok", "steps": {"m:b": {"status": "success", "args": {"x": "$var:u/test/v"}, "resolved_args": {"x": "s"}, "result": "ok"}}},
+      "differences": ["/steps/m:b/resolved_args/x: \"$var:u/test/v\" != \"s\""]
+    },
+    {
+      "name": "a carried value with the same keys in another order is equal under loose key order",
+      "spec": ["OR-13", "FX-V2"], "provenance": "policy",
+      "got": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success", "result": {"a": 2, "b": 1}, "carried": {"b": 1, "a": 2}}}},
+      "want": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success", "result": {"a": 2, "b": 1}}}},
+      "differences": []
+    },
+    {
+      "name": "the same carried value differs under strict key order",
+      "spec": ["OR-13", "FX-V2"], "provenance": "policy",
+      "options": {"strict_key_order": true},
+      "got": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success", "result": {"a": 2, "b": 1}, "carried": {"b": 1, "a": 2}}}},
+      "want": {"status": "success", "result": 1, "steps": {"m:a": {"status": "success", "result": {"a": 2, "b": 1}}}},
+      "differences": ["/steps/m:a/carried: {\"b\":1,\"a\":2} != {\"a\":2,\"b\":1}"]
+    },
+    {
+      "name": "OR-V3/d: a failure handler's own result keeps its user data",
+      "spec": ["OR-V3/d"], "provenance": "disputed",
+      "got": {"status": "failure", "result": {"error": {"stack": "user-B"}, "handled": true}},
+      "want": {"status": "failure", "result": {"error": {"stack": "user-A"}, "handled": true}},
+      "differences": ["/result/error/stack: \"user-B\" != \"user-A\""]
+    }
+  ]
+}

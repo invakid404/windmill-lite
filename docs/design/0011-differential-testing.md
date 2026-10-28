@@ -110,6 +110,30 @@ OR-14's drafted `<<job:` rule is not injective on its own, because a user's
 (milestone E2) chooses that escape. Cases OR-V8/a–c become negative tests of
 the encoder.
 
+**The escape (chosen by E2).** The normaliser writes four kinds of marker
+into strings: `<job:PATH>` and the fixed markers `<stack>`, `<loc>` and
+`<masked>`. In user text, every maximal run of `<` that is followed by a
+marker, or by text beginning `job:`, `stack>`, `loc>` or `masked>`, is
+written twice as long; every other `<` is kept, so text without such a run
+is unchanged. A reader counts the run of `<` before a marker head: odd ends
+in a marker, even is literal. So a user `<job:m:a>` becomes `<<job:m:a>`, a
+user `<` before module `a`'s job id becomes `<<<job:m:a>`, and the two no
+longer collide. Decoding is a left inverse of encoding, which makes a
+normalised string injective in the raw text and the walked ids.
+
+**Container sites (chosen by E2).** A module is a site `m:<id>` whatever
+its type. A loop or `branchall` module's record holds its status and, as
+its result, its children's results in index order; a `branchone`
+module's record holds the chosen body's status and result and
+`branch_chosen`. Container modules record no arguments, because the jobs
+behind them carry Windmill's own (`{"iter":…}`, the parent's flow args).
+Iteration and branch bodies (`i:<n>`, `b:<n>`, `b:default`) are path
+segments without records of their own; the modules inside them are sites.
+A collapsed iteration is recorded at `i:<n>/m:<body>`, as a
+non-collapsed one is. The harness walker of `internal/oracle` produces
+these records from the oracle, and windmill-lite's runner must produce the
+same records from its trace.
+
 ### Fixtures and verbs
 
 Flow fixtures use the format of [OR-15](../semantics/oracle.md#or-15)
@@ -198,8 +222,11 @@ merged.
    is decided, the metadata-only Apache packages, in windmill-lite's own
    manifests (cases LIC-1/a, LIC-1/b).
 2. **Oracle workflow** (nightly, on a `oracle` label, and on changes under
-   `conformance/`): `wltest record` on `ubuntu-latest` amd64, failing when a
-   recording differs from the committed one. A changed recording is
+   `conformance/` or to the harness itself, `internal/oracle/`,
+   `internal/conformance/`, `cmd/wltest/` and the workflow): `wltest record`
+   on `ubuntu-latest` amd64, failing when a recording differs from the
+   committed one, when a run has no recording, or when the sync trees'
+   generated metadata drifts ([OR-8](../semantics/oracle.md#or-8)). A changed recording is
    committed by a pull request that also updates the case's provenance and,
    where it settles a contested finding, the one engine function that
    implements it ([0001](0001-equivalence-contract.md) §6).
@@ -238,6 +265,9 @@ merged.
   text as the job id of a module named `a>b`. Windmill puts no restriction
   on module ids ([OF-2](../semantics/openflow.md#of-2)). K1 also recorded
   that the escape for placeholder-like user text is still E2's to choose.
+- Milestone E2 chose that escape and the container sites above. It also
+  runs the oracle workflow when the harness changes, not only the fixtures,
+  because a harness change can change every recording.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
 - Disputed findings get settled by recordings, early, through a reviewed

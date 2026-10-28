@@ -1,11 +1,12 @@
 # internal/conformance
 
 **Current state:** the shared identity and observation vocabulary of
-milestone K1 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)).
-This README covers `internal/conformance` and its `testdata/`. The site-path
-encoder, the run and step statuses, and the observation types exist and are
-tested. Fixture loading, the oracle walker and the comparator do not exist
-yet (milestones E1 and E2).
+milestone K1, and the fixture format, normaliser and comparator of
+milestone E2 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)).
+This README covers `internal/conformance` and its `testdata/`. The oracle
+harness ([internal/oracle](../oracle/README.md)) uses all of it; the flow
+runner that checks windmill-lite against a fixture (`wltest check`) is
+milestone E1 and does not exist yet.
 
 ## What it holds
 
@@ -14,10 +15,15 @@ yet (milestones E1 and E2).
 | `sitepath.go` | `SitePath`, `Segment` and the encoder of [ADR 0011](../../docs/design/0011-differential-testing.md), which answers [Q-OR-17](../../docs/semantics/oracle.md#q-or-17) |
 | `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`), `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) and `ModuleStatus` ([FX-1](../../docs/semantics/execution.md#fx-1)) |
 | `observation.go` | `Observation`, `StepObservation` and `BranchChosen`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments (see below) |
+| `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
+| `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
+| `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
+| `normalise.go` | `Normaliser` and `MaskPaths`: the value rules of [OR-14](../../docs/semantics/oracle.md#or-14) |
+| `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
 
 The engine, the harness, the oracle and `wltest` share this vocabulary, so
 the package imports no other windmill-lite package. Code that runs
-windmill-lite to produce an observation lives with its caller.
+windmill-lite or the oracle to produce an observation lives with its caller.
 
 ## Observations
 
@@ -126,3 +132,95 @@ Run them longer with, for example:
 ```sh
 go test ./internal/conformance -run '^$' -fuzz FuzzSitePathInjective -fuzztime 30s
 ```
+
+## Fixtures
+
+A flow fixture is a directory (OR-15, [ADR 0003](../../docs/design/0003-semantics-placement.md)):
+
+| Entry | Content |
+|---|---|
+| `fixture.yaml` | `id`; `spec` (findings and catalogue cases); `scope` (`core`, `later`, `out`, `EE`); `provenance` (the catalogue's tags); `languages`; `oracle: {workers, effects, concurrency}`; `compare: {mode, key_order, stack, mask, unordered}`; `note` |
+| `windmill/` | the sync tree the oracle's CLI pushes, with the metadata and locks `generate-metadata` writes |
+| `setup.yaml` | optional `resource_types`, `variables` and `resources`, created after the push |
+| `runs/<name>.yaml` | `target`, `kind` (`flow` or `script`), `args` (an object), `cancel_after_ms`, `spec`, `expect` (an observation), `note` |
+| `recorded/<name>.json` | `{"observation": …, "provenance": …}`, written by `wltest record` |
+
+Every file decodes strictly: unknown keys, YAML aliases and merge keys,
+repeated keys, and numbers that are not JSON numbers (`0x1F`, `1_000`,
+`.inf`) are refused, so a value is always the JSON its author wrote.
+`compare` paths are RFC 6901 JSON Pointers into the observation, for example
+`/steps/m:a0/args/fi_keys`; a `/` inside a site path is `~1`. `stack` masks a
+string as `<stack>` (OR-V3 clause c) and `mask` replaces any value with
+`<masked>` (environment-derived values, OR-29).
+
+## Normalised text
+
+A normalised string ([OR-14](../../docs/semantics/oracle.md#or-14) items 1
+and 2) is user text with walked job ids replaced by placeholders
+`<job:PATH>`, plus three markers: `<stack>`, `<loc>` and `<masked>`. User
+text that already looks like one of them would make two different values
+normalise alike, and the drafted `<<job:` escape does not prevent it: a
+user `<` before a walked id gives the same text. ADR 0011 left the escape to
+milestone E2, which chose this one:
+
+- every maximal run of `<` in user text that is followed by a placeholder, a
+  marker, or text beginning `job:`, `stack>`, `loc>` or `masked>` is written
+  twice as long;
+- every other `<` is written once, so text without such a run is unchanged.
+
+A reader counts the run of `<` before such a head: an odd count ends in a
+placeholder or marker, an even count is literal. `ParseText` is that reader;
+`EncodeText(ParseText(s)) == s` for every text it accepts. Examples, with
+module `a`'s job id written `ID`:
+
+| Raw text | Normalised |
+|---|---|
+| `ID` | `<job:m:a>` |
+| `<job:m:a>` | `<<job:m:a>` |
+| `<ID` | `<<<job:m:a>` |
+| `<stack>` | `<<stack>` |
+| `a < b` | `a < b` |
+
+`testdata/text/cases.json` holds the encodings and the pairs that must stay
+distinct; `FuzzTextRoundTrip`, `FuzzTextInjective` and `FuzzParseText` back
+them.
+
+## The normaliser
+
+`Normaliser.Value` rewrites one raw JSON value, keeping member order,
+number text and duplicate elements:
+
+1. **Stacks** ([OR-V3](../../docs/semantics/oracle.md#or-v3)). Given the
+   run's runtime errors (the stored results of failed leaf jobs that ran a
+   script), a value deep-equal to one of them has its `error.stack` masked,
+   and a value deep-equal to one's inner error has its `stack` masked.
+   Nothing else is: a handler's own `{"error":{"stack":…}}` keeps its data.
+2. **Job ids**, in every string and member name, become placeholders, and
+   user text is escaped as above. Unknown UUIDs stay.
+3. **The NUL `InternalErr`** ([OR-27](../../docs/semantics/oracle.md#or-27)):
+   for `name: "InternalErr"` with a message that starts
+   `Internal: Could not add completed job ` and ends in
+   ` @<file>:<line>:<col>`, the suffix becomes ` <loc>`. No other message
+   loses its suffix.
+
+`MaskPaths` then applies a fixture's `stack` and `mask` pointers.
+`testdata/normalise/cases.json` holds the cases.
+
+## Comparison
+
+`Compare(got, want, options)` returns the differences as
+`<pointer>: <got> != <want>` (case OR-15/b):
+
+- **exact** by default; `Subset` accepts extra members and steps;
+- objects without regard to member order ([OR-13](../../docs/semantics/oracle.md#or-13));
+  `StrictKeyOrder` compares member order inside values, never in the
+  observation's own fields;
+- arrays in order, except at `Unordered` pointers, which compare as
+  multisets ([OR-23](../../docs/semantics/oracle.md#or-23));
+- numbers by their JSON text;
+- a step field one side leaves to its canonical absence and the other spells
+  out is expanded first, so the two spellings compare equal;
+- `WithRecording` leaves `carried` and `resolved_args` out, because a
+  recording holds neither (ADR 0011).
+
+`testdata/compare/cases.json` holds the cases.

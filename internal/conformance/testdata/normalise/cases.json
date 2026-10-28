@@ -1,0 +1,112 @@
+{
+  "about": "The normaliser (OR-14, OR-V3, OR-27). Each case gives raw JSON from a run, the run's runtime errors (OR-V3 clause a: stored results of failed leaf jobs that executed a script) and the normalised JSON. In strings, ${name} stands for the id of the walked job named in ids. Masking is narrow: only walked ids are replaced, a stack is masked only with runtime-error provenance, and only the NUL InternalErr loses its location.",
+  "ids": {
+    "a": {"id": "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "path": "m:a"},
+    "b": {"id": "55555555-eeee-4eee-8eee-eeeeeeeeeeee", "path": "m:b"},
+    "root": {"id": "33333333-cccc-4ccc-8ccc-cccccccccccc", "path": ""}
+  },
+  "cases": [
+    {
+      "name": "OR-14/b: a returned job id is rewritten to its placeholder",
+      "spec": ["OR-14/b"], "provenance": "disputed",
+      "raw": "${a}",
+      "want": "<job:m:a>"
+    },
+    {
+      "name": "OR-V3/c: the placeholder does not depend on the raw id",
+      "spec": ["OR-V3/c"], "provenance": "disputed",
+      "raw": {"me": "${a}", "root": "${root}", "msg": "parent ${root} of ${b}"},
+      "want": {"me": "<job:m:a>", "root": "<job:>", "msg": "parent <job:> of <job:m:b>"}
+    },
+    {
+      "name": "OR-V3/a: an unknown UUID is preserved",
+      "spec": ["OR-V3/a"], "provenance": "disputed",
+      "raw": {"id": "22222222-2222-4222-8222-222222222222"},
+      "want": {"id": "22222222-2222-4222-8222-222222222222"}
+    },
+    {
+      "name": "a walked id in a member name is rewritten too",
+      "spec": ["OR-14"], "provenance": "policy",
+      "raw": {"${a}": 1},
+      "want": {"<job:m:a>": 1}
+    },
+    {
+      "name": "OR-V3/b: user data that looks like an error is preserved",
+      "spec": ["OR-V3/b"], "provenance": "disputed",
+      "raw": {"error": {"stack": "user-data"}, "tag": "keep"},
+      "want": {"error": {"stack": "user-data"}, "tag": "keep"}
+    },
+    {
+      "name": "OR-12/a: a failed script leaf's stored error has its stack masked (clause a)",
+      "spec": ["OR-12/a", "OR-V3"], "provenance": "oracle-observed",
+      "runtime_errors": [{"error": {"name": "Error", "message": "too big: 120", "stack": "Error: too big: 120\n    at main (/tmp/windmill/cache/bun/0f0f:5:16)\n    at run (/tmp/windmill/wk-default-x-abcde/${b}/wrapper.mjs:30:21)", "step_id": "b"}}],
+      "raw": {"error": {"name": "Error", "message": "too big: 120", "stack": "Error: too big: 120\n    at main (/tmp/windmill/cache/bun/0f0f:5:16)\n    at run (/tmp/windmill/wk-default-x-abcde/${b}/wrapper.mjs:30:21)", "step_id": "b"}},
+      "want": {"error": {"name": "Error", "message": "too big: 120", "stack": "<stack>", "step_id": "b"}}
+    },
+    {
+      "name": "clause b: a value deep-equal to a runtime error, in another member order, is masked",
+      "spec": ["OR-V3", "OR-12/a"], "provenance": "policy",
+      "runtime_errors": [{"error": {"name": "Error", "message": "m", "stack": "S", "step_id": "b"}}],
+      "raw": {"error": {"step_id": "b", "stack": "S", "message": "m", "name": "Error"}},
+      "want": {"error": {"step_id": "b", "stack": "<stack>", "message": "m", "name": "Error"}}
+    },
+    {
+      "name": "clause b: a failure handler's input carries the propagated error",
+      "spec": ["OR-V3", "OR-12/b"], "provenance": "policy",
+      "runtime_errors": [{"error": {"name": "Error", "message": "boom", "stack": "S", "step_id": "a"}}],
+      "raw": {"error": {"name": "Error", "message": "boom", "stack": "S", "step_id": "a"}},
+      "want": {"error": {"name": "Error", "message": "boom", "stack": "<stack>", "step_id": "a"}}
+    },
+    {
+      "name": "clause b: a handler that returns the error it received",
+      "spec": ["OR-V3"], "provenance": "policy",
+      "runtime_errors": [{"error": {"name": "Error", "message": "boom", "stack": "S", "step_id": "a"}}],
+      "raw": {"saw": {"name": "Error", "message": "boom", "stack": "S", "step_id": "a"}},
+      "want": {"saw": {"name": "Error", "message": "boom", "stack": "<stack>", "step_id": "a"}}
+    },
+    {
+      "name": "OR-V3/d: a handler's own result keeps its user data next to a runtime error",
+      "spec": ["OR-V3/d"], "provenance": "disputed",
+      "runtime_errors": [{"error": {"name": "Error", "message": "boom", "stack": "S", "step_id": "a"}}],
+      "raw": {"error": {"stack": "user-A"}, "handled": true},
+      "want": {"error": {"stack": "user-A"}, "handled": true}
+    },
+    {
+      "name": "a value with one more member than the runtime error is not masked",
+      "spec": ["OR-V3"], "provenance": "policy",
+      "runtime_errors": [{"error": {"name": "Error", "message": "boom", "stack": "S"}}],
+      "raw": {"error": {"name": "Error", "message": "boom", "stack": "S", "extra": {"code": 1}}},
+      "want": {"error": {"name": "Error", "message": "boom", "stack": "S", "extra": {"code": 1}}}
+    },
+    {
+      "name": "OR-27/a: the NUL InternalErr loses its job id and its location",
+      "spec": ["OR-27/a"], "provenance": "oracle-observed",
+      "raw": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job ${a}: error returned from database: unsupported Unicode escape sequence @jobs.rs:1133:22"}},
+      "want": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+    },
+    {
+      "name": "OR-27: another InternalErr keeps its location",
+      "spec": ["OR-27"], "provenance": "policy",
+      "raw": {"error": {"name": "InternalErr", "message": "Internal: some other failure @jobs.rs:1:2"}},
+      "want": {"error": {"name": "InternalErr", "message": "Internal: some other failure @jobs.rs:1:2"}}
+    },
+    {
+      "name": "a user error with a Rust-looking suffix keeps it",
+      "spec": ["OR-27", "OR-14"], "provenance": "policy",
+      "raw": {"error": {"name": "Error", "message": "Internal: Could not add completed job x: boom @a.rs:1:2"}},
+      "want": {"error": {"name": "Error", "message": "Internal: Could not add completed job x: boom @a.rs:1:2"}}
+    },
+    {
+      "name": "user text that looks like a placeholder or marker is escaped",
+      "spec": ["OR-14", "Q-OR-17"], "provenance": "policy",
+      "raw": ["<job:m:a>", "<${a}", "<stack>", "a<b"],
+      "want": ["<<job:m:a>", "<<<job:m:a>", "<<stack>", "a<b"]
+    },
+    {
+      "name": "member order, number text and duplicate elements are kept",
+      "spec": ["OR-13", "OR-14", "OR-23/b"], "provenance": "policy",
+      "raw": {"zz": 1.50, "a": [3, 3, 1e2], "mmm": null},
+      "want": {"zz": 1.50, "a": [3, 3, 1e2], "mmm": null}
+    }
+  ]
+}
