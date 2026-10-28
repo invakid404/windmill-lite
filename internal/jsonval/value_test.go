@@ -67,13 +67,28 @@ func TestStored(t *testing.T) {
 	if _, err := FromProducer([]byte(`{"a":"\u0000"}`)).Stored(); !errors.Is(err, ErrNUL) {
 		t.Errorf("Stored() of a NUL value = %v, want ErrNUL", err)
 	}
-	// Until A1 lands, every other value reports that it has no canonical
-	// form yet, rather than a wrong one.
-	if _, err := FromProducer([]byte(`{"b":1,"a":2}`)).Stored(); !errors.Is(err, ErrNotCanonicalised) {
-		t.Errorf("Stored() = %v, want ErrNotCanonicalised", err)
+	// spec: JE-44, FX-42 — jsonb order, the last duplicate, numbers expanded.
+	v := FromProducer([]byte(`{"b":1,"a":2,"b":1e3}`))
+	stored, err := v.Stored()
+	if err != nil || string(stored) != `{"a":2,"b":1000}` {
+		t.Errorf("Stored() = %s, %v", stored, err)
+	}
+	if got := string(v.Producer()); got != `{"b":1,"a":2,"b":1e3}` {
+		t.Errorf("Stored() changed the producer text: %s", got)
 	}
 	if _, err := (Value{}).Stored(); err == nil {
 		t.Error("Stored() of the zero Value succeeded")
+	}
+}
+
+func TestStoredSharesCanonicalProducerBytes(t *testing.T) {
+	text := []byte(`{"a":[1,"x"],"bb":null}`)
+	stored, err := FromProducer(text).Stored()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if &stored[0] != &text[0] {
+		t.Error("Stored() copied text that was already in stored form")
 	}
 }
 

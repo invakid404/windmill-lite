@@ -12,9 +12,10 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Four milestones have landed: the OpenFlow decoder in
-[internal/openflow](internal/openflow/README.md) (A3), the YAML dialect of
-the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2) and the
+Five milestones have landed: the OpenFlow decoder in
+[internal/openflow](internal/openflow/README.md) (A3), the YAML dialect of the
+`wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2), the jsonb
+canonicaliser in [internal/jsonval](internal/jsonval/README.md) (A1) and the
 sync-folder loader in [internal/syncfolder](internal/syncfolder/README.md)
 (A4), which no command uses yet, and K1, the shared types and interfaces
 under `internal/` that later milestones implement and code against, which
@@ -42,11 +43,11 @@ go test -race ./...
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-15). |
-| [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, stored text and the NUL flag. The canonicaliser is not implemented yet. |
+| [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. No implementation yet. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace. No interpreter yet. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary: the site-path encoder with its negative tests, run and step statuses, and the observation types. |
-| [conformance](conformance/README.md) | The shared conformance cases. Today the OpenFlow decode cases and the sync-folder load cases exist. |
+| [conformance](conformance/README.md) | The shared conformance cases. Today the OpenFlow decode cases, the stored-form (jsonb) cases and the sync-folder load cases exist. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
@@ -64,6 +65,7 @@ and observed behaviour.
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
 `go vet ./...` and `go test -race ./...`, and runs the unit tests of the
 helpers in `scripts/`, on Ubuntu and macOS for pull requests and pushes to
-`main`. The [Memoria gate](.github/workflows/memoria.yml) fails while any
+`main`. Its `jsonb (PostgreSQL)` job compares the canonicaliser with
+PostgreSQL in the oracle's pinned image. The [Memoria gate](.github/workflows/memoria.yml) fails while any
 README has an unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
