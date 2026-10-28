@@ -1,0 +1,245 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      "<job:m:l/i:0/m:b>",
+      "<job:m:l/i:0/m:b>"
+    ],
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          "<job:m:l/i:0/m:b>",
+          "<job:m:l/i:0/m:b>"
+        ]
+      },
+      "m:l/i:0/m:b": {
+        "status": "success",
+        "args": {
+          "v": "<job:>"
+        },
+        "result": "<job:m:l/i:0/m:b>"
+      },
+      "m:l/i:1/m:b": {
+        "status": "success",
+        "args": {
+          "v": "<job:>"
+        },
+        "result": "<job:m:l/i:0/m:b>"
+      },
+      "m:n": {
+        "status": "success",
+        "args": {},
+        "result": "<job:>"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261028125853-14b36aa88aec",
+      "revision": "14b36aa88aec74ba9f1ae702f9f9d8a4810e5aeb",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40692334073"
+    },
+    "recorded_at": "2026-10-28T13:12:08Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:37389"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 415,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-28T13:12:07.655406Z",
+          "started_at": "2026-10-28T13:12:07.710673Z",
+          "completed_at": "2026-10-28T13:12:07.900827Z",
+          "duration_ms": 190
+        },
+        "m:l/i:0/m:b": {
+          "kind": "script",
+          "created_at": "2026-10-28T13:12:07.759849Z",
+          "started_at": "2026-10-28T13:12:07.806282Z",
+          "completed_at": "2026-10-28T13:12:07.837216Z",
+          "duration_ms": 25
+        },
+        "m:l/i:1/m:b": {
+          "kind": "script",
+          "created_at": "2026-10-28T13:12:07.842519Z",
+          "started_at": "2026-10-28T13:12:07.888587Z",
+          "completed_at": "2026-10-28T13:12:07.893485Z",
+          "duration_ms": 5
+        },
+        "m:n": {
+          "kind": "flowscript",
+          "created_at": "2026-10-28T13:12:07.714637Z",
+          "started_at": "2026-10-28T13:12:07.718698Z",
+          "completed_at": "2026-10-28T13:12:07.750908Z",
+          "duration_ms": 26
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "n",
+            "value": {
+              "content": "export async function main() {\n  return process.env.WM_ROOT_JOB_ID;\n}\n",
+              "input_transforms": {},
+              "language": "bun",
+              "type": "rawscript"
+            }
+          },
+          {
+            "cache_ttl": 60,
+            "id": "l",
+            "value": {
+              "iterator": {
+                "type": "static",
+                "value": [
+                  1,
+                  2
+                ]
+              },
+              "modules": [
+                {
+                  "id": "b",
+                  "value": {
+                    "hash": "e23e343864984f73",
+                    "input_transforms": {
+                      "v": {
+                        "expr": "results.n",
+                        "type": "javascript"
+                      }
+                    },
+                    "path": "f/fx40h/job_id",
+                    "type": "script"
+                  }
+                }
+              ],
+              "parallel": false,
+              "skip_failures": false,
+              "type": "forloopflow"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "n",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export async function main() {\n  return process.env.WM_ROOT_JOB_ID;\n}\n",
+              "language": "bun",
+              "input_transforms": {}
+            }
+          },
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "b",
+                  "value": {
+                    "hash": "e23e343864984f73",
+                    "path": "f/fx40h/job_id",
+                    "type": "script",
+                    "input_transforms": {
+                      "v": {
+                        "expr": "results.n",
+                        "type": "javascript"
+                      }
+                    }
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "static",
+                "value": [
+                  1,
+                  2
+                ]
+              },
+              "parallel": false,
+              "skip_failures": false
+            },
+            "cache_ttl": 60
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "n",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline n.ts",
+              "input_transforms": {},
+              "lock": "!inline n.lock",
+              "language": "bun"
+            }
+          },
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "b",
+                  "value": {
+                    "type": "script",
+                    "input_transforms": {
+                      "v": {
+                        "type": "javascript",
+                        "expr": "results.n"
+                      }
+                    },
+                    "hash": "0000000000000000",
+                    "path": "f/fx40h/job_id"
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "static",
+                "value": [
+                  1,
+                  2
+                ]
+              },
+              "parallel": false,
+              "skip_failures": false
+            },
+            "cache_ttl": 60
+          }
+        ]
+      }
+    }
+  }
+}

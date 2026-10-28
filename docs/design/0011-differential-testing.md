@@ -39,7 +39,11 @@ The `oracle` package implements the reference's design as written:
    `admins`;
    the sync tree pushed with `windmill-cli@1.767.0` from npm on the runner,
    never the CLI inside the image; setup applied after the push; the
-   deployment gate polls each lock job to success.
+   deployment gate polls each lock job to success. A fixture whose tree
+   must reach the server as written (`oracle.deploy: api`: a container
+   field left out, or a script pinned by the hash the deployment assigns
+   it) is created through the REST API instead, never regenerated or pushed
+   by the CLI, and passes the same gate.
 3. **Run and capture** ([OR-10](../semantics/oracle.md#or-10),
    [OR-V1](../semantics/oracle.md#or-v1), [OR-V2](../semantics/oracle.md#or-v2)):
    asynchronous submission and `get_result_maybe` polling, never
@@ -297,6 +301,15 @@ merged.
   failed, under a context of its own.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
+- Milestone E3d added the API deployment of item 2. The CLI path cannot
+  push a container field absent, because `generate-metadata` writes the
+  defaults and the drift gate requires its output, and a tree cannot hold a
+  script hash before the server assigns it. An API-deployed tree is read
+  narrowly (Bun scripts, flows, their `!inline` files, the hash
+  `0000000000000000` meaning "pin to the deployed version"), and each
+  recording's provenance holds the target flow's submitted value, the value
+  the API answers after the gate, and what `generate-metadata` writes for
+  the same source, run on a copy.
 - Disputed findings get settled by recordings, early, through a reviewed
   pull request that changes one function.
 

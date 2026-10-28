@@ -1,0 +1,38 @@
+# CF-15/a: parallel by default; a skippable failed branch keeps its error
+# entry. The branchall is pushed without parallel, and branches 0 and 2
+# without skip_failure; the provenance shows what the API made of them.
+spec: [CF-15/a]
+target: f/cf15/parallel_skip
+expect:
+  status: success
+  result:
+    - [1, 2]
+    - error:
+        name: Error
+        stack: "<stack>"
+        message: b
+        step_id: b1
+    - [1, 3]
+  steps:
+    "m:a": {status: success, args: {}, result: [1]}
+    "m:ba":
+      status: success
+      result:
+        - [1, 2]
+        - error:
+            name: Error
+            stack: "<stack>"
+            message: b
+            step_id: b1
+        - [1, 3]
+    "m:ba/b:0/m:b0": {status: success, args: {x: [1]}, result: [1, 2]}
+    "m:ba/b:1/m:b1":
+      status: failure
+      args: {}
+      result:
+        error:
+          name: Error
+          stack: "<stack>"
+          message: b
+          step_id: b1
+    "m:ba/b:2/m:b2": {status: success, args: {x: [1]}, result: [1, 3]}

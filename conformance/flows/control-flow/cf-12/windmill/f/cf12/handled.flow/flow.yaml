@@ -1,0 +1,48 @@
+summary: 'CF-12/b: an error stop consumed by the copied handler'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline b.lock'
+              language: bun
+            stop_after_if:
+              error_message: halt
+              expr: 'true'
+              skip_if_stopped: false
+          - id: c
+            value:
+              type: rawscript
+              content: '!inline c.ts'
+              input_transforms: {}
+              lock: '!inline c.lock'
+              language: bun
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: true
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms: {}
+      lock: '!inline failure.lock'
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

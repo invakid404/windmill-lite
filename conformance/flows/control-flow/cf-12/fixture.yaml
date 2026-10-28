@@ -1,0 +1,22 @@
+# Recording batch E3d (ADR 0012): CF-12, early stops raised inside a container body.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-12. Every run is by path after the
+# deployment gate saw the flow's dependency job succeed (the reference
+# configuration of ADR 0001 section 1); the job kinds of the root and of every
+# child flow are in each recording's provenance (timings.jobs).
+id: control-flow/cf-12
+spec:
+  - CF-12
+  - CF-12/a
+  - CF-12/b
+  - CF-12/c
+  - CF-12/d
+  - CF-12/e
+  - CF-12/f
+  - CF-15/e
+  - Q-CF-14
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
+note: "CF-12 is DISPUTED (Q-CF-14): CF-12/c with skip_failures false and CF-12/f discriminate; the other cases are agreed. Recorded: reading (b), the correction and the default of ADR 0001 section 6. A body step stopped with an error keeps its job result and carries the EarlyStopError (FX-V2), which the iteration returns."

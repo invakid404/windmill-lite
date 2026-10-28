@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/yamlx"
 )
 
 // Session records fixtures on one oracle (OR-18): one compose stack per
@@ -412,13 +413,17 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 			failAll(err)
 			continue
 		}
-		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
+		tree, dep, flows, err := s.deploy(ctx, c, cli, f, ws, tmp)
 		rep.Session.Deployments[name] = dep
 		if err != nil {
 			failAll(err)
 		} else {
 			for _, r := range runs {
-				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
+				rb := base
+				if fd, ok := flows[r.Target]; ok && !r.IsScript() {
+					rb.Deployment = &fd
+				}
+				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, rb))
 			}
 		}
 		// CE refuses a third workspace besides admins, so the next
@@ -456,8 +461,17 @@ func (s *Session) rel(p string) string {
 
 // deploy optionally regenerates the fixture's metadata, pushes a copy of
 // its sync tree with the CLI into its new workspace ws, applies its setup
-// and passes the deployment gate.
-func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
+// and passes the deployment gate. A fixture with oracle.deploy api is
+// deployed by deployAPI instead.
+func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, map[string]FlowDeployment, error) {
+	if f.Oracle.DeploysThroughAPI() {
+		return s.deployAPI(ctx, c, cli, f, ws, tmp)
+	}
+	tree, dep, err := s.deployCLI(ctx, c, cli, f, ws, tmp)
+	return tree, dep, nil, err
+}
+
+func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
 	if s.RegenerateMetadata || f.Generated {
@@ -486,6 +500,73 @@ func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance
 		return nil, dep, err
 	}
 	return tree, dep, CheckDeployedModules(tree, dep)
+}
+
+// deployAPI deploys a fixture whose tree must reach the server as written
+// (oracle.deploy api): its metadata is never regenerated and the CLI never
+// pushes it, so the drift gate does not apply to it. DeployAPI creates the
+// tree's items, setup is applied, and the same deployment gate waits for
+// every lock and dependency job (OR-9). For each flow, the evidence records
+// the value submitted, the value the API answers after the gate, and what
+// the CLI's generate-metadata writes for the same source, run on a copy
+// against the same workspace (OR-8), so the committed tree is untouched.
+func (s *Session) deployAPI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, map[string]FlowDeployment, error) {
+	var dep Deployment
+	tree, err := LoadSyncTree(f.SyncTree())
+	if err != nil {
+		return nil, dep, nil, err
+	}
+	api, err := DeployAPI(ctx, c, ws, f.SyncTree())
+	if err != nil {
+		return nil, dep, nil, err
+	}
+	if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+		return nil, dep, nil, err
+	}
+	if dep, err = Gate(ctx, c, ws, s.pollInterval, 2*time.Minute); err != nil {
+		return nil, dep, nil, err
+	}
+	if err := CheckDeployedModules(tree, dep); err != nil {
+		return nil, dep, nil, err
+	}
+	flows := make(map[string]FlowDeployment, len(api.Flows))
+	for p, submitted := range api.Flows {
+		raw, err := c.GetFlow(ctx, ws, p)
+		if err != nil {
+			return nil, dep, nil, err
+		}
+		materialized, err := flowValue(raw)
+		if err != nil {
+			return nil, dep, nil, fmt.Errorf("oracle: flow %s: %w", p, err)
+		}
+		flows[p] = FlowDeployment{Method: conformance.DeployAPI, Submitted: submitted, Materialized: materialized}
+	}
+	copyDir := filepath.Join(tmp, "generate-metadata", ws)
+	if err := CopyTree(f.SyncTree(), copyDir); err != nil {
+		return nil, dep, nil, err
+	}
+	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
+	if err := cli.AddMissingFolders(ctx, copyDir, t); err != nil {
+		return nil, dep, nil, err
+	}
+	if err := cli.GenerateMetadata(ctx, copyDir, t); err != nil {
+		return nil, dep, nil, err
+	}
+	for p, fd := range flows {
+		data, err := os.ReadFile(filepath.Join(copyDir, filepath.FromSlash(p)+".flow", "flow.yaml"))
+		if err != nil {
+			return nil, dep, nil, err
+		}
+		j, err := yamlx.ToJSON(data)
+		if err != nil {
+			return nil, dep, nil, fmt.Errorf("oracle: generate-metadata's flow %s: %w", p, err)
+		}
+		if fd.CLIGenerated, err = flowValue(j); err != nil {
+			return nil, dep, nil, fmt.Errorf("oracle: generate-metadata's flow %s: %w", p, err)
+		}
+		flows[p] = fd
+	}
+	return tree, dep, flows, nil
 }
 
 // record runs one fixture run Repeat times, compares the observations with
@@ -712,6 +793,9 @@ type Provenance struct {
 	Repeats        int               `json:"repeats"`
 	Timings        RunTimings        `json:"timings"`
 	ForeignEffects int               `json:"foreign_effects,omitempty"`
+	// Deployment is the target flow's deployment evidence when the fixture
+	// is deployed through the API (oracle.deploy api).
+	Deployment *FlowDeployment `json:"deployment,omitempty"`
 }
 
 // CheckRecordingIdentity requires a recording's provenance to name the

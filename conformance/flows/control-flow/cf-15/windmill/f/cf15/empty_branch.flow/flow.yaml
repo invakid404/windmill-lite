@@ -1,0 +1,21 @@
+summary: "CF-15/f: an empty branch"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: true
+        branches:
+          - modules: []
+          - modules:
+              - id: b1
+                value:
+                  type: rawscript
+                  content: "!inline b1.ts"
+                  input_transforms: {}
+                  language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {k: {type: number}}
+  required: [k]

@@ -110,12 +110,13 @@ keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
 and FX-33 (Q-FX-19), both for the stated default. It also found one
 confirmed finding contradicted, the id of a failure module copied into an
 inline body (FX-34, FX-32). E3b recorded Q-FX-16 (FX-42) and the half of
-Q-FX-15 that needs no failure module, also for the stated defaults. E3a has
-recorded the CF-19 / CF-V6 dispute
+Q-FX-15 that needs no failure module, also for the stated defaults. Batch
+E3d recorded CF-12 and FX-40 as reading (b), the default each already had
+(request 6 below). E3a has recorded the CF-19 / CF-V6 dispute
 ([Q-CF-16](../semantics/control-flow.md#q-cf-16)): the direct lookup is
-line-anchored, the stated default. 0001 §6 gives the results; the reference
-still lists these findings as not settled until the semantics team records
-them.
+line-anchored, the stated default (request 7 below). 0001 §6 gives the
+results; the reference still lists these findings as not settled until the
+semantics team records them.
 
 ## Requests to the semantics team
 
@@ -145,7 +146,7 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    records in the manifest ([0003](0003-semantics-placement.md)).
    Recording batch E3a found the reference's bracket wrong on the oracle: a
    recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
-   fit than the reference implies; request 6 asks why.
+   fit than the reference implies; request 7 asks why.
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
@@ -189,7 +190,28 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      Chaining errors end in Rust location suffixes, and at a child flow's
      pickup the message starts `Error: Error: ` and carries two suffixes
      ([FX-15](../semantics/execution.md#fx-15)).
-6. **Fold in recording batch E3a.** E3a recorded the JE catalogue cases
+6. **Batch E3d's recordings**
+   ([conformance/flows/control-flow](../../conformance/flows/control-flow),
+   [conformance/flows/execution/fx-40](../../conformance/flows/execution/fx-40)):
+   the CF-2 to CF-15 and FX-40 cases they record can become
+   `oracle-observed`, and they answer
+   [Q-CF-14](../semantics/control-flow.md#q-cf-14) (reading (b)),
+   [Q-CF-4](../semantics/control-flow.md#q-cf-4) (both predictions hold),
+   [Q-FX-6](../semantics/execution.md#q-fx-6) (yes) and
+   [Q-FX-17](../semantics/execution.md#q-fx-17). Three observations go
+   beyond the reference's text. In FX-40/d, a deployed flow's inline
+   rawscript body without an explicit `path` also shares an entry between
+   collapsed iterations; it runs as `flowscript` jobs with one script hash,
+   though their paths end in `/loop-<index>`, and the correction expected
+   no sharing there (a body pinned by hash shares too, as both readings
+   expect). The pinned CLI's `generate-metadata` writes container defaults
+   into `flow.yaml`, as [CF-6](../semantics/control-flow.md#cf-6) says
+   `sync pull` does; CF-6/a's recording holds its output beside the value
+   the API answers after the dependency job. CF-7/d fails at pickup, with
+   name `Anyhow` and the message
+   `Error: Bad request: Cannot continue on same worker …` plus a location.
+   The design waits on none of this.
+7. **Fold in recording batch E3a.** E3a recorded the JE catalogue cases
    (`conformance/exprs`, `conformance/flows/je`) and CF-19 and CF-V6
    (`conformance/flows/cf/cf-19`; oracle runs 40687124625, 40688787344 and
    40691336592). The dispute Q-CF-16 is settled for CF-V6: a qualifying line
