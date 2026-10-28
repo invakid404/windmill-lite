@@ -8,6 +8,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
 // The program an evaluation runs on the engine (milestone B2b), around an
@@ -48,8 +50,10 @@ func programSource(e *Expr) string { return e.Source + serialise }
 // preludeContext parses the bound context values and defines the helpers.
 // Each helper awaits its host function and parses the JSON text it
 // answers; a host function's rejection is thrown again from the helper's
-// own frame, as the Error of JE-20 with the API's text. The intrinsics it
-// uses are taken before the user's code runs, which cannot replace them.
+// own frame, as the Error of JE-20 with the API's text. The intrinsics the
+// helpers call later (JSON.parse, Promise.prototype.then, Reflect.apply)
+// are taken before the user's code runs, so its replacements do not reach
+// them; Error, which the helpers construct, is looked up when they throw.
 var preludeContext = `{
   const parse = JSON.parse, hasOwn = Object.hasOwn, apply = Reflect.apply, then = Promise.prototype.then;
   for (const name of ` + mustJSON(hostStringNames) + `) if (hasOwn(globalThis, name)) globalThis[name] = parse(globalThis[name]);
@@ -139,7 +143,7 @@ type EvalError struct {
 	//     too deeply (JE-49).
 	Message string
 	// Err is the cause: the engine's *Exception, ErrOutOfMemory,
-	// ErrAttemptTimeout, ErrTooDeep or ErrNotString.
+	// ErrAttemptTimeout, ErrTooDeep, ErrNotString or ErrNotJSON.
 	Err error
 }
 
@@ -154,6 +158,12 @@ var ErrOutOfMemory = errors.New("expr: evaluation ran out of memory")
 // ErrTooDeep is the cause of an evaluation whose bound context value is
 // nested deeper than 127 levels (JE-49).
 var ErrTooDeep = errors.New("expr: context value nested too deeply")
+
+// ErrNotJSON is the cause of an evaluation whose program completed with a
+// string that is not one JSON value. The serialisation calls the context's
+// JSON.stringify and Promise.prototype.then as they are when it runs, as
+// Windmill's does, so the user's code can replace them.
+var ErrNotJSON = errors.New("expr: program did not complete with JSON text")
 
 // maxDepth is the deepest nesting of arrays and objects a bound context
 // value may have: serde_json's default recursion limit (JE-49).
@@ -183,8 +193,21 @@ func windmillError(e *Expr, l Limits, err error) error {
 		return &EvalError{Message: timeoutMessage(e, l), Err: ErrAttemptTimeout}
 	case errors.Is(err, ErrNotString):
 		return &EvalError{Message: "QuickJS evaluation error: the serialised value is not a string", Err: ErrNotString}
+	case errors.Is(err, ErrNotJSON):
+		return &EvalError{Message: "QuickJS evaluation error: the serialised value is not JSON", Err: ErrNotJSON}
 	}
 	return err
+}
+
+// isJSON reports whether out is one JSON value. json.Valid answers the
+// common case quickly; its nesting limit can refuse a deep value, which
+// jsonval's parser, with no such limit, then decides.
+func isJSON(out []byte) bool {
+	if json.Valid(out) {
+		return true
+	}
+	_, err := jsonval.FromProducer(out).Stored()
+	return !errors.Is(err, jsonval.ErrSyntax)
 }
 
 // memoryMessage is JE-3's text.
@@ -231,10 +254,7 @@ func checkDepth(in Input) error {
 			return nil
 		}
 		if reserialised {
-			var b bytes.Buffer
-			if json.Compact(&b, t) == nil {
-				t = b.Bytes()
-			}
+			t = compactText(t)
 		}
 		line, col := depthPosition(t)
 		return &EvalError{Message: fmt.Sprintf("recursion limit exceeded at line %d column %d", line, col), Err: ErrTooDeep}
@@ -250,16 +270,74 @@ func checkDepth(in Input) error {
 		}
 	}
 	if env != nil && tooDeep(env) {
-		var members map[string]json.RawMessage
-		if json.Unmarshal(env, &members) == nil {
-			for _, k := range slices.Sorted(maps.Keys(members)) {
-				if err := check(members[k], true); err != nil {
-					return err
-				}
+		members := topMembers(env)
+		for _, k := range slices.Sorted(maps.Keys(members)) {
+			if err := check(members[k], true); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+// compactText returns t without the white space outside its strings, its
+// escapes and numbers as written. It scans bytes, so no depth limits it.
+func compactText(t []byte) []byte {
+	out := make([]byte, 0, len(t))
+	for i := 0; i < len(t); i++ {
+		switch c := t[i]; c {
+		case ' ', '\t', '\n', '\r':
+		case '"':
+			start := i
+			for i++; i < len(t) && t[i] != '"'; i++ {
+				if t[i] == '\\' {
+					i++
+				}
+			}
+			out = append(out, t[start:min(i+1, len(t))]...)
+		default:
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// topMembers returns the members of the JSON object text obj by decoded
+// key, each value's text verbatim, the last of duplicate keys kept; it is
+// empty when obj is not an object. It scans bytes, so no depth limits it.
+func topMembers(obj []byte) map[string][]byte {
+	out := map[string][]byte{}
+	s := scanner{b: obj}
+	s.space()
+	if !s.peek('{') {
+		return out
+	}
+	for s.i++; ; {
+		s.space()
+		ks, ke, ok := s.string()
+		if !ok {
+			return out
+		}
+		s.space()
+		if !s.peek(':') {
+			return out
+		}
+		s.i++
+		s.space()
+		vs, ve, ok := s.value()
+		if !ok {
+			return out
+		}
+		var key string
+		if json.Unmarshal(obj[ks:ke], &key) == nil {
+			out[key] = obj[vs:ve]
+		}
+		s.space()
+		if !s.peek(',') {
+			return out
+		}
+		s.i++
+	}
 }
 
 // tooDeep reports whether the JSON text t nests arrays and objects deeper

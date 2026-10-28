@@ -156,7 +156,9 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 //   - a program that did not compile raises its SyntaxError (ADR 0003);
 //   - an error whose text contains "took too long" is tried again after a
 //     pause, up to three attempts in all (JE-2);
-//   - the engine's errors become Windmill's texts (JE-2, JE-3, JE-21).
+//   - the engine's errors become Windmill's texts (JE-2, JE-3, JE-21), and
+//     a completion that is not JSON text, which only the user's code can
+//     cause, fails with windmill-lite's own.
 func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, error) {
 	if err := checkDepth(in); err != nil {
 		return nil, err
@@ -171,7 +173,7 @@ func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, err
 	for _, src := range srcs {
 		prelude, err := p.program(src)
 		if err != nil {
-			return nil, fmt.Errorf("expr: a prelude does not compile: %w", err)
+			return nil, fmt.Errorf("expr: compiling a prelude: %w", err)
 		}
 		in.Preludes = append(in.Preludes, prelude)
 	}
@@ -181,6 +183,9 @@ func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, err
 	}
 	for attempt := 1; ; attempt++ {
 		out, err := p.engine.Eval(ctx, prog, in)
+		if err == nil && !isJSON(out) {
+			err = ErrNotJSON
+		}
 		if err == nil {
 			return out, nil
 		}

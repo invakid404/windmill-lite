@@ -310,6 +310,12 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    - [JE-10](../semantics/expressions.md#je-10): whether the lexical
      `results` and `error` are constants or can be assigned. Read as
      constants.
+   - [JE-16](../semantics/expressions.md#je-16): whether a `__proto__` key
+     of a context value becomes an own property (as `JSON.parse` makes it)
+     or the object's prototype. Read as an own property.
+   - [JE-15](../semantics/expressions.md#je-15): what Windmill does when
+     the user's code replaces `JSON.stringify` so that the value's text is
+     not JSON. windmill-lite fails the evaluation with its own text.
    - [JE-48](../semantics/expressions.md#je-48) and
      [JE-1](../semantics/expressions.md#je-1): the overflow depth and the
      transcendental `Math` digits depend on the engine's build, deviations

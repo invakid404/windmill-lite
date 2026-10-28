@@ -24,7 +24,7 @@ scopes.
 | `Expr`, `Shortcut`, `Mode` | a compiled expression as the IR carries it ([ADR 0002](../../docs/design/0002-ir-and-loader.md)): the text as written, the trimmed text, the shortcuts its text allows ([JE-6](../../docs/semantics/expressions.md#je-6) to [JE-9](../../docs/semantics/expressions.md#je-9)), the mode ([JE-13](../../docs/semantics/expressions.md#je-13)), the bound names ([JE-10](../../docs/semantics/expressions.md#je-10)) and the engine source; its JSON form (snake-case names, the site and mode by name, empty parts omitted) is the one the IR's `ir.json` holds | `Compile` (B2a), from the site and the text that [internal/ir](../ir/README.md) sets |
 | `Engine`, `Program`, `Input`, `Exception`, `Limits` | the JavaScript engine behind a Go interface ([ADR 0003](../../docs/design/0003-semantics-placement.md)): compile once, evaluate on a fresh runtime with host strings, host functions and preludes (global scripts that run first, B2b), one attempt's limits | B1a: [internal/expr/quickjs](quickjs/README.md) |
 | `Evaluator`, `Scope`, `Results`, `Helpers` | what the flow interpreter calls at an expression site: the scope of [JE-22](../../docs/semantics/expressions.md#je-22), the results lookups of [JE-18](../../docs/semantics/expressions.md#je-18) and [JE-19](../../docs/semantics/expressions.md#je-19), and the `variable`, `resource` and `flow_user_state` helpers of [JE-20](../../docs/semantics/expressions.md#je-20) | `Pipeline` (B2a, B2b); the engine provides `Scope` and `Results`, and the platform milestones `Helpers` |
-| `EvalError`, `ErrOutOfMemory`, `ErrTooDeep` | a failed evaluation with Windmill's text, and its cause | `Pipeline` (B2b) |
+| `EvalError`, `ErrOutOfMemory`, `ErrTooDeep`, `ErrNotJSON` | a failed evaluation with Windmill's text, and its cause | `Pipeline` (B2b) |
 
 ## The textual stages
 
@@ -83,11 +83,12 @@ details these stages decide where the reference is silent.
 
 ## Evaluation
 
-`NewPipeline(engine)` returns the evaluator. `Prepare` compiles expressions'
-sources on the engine when a bundle opens. A source that does not compile
-is kept, and `Eval` raises its `*Exception` each time the expression reaches
-the engine. A shortcut answers it without the engine all the same.
-Programs are kept by source text, one bundle's worth.
+`NewPipeline(engine)` returns the evaluator. `Prepare` compiles the
+preludes and expressions' programs on the engine when a bundle opens. A
+program that does not compile is kept, and `Eval` fails with its error
+(an `*EvalError` whose cause is the engine's `*Exception`) each time the
+expression reaches the engine. A shortcut answers it without the engine all
+the same. Programs are kept by source text, one bundle's worth.
 
 `Eval(ctx, e, scope)` returns the context's cause if it has ended, and
 `ErrNotCompiled` for an `Expr` that `Compile` did not fill. It then tries
@@ -197,6 +198,7 @@ each site then wraps
 | a `null` or `undefined` throw, or `InternalError: out of memory` | ``The expression evaluation exceeded the memory limit of <N> MB. …`` ([JE-3](../../docs/semantics/expressions.md#je-3)) | `ErrOutOfMemory` |
 | the attempt's time limit, three times | ``The expression evaluation `<trimmed text>` took too long to execute (>20000ms)`` ([JE-2](../../docs/semantics/expressions.md#je-2)) | `ErrAttemptTimeout` |
 | a completion value that is not a string (`JSON.stringify` replaced by the user's code) | `QuickJS evaluation error: the serialised value is not a string`, windmill-lite's own | `ErrNotString` |
+| a completion string that is not one JSON value (`JSON.stringify` or `Promise.prototype.then` replaced) | `QuickJS evaluation error: the serialised value is not JSON`, windmill-lite's own | `ErrNotJSON` |
 
 `<N>` and the time limit are the engine's `Limits`. An evaluation whose
 error text contains `took too long`, the time limit's or the user's own, is
@@ -213,16 +215,25 @@ Readings where the reference is silent, each pinned by a test:
 - **JE-17's "or else"** for an entry's tag and text: read as `??`, so an
   empty `step_id` or `message` is kept.
 - **JE-49's positions** for `flow_input` and `flow_env`, which Windmill
-  re-serialises: counted in the compact text, members of `flow_env` in key
-  order. Which value is reported first when several are too deep:
-  `flow_input`, the context values by name, then `flow_env`.
+  re-serialises: counted in the text without its white space, escapes and
+  numbers as written, members of `flow_env` in key order. Which value is
+  reported first when several are too deep: `flow_input`, the context
+  values by name, then `flow_env`. The check scans bytes, so no parser's
+  depth limit stops it.
 - **`results` and `error`** are `const` declarations.
+- **A `__proto__` key** in a context value is an own property, as
+  `JSON.parse` makes it, not the object's prototype.
+- **The serialisation** calls `JSON.stringify` and `Promise.prototype.then`
+  as they are when it runs, so the user's code can replace them, as on
+  Windmill, whose recorded stack shows `JSON.stringify` called from the
+  script. A completion that is then not one JSON value fails with
+  windmill-lite's own text, so the evaluator's output is always JSON.
 
 Two named deviations of
 [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 come from the
 engine's build, not from this program: D16, the last digit of a
-transcendental `Math` function on a C library other than glibc, and D17,
-the recursion depth that fits the 1 MiB stack.
+transcendental `Math` function on a C library other than the glibc of
+Windmill's image, and D17, the recursion depth that fits the 1 MiB stack.
 
 ## The engine boundary
 
@@ -321,18 +332,20 @@ end with no leaked heap block.
   in a message the oracle recorded, byte for byte, stack included, at its
   end or before a Rust location suffix. Two cases differ by a named
   deviation and say what windmill-lite gives: the transcendental `Math`
-  cases of JE-1 (review item cl R3-2), exact with glibc and within one
-  unit in the last place otherwise (D16; the static musl engines give all
-  30 values exactly, macOS's libm differs on 6), and JE-48/a (D17). JE-2/a is not
-  run: the oracle canceled its run before the evaluator's text surfaced;
-  `TestJE2OnEngine` runs the same expression with a short limit.
+  cases of JE-1 (review item cl R3-2), each value the oracle's or one unit
+  in the last place from it, every difference logged (D16: the static musl
+  engines give all 30 exactly, Ubuntu 24.04's glibc differs on one and
+  macOS's libm on six), and JE-48/a (D17). JE-2/a is not run: the oracle
+  canceled its run before the evaluator's text surfaced; `TestJE2OnEngine`
+  runs the same expression with a short limit.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
   runs with `WL_EXPR_BUDGET=gate` (asserts the bounds, on the benchmark
   machine) or `=report` (prints the table, as CI does on its runners and
   from the static musl engine); `WL_EXPR_BUDGET_SECONDS` sets each row's
   length.
 - `program_test.go` covers the program on the engine, case by case from
-  the findings: serialisation (JE-15), JE-21's error forms, the attempt
+  the findings: serialisation (JE-15) and a replaced serialiser, JE-21's
+  error forms, the attempt
   retries (JE-2), the memory limit's text (JE-3), `error` (JE-17), the
   `results` proxy (JE-12, JE-18), the helpers (JE-20), the bindings
   (JE-10, JE-16), the depth check (JE-49), the recursion depth (JE-48,

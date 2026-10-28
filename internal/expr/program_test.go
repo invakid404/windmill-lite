@@ -92,6 +92,32 @@ func TestErrorTexts(t *testing.T) {
 	}
 }
 
+// TestReplacedSerialisation: the serialisation calls the context's
+// JSON.stringify as it is when it runs, as Windmill's does, so the user's
+// code can replace it; a completion that is then not one JSON value, or
+// not a string, fails with windmill-lite's own text. A deep but valid
+// value passes.
+func TestReplacedSerialisation(t *testing.T) {
+	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
+	for text, want := range map[string]error{
+		`JSON.stringify = () => '1, "x": 2'; return 0`:                  ErrNotJSON,
+		`Promise.prototype.then = function () { return "{" }; return 1`: ErrNotJSON,
+		`JSON.stringify = () => 5; return 0`:                            ErrNotString,
+		`JSON.stringify = () => '"replaced"'; return 0`:                 nil,
+	} {
+		_, err := evalOn(t, p, SiteInputTransform, text, nil)
+		if want == nil && err != nil || want != nil && !errors.Is(err, want) {
+			t.Errorf("%q: %v, want %v", text, err, want)
+		}
+	}
+	// The check has no depth limit of its own, though JSON.stringify
+	// overflows the stack long before 12 000 levels (JE-48).
+	deep := strings.Repeat("[", 12000) + strings.Repeat("]", 12000)
+	if !isJSON([]byte(deep)) || isJSON([]byte(deep+"]")) || isJSON([]byte(`1, "x": 2`)) {
+		t.Error("isJSON misjudges a deep value or a fragment")
+	}
+}
+
 // countingEngine counts evaluations.
 type countingEngine struct {
 	Engine
@@ -278,6 +304,8 @@ func TestJE49OnEngine(t *testing.T) {
 		{"flow_input's object is a level", "flow_input.a.length", &Scope{FlowInput: value(`{"a": ` + nest(127) + `}`)}, "error: recursion limit exceeded at line 1 column 132"},
 		{"flow_env's members alone", "flow_env.a.length", &Scope{FlowEnv: value(`{"a":` + nest(127) + `}`)}, "1"},
 		{"a deep flow_env member", "flow_env.a.length", &Scope{FlowEnv: value(`{"a":` + nest(128) + `}`)}, "error: recursion limit exceeded at line 1 column 128"},
+		{"a flow_env member past any parser's limit", "flow_env.a.length", &Scope{FlowEnv: value(`{"b": 1, "a": ` + nest(20000) + `}`)}, "error: recursion limit exceeded at line 1 column 128"},
+		{"escapes as written", "flow_input.A.length", &Scope{FlowInput: value(`{"\u0041": ` + nest(127) + `}`)}, "error: recursion limit exceeded at line 1 column 137"},
 		{"only bound values", "1", &Scope{Context: []Named{{"previous_result", value(nest(200))}}}, "1"},
 		{"a shortcut", "previous_result", &Scope{Context: []Named{{"previous_result", value(nest(200))}}}, nest(200)},
 	} {

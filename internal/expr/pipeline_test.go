@@ -182,6 +182,12 @@ func TestEngineErrorsBecomeWindmillTexts(t *testing.T) {
 	if _, err := NewPipeline(eng).Eval(context.Background(), Compile(SiteInputTransform, "x"), nil); err != ended {
 		t.Errorf("Eval: %v, want the context's cause unwrapped", err)
 	}
+	// A completion that is not one JSON value fails, once.
+	eng = &fakeEngine{eval: func(context.Context, string, Input) ([]byte, error) { return []byte(`1, "x": 2`), nil }}
+	_, err := NewPipeline(eng).Eval(context.Background(), Compile(SiteInputTransform, "x"), nil)
+	if !errors.Is(err, ErrNotJSON) || err.Error() != "QuickJS evaluation error: the serialised value is not JSON" || len(eng.calls) != 1 {
+		t.Errorf("Eval: %v after %d attempts", err, len(eng.calls))
+	}
 }
 
 // TestTimeoutRetried follows JE-2: an evaluation whose error text contains

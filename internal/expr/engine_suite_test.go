@@ -236,10 +236,11 @@ func sameStored(got, want string) error {
 }
 
 // mathCheck compares the transcendental Math cases of JE-1 (review item
-// cl R3-2), whose values come from the C library's libm. With glibc, the
-// library of Windmill's image, every value is the oracle's. With another
-// libm a value may be one unit in the last place apart, which deviation
-// D16 of ADR 0001 names; the differences are logged.
+// cl R3-2), whose values come from the C library's libm. Only the glibc of
+// Windmill's image is sure to give the oracle's digits: another libm, or
+// another release of glibc, may give a value one unit in the last place
+// apart, which deviation D16 of ADR 0001 names. Each difference is logged;
+// a larger one fails.
 func mathCheck(key, got, want string, deviations map[string][]string) error {
 	var g, w []string
 	if err := json.Unmarshal([]byte(got), &g); err != nil {
@@ -254,9 +255,6 @@ func mathCheck(key, got, want string, deviations map[string][]string) error {
 	for i := range w {
 		if g[i] == w[i] {
 			continue
-		}
-		if testCLibrary == "glibc" {
-			return fmt.Errorf("value %d is %s with glibc, the oracle's %s", i, g[i], w[i])
 		}
 		a, errA := strconv.ParseFloat(g[i], 64)
 		b, errB := strconv.ParseFloat(w[i], 64)

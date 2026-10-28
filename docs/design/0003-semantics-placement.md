@@ -458,7 +458,8 @@ error, with the database route (a step in between) as its control.
   lookup throw from the positions the oracle shows. Every expression E3a
   recorded gives the oracle's value or text at unit level, its error texts
   byte for byte, except where the engine's build differs: the last digit
-  of some transcendental `Math` results on a C library other than glibc,
+  of some transcendental `Math` results on a C library other than the
+  image's glibc,
   and the recursion depth that fits the 1 MiB stack, deviations D16 and
   D17 of [0001](0001-equivalence-contract.md). The budget gate above is
   met.
