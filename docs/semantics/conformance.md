@@ -42,11 +42,11 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | [Flow execution](#execution) | 120 | 92 | 27 | 1 | 0 | 0 | 30 | 1 |
 | [Loops, branches and subflows](#control-flow) | 84 | 67 | 15 | 0 | 2 | 0 | 15 | 0 |
 | [Expressions](#expressions) | 167 | 121 | 46 | 0 | 0 | 0 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 168 | 115 | 53 | 0 | 0 | 0 | 12 | 0 |
+| [Languages and script wrappers](#languages) | 171 | 115 | 56 | 0 | 0 | 0 | 12 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 36 | 15 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 846 | 635 | 201 | 6 | 4 | 36 | 76 | 7 |
+| **Total** | 849 | 635 | 204 | 6 | 4 | 36 | 76 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -4253,17 +4253,32 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
     ```
   - **Expect:** `[true,false]`.
 
-*Setup for WR-49/c–e:* the WR-47/a fixture, plus a file `f/cb/notes/a.txt` (content `one`) that no script uses. Each case pushes once, records the deployed hash of `f/cb/runtime` (from the script's API record), makes one change, pushes again, and compares. These cases test when a push deploys, not how the bundle is built.
+*Setup for WR-49/c–f:* the WR-47/a fixture, plus a file `f/cb/notes/a.txt` (content `one`) that no script uses. All pushes are `wmill sync push` from the sync root unless a case says otherwise, on a fresh CE standalone oracle. The steps are:
+
+1. Push the fixture.
+2. Push again and check that this push selects nothing. If it selects `f/cb/runtime`, the local metadata differs from the deployed representation: run `wmill sync pull` and repeat until a push selects nothing.
+3. Record the `hash` and `codebase` fields of `f/cb/runtime` from `GET /api/w/<ws>/scripts/get/p/f/cb/runtime`.
+4. Make the case's change, push, and compare.
+
+These cases test when a push deploys and which bytes then run, not how the bundle is built.
 
 - **WR-49/c** · source-derived · later · any content change under `relative_path` makes a new version
   - **Given:** the setup; the content of `f/cb/notes/a.txt` changes to `two`.
-  - **Expect:** the second push deploys a new version of `f/cb/runtime`: its hash changes, although its source, metadata and generated bundle are unchanged.
-- **WR-49/d** · source-derived · later · a rename the digest cannot see deploys nothing
+  - **Expect:** the push selects `f/cb/runtime` and deploys a new version: both `hash` and `codebase` change, although the script's source, metadata and generated bundle are unchanged.
+- **WR-49/d** · source-derived · later · a rename the digest cannot see is not selected
   - **Given:** the setup; `f/cb/notes/a.txt` is renamed to `f/cb/notes/b.txt`, with the same bytes. It is the only entry in `f/cb/notes/`.
-  - **Expect:** the second push reports `f/cb/runtime` as up to date, and its hash is unchanged.
-- **WR-49/e** · source-derived · later · a change outside `relative_path` deploys nothing, so the old asset stays
-  - **Given:** the setup; the entry adds `assets: [{from: "shared/a.txt", to: "a.txt"}]`, where `shared/a.txt` lies outside `f/cb` and contains `one`; `f/cb/runtime.ts` returns `readFileSync("a.txt", "utf8")` (from `node:fs`). After the first push and a run, `shared/a.txt` changes to `two`.
-  - **Expect:** the first run returns `"one"`. The second push reports `f/cb/runtime` as up to date, its hash is unchanged, and a run after it still returns `"one"`.
+  - **Expect:** the push selects nothing for `f/cb/runtime`, and its `hash` and `codebase` are unchanged.
+- **WR-49/e** · source-derived · later · a change outside `relative_path` is not selected, so the old asset keeps running
+  - **Given:** the setup, with two changes made before step 1. The entry adds `assets: [{from: "shared/a.txt", to: "a.txt"}]`, where `shared/a.txt` lies outside `f/cb` and contains `one`. `f/cb/runtime.ts` returns `readFileSync("a.txt", "utf8")` (from `node:fs`). After step 3, run the script, then change `shared/a.txt` to `two` and push.
+  - **Expect:** the first run returns `"one"`. The push selects nothing for `f/cb/runtime`, its `hash` is unchanged, and a run after it still returns `"one"`.
+- **WR-49/f** · source-derived · later · a direct script push uploads anyway
+  - **Given:** the state at the end of WR-49/e. `f/cb/runtime.script.yaml` has no `priority` key, as the CLI generates it. Run `wmill script push f/cb/runtime.ts`.
+  - **Expect:** the CLI does not report the script up to date; it uploads the bundle, and a run after it returns `"two"`. Whether `hash` changes depends on the server's no-op check, so this case does not assert it.
+- **WR-49/g** · source-derived · later · a no-op snapshot keeps the hash but replaces the bytes (medium: building a body the server accepts as a no-op)
+  - **Given:** a fresh CE standalone oracle. `f/cb/v.ts` is `export function main() { return "v1"; }`, pushed with `wmill sync push`; record its `hash` `H`. Then a direct `POST /api/w/<ws>/scripts/create_snapshot?skip_if_noop=true` multipart request:
+    - field `script` first: a script body whose every field the server's no-op check compares equals the deployed script, copied from `GET /api/w/<ws>/scripts/get/h/<H>`. That covers the content, the lock, the metadata, `codebase` and the optional settings, and the body sets `parent_hash` to `H`;
+    - field `file` second: a different valid CommonJS bundle, `exports.main = () => "v2";`.
+  - **Expect:** status 201 with body `H`, so no new version is created; a response with any other hash means the body did not match and the case is invalid. `GET …/get/p/f/cb/v` still reports `H`, and the next run returns `"v2"`.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
@@ -4283,8 +4298,11 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
   - **Given:** the entry adds `format: esm`; `f/cb/native.ts` has the first line `//native`, then the probe body. The same entry without the header is the control.
   - **Expect:** `["undefined","undefined"]`; the control gives `["object","string"]` (compare [WR-47/b](#wr-47)).
 - **WR-50/d** · source-derived · `//nodejs` takes an ESM codebase script to Node
-  - **Given:** the entry adds `format: esm` and `assets: [{from: "f/cb/pkg.json", to: "package.json"}]`, where `f/cb/pkg.json` is `{"type":"module"}`, so that Node loads `main.js` as ESM; `f/cb/node-esm.ts` has the first line `//nodejs`, then the probe body.
+  - **Given:** the entry adds `format: esm` and `assets: [{from: "f/cb/pkg.json", to: "package.json"}]`, where `f/cb/pkg.json` is `{"type":"module"}`, which makes the ESM interpretation explicit on every Node version; `f/cb/node-esm.ts` has the first line `//nodejs`, then the probe body.
   - **Expect:** `["undefined","string"]`.
+- **WR-50/e** · source-derived · later · without a declared type, the outcome depends on the Node patch
+  - **Given:** the WR-50/d entry without the `package.json` asset, so only the `{}` placeholder applies; `f/cb/node-esm.ts` has the first line `//nodejs`, then `export function main() { return [typeof (globalThis as any).Bun, process.version]; }`.
+  - **Expect:** on Node 20.19.0 or later, `["undefined","v20.<minor>.<patch>"]`: module syntax detection loads the bundle as ESM. On an earlier 20.x the job fails while Node loads `main.js`, with a [WR-19](#wr-19) or [WR-20](#wr-20) error. Record which outcome occurs and the version ([Q-WR-24](languages.md#q-wr-24)).
 
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values

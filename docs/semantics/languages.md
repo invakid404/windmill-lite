@@ -53,7 +53,7 @@ Source pointers are `path:line @ v1.767.0` relative to the Windmill repository r
     - a thrown `Error` is stored as exactly `{message, stack, name}`, with no `step_id` and no `extra`, and any other thrown value gives three `null`s ([WR-43](#wr-43));
     - the timeout text is `Query timeout after (>Ns)` ([WR-44](#wr-44));
     - `process` is a module-level `{env}` object, and the global surface is a fixed list of web APIs ([WR-45](#wr-45)).
-12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.0`, `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node 20 and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id, and so the decision to deploy a new version, depends only on the files under `relative_path` and the entry's settings, never on the bundle itself. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts.
+12. **Codebase bundles** ([WR-47](#wr-47) to [WR-50](#wr-50)). The pinned CLI bundles with esbuild `0.28.0`, `format` defaulting to `cjs`, and passes `external`, `inject`, `define` and `banner` through unchanged. Assets travel in a tar that the worker unpacks into the job directory. CJS bundles run on the image's Node 20 and ESM bundles on Bun, unless the source's header says otherwise: `//native` wins over both, and `//nodejs` sends ESM to Node. The codebase id depends only on the files under `relative_path` and the entry's settings. `wmill sync push` uses it to decide which scripts to push, but `wmill script push` with generated metadata uploads anyway, and even a deploy the server treats as a no-op rewrites the stored bundle under the same hash. CE in standalone mode, the oracle's topology, deploys and runs codebase scripts.
 
 ## A. Bun: process model and lifecycle
 
@@ -869,7 +869,7 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
 <a id="wr-49"></a>
 ### WR-49 · What the CLI uploads, the codebase id, and where the server keeps the bundle
 
-**Scope:** core (single file and assets); later (several output files, versioning by digest) · **Confidence:** high (CLI and server source-traced); medium (the multi-output naming edge) · **Status:** drafted
+**Scope:** core (single file and assets); later (several output files; push, version and replacement decisions) · **Confidence:** high (CLI and server source-traced); medium (the multi-output naming edge) · **Status:** drafted
 
 - **Rule:**
   - **One output and no `assets`:** the upload is the bundle text itself.
@@ -888,24 +888,41 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
       - symbolic links, to files or directories, and whatever they point at;
       - anything outside `relative_path`: imported modules, `inject` files and asset `from` files that live elsewhere.
     - Every file under `relative_path` counts, whether or not the script uses it. The digest is computed once per CLI run and shared by every script of the entry, so editing any file there gives every script of the entry a new id.
-  - **When a push makes a new version.** Before uploading, the CLI compares the local script with the deployed one: the source `content`, the metadata fields and the codebase id. Only when all of them match is the script reported up to date and skipped; the server's own no-op check, which the CLI requests, also compares the id. The generated bundle is never compared, so:
-    - a change the digest sees (under `relative_path`, or in the settings) makes a new version with a fresh bundle, even when the bundle comes out identical;
-    - a change it does not see (an asset or import outside `relative_path`, a rename, a symlink target), with the source and settings unchanged, is skipped: nothing is uploaded and the deployed bundle stays as it was.
+  - **From a local change to the bundle that runs: four separate decisions.** None of them compares bundle bytes.
+    1. **Whether `wmill sync push` selects the script.**
+       - Sync push compares the local tree with the deployed workspace's tree. Before comparing, it writes the current digest into each codebase script's local metadata, as its `codebase` field, with an empty `lock`, which is also what the server stores for codebase scripts.
+       - The script is therefore selected when its source or metadata differ from the deployed ones, or when the id differs from the deployed id.
+       - A script that sync push does not select gets no request at all, and its deployed bundle stays as it was.
+       - *(medium)* A multi-output bundle without assets is stored with a `.tar` suffix that this local id lacks, so such a script is selected on every sync push.
+    2. **Whether the CLI sends the request.**
+       - `wmill script push`, and the push of a script that sync push selected, both end in the same check. The CLI stops, reporting the script up to date, only if the source `content`, the metadata fields and the id all equal the deployed script's.
+       - Its `priority` comparison reads the deployed value as a boolean but the local value as written. Metadata without a `priority` key (the CLI's generated default) therefore never matches, and the request is sent every time.
+    3. **Whether the server makes a new version.**
+       - The CLI always asks for the server's no-op check. The server reuses the parent's hash, making no new version, only if every field it compares is identical to the parent's: the content, the lock, the metadata, the id, and the optional settings as stored.
+       - An omitted optional field does not equal its stored default. An omitted `ws_error_handler_muted`, for example, is not the stored `false`, so default metadata usually yields a new version.
+    4. **Whether the stored bundle is replaced.**
+       - The uploaded file is written under the hash the server returned, whichever way decision 3 went. A no-op deploy therefore keeps the hash but replaces the bytes.
+       - In standalone mode the file is overwritten in the standalone directory, which the worker reads for every job (on CE that path keeps no worker-side cache), so the next job runs the new bytes.
+       - *(medium, EE)* A worker cache file already holding that hash would keep serving the old bytes.
+  - **Consequences for an unchanged script:**
+    - A change the digest sees (under `relative_path`, or in the settings), pushed with `wmill sync push`, selects the script and deploys a new version with a fresh bundle, even when the bundle comes out identical.
+    - A change it does not see (an asset or import outside `relative_path`, a rename, a symlink target), pushed with `wmill sync push` from a tree that was otherwise in sync, selects nothing. No request is sent, and the old bundle keeps running.
+    - The same change pushed with `wmill script push` and generated metadata does reach the server, and the next run uses the new bundle, whether or not the hash changed.
   - **What the server keeps.** The push is one multipart request to `create_snapshot`.
     - The script JSON comes first, with its source `content` ([SY-8](openflow.md#sy-8)), then the bundle.
-    - The server creates the script version and stores the bundle under `script_bundle/<workspace>/<script hash>`, plus `.esm` and `.tar` copied from the sent id.
+    - The server creates the script version, or reuses the parent's hash on a no-op (decision 3 above), and stores the bundle under `script_bundle/<workspace>/<that hash>`, plus `.esm` and `.tar` copied from the sent id.
     - Only those two suffixes matter later: the worker rebuilds the id from the stored script's hash ([WR-50](#wr-50)).
   - **Where it is stored.**
     - On EE, in the object store.
     - On CE in standalone mode with no object store, under the standalone bundle directory, `$HOME/.windmill/standalone_bundle/`.
     - In any other CE mode the upload fails with `codebase is an EE feature`, and no script version is created.
-- **Evidence:** `cli/src/commands/script/script.ts:365-418` (tar or text), `:461-463` (id), `:515-565` (the up-to-date check), `:802-834` (multipart upload); `cli/src/utils/codebase.ts:19-45` (digest inputs, memoisation and suffixes); `cli/src/utils/utils.ts:108-121` (the directory walk: file contents in name order, directories recursed, symlinks skipped, names not hashed); `cli/src/commands/script/script.ts:770`, `:817` (the CLI always requests the no-op check); `backend/windmill-api-scripts/src/scripts.rs:708-845`, `:1077-1093` (the server's no-op check compares the id); `backend/windmill-api-scripts/src/scripts.rs:502-576` (`create_snapshot`; suffixes `:521-541`, storage `:553-559`); `backend/windmill-object-store/src/lib.rs:983-985` (bundle key), `:991-1020` (standalone directory, EE object store, CE refusal); `backend/windmill-common/src/worker.rs:409` (`ROOT_STANDALONE_BUNDLE_DIR`) (all @ v1.767.0).
-- **Conformance:** [WR-49/a–e](conformance.md#wr-49)
+- **Evidence:** `cli/src/commands/script/script.ts:365-418` (tar or text), `:461-463` (id), `:802-834` (multipart upload); `cli/src/utils/codebase.ts:19-45` (digest inputs, memoisation and suffixes); `cli/src/utils/utils.ts:108-121` (the directory walk: file contents in name order, directories recursed, symlinks skipped, names not hashed); sync selection `cli/src/commands/sync/sync.ts:414-460` (the current digest and an empty lock written into local metadata), `:3840-3862` (push compares local with remote, codebase changes not ignored), `:2324-2356`, `:2359-2398` (metadata comparison and codebase-id changes); `backend/windmill-api-scripts/src/scripts.rs:1139-1140` (codebase scripts stored with an empty lock); the CLI's check `cli/src/commands/script/script.ts:130-181` (`wmill script push` reaches the same function), `:515-565` (the up-to-date check; `priority` at `:542`), `:568-584`; `cli/bootstrap/script_bootstrap.ts:17-29` (generated metadata has no `priority` or `ws_error_handler_muted`); `cli/src/commands/script/script.ts:770`, `:817` (the CLI always requests the no-op check); the server `backend/windmill-api-scripts/src/scripts.rs:708-845` (fields compared, optional ones literally), `:1565` (`ws_error_handler_muted` stored as `false` when omitted), `:1085-1092` (a no-op returns the parent's hash), `:502-576` (`create_snapshot`; suffixes `:521-541`, the file written under the returned hash `:543-559`); `backend/windmill-object-store/src/lib.rs:983-985` (bundle key), `:991-1020` (standalone directory, EE object store, CE refusal); `backend/windmill-common/src/worker.rs:409` (`ROOT_STANDALONE_BUNDLE_DIR`), `:760-765` (the write replaces the file); `backend/windmill-worker/src/bun_executor.rs:1066-1084`, `:1087-1103`, `:1131-1147` (a worker cache file wins; otherwise the standalone file is copied in for each job) (all @ v1.767.0).
+- **Conformance:** [WR-49/a–g](conformance.md#wr-49)
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
 
-**Scope:** core (lookup, extraction, runtime selection); later (the Node patch version, a CJS bundle under `//native`) · **Confidence:** high (source-traced); medium (the CJS-under-`//native` failure); the Node version is unknown until observed ([Q-WR-24](#q-wr-24)) · **Status:** drafted
+**Scope:** core (lookup, extraction, runtime selection); later (the Node patch version and its module-format detection, a CJS bundle under `//native`) · **Confidence:** high (source-traced); medium (the CJS-under-`//native` failure; Node's detection rule, from its release notes); the Node version is unknown until observed ([Q-WR-24](#q-wr-24)) · **Status:** drafted
 
 - **Rule:**
   - **Lookup** follows [WR-30](#wr-30). The id is rebuilt from the script row: `<script hash>`, plus `.esm` if the stored `codebase` value contains `.esm`, plus `.tar` if it ends in `.tar`.
@@ -921,12 +938,16 @@ The dispute covers only the dynamic-import consequence, marked *(disputed)* belo
        - *(medium)* A CJS bundle is evaluated as an ES module too, so it fails on its first use of `module`, `exports` or `require`.
     2. **CJS (no `.esm`), or `//nodejs` in the source:** `node --preserve-symlinks wrapper.mjs`, with the Node binary at `NODE_BIN_PATH` (default `/usr/bin/node`).
        - The wrapper is the ordinary one of [WR-6](#wr-6) to [WR-21](#wr-21), importing `./main.js`. The environment is the Bun one of [WR-22](#wr-22).
-       - Node chooses the module format of `main.js` from the nearest `package.json`. With the `{}` placeholder it loads `main.js` as CommonJS, and the wrapper reaches its exports through Node's CommonJS interop.
-       - An ESM bundle forced onto Node by `//nodejs` therefore needs a `package.json` asset declaring `"type": "module"`.
+       - Node chooses the module format of `main.js` from the nearest `package.json`. The `{}` placeholder has no `type` field, which leaves the format **ambiguous**, and Node's own version then decides:
+         - before Node 20.19.0, an ambiguous `.js` file loads as CommonJS, so an ESM bundle fails to load;
+         - from Node 20.19.0, module syntax detection is on by default. An ambiguous file that does not parse as CommonJS because of ES module syntax is retried as an ES module, so an ESM bundle loads.
+         - A CJS bundle loads as CommonJS either way, and the wrapper reaches its exports through Node's CommonJS interop.
+       - The worker passes Node no flag that changes detection, and the image does not pin the Node 20 patch, so for an ESM bundle forced onto Node by `//nodejs` the outcome without a `type` depends on the installed patch ([Q-WR-24](#q-wr-24)).
+       - A `package.json` asset declaring `"type": "module"` makes the ESM interpretation explicit, on every Node version.
     3. **Otherwise (ESM):** `bun run wrapper.mjs`, on Bun `1.3.10` ([WR-3](#wr-3)).
   - **Node version.** The v1.767.0 image installs Node from NodeSource's `20.x` line when the image is built, so the major version is 20 and the patch is whatever was current then. The source does not pin it. The CLI's `node20.15.1` target ([WR-47](#wr-47)) only sets the output's syntax level.
-- **Evidence:** `backend/windmill-common/src/cache.rs:654-682` (id from the hash); `backend/windmill-types/src/scripts.rs:315-319`; `backend/windmill-api-scripts/src/scripts.rs:1181-1190` (a codebase source with `//native` is stored as `bunnative`); `backend/windmill-worker/src/worker.rs:5381-5407` (the codebase is passed to the shared Bun executor); `backend/windmill-worker/src/bun_executor.rs:1442` (annotations from the source), `:1061-1129` (lookup), `:1131-1153` (copy, symlink or unpack), `:1505-1513` (placeholder), `:1574-1578`, `:1650-1652` (CJS → Node), `:1767-1771` (`./main.js`), `:2133-2245` (the native branch, taken before any process starts), `:2338-2366` (Node, then Bun); `backend/windmill-worker/src/global_cache.rs:127-148` (unpack); `backend/windmill-worker/src/worker.rs:609` (`NODE_BIN_PATH`); `backend/windmill-common/src/utils.rs:106-163` (standalone is the default mode); `Dockerfile:248-249` (NodeSource 20.x) (all @ v1.767.0).
-- **Conformance:** [WR-50/a–d](conformance.md#wr-50)
+- **Evidence:** `backend/windmill-common/src/cache.rs:654-682` (id from the hash); `backend/windmill-types/src/scripts.rs:315-319`; `backend/windmill-api-scripts/src/scripts.rs:1181-1190` (a codebase source with `//native` is stored as `bunnative`); `backend/windmill-worker/src/worker.rs:5381-5407` (the codebase is passed to the shared Bun executor); `backend/windmill-worker/src/bun_executor.rs:1442` (annotations from the source), `:1061-1129` (lookup), `:1131-1153` (copy, symlink or unpack), `:1505-1513` (placeholder), `:1574-1578`, `:1650-1652` (CJS → Node), `:1767-1771` (`./main.js`), `:2133-2245` (the native branch, taken before any process starts), `:2338-2366` (Node, then Bun); `backend/windmill-worker/src/global_cache.rs:127-148` (unpack); `backend/windmill-worker/src/worker.rs:609` (`NODE_BIN_PATH`); `backend/windmill-common/src/utils.rs:106-163` (standalone is the default mode); `Dockerfile:248-249` (NodeSource 20.x, patch not pinned) (all @ v1.767.0). Node's [v20.19.0 release notes](https://nodejs.org/en/blog/release/v20.19.0#module-syntax-detection-is-now-enabled-by-default) for module syntax detection becoming the default.
+- **Conformance:** [WR-50/a–e](conformance.md#wr-50)
 - **Note:** the standalone path copies a plain bundle into `main.js` instead of symlinking it, so `__filename` and symlink-sensitive code see a regular file there.
 
 <a id="wr-31"></a>
@@ -1491,7 +1512,7 @@ These are proposals for windmill-lite's equivalence contract, not facts about Wi
 - **Q-WR-23** · affects [WR-44](#wr-44) · open (oracle, `later`) · What happens when a native script passes the 128 MiB heap cap without ever waiting for a timer or I/O? Does the job fail, succeed, or take the worker down? *Settled by:* an oracle run of a synchronous allocation loop, recording the job outcome and whether the worker survives.
 
 <a id="q-wr-24"></a>
-- **Q-WR-24** · affects [WR-47](#wr-47), [WR-50](#wr-50) · open (oracle) · Which Node `20.x` patch does the v1.767.0 image run? Does windmill-lite's bundle for each WR-47 fixture equal the one the pinned CLI uploads? *Settled by:* WR-50/b on the oracle, and pushing the WR-47 fixtures with the pinned `wmill` to the CE standalone oracle, then reading the stored bundles from its standalone bundle directory.
+- **Q-WR-24** · affects [WR-47](#wr-47), [WR-50](#wr-50) · open (oracle) · Which Node `20.x` patch does the v1.767.0 image run, and so does an ESM bundle sent to Node by `//nodejs` load without a `package.json` asset declaring its type (module syntax detection is the default from 20.19.0)? Does windmill-lite's bundle for each WR-47 fixture equal the one the pinned CLI uploads? *Settled by:* WR-50/b and WR-50/e on the oracle, and pushing the WR-47 fixtures with the pinned `wmill` to the CE standalone oracle, then reading the stored bundles from its standalone bundle directory.
 
 <a id="q-wr-25"></a>
 - **Q-WR-25** · affects [WR-49](#wr-49) · open (`later`) · Two packaging edges are not settled:
