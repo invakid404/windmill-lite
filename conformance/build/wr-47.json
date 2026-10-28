@@ -323,6 +323,56 @@
           ]
         }
       }
+    },
+    {
+      "spec": "WR-47",
+      "variant": "wildcard-reexport-host-module",
+      "provenance": "policy",
+      "title": "export names are read with the build's own resolution, so a re-exported module that imports a host-provided module is signed",
+      "note": "The host-provided module imports the bun built-in, which esbuild's node platform cannot resolve; the codebase bundle reaches it only through its shim. The export names are read from a build with the same plugin, so main, which export * brings in, is signed (c2b review 2, finding 2).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/shared/ver.ts": "import { version } from \"bun\";\nexport function read() { return version; }\n",
+          "f/cb/hlib.ts": "import { read } from \"../shared/ver\";\nexport function main() { return [42, typeof read()]; }\n",
+          "f/cb/hwild.ts": "export * from \"./hlib\";\n"
+        },
+        "contract": "roots:\n  - script: f/cb/hwild\nhost_modules: [f/shared/ver.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "warnings": [],
+        "entries": {
+          "f/cb/hwild": {
+            "format": "cjs",
+            "exports": [
+              "main"
+            ],
+            "host_modules": [
+              "f/shared/ver.ts"
+            ],
+            "signatures": {
+              "main": {
+                "params": []
+              }
+            }
+          }
+        },
+        "run": {
+          "register": [
+            "f/shared/ver"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/hwild",
+              "result": [
+                42,
+                "string"
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }

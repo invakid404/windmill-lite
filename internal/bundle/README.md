@@ -210,9 +210,14 @@ CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
 - **Metadata.** The helper's `parse` op reads each source for its
   annotations, workflow-as-code markers and packages, and records a
   signature for each export of the bundle: the export names come from the
-  metafile of an ES module build of the same entry (`bundleExports`; a
-  CommonJS bundle's `module.exports` takes the same names), so a function
-  the entry re-exports with `export *` is callable. A function the entry
+  metafile of an ES module build of the same entry, with the same plugin as
+  the real build, so an import of a host-provided module resolves to its
+  shim there too (`bundleExports`; a CommonJS bundle's `module.exports`
+  takes the same names), and a function the entry re-exports with
+  `export *` is signed. CommonJS source has no static export list, so its
+  exports are left unsigned; a build that cannot read the names says so in
+  an `esbuild_warning`. The harness calls a callable export of a codebase
+  module that the metadata does not sign with an empty parameter list. A function the entry
   source declares gets its parameters, as Windmill parses a codebase
   script's content (WR-6, WR-7); one it does not declare gets an empty
   list, never a dependency's parameters. The metadata adds

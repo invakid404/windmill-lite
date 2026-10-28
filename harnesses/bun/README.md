@@ -255,8 +255,14 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    function is missing` in the wrapper-catch shape
    ([WR-7](../../docs/semantics/languages.md#wr-7),
    [WR-12](../../docs/semantics/languages.md#wr-12)). An exported function
-   whose signature the bundle does not record is `escaped`: the bundle is
-   broken.
+   whose signature a Bun-built bundle does not record is `escaped`: the
+   bundle is broken, since the build signs every export of its output. A
+   codebase module's metadata cannot always sign every callable export
+   (CommonJS source has no static export list), so one it does not sign
+   gets an empty parameter list, as Windmill's parser gives a function it
+   does not find in the script's content
+   ([WR-6](../../docs/semantics/languages.md#wr-6),
+   [WR-7](../../docs/semantics/languages.md#wr-7)).
 4. **Binding** ([WR-6](../../docs/semantics/languages.md#wr-6)): with
    parameters, each one's value by name, read as destructuring reads it
    (a missing key gives `undefined`, `null` stays, extra keys are dropped,

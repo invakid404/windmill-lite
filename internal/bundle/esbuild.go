@@ -190,44 +190,60 @@ func (s *CodebaseSettings) CLIBundle(root, file string) (map[string][]byte, erro
 // what its entry exports, including what it re-exports with export *, as
 // esbuild links the modules. A CommonJS bundle's module.exports takes the
 // same names, so they are read from the metafile of an ES module build of
-// the same entry, whose output lists them. It returns nil when that build
-// fails, which the real build then reports.
+// the same entry, with the same plugin as the real build, so that an
+// import of a host-provided module resolves to its shim there too (c2b
+// review 2, finding 2).
 //
-// The helper records a signature for each: the entry source's own
+// known is false when no static list exists: the entry is CommonJS source,
+// whose names are its exports object's properties, known only when it
+// runs (an ES module build would list only its wrapper's default; c2b
+// review 2, finding 4), or the build failed, and err says why. The
+// harness then gives any callable export the metadata does not sign an
+// empty parameter list, as Windmill gives a function its parser does not
+// find in the source (WR-6, WR-7).
+//
+// The helper records a signature for each name: the entry source's own
 // parameter list for a function it declares, and none (an empty list) for
 // a name it does not declare, such as one export * brings in. A
-// dependency's declarations are never read as the entry's: Windmill parses
-// only the script's content (WR-6, WR-7).
-func (s *CodebaseSettings) bundleExports(root, file string) []string {
-	o, err := s.CLIOptions(root, file)
+// dependency's declarations are never read as the entry's (WR-6, WR-7).
+func (cfg *CodebaseConfig) bundleExports(e CodebaseScript, s *CodebaseSettings, shims map[string]string) (names []string, known bool, err error) {
+	o, err := s.CLIOptions(cfg.Folder, e.File)
 	if err != nil {
-		return nil
+		return nil, false, err
 	}
 	o.Format, o.Target, o.Engines, o.Metafile = api.FormatESModule, api.ESNext, nil, true
+	o.Plugins = []api.Plugin{cfg.plugin("", "", shims, nil)}
 	r := api.Build(o)
 	if len(r.Errors) > 0 {
-		return nil
+		return nil, false, errors.New(esbuildMessages(r.Errors))
 	}
 	var mf struct {
+		Inputs map[string]struct {
+			Format string `json:"format"`
+		} `json:"inputs"`
 		Outputs map[string]struct {
 			EntryPoint string   `json:"entryPoint"`
 			Exports    []string `json:"exports"`
 		} `json:"outputs"`
 	}
-	if json.Unmarshal([]byte(r.Metafile), &mf) != nil {
-		return nil
+	if err := json.Unmarshal([]byte(r.Metafile), &mf); err != nil {
+		return nil, false, err
 	}
 	for _, out := range mf.Outputs {
-		if out.EntryPoint != "" {
-			names := slices.Clone(out.Exports)
-			if names == nil {
-				names = []string{}
-			}
-			slices.Sort(names)
-			return names
+		if out.EntryPoint == "" {
+			continue
 		}
+		if mf.Inputs[out.EntryPoint].Format == "cjs" {
+			return nil, false, nil
+		}
+		names := slices.Clone(out.Exports)
+		if names == nil {
+			names = []string{}
+		}
+		slices.Sort(names)
+		return names, true, nil
 	}
-	return nil
+	return nil, false, errors.New("the metafile names no entry point")
 }
 
 // CodebaseScript is one codebase script to bundle (SY-8).
@@ -380,12 +396,28 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 	if !cfg.AllowBunMismatch {
 		req.RequireBun = harness.PinnedBun
 	}
+	shims := map[string]string{} // key → shim source
+	for _, m := range cfg.HostModules {
+		b, err := os.ReadFile(m.Shim)
+		if err != nil {
+			return nil, err
+		}
+		shims[m.Key] = string(b)
+	}
+	var unknown []Warning
 	for _, e := range cfg.Entries {
 		h := helperEntry{ID: e.ID, Path: e.Path, File: e.File}
 		// The signatures cover what the bundle exports, re-exports through
 		// export * included (c2b review 1, finding 2).
 		if s, err := ParseCodebaseSettings(e.Settings); err == nil {
-			h.Exports = s.bundleExports(cfg.Folder, e.File)
+			names, known, err := cfg.bundleExports(e, s, shims)
+			switch {
+			case known:
+				h.Exports = names
+			case err != nil:
+				unknown = append(unknown, Warning{WarningEsbuild, fmt.Sprintf(
+					"script %s (%s): its export names could not be read (%v); exports its source does not declare bind no parameters", e.ID, e.Path, err)})
+			}
 		}
 		req.Entries = append(req.Entries, h)
 	}
@@ -395,14 +427,6 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 	}
 	res.BunVersion, res.NonconformantRuntime = resp.BunVersion, resp.BunVersion != harness.PinnedBun
 
-	shims := map[string]string{} // key → shim source
-	for _, m := range cfg.HostModules {
-		b, err := os.ReadFile(m.Shim)
-		if err != nil {
-			return nil, err
-		}
-		shims[m.Key] = string(b)
-	}
 	var problems []ItemProblem
 	assets := map[string]assetSource{} // to → where it came from
 	for _, e := range cfg.Entries {
@@ -458,6 +482,7 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 		}
 		res.Assets[to] = a.from
 	}
+	res.Warnings = append(res.Warnings, unknown...)
 	for _, e := range cfg.Entries {
 		meta := res.Scripts[e.ID]
 		for _, w := range meta.esbuildWarnings {
@@ -489,6 +514,71 @@ const pluginNamespace = "windmill-lite"
 // resolving marks the plugin's own calls of the resolver, which it lets
 // through.
 type resolving struct{}
+
+// plugin is the plugin of a codebase build, which only maps paths: with
+// support, the env rewrite's support module (envSpecifier) loads from its
+// namespace under the binding's name; an import that names a listed
+// package, or resolves to a listed module's file, resolves to the module's
+// shim there, and record, when not nil, is told its key. esbuild calls it
+// concurrently.
+func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]string, record func(key string)) api.Plugin {
+	byFile := map[string]string{} // real path of a listed module's file → key
+	byPackage := map[string]string{}
+	for _, m := range cfg.HostModules {
+		if m.Package != "" {
+			byPackage[m.Package] = m.Key
+			continue
+		}
+		p := filepath.Join(cfg.Folder, filepath.FromSlash(m.File))
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		byFile[p] = m.Key
+	}
+	shimPath := func(key string) api.OnResolveResult {
+		if record != nil {
+			record(key)
+		}
+		return api.OnResolveResult{Path: "host/" + key, Namespace: pluginNamespace}
+	}
+	return api.Plugin{Name: "windmill-lite", Setup: func(b api.PluginBuild) {
+		b.OnResolve(api.OnResolveOptions{Filter: `.*`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
+			if _, ours := a.PluginData.(resolving); ours {
+				return api.OnResolveResult{}, nil
+			}
+			if a.Path == envSpecifier && support != "" {
+				return api.OnResolveResult{Path: "env-" + binding + ".mjs", Namespace: pluginNamespace}, nil
+			}
+			if a.Namespace == pluginNamespace {
+				// The shims and the support module import nothing.
+				return api.OnResolveResult{}, nil
+			}
+			if key, ok := byPackage[a.Path]; ok {
+				return shimPath(key), nil
+			}
+			if len(byFile) == 0 || a.Kind == api.ResolveEntryPoint {
+				return api.OnResolveResult{}, nil
+			}
+			r := b.Resolve(a.Path, api.ResolveOptions{
+				Importer: a.Importer, Namespace: a.Namespace, ResolveDir: a.ResolveDir, Kind: a.Kind, With: a.With, PluginData: resolving{},
+			})
+			if len(r.Errors) > 0 || r.External || r.Namespace != "file" {
+				return api.OnResolveResult{}, nil
+			}
+			if key, ok := byFile[r.Path]; ok {
+				return shimPath(key), nil
+			}
+			return api.OnResolveResult{}, nil
+		})
+		b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: pluginNamespace}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
+			text := support
+			if key, ok := strings.CutPrefix(a.Path, "host/"); ok {
+				text = shims[key]
+			}
+			return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
+		})
+	}}
+}
 
 // bundleOne bundles one codebase script into cfg.Out and completes its
 // metadata, or returns its problem.
@@ -568,66 +658,15 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 		support = strings.ReplaceAll(src, EnvBinding, binding)
 		o.Inject = append([]string{envSpecifier}, o.Inject...)
 	}
-	byFile := map[string]string{} // real path of a listed module's file → key
-	byPackage := map[string]string{}
-	for _, m := range cfg.HostModules {
-		if m.Package != "" {
-			byPackage[m.Package] = m.Key
-			continue
-		}
-		p := filepath.Join(cfg.Folder, filepath.FromSlash(m.File))
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			p = real
-		}
-		byFile[p] = m.Key
-	}
 	// esbuild runs the plugin's callbacks concurrently, one per import
 	// being resolved, so what they record is kept under a lock.
 	var mu sync.Mutex
 	used := map[string]bool{}
-	shimPath := func(key string) api.OnResolveResult {
+	o.Plugins = []api.Plugin{cfg.plugin(support, binding, shims, func(key string) {
 		mu.Lock()
 		used[key] = true
 		mu.Unlock()
-		return api.OnResolveResult{Path: "host/" + key, Namespace: pluginNamespace}
-	}
-	o.Plugins = []api.Plugin{{Name: "windmill-lite", Setup: func(b api.PluginBuild) {
-		b.OnResolve(api.OnResolveOptions{Filter: `.*`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
-			if _, ours := a.PluginData.(resolving); ours {
-				return api.OnResolveResult{}, nil
-			}
-			if a.Path == envSpecifier && support != "" {
-				return api.OnResolveResult{Path: "env-" + binding + ".mjs", Namespace: pluginNamespace}, nil
-			}
-			if a.Namespace == pluginNamespace {
-				// The shims and the support module import nothing.
-				return api.OnResolveResult{}, nil
-			}
-			if key, ok := byPackage[a.Path]; ok {
-				return shimPath(key), nil
-			}
-			if len(byFile) == 0 || a.Kind == api.ResolveEntryPoint {
-				return api.OnResolveResult{}, nil
-			}
-			r := b.Resolve(a.Path, api.ResolveOptions{
-				Importer: a.Importer, Namespace: a.Namespace, ResolveDir: a.ResolveDir, Kind: a.Kind, With: a.With, PluginData: resolving{},
-			})
-			if len(r.Errors) > 0 || r.External || r.Namespace != "file" {
-				return api.OnResolveResult{}, nil
-			}
-			if key, ok := byFile[r.Path]; ok {
-				return shimPath(key), nil
-			}
-			return api.OnResolveResult{}, nil
-		})
-		b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: pluginNamespace}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
-			text := support
-			if key, ok := strings.CutPrefix(a.Path, "host/"); ok {
-				text = shims[key]
-			}
-			return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
-		})
-	}}}
+	})}
 	r := api.Build(o)
 	if len(r.Errors) > 0 {
 		return nil, nil, nil, nil, &Problem{ProblemBundleFailed, esbuildMessages(r.Errors)}

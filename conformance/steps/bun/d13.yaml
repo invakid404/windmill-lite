@@ -213,3 +213,26 @@ cases:
     runs:
       - args: '{}'
         expect: {status: success, result: kept}
+  - spec: D13
+    variant: commonjs-source
+    provenance: policy
+    title: a script written as CommonJS source has its exports called, with no parameters bound, on Node and on the harness
+    note: >-
+      CommonJS source has no static export list, so the metadata signs none
+      of its exports. The harness gives a callable one an empty parameter
+      list, as Windmill's parser gives a function it does not find in the
+      script's content (WR-6, WR-7), so main gets no arguments and an
+      override gets the values of the non-underscore keys (WR-V1) (c2b
+      review 2, finding 4). esbuild keeps the source's exports.<name>
+      assignments in its CommonJS output, so Node finds the names too.
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_commonjs
+    script: |
+      declare const exports: Record<string, unknown>;
+      exports.main = (x?: number) => [42, x ?? "no argument"];
+      exports.helper = (x: number) => ["helper", x];
+    runs:
+      - args: '{"x":1}'
+        expect: {status: success, result: [42, no argument]}
+      - args: '{"x":5,"_ENTRYPOINT_OVERRIDE":"helper"}'
+        expect: {status: success, result: [helper, 5]}

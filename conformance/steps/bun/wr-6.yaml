@@ -105,3 +105,28 @@ cases:
         expect: {status: success, result: [main, no argument]}
       - args: '{"x":5,"_ENTRYPOINT_OVERRIDE":"helper"}'
         expect: {status: success, result: [helper, 5]}
+  - spec: WR-6
+    variant: codebase-wildcard-host-module
+    provenance: policy
+    title: a re-exported main whose module imports a host-provided module is called, with no parameters bound
+    note: >-
+      The host-provided module imports the bun built-in, which esbuild's
+      node platform cannot resolve; the codebase bundle reaches it only
+      through its shim, and the export names are read with the same
+      resolution (c2b review 2, finding 2).
+    host_modules:
+      - path: f/wl_step/cb_hostwild_host
+        script: |
+          import { version } from "bun";
+          export function read() { return version; }
+    codebase: {relative_path: f/wl_step, format: esm}
+    files:
+      f/wl_step/cb_hostwild_lib.ts: |
+        import { read } from "./cb_hostwild_host";
+        export function main(x?: number) { return [42, typeof read(), x ?? "no argument"]; }
+    path: f/wl_step/cb_hostwild
+    script: |
+      export * from "./cb_hostwild_lib";
+    runs:
+      - args: '{"x":1}'
+        expect: {status: success, result: [42, string, no argument]}

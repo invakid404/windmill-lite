@@ -64,9 +64,10 @@ async function run() {
     return escaped(describe(e));
   }
   const fn = mod[entry];
-  if (typeof fn === "function" && sig === undefined) {
-    return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(entry)}`);
-  }
+  // A callable export the metadata does not sign (CommonJS source has no
+  // static export list) gets an empty parameter list, as on the harness
+  // for a codebase module (WR-6, WR-7).
+  if (typeof fn === "function" && sig === undefined) sig = { params: [] };
   let value;
   try {
     if (typeof fn !== "function") throw new Error(`${entry} function is missing`);

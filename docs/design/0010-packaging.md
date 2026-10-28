@@ -299,10 +299,14 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     spawned harness extracts `assets/` there before any module loads (in
     host mode, F3a). The metadata records `bundler: "esbuild"` and the
     `format`; the signatures cover every export of the bundle (those an
-    entry re-exports with `export *` included), each with the parameters
-    the Bun helper parses from the entry's own source, as Windmill parses
-    a codebase script's content, or none when the source does not declare
-    it.
+    entry re-exports with `export *` included, read from an ES module build
+    with the same plugin, so imports of host-provided modules resolve to
+    their shims there too), each with the parameters the Bun helper parses
+    from the entry's own source, as Windmill parses a codebase script's
+    content, or none when the source does not declare it. CommonJS source
+    has no static export list, and a build that cannot read the names
+    warns; in both cases the harness calls a callable export the metadata
+    does not sign with an empty parameter list ([0004](0004-harness-protocol.md)).
   - **Refusals:** several output files (`unsupported_feature`), an asset
     that leaves the working directory or does not read (`invalid_asset`),
     and a `format` other than `cjs` and `esm` ([0001](0001-equivalence-contract.md) §5a).

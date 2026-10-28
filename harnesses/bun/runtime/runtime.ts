@@ -349,7 +349,15 @@ export class Runtime {
     }
     const fn = mod[m.entry];
     if (typeof fn === "function" && sig === undefined) {
-      return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
+      // A Bun-built module's metadata signs every export of its bundle. A
+      // codebase module's cannot always: CommonJS source has no static
+      // export list, so a callable export its source does not declare gets
+      // an empty parameter list, as Windmill's parser gives a function it
+      // does not find in the script's content (WR-6, WR-7).
+      if (!isCodebase(meta)) {
+        return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
+      }
+      sig = { params: [] };
     }
     let value: unknown;
     try {
@@ -740,6 +748,12 @@ async function scriptPath(bundleDir: string, script: string, ext: string): Promi
   return join(bundleDir, "scripts", "bun", ...idSegments(script)) + ext;
 }
 
+/** Whether a script's metadata is a codebase script's, which esbuild
+ * bundled (milestone C2b). */
+function isCodebase(meta: unknown): boolean {
+  return (meta as { bundler?: unknown } | null)?.bundler === "esbuild";
+}
+
 /** The file a script's module loads from. A module of the Bun build is
  * scripts/bun/<id>.mjs in the bundle. A codebase script's (its metadata's
  * bundler is esbuild, milestone C2b) is scripts/bun/<id>.cjs for CommonJS,
@@ -753,7 +767,7 @@ export async function moduleFile(bundleDir: string, script: string, meta: unknow
   const m = meta as { bundler?: unknown; format?: unknown } | null;
   const ext = m?.format === "cjs" ? ".cjs" : ".mjs";
   const file = await scriptPath(bundleDir, script, ext);
-  if (m?.bundler !== "esbuild") return file;
+  if (!isCodebase(meta)) return file;
   const copy = join(workdir, ".windmill-lite-" + new Bun.CryptoHasher("sha256").update(script).digest("hex").slice(0, 16) + ext);
   copyFileSync(file, copy);
   return copy;

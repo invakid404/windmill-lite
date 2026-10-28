@@ -141,7 +141,9 @@ so an asset named `package.json` replaces the placeholder and its `type`
 decides how Node loads `main.js`; then its metadata, its arguments and
 `noderun.mjs`, run as `node --preserve-symlinks noderun.mjs <entry>`. The
 driver applies the harness's own wrapper rules (`harnesses/bun/runtime/wrapper.ts`,
-transpiled for Node by the pinned Bun) in the harness's order and writes
+transpiled for Node by the pinned Bun) in the harness's order, an
+unsigned callable export getting an empty parameter list as on the
+harness, and writes
 the outcome as a result frame carries it; a process that exits without
 writing it ended as `empty` (status 0) or `escaped` (the last 600
 characters of its stderr). The outcome is mapped by `engine.StoreOutcome`
