@@ -3,8 +3,10 @@
 **Current state:** five levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the harness protocol cases in
-`protocol/`, and the first flow fixture in `flows/`, the oracle smoke
-fixture, which `wltest record` records on the Windmill CE oracle. This
+`protocol/`, and the flow fixtures in `flows/`: the oracle smoke fixture
+and the fixtures of the recording batches of
+[ADR 0012](../docs/design/0012-layout-and-milestones.md), which
+`wltest record` records on the Windmill CE oracle. This
 README covers `conformance/`. Nothing runs the flow fixtures on
 windmill-lite yet (`wltest check`, milestone E1), and the step and
 expression levels that [0003](../docs/design/0003-semantics-placement.md)
@@ -24,7 +26,7 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | one fixture, `flows/oracle/smoke`; recorded on the oracle by `wltest record` |
+| flow | `flows/<area>/<case>/` | the smoke fixture and the recording batches' fixtures; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
 
@@ -40,6 +42,16 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop fixtures (cf-2 to cf-9, cf-11, the loop runs of cf-12 and cf-13) gate N3a; cf-10, cf-14, cf-15 and the branch runs of cf-12 gate N3b. |
+| `flows/execution/fx-40` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)). Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4. |
+
+`internal/oracle/testdata/batches/<batch>.json` names each batch's
+findings, fixtures and the cases it defers, and `TestRecordingBatches`
+holds every run of those fixtures to its recording and its recording to its
+`expect`. A fixture's tree is what `generate-metadata` wrote, so container
+defaults are explicit in it (the CLI writes them): the recordings show
+deployed flows, the reference configuration of
+[ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
 
 The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
