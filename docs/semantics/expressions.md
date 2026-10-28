@@ -33,7 +33,7 @@ O1 is not the only point where pre-database values matter: a later step can comp
 
 ## Summary for the design
 
-1. **One engine, one textual pipeline** ([JE-1](#je-1), [JE-5](#je-5), [JE-11](#je-11) to [JE-15](#je-15), [JE-24](#je-24)). Expressions that reach the engine run on QuickJS-ng (rquickjs 0.11.0) in a fresh runtime per evaluation, with no `Intl`, `atob`, `URL` or `console` (source-derived, [Q-JE-2](#q-je-2)). Behaviour comes from a fixed pipeline: predicates are wrapped untrimmed in `Boolean(…)`; the text is trimmed; the shortcuts are tried in the order JE-6 → JE-7 → JE-8 → JE-9; the `variable`/`resource`/`flow_user_state` and `results` rewrites are applied; expression or statement mode is chosen; the value is serialised as `JSON.stringify(x ?? null)`. Shortcuts return before any engine starts, so the engine limits (20 s per attempt, up to 3 attempts, 128 MiB; [JE-2](#je-2), [JE-3](#je-3)) do not apply to them.
+1. **One engine, one textual pipeline** ([JE-1](#je-1), [JE-5](#je-5), [JE-11](#je-11) to [JE-15](#je-15), [JE-24](#je-24)). Expressions that reach the engine run on QuickJS-ng (rquickjs 0.11.0) in a fresh runtime per evaluation, with no `Intl`, `atob`, `URL` or `console` (source-derived, [Q-JE-2](#q-je-2)). Behaviour comes from a fixed pipeline: predicates are wrapped untrimmed in `Boolean(…)`; the text is trimmed; the shortcuts are tried in the order JE-6 → JE-7 → JE-8 → JE-9; the `variable`/`resource`/`flow_user_state` and `results` rewrites are applied; expression or statement mode is chosen; the value is serialised as `JSON.stringify(x ?? null)`. Shortcuts return before any engine starts, so the engine limits (20 s per attempt, up to 3 attempts, 128 MiB of heap, quickjs-ng's default 1 MiB of native stack; [JE-2](#je-2), [JE-3](#je-3), [JE-48](#je-48)) do not apply to them. Context values nested deeper than 127 levels fail before the engine runs ([JE-49](#je-49)).
 2. **Shortcut dispatch is semantics, not optimisation** ([JE-6](#je-6) to [JE-9](#je-9), [JE-V6](#je-v6)). JE-6 to JE-8 return stored JSON verbatim. JE-9 inspects only the first line that matches its pattern: it can discard the rest of the expression, turns misses into `null` where JavaScript would throw, and can hand a predicate a non-boolean. The exact spelling decides whether a read comes from memory, from the database or from JavaScript: `results.a.n` reads the database even when `a` is the previous step.
 3. **`results` handling is textual and lazy** ([JE-10](#je-10), [JE-12](#je-12), [JE-18](#je-18)). Only names written in the text are bound. `results['a']` and computed keys stay Promises, and `results` inside a nested non-async function is a syntax error.
 4. **Scopes differ per site** ([JE-22](#je-22), [JE-V1](#je-v1), [JE-33](#je-33), [JE-39](#je-39)). `sleep`, `retry_if` and `skip_expr` have no `results`; stop predicates get `results` only if their text names it; input transforms have no `result`, and `params` is always `{}`; `parallelism` sees the containing input unchanged, so an outer `iter` stays visible. No site binds `env`, and no `WM_*` name exists except `WM_SCHEDULED_FOR` in flow `skip_expr`.
@@ -44,7 +44,7 @@ O1 is not the only point where pre-database values matter: a later step can comp
 9. **Errors take five routes** ([JE-35](#je-35), [JE-26](#je-26)): chaining after a child completed (`InternalError`, failure module not run); first pickup of a root flow (failure module runs); first pickup of a nested flow (the parent handles it); ordinary step failures; and an unrecoverable string-valued error from `stop_after_if`, while the child job stays successful. The message wrappers are part of the contract; the Rust location suffix must be normalised before comparing.
 10. **JSON boundaries depend on the read path** ([JE-16](#je-16), [JE-44](#je-44)). Reads from the database see `jsonb`: keys reordered, exponents expanded. The in-memory previous result keeps the producer's text, including `-0`, and its consequences are observable downstream. The top-level key order of `flow_input` and of script arguments comes from a hash map and is not stable.
 
-Every finding below is source-confirmed at its stated scope and confidence. No case in this area has been recorded on the oracle yet; [Q-JE-1](#q-je-1) to [Q-JE-10](#q-je-10) are pending checks, not passed tests.
+Every finding below is source-confirmed at its stated scope and confidence, except [JE-48](#je-48) and [JE-49](#je-49), which are `drafted` (written from the pinned source, not yet independently checked). No case in this area has been recorded on the oracle yet; [Q-JE-1](#q-je-1) to [Q-JE-11](#q-je-11) are pending checks, not passed tests.
 
 ## Design notes (not Windmill behaviour)
 
@@ -98,6 +98,40 @@ Every finding below is source-confirmed at its stated scope and confidence. No c
   - Like [JE-2](#je-2), the cap applies only to evaluations that reach the engine.
 - **Evidence:** `backend/windmill-jseval/src/lib.rs:331-364`, `:342-419`, `:366-421`; tests `:2837-2945`.
 - **Conformance:** [JE-3/a](conformance.md#je-3)
+
+<a id="je-48"></a>
+### JE-48 · The stack limit is quickjs-ng's built-in 1 MiB, measured from where the embedding enters the engine
+
+**Scope:** later · **Confidence:** high (source-traced through Windmill, rquickjs 0.11.0 and quickjs-ng `be664ca`; oracle pending, [Q-JE-11](#q-je-11)) · **Status:** drafted
+
+- **Rule:**
+  - **No stack setting.** Windmill's evaluator creates each runtime with a heap cap only ([JE-3](#je-3)). It never sets a maximum stack size, and no environment variable changes one: `QUICKJS_MEMORY_LIMIT_MB` affects the heap only. The simple evaluator outside flows ([JE-45](#je-45)) does the same.
+  - **The value.** The limit is therefore quickjs-ng's compiled-in default, `JS_DEFAULT_STACK_SIZE` = **1 MiB** (1 048 576 bytes). rquickjs 0.11.0 does not change it when it creates a runtime. The rquickjs documentation of its stack setter claims a default of 256 KiB; that comment is stale and does not describe the pinned engine.
+  - **What it measures.** The limit is native (C) stack, not a count of JavaScript frames. The engine fails once the stack pointer has moved more than 1 MiB below a recorded top. With the `parallel` feature, which Windmill enables, rquickjs re-records that top every time it enters the engine for the evaluation, so each entry gets the full 1 MiB below the frame that entered.
+  - **The thread.** An evaluation runs on a Tokio blocking-pool thread. Windmill sets no thread stack size and its image sets no `RUST_MIN_STACK`, so the thread has Rust's default of 2 MiB. The engine's 1 MiB limit is therefore reached before the thread's own stack runs out.
+  - **What happens on overflow.** The engine throws a `RangeError` with the message `Maximum call stack size exceeded`. It is an ordinary exception:
+    - caught inside the expression, it is a value like any other;
+    - uncaught, it fails the evaluation as [JE-21](#je-21) describes, so the text is `QuickJS evaluation error: Error: Maximum call stack size exceeded`, followed by any stack, and each site wraps it ([JE-23](#je-23) to [JE-35](#je-35)).
+  - **Where the engine checks:** at every JavaScript call (calls into built-ins included), while parsing deeply nested source, while parsing or stringifying deeply nested JSON (`JSON.parse`, `JSON.stringify`, the final serialisation of [JE-15](#je-15) included), and while walking proxy chains and flattening nested arrays.
+  - **Depth is not portable.** How many nested calls fit in 1 MiB depends on the size of the engine's C frames, and so on the compiler, its flags and the CPU architecture. No fixture may assert an exact overflow depth: fixtures use one depth far below any plausible limit and one far above it.
+- **Evidence:** no stack setting `backend/windmill-jseval/src/lib.rs:435-437`, `:972-973`; the blocking thread `:296-327`; the runtime builder, without a thread stack size, `backend/src/main.rs:221-225`; rquickjs features `backend/Cargo.toml:614`; rquickjs 0.11.0 [`runtime/raw.rs:194-199`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/runtime/raw.rs#L194) (re-recording the top, `parallel` only), [`:251-257`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/runtime/raw.rs#L251) (the opt-in setter and its stale comment), [`context/async/future.rs:91`](https://github.com/DelSkayn/rquickjs/blob/v0.11.0/core/src/context/async/future.rs#L91) (the top re-recorded on each poll); quickjs-ng [quickjs.h @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.h) line 372 (the default) and [quickjs.c @ be664ca](https://github.com/quickjs-ng/quickjs/blob/be664ca1ccd86cbadf8df7348b8e15e77a32a1ba/quickjs.c) lines 1827-1832 (the check), 1888-1893 (the default applied when a runtime is created), 2589-2612 (limit = top minus size), 7351-7354 (the `RangeError`), 16425 (calls), 20938 (the parser), 21568 (the JSON tokenizer), 47165 and 47345 (the `JSON.parse` reviver and `JSON.stringify`). The quickjs-ng copy vendored in rquickjs-sys 0.11.0 differs from `be664ca` only by one added string-freeing helper and one promise-state constant, so its line numbers after line 4362 are 8 higher.
+- **Conformance:** [JE-48/a–d](conformance.md#je-48)
+- **Design note (not Windmill behaviour):** pinning the same 1 MiB keeps the limit equal, but an engine compiled differently still overflows at a different depth. That is why the cases bracket the limit instead of locating it.
+
+<a id="je-49"></a>
+### JE-49 · Context values nested deeper than 127 levels fail before evaluation
+
+**Scope:** later · **Confidence:** medium (the binding is source-traced; that a deep step result reaches the binding unchanged is not traced end to end; oracle pending, [Q-JE-11](#q-je-11)) · **Status:** drafted
+
+- **Rule:**
+  - **Where the limit sits.** Before QuickJS runs, every bound context value is parsed from its JSON text into a Rust JSON tree and then converted ([JE-16](#je-16)). The parser is serde_json 1.0.151 without its `unbounded_depth` feature (no manifest in the workspace enables it). It allows at most **127 nested arrays or objects**: entering the 128th fails.
+  - **Which values:** `previous_result` and `result`, `iter`, `params` and the other names of the transform context, each value of `flow_env`, and the whole `flow_input` object. For `flow_input` the outer object is the first level, so a key whose value is 127 levels deep already fails.
+  - **What fails.** The evaluation fails with serde_json's text, `recursion limit exceeded at line <l> column <c>`, without the `QuickJS evaluation error: ` prefix, and each site wraps it as usual. No JavaScript runs.
+  - **What does not fail.** A shortcut ([JE-6](#je-6) to [JE-9](#je-9)) returns stored JSON without parsing it, so `x = previous_result` passes a value of any depth through. Values built inside the expression have no such limit; only the stack limit ([JE-48](#je-48)) applies to them.
+  - Depth counts containers: `[]` is depth 1 and `[[]]` depth 2.
+- **Evidence:** context parsing `backend/windmill-jseval/src/lib.rs:455-470` (`flow_input` re-serialised and parsed; transform-context values parsed), `:473-482` (`flow_env`); conversion `:825-862`; serde_json features `backend/Cargo.toml:435`; serde_json 1.0.151 [`src/de.rs:63`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L63) (the depth budget of 128), [`:1357-1387`](https://github.com/serde-rs/json/blob/v1.0.151/src/de.rs#L1357) (the check), [`src/error.rs:384`](https://github.com/serde-rs/json/blob/v1.0.151/src/error.rs#L384) (the message) and [`:405-415`](https://github.com/serde-rs/json/blob/v1.0.151/src/error.rs#L405) (the position suffix).
+- **Conformance:** [JE-49/a–c](conformance.md#je-49)
+- **Design note (not Windmill behaviour):** an engine that parses context JSON inside JavaScript (`JSON.parse`) has no 127-level limit, so it accepts values that Windmill rejects. Reproducing JE-49 needs an explicit depth check before binding.
 
 <a id="je-4"></a>
 ### JE-4 · Reserved (unused)
@@ -930,7 +964,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 **Scope:** out · **Confidence:** high · **Status:** confirmed
 
 - **Rule:**
-  - `backend/windmill-runtime-nativets/` embeds `deno_core` (V8) to run **`nativets` scripts**: the in-worker "native" TypeScript runtime, with its own `windmill-client.js` and fetch support. Its behaviour belongs to [languages](languages.md).
+  - `backend/windmill-runtime-nativets/` embeds `deno_core` (V8) to run **`nativets` scripts**: the in-worker "native" TypeScript runtime, with its own `windmill-client.js` and fetch support. Its behaviour belongs to [languages](languages.md) ([WR-40](languages.md#wr-40) to [WR-46](languages.md#wr-46)); its stack limit is separate from the expression engine's ([JE-48](#je-48)).
   - Flow expressions never run there. The only overlap is the worker file name `js_eval.rs`, which hosts both the expression entry point ([JE-6](#je-6) to [JE-9](#je-9)) and the `nativets` script entry point.
 - **Evidence:** `backend/windmill-runtime-nativets/src/lib.rs:9-13`; `backend/windmill-worker/src/js_eval.rs:110-210`.
 - **Conformance:** none.
@@ -980,3 +1014,6 @@ None of these blocks a source-derived core rule; they confirm exact text or end-
 
 <a id="q-je-10"></a>
 - **Q-JE-10** · affects [JE-19](#je-19) · Does a subflow called by path that reads its caller's step id behave as traced (it reads the caller's result)? *Settled by:* the oracle run of [JE-19/d](conformance.md#je-19), using distinct ids.
+
+<a id="q-je-11"></a>
+- **Q-JE-11** · affects [JE-48](#je-48), [JE-49](#je-49) · open (oracle) · Do the stack-overflow cases behave as traced at each site, with the message wrapped as JE-23 says? Does a 128-level step result reach the binding unchanged (JE-49/b) instead of failing earlier, on the producer's completion path or in the flow transition? *Settled by:* running [JE-48/a–d](conformance.md#je-48) and [JE-49/a–c](conformance.md#je-49) on the oracle and recording `b`'s error messages and outcomes. JE-48 can also be checked offline by evaluating the same wrapped code with rquickjs 0.11.0 on quickjs-ng `be664ca` (both MIT-licensed), outside Windmill.
