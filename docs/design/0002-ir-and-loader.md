@@ -400,6 +400,11 @@ only hand-written files.
   fixed the host contract's provided sites to mandatory call sites that
   match one module everywhere. Its expressions hold their site and text;
   the textual pipeline of milestone B2a fills in the rest.
+- Milestone F4's build applies rule 5 (`missing_lock`, for a script whose
+  own source imports a package and that has no lock or a blank one) and the
+  workflow-as-code refusal, from the Bun helper's scans; the relative-import
+  closure and the export signatures are in each script's metadata in the
+  bundle ([0010](0010-packaging.md)).
 
 ## Spec IDs relied on
 

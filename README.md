@@ -12,31 +12,38 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Twelve milestones have landed. No command uses nine of them yet: the OpenFlow
-decoder in [internal/openflow](internal/openflow/README.md) (A3); the YAML
-dialect of the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md)
-(A2); the jsonb canonicaliser in [internal/jsonval](internal/jsonval/README.md)
-(A1); the sync-folder loader in
-[internal/syncfolder](internal/syncfolder/README.md) (A4); the compiler of a
-folder and a host contract to the program the engine runs, in
-[internal/ir](internal/ir/README.md) (A5); K1, the shared
+Thirteen milestones have landed. The newest, F4, gives the
+[`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
+[internal/bundle](internal/bundle/README.md): `build` turns a sync folder
+and a host contract into a bundle (the compiled program, the bundled Bun
+scripts and the folder's data) with a manifest that records the digest of
+every file and of every input, and whose own digest identifies the bundle;
+`verify` checks a bundle against a release manifest; `selfcheck` starts the
+expression engine. Nothing runs a bundle yet. `build` runs eight earlier
+milestones: the OpenFlow decoder in
+[internal/openflow](internal/openflow/README.md) (A3); the YAML dialect of
+the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2); the
+sync-folder loader in [internal/syncfolder](internal/syncfolder/README.md)
+(A4); the compiler of a folder and a host contract to the program the
+engine runs, in [internal/ir](internal/ir/README.md) (A5); K1, the shared
 types and interfaces under `internal/` that later milestones implement and
-code against; the QuickJS-ng expression engine in
-[internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a); C1, the
-harness protocol between the engine
-([internal/harness](internal/harness/README.md)) and a skeleton Bun harness
-([harnesses/bun](harnesses/bun/README.md)), which runs one exported function
-of a bundled module per step but not yet with Windmill's wrapper rules; and
-C2a, the Bun side of the build ([internal/bundle](internal/bundle/README.md)
-and the [Bun build helper](harnesses/bun/build/README.md)), which bundles Bun
+code against; and C2a, the Bun side of the build (the same package and the
+[Bun build helper](harnesses/bun/build/README.md)), which bundles Bun
 scripts with Windmill's settings and records their signatures, annotations
-and workflow-as-code markers. The tenth, E2, is the oracle harness
-([internal/oracle](internal/oracle/README.md), `wltest record`), which
-records synthetic flow fixtures on an unmodified Windmill CE image in public
-CI. The eleventh, recording batch E3c, recorded the reference's flow-execution
-error cases on that oracle
-([conformance/flows/execution](conformance/flows/execution)), which settled
-two contested findings. The twelfth, recording batch E3b, recorded the
+and workflow-as-code markers. `selfcheck` runs the QuickJS-ng expression
+engine of [internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
+No command uses two more yet: the jsonb canonicaliser in
+[internal/jsonval](internal/jsonval/README.md) (A1), and C1, the harness
+protocol between the engine ([internal/harness](internal/harness/README.md))
+and a skeleton Bun harness ([harnesses/bun](harnesses/bun/README.md)), which
+runs one exported function of a bundled module per step but not yet with
+Windmill's wrapper rules. The last three are the oracle's: E2, the oracle
+harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
+which records synthetic flow fixtures on an unmodified Windmill CE image in
+public CI; recording batch E3c, which recorded the reference's
+flow-execution error cases on that oracle
+([conformance/flows/execution](conformance/flows/execution)) and settled
+two contested findings; and recording batch E3b, which recorded the
 flow-execution core in the same directory and settled two more.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
@@ -45,7 +52,9 @@ keep their own licences: the Apache-2.0 files from Windmill under
 `internal/openflow/schema/` ([NOTICE](internal/openflow/schema/NOTICE)) and
 `internal/oracle/openapi/` ([NOTICE](internal/oracle/openapi/NOTICE)), and
 the MIT-licensed QuickJS-ng sources under `internal/expr/quickjs/quickjs-ng/`
-([NOTICE](internal/expr/quickjs/quickjs-ng/NOTICE)).
+([NOTICE](internal/expr/quickjs/quickjs-ng/NOTICE)) and mimalloc sources
+under `internal/expr/quickjs/mimalloc/`
+([NOTICE](internal/expr/quickjs/mimalloc/NOTICE)).
 
 ## Quick start
 
@@ -53,7 +62,8 @@ Requires Go 1.27.3 or later (the `go` directive in `go.mod`) and a C
 compiler, because the expression engine is C source built through cgo.
 
 ```sh
-go run ./cmd/windmill-lite    # prints: windmill-lite (devel)
+go run ./cmd/windmill-lite              # prints: windmill-lite (devel)
+go run ./cmd/windmill-lite selfcheck    # starts the expression engine
 go test -race ./...
 ```
 
@@ -66,11 +76,20 @@ install the build helper's parser once:
 WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/harness ./internal/bundle
 ```
 
+To build a bundle from the synthetic fixture folder and verify it:
+
+```sh
+export WL_BUN=/path/to/bun-1.3.10/bun WL_BUILD_HELPER=$PWD/harnesses/bun/build/main.ts
+go run ./cmd/windmill-lite build internal/bundle/testdata/fixture/windmill \
+  -contract internal/bundle/testdata/fixture/contract.yaml -o /tmp/fixture.wlb
+go run ./cmd/windmill-lite verify /tmp/fixture.wlb
+```
+
 ## Index
 
 | Path | What it covers |
 |---|---|
-| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command. Today it only prints its version. |
+| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command: `build` writes a bundle from a sync folder, `verify` checks one against a manifest, `selfcheck` starts the expression engine, `version` prints its version. |
 | [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has one verb, `record`, which records flow fixtures on the Windmill CE oracle. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
@@ -83,7 +102,7 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/harness ./internal/bundl
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture format, the normaliser and the comparator. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
 | [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, and pools. It implements the step executor. |
-| [internal/bundle](internal/bundle/README.md) | The build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base) and the Bun side of the build, which runs the Bun build helper. |
+| [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base) and the Bun side of the build, which runs the Bun build helper. |
 | [harnesses/bun](harnesses/bun/README.md) | The Bun harness: the runtime side of the protocol and a skeleton step runner, on Bun 1.3.10. |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, and the export scan of host-provided modules. |
 | [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, and the flow fixtures the oracle records: the smoke fixture and recording batches E3c's and E3b's flow-execution fixtures. |

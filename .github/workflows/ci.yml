@@ -116,9 +116,9 @@ jobs:
     # (ADR 0003). This job builds the engine and the expression suite that
     # way for each Linux architecture, checks that the binaries are static,
     # runs the suite from them, and starts the engine on an empty base image
-    # (ADR 0010, drift guard 5; milestone F4). It also measures what musl's
-    # allocator costs the expression pool against glibc's (review item
-    # cl R3-2).
+    # (ADR 0010, drift guard 5; milestone F4). The engine's heap uses
+    # mimalloc, chosen because musl's malloc serialises the expression pool's
+    # threads; the last step measures that choice (review item cl R3-2).
     name: Static Linux engine (${{ matrix.arch }})
     strategy:
       fail-fast: false
@@ -174,10 +174,12 @@ jobs:
           go build -o "$RUNNER_TEMP/windmill-lite" -ldflags "$STATIC_LDFLAGS" ./cmd/windmill-lite
           go test -c -o "$RUNNER_TEMP/expr.test" -ldflags "$STATIC_LDFLAGS" ./internal/expr
           go test -c -o "$RUNNER_TEMP/quickjs.test" -ldflags "$STATIC_LDFLAGS" ./internal/expr/quickjs
+          # For the allocator comparison below only: musl's own malloc.
+          go test -c -tags wl_libc_malloc -o "$RUNNER_TEMP/quickjs-musl-malloc.test" -ldflags "$STATIC_LDFLAGS" ./internal/expr/quickjs
 
       - name: Check that the binaries are static
         run: |
-          for bin in windmill-lite expr.test quickjs.test; do
+          for bin in windmill-lite expr.test quickjs.test quickjs-musl-malloc.test; do
             bin="$RUNNER_TEMP/$bin"
             file "$bin"
             if readelf --program-headers "$bin" | grep -q INTERP; then
@@ -218,21 +220,23 @@ jobs:
           run selfcheck
           test "$(run verify /fixture.wlb -digest "$digest")" = "$digest"
 
-      - name: Compare the expression pool on musl and glibc
-        # Report only: the same load as the Go job's measurement, from the
-        # static musl binary and from a glibc build on the same runner, so
-        # that musl's allocator costs show (cl R3-2).
+      - name: Compare the expression pool's allocators
+        # Report only (review item cl R3-2). The same load as the Go job's
+        # measurement, run from four builds on the same runner: the release
+        # build (static, musl, mimalloc), the static musl build with musl's
+        # own malloc, and dynamic glibc builds with mimalloc and with
+        # glibc's malloc. The tables go to the job summary.
         env:
           WL_QUICKJS_LOAD: "1"
           WL_QUICKJS_LOAD_SECONDS: "1"
         run: |
           CGO_ENABLED=1 go test -c -o "$RUNNER_TEMP/quickjs-glibc.test" ./internal/expr/quickjs
+          CGO_ENABLED=1 go test -c -tags wl_libc_malloc -o "$RUNNER_TEMP/quickjs-glibc-malloc.test" ./internal/expr/quickjs
           cd internal/expr/quickjs
-          for libc in musl glibc; do
-            bin="$RUNNER_TEMP/quickjs.test"
-            [ "$libc" = glibc ] && bin="$RUNNER_TEMP/quickjs-glibc.test"
-            echo "### ${{ matrix.arch }}, $libc" | tee -a "$GITHUB_STEP_SUMMARY"
-            "$bin" -test.run '^TestPoolUnderLoad$' -test.count=1 | grep -v '^\(PASS\|ok\)' | tee -a "$GITHUB_STEP_SUMMARY"
+          for build in "musl, mimalloc (release):quickjs" "musl, musl malloc:quickjs-musl-malloc" \
+                       "glibc, mimalloc:quickjs-glibc" "glibc, glibc malloc:quickjs-glibc-malloc"; do
+            echo "### ${{ matrix.arch }}: ${build%%:*}" | tee -a "$GITHUB_STEP_SUMMARY"
+            "$RUNNER_TEMP/${build##*:}.test" -test.run '^TestPoolUnderLoad$' -test.count=1 | grep -v '^\(PASS\|ok\)' | tee -a "$GITHUB_STEP_SUMMARY"
           done
 
   jsonb:

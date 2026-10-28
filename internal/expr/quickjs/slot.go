@@ -1,7 +1,7 @@
 package quickjs
 
 /*
-#cgo CFLAGS: -O2 -DNDEBUG -D_GNU_SOURCE -funsigned-char -Wno-unused-parameter -Wno-sign-compare
+#cgo CFLAGS: -O2 -DNDEBUG -D_GNU_SOURCE -funsigned-char -Wno-unused-parameter -Wno-sign-compare -I${SRCDIR}/mimalloc/include
 #cgo LDFLAGS: -lm
 #include "wl_quickjs.h"
 */

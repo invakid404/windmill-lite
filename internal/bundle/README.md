@@ -1,24 +1,147 @@
 # internal/bundle
 
-**Current state:** milestone C2a of
+**Current state:** milestones C2a and F4 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
-covers `internal/bundle`. The package holds the build parts that both
-bundlers share and the Bun side of the build: the env rewrite, the shim
-generator, the import base of inline scripts, and `BuildBun`, which runs the
-[Bun build helper](../../harnesses/bun/build/README.md). Nothing calls it
-yet. The bundle format, its manifest and digest, `windmill-lite build` and
-`verify` are milestone F4; codebase bundling through esbuild, which uses the
-same env rewrite and shims, is C2b.
+covers `internal/bundle` and its `testdata/`. The package builds
+windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
+
+- `Build` loads and compiles a sync folder with its host contract, bundles
+  its Bun scripts and host-provided modules, and writes the bundle with its
+  manifest; `windmill-lite build` calls it;
+- the manifest, its canonical encoding and the bundle digest; the `.wlb`
+  archive; `Verify`, which `windmill-lite verify` calls;
+- the build parts both bundlers share (the env rewrite, the shim generator,
+  the import base of inline scripts) and `BuildBun`, which runs the
+  [Bun build helper](../../harnesses/bun/build/README.md).
+
+Nothing opens a bundle to run it yet: that is `wl.Open` (F1). Codebase
+scripts, which esbuild bundles with the same env rewrite and shims, are C2b;
+until then the build refuses them.
 
 ## Files
 
 | File | Contents |
 |---|---|
+| `build.go` | `Build` and `Config`: the whole build, its refusals, `data/` |
+| `manifest.go` | `Manifest`, `Canonicalize`, `Digest`, `ParseManifest`, the deviations a bundle lists |
+| `sources.go` | the recording file system behind the source inventory; `TreeDigest` |
+| `archive.go` | `WriteArchive`, `WriteArchiveFile` and `Verify` |
 | `env.go` | `EnvRewrite`: the define table and support module of the env rewrite |
 | `shim.go` | `Shim`: the shim of a host-provided module; the registry key |
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
 | `meta.go` | `ScriptMeta` and the other result types, problems and warnings |
+
+## The bundle
+
+A bundle is a directory, or the same tree as one `.wlb` archive:
+
+| Path | Content |
+|---|---|
+| `manifest.json` | the manifest (below), in canonical form |
+| `ir.json` | the compiled program, `(*ir.Program).MarshalIndent` ([internal/ir](../ir/README.md)) |
+| `scripts/bun/<id>.mjs`, `<id>.meta.json` | each Bun script's module and metadata (`BuildBun`, below), named by its inventory id: `scripts/bun/f/app/report.mjs` for the path script `f/app/report`, `scripts/bun/inline-<16 hex>.mjs` for an inline step, as the harness runtime resolves an id |
+| `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | each host-provided module's bundled copy and shim, named by its script path |
+| `data/resources.json`, `data/resource_types.json`, `data/variables.json` | every resource and resource type the folder keeps, and every variable but secrets, each file an object keyed by path (a resource type by name), with the record of [internal/syncfolder](../syncfolder/README.md) |
+
+`assets/` (codebase assets, C2b) and `plugins/` (host plugins, F2c) arrive
+with their milestones. A secret variable is never written: its value in a
+folder is ciphertext, and the host supplies secrets (PF2).
+
+## The manifest and the bundle digest
+
+`manifest.json` holds:
+
+| Field | Holds |
+|---|---|
+| `format` | `FormatVersion`, 1 |
+| `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
+| `bundlers` | the Bun version that built the scripts; esbuild's once codebase scripts are built |
+| `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
+| `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
+| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8 and D14, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's |
+| `contract` | the host contract compiled against; with none, every flow and script of the folder is a root |
+| `host_modules` | the host-provided modules (D12), `key` and `id`, in registration order: a module after the modules it imports |
+| `harness_runtimes` | by harness class, the `TreeDigest` of the harness runtime the bundle was built for |
+| `sources` | the digest of every file of the sync folder the build read, by its path from the sync root (below) |
+| `files` | the digest of every other file of the bundle |
+
+A digest is `sha256:` and 64 hexadecimal digits. The manifest is written in
+its **canonical form** (`Canonicalize`): object keys sorted by their UTF-8
+bytes, numbers as written, strings escaped only where JSON requires it
+(and U+2028, U+2029), two-space indentation and a final newline. The
+**bundle digest** is the digest of those bytes, which is what the harness
+runtime computes from `manifest.json` for its handshake.
+`ParseManifest` refuses a manifest that is not in canonical form, has an
+unknown field, another format, or a file path that is not a clean relative
+path.
+
+**Sources.** The build reads the folder through a file system that records
+every file read: `wmill.yaml`, the flows and scripts the roots reach with
+their metadata, locks and `!inline` files, and the data files. It adds the
+workspace scripts that bundles inline and each host-provided module's file
+and lock, which the Bun helper reads itself. Files the build does not read,
+such as a script nothing reaches, are not inputs. A secret variable's file
+is read, so it is a source, though its value is not written.
+
+**What changes the digest:** any source, a lock, the contract, the
+module-state mode, the engine version, the Bun version, the harness
+runtime, and any built file. `TreeDigest(dir)` is the digest of the
+canonical JSON object that maps the slash path of every regular file under
+`dir` (skipping `node_modules` and names that start with `.`) to its digest.
+
+## Build
+
+`Build(ctx, Config)`:
+
+1. finds the sync root from `Config.Folder`, reads the folder, parses the
+   contract and compiles the program (`ir.Compile`, with `Strict`); the
+   compiler's errors come back as they are;
+2. reads `data/`;
+3. resolves the contract's `host_modules`: each must be the file of a Bun
+   script of the folder (`f/shared/ctx.ts`), whose path becomes its id;
+4. runs `BuildBun` for every script of the inventory, with every `.ts`
+   script of the folder available to workspace imports;
+5. checks each script's metadata: workflow-as-code by any detection path is
+   refused with `unsupported_feature`, `unsupported: workflow_as_code`
+   ([ADR 0001](../../docs/design/0001-equivalence-contract.md) §3;
+   [WA-33](../../docs/semantics/client-api.md#wa-33),
+   [WR-32](../../docs/semantics/languages.md#wr-32)), and a script whose
+   own source imports a package and has no lock (nil or blank) is refused
+   with `missing_lock`
+   ([ADR 0002](../../docs/design/0002-ir-and-loader.md), validation 5): a
+   lock is the only thing the build installs from. An empty lock with no
+   package imports builds;
+6. writes `ir.json` and `data/`, then the manifest, last.
+
+Before bundling it refuses, with `unsupported_feature`, a codebase script
+(esbuild bundling is C2b) and a host-provided module that is not a script
+of the folder: a host-provided package would need a lock, which the
+contract cannot give yet. Problems with scripts and modules come back
+together as a `*BuildError`, sorted by item; a path script is named
+`script <path>`, an inline step `<flow> step '<id>' (script <inventory id>)`.
+
+`Config.Out` must not exist or be empty. The build writes a sibling
+directory and renames it to `Out` last, so a failed build leaves nothing
+there. `WriteArchive` writes a bundle directory as a `.wlb`: a tar file
+whose first entry is `manifest.json`, then every file the manifest lists in
+byte order of its path, each with fixed headers (mode 0644, owner 0,
+modification time 0, PAX format), so one bundle gives one archive. A file
+that no longer matches the manifest fails the write.
+
+## Verify
+
+`Verify(artifact, VerifyOptions)` reads a bundle directory or `.wlb`,
+recomputes the digest of every file, and checks them against a manifest:
+`VerifyOptions.Release`, a release manifest, when given (and the bundle's
+own manifest must then be the same bytes), otherwise the bundle's own.
+`VerifyOptions.Digest` pins the bundle digest. The artifact must hold
+exactly the listed files, as regular files; an archive's entries must have
+clean relative names, each once (directory entries are skipped, the order
+does not matter). Differences come back together as a `*MismatchError`. A
+bundle checked only against its own manifest proves it is intact, not that
+it is the one released: a changed file with a manifest rewritten to match
+passes alone and fails against the release manifest or digest.
 
 ## The env rewrite
 
@@ -84,8 +207,9 @@ of a bundle:
    orders them, failing on a cycle (`host_module_cycle`).
 2. **Build**: the helper bundles the host-provided copies and every script.
    `BuildBun` checks each copy's exports against its scan
-   (`host_module_exports_differ`) and writes `scripts/bun/<id>.meta.json`,
-   a `ScriptMeta` with the metafile in canonical form.
+   (`host_module_exports_differ`), records the workspace scripts each copy
+   inlined, and writes `scripts/bun/<id>.meta.json`, a `ScriptMeta` with the
+   metafile in canonical form.
 3. **Warnings**: `host_module_shared_dependency` when a script imports a
    package directly that a host-provided module it uses also imports, so the
    package exists twice in the process (unless the package is itself a
@@ -101,7 +225,10 @@ share one dependency set, keyed by its digest. The build runs on
 builder's. The helper runs in a process group of its own; when a run
 ends, by its timeout, cancellation or otherwise, `BuildBun` kills what is
 left of the group (an install's lifecycle scripts) and waits until none of
-it remains. `BunConfig` refuses IDs that differ only in case (they name
+it remains. An ID is one or more `/`-separated segments, none empty, `.`
+or `..`, and none holding a backslash or NUL, the rule the harness runtime
+applies to an inventory id; a script's first segment is not `provided`.
+`BunConfig` refuses other IDs, IDs that differ only in case (they name
 files) and a folder host module whose file is not the script at its path.
 Problems with scripts or modules
 come back together as a `*BuildError`, with the result so far; a script that
@@ -148,6 +275,28 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   registry the test serves, with an install cache of its own.
   `TestConformanceBuildCatalogue` fails unless every catalogue case of a
   finding with a case file is a case or listed in `deferred.json`.
+  Whole-folder cases (`given.folder`) run `Build` instead, and list every
+  problem it must report: workflow-as-code (WA-33/c, WR-32) and the missing
+  lock (WR-26).
+- `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
+  flow, an inline step, a path script, a workspace import, a host-provided
+  module, a resource, a resource type, a variable and a secret) and checks
+  the bundle's files, every manifest field, `data/`, `ir.json`, and that its
+  modules run on Bun sharing the host-provided module.
+  `TestBuildTwiceGivesOneDigest` is F4's exit gate: two builds of copies of
+  the fixture in other directories, with other work and output
+  directories, give one digest, one manifest and one archive, byte for
+  byte. `TestDigestFollowsInputs` changes each input in turn (a flow's
+  `stop_after_if`, scripts, the host-provided module, a lock, data, the
+  contract, the mode, the engine version, the harness runtime) and checks
+  that the digest changes, and that a file the build does not read leaves
+  it alone. `TestBuildOutput`, `TestBuildRefusesUnbuilt` and
+  `TestBuildCompileErrors` cover the output directory and the refusals.
+- `TestVerify`, `TestVerifyArchiveEntries`, `TestWriteArchive`,
+  `TestParseManifest`, `TestCanonicalize` and `TestManifestDeviations` need
+  no Bun: they cover a changed, extra or missing file, a symbolic link, a
+  forgery whose own manifest matches, archive entries that repeat or escape,
+  and the canonical form.
 - `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
   support module and generated shims in `testdata/`; `go test ./internal/bundle -run
   Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.

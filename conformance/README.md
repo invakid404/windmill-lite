@@ -27,7 +27,7 @@ repository to exercise one behaviour each.
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun |
+| build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | flow | `flows/<area>/<case>/` | `flows/oracle/smoke` and `flows/execution/fx-*`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
@@ -361,6 +361,22 @@ Case fields beyond those of the decode cases:
 | `expect.entries` | the same expectations for other scripts, by id |
 | `expect.provided`, `expect.host_module_order`, `expect.order_problem`, `expect.warnings` | host-provided modules: exports, imports or problem by id; the registration order or the cycle; warning codes |
 | `expect.run` | `env` (process.env is replaced by it), `register` (host-provided copies registered, in order) and `calls`, each an `entry`, an `export` (default `main`), positional `args` and the `result` or an `error` substring |
+
+A **whole-folder case** gives `given.folder` instead: a whole sync folder,
+`wmill.yaml` included, which the runner builds with `bundle.Build`, the
+build of `windmill-lite build`, so the rules the build checks on the
+compiled program apply: workflow-as-code is refused
+([WA-33/c](../docs/semantics/conformance.md#wa-33),
+[WR-32](../docs/semantics/languages.md#wr-32)), and so is a script that
+imports a package without a lock
+([WR-26](../docs/semantics/languages.md#wr-26); ADR 0002, validation 5).
+
+| Field | Meaning |
+|---|---|
+| `given.folder` | the folder's files by path from the sync root |
+| `given.contract` | the host contract's text; without it every flow and script is a root |
+| `given.locks` | by script file, the npm dependencies whose lock the runner makes from `given.packages` and writes as `<path>.script.lock` |
+| `expect.build_problems` | every problem the build reports, each an `item` (the start of the reported item: `script <path>`, or `<flow> step '<id>' (script inline-` for an inline step), a `kind` and message substrings in `contains`; empty for a clean build, which must then verify |
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails
