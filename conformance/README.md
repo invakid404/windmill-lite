@@ -1,19 +1,19 @@
 # conformance
 
-**Current state:** seven levels of the shared conformance suite exist: the
+**Current state:** eight levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
-harness protocol cases in `protocol/`, the flow fixtures in `flows/`, and
-the context-free expression cases in `exprs/`. `wltest record` records the
-flow fixtures and the expression cases on the Windmill CE oracle: the
-oracle smoke fixture, the fixtures of recording batches E3c (flow execution
-errors) and E3b (flow execution core), and those of recording batch E3a
-(the expression cases of the JE catalogue, and CF-19 and CF-V6). This
-README covers `conformance/`. Nothing runs the flow fixtures or the
-expression cases on windmill-lite yet (`wltest check`, milestone E1; the
-expression pipeline, B2a and B2b), and the step level that
-[0003](../docs/design/0003-semantics-placement.md) defines has no cases or
-runner yet.
+harness protocol cases in `protocol/`, the Bun build cases in `build/`, the
+flow fixtures in `flows/`, and the context-free expression cases in
+`exprs/`. `wltest record` records the flow fixtures and the expression cases
+on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
+recording batches E3c (flow execution errors) and E3b (flow execution
+core), and those of recording batch E3a (the expression cases of the JE
+catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
+Nothing runs the flow fixtures or the expression cases on windmill-lite yet
+(`wltest check`, milestone E1; the expression pipeline, B2a and B2b), and
+the step level that [0003](../docs/design/0003-semantics-placement.md)
+defines has no cases or runner yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -30,6 +30,7 @@ repository to exercise one behaviour each.
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
+| build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun |
 | flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c), `flows/je/*` and `flows/cf/cf-19` (E3a); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
@@ -427,3 +428,70 @@ script under `scripts/bun/`). Each step does one thing:
 Expected values may use placeholders: `<any>`, `<string>`, `<int>`, `<pid>`
 (the harness's pid), `<bundle>` (the fixture bundle's digest) and `<c*N>`
 (a string of `N` copies of `c`).
+
+## Build cases
+
+A build case gives a sync folder and one or more Bun scripts, builds them
+with [internal/bundle](../internal/bundle/README.md) and the
+[Bun build helper](../harnesses/bun/build/README.md), and checks what the
+build records for each script (the signature of each export, its exports,
+annotations, bundler target, workflow-as-code markers, the workspace
+scripts it inlined, the host-provided modules it uses) or the problem it
+reports. A case can also run the built modules on the pinned Bun and check
+what their exports return, which is how the import transforms
+([WR-26](../docs/semantics/languages.md#wr-26),
+[WR-28](../docs/semantics/languages.md#wr-28),
+[WR-29](../docs/semantics/languages.md#wr-29)), the env rewrite and the
+host-provided-module shims are checked against real behaviour. Most cases
+check the build half of a catalogue case whose run belongs to the step
+suite; `part` says so and `rest_in` names where the rest is checked.
+
+Each `<finding>.json` holds the cases of one finding, or `d12.json` those
+of deviation D12, which has no finding:
+
+```json
+{
+  "finding": "WR-8",
+  "cases": [
+    {
+      "spec": "WR-8/a",
+      "provenance": "source-derived",
+      "title": "a local alias to Date",
+      "part": "build",
+      "rest_in": "C3a hydrates the argument",
+      "given": {"source": "type Ts = Date; export function main(d: Ts) { return d instanceof Date; }"},
+      "expect": {"signatures": {"main": {"params": [{"name": "d", "date": true}]}}}
+    }
+  ]
+}
+```
+
+Case fields beyond those of the decode cases:
+
+| Field | Meaning |
+|---|---|
+| `given.source`, `given.path` | the script, and its Windmill path (default `f/case/main`), written as `<path>.ts` |
+| `given.inline`, `given.flow` | the script is inline; `flow` gives `path`, `module` and `explicit_path`, from which the import base is computed (WR-29) |
+| `given.entries` | more scripts, each with `id` and the fields above |
+| `given.files` | other folder files; every `.ts` file is a script at its path without the extension |
+| `given.dependencies`, `given.packages` | a script's npm dependencies, and the synthetic packages (`name@version` and their files) that a registry the test serves holds; the runner makes the lock |
+| `given.host_modules` | host-provided modules: `id`, `key`, and a folder `file` or a `package` with its `dependencies` |
+| `expect.signatures` | per export, `params` exactly, or `error_contains` |
+| `expect.exports`, `expect.annotations`, `expect.target`, `expect.workflow_as_code`, `expect.imports`, `expect.host_modules` | what the build recorded; `annotations` lists the flags that are set |
+| `expect.problem` | the problem `kind` and message substrings |
+| `expect.bundle_contains`, `expect.bundle_not_contains`, `expect.first_line` | text of the bundled module |
+| `expect.entries` | the same expectations for other scripts, by id |
+| `expect.provided`, `expect.host_module_order`, `expect.order_problem`, `expect.warnings` | host-provided modules: exports, imports or problem by id; the registration order or the cycle; warning codes |
+| `expect.run` | `env` (process.env is replaced by it), `register` (host-provided copies registered, in order) and `calls`, each an `entry`, an `export` (default `main`), positional `args` and the `result` or an `error` substring |
+
+`deferred.json` lists the catalogue cases of these findings that are not
+build cases, each with the reason and where it is checked. A test fails
+unless every catalogue case of a finding with a file here is a case or is
+deferred.
+
+`annotations.json` holds the leading-comment annotation cases
+([WR-31](../docs/semantics/languages.md#wr-31),
+[SY-V3](../docs/semantics/openflow.md#sy-v3)): a `source` and the `flags` it
+sets. Both readers of the rule run them: the Go loader's
+`syncfolder.HasAnnotation` and the Bun build helper, in
+`go test ./internal/bundle`, and the helper's parser in `bun test`.

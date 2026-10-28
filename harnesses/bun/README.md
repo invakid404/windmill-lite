@@ -3,12 +3,14 @@
 **Current state:** the runtime skeleton of milestone C1
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `harnesses/bun`: `runtime/`, the harness side of the protocol of
-[ADR 0004](../../docs/design/0004-harness-protocol.md), and `test/`, its
-developer checks. The build helper (`build/`, C2a) and the host SDK
-(`host/`, W1 and F3a) do not exist yet. The harness runs on the pinned Bun
-1.3.10, the version of Windmill v1.767.0's images
-([WR-3](../../docs/semantics/languages.md#wr-3)). It has no dependencies, no
-`package.json` and no `node_modules`.
+[ADR 0004](../../docs/design/0004-harness-protocol.md), and `test/`, the
+developer checks. The build helper of milestone C2a, which bundles scripts
+and parses their signatures, has its own README:
+[build/](build/README.md). The host SDK (`host/`, W1 and F3a) does not exist
+yet. The harness runs on the pinned Bun 1.3.10, the version of Windmill
+v1.767.0's images ([WR-3](../../docs/semantics/languages.md#wr-3)). The
+runtime has no dependencies and no `package.json`; only the build helper
+has one, its TypeScript parser.
 
 ## Running
 
@@ -81,11 +83,14 @@ so the engine always learns how it ended, by that frame or by the exit.
 Go tests write, `conformance/protocol/frames.json`. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation, partial writes and `whenFlushed`.
-Both are developer checks, run by CI's non-required `Bun harness checks`
-job; the merge gate is the Go side ([internal/harness](../../internal/harness/README.md)), which
-also drives this runtime through every exchange in
-`conformance/protocol/exchanges/`.
+`test/build.test.ts` checks the build helper's scans and parse. All are
+developer checks, run by CI's non-required `Bun harness checks` job; the
+merge gate is the Go side ([internal/harness](../../internal/harness/README.md),
+which also drives this runtime through every exchange in
+`conformance/protocol/exchanges/`, and
+[internal/bundle](../../internal/bundle/README.md) for the build helper).
 
 ```sh
+(cd harnesses/bun/build && bun install --frozen-lockfile)
 cd harnesses/bun && bun test
 ```

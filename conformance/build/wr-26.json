@@ -1,0 +1,143 @@
+{
+  "finding": "WR-26",
+  "note": "Pinned-import removal is a whole-text replace. fixture-pkg is a synthetic package served by the test's local registry.",
+  "cases": [
+    {
+      "spec": "WR-26/a",
+      "provenance": "source-derived",
+      "title": "pin removal is a whole-text replace",
+      "given": {
+        "source": "import { tag } from \"fixture-pkg@1.2.3\";\nexport function main() { return [tag, \"fixture-pkg@1.2.3\"]; }",
+        "dependencies": {
+          "fixture-pkg": "1.2.3"
+        },
+        "packages": {
+          "fixture-pkg@1.2.3": {
+            "index.js": "export const tag = \"from fixture-pkg\";\n"
+          }
+        }
+      },
+      "expect": {
+        "bundle_not_contains": [
+          "fixture-pkg@1.2.3"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "from fixture-pkg",
+                "fixture-pkg"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-26",
+      "variant": "subpath-scope-longest-first",
+      "provenance": "source-derived",
+      "title": "subpaths are kept, scoped names unpinned, and longer specifiers replaced first",
+      "given": {
+        "source": "import { a } from \"@fx/pkg@2.0.0/sub\";\nimport { b } from \"@fx/pkg@2.0.0\";\nexport function main() { return [a, b, \"@fx/pkg@2.0.0/sub\", \"@fx/pkg@2.0.0\"]; }",
+        "dependencies": {
+          "@fx/pkg": "2.0.0"
+        },
+        "packages": {
+          "@fx/pkg@2.0.0": {
+            "index.js": "export const b = \"root\";\n",
+            "sub.js": "export const a = \"sub\";\n",
+            "package.json": "{\"name\":\"@fx/pkg\",\"version\":\"2.0.0\",\"type\":\"module\",\"exports\":{\".\":\"./index.js\",\"./sub\":\"./sub.js\"}}"
+          }
+        }
+      },
+      "expect": {
+        "bundle_not_contains": [
+          "@2.0.0"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "sub",
+                "root",
+                "@fx/pkg/sub",
+                "@fx/pkg"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-26",
+      "variant": "workspace-import",
+      "provenance": "source-derived",
+      "title": "pin removal also runs on an imported workspace script",
+      "given": {
+        "source": "import { h } from \"./helper\";\nexport function main() { return h(); }",
+        "files": {
+          "f/case/helper.ts": "import { tag } from \"fixture-pkg@1.2.3\";\nexport const h = () => [tag, \"fixture-pkg@1.2.3\"];\n"
+        },
+        "dependencies": {
+          "fixture-pkg": "1.2.3"
+        },
+        "packages": {
+          "fixture-pkg@1.2.3": {
+            "index.js": "export const tag = \"t\";\n"
+          }
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/case/helper"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "t",
+                "fixture-pkg"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-26",
+      "variant": "longest-first",
+      "provenance": "source-derived",
+      "title": "a pinned specifier that another one starts with is replaced after it",
+      "note": "Shortest first would turn fixture-pkg@1.2.3 into fixture-pkg.3.",
+      "given": {
+        "source": "import { tag } from \"fixture-pkg@1.2\";\nimport { tag as again } from \"fixture-pkg@1.2.3\";\nexport function main() { return [tag, again, \"fixture-pkg@1.2.3\", \"fixture-pkg@1.2\"]; }",
+        "dependencies": {
+          "fixture-pkg": "1.2.3"
+        },
+        "packages": {
+          "fixture-pkg@1.2.3": {
+            "index.js": "export const tag = \"t\";\n"
+          }
+        }
+      },
+      "expect": {
+        "bundle_not_contains": [
+          "fixture-pkg.3"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "t",
+                "t",
+                "fixture-pkg",
+                "fixture-pkg"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

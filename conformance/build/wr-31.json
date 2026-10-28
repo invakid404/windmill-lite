@@ -1,0 +1,131 @@
+{
+  "finding": "WR-31",
+  "note": "Annotations are read from the leading block of // lines only. windmill-lite bundles //nobundling scripts too (D7); the flag is recorded.",
+  "cases": [
+    {
+      "spec": "WR-31/a",
+      "provenance": "source-derived",
+      "title": "an annotation after a blank first line",
+      "part": "build",
+      "rest_in": "the result 1 is C3a's; the build is the same in both modes (D7)",
+      "given": {
+        "source": "\n// nobundling\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": [
+          "nobundling"
+        ],
+        "target": "bun"
+      }
+    },
+    {
+      "spec": "WR-31/b",
+      "provenance": "source-derived",
+      "title": "a comment after code is not an annotation",
+      "given": {
+        "source": "const x = 1;\n//nobundling\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": []
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "indented",
+      "provenance": "source-derived",
+      "title": "leading whitespace before // ends the block",
+      "given": {
+        "source": "//native\n  //nobundling\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": [
+          "native"
+        ]
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "whitespace-line",
+      "provenance": "source-derived",
+      "title": "a line of only whitespace counts as blank",
+      "note": "SY-V3 skips blank lines, white space only included; Go's HasAnnotation reads it the same way (conformance/build/annotations.json).",
+      "given": {
+        "source": "  \t\n//nobundling\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": [
+          "nobundling"
+        ]
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "flags",
+      "provenance": "source-derived",
+      "title": "every recognised flag, spaced or not, with unknown keys and blank lines among them",
+      "given": {
+        "source": "//sandbox\n\n//  nodejs  \n// some other comment\n//native\n//nobundling\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": [
+          "nodejs",
+          "native",
+          "nobundling",
+          "sandbox"
+        ],
+        "target": "node"
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "native-target",
+      "provenance": "source-derived",
+      "title": "//native selects the browser target (WR-40)",
+      "given": {
+        "source": "//native\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": [
+          "native"
+        ],
+        "target": "browser"
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "crlf",
+      "provenance": "source-derived",
+      "title": "CRLF line ends",
+      "given": {
+        "source": "// nobundling\r\n//native\r\nexport function main(){return 1}\r\n"
+      },
+      "expect": {
+        "annotations": [
+          "native",
+          "nobundling"
+        ]
+      }
+    },
+    {
+      "spec": "WR-31",
+      "variant": "npm",
+      "provenance": "policy",
+      "title": "an //npm script is refused: windmill-lite installs with Bun only",
+      "note": "//npm is out of scope (WR-31); the build reports it rather than install with npm.",
+      "given": {
+        "source": "//npm\nexport function main(){return 1}\n"
+      },
+      "expect": {
+        "annotations": [
+          "npm"
+        ],
+        "problem": {
+          "kind": "unsupported_feature",
+          "contains": [
+            "unsupported: npm"
+          ]
+        }
+      }
+    }
+  ]
+}

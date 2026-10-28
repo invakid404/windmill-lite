@@ -1,0 +1,307 @@
+{
+  "finding": "WR-28",
+  "note": "Workspace imports resolve from the sync folder (WR-28's design note). The finding is disputed only in its later dynamic-import consequence; the build follows the validation's whole-text reading (ADR 0001 §6, Q-WR-16).",
+  "cases": [
+    {
+      "spec": "WR-28/a",
+      "provenance": "disputed",
+      "title": "relative and absolute static imports, plus a transitive import",
+      "note": "Contested: no; static-import core.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { h } from \"./lib\";\nimport { g } from \"/f/b/util\";\nexport function main() { return [h(), g()]; }",
+        "files": {
+          "f/a/lib.ts": "import { z } from \"../c/z\";\nexport const h = () => \"lib:\" + z;\n",
+          "f/b/util.ts": "export const g = () => \"util\";\n",
+          "f/c/z.ts": "export const z = \"z\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/a/lib",
+          "f/b/util",
+          "f/c/z"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "lib:z",
+                "util"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28/b",
+      "provenance": "disputed",
+      "title": "an explicit .ts absolute import",
+      "note": "Contested: no; static-import core.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { k } from \"/f/b/util.ts\";\nexport function main() { return k; }",
+        "files": {
+          "f/b/util.ts": "export const k = \"k\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/b/util"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": "k"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28/c",
+      "provenance": "disputed",
+      "scope": "later",
+      "title": "a dynamic import with the identical literal of a static import",
+      "note": "Contested: no.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { h } from \"./helper\";\nexport async function main() { const m = await import(\"./helper\"); return [h, m.h]; }",
+        "files": {
+          "f/a/helper.ts": "export const h = \"helper\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/a/helper"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "helper",
+                "helper"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28/d",
+      "provenance": "disputed",
+      "scope": "later",
+      "title": "a dynamic import with no static rewrite trigger is not fetched",
+      "note": "Contested: no. Windmill's Bun resolves it against the job directory, where no such file exists; the bundle fails.",
+      "given": {
+        "path": "f/a/main",
+        "source": "export async function main() { return (await import(\"./helper\")).h; }",
+        "files": {
+          "f/a/helper.ts": "export const h = \"helper\";\n"
+        }
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "./helper"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28/e",
+      "provenance": "disputed",
+      "scope": "later",
+      "title": "a static specifier that matches a substring of a different dynamic specifier",
+      "note": "Contested. The build follows the validation reading: the static rewrite turns the dynamic literal into ./nested/./helper.ts, which is then resolved from the folder.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { h } from \"./helper\";\nexport async function main() { const m = await import(\"./nested/./helper\"); return [h, m.h]; }",
+        "files": {
+          "f/a/helper.ts": "export const h = \"top\";\n",
+          "f/a/nested/helper.ts": "export const h = \"nested\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/a/helper",
+          "f/a/nested/helper"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "top",
+                "nested"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28",
+      "variant": "json-import",
+      "provenance": "source-derived",
+      "title": "a relative non-TypeScript import is rewritten to .json.ts and fails",
+      "given": {
+        "path": "f/a/main",
+        "source": "import data from \"./data.json\";\nexport function main() { return data; }",
+        "files": {
+          "f/a/data.json": "{}"
+        }
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "./data.json.ts",
+            "f/a/data.json"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28",
+      "variant": "extensionless-absolute",
+      "provenance": "source-derived",
+      "title": "an extensionless absolute path outside /f/ and /u/ is neither rewritten nor intercepted, and fails",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { x } from \"/other/x\";\nexport function main() { return x; }",
+        "files": {
+          "other/x.ts": "export const x = 1;\n"
+        }
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "/other/x"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28",
+      "variant": "absolute-ts",
+      "provenance": "source-derived",
+      "title": "an absolute .ts path anywhere is fetched as that workspace path",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { x } from \"/other/x.ts\";\nexport function main() { return x; }",
+        "files": {
+          "other/x.ts": "export const x = \"other\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "other/x"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": "other"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28",
+      "variant": "missing-script",
+      "provenance": "source-derived",
+      "title": "an import of a path with no script fails the bundle",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { x } from \"./missing\";\nexport function main() { return x; }"
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "./missing.ts",
+            "f/a/missing"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-28",
+      "variant": "above-root",
+      "provenance": "policy",
+      "title": "dot segments are normalised and never go above the root",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { x } from \"../../../../f/b/./util\";\nexport function main() { return x; }",
+        "files": {
+          "f/b/util.ts": "export const x = \"util\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/b/util"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": "util"
+            }
+          ]
+        }
+      },
+      "note": "The reference normalises dot segments; that .. stops at the root is this build's reading (open question in the PR)."
+    },
+    {
+      "spec": "WR-28",
+      "variant": "re-export",
+      "provenance": "source-derived",
+      "title": "export from is a static import to Bun 1.3.10's scanner, so it is rewritten too",
+      "note": "Part of Q-WR-13 for the pinned Bun: its scanner reports export … from as an import statement.",
+      "given": {
+        "path": "f/a/main",
+        "source": "export { x } from \"./lib\";\nexport function main() { return 1; }",
+        "files": {
+          "f/a/lib.ts": "export const x = \"x\";\n"
+        }
+      },
+      "expect": {
+        "exports": [
+          "main",
+          "x"
+        ],
+        "imports": [
+          "f/a/lib"
+        ]
+      }
+    },
+    {
+      "spec": "WR-28",
+      "variant": "hashbang",
+      "provenance": "policy",
+      "title": "a script with a hashbang line is scanned and rewritten",
+      "note": "The .ts rewrite reads imports with Bun.Transpiler().scan, which accepts a hashbang line; scanImports would not. Which scanner Windmill's loader uses is an open question (Q-WR-13).",
+      "given": {
+        "path": "f/a/main",
+        "source": "#!/usr/bin/env bun\nimport { h } from \"./helper\";\nexport function main() { return h; }",
+        "files": {
+          "f/a/helper.ts": "export const h = \"helper\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/a/helper"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": "helper"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

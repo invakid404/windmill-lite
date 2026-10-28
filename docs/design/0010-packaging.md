@@ -60,11 +60,27 @@ host upgrades the engine and rebuilds the bundle together.
    imports and globals the native runtime lacks (D5);
 5. applies the **env rewrite** for per-invocation environments
    ([WA-31](../semantics/client-api.md#wa-31)) in both bundlers, from one
-   define table owned by the Go build: `Bun.env` becomes `process.env` in
-   every output, and `import.meta.env` becomes `process.env` only in ESM
-   output. In CommonJS output `import.meta` stays empty, as it does in the
-   CLI's esbuild bundles, so code that reads `import.meta.env` there fails as
-   it would on Windmill;
+   define table and one support module owned by the Go build. The support
+   module defines, once per process, a global proxy of the real `Bun` whose
+   `env` is `process.env`. Every reference to the global `Bun`, also through
+   `globalThis`, `global` or `self` (so an alias, or destructuring such as
+   `const { env } = Bun`), becomes that global; `Bun.env` (also written
+   `Bun["env"]`) becomes its `env` in every output, and `import.meta.env`
+   does only in ESM output. In CommonJS output `import.meta` stays empty, as
+   it does in the CLI's esbuild bundles, so code that reads
+   `import.meta.env` there fails as it would on Windmill. A rewrite at run
+   time cannot do this: on Bun 1.3.10 the global `Bun` and its `env` are
+   read-only and non-configurable. Every bundle imports the support module
+   before its own code; being a module of its own, its references to the
+   real globals are kept apart from a script's bindings by the bundler,
+   which renames those. The global's name is one that no input of the
+   bundle spells, so no binding of a script can capture a replaced
+   reference. What a define cannot see
+   reads the real environment: imports of the `bun` module, optional
+   chaining or reflection through the global object, and code built at run
+   time. The Bun helper applies the rewrite to Bun-target bundles; `//native`
+   and `//nodejs` scripts do not run with Bun's globals on Windmill, and
+   their environment is the native boundary's (C3n);
 6. resolves imports of **host-provided modules** (below) to generated shims,
    in both bundlers;
 7. writes the manifest last.
@@ -97,14 +113,20 @@ step, read `undefined` in the step; with the mechanism below they read the
 host's value in 16 of 16 concurrent invocations of two runs, including when
 the host was a compiled Bun executable.
 
-1. **Build.** The build helper resolves each import of a listed module to a
-   generated shim that takes every export from a process-wide registry
-   (`Symbol.for("windmill-lite.hostModules")`), by name. Export names come
-   from the one scan above. A shim cannot follow a live binding, so a module
-   that declares `export let` or `export var` is refused with
-   `host_module_live_binding`; other ways of exporting a binding that is later
-   reassigned are not detected, and the shim then sees the value as it was
-   when the module was registered.
+1. **Build.** The build helper resolves each import of a listed module, by
+   a script or by one of its dependencies, to a generated shim that takes
+   every export, by name, from a process-wide registry: a `Map` at
+   `globalThis[Symbol.for("windmill-lite.hostModules")]` from the module's
+   key in the host contract to its exports. Export names come from the one
+   scan above, so a host-provided module must be an ES module: a CommonJS
+   module's names are its exports object's properties, known only when it
+   runs, and it is refused with `host_module_commonjs`. A shim cannot follow
+   a live binding, so a module that declares
+   `export let` or `export var` is refused with `host_module_live_binding`;
+   other ways of exporting a binding that is later reassigned are not
+   detected, and the shim then sees the value as it was when the step's
+   module loaded. A listed module that imports another listed module is
+   registered after it; a cycle fails the build (`host_module_cycle`).
 2. **Host mode.** The Bun host SDK registers the host's own instances (the
    modules the host's program imported) before any step module loads.
 3. **Elsewhere.** The harness loads the bundled copy from
@@ -188,10 +210,25 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 ## Consequences
 
 - A deployed worker can prove which flows it runs, not just which code.
+- Milestone C2a built the Bun side (`internal/bundle`, `harnesses/bun/build`)
+  and found that Bun 1.3.10's global `Bun` and its `env` are read-only and
+  non-configurable, so step 5 gained the support module: the define table
+  alone missed aliases and destructuring of `Bun`. A first version put the
+  proxy in a banner, where a script's own `Object`, `process` or
+  `globalThis` captured its names; the support module and a binding name no
+  input spells replaced it in the first fix round. A script that
+  Windmill would fail to bundle at every run fails the build instead
+  (`bundle_failed`, [0001](0001-equivalence-contract.md) §5a). The build
+  helper's one dependency is its TypeScript parser, `@babel/parser` (MIT),
+  installed from its lockfile; the signature parse needs an AST, and Bun
+  exposes none. `Bun.build` inlines `process.env.NODE_ENV` from its own
+  environment, so the helper runs without one, and every bundle reads
+  `"development"` there; which value Windmill's worker build sees is a
+  question for the semantics team.
 - The pinned Bun is the reference's; a host on another Bun gets a visible
   `nonconformant_runtime` flag, not a silent difference.
 - One-file deployment is available for the common case of a single language.
 
 ## Spec IDs relied on
 
-WR-3, WR-6, WR-8, WR-26 to WR-32, WR-39, WA-31, SY-8, OR-3.
+WR-3, WR-6, WR-8, WR-25 to WR-32, WR-38 to WR-40, WA-31, WA-33, SY-8, OR-3.

@@ -1,0 +1,309 @@
+{
+  "finding": "WR-8",
+  "note": "Which parameters the signature parse marks as hydrated to Date. The truthiness rule and the hydration itself are the step runner's (C3a).",
+  "cases": [
+    {
+      "spec": "WR-8/a",
+      "provenance": "source-derived",
+      "title": "a local alias to Date",
+      "part": "build",
+      "rest_in": "C3a hydrates the argument",
+      "given": {
+        "source": "type Ts = Date; export function main(d: Ts) { return d instanceof Date; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8/b",
+      "provenance": "source-derived",
+      "title": "a three-member union is not hydrated",
+      "part": "build",
+      "rest_in": "C3a passes the string",
+      "given": {
+        "source": "export function main(d: Date | null | undefined) { return typeof d; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8/c",
+      "provenance": "source-derived",
+      "title": "array elements are not hydrated",
+      "part": "build",
+      "rest_in": "C3a passes the array",
+      "given": {
+        "source": "export function main(ds: Date[]) { return typeof ds[0]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "ds",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8/d",
+      "provenance": "source-derived",
+      "title": "Date and a two-member union with undefined are hydrated; Base64 and Uint8Array are not",
+      "part": "build",
+      "rest_in": "C3a applies the truthiness rule (WR-8/d to WR-8/f use this script)",
+      "given": {
+        "source": "export function main(d: Date, e: Date | undefined, s: Base64, u: Uint8Array) { return [d instanceof Date ? d.toISOString() : String(d), e === undefined, typeof s, Array.isArray(u)]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": true
+              },
+              {
+                "name": "e",
+                "date": true
+              },
+              {
+                "name": "s",
+                "date": false
+              },
+              {
+                "name": "u",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "optional",
+      "provenance": "source-derived",
+      "title": "an optional Date parameter, and one with a default",
+      "given": {
+        "source": "export function main(d?: Date, e: Date = new Date(0)) { return [d, e]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": true
+              },
+              {
+                "name": "e",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "null-first",
+      "provenance": "source-derived",
+      "title": "a two-member union with null, in either order, and parentheses",
+      "given": {
+        "source": "export function main(a: null | Date, b: (Date | null), c: (Date)) { return [a, b, c]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": true
+              },
+              {
+                "name": "b",
+                "date": true
+              },
+              {
+                "name": "c",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "alias-chain",
+      "provenance": "source-derived",
+      "title": "aliases resolve recursively, wherever they are declared, exported ones included",
+      "given": {
+        "source": "export function main(a: Outer, b: Nullable | undefined) { return [a, b]; }\ntype Outer = Inner;\nexport type Inner = Date;\ntype Nullable = Date | null;"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": true
+              },
+              {
+                "name": "b",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "not-date",
+      "provenance": "source-derived",
+      "title": "other unions, interfaces, imported names, missing annotations and arrays are not hydrated",
+      "given": {
+        "source": "import type { Stamp } from \"./types\";\ninterface When extends Date {}\nexport function main(a: Date | string, b: When, c: Stamp, e, f: Array<Date>) { return [a, b, c, e, f]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              },
+              {
+                "name": "b",
+                "date": false
+              },
+              {
+                "name": "c",
+                "date": false
+              },
+              {
+                "name": "e",
+                "date": false
+              },
+              {
+                "name": "f",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "date-before-local",
+      "provenance": "source-derived",
+      "title": "the name Date is matched before a local alias of that name",
+      "given": {
+        "source": "type Date = string;\nexport function main(d: Date) { return d; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "alias-cycle",
+      "provenance": "policy",
+      "title": "aliases that refer to each other resolve to nothing",
+      "given": {
+        "source": "type A = B;\ntype B = A;\nexport function main(d: A) { return d; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": false
+              }
+            ]
+          }
+        }
+      },
+      "note": "The reference does not cover aliases that refer to each other; they resolve to no type here."
+    },
+    {
+      "spec": "WR-8",
+      "variant": "qualified-date",
+      "provenance": "policy",
+      "title": "a qualified globalThis.Date is not the name Date",
+      "note": "The reference matches the type reference Date by name; a qualified name is read as another reference (open question in the PR).",
+      "given": {
+        "source": "export function main(d: globalThis.Date) { return d; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-8",
+      "variant": "snake-case-lookup",
+      "provenance": "source-derived",
+      "title": "aliases are looked up by their snake-case name",
+      "note": "The reference spelling MyDate and my_date share the snake-case name my_date.",
+      "given": {
+        "source": "type MyDate = Date;\nexport function main(d: my_date) { return d; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "d",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
