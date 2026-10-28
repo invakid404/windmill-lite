@@ -1,11 +1,11 @@
 # conformance
 
-**Current state:** eight levels of the shared conformance suite exist: the
+**Current state:** nine levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
 harness protocol cases in `protocol/`, the Bun build cases in `build/`, the
-flow fixtures in `flows/`, and the context-free expression cases in
-`exprs/`. `wltest record` records the flow fixtures and the expression cases
+flow fixtures in `flows/`, the Bun step cases in `steps/`, and the
+context-free expression cases in `exprs/`. `wltest record` records the flow fixtures and the expression cases
 on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
 recording batches E3c (flow execution errors), E3b (flow execution core)
 and E3d (loops, branches and the result cache), the stub-mode acceptance
@@ -15,13 +15,14 @@ catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
 walking skeleton's interpreter (milestone E1), which runs sequential flows
 of Bun steps only: the runs it cannot run are reported as unsupported, and
 the runs it must pass are listed in `cmd/wltest/testdata/flowsuite.json`
-([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression pipeline
-([internal/expr](../internal/expr/README.md), milestone B2a) run the
-expression cases and the flow fixtures' unit cases through its shortcuts
-and textual stages on a fake engine; what the engine computes waits for
-B2b. The step cases in `steps/` run on windmill-lite's Bun harness through
-`wltest check` (milestone C3a), in `warm` and, since milestone C3b, in
-`fresh` mode.
+([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression
+pipeline ([internal/expr](../internal/expr/README.md)) run the expression
+cases and the flow fixtures' unit cases at unit level: through its
+shortcuts and textual stages on a fake engine (milestone B2a), and on
+QuickJS-ng against what the oracle recorded, apart from the cases they list
+as skipped or as deviations (B2b). The step cases in `steps/` run on
+windmill-lite's Bun harness through `wltest check` (milestone C3a), in
+`warm` and, since milestone C3b, in `fresh` mode.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -295,7 +296,7 @@ doubled, so the JSON text stays byte for byte as written:
 finding: JE-44
 cases:
   - spec: JE-44/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: an older step is read from the database (jsonb order)
     read: stored
     given: '{"bbb":1,"a":2,"cc":3}'
@@ -374,8 +375,9 @@ Case fields beyond those of the decode cases:
 
 The runner writes each case to a temporary directory, with a `.git`
 directory at its root so that the upward search for `wmill.yaml` stays in the
-case. `deferred.json` lists the catalogue's SY and PA cases checked elsewhere,
-each with the reason; the SY-9 cases are the YAML dialect's, in
+case. `deferred.json` lists the catalogue's SY and PA cases that are not
+load cases here, each with the reason and where it is expected to be
+checked; the SY-9 cases are the YAML dialect's, in
 [internal/yamlx](../internal/yamlx/README.md).
 
 ## Compile cases
@@ -395,9 +397,9 @@ its `note` says which milestone checks the run.
   "cases": [
     {
       "spec": "CF-8/c",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "part": "compile",
-      "note": "Both readings agree; the case is carried as disputed with its finding. The run half, every iteration getting the flow input, is N3a's.",
+      "note": "The catalogue records the case as oracle-observed and CF-8 as settled. The run half, every iteration getting the flow input, is N3a's.",
       "title": "a loop at step 0 collapses",
       "given": {"files": {"wmill.yaml": "defaultTs: bun\n", "f/x/main.flow/flow.yaml": "..."}},
       "expect": {"steps": {"f/x/main m:l": {"at": {"/forloop/collapse": true}}}}
@@ -422,11 +424,12 @@ Case fields beyond those of the load cases:
 | `expect.scripts` | per inventory id, pointers into that entry |
 
 `deferred.json` lists the catalogue cases of these findings that are
-neither compile cases nor checked at the decode or load level, each with the
-reason and where it is expected to be checked. A test fails unless every
-catalogue case of a finding with a file here is accounted for, and unless
-every case that `openflow/deferred.json` defers to `conformance/ir` is a
-compile case.
+neither compile cases nor accounted for at the decode or load level (a case
+there, or an entry in its `deferred.json`), each with the reason and where
+it is expected to be checked. A test fails unless every catalogue case of a
+finding with a file here is accounted for, and unless every case that
+`openflow/deferred.json` or `syncfolder/deferred.json` defers to
+`conformance/ir` is a compile case.
 
 ## Protocol cases
 

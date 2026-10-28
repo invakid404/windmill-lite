@@ -10,7 +10,7 @@ note: >-
   behaviour the reference does not state (numeric's range).
 cases:
   - spec: JE-44/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: the previous step is read from memory (producer order)
     read: producer
     given: '{"bbb":1,"a":2,"cc":3}'
@@ -19,7 +19,7 @@ cases:
       stored: '{"a":2,"cc":3,"bbb":1}'
     rest_in: N1a, which serves results.a directly after a from the producer text (JE-8)
   - spec: JE-44/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: an older step is read from the database (jsonb order)
     read: stored
     given: '{"bbb":1,"a":2,"cc":3}'
@@ -28,7 +28,7 @@ cases:
       stored: '{"a":2,"cc":3,"bbb":1}'
     rest_in: N1a, which serves results.a past a step in between from the stored text (JE-18)
   - spec: JE-44/c
-    provenance: source-derived
+    provenance: oracle-observed
     title: exponents are expanded
     read: stored
     given: '{"n":1e3}'
