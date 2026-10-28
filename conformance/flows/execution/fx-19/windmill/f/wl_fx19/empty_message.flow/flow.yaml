@@ -1,0 +1,13 @@
+summary: FX-19/c empty error_message
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_fx19/three
+      stop_after_if:
+        error_include_result: true
+        error_message: ''
+        expr: result > 2
+        skip_if_stopped: false

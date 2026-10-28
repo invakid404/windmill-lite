@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/execution/fx-42",
+  "run": "args_file",
+  "repeat": 0,
+  "workspace": "wl-243a87-8",
+  "root": "f0364142-bbe5-4439-9192-04588555e9ad",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/get/f0364142-bbe5-4439-9192-04588555e9ad?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-8\",\"id\":\"f0364142-bbe5-4439-9192-04588555e9ad\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:30.613588Z\",\"started_at\":\"2026-10-28T12:15:30.646828Z\",\"completed_at\":\"2026-10-28T12:15:30.707328Z\",\"duration_ms\":61,\"success\":true,\"script_hash\":\"000000000000001b\",\"script_path\":\"f/wl_fx42/args_file\",\"args\":{},\"result\":\"{\\\"v\\\":{\\\"zz\\\":1000.0,\\\"b\\\":1e+21,\\\"aaa\\\":12345678901234567891,\\\"big\\\":1.2345678901234568e+29,\\\"n\\\":1500.0,\\\"s\\\":\\\"A/\\\"}}\",\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826f-d958-d520-2049-0d01278dd694\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"v\":{\"type\":\"static\",\"value\":\"$jsonvar:f/wl_fx42/numbers\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/completed/get_result_maybe/f0364142-bbe5-4439-9192-04588555e9ad?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":\"{\\\"v\\\":{\\\"zz\\\":1000.0,\\\"b\\\":1e+21,\\\"aaa\\\":12345678901234567891,\\\"big\\\":1.2345678901234568e+29,\\\"n\\\":1500.0,\\\"s\\\":\\\"A/\\\"}}\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/get/01a1826f-d958-d520-2049-0d01278dd694?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-8\",\"id\":\"01a1826f-d958-d520-2049-0d01278dd694\",\"parent_job\":\"f0364142-bbe5-4439-9192-04588555e9ad\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:30.647847Z\",\"started_at\":\"2026-10-28T12:15:30.650058Z\",\"completed_at\":\"2026-10-28T12:15:30.702192Z\",\"duration_ms\":49,\"success\":true,\"script_hash\":\"000000000000001e\",\"script_path\":\"f/wl_fx42/args_file/a\",\"args\":{\"v\":\"$jsonvar:f/wl_fx42/numbers\"},\"result\":\"{\\\"v\\\":{\\\"zz\\\":1000.0,\\\"b\\\":1e+21,\\\"aaa\\\":12345678901234567891,\\\"big\\\":1.2345678901234568e+29,\\\"n\\\":1500.0,\\\"s\\\":\\\"A/\\\"}}\",\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":20524,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/get_args/01a1826f-d958-d520-2049-0d01278dd694",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"v\": \"$jsonvar:f/wl_fx42/numbers\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/completed/get_result_maybe/01a1826f-d958-d520-2049-0d01278dd694?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":\"{\\\"v\\\":{\\\"zz\\\":1000.0,\\\"b\\\":1e+21,\\\"aaa\\\":12345678901234567891,\\\"big\\\":1.2345678901234568e+29,\\\"n\\\":1500.0,\\\"s\\\":\\\"A/\\\"}}\"}"
+    }
+  ]
+}

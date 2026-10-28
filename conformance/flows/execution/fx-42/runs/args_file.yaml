@@ -1,0 +1,22 @@
+# FX-42/h, Q-FX-16: the stored argument is the reference string; the
+# arguments file holds the resolved value. Reading (b), the ADR 0001
+# section 6 default: the keys keep the variable's order, 1e3 and 1.50e3
+# become 1000.0 and 1500.0, the integer that fits in an unsigned 64-bit
+# integer stays exact, 1e21 and the larger integer become doubles, the
+# escapes are decoded and the spaces gone. Reading (a) would keep the
+# variable's text.
+spec: [FX-42/h, WR-5]
+target: f/wl_fx42/args_file
+expect:
+  status: success
+  result: "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"
+  steps:
+    "m:a":
+      status: success
+      args: {v: "$jsonvar:f/wl_fx42/numbers"}
+      result: "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"
+note: >-
+  Corrected after recording, within reading (b). The prediction wrote the
+  exponents as 1e21 and 1.2345678901234568e29; the resolver writes 1e+21 and
+  1.2345678901234568e+29. The spelling surfaced in oracle run 40685013818 and
+  is recorded by run 40686049913.

@@ -1,0 +1,10 @@
+# FX-19, second mode: skip_if_stopped false and no error_message is a clean
+# stop too, but the flow's status is success and a is not marked skipped.
+spec: [FX-19]
+target: f/wl_fx19/clean_success
+expect:
+  status: success
+  result: 3
+  steps:
+    "m:a": {status: success, args: {}, result: 3}
+    "m:b": {status: not_run}

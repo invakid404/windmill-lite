@@ -1,0 +1,12 @@
+# FX-6: what previous_result is. Step 0 sees the flow input (FX-6/a); after
+# a tolerated failure the next step sees the wrapped error (FX-6/b); and a
+# previous result that is re-derived for a retry, after a predecessor that
+# did not succeed, is the two-character JSON string "{}" (the rule's
+# re-derivation bullet). Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-6.
+id: execution/fx-6
+spec: [FX-6, FX-6/a, FX-6/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

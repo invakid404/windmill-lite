@@ -1,0 +1,11 @@
+# FX-19/a: a clean stop with skip_if_stopped: a is Success{skipped: true},
+# the flow completes successfully with status skipped and a's result, and b
+# never runs.
+spec: [FX-19/a]
+target: f/wl_fx19/clean_skipped
+expect:
+  status: skipped
+  result: 3
+  steps:
+    "m:a": {status: success, skipped: true, args: {}, result: 3}
+    "m:b": {status: not_run}

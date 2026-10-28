@@ -1,0 +1,11 @@
+# FX-8: the scope of each flow-level expression. In stop_after_if, result
+# and previous_result are both the step's own result (FX-8/a); in a sleep
+# expression results is not defined, so referencing it fails the flow at the
+# transition with a chaining error (FX-8/b, FX-15). Synthetic, written for
+# this repository from docs/semantics/execution.md#fx-8.
+id: execution/fx-8
+spec: [FX-8, FX-8/a, FX-8/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

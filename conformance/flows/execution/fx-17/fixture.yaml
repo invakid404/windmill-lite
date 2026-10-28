@@ -1,0 +1,14 @@
+# FX-17: skip_if. A skipped step passes its input through (FX-17/a); a step
+# skipped only on its retry returns the reused args' previous_result field,
+# {} (FX-17/b); and a skipped last step's stop_after_if is not evaluated,
+# so the flow is not stopped and ends with the passthrough value. FX-17/b
+# changes a variable mid-run: step a writes it through the REST API with
+# its job token before it throws, and step reset writes it back first, so
+# every repetition starts from "run". Synthetic, written for this
+# repository from docs/semantics/execution.md#fx-17.
+id: execution/fx-17
+spec: [FX-17, FX-17/a, FX-17/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,11 @@
+# FX-18: with no skip_if, stop_after_if is evaluated on the mock value 5,
+# so the clean stop with skip_if_stopped ends the flow as skipped with 5,
+# and b never runs (FX-19).
+spec: [FX-18, FX-19]
+target: f/wl_fx18/mock_stop
+expect:
+  status: skipped
+  result: 5
+  steps:
+    "m:a": {status: success, skipped: true, args: {previous_result: 5}, result: 5}
+    "m:b": {status: not_run}

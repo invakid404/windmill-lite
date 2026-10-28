@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/execution/fx-19",
+  "run": "error_include",
+  "repeat": 0,
+  "workspace": "wl-243a87-5",
+  "root": "8ab3a2c4-a7ff-452d-ad0a-d50c08678b15",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-5/jobs_u/get/8ab3a2c4-a7ff-452d-ad0a-d50c08678b15?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-5\",\"id\":\"8ab3a2c4-a7ff-452d-ad0a-d50c08678b15\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:18.385798Z\",\"started_at\":\"2026-10-28T12:15:18.415606Z\",\"completed_at\":\"2026-10-28T12:15:18.440693Z\",\"duration_ms\":25,\"success\":false,\"script_hash\":\"000000000000000f\",\"script_path\":\"f/wl_fx19/error_include\",\"args\":{},\"result\":{\"error\": {\"name\": \"EarlyStopError\", \"result\": 3, \"message\": \"too big\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826f-a991-0229-2972-78d26faa72ed\", \"type\": \"Failure\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"script\",\"input_transforms\":{},\"path\":\"f/wl_fx19/three\"},\"stop_after_if\":{\"expr\":\"result \u003e 2\",\"skip_if_stopped\":false,\"error_message\":\"too big\",\"error_include_result\":true}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-5/jobs_u/completed/get_result_maybe/8ab3a2c4-a7ff-452d-ad0a-d50c08678b15?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"EarlyStopError\", \"result\": 3, \"message\": \"too big\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-5/jobs_u/get/01a1826f-a991-0229-2972-78d26faa72ed?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-5\",\"id\":\"01a1826f-a991-0229-2972-78d26faa72ed\",\"parent_job\":\"8ab3a2c4-a7ff-452d-ad0a-d50c08678b15\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:18.417689Z\",\"started_at\":\"2026-10-28T12:15:18.420Z\",\"completed_at\":\"2026-10-28T12:15:18.436680Z\",\"duration_ms\":14,\"success\":true,\"script_hash\":\"d414add80d59d650\",\"script_path\":\"f/wl_fx19/three\",\"args\":{},\"result\":3,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"script\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":10420,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-5/jobs_u/get_args/01a1826f-a991-0229-2972-78d26faa72ed",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-5/jobs_u/completed/get_result_maybe/01a1826f-a991-0229-2972-78d26faa72ed?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":3}"
+    }
+  ]
+}

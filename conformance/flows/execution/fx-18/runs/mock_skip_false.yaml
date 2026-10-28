@@ -1,0 +1,11 @@
+# FX-18: the same flow with skip_if false. A mocked module with any
+# configured skip_if is classified as skipped, even though the predicate is
+# false, so its stop_after_if is not evaluated and b runs.
+spec: [FX-18, FX-17]
+target: f/wl_fx18/mock_skip_false
+expect:
+  status: success
+  result: 9
+  steps:
+    "m:a": {status: success, skipped: true, args: {previous_result: 5}, result: 5}
+    "m:b": {status: success, args: {}, result: 9}

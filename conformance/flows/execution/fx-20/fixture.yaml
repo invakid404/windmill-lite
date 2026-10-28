@@ -1,0 +1,13 @@
+# FX-20: how a stop-early propagates through containers. A clean stop in a
+# branchone body stops the parent flow with the same skipped flag
+# (FX-20/a); the error-message flavour reaches the parent as a plain
+# failure (the rule's second branch bullet, medium confidence on exact
+# shapes). Loop, parallel and subflow propagation are E3d's CF cases.
+# Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-20.
+id: execution/fx-20
+spec: [FX-20, FX-20/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

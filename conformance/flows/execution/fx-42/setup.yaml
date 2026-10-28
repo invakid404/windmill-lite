@@ -1,0 +1,4 @@
+variables:
+  - path: f/wl_fx42/numbers
+    value: '{"zz": 1e3, "b": 1e21, "aaa": 12345678901234567891, "big": 123456789012345678901234567890, "n": 1.50e3, "s": "A\/"}'
+    description: FX-42/h's resolver text

@@ -1,0 +1,99 @@
+{
+  "about": "Recording batch E3b of ADR 0012, FX core: the catalogue cases of FX-6 to FX-10 and FX-16 to FX-21, and FX-42/h, recorded on the CE oracle by the runs of the fixtures below; the runs that cite only a finding id encode its rule beyond the catalogue, among them FX-10's handler-free Q-FX-15 discriminator (run memory_or_storage). Each run's expect was written from the reference before the oracle first ran it; the six corrected afterwards say so in their note. gates names the milestone whose exit gate runs each run: N1a unless the flow needs a feature a later milestone implements, continue_on_error, the failure module, error shapes and chaining errors (N1b), retry or sleep (N2), branches (N3b), a platform provider (PF2); a run that needs two of these from milestones neither of which depends on the other gates the first milestone that needs both, NI for N1b with N2 and F1 for N2 with PF2, where ADR 0012 puts E3a's JE-V2/b. TestRecordingBatches enforces it.",
+  "batch": "E3b",
+  "findings": [
+    "FX-6",
+    "FX-7",
+    "FX-8",
+    "FX-9",
+    "FX-10",
+    "FX-16",
+    "FX-17",
+    "FX-18",
+    "FX-19",
+    "FX-20",
+    "FX-21"
+  ],
+  "cases": [
+    "FX-42/h"
+  ],
+  "fixtures": [
+    "conformance/flows/execution/fx-6",
+    "conformance/flows/execution/fx-7",
+    "conformance/flows/execution/fx-8",
+    "conformance/flows/execution/fx-9",
+    "conformance/flows/execution/fx-10",
+    "conformance/flows/execution/fx-16",
+    "conformance/flows/execution/fx-17",
+    "conformance/flows/execution/fx-18",
+    "conformance/flows/execution/fx-19",
+    "conformance/flows/execution/fx-20",
+    "conformance/flows/execution/fx-21",
+    "conformance/flows/execution/fx-42"
+  ],
+  "deferred": [],
+  "parts": [],
+  "prefixes": [
+    {
+      "case": "FX-7/d",
+      "run": "conformance/flows/execution/fx-7/result_unbound",
+      "pointer": "/result/error/message",
+      "prefix": "Error during isolated evaluation of expression `result`:\n"
+    }
+  ],
+  "contradictions": [
+    {
+      "case": "FX-7/d",
+      "catalogue": "the pre-run error carries an engine ReferenceError; the oracle renders the exception with the name Error: QuickJS evaluation error: Error: result is not defined",
+      "run": "conformance/flows/execution/fx-7/result_unbound",
+      "pointer": "/result/error/message",
+      "observed": "Error during isolated evaluation of expression `result`:\nQuickJS evaluation error: Error: result is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:35)\n"
+    },
+    {
+      "case": "FX-42/h",
+      "catalogue": "Expect (as drafted): the variable's spelling survives into the arguments; the oracle wrote the correction's re-serialised values (1e3 as 1000.0, 1e21 as 1e+21)",
+      "run": "conformance/flows/execution/fx-42/args_file",
+      "pointer": "/result",
+      "observed": "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"
+    }
+  ],
+  "gates": {
+    "conformance/flows/execution/fx-10/handler_reads": "N1b",
+    "conformance/flows/execution/fx-10/memory_or_storage": "N1a",
+    "conformance/flows/execution/fx-10/unknown_id": "N1a",
+    "conformance/flows/execution/fx-16/direct_input": "N1a",
+    "conformance/flows/execution/fx-16/passthrough": "N1a",
+    "conformance/flows/execution/fx-17/skip_last_no_stop": "N1a",
+    "conformance/flows/execution/fx-17/skip_on_retry": "F1",
+    "conformance/flows/execution/fx-17/skip_passthrough": "N1a",
+    "conformance/flows/execution/fx-18/mock_skip_false": "N1a",
+    "conformance/flows/execution/fx-18/mock_stop": "N1a",
+    "conformance/flows/execution/fx-18/mocked": "N1a",
+    "conformance/flows/execution/fx-19/clean_skipped": "N1a",
+    "conformance/flows/execution/fx-19/clean_success": "N1a",
+    "conformance/flows/execution/fx-19/empty_message": "N1a",
+    "conformance/flows/execution/fx-19/error_include": "N1a",
+    "conformance/flows/execution/fx-19/retry_no_handler": "N2",
+    "conformance/flows/execution/fx-19/retry_then_handler": "NI",
+    "conformance/flows/execution/fx-19/skipped_wins": "N1a",
+    "conformance/flows/execution/fx-19/tolerated_last": "N1b",
+    "conformance/flows/execution/fx-19/tolerated_last_handler": "N1b",
+    "conformance/flows/execution/fx-19/tolerated_next": "N1b",
+    "conformance/flows/execution/fx-19/tolerated_next_no_handler": "N1b",
+    "conformance/flows/execution/fx-20/branch_error_stop": "N3b",
+    "conformance/flows/execution/fx-20/branch_stop": "N3b",
+    "conformance/flows/execution/fx-21/throwing_stop": "N1b",
+    "conformance/flows/execution/fx-21/throwing_stop_handler": "N1b",
+    "conformance/flows/execution/fx-42/args_file": "PF2",
+    "conformance/flows/execution/fx-42/javascript": "PF2",
+    "conformance/flows/execution/fx-6/after_tolerated": "N1b",
+    "conformance/flows/execution/fx-6/first_step": "N1a",
+    "conformance/flows/execution/fx-6/rederived_on_retry": "NI",
+    "conformance/flows/execution/fx-7/js_and_static": "N1a",
+    "conformance/flows/execution/fx-7/params_and_undefined": "N1a",
+    "conformance/flows/execution/fx-7/result_unbound": "N1b",
+    "conformance/flows/execution/fx-8/sleep_no_results": "NI",
+    "conformance/flows/execution/fx-8/stop_scope": "N1a",
+    "conformance/flows/execution/fx-9/values": "N1a"
+  }
+}

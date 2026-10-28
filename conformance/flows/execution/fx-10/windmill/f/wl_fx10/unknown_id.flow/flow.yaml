@@ -1,0 +1,29 @@
+summary: FX-10/b unknown and not-yet-run ids give null
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms:
+          w:
+            type: javascript
+            expr: results.later === null
+          x:
+            type: javascript
+            expr: results.zzz
+          y:
+            type: javascript
+            expr: results.zzz === null
+          z:
+            type: javascript
+            expr: results.later
+        lock: '!inline a.lock'
+        language: bun
+    - id: later
+      value:
+        type: rawscript
+        content: '!inline later.ts'
+        input_transforms: {}
+        lock: '!inline later.lock'
+        language: bun

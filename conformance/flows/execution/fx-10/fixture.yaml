@@ -1,0 +1,16 @@
+# FX-10: the results.<id> resolution routes. A failure module reads an
+# error-stopped step three ways (FX-10/a); unknown and not-yet-run ids give
+# null on the direct lookup and in the engine (FX-10/b, JE-18); and, with no
+# failure module, which reads of the preceding id an engine expression
+# serves from memory rather than storage (Q-FX-15, FX-V6). That last
+# discriminator is the key order of the preceding result: in memory it keeps
+# the producer's order zz, b, aaa (FX-42/c); from storage it has jsonb's
+# order b, zz, aaa (FX-42/a). The handler-bound discriminator FX-V6/a is
+# E3c's. Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-10.
+id: execution/fx-10
+spec: [FX-10, FX-10/a, FX-10/b, FX-V6]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -1609,6 +1609,133 @@
    }
   },
   {
+   "name": "FX-19/d: a successful failure module lists the flow's earlier failed attempt again; the attempt's job id keeps its first site",
+   "spec": [
+    "OR-11",
+    "FX-19/d",
+    "FX-27",
+    "FX-29"
+   ],
+   "provenance": "oracle-observed",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "a",
+      "value": {
+       "type": "rawscript",
+       "language": "bun",
+       "content": "export function main() {}"
+      },
+      "stop_after_if": {
+       "expr": "true",
+       "skip_if_stopped": false,
+       "error_message": "E"
+      },
+      "retry": {
+       "constant": {
+        "attempts": 1,
+        "seconds": 0
+       }
+      }
+     }
+    ],
+    "failure_module": {
+     "id": "failure",
+     "value": {
+      "type": "rawscript",
+      "language": "bun",
+      "content": "export function main() {}"
+     }
+    }
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": false,
+     "flow_status": {
+      "step": 2,
+      "modules": [
+       {
+        "type": "Failure",
+        "id": "a",
+        "job": "${a1}",
+        "failed_retries": [
+         "${a0}"
+        ]
+       }
+      ],
+      "failure_module": {
+       "type": "Success",
+       "id": "failure",
+       "job": "${h}",
+       "skipped": false,
+       "parent_module": "a",
+       "failed_retries": [
+        "${a0}"
+       ]
+      }
+     },
+     "args": {},
+     "result": {
+      "first_attempt": "${a0}"
+     }
+    },
+    "a0": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 3
+    },
+    "a1": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": 3
+    },
+    "h": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": {
+      "first_attempt": "${a0}"
+     }
+    }
+   },
+   "expect": {
+    "status": "failure",
+    "result": {
+     "first_attempt": "<job:m:a/r:0>"
+    },
+    "steps": {
+     "m:a/r:0": {
+      "status": "success",
+      "args": {},
+      "result": 3
+     },
+     "m:a": {
+      "status": "success",
+      "module": "failure",
+      "args": {},
+      "result": 3
+     },
+     "s:failure/r:0": {
+      "status": "success",
+      "args": {},
+      "result": 3
+     },
+     "s:failure": {
+      "status": "success",
+      "args": {},
+      "result": {
+       "first_attempt": "<job:m:a/r:0>"
+      }
+     }
+    }
+   }
+  },
+  {
    "name": "OR-V8/a and OR-12/b: an ordinary module named failure beside a handler named recover",
    "spec": [
     "OR-V8/a",

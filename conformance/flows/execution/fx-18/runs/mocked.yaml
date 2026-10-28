@@ -1,0 +1,9 @@
+# FX-18/a: a would throw, but it is mocked: an identity job returns the
+# mock value and the flow succeeds with it.
+spec: [FX-18/a, FX-16]
+target: f/wl_fx18/mocked
+expect:
+  status: success
+  result: {m: 1}
+  steps:
+    "m:a": {status: success, args: {previous_result: {m: 1}}, result: {m: 1}}

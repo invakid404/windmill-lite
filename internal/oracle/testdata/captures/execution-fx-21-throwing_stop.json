@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/execution/fx-21",
+  "run": "throwing_stop",
+  "repeat": 0,
+  "workspace": "wl-243a87-7",
+  "root": "826c667c-2fb9-477a-bcf6-ac162a68a2ec",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-7/jobs_u/get/826c667c-2fb9-477a-bcf6-ac162a68a2ec?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-7\",\"id\":\"826c667c-2fb9-477a-bcf6-ac162a68a2ec\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:27.379212Z\",\"started_at\":\"2026-10-28T12:15:27.416397Z\",\"completed_at\":\"2026-10-28T12:15:27.443007Z\",\"duration_ms\":27,\"success\":false,\"script_hash\":\"000000000000001a\",\"script_path\":\"f/wl_fx21/throwing_stop\",\"args\":{},\"result\":{\"error\": \"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\\n    at \u003canonymous\u003e (eval_script:1:35)\\n    at \u003ceval\u003e (eval_script:1:44)\\n @worker_flow.rs:2451:11\"},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826f-ccb9-cb05-0bcb-842e6adeb391\", \"type\": \"Failure\"}, {\"id\": \"b\", \"type\": \"WaitingForPriorSteps\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"stop_after_if\":{\"expr\":\"null.x\",\"skip_if_stopped\":false},\"continue_on_error\":true},{\"id\":\"b\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-7/jobs_u/completed/get_result_maybe/826c667c-2fb9-477a-bcf6-ac162a68a2ec?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": \"Error: QuickJS evaluation error: Error: cannot read property 'x' of null\\n    at \u003canonymous\u003e (eval_script:1:35)\\n    at \u003ceval\u003e (eval_script:1:44)\\n @worker_flow.rs:2451:11\"}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-7/jobs_u/get/01a1826f-ccb9-cb05-0bcb-842e6adeb391?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-7\",\"id\":\"01a1826f-ccb9-cb05-0bcb-842e6adeb391\",\"parent_job\":\"826c667c-2fb9-477a-bcf6-ac162a68a2ec\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:27.417345Z\",\"started_at\":\"2026-10-28T12:15:27.419580Z\",\"completed_at\":\"2026-10-28T12:15:27.438446Z\",\"duration_ms\":17,\"success\":true,\"script_hash\":\"000000000000001c\",\"script_path\":\"f/wl_fx21/throwing_stop/a\",\"args\":{},\"result\":1,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":17316,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-7/jobs_u/get_args/01a1826f-ccb9-cb05-0bcb-842e6adeb391",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-7/jobs_u/completed/get_result_maybe/01a1826f-ccb9-cb05-0bcb-842e6adeb391?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":1}"
+    }
+  ]
+}
