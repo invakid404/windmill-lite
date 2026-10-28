@@ -48,7 +48,7 @@ jobs:
         run: |
           changed=$(git diff --name-only "$BASE...$HEAD" -- \
             conformance/ internal/oracle/ internal/conformance/ cmd/wltest/ \
-            internal/openflow/ internal/yamlx/ \
+            internal/openflow/ internal/yamlx/ internal/syncfolder/ \
             .github/workflows/oracle.yml go.mod go.sum)
           if [ "$HAS_LABEL" = "true" ] || [ -n "$changed" ]; then
             echo "record=true" >> "$GITHUB_OUTPUT"

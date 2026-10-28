@@ -1,0 +1,43 @@
+# Outer run R of OR-V6/a, submitted together with run t (group rt): its
+# calls are answered from its own table and are its effects only.
+target: f/wl_stub/notify
+args: {team: red}
+group: rt
+replay:
+  "m:who/m:lookup": {result: [ana, ben]}
+  "m:send/i:0/m:post": {result: {to: ana, sent: true}}
+  "m:send/i:1/m:post": {result: {to: ben, sent: true}}
+expect:
+  status: success
+  result: [{to: ana, sent: true}, {to: ben, sent: true}]
+  steps:
+    "m:send": {status: success, result: [{to: ana, sent: true}, {to: ben, sent: true}]}
+    "m:who": {status: success, args: {team: red}, result: [ana, ben]}
+    "m:who/m:lookup": {status: success, args: {team: red}, result: [ana, ben]}
+    "m:send/i:0/m:post": {status: success, args: {team: red, to: ana}, result: {to: ana, sent: true}}
+    "m:send/i:1/m:post": {status: success, args: {team: red, to: ben}, result: {to: ben, sent: true}}
+  effects:
+    - site: "m:who/m:lookup"
+      attempt: 0
+      step: lookup
+      job: "<job:m:who/m:lookup>"
+      flow: "<job:m:who>"
+      root_flow: "<job:m:who>"
+      root: "<job:>"
+      args: [red]
+    - site: "m:send/i:0/m:post"
+      attempt: 0
+      step: post
+      job: "<job:m:send/i:0/m:post>"
+      flow: "<job:m:send/i:0>"
+      root_flow: "<job:m:send/i:0>"
+      root: "<job:>"
+      args: [ana, red]
+    - site: "m:send/i:1/m:post"
+      attempt: 0
+      step: post
+      job: "<job:m:send/i:1/m:post>"
+      flow: "<job:m:send/i:1>"
+      root_flow: "<job:m:send/i:1>"
+      root: "<job:>"
+      args: [ben, red]

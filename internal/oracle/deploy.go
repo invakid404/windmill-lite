@@ -147,6 +147,9 @@ type Deployment struct {
 	Scripts map[string]DeploymentStatus `json:"scripts"`
 	Flows   map[string]DeploymentStatus `json:"flows"`
 	Modules map[string][]string         `json:"modules"`
+	// Stubbed lists the script sources a stub fixture's push replaced
+	// (StubTree).
+	Stubbed []string `json:"stubbed,omitempty"`
 }
 
 // Gate waits for the deployment of everything the push created (OR-9). For

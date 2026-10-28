@@ -1,11 +1,13 @@
 // Command wltest is windmill-lite's conformance and oracle runner (ADR
-// 0011). It has one verb so far:
+// 0011). It has two verbs so far:
 //
 //	wltest record [flags] <fixture or directory>...
+//	wltest stub --out <dir> <sync tree>
 //
 // record runs flow fixtures on the pinned Windmill CE oracle and writes
-// their recordings with provenance. check, diff and stub are later
-// milestones (E1, E4a).
+// their recordings with provenance; fixtures in stub mode run stubbed,
+// with the replay service answering from each run's table. stub writes a
+// stubbed copy of a sync tree. check and diff are later milestones (E1).
 package main
 
 import (
@@ -36,10 +38,12 @@ func main() {
 }
 
 const usage = `usage: wltest record [flags] <fixture or directory>...
+       wltest stub --out <dir> <sync tree>
 
 record runs flow fixtures on the Windmill CE v1.767.0 oracle and writes
 recorded/<run>.json with provenance. Run wltest record -h for its flags.
-check, diff and stub are not implemented yet.
+stub copies a sync tree to <dir> with every Bun script body replaced by a
+replay stub (ADR 0011). check and diff are not implemented yet.
 `
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -50,8 +54,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "record":
 		return record(ctx, args[1:], stdout, stderr)
-	case "check", "diff", "stub":
-		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0012: E1, E4a)\n", args[0])
+	case "stub":
+		return stub(args[1:], stdout, stderr)
+	case "check", "diff":
+		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0012: E1)\n", args[0])
 		return 2
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
@@ -151,6 +157,36 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if failed {
 		return 1
 	}
+	return 0
+}
+
+// stub writes the stubbed copy of a sync tree (ADR 0011 stub mode). Its
+// metadata still describes the original: run the CLI's generate-metadata
+// in the copy before pushing it, as record does for stub fixtures.
+func stub(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("stub", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "", "directory to write the stubbed tree to; it must not exist")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 || *out == "" {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	rep, err := oracle.StubTree(fs.Arg(0), *out)
+	if err != nil {
+		var r *oracle.Refusal
+		if errors.As(err, &r) {
+			fmt.Fprintln(stdout, string(r.JSON()))
+		}
+		fmt.Fprintln(stderr, "wltest:", err)
+		return 1
+	}
+	for _, f := range rep.Files {
+		fmt.Fprintln(stdout, "stubbed", f)
+	}
+	fmt.Fprintf(stderr, "wltest: run %s generate-metadata in %s before pushing it\n", oracle.CLIPackage, *out)
 	return 0
 }
 

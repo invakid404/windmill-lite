@@ -1,0 +1,42 @@
+# Each iteration is the body's own job at i:<n>/m:book; its step id is the
+# loop's (CF-24). The stub receives at as the hydrated Date, which it sends
+# as Date.toJSON() gives it; the stored argument keeps the input's text.
+target: f/wl_stub/collapsed
+args: {days: ["2026-03-02T09:00:00Z", "2026-03-03T09:30:00Z"]}
+replay:
+  "m:each/i:0/m:book": {result: 4}
+  "m:each/i:1/m:book": {result: 7}
+  "m:total": {result: 11}
+expect:
+  status: success
+  result: 11
+  steps:
+    "m:each": {status: success, result: [4, 7]}
+    "m:each/i:0/m:book": {status: success, args: {at: "2026-03-02T09:00:00Z", n: 0}, result: 4}
+    "m:each/i:1/m:book": {status: success, args: {at: "2026-03-03T09:30:00Z", n: 1}, result: 7}
+    "m:total": {status: success, args: {slots: [4, 7]}, result: 11}
+  effects:
+    - site: "m:each/i:0/m:book"
+      attempt: 0
+      step: each
+      job: "<job:m:each/i:0/m:book>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: ["2026-03-02T09:00:00.000Z", 0]
+    - site: "m:each/i:1/m:book"
+      attempt: 0
+      step: each
+      job: "<job:m:each/i:1/m:book>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: ["2026-03-03T09:30:00.000Z", 1]
+    - site: "m:total"
+      attempt: 0
+      step: total
+      job: "<job:m:total>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [[4, 7]]
