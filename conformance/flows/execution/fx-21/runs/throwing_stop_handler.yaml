@@ -1,0 +1,12 @@
+# FX-21: the same unrecoverable failure with a failure module: retry and
+# continue_on_error do not apply, but the failure module runs, and the flow
+# fails with its result.
+spec: [FX-21]
+target: f/wl_fx21/throwing_stop_handler
+expect:
+  status: failure
+  result: H
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 1}
+    "m:b": {status: not_run}
+    "s:failure": {status: success, args: {}, result: H}

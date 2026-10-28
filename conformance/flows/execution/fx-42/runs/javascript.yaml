@@ -1,0 +1,20 @@
+# FX-42/h for a JavaScript consumer, FX-V5/a and FX-42/g: the $jsonvar
+# object keeps the variable's key order, the static object arrives in jsonb
+# order, and the numbers are the doubles both readings give. The step's
+# result is then stored, so its numbers come back in jsonb's spelling.
+spec: [FX-42/h, FX-V5/a, FX-42/g]
+target: f/wl_fx42/javascript
+expect:
+  status: success
+  result:
+    v_keys: [zz, b, aaa, big, n, s]
+    o_keys: [a, zz]
+    v: {zz: 1000, b: 1000000000000000000000, aaa: 12345678901234567000, big: 123456789012345680000000000000, n: 1500, s: A/}
+  steps:
+    "m:a":
+      status: success
+      args: {v: "$jsonvar:f/wl_fx42/numbers", o: {a: 2, zz: 1}}
+      result:
+        v_keys: [zz, b, aaa, big, n, s]
+        o_keys: [a, zz]
+        v: {zz: 1000, b: 1000000000000000000000, aaa: 12345678901234567000, big: 123456789012345680000000000000, n: 1500, s: A/}

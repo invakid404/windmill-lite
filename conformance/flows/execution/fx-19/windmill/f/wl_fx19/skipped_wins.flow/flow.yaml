@@ -1,0 +1,17 @@
+summary: FX-19 skip_if_stopped wins over error_message
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_fx19/three
+        input_transforms: {}
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: true
+        error_message: E
+    - id: b
+      value:
+        type: script
+        path: f/wl_fx19/four
+        input_transforms: {}

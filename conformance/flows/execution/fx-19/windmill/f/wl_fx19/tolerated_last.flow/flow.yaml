@@ -1,0 +1,13 @@
+summary: FX-19/f a tolerated error-stop at the last step without a handler succeeds
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_fx19/three
+        input_transforms: {}
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+        error_message: E
+      continue_on_error: true

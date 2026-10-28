@@ -1,0 +1,24 @@
+summary: FX-17/b a module skipped only on its retry returns {}
+value:
+  modules:
+    - id: reset
+      value:
+        type: rawscript
+        content: '!inline reset.ts'
+        language: bun
+        input_transforms: {}
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms:
+          x:
+            type: static
+            value: 1
+      skip_if:
+        expr: variable('f/wl_fx17/flag') === 'skip'
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0

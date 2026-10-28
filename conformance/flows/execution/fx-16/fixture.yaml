@@ -1,0 +1,10 @@
+# FX-16: the identity module returns its args' previous_result field, or
+# {}: with pass_flow_input_directly its args are the flow input
+# (FX-16/a); normally they hold the preceding result (FX-16/b). Synthetic,
+# written for this repository from docs/semantics/execution.md#fx-16.
+id: execution/fx-16
+spec: [FX-16, FX-16/a, FX-16/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

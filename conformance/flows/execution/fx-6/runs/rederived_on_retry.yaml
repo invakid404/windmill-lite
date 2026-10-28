@@ -1,0 +1,23 @@
+# FX-6, re-derived previous result: b's first attempt sees a's wrapped error
+# in memory, so its skip_if is false and it runs and throws. The retry
+# re-derives previous_result from storage, and because a's status is not
+# Success it is the JSON string "{}": the skip_if is now true, so b is
+# skipped and returns its reused args' previous_result field, absent, so {}
+# (FX-16, FX-17). Under a reading that kept the object, b would run again
+# and the flow would fail.
+spec: [FX-6, FX-17, FX-16]
+target: f/wl_fx6/rederived_on_retry
+expect:
+  status: success
+  result: {}
+  steps:
+    "m:a": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:b/r:0":
+      status: failure
+      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+      result: {error: {message: b always throws, name: Error, stack: "<stack>", step_id: b}}
+    "m:b":
+      status: success
+      skipped: true
+      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+      result: {}

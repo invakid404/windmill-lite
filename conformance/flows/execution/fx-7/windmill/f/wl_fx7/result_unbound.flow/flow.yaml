@@ -1,0 +1,12 @@
+summary: FX-7/d result is not defined in a step input transform
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms:
+          r:
+            type: javascript
+            expr: result

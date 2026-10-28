@@ -1,0 +1,43 @@
+# FX-10 route 3 and Q-FX-15 without a failure module. a returns
+# {zz, b, aaa}: read from memory its keys are [zz, b, aaa] (the producer's
+# order, FX-42/c), read from storage [b, zz, aaa] (jsonb order, FX-42/a).
+# In b, whose preceding id is a:
+#   prev, literal, optional, bracket, optional_bracket bind previous_result
+#   (the name, or one of the four spellings), so read memory under both
+#   readings;
+#   computed (results[flow_input.t] with t = a) binds nothing, so reads
+#   storage under both readings;
+#   computed_prev and computed_error are the discriminators: the drafted
+#   FX-10 rule reads storage, FX-V6 (the ADR 0001 section 6 default, from
+#   the confirmed JE-10 binding rule) reads memory, because the text names
+#   previous_result or contains error.
+# In c, a is not the preceding id, so Object.keys(results.a) reads storage.
+spec: [FX-10, FX-V6, FX-42/c, JE-10, JE-18]
+target: f/wl_fx10/memory_or_storage
+args: {t: a}
+expect:
+  status: success
+  result: [b, zz, aaa]
+  steps:
+    "m:a": {status: success, args: {}, result: {zz: 1, b: 2, aaa: 3}}
+    "m:b":
+      status: success
+      args:
+        prev: [zz, b, aaa]
+        literal: [zz, b, aaa]
+        optional: [zz, b, aaa]
+        bracket: [zz, b, aaa]
+        optional_bracket: [zz, b, aaa]
+        computed: [b, zz, aaa]
+        computed_prev: [zz, b, aaa]
+        computed_error: [zz, b, aaa]
+      result:
+        prev: [zz, b, aaa]
+        literal: [zz, b, aaa]
+        optional: [zz, b, aaa]
+        bracket: [zz, b, aaa]
+        optional_bracket: [zz, b, aaa]
+        computed: [b, zz, aaa]
+        computed_prev: [zz, b, aaa]
+        computed_error: [zz, b, aaa]
+    "m:c": {status: success, args: {other: [b, zz, aaa]}, result: [b, zz, aaa]}

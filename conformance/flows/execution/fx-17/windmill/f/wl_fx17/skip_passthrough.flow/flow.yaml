@@ -1,0 +1,26 @@
+summary: FX-17/a a skipped step passes its input through
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        language: bun
+        input_transforms: {}
+      skip_if:
+        expr: previous_result === 1
+    - id: c
+      value:
+        type: rawscript
+        content: '!inline c.ts'
+        language: bun
+        input_transforms:
+          x:
+            type: javascript
+            expr: previous_result

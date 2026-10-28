@@ -1,0 +1,12 @@
+summary: FX-42/h the arguments file after $jsonvar resolution
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms:
+          v:
+            type: static
+            value: '$jsonvar:f/wl_fx42/numbers'

@@ -1,0 +1,11 @@
+# FX-8/b: sleep on a is evaluated before b starts, with no results context,
+# so the expression throws and the later transition fails the flow with an
+# InternalError chaining error (FX-15 context 1); b never runs.
+spec: [FX-8/b, FX-15]
+target: f/wl_fx8/sleep_no_results
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error: Expected a number value, had error instead: results is not defined"}}
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: not_run}

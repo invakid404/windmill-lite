@@ -1,0 +1,20 @@
+summary: FX-17 a skipped step's stop_after_if is not evaluated
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        language: bun
+        input_transforms: {}
+      skip_if:
+        expr: 'true'
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: true

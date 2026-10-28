@@ -1,0 +1,12 @@
+summary: FX-16/b identity passes the preceding result
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms: {}
+    - id: b
+      value:
+        type: identity

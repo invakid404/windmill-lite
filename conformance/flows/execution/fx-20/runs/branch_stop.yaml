@@ -1,0 +1,12 @@
+# FX-20/a: branchone takes its default body, whose step x stops cleanly
+# with skip_if_stopped; the stop propagates, so the parent flow is skipped
+# with x's result, and y never runs.
+spec: [FX-20/a, FX-19]
+target: f/wl_fx20/branch_stop
+expect:
+  status: skipped
+  result: 1
+  steps:
+    "m:br": {status: skipped, branch_chosen: {type: default}, result: 1}
+    "m:br/b:default/m:x": {status: success, skipped: true, args: {}, result: 1}
+    "m:y": {status: not_run}

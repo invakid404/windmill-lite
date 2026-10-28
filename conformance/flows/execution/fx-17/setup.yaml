@@ -1,0 +1,4 @@
+variables:
+  - path: f/wl_fx17/flag
+    value: run
+    description: FX-17/b's skip flag; step a sets it to skip before it throws

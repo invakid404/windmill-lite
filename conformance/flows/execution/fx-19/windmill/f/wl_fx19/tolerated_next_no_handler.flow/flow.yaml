@@ -1,0 +1,18 @@
+summary: FX-19/g a tolerated error-stop before a later step without a handler fails
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_fx19/three
+        input_transforms: {}
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+        error_message: E
+      continue_on_error: true
+    - id: b
+      value:
+        type: script
+        path: f/wl_fx19/four
+        input_transforms: {}

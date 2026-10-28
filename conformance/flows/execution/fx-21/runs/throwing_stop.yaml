@@ -1,0 +1,12 @@
+# FX-21/a: evaluating the predicate throws, so the completion becomes an
+# unrecoverable failure whose error value is the evaluation error's display
+# string; continue_on_error does not apply, so b never runs. a's stored job
+# result stays 1 (FX-V2).
+spec: [FX-21/a, FX-V2]
+target: f/wl_fx21/throwing_stop
+expect:
+  status: failure
+  result: {error: "Error: QuickJS evaluation error: TypeError: cannot read property 'x' of null"}
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 1}
+    "m:b": {status: not_run}

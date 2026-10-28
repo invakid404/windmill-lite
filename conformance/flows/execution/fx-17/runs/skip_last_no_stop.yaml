@@ -1,0 +1,11 @@
+# FX-17: a skipped module's stop_after_if is not evaluated, so the clean
+# stop that would mark the flow skipped never fires: the flow succeeds with
+# the skipped last step's passthrough value.
+spec: [FX-17, FX-19]
+target: f/wl_fx17/skip_last_no_stop
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: success, skipped: true, args: {previous_result: 1}, result: 1}

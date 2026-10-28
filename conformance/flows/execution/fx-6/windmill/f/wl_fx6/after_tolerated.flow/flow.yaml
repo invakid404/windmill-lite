@@ -1,0 +1,19 @@
+summary: FX-6/b the step after a tolerated failure sees the wrapped error
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms: {}
+      continue_on_error: true
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        language: bun
+        input_transforms:
+          p:
+            type: javascript
+            expr: previous_result

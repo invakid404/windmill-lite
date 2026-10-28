@@ -1,0 +1,25 @@
+summary: FX-6 a retry re-derives previous_result as the string "{}" after a tolerated failure
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms: {}
+      continue_on_error: true
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        language: bun
+        input_transforms:
+          p:
+            type: javascript
+            expr: previous_result
+      skip_if:
+        expr: previous_result === "{}"
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0

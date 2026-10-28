@@ -1,0 +1,17 @@
+summary: FX-42/h what a JavaScript consumer sees of a $jsonvar value
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms:
+          v:
+            type: static
+            value: '$jsonvar:f/wl_fx42/numbers'
+          o:
+            type: static
+            value:
+              zz: 1
+              a: 2

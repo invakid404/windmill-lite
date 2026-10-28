@@ -1,0 +1,18 @@
+summary: FX-8/b results is not defined in a sleep expression
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        language: bun
+        input_transforms: {}
+      sleep:
+        type: javascript
+        expr: results.a
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        language: bun
+        input_transforms: {}

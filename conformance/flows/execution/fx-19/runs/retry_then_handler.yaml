@@ -1,0 +1,12 @@
+# FX-19/d: with a failure module, the error-stop re-enters a, and re-entry
+# evaluates retry first: a runs twice (its first attempt at r:0), stops
+# again, and only then does the handler run. The flow fails with "H".
+spec: [FX-19/d]
+target: f/wl_fx19/retry_then_handler
+expect:
+  status: failure
+  result: H
+  steps:
+    "m:a/r:0": {status: success, args: {}, result: 3}
+    "m:a": {status: success, module: failure, args: {}, result: 3}
+    "s:failure": {status: success, args: {}, result: H}
