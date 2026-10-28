@@ -45,10 +45,11 @@
         "id": "i1",
         "run": "r1",
         "site": "m:a",
-        "script": "sleep",
+        "script": "gate",
         "entry": "main",
         "args": {
-          "ms": 5000
+          "started": "i1.started",
+          "release": "i1.release"
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"

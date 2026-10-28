@@ -472,6 +472,14 @@ file; its paths are relative to the harness's working directory.
 and only then release it; `concurrent` releases its calls in the order in
 which it expects their results.
 
+What a step writes through `console`, `process.stdout` or `process.stderr`
+arrives as `log` frames ahead of the frame that reports its outcome
+(milestone C3b), so a transcript expects them, with `<any>` for the text of
+a stack. `left-behind` and `platform-left-behind` expect the `left_behind`
+warning ahead of the result; `welcome-fresh`, `fresh-one-invocation` and
+`fresh-exit` run a harness in `fresh` mode, which serves one invocation and
+exits with it.
+
 ## Step cases
 
 A step file holds the step cases of one finding, or of a deviation of
