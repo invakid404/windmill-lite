@@ -1,0 +1,12 @@
+# FX-10/b: results.zzz, a simple path to an id the flow does not have, is
+# null. The other three are the rule's other no-value cases: the same id in
+# the engine (route 3), and a step that has no job yet, through the direct
+# lookup and through the engine (JE-18 step 3). None raises an error.
+spec: [FX-10/b, FX-10, JE-18]
+target: f/wl_fx10/unknown_id
+expect:
+  status: success
+  result: later
+  steps:
+    "m:a": {status: success, args: {x: null, y: true, z: null, w: true}, result: {x: null, y: true, z: null, w: true}}
+    "m:later": {status: success, args: {}, result: later}

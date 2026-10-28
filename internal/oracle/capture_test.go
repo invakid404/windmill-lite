@@ -14,14 +14,16 @@ import (
 )
 
 // TestReplayRecordedCaptures replays the raw API captures that the oracle
-// workflow recorded for the smoke fixture (testdata/captures, from the CI
-// run named in each recording's provenance) through the walker and the
-// normaliser, offline, and requires the committed recording's observation.
-// It also checks the job kinds the walker met against OR-28: a leaf of kind
-// script, flowscript, identity or preview has no flow_status, and a flow,
-// flownode or flowpreview job has one.
+// workflow recorded in CI (testdata/captures: the smoke fixture, from the
+// run named in its recordings' provenance, and recording batch E3b, from
+// its last recording run, which reproduced every earlier recording of the
+// batch) through the walker and the normaliser, offline, and requires the
+// committed recording's observation. It also checks the job kinds the
+// walker met against OR-28: a leaf of kind script, flowscript, identity or
+// preview has no flow_status, and a flow, flownode or flowpreview job has
+// one.
 func TestReplayRecordedCaptures(t *testing.T) {
-	// spec: OR-28/a, OR-11/a, OR-12/a, OR-20/a, OR-20/b
+	// spec: OR-28/a, OR-11/a, OR-12/a, OR-20/a, OR-20/b, FX-19/d
 	paths, err := filepath.Glob("testdata/captures/*.json")
 	if err != nil {
 		t.Fatal(err)

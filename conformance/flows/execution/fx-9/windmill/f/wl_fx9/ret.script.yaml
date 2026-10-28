@@ -1,0 +1,15 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_fx9/ret.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+  required:
+    - v

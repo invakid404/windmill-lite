@@ -1,0 +1,19 @@
+# FX-9/a and FX-9/b: 'false', [] and ({}) are truthy, so those steps are
+# skipped and pass "start" through; 0, '', null, undefined, NaN and false
+# are falsy, so those steps run and return their own ids.
+spec: [FX-9/a, FX-9/b, FX-17]
+target: f/wl_fx9/values
+expect:
+  status: success
+  result: f_false
+  steps:
+    "m:start": {status: success, args: {v: start}, result: start}
+    "m:t_false_string": {status: success, skipped: true, args: {previous_result: start}, result: start}
+    "m:t_empty_array": {status: success, skipped: true, args: {previous_result: start}, result: start}
+    "m:t_empty_object": {status: success, skipped: true, args: {previous_result: start}, result: start}
+    "m:f_zero": {status: success, args: {v: f_zero}, result: f_zero}
+    "m:f_empty_string": {status: success, args: {v: f_empty_string}, result: f_empty_string}
+    "m:f_null": {status: success, args: {v: f_null}, result: f_null}
+    "m:f_undefined": {status: success, args: {v: f_undefined}, result: f_undefined}
+    "m:f_nan": {status: success, args: {v: f_nan}, result: f_nan}
+    "m:f_false": {status: success, args: {v: f_false}, result: f_false}

@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/execution/fx-7",
+  "run": "result_unbound",
+  "repeat": 0,
+  "workspace": "wl-243a87-10",
+  "root": "1da3cbb3-2d6d-4c49-9141-9ff65489c5f4",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-10/jobs_u/get/1da3cbb3-2d6d-4c49-9141-9ff65489c5f4?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-10\",\"id\":\"1da3cbb3-2d6d-4c49-9141-9ff65489c5f4\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:38.649997Z\",\"started_at\":\"2026-10-28T12:15:38.686135Z\",\"completed_at\":\"2026-10-28T12:15:38.696869Z\",\"duration_ms\":11,\"success\":false,\"script_hash\":\"0000000000000022\",\"script_path\":\"f/wl_fx7/result_unbound\",\"args\":{},\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `result`:\\nQuickJS evaluation error: Error: result is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:35)\\n\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826f-f8c1-6c73-c843-30cb6acc2389\", \"type\": \"Failure\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"r\":{\"type\":\"javascript\",\"expr\":\"result\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-10/jobs_u/completed/get_result_maybe/1da3cbb3-2d6d-4c49-9141-9ff65489c5f4?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `result`:\\nQuickJS evaluation error: Error: result is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:35)\\n\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-10/jobs_u/get/01a1826f-f8c1-6c73-c843-30cb6acc2389?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-10\",\"id\":\"01a1826f-f8c1-6c73-c843-30cb6acc2389\",\"parent_job\":\"1da3cbb3-2d6d-4c49-9141-9ff65489c5f4\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:38.688826Z\",\"started_at\":\"2026-10-28T12:15:38.691097Z\",\"completed_at\":\"2026-10-28T12:15:38.693237Z\",\"duration_ms\":2,\"success\":false,\"script_hash\":\"0000000000000027\",\"script_path\":\"f/wl_fx7/result_unbound/a\",\"args\":{},\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `result`:\\nQuickJS evaluation error: Error: result is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:35)\\n\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-10/jobs_u/get_args/01a1826f-f8c1-6c73-c843-30cb6acc2389",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-10/jobs_u/completed/get_result_maybe/01a1826f-f8c1-6c73-c843-30cb6acc2389?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `result`:\\nQuickJS evaluation error: Error: result is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:35)\\n\"}}}"
+    }
+  ]
+}

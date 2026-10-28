@@ -1,0 +1,61 @@
+summary: FX-10 route 3, Q-FX-15 which engine reads of the preceding id use memory
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          bracket:
+            type: javascript
+            expr: Object.keys(results["a"])
+          computed:
+            type: javascript
+            expr: Object.keys(await results[flow_input.t])
+          computed_error:
+            type: javascript
+            expr: typeof error && Object.keys(await results[flow_input.t])
+          computed_prev:
+            type: javascript
+            expr: previous_result && Object.keys(await results[flow_input.t])
+          computed_unawaited:
+            type: javascript
+            expr: Object.keys(results[flow_input.t])
+          literal:
+            type: javascript
+            expr: Object.keys(results.a)
+          optional:
+            type: javascript
+            expr: Object.keys(results?.a)
+          optional_bracket:
+            type: javascript
+            expr: Object.keys(await results?.["a"])
+          prev:
+            type: javascript
+            expr: Object.keys(previous_result)
+        lock: '!inline b.lock'
+        language: bun
+    - id: c
+      value:
+        type: rawscript
+        content: '!inline c.ts'
+        input_transforms:
+          other:
+            type: javascript
+            expr: Object.keys(results.a)
+        lock: '!inline c.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    t:
+      type: string
+  required: []

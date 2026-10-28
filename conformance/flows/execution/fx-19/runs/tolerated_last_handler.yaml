@@ -1,0 +1,11 @@
+# FX-19/i: continue_on_error at the final module with a failure module: the
+# cursor reaches len and the handler runs once (FX-V4); the flow fails with
+# its result.
+spec: [FX-19/i, FX-V4]
+target: f/wl_fx19/tolerated_last_handler
+expect:
+  status: failure
+  result: H
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 3}
+    "s:failure": {status: success, args: {}, result: H}

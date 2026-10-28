@@ -1,0 +1,10 @@
+# FX-7: step input transforms. JavaScript and static transforms (FX-7/a),
+# params is {} (FX-7/b), undefined becomes null (FX-7/c), and a bare result
+# is unbound in a transform (FX-7/d). Synthetic, written for this
+# repository from docs/semantics/execution.md#fx-7.
+id: execution/fx-7
+spec: [FX-7, FX-7/a, FX-7/b, FX-7/c, FX-7/d]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

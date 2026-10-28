@@ -1,0 +1,12 @@
+# FX-18: mock. A mocked step does not run; an identity returns the mock
+# value (FX-18/a). stop_after_if is evaluated on the mock value, unless the
+# module also has a skip_if, which classifies the identity as skipped even
+# when the predicate is false, and then stop is not evaluated (the rule's
+# skip_if interplay, medium confidence). Synthetic, written for this
+# repository from docs/semantics/execution.md#fx-18.
+id: execution/fx-18
+spec: [FX-18, FX-18/a]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

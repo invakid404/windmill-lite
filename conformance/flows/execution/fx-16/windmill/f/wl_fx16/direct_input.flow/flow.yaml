@@ -1,0 +1,14 @@
+summary: FX-16/a identity with direct input
+value:
+  modules:
+    - id: a
+      value:
+        type: identity
+      pass_flow_input_directly: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    x:
+      type: number
+  required: []

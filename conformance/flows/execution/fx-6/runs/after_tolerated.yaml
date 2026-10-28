@@ -1,0 +1,15 @@
+# FX-6/b: after a failure that continue_on_error tolerates, the next step's
+# previous_result is the failed step's wrapped error. Every copy of the
+# error has its stack masked, because it is deep-equal to a's stored
+# runtime error (OR-V3).
+spec: [FX-6/b]
+target: f/wl_fx6/after_tolerated
+expect:
+  status: success
+  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:b":
+      status: success
+      args: {p: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+      result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
