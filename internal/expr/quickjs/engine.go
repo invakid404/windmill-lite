@@ -190,6 +190,7 @@ func (e *Engine) submit(ctx context.Context, j *job) (reply, error) {
 	default:
 		// No prepared slot: wait. A blocked sender on an unbuffered
 		// channel is queued and served in arrival order.
+		e.stats.waited.Add(1)
 		start := time.Now()
 		select {
 		case e.jobs <- j:
@@ -198,7 +199,6 @@ func (e *Engine) submit(ctx context.Context, j *job) (reply, error) {
 		case <-e.closing:
 			return reply{}, ErrClosed
 		}
-		e.stats.waited.Add(1)
 		e.stats.waitNanos.Add(int64(time.Since(start)))
 	}
 	return <-j.reply, nil
@@ -212,7 +212,7 @@ type Stats struct {
 	Evaluations uint64
 	Compiles    uint64
 	// Waited counts the jobs that found no prepared slot, and WaitTime is
-	// their total wait.
+	// the total wait of those that then got one.
 	Waited   uint64
 	WaitTime time.Duration
 	// Timeouts counts attempts interrupted at the attempt limit, and

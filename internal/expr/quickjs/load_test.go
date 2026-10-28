@@ -96,11 +96,13 @@ func measure(t *testing.T, e *Engine, p expr.Program, in expr.Input, callers int
 	var wg sync.WaitGroup
 	if burst {
 		for time.Now().Before(deadline) {
+			// A burst's latency counts from when it is issued, not from
+			// when each goroutine first runs.
+			start := time.Now()
 			for range callers {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					start := time.Now()
 					if _, err := e.Eval(context.Background(), p, in); err != nil {
 						t.Error(err)
 					}

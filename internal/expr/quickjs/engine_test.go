@@ -559,6 +559,20 @@ func TestOptions(t *testing.T) {
 	}
 }
 
+func TestOverflowDepthAtTheDefaultStack(t *testing.T) {
+	// JE-48 brackets the limit: depth 1 000 fits and 1 000 000 overflows.
+	// The depth in between depends on the compiler and the CPU, so it is
+	// logged for each platform.
+	e := newEngine(t, Options{Slots: 1})
+	got := mustRun(t, e, `(() => { let d = 0; const f = n => { d = n; return n === 0 ? 0 : 1 + f(n - 1); }; const g = n => { try { f(n); return -1; } catch (e) { return e.name === "RangeError" ? n - d : -2; } }; return String(g(1000000)); })()`, expr.Input{})
+	var depth int
+	fmt.Sscan(got, &depth)
+	t.Logf("%s/%s: a 1 MiB stack overflows at recursion depth %d", runtime.GOOS, runtime.GOARCH, depth)
+	if depth <= 1000 || depth >= 1000000 {
+		t.Fatalf("overflow depth %s is outside JE-48's bracket", got)
+	}
+}
+
 func TestLargeStackLimitStaysInsideTheThread(t *testing.T) {
 	// A slot thread always has room beyond the engine's limit, so a deep
 	// recursion meets the engine's RangeError, never the end of the thread.

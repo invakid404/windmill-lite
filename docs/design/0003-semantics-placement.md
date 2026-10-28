@@ -241,6 +241,46 @@ memory recycling thresholds, and binding only the paths an expression reads
 when a static check proves the expression cannot observe the rest. That last
 remedy needs its own record.
 
+**The native pool under load (milestone B1a).** `TestPoolUnderLoad` in
+`internal/expr/quickjs` evaluates a stand-in predicate: it binds an invented
+order object of the row's size as one results value and a small flow input,
+both as host strings; parses both; and serialises
+`Boolean(results.fetch_order.archived ? null : flow_input.order.ref)`. There
+is no pipeline wrapper and no shortcut. QuickJS-ng `be664ca1` built with the
+system clang at `-O2`, the default pool (8 slots), Apple M4 (4 performance
+and 6 efficiency cores), macOS 26.5, Go 1.27.3, 3 s per row. The machine was
+shared with other work, at a load average of about 3.4 when the run started.
+CPU per evaluation is the process's CPU time divided by the evaluations, so
+it includes freeing each runtime and preparing the next. A burst's latency
+counts from when the burst is issued.
+
+| Load | Bound value | p50 | p95 | p99 | CPU per evaluation |
+|---|---|---|---|---|---|
+| 1 caller, 2 ms between evaluations | 4 KB | 88 µs | 147 µs | 189 µs | 395 µs |
+| 8 callers, 0.5 ms between evaluations | 4 KB | 97 µs | 186 µs | 435 µs | 207 µs |
+| 8 callers, back to back | 4 KB | 201 µs | 291 µs | 436 µs | 203 µs |
+| 16 callers, back to back | 4 KB | 433 µs | 730 µs | 1.56 ms | 214 µs |
+| burst of 64 at once | 4 KB | 1.41 ms | 2.76 ms | 3.91 ms | 226 µs |
+| 1 caller, 2 ms between evaluations | 64 KB | 270 µs | 499 µs | 994 µs | 446 µs |
+| 8 callers, 0.5 ms between evaluations | 64 KB | 293 µs | 400 µs | 560 µs | 413 µs |
+| 8 callers, back to back | 64 KB | 478 µs | 821 µs | 1.08 ms | 552 µs |
+| 16 callers, back to back | 64 KB | 1.14 ms | 1.63 ms | 3.01 ms | 568 µs |
+| burst of 64 at once | 64 KB | 3.04 ms | 5.82 ms | 7.95 ms | 587 µs |
+| 1 caller, 2 ms between evaluations | 256 KB | 969 µs | 1.92 ms | 3.24 ms | 1.26 ms |
+| 8 callers, 0.5 ms between evaluations | 256 KB | 1.70 ms | 2.67 ms | 4.57 ms | 1.75 ms |
+| 8 callers, back to back | 256 KB | 2.11 ms | 3.10 ms | 5.64 ms | 1.76 ms |
+| 16 callers, back to back | 256 KB | 4.19 ms | 9.18 ms | 18.2 ms | 1.74 ms |
+| burst of 64 at once | 256 KB | 8.62 ms | 17.7 ms | 24.5 ms | 1.72 ms |
+
+The paced rows sit inside the gate's bounds at every size, but they are not
+the gate: B2b measures through the pipeline. On a busier machine the tails
+grew several times over. A run at a load average of about 20 before it
+started gave a paced 4 KB p99 of 1.98 ms and a paced 256 KB p99 of 59.5 ms,
+so the gate needs a quiet machine. The unloaded rows are not a lower bound:
+an idle caller on this machine often runs at a lower clock. CI reports the
+same table on each run, from its Linux runner (4 vCPUs, so 4 slots) and its
+macOS runner (3 slots).
+
 ### The conformance-suite format
 
 Every Windmill rule is single-sourced in one implementation, so the suite's
