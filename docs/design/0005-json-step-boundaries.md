@@ -136,7 +136,10 @@ without building a tree of Go values:
   PostgreSQL rejects both;
 - whitespace removed. jsonb's own text output puts spaces after `:` and `,`;
   no consumer can observe that after parsing, so the compact form is used and
-  comparisons are on parsed values.
+  comparisons are on parsed values. The expression shortcuts
+  ([JE-6](../semantics/expressions.md#je-6) to
+  [JE-9](../semantics/expressions.md#je-9)) answer texts unparsed, and a
+  site can quote their answer (Consequences).
 
 It is checked three ways: catalogue cases ([FX-42](../semantics/execution.md#fx-42)
 a–h, [JE-44](../semantics/expressions.md#je-44), [WR-10](../semantics/languages.md#wr-10)),
@@ -211,6 +214,24 @@ runs on demand and nightly, never on every pull request.
   number outside `numeric`'s range. The reference covers only NUL, so
   whether Windmill fails a step on them as it does on NUL is request 4 of the
   [README](README.md); until then the eager flag covers NUL alone.
+- Milestone B2a found that the spaces of jsonb's text output can show.
+  The [JE-9](../semantics/expressions.md#je-9) shortcut answers the
+  database's text unparsed, and the `timeout` site's parse error quotes it:
+  recording batch E3a recorded `Value was: {"a": 2, "b": 1}` for a
+  `results.p` read through the database, against `Value was: {"b":1,"a":2}`
+  for the same read of the previous step from memory
+  (`conformance/flows/je/shortcuts`, runs `je8-order-timeout-db` and
+  `je8-order-timeout`). The expression pipeline therefore applies the path
+  to the stored text and answers in jsonb's text output, a space after each
+  `:` and `,` outside strings; the stored text stays compact. The other
+  shortcuts answer the texts they are given as they are: JE-6 and JE-8
+  `previous_result`, JE-7 a member of the flow input. Some of those values
+  are read from the database too
+  ([JE-44](../semantics/expressions.md#je-44)): the flow input's members,
+  and `previous_result` after a loop or `branchall` or a re-fetch. Whether
+  Windmill's text there is jsonb's spaced output is not recorded (request 8
+  of the [README](README.md)); until it is, the routing table's stored text
+  stands.
 
 ## Spec IDs relied on
 

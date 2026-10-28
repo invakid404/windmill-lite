@@ -13,6 +13,8 @@ the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
 interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [0003](0003-semantics-placement.md) in
 [internal/expr/quickjs](../../internal/expr/quickjs/README.md), milestone
+B2a the textual stages and shortcuts of its expression pipeline in
+[internal/expr](../../internal/expr/README.md), on a fake engine, milestone
 C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, milestone C3a its Bun step runtime core (Windmill's wrapper rules,
@@ -252,6 +254,41 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      before the timeout error surfaces;
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
      where JE-33 says it completes successfully.
+8. **The textual pipeline's unstated details** (milestone B2a). The
+   reference leaves these open. Each is decided by the reading named here.
+   All but the last are pinned by a source-derived case in
+   `internal/expr/testdata/pipeline` (the wrapper by `TestWrapperSingleLine`),
+   so a different answer changes one function:
+   - [JE-5](../semantics/expressions.md#je-5): which characters trimming
+     removes. Read as Unicode White_Space, as Rust's `str::trim` removes.
+   - [JE-7](../semantics/expressions.md#je-7): whether the dot form takes an
+     empty key (`flow_input.`). Read as yes; only the bracket form needs a
+     non-empty key.
+   - [JE-9](../semantics/expressions.md#je-9): whether a step id `length`
+     (`results.length`) declines like a last segment `length`. Read as no.
+   - [JE-11](../semantics/expressions.md#je-11): where a call whose
+     parentheses never balance ends. Read as the end of the text.
+   - [JE-13](../semantics/expressions.md#je-13): whether `return` followed by
+     a newline selects statement mode (read as no, the text lists a space
+     or a semicolon), and how the quote scan reads a quote: as opening a
+     quote of its kind or closing the one it is in, unless a backslash
+     precedes it, so another kind of quote inside a string is text.
+   - JE-13 and [JE-14](../semantics/expressions.md#je-14): whether the
+     wrapper is an `async function` or an async arrow, which `arguments`
+     tells apart. Read as a function.
+   - JE-9: where a line ends. Read as at `\n` only, so a line with a
+     trailing `\r` or space does not qualify.
+   - JE-12: whether a `["…"]` read spans lines. Read as no, as a regular
+     expression's `.` does not match a newline.
+   - JE-6 to JE-8 and [JE-44](../semantics/expressions.md#je-44): which text
+     the shortcuts return for a value read from the database (a member of
+     `flow_input`, `previous_result` after a loop or `branchall`): the
+     compact stored text or jsonb's spaced output. JE-9's is spaced
+     ([0005](0005-json-step-boundaries.md)). The windmill-lite engine
+     supplies these texts; the stored text is used until this is answered.
+     Two oracle runs would settle it: `timeout: flow_input.o` with `o` an
+     object, and `timeout: results.l` right after a loop `l`, whose parse
+     errors quote the text.
 
 ## Changing the design
 

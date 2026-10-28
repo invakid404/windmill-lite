@@ -15,7 +15,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Seventeen milestones have landed. F4 gives the
+Nineteen milestones have landed. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
@@ -40,12 +40,20 @@ end on the pinned Bun, in a spawned harness and in host mode, where a Bun
 program embeds the host SDK and starts `windmill-lite host` as its engine,
 from a test layout of its own rather than a built bundle. It is scaffolding
 that later milestones replace, built to test the process model first. It
-runs on two milestones no other command uses: the jsonb canonicaliser in
-[internal/jsonval](internal/jsonval/README.md) (A1), and C1, the harness
-protocol between the engine ([internal/harness](internal/harness/README.md))
-and a skeleton Bun harness ([harnesses/bun](harnesses/bun/README.md)), which
-runs one exported function of a bundled module per step but not yet with
-Windmill's wrapper rules. The last six are the oracle's: E2, the oracle
+runs on the jsonb canonicaliser in
+[internal/jsonval](internal/jsonval/README.md) (A1), which no other command
+uses, and on C1, the harness protocol between the engine
+([internal/harness](internal/harness/README.md)) and the Bun harness
+([harnesses/bun](harnesses/bun/README.md)), whose step runtime core, C3a,
+runs each step with Windmill's wrapper rules: binding and `Date` hydration
+by the signature the build recorded, the result and error shapes,
+`process.exit` interception and the attribution of process-level errors.
+`wltest check` (C3a) runs the step cases of
+[conformance/steps](conformance/README.md) through the same harness. No
+command uses B2a yet: the textual stages and
+shortcuts of the expression pipeline in
+[internal/expr](internal/expr/README.md), tested on a fake engine until B2b
+runs them on QuickJS-ng. The last six are the oracle's: E2, the oracle
 harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
 which records synthetic flow fixtures on an unmodified Windmill CE image in
 public CI; recording batch E3c, which recorded the reference's
@@ -116,7 +124,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-15). |
 | [internal/ir](internal/ir/README.md) | The compiler: a sync folder and a host contract become the program the engine runs, normalised to Windmill's deployed form (container defaults, the native switch, virtual steps), with collapse decided, harness classes, provided sites, occurrences of repeated ids and the script inventory, and validated. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
-| [internal/expr](internal/expr/README.md) | Contracts of the expression pipeline: the compiled-expression IR, the JavaScript-engine interface and the evaluator interface. The pipeline is not implemented yet. |
+| [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names) and the evaluator's shortcuts and bindings. It runs on a fake engine; the program on QuickJS-ng and the error texts are B2b's. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a heap on vendored mimalloc, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace; the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; and the walking skeleton's interpreter, which runs one sequential flow and which N1a replaces. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture, expression-case and step-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator; stub mode's replay table and replay service. |

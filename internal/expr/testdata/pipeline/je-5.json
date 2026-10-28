@@ -1,0 +1,68 @@
+{
+  "finding": "JE-5",
+  "cases": [
+    {
+      "spec": "JE-5/a",
+      "provenance": "oracle-observed",
+      "title": "surrounding whitespace is trimmed before the shortcuts look",
+      "recorded": {"exprs": "je-5", "case": "je-5-a"},
+      "site": "input_transform",
+      "text": "\n  flow_input.n \n",
+      "expect": {
+        "trimmed": "flow_input.n",
+        "shortcut": {"flow_key": {"env": false, "key": "n"}},
+        "mode": "expression",
+        "binds": ["flow_input"],
+        "code": "flow_input.n",
+        "route": "flow_key",
+        "text": "5"
+      }
+    },
+    {
+      "spec": "JE-5/b",
+      "provenance": "oracle-observed",
+      "title": "the trimmed text reaches the engine; the text as written is kept for the site's message",
+      "recorded": {"exprs": "je-5", "case": "je-5-b"},
+      "site": "input_transform",
+      "text": " nope ",
+      "expect": {
+        "trimmed": "nope",
+        "shortcut": {},
+        "mode": "expression",
+        "binds": [],
+        "code": "nope",
+        "route": "engine",
+        "bound": {},
+        "results_lookup": false
+      }
+    },
+    {
+      "spec": "JE-5",
+      "variant": "predicate-wrapped-first",
+      "provenance": "source-derived",
+      "title": "a predicate is wrapped as written, so whitespace inside the wrapper survives",
+      "site": "skip_if",
+      "text": " flow_input.n\n",
+      "expect": {
+        "trimmed": "Boolean( flow_input.n\n)",
+        "shortcut": {},
+        "mode": "expression",
+        "binds": ["flow_input"],
+        "code": "Boolean( flow_input.n\n)"
+      }
+    },
+    {
+      "spec": "JE-5",
+      "variant": "unicode-white-space",
+      "provenance": "source-derived",
+      "title": "trimming removes Unicode white space, as Rust's str::trim does",
+      "note": "the reference says whitespace; the evaluator is Rust, whose trim removes the Unicode White_Space characters, which Go's strings.TrimSpace removes too",
+      "site": "input_transform",
+      "text": "  flow_input.n　\n",
+      "expect": {
+        "trimmed": "flow_input.n",
+        "shortcut": {"flow_key": {"env": false, "key": "n"}}
+      }
+    }
+  ]
+}

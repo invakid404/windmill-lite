@@ -1,0 +1,80 @@
+{
+  "finding": "JE-6",
+  "cases": [
+    {
+      "spec": "JE-6/a",
+      "provenance": "oracle-observed",
+      "title": "an exact context name returns its value verbatim",
+      "recorded": {"exprs": "je-6", "case": "je-6-a"},
+      "site": "input_transform",
+      "text": "previous_result",
+      "expect": {
+        "shortcut": {"context_name": "previous_result"},
+        "mode": "expression",
+        "binds": ["previous_result", "result"],
+        "code": "previous_result",
+        "route": "context_name",
+        "text": "{\"n\":12345678901234567890}"
+      }
+    },
+    {
+      "spec": "JE-6/b",
+      "provenance": "oracle-observed",
+      "title": "a longer text goes to the engine, with previous_result bound",
+      "recorded": {"exprs": "je-6", "case": "je-6-b"},
+      "site": "input_transform",
+      "text": "previous_result.n",
+      "expect": {
+        "shortcut": {},
+        "binds": ["previous_result", "result"],
+        "code": "previous_result.n",
+        "route": "engine",
+        "bound": {"previous_result": "{\"n\":12345678901234567890}"},
+        "results_lookup": false
+      }
+    },
+    {
+      "spec": "JE-6",
+      "variant": "params",
+      "provenance": "source-derived",
+      "title": "params is a context name of an input transform, always {}",
+      "site": "input_transform",
+      "text": "params",
+      "context": {"previous_id": "a", "previous_result": "1"},
+      "expect": {"shortcut": {"context_name": "params"}, "route": "context_name", "text": "{}"}
+    },
+    {
+      "spec": "JE-6",
+      "variant": "name-not-in-scope",
+      "provenance": "source-derived",
+      "title": "a context name the site does not bind misses and reaches the engine unbound",
+      "note": "an input transform binds no result (JE-22), so the engine's result is a ReferenceError (FX-7)",
+      "site": "input_transform",
+      "text": "result",
+      "context": {"previous_id": "a", "previous_result": "1"},
+      "expect": {
+        "shortcut": {"context_name": "result"},
+        "binds": ["result"],
+        "route": "engine",
+        "bound": {},
+        "results_lookup": false
+      }
+    },
+    {
+      "spec": "JE-6",
+      "variant": "predicate",
+      "provenance": "source-derived",
+      "title": "a predicate never takes the shortcut, since its text starts with Boolean(",
+      "site": "stop_after_if",
+      "text": "result",
+      "context": {"previous_id": "", "previous_result": "1"},
+      "expect": {
+        "trimmed": "Boolean(result)",
+        "shortcut": {},
+        "route": "engine",
+        "bound": {"result": "1"},
+        "results_lookup": false
+      }
+    }
+  ]
+}
