@@ -1,0 +1,17 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_stub/total.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    slots:
+      type: array
+      description: ''
+      default: null
+      items:
+        type: number
+      originalType: number[]
+  required:
+    - slots

@@ -168,11 +168,6 @@
       "reason": "the throwing branchone predicate (Q-OR-8) is in the CF batch"
     },
     {
-      "case": "OR-V6/a",
-      "milestone": "E4a",
-      "reason": "effects of nested scopes under one outer run are E4a's acceptance cases (Q-OR-10)"
-    },
-    {
       "case": "OR-V9/b",
       "milestone": "E3e",
       "reason": "the bare-iter variant is part of the probe-catalogue reconstruction (Q-OR-16)"
