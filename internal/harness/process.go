@@ -85,8 +85,9 @@ type ProcessConfig struct {
 	Diagnostics io.Writer
 
 	// notify is called, outside every lock, after an invocation is
-	// abandoned, after an abandoned invocation settles, and after the
-	// process exits. The pool sets it.
+	// abandoned, after an abandoned invocation settles (before its Reporter
+	// hears Settled, so the pool's taint rules have run by then), and after
+	// the process exits. The pool sets it.
 	notify func(*Process)
 }
 
@@ -531,7 +532,7 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 		if r.Settled {
 			p.abandoned--
 			p.settleLocked(inv)
-			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) }, p.notifyFunc())
+			calls = append(calls, p.notifyFunc(), func() { inv.report.Settled(engine.SettleCompleted) })
 		}
 		return inv, calls, nil
 	default:
@@ -547,11 +548,11 @@ func (p *Process) onLate(l Late) (*invocation, []func(), error) {
 		}
 		calls := []func(){func() { inv.report.Late(late) }}
 		if l.Settled {
-			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) })
 			if inv.state == invAbandoned {
 				p.abandoned--
 				calls = append(calls, p.notifyFunc())
 			}
+			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) })
 			p.settleLocked(inv)
 		}
 		return inv, calls, nil

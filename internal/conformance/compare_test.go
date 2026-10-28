@@ -3,8 +3,12 @@ package conformance
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"math/rand/v2"
 	"os"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +98,143 @@ func TestIndentJSONKeepsOrderAndText(t *testing.T) {
 	want := "{\n  \"z\": 1.0,\n  \"a\": [\n    \"<stack>\",\n    {\n      \"y\": null,\n      \"b\": true\n    }\n  ],\n  \"e\": {},\n  \"f\": []\n}\n"
 	if string(out) != want {
 		t.Fatalf("got\n%s\nwant\n%s", out, want)
+	}
+}
+
+// An exact comparison of an unordered array counts canonical texts; the
+// complete matching must give the same answer on every input, under either
+// key-order policy. The inputs are permutations of few distinct values,
+// with object members reshuffled and sometimes one element replaced, so
+// both answers are common.
+func TestUnorderedCountingAgreesWithMatching(t *testing.T) {
+	r := rand.New(rand.NewPCG(1, 2))
+	for _, strict := range []bool{false, true} {
+		c := comparer{opt: CompareOptions{StrictKeyOrder: strict}, unordered: map[string]bool{"/result": true}}
+		var equal, different int
+		for range 20000 {
+			want := make([]*jnode, r.IntN(7))
+			for j := range want {
+				want[j] = randomNode(t, r, 3)
+			}
+			got := make([]*jnode, len(want))
+			for i, w := range want {
+				got[i] = reshuffled(r, w)
+			}
+			r.Shuffle(len(got), func(i, j int) { got[i], got[j] = got[j], got[i] })
+			if len(got) > 0 && r.IntN(2) == 0 {
+				got[r.IntN(len(got))] = randomNode(t, r, 3)
+			}
+			counted, matched := c.sameCanonical(got, want), c.match([]string{"result"}, got, want)
+			if counted != matched {
+				t.Fatalf("strict %v: counting says %v, matching %v\n got  %s\n want %s", strict, counted, matched, elemsText(got), elemsText(want))
+			}
+			if counted {
+				equal++
+			} else {
+				different++
+			}
+		}
+		if equal < 2000 || different < 2000 {
+			t.Fatalf("strict %v: %d equal and %d different inputs; the generator lost its mix", strict, equal, different)
+		}
+		t.Logf("strict %v: %d equal and %d different inputs agree", strict, equal, different)
+	}
+}
+
+// randomNode parses a small random JSON value, built from few enough
+// choices that equal values are common.
+func randomNode(t *testing.T, r *rand.Rand, depth int) *jnode {
+	t.Helper()
+	n, err := parseJSON([]byte(randomJSON(r, depth)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func randomJSON(r *rand.Rand, depth int) string {
+	scalars := []string{`0`, `1`, `1.0`, `"1"`, `"a"`, `true`, `null`}
+	switch k := r.IntN(10); {
+	case depth == 0 || k < 6:
+		return scalars[r.IntN(len(scalars))]
+	case k < 8:
+		elems := make([]string, r.IntN(3))
+		for i := range elems {
+			elems[i] = randomJSON(r, depth-1)
+		}
+		return "[" + strings.Join(elems, ",") + "]"
+	default:
+		var members []string
+		for _, key := range []string{"a", "b", "c"} {
+			if r.IntN(3) > 0 {
+				members = append(members, fmt.Sprintf("%q:%s", key, randomJSON(r, depth-1)))
+			}
+		}
+		return "{" + strings.Join(members, ",") + "}"
+	}
+}
+
+// reshuffled copies n with the members of every object in a random order.
+func reshuffled(r *rand.Rand, n *jnode) *jnode {
+	c := *n
+	c.members = slices.Clone(n.members)
+	for i := range c.members {
+		c.members[i].value = reshuffled(r, c.members[i].value)
+	}
+	r.Shuffle(len(c.members), func(i, j int) { c.members[i], c.members[j] = c.members[j], c.members[i] })
+	c.elems = slices.Clone(n.elems)
+	for i := range c.elems {
+		c.elems[i] = reshuffled(r, c.elems[i])
+	}
+	return &c
+}
+
+func elemsText(elems []*jnode) string {
+	return string((&jnode{kind: kindArray, elems: elems}).raw())
+}
+
+// BenchmarkCompareUnordered compares arrays at an unordered pointer
+// (OR-23): repeated scalars, the worst case of the complete matching (E2
+// review item P3-7), and distinct objects in reverse order. Exact
+// comparisons count the elements' canonical texts; the subset comparison
+// keeps the complete matching.
+func BenchmarkCompareUnordered(b *testing.B) {
+	repeated := func(n int) string { return "[" + strings.Repeat("0,", n-1) + "0]" }
+	objects := func(n int, reverse bool) string {
+		var s strings.Builder
+		s.WriteByte('[')
+		for k := range n {
+			i := k
+			if reverse {
+				i = n - 1 - k
+			}
+			if k > 0 {
+				s.WriteByte(',')
+			}
+			fmt.Fprintf(&s, `{"id":%d,"tags":["x","y"],"meta":{"z":true,"a":null}}`, i)
+		}
+		s.WriteByte(']')
+		return s.String()
+	}
+	for _, bc := range []struct {
+		name      string
+		got, want string
+		subset    bool
+	}{
+		{"exact/repeated-scalars/500", repeated(500), repeated(500), false},
+		{"exact/repeated-scalars/2000", repeated(2000), repeated(2000), false},
+		{"exact/distinct-objects/500", objects(500, true), objects(500, false), false},
+		{"subset/repeated-scalars/500", repeated(500), repeated(500), true},
+	} {
+		got := Observation{Status: RunSuccess, Result: json.RawMessage(bc.got)}
+		want := Observation{Status: RunSuccess, Result: json.RawMessage(bc.want)}
+		opt := CompareOptions{Subset: bc.subset, Unordered: []string{"/result"}}
+		b.Run(bc.name, func(b *testing.B) {
+			for b.Loop() {
+				if diffs, err := Compare(got, want, opt); err != nil || len(diffs) != 0 {
+					b.Fatal(diffs, err)
+				}
+			}
+		})
 	}
 }

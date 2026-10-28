@@ -17,9 +17,10 @@ import (
 //   - `*` (any characters but `/`), `?` (one character), classes `[...]`
 //     with `!` or `^` negation and ranges, and `\` escapes;
 //   - characters are UTF-16 code units, as in minimatch's JavaScript
-//     regular expressions: `?` matches half of `😀`, which takes `??`, and
-//     the class `[😀]` holds its two halves, so it matches either half as
-//     one unit but not the whole two-unit character by itself;
+//     regular expressions: `?` matches one surrogate half of `😀`, which
+//     takes `??`, and the class `[😀]` holds both halves and matches either
+//     one but never the whole character, so `[😀]?` and `[😀][😀]` match
+//     `😀` and `[😀]` alone does not;
 //   - `**` as a whole segment: any number of segments;
 //   - brace expansion: `{a,b}` lists, nested, and `{x..y}` sequences;
 //   - a leading `!` negates the pattern, and a leading `#` makes it match

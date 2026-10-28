@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -252,14 +253,63 @@ func sameKeyOrder(a, b *jnode) bool {
 // path, hold the same elements with the same multiplicity (OR-23/b). Each
 // expected element is compared at its own path, path/<j>, with the same
 // options, so strict key order applies inside it and unordered pointers
-// below it still hold. The elements are matched one to one by a maximum
-// bipartite matching: in subset mode element equality is not symmetric,
-// so a greedy choice could take the only match of a later element.
+// below it still hold.
+//
+// An exact comparison with no unordered pointer below path is an
+// equivalence that does not depend on the index, so the elements are
+// counted by their canonical texts. Otherwise they are matched one to one
+// by a maximum bipartite matching: in subset mode element equality is not
+// symmetric, so a greedy choice could take the only match of a later
+// element, and a pointer below path makes equality depend on the expected
+// element's index.
 func (c *comparer) multisetEqual(path []string, got, want []*jnode) bool {
-	n := len(want)
-	if len(got) != n {
+	if len(got) != len(want) {
 		return false
 	}
+	if !c.opt.Subset && !c.unorderedBelow(path) {
+		return c.sameCanonical(got, want)
+	}
+	return c.match(path, got, want)
+}
+
+// unorderedBelow reports whether an unordered pointer names a value inside
+// the elements of the array at path.
+func (c *comparer) unorderedBelow(path []string) bool {
+	prefix := JoinPointer(path) + "/"
+	for p := range c.unordered {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameCanonical reports whether got and want hold the same canonical texts
+// with the same multiplicity.
+func (c *comparer) sameCanonical(got, want []*jnode) bool {
+	counts := make(map[string]int, len(want))
+	var b bytes.Buffer
+	for _, w := range want {
+		b.Reset()
+		w.canonical(&b, c.opt.StrictKeyOrder)
+		counts[b.String()]++
+	}
+	for _, g := range got {
+		b.Reset()
+		g.canonical(&b, c.opt.StrictKeyOrder)
+		k := b.String()
+		if counts[k] == 0 {
+			return false
+		}
+		counts[k]--
+	}
+	return true
+}
+
+// match reports whether a maximum bipartite matching pairs every expected
+// element with an equal actual one.
+func (c *comparer) match(path []string, got, want []*jnode) bool {
+	n := len(want)
 	// eq[j][i]: 0 unknown, 1 equal, 2 different.
 	eq := make([][]byte, n)
 	for j := range eq {
@@ -385,6 +435,43 @@ func (n *jnode) remove(k string) {
 		}
 	}
 	n.members = out
+}
+
+// canonical writes n as compact JSON, with object members in their order
+// under strict key order and sorted by key otherwise, so two values have
+// the same text exactly when an exact comparison finds no difference
+// between them. An array element is never part of the observation's own
+// shape, where strict key order does not apply.
+func (n *jnode) canonical(b *bytes.Buffer, strict bool) {
+	switch n.kind {
+	case kindObject:
+		members := n.members
+		if !strict {
+			members = slices.Clone(members)
+			slices.SortFunc(members, func(x, y jmember) int { return strings.Compare(x.key, y.key) })
+		}
+		b.WriteByte('{')
+		for i, m := range members {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(quote(m.key))
+			b.WriteByte(':')
+			m.value.canonical(b, strict)
+		}
+		b.WriteByte('}')
+	case kindArray:
+		b.WriteByte('[')
+		for i, e := range n.elems {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			e.canonical(b, strict)
+		}
+		b.WriteByte(']')
+	default:
+		b.WriteString(n.text)
+	}
 }
 
 // raw returns n as compact JSON in its member order.
