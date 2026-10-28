@@ -1,0 +1,48 @@
+{
+  "finding": "OF-16",
+  "cases": [
+    {
+      "spec": "OF-16",
+      "variant": "fields",
+      "provenance": "source-derived",
+      "title": "the flow-level fields that matter at run time",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "summary: s\ntimeout: 30\nvalue:\n  same_worker: true\n  skip_expr: flow_input.skip\n  early_return: a\n  cache_ttl: 60\n  concurrent_limit: 2\n  priority: 1\n  preserve_step_tags: true\n  flow_env: {B: 1, A: '$var:f/x/v'}\n  modules:\n    - id: a\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "flows": {
+          "f/x/main": {
+            "at": {
+              "/summary": "s",
+              "/timeout": 30,
+              "/same_worker": true,
+              "/skip_expr/site": "skip_expr",
+              "/skip_expr/text": "flow_input.skip",
+              "/early_return": "a",
+              "/cache_ttl": 60,
+              "/flow_env": [
+                {
+                  "name": "B",
+                  "value": 1
+                },
+                {
+                  "name": "A",
+                  "value": "$var:f/x/v"
+                }
+              ]
+            },
+            "absent": [
+              "/concurrent_limit",
+              "/priority",
+              "/preserve_step_tags"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "The flow fields of OF-16 that the engine reads; queue and placement controls are dropped."
+}

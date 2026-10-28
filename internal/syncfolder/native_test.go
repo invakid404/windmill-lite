@@ -37,3 +37,23 @@ func TestHasNativeAnnotation(t *testing.T) {
 		}
 	}
 }
+
+// spec: WR-31, SY-V3 — every annotation key follows the native rule.
+func TestHasAnnotation(t *testing.T) {
+	for _, c := range []struct {
+		src, key string
+		want     bool
+	}{
+		{"\n// nobundling\nexport function main(){return 1}\n", "nobundling", true},             // WR-31/a
+		{"const x = 1;\n//nobundling\nexport function main(){return 1}\n", "nobundling", false}, // WR-31/b
+		{"//npm\n//nodejs\n", "nodejs", true},
+		{"//nobundling=yes\n", "nobundling", true},
+		{"//Nobundling\n", "nobundling", false},
+		{"  //nobundling\n", "nobundling", false},
+		{"// native\n", "nobundling", false},
+	} {
+		if got := HasAnnotation(c.src, c.key); got != c.want {
+			t.Errorf("HasAnnotation(%q, %q) = %v, want %v", c.src, c.key, got, c.want)
+		}
+	}
+}

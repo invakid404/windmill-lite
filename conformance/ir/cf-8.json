@@ -1,0 +1,77 @@
+{
+  "finding": "CF-8",
+  "cases": [
+    {
+      "spec": "CF-8/a",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Both readings agree on the by-path run; only the raw submission differs, which windmill-lite never runs (0001 §1, §6). The run half, [101,103,106], is N3a's.",
+      "title": "top-level loop: collapsed by path",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 100 }\"\n        input_transforms: {}\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1, 2, 3]}\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main(x: number) { return x }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "CF-8/b",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Contested is whether a successful dependency job makes the outer body a stored node, since DISABLE_FLOW_SCRIPT can select the full form. windmill-lite always runs the lite form, where it is one (0001 §1, §6), so the nested loop collapses. The run half, [[101,103,106]], is N3a's.",
+      "title": "nested loop: collapses inside a stored-node body",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: outer\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: a2\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 100 }\"\n              input_transforms: {}\n          - id: inner\n            value:\n              type: forloopflow\n              iterator: {type: static, value: [1, 2, 3]}\n              modules:\n                - id: x\n                  value:\n                    type: rawscript\n                    language: bun\n                    content: \"export async function main(x: number) { return x }\"\n                    input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:outer": {
+            "at": {
+              "/forloop/collapse": false
+            }
+          },
+          "f/x/main m:outer/m:inner": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "CF-8/c",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Both readings agree; the case is carried as disputed with its finding. The run half, every iteration getting the flow input, is N3a's.",
+      "title": "a loop at step 0 collapses",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1, 2, 3]}\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main(x: number) { return x }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/collapse": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "Collapse as on a deployed Flow job reading the lite form, in which nested bodies are stored nodes, so the deployed rule holds at every depth (0001 §1). CF-8/d's raw parent is not applicable (deferred.json)."
+}

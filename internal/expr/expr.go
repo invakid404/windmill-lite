@@ -122,6 +122,26 @@ const (
 	ModeStatement
 )
 
+// MarshalText returns "expression" or "statement", for the IR's JSON form.
+func (m Mode) MarshalText() ([]byte, error) {
+	switch m {
+	case ModeExpression, ModeStatement:
+		return []byte(m.String()), nil
+	}
+	return nil, fmt.Errorf("expr: unknown mode %d", uint8(m))
+}
+
+// UnmarshalText accepts "expression" or "statement".
+func (m *Mode) UnmarshalText(text []byte) error {
+	for _, k := range []Mode{ModeExpression, ModeStatement} {
+		if k.String() == string(text) {
+			*m = k
+			return nil
+		}
+	}
+	return fmt.Errorf("expr: unknown mode %q", text)
+}
+
 // String returns "expression" or "statement".
 func (m Mode) String() string {
 	switch m {
@@ -139,26 +159,26 @@ func (m Mode) String() string {
 // the Engine instance of a running bundle.
 type Expr struct {
 	// Site is where the expression sits.
-	Site SiteKind
+	Site SiteKind `json:"site"`
 	// Text is the expression as written in the flow. Site error messages
 	// quote it untrimmed (JE-5).
-	Text string
+	Text string `json:"text"`
 	// Trimmed is what the shortcuts and the mode detection see: Text
 	// trimmed, or for a predicate "Boolean(" + Text + ")" trimmed (JE-5,
 	// JE-24).
-	Trimmed string
+	Trimmed string `json:"trimmed,omitempty"`
 	// Shortcut holds the shortcuts the text allows.
-	Shortcut Shortcut
+	Shortcut Shortcut `json:"shortcut,omitzero"`
 	// Mode is the mode of the engine source.
-	Mode Mode
+	Mode Mode `json:"mode,omitempty"`
 	// Binds lists the names the evaluation binds, from the text alone: the
 	// context names, flow_input, flow_env, results and error it mentions
 	// (JE-10, JE-17).
-	Binds []string
+	Binds []string `json:"binds,omitempty"`
 	// Source is the engine source: Trimmed after the rewrites of JE-11 and
 	// JE-12, in the wrapper that Mode selects (JE-13), serialising the value
 	// as JSON.stringify(value ?? null) (JE-15).
-	Source string
+	Source string `json:"source,omitempty"`
 }
 
 // Shortcut holds the fast paths of JE-6 to JE-9 that the text alone allows.
@@ -170,38 +190,38 @@ type Expr struct {
 type Shortcut struct {
 	// ContextName is the trimmed text when it is exactly one of the names
 	// JE-6 lists (previous_result, result, params, ...).
-	ContextName string
+	ContextName string `json:"context_name,omitempty"`
 	// FlowKey is the key of JE-7's flow_input or flow_env forms.
-	FlowKey *FlowKey
+	FlowKey *FlowKey `json:"flow_key,omitempty"`
 	// PreviousID is the id that the text names when it is exactly one of
 	// JE-8's four spellings. It fires only if that id is the previous id,
 	// which may be "" (the first module of a flow or body).
-	PreviousID *string
+	PreviousID *string `json:"previous_id,omitempty"`
 	// ResultsPath is JE-9's first qualifying line, or nil when no line
 	// qualifies.
-	ResultsPath *ResultsPath
+	ResultsPath *ResultsPath `json:"results_path,omitempty"`
 }
 
 // FlowKey is the key of a JE-7 shortcut.
 type FlowKey struct {
 	// Env is true for flow_env, false for flow_input.
-	Env bool
+	Env bool `json:"env"`
 	// Key is the one top-level key the text names: everything after the
 	// first dot, or the text between the quotes of the bracket form.
-	Key string
+	Key string `json:"key"`
 }
 
 // ResultsPath is the first line of the trimmed text that JE-9's pattern
 // matches.
 type ResultsPath struct {
 	// Step is the step id after "results." or "results?.".
-	Step string
+	Step string `json:"step"`
 	// Index is the digits of the optional [<digits>] right after the step
 	// id, or "" when there is none.
-	Index string
+	Index string `json:"index,omitempty"`
 	// Segments are the .segment parts after the step id and index.
-	Segments []string
+	Segments []string `json:"segments,omitempty"`
 	// Declines is true when the last segment is "length": the shortcut then
 	// declines for the whole text, and later lines are not searched.
-	Declines bool
+	Declines bool `json:"declines,omitempty"`
 }

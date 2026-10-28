@@ -1,0 +1,8 @@
+roots:
+  - flow: f/lib/inline
+  - script: f/lib/plain
+  - script: f/lib/unbundled
+  - script: f/lib/edge
+  - script: f/lib/native
+  - script: f/cb/esm_entry
+  - script: f/cb/cjs_entry

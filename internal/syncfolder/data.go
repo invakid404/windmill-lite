@@ -174,6 +174,16 @@ func (f *Flow) ItemPath() string     { return f.Path }
 // the folder or filtered out, or a target that fails to read. Whether a
 // script step's `hash` matches is the compiler's check.
 func (f *Folder) Target(from string, m *openflow.Module) (Item, error) {
+	return f.target(from, m, f.Flow)
+}
+
+// TargetDocument is Target, except that a flow target is read with
+// FlowDocument, its inline references unresolved.
+func (f *Folder) TargetDocument(from string, m *openflow.Module) (Item, error) {
+	return f.target(from, m, f.FlowDocument)
+}
+
+func (f *Folder) target(from string, m *openflow.Module, flow func(string) (*Flow, error)) (Item, error) {
 	step := fmt.Sprintf("flow %s step '%s'", from, m.ID)
 	var (
 		kind ItemKind
@@ -202,7 +212,7 @@ func (f *Folder) Target(from string, m *openflow.Module) (Item, error) {
 		}
 	} else {
 		var fl *Flow
-		if fl, err = f.Flow(p); err == nil {
+		if fl, err = flow(p); err == nil {
 			it = fl
 		}
 	}

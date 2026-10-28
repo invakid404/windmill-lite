@@ -1,0 +1,100 @@
+{
+  "finding": "OF-10",
+  "cases": [
+    {
+      "spec": "OF-10",
+      "variant": "kinds",
+      "provenance": "source-derived",
+      "note": "An ai input is kept for the engine, which leaves it out of the arguments (FX-7). Expressions keep their text as written; the textual pipeline is B2a's (JE-5 to JE-15).",
+      "title": "transform kinds and their sites",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      timeout: 5\n      sleep: {type: javascript, expr: '1'}\n      value:\n        type: script\n        path: f/x/s\n        input_transforms:\n          s: {type: static, value: {b: 1, a: [true]}}\n          j: {type: javascript, expr: ' flow_input.x '}\n          i: {type: ai}\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1]'}\n        parallel: true\n        parallelism: {type: javascript, expr: '2'}\n        modules: []\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "at": {
+              "/timeout": {
+                "type": "static",
+                "value": 5
+              },
+              "/sleep": {
+                "type": "javascript",
+                "expr": {
+                  "site": "sleep",
+                  "text": "1"
+                }
+              },
+              "/leaf/inputs": [
+                {
+                  "name": "s",
+                  "transform": {
+                    "type": "static",
+                    "value": {
+                      "b": 1,
+                      "a": [
+                        true
+                      ]
+                    }
+                  }
+                },
+                {
+                  "name": "j",
+                  "transform": {
+                    "type": "javascript",
+                    "expr": {
+                      "site": "input_transform",
+                      "text": " flow_input.x "
+                    }
+                  }
+                },
+                {
+                  "name": "i",
+                  "transform": {
+                    "type": "ai"
+                  }
+                }
+              ]
+            }
+          },
+          "f/x/main m:l": {
+            "at": {
+              "/forloop/iterator/expr/site": "iterator",
+              "/forloop/parallelism/expr": {
+                "site": "parallelism",
+                "text": "2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-10",
+      "variant": "failure-inputs",
+      "provenance": "source-derived",
+      "note": "The failure module's own transforms see the failed module's context (JE-35).",
+      "title": "the failure module's inputs have their own site",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  failure_module:\n    id: failure\n    value:\n      type: rawscript\n      language: bun\n      content: 'export async function main(e: any) { return e }'\n      input_transforms: {e: {type: javascript, expr: error}}\n  modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main s:failure": {
+            "at": {
+              "/leaf/inputs/0/transform/expr/site": "failure_input_transform"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "Transforms as the program holds them (OF-10); the decoder's cases are in conformance/openflow."
+}

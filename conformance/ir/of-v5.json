@@ -1,0 +1,27 @@
+{
+  "finding": "OF-V5",
+  "cases": [
+    {
+      "spec": "OF-V5/a",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Contested is only whether the status list has a-v when enqueue builds it from the full form (Q-OF-11, OF-V5). windmill-lite's reference configuration is the successful lite deployment, on which both readings agree (0001 §1, §6), so the program always has a-v. The run half, the status ids and the result, is N2's, which implements sleep.",
+      "title": "lite at enqueue: a-v exists",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      sleep: {type: static, value: 1}\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 7 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a",
+            "m:a-v"
+          ]
+        }
+      }
+    }
+  ],
+  "note": "OF-V5/b, the full-built status of DISABLE_FLOW_SCRIPT, is not applicable: windmill-lite always runs the lite form (0001 §1); conformance/openflow/deferred.json says so."
+}

@@ -1,0 +1,141 @@
+{
+  "finding": "OF-17",
+  "cases": [
+    {
+      "spec": "OF-17/a",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Contested is only whether the status list has a-v when enqueue builds it from the full form (Q-OF-11, OF-V5). windmill-lite's reference configuration is the successful lite deployment, on which both readings agree (0001 §1, §6), so the program always has a-v. The run half, the status ids and the result, is N2's, which implements sleep.",
+      "title": "final sleep adds a-v",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      sleep: {type: static, value: 1}\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a",
+            "m:a-v"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "OF-17",
+      "variant": "nested",
+      "provenance": "source-derived",
+      "title": "every nested body list gets its own virtual step",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: b\n            sleep: {type: static, value: 1}\n            value: {type: identity}\n    - id: o\n      value:\n        type: branchone\n        branches:\n          - expr: 'true'\n            modules:\n              - id: c\n                sleep: {type: static, value: 1}\n                value: {type: identity}\n        default:\n          - id: d\n            sleep: {type: static, value: 1}\n            value: {type: identity}\n    - id: z\n      value:\n        type: branchall\n        branches:\n          - modules:\n              - id: e\n                sleep: {type: static, value: 1}\n                value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:l",
+            "m:o",
+            "m:z"
+          ],
+          "f/x/main m:l": [
+            "m:b",
+            "m:b-v"
+          ],
+          "f/x/main m:o/b:0": [
+            "m:c",
+            "m:c-v"
+          ],
+          "f/x/main m:o/b:default": [
+            "m:d",
+            "m:d-v"
+          ],
+          "f/x/main m:z/b:0": [
+            "m:e",
+            "m:e-v"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "OF-17",
+      "variant": "not-last",
+      "provenance": "source-derived",
+      "title": "a sleep that is not last adds nothing",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      sleep: {type: static, value: 1}\n      value: {type: identity}\n    - id: b\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a",
+            "m:b"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "OF-17",
+      "variant": "occurrence",
+      "provenance": "source-derived",
+      "note": "Ids are not unique in Windmill (OF-2), so a virtual id can repeat one written in the folder. The run's sites are those of the final list, so the occurrence counts the virtual step (0011).",
+      "title": "the virtual step counts in its list's occurrences",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a-v\n      value: {type: identity}\n    - id: a\n      sleep: {type: static, value: 1}\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a-v~0",
+            "m:a",
+            "m:a-v~1"
+          ]
+        },
+        "steps": {
+          "f/x/main m:a-v~1": {
+            "at": {
+              "/virtual": true,
+              "/occurrence": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "OF-17",
+      "variant": "failure-slot",
+      "provenance": "source-derived",
+      "note": "OF-17 appends the virtual step to module lists; the failure and preprocessor modules sit in their own slots.",
+      "title": "the failure module is a slot, not a list",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  failure_module:\n    id: failure\n    sleep: {type: static, value: 1}\n    value: {type: identity}\n  modules:\n    - id: a\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:a"
+          ]
+        },
+        "steps": {
+          "f/x/main s:failure": {
+            "at": {
+              "/sleep/type": "static"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "The virtual `<id>-v` identity after a final sleep, at every level. A final suspend would add it too, but suspend is refused at load (FX-39)."
+}
