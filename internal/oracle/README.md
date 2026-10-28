@@ -118,7 +118,7 @@ from generated ones and to name collapsed bodies.
 | a module with a nil job | its entry type, with `ran: false` (an empty `branchone` branch, a failed predicate). |
 | a loop or `branchall` (`flow_jobs`, even empty) | `m:<id>`: status from the entry type, the children's results in index order as its result, `ran: false` with no children. Child `n` is `i:<n>` (or `b:<n>`): a child flow's modules are below it; a collapsed iteration is the body module's own job at `i:<n>/m:<body>`, the path a non-collapsed iteration gives. |
 | a `branchone` | `m:<id>`: the chosen body's status and result and `branch_chosen`; the body's modules are under `b:<n>` or `b:default`. |
-| a failed attempt | `<module>/r:<k>`, in `failed_retries` order. |
+| a failed attempt | `<module>/r:<k>`, in `failed_retries` order. A failure module that succeeds lists the flow's earlier failed attempts again ([FX-27](../../docs/semantics/execution.md#fx-27), [FX-29](../../docs/semantics/execution.md#fx-29)), so the same job is recorded at `s:failure/r:<k>` too, as OR-11 says; its placeholder names the site the walk reached first, the failed module's attempt. |
 | the failure or preprocessor module | `s:failure`, `s:preprocessor`, kept only when the flow defines one. |
 | a generated `<id>-v` | omitted ([OR-V7](../../docs/semantics/oracle.md#or-v7)); a user-authored one stays. |
 
@@ -127,9 +127,13 @@ A container module records no args: its job's args are Windmill's
 body jobs get no record of their own, but their ids map to `i:<n>` and
 `b:<n>` for placeholders. A flow status that does not match the fixture's
 module list is an error, not an observation. These rules follow the shapes
-oracle run 1 recorded, as the reference describes them; only the
-sequential and failure shapes of the smoke fixture are recorded by this
-milestone, and the recording batches E3a to E3e confirm the rest.
+oracle run 1 recorded, as the reference describes them. Milestone E2
+recorded the sequential and failure shapes of the smoke fixture; recording
+batch E3b recorded skipped and identity modules, mocks, clean and error
+stops, retried modules, failure modules (ordinary, entered at the end of the
+flow, and after a retry) and a `branchone` body, and committed the raw
+captures of every run. Loops, `branchall`, subflows and parallel shapes
+await the other batches.
 
 ## Normalisation and comparison
 
@@ -187,7 +191,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestRecordingBatches` | every recording batch manifest against the catalogue, ADR 0012's milestone ids, the fixtures and their recordings: each case of the batch's scope is listed with runs and a gate, each run cites its case, and its committed recording meets its `expect` | `conformance/flows/batches/*.json` |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
-| `TestReplayRecordedCaptures` | the raw API captures of the CI recording, replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28 | `testdata/captures/` |
+| `TestReplayRecordedCaptures` | the raw API captures of oracle runs in CI, replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/`: the smoke fixture's two runs and batch E3b's 37 |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |

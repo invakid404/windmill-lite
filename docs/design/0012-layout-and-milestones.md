@@ -95,7 +95,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | C3n | native boundary mode | C3a, **S1** | native cases from the reference | 4 | yes, for hosts with native steps |
 | E1 | `wltest check` for flows: the flow runner, first fixtures per area, run on W1's skeleton engine | K1, C3a, W1 | the first fixtures pass in `warm`, the only mode before C3b | 4 | yes |
 | F4 | `internal/bundle`, `windmill-lite build` and `verify`: format, manifest, digest, reproducibility | A5, B1a, C2a | two builds of one fixture give one digest; the static Linux engine starts on an empty base | 4 | yes |
-| N1a | engine core, sequential: transforms, the `results` routes, `skip_if`, stops, identity, mock, the hook seams of K1 | A5, B2b, E1, E3b | the E3b cases except FX-42/h (PF2's); the sequential, context-free subset of E3a end to end: flow cases whose flows use only plain steps, transforms, `skip_if`, `stop_after_if` and identity, with no failure module, container, wait, retry or platform provider. E3a's other flow cases gate the milestones below that implement their features | 5 | yes |
+| N1a | engine core, sequential: transforms, the `results` routes, `skip_if`, stops, identity, mock, the hook seams of K1 | A5, B2b, E1, E3b | the E3b cases that [`conformance/flows/batches/e3b.json`](../../conformance/flows/batches/e3b.json) gates on N1a (the others need `continue_on_error`, a failure module, an error shape, a retry, a branch or a provider, and gate the milestone that implements it, as E3a's do); the sequential, context-free subset of E3a end to end: flow cases whose flows use only plain steps, transforms, `skip_if`, `stop_after_if` and identity, with no failure module, container, wait, retry or platform provider. E3a's other flow cases gate the milestones below that implement their features | 5 | yes |
 | E3e | the remaining recordings, the contested `later` cases and the probe-catalogue reconstruction (Q-OR-16) | E3a, E3b, E3c, E3d, E1 | — | 5 | yes |
 | N1b | engine errors: `continue_on_error`, failure module and recovery, error shapes, chaining errors, final result, cancellation outcome | N1a, E3c | the E3c cases; E3a's failure-module and error-route cases (JE-17/a, JE-26/b–c, JE-35/a–d) | 6 | yes |
 | N2 | engine waits and time: `sleep`, `timeout` and its messages, retry arithmetic, jitter and argument reuse, deadlines, the clock | N1a | FX-23 to FX-29 cases; E3a's wait, timeout and retry cases (JE-2/a, JE-22/a–b, JE-28/a–c, JE-29/a, JE-32/a–b, JE-V2/a and /c) | 6 | yes |
@@ -154,6 +154,12 @@ waits on an external gate except R1.
   `conformance/jsonb/` the stored-form cases, a level added with milestone A1.
 - `conformance/syncfolder/` holds the sync-folder load cases, a level that
   [0003](0003-semantics-placement.md) added with milestone A4.
+- A recording batch's manifest, `conformance/flows/batches/<batch>.json`,
+  names the milestone whose exit gate runs each of its cases: the one that
+  implements the last feature the case's flow needs. Milestone E3b added it
+  because its FX core cases reach beyond N1a: about half of them need
+  `continue_on_error`, a failure module, a retry, a branch or a variable.
+  A milestone's exit gate includes the cases a manifest assigns to it.
 - `conformance/protocol/` holds the harness protocol's golden frames and
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against

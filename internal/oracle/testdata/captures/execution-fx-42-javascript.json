@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/execution/fx-42",
+  "run": "javascript",
+  "repeat": 0,
+  "workspace": "wl-243a87-8",
+  "root": "3e02d9be-bc9e-4ab4-9217-078739a66393",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/get/3e02d9be-bc9e-4ab4-9217-078739a66393?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-8\",\"id\":\"3e02d9be-bc9e-4ab4-9217-078739a66393\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:31.033891Z\",\"started_at\":\"2026-10-28T12:15:31.039097Z\",\"completed_at\":\"2026-10-28T12:15:31.090868Z\",\"duration_ms\":52,\"success\":true,\"script_hash\":\"000000000000001c\",\"script_path\":\"f/wl_fx42/javascript\",\"args\":{},\"result\":{\"v\": {\"b\": 1000000000000000000000, \"n\": 1500, \"s\": \"A/\", \"zz\": 1000, \"aaa\": 12345678901234567000, \"big\": 123456789012345680000000000000}, \"o_keys\": [\"a\", \"zz\"], \"v_keys\": [\"zz\", \"b\", \"aaa\", \"big\", \"n\", \"s\"]},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826f-dae1-1061-a570-6e8eda94c71d\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"o\":{\"type\":\"static\",\"value\":{\"a\": 2, \"zz\": 1}},\"v\":{\"type\":\"static\",\"value\":\"$jsonvar:f/wl_fx42/numbers\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/completed/get_result_maybe/3e02d9be-bc9e-4ab4-9217-078739a66393?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"v\": {\"b\": 1000000000000000000000, \"n\": 1500, \"s\": \"A/\", \"zz\": 1000, \"aaa\": 12345678901234567000, \"big\": 123456789012345680000000000000}, \"o_keys\": [\"a\", \"zz\"], \"v_keys\": [\"zz\", \"b\", \"aaa\", \"big\", \"n\", \"s\"]}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/get/01a1826f-dae1-1061-a570-6e8eda94c71d?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-243a87-8\",\"id\":\"01a1826f-dae1-1061-a570-6e8eda94c71d\",\"parent_job\":\"3e02d9be-bc9e-4ab4-9217-078739a66393\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:15:31.041046Z\",\"started_at\":\"2026-10-28T12:15:31.043225Z\",\"completed_at\":\"2026-10-28T12:15:31.088309Z\",\"duration_ms\":43,\"success\":true,\"script_hash\":\"000000000000001f\",\"script_path\":\"f/wl_fx42/javascript/a\",\"args\":{\"o\":{\"a\": 2, \"zz\": 1},\"v\":\"$jsonvar:f/wl_fx42/numbers\"},\"result\":{\"v\": {\"b\": 1000000000000000000000, \"n\": 1500, \"s\": \"A/\", \"zz\": 1000, \"aaa\": 12345678901234567000, \"big\": 123456789012345680000000000000}, \"o_keys\": [\"a\", \"zz\"], \"v_keys\": [\"zz\", \"b\", \"aaa\", \"big\", \"n\", \"s\"]},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":19268,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-33e0fc416e5f-KaKbl\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/get_args/01a1826f-dae1-1061-a570-6e8eda94c71d",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"o\": {\"a\": 2, \"zz\": 1}, \"v\": \"$jsonvar:f/wl_fx42/numbers\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-243a87-8/jobs_u/completed/get_result_maybe/01a1826f-dae1-1061-a570-6e8eda94c71d?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"v\": {\"b\": 1000000000000000000000, \"n\": 1500, \"s\": \"A/\", \"zz\": 1000, \"aaa\": 12345678901234567000, \"big\": 123456789012345680000000000000}, \"o_keys\": [\"a\", \"zz\"], \"v_keys\": [\"zz\", \"b\", \"aaa\", \"big\", \"n\", \"s\"]}}"
+    }
+  ]
+}

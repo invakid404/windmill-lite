@@ -217,11 +217,11 @@ switch through a change to this record, naming the reason.
 
 | Finding | Readings | Default until recorded, and why | Settled by | Recorded in, gating |
 |---|---|---|---|---|
-| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | (b): it agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10) | Q-FX-15, case FX-V6/a | E3c, gating N1b (the discriminating case runs in a failure handler) |
+| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | (b): it agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10). **Recorded (b) without a failure module:** in oracle run 40685013818, `previous_result && Object.keys(await results[k])` and `typeof error && …` read the preceding result from memory, and a bare computed read reads storage (run `memory_or_storage` of [`execution/fx-10`](../../conformance/flows/execution/fx-10)). (b) stays the default in a failure handler until FX-V6/a is recorded there | Q-FX-15, case FX-V6/a | E3b without a handler (recorded), gating N1a; E3c in a failure handler, gating N1b |
 | [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | (b): it is the confirmed [JE-9](../semantics/expressions.md#je-9) rule | Q-CF-16, cases CF-V6/a,b | E3a, gating B2a and B2b |
 | [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | (b): the correction traces the decoder | Q-FX-19, cases FX-33/c–g | E3c, gating N1b |
 | [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | (b): the correction traces that a break clears the stop, not the failure | Q-CF-14, case CF-12/f | E3d, gating N3a and N3b |
-| [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`) | Q-FX-16, case FX-42/h | E3b, gating PF2 |
+| [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`). **Recorded (b)** in oracle run 40685013818: the arguments file keeps the variable's key order and writes values re-serialised (`1e3` as `1000.0`, `1e21` as `1e+21`, a 64-bit integer exact, escapes decoded, no spaces) (run `args_file` of [`execution/fx-42`](../../conformance/flows/execution/fx-42)) | Q-FX-16, case FX-42/h | E3b (recorded), gating PF2 |
 | [OF-3](../semantics/openflow.md#of-3) / [OF-V5](../semantics/openflow.md#of-v5) | one or two form selections | not applicable: both readings agree on the successful lite deployment, which is the reference configuration | Q-OF-11 | none needed |
 | [CF-8](../semantics/control-flow.md#cf-8) | how far the raw-submission no-collapse rule reaches, and whether the stored form actually selected (lite or full) decides nested collapse | not applicable: windmill-lite never runs raw submissions and always reads the lite form (§1) | Q-CF-15 | none needed |
 | [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | re-evaluation itself is not contested; (b) for the outcome | Q-FX-11 | E3e, gating the `later` milestone that implements `skip_expr` |
@@ -268,6 +268,12 @@ switch through a change to this record, naming the reason.
 - §5a gained the sync-folder restriction, and §3 the JSON-mode and `later`
   sync-folder rows, when milestone A4 implemented the loader of
   [0002](0002-ir-and-loader.md).
+- Recording batch E3b settled Q-FX-16 and the handler-free half of Q-FX-15
+  on the oracle. Both recordings agreed with the defaults in §6, so no
+  default changed, and no implementation of either rule existed yet to
+  change. The case tags in the reference stay with the semantics team,
+  which the batch's pull request asks to mark the recorded cases
+  `oracle-observed`.
 
 ## Spec IDs relied on
 
