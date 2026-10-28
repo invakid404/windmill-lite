@@ -50,6 +50,7 @@ const FIELDS: Record<string, readonly string[]> = {
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
   log: ["id", "lines"],
+  warning: ["id", "code", "message"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
@@ -156,6 +157,7 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   late: { id: "string", kind: "string", settled: "bool" },
   cancel: { id: "string", reason: "string" },
   log: { id: "string", lines: "strings" },
+  warning: { id: "string", code: "string", message: "string" },
   platform: { id: "string", inv: "string", method: "string", url: "string", headers: "env" },
   platform_reply: { id: "string", status: "int", headers: "env" },
   run: { id: "string", kind: "string", path: "string", args: "raw" },
@@ -412,7 +414,7 @@ export function decodeAll(payloads: Uint8Array[], maxMessage = DEFAULT_MAX_MESSA
 /** The messages that are about one invocation, by their id, and those
  * about one host-mode run, which keep their order under a key of their
  * own. */
-const ABOUT_INVOCATION = new Set(["invoke", "cancel", "result", "late", "log"]);
+const ABOUT_INVOCATION = new Set(["invoke", "cancel", "result", "late", "log", "warning"]);
 const ABOUT_RUN = new Set(["run", "run_done", "run_cancel"]);
 
 type OutStream = { id: string; about?: string; payload: Uint8Array; off: number; seq: number; after: Queued[] };

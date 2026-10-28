@@ -1,0 +1,108 @@
+# WR-7: which declarations give the entrypoint its parameters, the missing
+# export, and the parser's edge cases (conformance/build/wr-7.json is the
+# build half).
+finding: WR-7
+scope: core
+cases:
+  - spec: WR-7/a
+    provenance: source-derived
+    title: an arrow main is called with no arguments
+    script: |
+      export const main = (a: number) => a ?? "undef";
+    runs:
+      - args: '{"a":3}'
+        expect: {status: success, result: undef}
+  - spec: WR-7/b
+    provenance: source-derived
+    title: a missing main export fails the step in the wrapper-catch shape
+    script: |
+      export function notMain() {}
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a}}}
+  - spec: WR-7/c
+    provenance: source-derived
+    title: a destructured parameter reads key anon1, so a missing anon1 fails the destructuring
+    script: |
+      export function main({ a }: { a: number }) { return a; }
+    runs:
+      - args: '{"a":1}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-7/d
+    provenance: source-derived
+    title: a destructured parameter bound through anon1
+    script: |
+      export function main({ a }: { a: number }) { return a; }
+    runs:
+      - args: '{"anon1":{"a":1}}'
+        expect: {status: success, result: 1}
+  - spec: WR-7
+    variant: rest
+    provenance: source-derived
+    title: a rest parameter makes the signature fail to parse, which fails the step before its module loads
+    note: >-
+      The worker fails such a job before its process starts (WR-7, WR-37),
+      so the top-level throw never runs. The text after the colon is free
+      text in the reference.
+    script: |
+      throw new Error("the module was loaded");
+      export function main(...xs: number[]) { return xs.length; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/message, prefix: "execution error:\nparameter syntax unsupported: "}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-7
+    variant: default-export
+    provenance: source-derived
+    title: export default function main does not export main
+    script: |
+      export default function main(a: number) { return a; }
+    runs:
+      - args: '{"a":1}'
+        expect: {status: failure, result: {error: {message: main function is missing, name: Error, stack: "<stack>", step_id: a}}}
+  - spec: WR-7
+    variant: renamed-export
+    provenance: source-derived
+    title: an export renamed from another declaration has no parameters of its own name, so it gets no arguments
+    script: |
+      function helper(a: number) { return a ?? "none"; }
+      export { helper as main };
+    runs:
+      - args: '{"a":1}'
+        expect: {status: success, result: none}
+  - spec: WR-7
+    variant: const-function
+    provenance: source-derived
+    title: a const holding a function expression gets no arguments
+    script: |
+      export const main = async function (a: number) { return a ?? "none"; };
+    runs:
+      - args: '{"a":1}'
+        expect: {status: success, result: none}
+  - spec: WR-7
+    variant: this-parameter
+    provenance: policy
+    title: a TypeScript this parameter is no parameter at run time
+    script: |
+      export function main(this: unknown, a: number) { return a; }
+    runs:
+      - args: '{"a":4}'
+        expect: {status: success, result: 4}
+  - spec: WR-7
+    variant: inherited-name
+    provenance: source-derived
+    title: a parameter named like an Object.prototype member reads the argument object as destructuring would, inherited members included
+    note: >-
+      The wrapper destructures the parsed object by name, so a missing
+      constructor key reads Object.prototype.constructor, a function.
+    script: |
+      export function main(constructor: unknown, toString: unknown) { return [typeof constructor, toString]; }
+    runs:
+      - args: '{"toString":"own"}'
+        expect: {status: success, result: [function, own]}

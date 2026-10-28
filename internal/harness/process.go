@@ -536,6 +536,8 @@ func (p *Process) handleMessage(m Message) error {
 		target, calls, err = p.onLate(m)
 	case Log:
 		target, calls = p.onLog(m)
+	case Warning:
+		target, calls = p.onWarning(m)
 	case Ping:
 		// A pong that cannot be sent means the conn is closing, which the
 		// reader reports on its own.
@@ -654,6 +656,20 @@ func (p *Process) onLog(l Log) (*invocation, []func()) {
 	}
 	late := engine.Late{Kind: engine.LateLog, Body: linesValue(l.Lines)}
 	return inv, []func(){func() { inv.report.Late(late) }}
+}
+
+// onWarning hands a warning to the Reporter of the invocation it names,
+// which has not settled: the harness sends warnings only for invocations in
+// flight, and ahead of the frame that settles them. One for an invocation
+// that is not in flight is dropped.
+func (p *Process) onWarning(w Warning) (*invocation, []func()) {
+	inv := p.invs[w.ID]
+	if inv == nil {
+		p.diag.printf("dropped a warning for invocation %q, which is not in flight: %s", w.ID, w.Message)
+		return nil, nil
+	}
+	warning := engine.Warning{Code: w.Code, Message: w.Message}
+	return inv, []func(){func() { inv.report.Warning(warning) }}
 }
 
 // settleLocked moves inv from the in-flight table to the recent ones,

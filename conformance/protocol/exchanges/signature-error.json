@@ -1,0 +1,85 @@
+{
+  "case": "signature-error",
+  "title": "an entrypoint whose recorded signature did not parse fails the step before its module loads, with the worker's execution error (WR-7, WR-37)",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-7",
+    "WR-37"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#the-shared-process-failure-model",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "bad-signature",
+        "entry": "main",
+        "args": {},
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "error",
+        "body": {
+          "message": "execution error:\nparameter syntax unsupported: a rest parameter",
+          "name": "ExecutionErr",
+          "step_id": "a"
+        },
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

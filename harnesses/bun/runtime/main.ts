@@ -7,13 +7,14 @@
 // free for output no invocation owns.
 
 import { join } from "node:path";
-import { Runtime } from "./runtime.ts";
+import { exitProcess } from "./context.ts";
+import { registerHostModules, Runtime } from "./runtime.ts";
 
 const EXIT_STARTUP = 4;
 
 function fail(message: string): never {
   process.stderr.write(`windmill-lite harness: ${message}\n`);
-  process.exit(EXIT_STARTUP);
+  exitProcess(EXIT_STARTUP);
 }
 
 const args = process.argv.slice(2);
@@ -30,6 +31,14 @@ try {
   fail(`cannot read the bundle manifest: ${(e as Error).message}`);
 }
 const bundleDigest = "sha256:" + new Bun.CryptoHasher("sha256").update(manifest).digest("hex");
+
+// The bundle's copies of its host-provided modules are registered before
+// any step loads, so each shim finds its module (D12).
+try {
+  await registerHostModules(bundleDir, JSON.parse(new TextDecoder().decode(manifest)));
+} catch (e) {
+  fail(`cannot register the bundle's host-provided modules: ${(e as Error).message}`);
+}
 
 let runtime: Runtime | undefined;
 let socket: { write(b: Uint8Array): number; flush(): void; end(): void } | undefined;
@@ -74,8 +83,10 @@ runtime = new Runtime({
   // A write counts bytes the socket accepted, which it may still hold in
   // its own buffer, so the process exits only once the socket has closed
   // (or a second later): otherwise the last frame, such as bye, is lost.
+  // It exits through the real process.exit: this may run in an
+  // invocation's context, where process.exit is intercepted (D11).
   exit: (code) => {
-    Promise.race([closed, Bun.sleep(1000)]).then(() => process.exit(code));
+    Promise.race([closed, Bun.sleep(1000)]).then(() => exitProcess(code));
   },
 });
 runtime.start();

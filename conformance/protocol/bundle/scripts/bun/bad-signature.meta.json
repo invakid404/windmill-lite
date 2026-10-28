@@ -1,0 +1,7 @@
+{
+  "signatures": {
+    "main": {
+      "error": "parameter syntax unsupported: a rest parameter"
+    }
+  }
+}

@@ -4,12 +4,13 @@
 milestone K1, the fixture format, normaliser and comparator of milestone
 E2, the expression-case format, its lifting into generated flows, and the
 claims and unit cases of recording batch E3a, and the replay table and
-replay service of stub mode, milestone E4a
+replay service of stub mode, milestone E4a, and the step-case format and
+its comparison, milestone C3a
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
-([internal/oracle](../oracle/README.md)) uses all of it; the flow runner
-that checks windmill-lite against a fixture (`wltest check`) is milestone E1
-and does not exist yet.
+([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
+([cmd/wltest](../../cmd/wltest/README.md)) runs the step cases on
+windmill-lite, and its flow runner is milestone E1's.
 
 ## What it holds
 
@@ -20,6 +21,7 @@ and does not exist yet.
 | `observation.go` | `Observation`, `StepObservation` and `BranchChosen`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments (see below) |
 | `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
 | `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
+| `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred` and `CompareStep` (see [Step cases](#step-cases)) |
 | `claims.go` | `Claim`, `CheckClaims`, `Delay`, `ValueAt`, `SameJSON`: partial assertions about an observation |
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
@@ -190,6 +192,26 @@ run, named by its spec and variant (`je-7-a`, `je-1-math-trig`), with the
 case's flow input as its arguments and, as its claims, what the case's
 `expect` says about module `b`'s recorded argument or error. Recordings are
 read from and written to `conformance/exprs/recorded/<finding>/`.
+
+## Step cases
+
+`LoadStepFile` reads one `conformance/steps/<lang>/<finding>.yaml`
+strictly: unknown keys are refused, as is a file not named after its
+finding, a case whose spec cites a finding without a variant, a run that
+checks nothing, a `by_mode` without both `warm` and `fresh` or without the
+case's `deviation`, and two cases of one file that give one path two
+sources (a file's scripts share one bundle). Only `bun` has a language
+directory. `FindStepFiles` finds the files below its roots, `deferred.yaml`
+aside, and `IsStepFile` tells one by its path. The format is described in
+[conformance](../../conformance/README.md#step-cases).
+
+`CompareStep` compares one run's observation, the step's stored value as
+`{"status", "result"}`, with the run's check for a configuration: it masks
+`/result/error/stack` (`DefaultStepStack`) and the case's own `stack` and
+`mask` pointers on both sides, compares with `Compare` and the case's
+`unordered` and `strict_key_order`, and checks the claims. A run's `late`,
+`settled` and `warnings` are the runner's to check, since only it sees the
+invocation's Reporter.
 
 ## Claims
 

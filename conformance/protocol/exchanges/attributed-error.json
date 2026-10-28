@@ -1,0 +1,94 @@
+{
+  "case": "attributed-error",
+  "title": "an error thrown from a timer is attributed to the invocation whose context set it: it fails as escaped with exit code 1 and the error as its tail while its call goes on, and the call's return settles it late (ADR 0004, the shared-process failure model, item 2)",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-19",
+    "WR-20",
+    "Q-WR-2"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#the-shared-process-failure-model",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "timer-throw",
+        "entry": "main",
+        "args": {
+          "ms": 30
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "escaped",
+        "tail": "<string>",
+        "exit_code": 1,
+        "settled": false
+      }
+    },
+    {
+      "expect": {
+        "t": "late",
+        "id": "i1",
+        "kind": "result",
+        "body": "done",
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

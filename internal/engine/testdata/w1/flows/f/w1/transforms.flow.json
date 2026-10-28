@@ -22,7 +22,7 @@
         "value": {
           "type": "rawscript",
           "language": "bun",
-          "content": "export async function main(args) { return args; }",
+          "content": "export async function main(prev, missing) { return { prev, missing }; }",
           "input_transforms": {
             "prev": {"type": "javascript", "expr": "previous_result"},
             "missing": {"type": "javascript", "expr": "flow_input.nope"}

@@ -12,9 +12,9 @@ and E3d (loops, branches and the result cache), the stub-mode acceptance
 cases, and those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
 Nothing runs the flow fixtures or the expression cases on windmill-lite yet
-(`wltest check`, milestone E1; the expression pipeline, B2a and B2b), and
-the step level that [0003](../docs/design/0003-semantics-placement.md)
-defines has no cases or runner yet.
+(`wltest check` for flows, milestone E1; the expression pipeline, B2a and
+B2b). The step cases in `steps/` run on windmill-lite's Bun harness through
+`wltest check` (milestone C3a).
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -33,7 +33,7 @@ repository to exercise one behaviour each.
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle` |
-| step | `steps/<lang>/<case>.yaml` | not yet |
+| step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
 
 ## Flow fixtures
@@ -456,6 +456,54 @@ script under `scripts/bun/`). Each step does one thing:
 Expected values may use placeholders: `<any>`, `<string>`, `<int>`, `<pid>`
 (the harness's pid), `<bundle>` (the fixture bundle's digest) and `<c*N>`
 (a string of `N` copies of `c`).
+
+## Step cases
+
+A step file holds the step cases of one finding, or of a deviation of
+[ADR 0001](../docs/design/0001-equivalence-contract.md) §5 that has none
+(`d9.yaml`, `d11.yaml`, `d12.yaml`), and is named after it in lower case.
+Each case is one Bun script and the runs that one harness process serves
+in order, so a later run sees what an earlier one left in memory (D1). A
+run's observation is the step's **stored** value,
+`{"status": "success" | "failure", "result": …}`: the result, or the
+failure value ([WR-21](../docs/semantics/languages.md#wr-21)).
+
+```yaml
+finding: WR-12
+scope: core
+cases:
+  - spec: WR-12/b
+    provenance: source-derived
+    title: an arrow preprocessor receives the non-underscore values, integer-like keys ascending
+    step_id: preprocessor
+    script: |
+      export const preprocessor = (x, y) => ({ x, y });
+    runs:
+      - args: '{"2":"two","1":"one","_ENTRYPOINT_OVERRIDE":"preprocessor"}'
+        expect: {status: success, result: {x: one, y: two}}
+```
+
+| Field | Meaning |
+|---|---|
+| `spec`, `variant`, `provenance`, `scope`, `title`, `note` | as for the other levels; a case of a finding beyond the catalogue, or of a deviation, cites the finding and needs a `variant` |
+| `script`, `path` | the script, and its Windmill path (default `f/wl_step/<name in snake case>`), which is its import base |
+| `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` |
+| `env` | job variables that add to or replace the core `WM_*` ones |
+| `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
+| `compare` | `stack` and `mask` pointers beyond `/result/error/stack`, which is always masked; `unordered` arrays; `strict_key_order` |
+| `deviation` | the deviation whose two readings the case's `by_mode` gives |
+| `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
+| `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |
+| `runs[].late`, `settled` | what the invocation reports after its outcome before it settles (`kind`, `final`, `body`), and how it settles |
+| `runs[].warnings` | the codes of the warnings the invocation gets while in flight (D9) |
+| `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own; `fresh` is checked from milestone C3b |
+
+`steps/bun/deferred.yaml` lists the catalogue cases of these findings that
+are not step cases, with the reason and where each is checked. The step
+files cover the run halves of the build cases whose `rest_in` names C3a
+(binding, hydration, the missing export), and
+[ADR 0004](../docs/design/0004-harness-protocol.md)'s alternate-entrypoint
+and arrow-export cases in `wr-12.yaml`.
 
 ## Build cases
 

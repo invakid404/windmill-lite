@@ -1,0 +1,43 @@
+# D12 (ADR 0001 §5, ADR 0010): host-provided modules. A harness the engine
+# spawned registers the bundle's own copy of each, in the manifest's
+# order, before any step loads; a step reaches it through its shim, so the
+# copy is evaluated once per process. (In host mode the host registers its
+# own instances; cmd/windmill-lite tests that.)
+finding: D12
+scope: core
+cases:
+  - spec: D12
+    variant: spawned-registration
+    provenance: policy
+    title: a step reads the registered copy of a host-provided module through its shim, and inlines none of its own
+    host_modules:
+      - path: f/wl_step/shared
+        script: |
+          globalThis.wlLoads = (globalThis.wlLoads ?? 0) + 1;
+          export const tag = "registered copy";
+          export function loads() { return globalThis.wlLoads; }
+    script: |
+      import { loads, tag } from "./shared.ts";
+      export function main() { return [tag, loads()]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [registered copy, 1]}
+  - spec: D12
+    variant: registration-order
+    provenance: policy
+    title: a host-provided module that imports another is registered after it and reads its registered instance
+    host_modules:
+      - path: f/wl_step/base
+        script: |
+          export const counter = { n: 0 };
+      - path: f/wl_step/derived
+        script: |
+          import { counter } from "./base.ts";
+          export function bump() { return ++counter.n; }
+    script: |
+      import { counter } from "./base.ts";
+      import { bump } from "./derived.ts";
+      export function main() { bump(); bump(); return counter.n; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 2}

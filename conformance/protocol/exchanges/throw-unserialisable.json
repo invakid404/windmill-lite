@@ -1,6 +1,6 @@
 {
   "case": "throw-unserialisable",
-  "title": "a throw whose error object cannot be serialised escapes, and the harness lives on",
+  "title": "a throw whose error object cannot be serialised (a cycle in extra) escapes, and the harness lives on (WR-19)",
   "provenance": "policy",
   "relies_on": [
     "WR-18",
@@ -74,7 +74,9 @@
         "script": "echo",
         "entry": "main",
         "args": {
-          "still": "up"
+          "value": {
+            "still": "up"
+          }
         },
         "env": {
           "WM_FLOW_STEP_ID": "a"

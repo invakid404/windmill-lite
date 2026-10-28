@@ -3,7 +3,8 @@
   "title": "an export that is missing fails the step after the module loaded",
   "provenance": "policy",
   "relies_on": [
-    "WR-12"
+    "WR-12",
+    "WR-18"
   ],
   "design": "docs/design/0004-harness-protocol.md#messages",
   "steps": [
@@ -62,7 +63,8 @@
         "body": {
           "message": "main function is missing",
           "name": "Error",
-          "stack": "<string>"
+          "stack": "<string>",
+          "step_id": "a"
         },
         "settled": true
       }
@@ -75,7 +77,9 @@
         "site": "m:a",
         "script": "echo",
         "entry": "alternate",
-        "args": {},
+        "args": {
+          "value": {}
+        },
         "env": {
           "WM_FLOW_STEP_ID": "a"
         },
@@ -90,7 +94,8 @@
         "body": {
           "message": "alternate function is missing",
           "name": "Error",
-          "stack": "<string>"
+          "stack": "<string>",
+          "step_id": "a"
         },
         "settled": true
       }

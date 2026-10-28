@@ -1,0 +1,105 @@
+# D9 (ADR 0001 §5, ADR 0004 failure model items 2 to 4): process-level
+# errors in a shared process. One raised in an invocation's context (a
+# timer's throw) fails that invocation as escaped, as the process's exit
+# would on Windmill, while its call goes on; one no context owns (a
+# detached rejection) fails nothing and reaches every invocation in flight
+# as a warning. Work after the result keeps running; its errors are late.
+finding: D9
+scope: core
+cases:
+  - spec: D9
+    variant: attributed
+    provenance: policy
+    title: an error thrown from a timer fails its own invocation as escaped with exit code 1 (Q-WR-2), and the call's return is late
+    deviation: D9
+    script: |
+      export async function main() {
+        setTimeout(() => { throw new Error("from a timer"); }, 10);
+        await Bun.sleep(200);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+              - {at: /result/error/message, contains: [from a timer]}
+              - {at: /result/error/exit_code, equals: 1}
+              - {at: /result/error/step_id, equals: a}
+            late: [{kind: result, final: true, body: '"done"'}]
+            settled: completed
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/exit_code, equals: 1}
+            settled: process_exited
+  - spec: D9
+    variant: unattributed
+    provenance: policy
+    title: a detached rejection fails nothing in warm mode and reaches the invocation in flight as a warning
+    note: >-
+      In fresh mode the process has no handler to keep it alive: ADR 0004
+      measured Bun 1.3.10 exiting with code 1 on one detached rejection;
+      Windmill's exit status for it is Q-WR-2's.
+    deviation: D9
+    script: |
+      export async function main() {
+        setTimeout(() => Promise.reject(new Error("detached")), 10);
+        await Bun.sleep(200);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: done}
+            warnings: [unattributed_error]
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/exit_code, equals: 1}
+  - spec: D9
+    variant: process-scope
+    provenance: policy
+    title: work a module starts through the process scope it captured at load belongs to no invocation, so its error is unattributed
+    note: >-
+      The module evaluates inside its first invocation's context; the scope
+      it captures leaves that invocation out, as a pooled client's
+      maintenance timers must be (C3b's settle-time fence never clears
+      them). In fresh mode the error ends the process, as in the
+      unattributed case.
+    deviation: D9
+    script: |
+      const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
+      export async function main() {
+        inProcess(() => setTimeout(() => { throw new Error("pool maintenance"); }, 10));
+        await Bun.sleep(200);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: done}
+            warnings: [unattributed_error]
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/exit_code, equals: 1}
+  - spec: D9
+    variant: error-after-result
+    provenance: source-derived
+    title: an error thrown from a timer after the result changes nothing; Windmill's exit came first (WR-2)
+    script: |
+      export function main() { setTimeout(() => { throw new Error("late"); }, 10); return "done"; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: done}
+      - args: '{}'
+        expect: {status: success, result: done}

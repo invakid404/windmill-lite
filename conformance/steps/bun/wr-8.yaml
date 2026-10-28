@@ -1,0 +1,91 @@
+# WR-8: which parameters are hydrated as Date, and the run-time truthiness
+# rule (conformance/build/wr-8.json is the build half).
+finding: WR-8
+scope: core
+cases:
+  - spec: WR-8/a
+    provenance: source-derived
+    title: a local alias to Date is hydrated
+    script: |
+      type Ts = Date; export function main(d: Ts) { return d instanceof Date; }
+    runs:
+      - args: '{"d":"2024-01-02T03:04:05Z"}'
+        expect: {status: success, result: true}
+  - spec: WR-8/b
+    provenance: source-derived
+    title: a three-member union is not hydrated
+    script: |
+      export function main(d: Date | null | undefined) { return typeof d; }
+    runs:
+      - args: '{"d":"2024-01-02T03:04:05Z"}'
+        expect: {status: success, result: string}
+  - spec: WR-8/c
+    provenance: source-derived
+    title: array elements are not hydrated
+    script: |
+      export function main(ds: Date[]) { return typeof ds[0]; }
+    runs:
+      - args: '{"ds":["2024-01-02"]}'
+        expect: {status: success, result: string}
+  - spec: WR-8/d
+    provenance: source-derived
+    title: the truthiness rule; Base64 and Uint8Array are not hydrated
+    script: |
+      export function main(d: Date, e: Date | undefined, s: Base64, u: Uint8Array) { return [d instanceof Date ? d.toISOString() : String(d), e === undefined, typeof s, Array.isArray(u)]; }
+    runs:
+      - args: '{"d":"2024-01-02T03:04:05Z","e":"","s":"aGk=","u":[1,2]}'
+        expect: {status: success, result: ["2024-01-02T03:04:05.000Z", true, string, true]}
+  - spec: WR-8/e
+    provenance: source-derived
+    title: a number is read as epoch milliseconds
+    script: |
+      export function main(d: Date, e: Date | undefined, s: Base64, u: Uint8Array) { return [d instanceof Date ? d.toISOString() : String(d), e === undefined, typeof s, Array.isArray(u)]; }
+    runs:
+      - args: '{"d":1700000000000}'
+        expect: {status: success, result: ["2023-11-14T22:13:20.000Z", true, undefined, false]}
+  - spec: WR-8/f
+    provenance: source-derived
+    title: an unparsable string becomes an Invalid Date, whose toISOString throws
+    script: |
+      export function main(d: Date, e: Date | undefined, s: Base64, u: Uint8Array) { return [d instanceof Date ? d.toISOString() : String(d), e === undefined, typeof s, Array.isArray(u)]; }
+    runs:
+      - args: '{"d":"nope"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: RangeError}
+  - spec: WR-8
+    variant: falsy
+    provenance: source-derived
+    title: every falsy value becomes undefined, so a default applies
+    script: |
+      export function main(a: Date = new Date(0), b: Date = new Date(0), c: Date = new Date(0), d: Date = new Date(0)) { return [a, b, c, d].map((x) => x.toISOString()); }
+    runs:
+      - args: '{"a":0,"b":"","c":null,"d":false}'
+        expect: {status: success, result: ["1970-01-01T00:00:00.000Z", "1970-01-01T00:00:00.000Z", "1970-01-01T00:00:00.000Z", "1970-01-01T00:00:00.000Z"]}
+  - spec: WR-8
+    variant: optional
+    provenance: source-derived
+    title: an optional Date and one with a default are hydrated; a missing one stays undefined, and the default applies
+    script: |
+      export function main(d?: Date, e: Date = new Date(0)) { return [d instanceof Date ? d.toISOString() : String(d), e.toISOString()]; }
+    runs:
+      - args: '{"d":"2024-01-02"}'
+        expect: {status: success, result: ["2024-01-02T00:00:00.000Z", "1970-01-01T00:00:00.000Z"]}
+  - spec: WR-8
+    variant: null-first
+    provenance: source-derived
+    title: a two-member union with null, in either order, and parentheses are hydrated
+    script: |
+      export function main(a: null | Date, b: (Date | null), c: (Date)) { return [a, b, c].map((x) => x instanceof Date); }
+    runs:
+      - args: '{"a":"2024-01-02","b":"2024-01-02","c":"2024-01-02"}'
+        expect: {status: success, result: [true, true, true]}
+  - spec: WR-8
+    variant: object-value
+    provenance: source-derived
+    title: a truthy non-string value is passed to new Date as it is, so an object gives an Invalid Date
+    script: |
+      export function main(d: Date) { return [d instanceof Date, Number.isNaN(d.getTime())]; }
+    runs:
+      - args: '{"d":{"x":1}}'
+        expect: {status: success, result: [true, true]}

@@ -1,15 +1,17 @@
 // Command wltest is windmill-lite's conformance and oracle runner (ADR
-// 0011). It has two verbs so far:
+// 0011). It has three verbs so far:
 //
 //	wltest record [flags] <fixture, expression file or directory>...
 //	wltest stub --out <dir> <sync tree>
+//	wltest check [flags] <step file or directory>...
 //
 // record runs flow fixtures, and the expression cases of conformance/exprs
 // lifted into generated one-step flows, on the pinned Windmill CE oracle
 // and writes their recordings with provenance; fixtures in stub mode run
 // stubbed, with the replay service answering from each run's table. stub
-// writes a stubbed copy of a sync tree. check and diff are later
-// milestones (E1).
+// writes a stubbed copy of a sync tree. check runs the step cases of
+// conformance/steps on windmill-lite's Bun harness (milestone C3a); flow
+// fixtures in check, and diff, are milestone E1's.
 package main
 
 import (
@@ -42,12 +44,17 @@ func main() {
 
 const usage = `usage: wltest record [flags] <fixture, expression file or directory>...
        wltest stub --out <dir> <sync tree>
+       wltest check [flags] <step file or directory>...
 
 record runs flow fixtures, and expression-case files lifted into generated
 one-step flows, on the Windmill CE v1.767.0 oracle and writes their
 recordings with provenance. Run wltest record -h for its flags.
 stub copies a sync tree to <dir> with every Bun script body replaced by a
-replay stub (ADR 0011). check and diff are not implemented yet.
+replay stub (ADR 0011).
+check runs step-case files (conformance/steps) on windmill-lite's Bun
+harness and compares each step's stored value with the case's. Run
+wltest check -h for its flags. Flow fixtures in check, and diff, are not
+implemented yet.
 `
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -60,7 +67,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return record(ctx, args[1:], stdout, stderr)
 	case "stub":
 		return stub(args[1:], stdout, stderr)
-	case "check", "diff":
+	case "check":
+		return check(ctx, args[1:], stdout, stderr)
+	case "diff":
 		fmt.Fprintf(stderr, "wltest %s is not implemented yet (ADR 0012: E1)\n", args[0])
 		return 2
 	case "-h", "--help", "help":

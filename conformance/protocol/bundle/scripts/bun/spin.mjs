@@ -1,6 +1,6 @@
-// Blocks the event loop for args.ms, then returns args.ms.
-export function main(args) {
-  const end = Date.now() + args.ms;
+// Blocks the event loop for ms, then returns ms.
+export function main(ms) {
+  const end = Date.now() + ms;
   while (Date.now() < end) {}
-  return args.ms;
+  return ms;
 }

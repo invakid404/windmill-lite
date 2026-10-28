@@ -1,4 +1,4 @@
-// Returns its argument object, re-serialised by the harness.
-export function main(args) {
-  return args;
+// Returns its value argument, re-serialised by the harness.
+export function main(value) {
+  return value;
 }

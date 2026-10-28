@@ -1,0 +1,152 @@
+# D11 (ADR 0001 §5, ADR 0004 failure model item 6): an intercepted
+# process.exit fixes the step's outcome at the call, as Windmill's exit
+# would, but the call goes on: finally blocks run, a catch can swallow the
+# sentinel, and how the call ends is reported late. In fresh mode the
+# process ends with the call. The outcome is WR-4's: exit 0 with no result
+# is WR-V2's empty result, any other code WR-20's log-tail error.
+finding: D11
+scope: core
+cases:
+  - spec: D11
+    variant: exit-code
+    provenance: source-derived
+    title: process.exit with a non-zero code fails the step with that exit code; the sentinel ends the call
+    deviation: D11
+    script: |
+      export function main() { process.exit(3); }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 3, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 3}}}
+            late: [{kind: error, final: true}]
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 3, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 3}}}
+            settled: process_exited
+  - spec: D11
+    variant: exit-caught
+    provenance: policy
+    title: a catch that swallows the sentinel goes on and returns; the outcome stays the exit's, and the return is late
+    deviation: D11
+    script: |
+      export function main() { try { process.exit(3); } catch {} return "after"; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 3, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 3}}}
+            late: [{kind: result, final: true, body: '"after"'}]
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 3, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 3}}}
+            settled: process_exited
+  - spec: D11
+    variant: exit-zero-caught
+    provenance: policy
+    title: process.exit(0) gives the empty result even when the call goes on and returns
+    deviation: D11
+    script: |
+      export function main() { try { process.exit(0); } catch {} return 1; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
+            late: [{kind: result, final: true, body: "1"}]
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
+            settled: process_exited
+  - spec: D11
+    variant: finally-runs
+    provenance: policy
+    title: a finally block runs after the exit in warm mode, which a later run of the script sees (with D1)
+    deviation: D11
+    script: |
+      export function main(check: boolean) {
+        if (check) return globalThis.wlFinallyRan ?? false;
+        try { process.exit(4); } finally { globalThis.wlFinallyRan = true; }
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 4, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 4}}}
+      - args: '{"check":true}'
+        by_mode:
+          warm: {expect: {status: success, result: true}}
+          fresh: {expect: {status: success, result: false}}
+  - spec: D11
+    variant: exit-status
+    provenance: policy
+    title: the exit status is the code modulo 256, read as Bun reads it, a numeric string included
+    note: Observed on Bun 1.3.10 (process.exit(258) exits 2, "-1" exits 255, 256 exits 0).
+    script: |
+      export function main(code: unknown) { process.exit(code as number); }
+    runs:
+      - args: '{"code":258}'
+        claims:
+          - {at: /result/error/exit_code, equals: 2}
+      - args: '{"code":"-1"}'
+        claims:
+          - {at: /result/error/exit_code, equals: 255}
+      - args: '{"code":256}'
+        expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
+      - args: '{}'
+        note: No code is process.exitCode, which nothing set, so 0.
+        expect: {status: failure, result: {error: {message: "Internal: Result of job is invalid json (empty)", name: InternalErr}}}
+  - spec: D11
+    variant: invalid-code
+    provenance: policy
+    title: a code Bun refuses makes process.exit throw Bun's own error, which the wrapper catches
+    note: >-
+      On Bun 1.3.10, process.exit(1.5) throws a RangeError before it exits;
+      its code, ERR_OUT_OF_RANGE, is not an own property, so it is not in
+      extra.
+    script: |
+      export function main() { process.exit(1.5); }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: RangeError}
+          - {at: /result/error/message, prefix: "The value of \"code\" is out of range. It must be an integer. Received 1.5"}
+          - {at: /result/error/extra, absent: true}
+          - {at: /result/error/step_id, equals: a}
+  - spec: D11
+    variant: top-level
+    provenance: policy
+    title: process.exit while the module evaluates fails every invocation of the script with that exit
+    deviation: D11
+    script: |
+      process.exit(5);
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 5, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 5}}}
+            late: [{kind: error, final: true}]
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 5, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 5}}}
+            settled: process_exited
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 5, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 5}}}
+            settled: completed
+          fresh:
+            expect: {status: failure, result: {error: {message: "exit code for \"bun run\": 5, last log lines:\n", name: ExecutionErr, step_id: a, exit_code: 5}}}
+            settled: process_exited
+  - spec: D11
+    variant: exit-after-result
+    provenance: source-derived
+    title: a process.exit from a timer after the result changes nothing; Windmill's exit came first (WR-2)
+    script: |
+      export function main() { setTimeout(() => process.exit(9), 10); return "done"; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: done}
+      - args: '{}'
+        note: The process lives on.
+        expect: {status: success, result: done}

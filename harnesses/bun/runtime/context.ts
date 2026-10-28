@@ -7,7 +7,9 @@
 //   answer from the current invocation first;
 // - the fetch wrapper, which turns requests to the platform facade into
 //   platform frames attributed to the invocation whose context made them;
-// - the process-level error handlers, which never exit.
+// - the process-level error handlers, which never exit;
+// - the process.exit interception, which ends the invocation, not the
+//   process (D11).
 //
 // Everything here is installed once per process, before any step module
 // loads, because the stock client reads its configuration at import
@@ -24,13 +26,115 @@ export type InvocationContext = {
   /** Variables the step deleted: absent for it, whatever the process has. */
   unset?: Set<string>;
   signal: AbortSignal;
+  /** What the invocation holds that its settlement must release. */
+  resources: InvocationResources;
 };
+
+/** The per-invocation registry of what an invocation started that can
+ * outlive its entrypoint call, kept in its async-context store, so code
+ * running in that context finds it with current() and nothing global is
+ * keyed by invocation. The runtime settles it when it queues the frame
+ * that settles the invocation (ADR 0004, settlement), or when its
+ * connection ends and the invocation settles with the process.
+ *
+ * Milestone C3b's settle-time fence (decisions, 2026-10-28) registers here:
+ * the timer wrappers each pending setTimeout, setInterval and setImmediate
+ * handle, the fetch view each request in flight, each with a release that
+ * clears or aborts it and is unregistered when the resource ends on its
+ * own; its log and platform paths check settled. Work started in a
+ * process scope (PROCESS_SCOPE) has no invocation, so it registers nowhere
+ * and is never fenced. What settle() returns is the leak count: Bun 1.3.10's
+ * process._getActiveHandles() lists nothing, so this registry is the only
+ * record of what an invocation left behind. */
+export class InvocationResources {
+  /** Set once the invocation has settled; it never clears. */
+  settled = false;
+  private pending = new Map<() => void, string>();
+
+  /** Registers a resource of a kind ("timeout", "fetch" and the like) and
+   * the release that revokes it. The returned function unregisters it,
+   * for a resource that ended by itself. After settlement the release runs
+   * at once, since nothing may outlive it. */
+  track(kind: string, release: () => void): () => void {
+    if (this.settled) {
+      release();
+      return () => {};
+    }
+    // A function of its own, so one release can be tracked twice.
+    const key = () => release();
+    this.pending.set(key, kind);
+    return () => {
+      this.pending.delete(key);
+    };
+  }
+
+  /** Marks the invocation settled and releases what it still held, once.
+   * Returns how many resources of each kind were still pending: what the
+   * call left behind (D9), which C3b reports. A release that throws is
+   * skipped; the others still run. */
+  settle(): Record<string, number> {
+    const left: Record<string, number> = {};
+    if (this.settled) return left;
+    this.settled = true;
+    const pending = this.pending;
+    this.pending = new Map();
+    for (const [release, kind] of pending) {
+      left[kind] = (left[kind] ?? 0) + 1;
+      try {
+        release();
+      } catch {
+        // One failed release must not keep the others.
+      }
+    }
+    return left;
+  }
+}
 
 export const invocations = new AsyncLocalStorage<InvocationContext>();
 
 /** The invocation whose context the caller runs in, if any. */
 export function current(): InvocationContext | undefined {
   return invocations.getStore();
+}
+
+/** The key, on globalThis, of the process-scope API: what a pooled client
+ * or a host-provided module uses to keep work it starts for the whole
+ * process out of the invocation that happens to trigger it. A step module
+ * evaluates inside its first invocation's context, and a pool's first
+ * client is often created inside a step, so without it the pool's
+ * maintenance timers would be that invocation's, and C3b's settle-time
+ * fence would clear them. Code that the harness does not bundle reaches it
+ * through the symbol, as shims reach the host-provided modules:
+ *
+ *   const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
+ *   const pool = inProcess(() => createPool());
+ */
+export const PROCESS_SCOPE = Symbol.for("windmill-lite.processScope");
+
+/** The process-scope API. */
+export type ProcessScope = {
+  /** Captures the caller's async context, with every store it holds but
+   * the invocation's, and returns a function that runs a callback in it.
+   * Timers, promises and handles the callback starts belong to no
+   * invocation: they are never attributed to one, never fenced, and an
+   * error they throw is unattributed (ADR 0004, the shared-process failure
+   * model, item 3). Captured at load, it keeps a module's own context. */
+  capture(): <R>(fn: (...args: any[]) => R, ...args: any[]) => R;
+};
+
+const processScope: ProcessScope = {
+  capture() {
+    return invocations.exit(() => AsyncLocalStorage.snapshot());
+  },
+};
+
+/** Publishes the process-scope API on globalThis, before any step or
+ * host-provided module loads. */
+export function installProcessScope() {
+  const g = globalThis as Record<symbol, unknown>;
+  if (g[PROCESS_SCOPE] === undefined) {
+    Object.defineProperty(g, PROCESS_SCOPE, { value: Object.freeze(processScope), enumerable: false });
+  }
 }
 
 /** ABSENT: the current invocation deleted the variable. */
@@ -72,9 +176,18 @@ const shadowed = new Set<string>();
  *    accessor that answers from the current invocation first.
  *
  * Outside any invocation every path reads the process environment, so a
- * host's own code sees no change. Writes and deletes inside an invocation
- * go to its own copy and never reach the process environment. Enumerating
- * Bun.env lists only the process's variables. */
+ * host's own code sees no change. Writes and deletes through process.env
+ * inside an invocation go to its own copy and never reach the process
+ * environment; the first write of a variable the process has shadows it,
+ * so Bun.env and import.meta.env read the written value too. Enumerating
+ * Bun.env lists only the process's variables.
+ *
+ * Writes and deletes through the original object itself (Bun.env.X = …
+ * in code the build does not rewrite, such as an unbundled dependency) are
+ * isolated only for variables already shadowed: a variable the process
+ * does not have becomes a plain property of the process environment,
+ * which every invocation and the host then read. Isolating those is
+ * milestone C3b's, with the rest of the per-invocation environment. */
 export function installEnvView() {
   if (envInstalled) return;
   envInstalled = true;
@@ -91,6 +204,10 @@ export function installEnvView() {
       if (c && typeof k === "string") {
         c.env[k] = String(v);
         c.unset?.delete(k);
+        // Bun.env reads a variable the process has as its own property:
+        // make it an accessor, so it answers with the written value there
+        // too (W1 review, finding 1).
+        shadow({ [k]: "" });
         return true;
       }
       const ok = Reflect.set(t, k, v);
@@ -228,13 +345,72 @@ let handlersInstalled = false;
 /** Installs uncaughtException and unhandledRejection handlers that never
  * exit, before any step module loads (ADR 0004, the shared-process failure
  * model, item 1): without them one detached rejection ends the process and
- * every invocation in it. Each error goes to onError. Attributing an error
- * to the invocation whose context raised it (item 2) is milestone C3a's;
- * until then every one is counted as unattributed. */
+ * every invocation in it. Each error goes to onError, called inside the
+ * handler, where current() names the invocation whose context raised it,
+ * if any: on Bun 1.3.10 a throw from a timer keeps its context, and an
+ * unhandled rejection or a throw from a microtask has none (item 2). A
+ * ProcessExit thrown out of a callback never reaches onError: its call
+ * already fixed the outcome or was reported. */
 export function installProcessHandlers(onError: (kind: string, e: unknown) => void) {
   errorRoute = onError;
   if (handlersInstalled) return;
   handlersInstalled = true;
-  process.on("uncaughtException", (e) => errorRoute!("uncaughtException", e));
-  process.on("unhandledRejection", (e) => errorRoute!("unhandledRejection", e));
+  const handle = (kind: string) => (e: unknown) => {
+    if (e instanceof ProcessExit) return;
+    errorRoute!(kind, e);
+  };
+  process.on("uncaughtException", handle("uncaughtException"));
+  process.on("unhandledRejection", handle("unhandledRejection"));
+}
+
+/** The sentinel an intercepted process.exit throws (D11): the exit fixed
+ * the invocation's outcome, and the step's code goes on only if it catches
+ * this. status is the exit status the call asked for. */
+export class ProcessExit extends Error {
+  constructor(readonly status: number) {
+    super(`process.exit(${status})`);
+    this.name = "ProcessExit";
+  }
+}
+
+/** process.exit as Bun has it, which ends the process. The runtime ends
+ * the process through it, since its own code may run inside an
+ * invocation's context. */
+export const exitProcess: (code?: number) => never = process.exit.bind(process);
+
+let exitRoute: ((c: InvocationContext, status: number) => void) | undefined;
+let exitInstalled = false;
+
+/** Replaces process.exit, before any step module loads (ADR 0004, the
+ * shared-process failure model, item 6): called inside an invocation, it
+ * reports the exit status to onExit, which fixes the invocation's outcome,
+ * and throws a ProcessExit, so finally blocks run and a catch can swallow
+ * it (D11). The code is checked as Bun checks it, so an invalid one throws
+ * Bun's own error instead, which the step sees as from the real call.
+ * Outside every invocation it is the real process.exit. */
+export function installExit(onExit: (c: InvocationContext, status: number) => void) {
+  exitRoute = onExit;
+  if (exitInstalled) return;
+  exitInstalled = true;
+  process.exit = function exit(code?: number | string | null): never {
+    const c = invocations.getStore();
+    if (c === undefined) return exitProcess(code as number);
+    const status = exitStatus(code);
+    exitRoute!(c, status);
+    throw new ProcessExit(status);
+  } as typeof process.exit;
+}
+
+/** The exit status process.exit(code) gives on Bun 1.3.10: an integer, or
+ * a non-empty string that reads as one, modulo 256; no code means
+ * process.exitCode, else 0. Any other code makes Bun throw before exiting:
+ * assigning it to process.exitCode, which Bun checks the same way, throws
+ * that error here. */
+export function exitStatus(code: unknown): number {
+  if (code === undefined || code === null) code = process.exitCode ?? 0;
+  const n = typeof code === "number" ? code : typeof code === "string" && code.trim() !== "" ? Number(code) : NaN;
+  if (Number.isInteger(n)) return ((n % 256) + 256) % 256;
+  process.exitCode = code as number;
+  // Not reached on Bun 1.3.10, which refuses every such code.
+  throw new TypeError(`windmill-lite: process.exit(${String(code)}) was accepted as an exit code`);
 }

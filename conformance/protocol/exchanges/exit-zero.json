@@ -1,0 +1,89 @@
+{
+  "case": "exit-zero",
+  "title": "process.exit(0) fixes an empty outcome, since no result was written (WR-V2); the sentinel ends the call, which settles late with an error and no body (D11)",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-V2"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#the-shared-process-failure-model",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": false,
+          "fresh": false,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "warm",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "exit-now",
+        "entry": "main",
+        "args": {
+          "code": 0
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "empty",
+        "settled": false
+      }
+    },
+    {
+      "expect": {
+        "t": "late",
+        "id": "i1",
+        "kind": "error",
+        "settled": true
+      }
+    },
+    {
+      "send": {
+        "t": "drain"
+      }
+    },
+    {
+      "expect": {
+        "t": "bye"
+      }
+    },
+    {
+      "exit": 0
+    }
+  ]
+}

@@ -1,10 +1,11 @@
 # cmd/wltest
 
-**Current state:** two verbs, `record` (milestone E2 of
+**Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
-E3a added expression files) and `stub` (milestone E4a). This README covers
-the `wltest` command in this directory. `check` and `diff` (E1) print that
-they are not implemented and exit 2.
+E3a added expression files), `stub` (milestone E4a) and `check` for step
+cases (milestone C3a). This README covers the `wltest` command in this
+directory. `check` for flow fixtures, and `diff`, are milestone E1's; `diff`
+prints that it is not implemented and exits 2.
 
 `wltest` is windmill-lite's conformance and oracle runner
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
@@ -98,6 +99,46 @@ generate-metadata` in it before pushing it. A tree in which some executed
 script would keep its body is refused, with
 `{"error":"stub_unsupported","file":…,"reason":…}` on standard output and
 exit 1.
+
+## check
+
+```sh
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm] [--bun PATH] [--repo DIR] [-v] <step file or directory>...
+```
+
+Runs the step cases of `conformance/steps` ([ADR 0003](../../docs/design/0003-semantics-placement.md),
+the format in [conformance](../../conformance/README.md#step-cases)) on
+windmill-lite. For each file it writes the cases' scripts and
+host-provided modules into a sync folder in a temporary directory, builds
+them with the [Bun build helper](../../harnesses/bun/build/README.md)
+(`bundle.BuildBun`) into one bundle, whose `manifest.json` lists the
+host-provided modules in registration order, and runs each case in a
+harness process of its own ([internal/harness](../../internal/harness/README.md)),
+its runs in order through the protocol: that is the `warm` configuration,
+in which module state and `globalThis` survive from one run to the next
+(D1). Each run's entrypoint is `engine.Entrypoint`'s, its job variables the
+core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the case's
+`step_id`, default `a`) or of a script job (`step_id: ""`), and its
+outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
+compared by `conformance.CompareStep`. It waits for the settlement a run
+expects and compares its late reports and warnings.
+
+It prints `pass` or `fail`, the case and its file, then each difference,
+and a summary; it exits 1 when a case failed or a file is invalid, and 2
+for usage errors. `--mode` is `warm` only: `fresh` is milestone C3b's, host
+mode F3b's. `--bun` defaults to `WL_BUN`, then `bun`; the build refuses any
+Bun but the pin. `--repo` defaults to the nearest directory up from the
+working directory that holds `harnesses/bun`, whose build helper needs its
+dependencies installed (`bun install --frozen-lockfile` in
+`harnesses/bun/build`). `-v` prints the harness's diagnostics of a failed
+case.
+
+`go test ./cmd/wltest` runs the suite (`TestStepSuite`, milestone C3a's
+exit gate), checks that a wrong expectation of each kind fails
+(`TestStepCheckerReportsDifferences`), and that every catalogue case of a
+finding with a step file is a step case or deferred (`TestStepCatalogue`).
+The Bun tests need `WL_BUN`; without it they skip, unless `WL_REQUIRE_BUN`
+is set, as CI sets it.
 
 ## Version
 
