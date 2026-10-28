@@ -80,22 +80,30 @@ Conventions used below:
    bundling is Bun-only, first match wins ([SY-8](#sy-8)).
 8. **Locks** ([OF-15](#of-15), [OF-V6](#of-v6), [SY-5](#sy-5), [SY-7](#sy-7),
    [SY-V1](#sy-v1)). Inline `!inline` paths are relative to the flow folder;
-   script lock references are relative to the sync root; a flow lock reference
-   is resolved only when the content is itself a directive; a missing lock file
-   means `""`. On deploy a selected partial relock always regenerates and an
+   script lock references are relative to the sync root and need the exact
+   `!inline ` prefix; a flow lock reference is resolved only when the content
+   is itself a directive; a missing lock file means `""`. On deploy a selected partial relock always regenerates and an
    unselected module is untouched; an empty lock body can gain a
    workspace-dependency header; a failed lock leaves the saved value unchanged.
    Preserve supplied lock text. Offline executability is a per-language policy
    ([Q-OF-5](#q-of-5)).
 9. **Files and filters** ([SY-1](#sy-1), [SY-13](#sy-13), [SY-V2](#sy-v2),
-   [SY-V4](#sy-v4)): an absent `includes` differs from `includes: []`,
-   `extraIncludes` only narrows, and several special files bypass the globs.
-   `noCdToRoot` keeps config discovery but leaves CLI item paths relative to
-   the working directory.
-10. **The folder cannot supply everything** ([SY-11](#sy-11), [SY-15](#sy-15)):
-    hub paths, pinned old hashes, secrets (ciphertext or omitted), built-in
-    resource types and some locks need a resolver or a policy. What the build
-    team may read, depend on or copy is in [licensing.md](licensing.md).
+   [SY-V4](#sy-v4), [SY-16](#sy-16) to [SY-19](#sy-19)): an absent
+   `includes` differs from `includes: []`, `extraIncludes` only narrows, and
+   several special files bypass the globs. Globs are minimatch 10 with
+   default options over the root-relative path. The filter tests each file,
+   but a passing file pushes its whole item, and a new script is selected
+   only by its content file. The walk classifies files by a fixed list and
+   ignores the rest, except that a bare `.sql` or a stray `.js` fails the
+   push. A UTF-8 byte order mark is stripped. No `wmill.yaml` means
+   defaults, not an error; resource and variable files without `value` fail
+   the push. `noCdToRoot` keeps config discovery but leaves CLI item paths
+   relative to the working directory.
+10. **The folder cannot supply everything** ([SY-11](#sy-11), [SY-15](#sy-15),
+    [OF-14](#of-14)): hub paths, any `hash` pin, secrets (ciphertext or
+    omitted), built-in resource types and some locks need a resolver or a
+    policy. What the build team may read, depend on or copy is in
+    [licensing.md](licensing.md).
 
 ## A. OpenFlow model
 
@@ -575,7 +583,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-14"></a>
 ### OF-14 · Script hash format
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high (format, deploy, the hash's inputs); medium (the run-time lookup and its message, read not traced) · **Status:** drafted
 
 - **Rule:**
   - `script.hash` pins a specific deployed script version.
@@ -586,13 +594,50 @@ the effective decoder decides acceptance (OF-1).
   - **Errors:** odd length or non-hex characters give the hex library's error;
     fewer than 8 bytes gives `hex string did not decode to an u64: <s>`.
   - **Serialisation:** always exactly 16 lowercase hex digits.
+  - **Where a hash comes from.** The server computes a version's hash when
+    the script is deployed, from the whole submitted body: path, the parent
+    version's hash, summary, description, content, schema, lock, language,
+    kind, the settings, the deployment message and more. It uses the Rust
+    standard library's default hasher, whose algorithm that library leaves
+    unspecified. Hashes are unique per workspace, not globally: the same
+    body with the same parent gives the same hash in any workspace, but the
+    parent depends on the workspace's deploy history and the body on what
+    the CLI regenerates at push time ([SY-4](#sy-4)). So no hash can be
+    derived or checked from a folder.
+  - **Deploy.** A flow's `script` step may pin any well-formed hash: neither
+    the CLI nor the server checks that a version with that hash exists. The
+    CLI pushes `hash` as written, and the flow's dependency job only records
+    it.
+  - **Run.** The step runs the version with that hash **in the flow's
+    workspace, whatever its path**; the step's `path` is only the child
+    job's path. A pinned step drops the pinned version's own `cache_ttl`
+    ([FX-40](execution.md#fx-40)). An unknown hash fails the flow before the
+    step's job is created, with a not-found error whose message contains
+    `script not found at name <h>`, where `<h>` is the hash as a signed
+    decimal integer: `0123456789abcdef` gives `81985529216486895`.
 - **Evidence:** `backend/windmill-types/src/scripts.rs:183-233` (decode,
-  `:221-233`), `:721-736` (byte rule and encoding).
-- **Conformance:** [OF-14/a–e](conformance.md#of-14)
+  `:221-233`), `:721-736` (byte rule and encoding), `:575-620` (the fields
+  hashed), `:747-751` (the hasher);
+  `backend/windmill-api-scripts/src/scripts.rs:954` (hash computed on create);
+  `backend/migrations/20220123221903_first.up.sql:33` (key: workspace and
+  hash);
+  `backend/windmill-worker/src/worker_lockfiles.rs:1225-1236` (the dependency
+  job records a pin); `backend/windmill-worker/src/worker_flow.rs:5928-5938`,
+  `:6051-6133` (a pin is looked up by hash only); `backend/windmill-common/src/lib.rs:1661-1745`
+  (lookup by hash and workspace; not found), `backend/windmill-common/src/utils.rs:338-351`
+  (the message); `backend/windmill-queue/src/jobs.rs:5369-5398` (the child
+  job runs the hash under the step's path).
+- **Conformance:** [OF-14/a–f](conformance.md#of-14)
 - **Design note (not Windmill behaviour):** a sync folder holds one version per
-  path and a loader cannot fetch old versions, so it can honour a hash only by
-  checking it against the folder's script ([SY-15](#sy-15)). Whether a
-  mismatch errors or warns is a design choice.
+  path, a loader cannot fetch old versions, and it cannot compute a hash
+  either, so it cannot honour a pin from the folder alone ([SY-15](#sy-15)).
+  It needs a policy: refuse the step, or take the hash from a host that
+  knows the target workspace.
+- **Revision 2026-10-28 (source re-check):** added where hashes come from,
+  that deploy accepts any well-formed pin, and how a pin resolves at run
+  time. The design note said a loader could honour a hash by checking it
+  against the folder's script; it cannot, since the hash depends on the
+  deploy history and an unspecified hasher. The format rules are unchanged.
 
 <a id="of-15"></a>
 ### OF-15 · Inline-script locks on deploy
@@ -732,13 +777,31 @@ the effective decoder decides acceptance (OF-1).
     is scheduled. The `[a, a-v]` fixture therefore applies to an initial-lite
     status (or the independently augmented preview path). Its relation to the
     disputed OF-3 sentence is tracked by [Q-OF-11](#q-of-11).
+  - **Recorded for a deployed run.** On the oracle, a deployed flow run by
+    path whose last module has an invalid `sleep` expression fails when
+    that `sleep` is evaluated, so a step after the last module was
+    scheduled: the virtual step exists in the reference configuration
+    (batch E3a, fixture `conformance/flows/je/waits`, run `je28-c`, oracle
+    run 40687124625; [JE-28](expressions.md#je-28)). The recording does not
+    list the virtual step among the walked steps.
+  - **Only module lists.** The flow's `failure_module` and
+    `preprocessor_module` are not in any module list, so neither ever gets
+    a virtual step, and a `sleep` on either is never applied
+    ([CF-30](control-flow.md#cf-30)).
 - **Evidence:** `backend/windmill-types/src/flows.rs:1252-1280`; call sites
   `backend/windmill-worker/src/worker_lockfiles.rs:1706`,
   `backend/windmill-worker/src/worker_flow.rs:5056`,
-  `backend/windmill-queue/src/jobs.rs:5605, 5956`; identity result
+  `backend/windmill-queue/src/jobs.rs:5605, 5956` (each passes a module
+  list); identity result
   `backend/windmill-worker/src/worker_flow.rs:3919-3927, 5141`,
   `backend/windmill-worker/src/worker.rs:4032-4039`.
 - **Conformance:** [OF-17/a](conformance.md#of-17) (disputed expectation)
+- **Revision 2026-10-28 (oracle, batch E3a; source re-check):** two bullets
+  are added: the deployed-run recording, which shows the initial-lite
+  branch of the third bullet, and the rule that the failure and
+  preprocessor modules never get a virtual step (a question asked by
+  windmill-lite's IR compiler). The `[a, a-v]` status list itself is still
+  not recorded, so OF-17/a and [Q-OF-11](#q-of-11) are unchanged.
 
 <a id="of-18"></a>
 ### OF-18 · The flow `schema` has no server-side execution semantics
@@ -984,14 +1047,16 @@ differ, the CLI's on-disk form is what a loader sees.
     stopping at the git root (or the filesystem root). This upward search
     **always runs**. The CLI then changes its working directory to the found
     file's directory, unless `noCdToRoot` is set; with `noCdToRoot`, item paths
-    stay relative to the working directory ([SY-V4](#sy-v4)).
+    stay relative to the working directory ([SY-V4](#sy-v4)). When no
+    `wmill.yaml` is found: [SY-13](#sy-13).
   - **Recognised paths.** Workspace items live under the top-level directories
     `u/` (user), `f/` (folder) and `g/` (group). Also recognised: `users/`,
     `groups/`, `dependencies/`, `migrations/`, and at the root
     `*.resource-type.yaml`, `settings.yaml`, `encryption_key.yaml`. `ui/` is
     synced separately. Everything else is ignored.
   - **Walk.** Directories whose name starts with `.`, plus `node_modules` and
-    `.claude`, are skipped. Only a fixed list of file extensions is considered.
+    `.claude`, are skipped. Only a fixed list of file extensions is considered;
+    [SY-18](#sy-18) gives the list and how each file is classified.
   - **Windmill path** = root-relative POSIX path with the type suffix removed:
     - for `<p>.<type>.yaml` or `<p>.<type>.json`, the `.<type>.yaml|json`
       suffix is stripped;
@@ -1022,6 +1087,9 @@ differ, the CLI's on-disk form is what a loader sees.
   suffixes stay valid). It also proposes to always take the directory of the
   discovered `wmill.yaml` as the sync root, which differs from the CLI under
   `noCdToRoot` ([SY-V4](#sy-v4)).
+- **Revision 2026-10-28 (source re-check):** the walk's file list, cited
+  before without being enumerated, is now [SY-18](#sy-18), and the case of no
+  `wmill.yaml` is [SY-13](#sy-13). The rule above is unchanged.
 
 <a id="sy-2"></a>
 ### SY-2 · Script files
@@ -1091,7 +1159,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-4"></a>
 ### SY-4 · `.script.yaml` contents
 
-**Scope:** core (schema, lock, kind, has_preprocessor, timeout, envs); later (cache_ttl, restart_unless_cancelled); out (tag, dedicated_worker, priority, concurrency, debouncing, permissions) · **Confidence:** high (key list) · **Status:** confirmed
+**Scope:** core (schema, lock, kind, has_preprocessor, timeout, envs); later (cache_ttl, restart_unless_cancelled); out (tag, dedicated_worker, priority, concurrency, debouncing, permissions) · **Confidence:** high (key list, the default file); medium (regeneration on push, read not traced) · **Status:** drafted
 
 - **Rule:**
   - Keys the CLI writes on pull (an absent key means "not set"): `summary`,
@@ -1112,23 +1180,46 @@ differ, the CLI's on-disk form is what a loader sees.
     the CLI writes, not a prohibition on extra hand-written keys.
   - Legacy keys `is_template`, `no_main_func`, `auto_kind` may appear in old
     trees and mean nothing.
-  - A new script with no metadata file gets defaults on push: summary `""`,
-    description `""`, kind `script`, an empty schema, and
-    `lock: '!inline <p>.script.lock'`.
+  - **A script without a metadata file** (no `<p>.script.json`, no
+    `<p>.script.yaml`, and no `__mod` equivalent) is given one on push, and
+    the push writes it into the tree:
+    1. The CLI creates `<p>.script.yaml` with summary `""`, description `""`,
+       kind `script`, `lock: '!inline <p>.script.lock'` and the schema
+       skeleton
+       `{"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {}, "required": []}`,
+       plus an empty `<p>.script.lock`. Neither file is overwritten if it
+       exists.
+    2. `wmill sync push` then regenerates that metadata as
+       `wmill generate-metadata` would: the schema is inferred from `main`'s
+       parameters and, unless the script is a codebase script
+       ([SY-8](#sy-8)), the lock is generated. The regenerated file is what
+       the push sends.
+    3. Only if regeneration fails does the default reach the server: the
+       skeleton schema, and the lock as the literal text
+       `!inline <p>.script.lock`, which is not resolved on this path.
   - The meaning of each key is in [execution.md](execution.md) and
     [languages.md](languages.md).
 - **Evidence:** `backend/windmill-api/src/workspaces_export.rs:69-118, 777-782`;
   `backend/windmill-types/src/scripts.rs:251-257` (`ScriptKind`), `:520-574`
   (`NewScript`); `cli/src/commands/sync/sync.ts:1275-1311, 2253-2268, 3008-3016`;
-  `cli/src/utils/metadata.ts:1179-1195`; `cli/bootstrap/script_bootstrap.ts:17-30`.
-- **Conformance:** [SY-4/a](conformance.md#sy-4)
+  `cli/src/utils/metadata.ts:1119-1234` (`:1179-1195` the default file,
+  `:1197-1228` regeneration and its failure path), `:197-230, 339-367`
+  (schema and lock regeneration); `cli/bootstrap/script_bootstrap.ts:17-30`
+  (the default values); `cli/src/commands/script/script.ts:419-435` (the push
+  asks for regeneration), `:472-480` (the request body).
+- **Conformance:** [SY-4/a–b](conformance.md#sy-4)
 - **Design note (not Windmill behaviour):** a loader should ignore, not
   reject, extra hand-written keys.
+- **Revision 2026-10-28 (source re-check):** the rule said a script without
+  metadata gets "an empty schema" on push, without giving its text. The
+  default file holds the skeleton above, not `{}`, and on `wmill sync push`
+  that default is regenerated from the script's signature before it is sent,
+  so the deployed schema is the inferred one. The key list is unchanged.
 
 <a id="sy-5"></a>
 ### SY-5 · Script locks
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core; later (JSON-mode metadata) · **Confidence:** high (YAML metadata); medium (JSON-mode metadata, read not traced) · **Status:** drafted
 
 - **Rule:** In `.script.yaml`, `lock` is one of:
   - the string `!inline <p>.script.lock`, a path **relative to the sync root**
@@ -1140,15 +1231,37 @@ differ, the CLI's on-disk form is what a loader sees.
     lock**.
   - A lock may also be an array of strings (legacy), meaning the lines joined
     with `\n`.
+  - **Resolving a reference in `.script.yaml`** (flow inline locks follow
+    [SY-7](#sy-7) and [SY-V1](#sy-v1) instead):
+    1. a legacy array is joined first;
+    2. the string is a reference only if it **starts with exactly**
+       `!inline ` (with the space). Leading whitespace is not tolerated,
+       unlike a flow lock: ` !inline f/a/x.script.lock` is not a reference
+       but the lock text itself, sent as written;
+    3. the file is the second space-delimited token, read relative to the
+       sync root. A missing or unreadable file gives `""`, with a warning;
+    4. any other string is the lock text itself.
+  - **JSON-mode metadata** (`<p>.script.json`, `later`): pull writes the same
+    `!inline` reference, but push does not resolve it, so the reference text
+    itself is sent as the lock.
   - The CLI generates locks only for `bun`, `python3`, `php`, `go`, `deno`,
     `rust` and `ansible` scripts (not `powershell`, although it has a
     dependency file). This is a CLI behaviour, not a backend limit
     ([OF-15](#of-15)).
 - **Evidence:** `cli/src/commands/sync/sync.ts:1275-1295` (three forms),
-  `:1406-1417`; `cli/src/utils/metadata.ts:758-809, 1071-1086`;
+  `:1406-1417`; `cli/src/utils/metadata.ts:758-809, 1071-1086` (`:1071-1085`
+  the reference rule), `:1119-1176` (only the YAML branches resolve it);
+  `cli/src/utils/utils.ts:179-186` (a failed read gives `""`);
+  `cli/src/commands/script/script.ts:472-480` (the lock is sent as parsed);
   `cli/src/utils/script_common.ts:37-57`;
   `backend/windmill-types/src/scripts.rs:623-650` (string-or-array lock).
-- **Conformance:** [SY-5/a–b](conformance.md#sy-5)
+- **Conformance:** [SY-5/a–c](conformance.md#sy-5)
+- **Revision 2026-10-28 (source re-check):** added how a `.script.yaml` lock
+  reference is recognised and resolved. A reference needs the exact
+  `!inline ` prefix, so the leading-whitespace tolerance of flow inline locks
+  ([SY-V1](#sy-v1)) does not apply to script locks; JSON-mode metadata leaves
+  the reference unresolved. The three forms and the missing-file rule are
+  unchanged.
 
 <a id="sy-6"></a>
 ### SY-6 · Flow folders and what a pulled `flow.yaml` contains
@@ -1184,7 +1297,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-7"></a>
 ### SY-7 · Inline scripts inside a flow folder
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** drafted
 
 - **Rule:**
   - **Reference form.** In `flow.yaml`, a rawscript's `content` is
@@ -1241,10 +1354,15 @@ differ, the CLI's on-disk form is what a loader sees.
     - Resolving a reference: read `<flowdir>/<file>`. Any relative path is
       accepted and joined to the flow folder, so subfolders work, and nothing
       checks containment. If the file is missing, try
-      `<module id>.<everything after the first dot of file>`; if still missing,
-      the push fails with
+      `<module id>.<everything after the first dot of file>`, also in the flow
+      folder; if still missing, the push fails with
       `Cannot push flow <path>: missing inline script file(s): …`. A missing
       lock file becomes `""`.
+    - The fallback is always tried. "After the first dot" counts the whole
+      reference, directory part included (`sub.d/a.ts` gives
+      `<id>.d/a.ts`), and a reference without a dot leaves nothing after it,
+      so `!inline helper` falls back to the file `<id>.`: the module id and
+      a trailing dot.
     - Sibling modules are re-inlined concurrently, so file reads have no
       guaranteed completion order (harmless: each read is independent).
 - **Evidence:** `cli/windmill-utils-internal/src/inline-scripts/extractor.ts:17-210, 220-271`
@@ -1256,16 +1374,21 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/commands/flow/flow.ts:188-216` (base is the flow folder; failure and
   preprocessor; hard fail); `cli/src/commands/flow/flow_metadata.ts:250-259, 316-340`;
   `cli/src/commands/sync/sync.ts:955-992`.
-- **Conformance:** [SY-7/a–e](conformance.md#sy-7); token edge cases under
+- **Conformance:** [SY-7/a–f](conformance.md#sy-7); token edge cases under
   [SY-V1](conformance.md#sy-v1).
 - **Design note (not Windmill behaviour):** windmill-lite should accept any
   path inside the flow folder and reject paths that escape the sync root (a
   labelled divergence: the CLI would read them).
+- **Revision 2026-10-28 (source re-check):** added how the fallback name is
+  formed: from the text after the first dot of the whole reference, so a
+  reference without a dot falls back to `<id>.`, and a dot in a directory
+  name shifts the fallback. The fallback was described before only for names
+  with a dot.
 
 <a id="sy-8"></a>
 ### SY-8 · Codebase scripts
 
-**Scope:** core (Bun) · **Confidence:** high (selection, CLI gate, upload); medium (bundling details, read not traced) · **Status:** confirmed
+**Scope:** core (Bun) · **Confidence:** high (selection, CLI gate, upload); medium (bundling details, read not traced) · **Status:** drafted
 
 - **Rule:**
   - Codebase selection happens only for path scripts whose **inferred
@@ -1275,9 +1398,12 @@ differ, the CLI's on-disk form is what a loader sees.
     is still inferred as `bun` by the CLI, so it is bundled if it matches; the
     server then marks it `bunnative`.
   - Entries of `codebases[]` in `wmill.yaml` are tried **in YAML order; the
-    first match wins**. An entry with no `includes` matches every candidate;
-    otherwise an include glob (minimatch on the script's `.ts` file path) must
-    match, and any matching `excludes` glob vetoes.
+    first match wins**. An entry with no `includes` (absent or `null`)
+    matches every candidate; otherwise an include glob (minimatch on the
+    script's `.ts` file path, [SY-16](#sy-16)) must match, and any matching
+    `excludes` glob vetoes. `includes: []` is a list without entries, so that
+    entry never matches and the next one is tried. A single string in
+    `includes` or `excludes` counts as a one-element list.
   - The CLI bundles a codebase script locally with the entry's settings
     (`relative_path` is the digested shared-source root; `format` is `cjs` or
     `esm`; also `external`, `inject`, `define`, `loader`, `banner`,
@@ -1294,7 +1420,11 @@ differ, the CLI's on-disk form is what a loader sees.
   `cli/src/utils/codebase.ts:22-44` (digest);
   `backend/windmill-worker/src/worker.rs:5381-5398` (Bun and Bunnative pass the
   codebase to the Bun executor).
-- **Conformance:** [SY-8/a–b](conformance.md#sy-8)
+- **Conformance:** [SY-8/a–c](conformance.md#sy-8)
+- **Revision 2026-10-28 (source re-check):** stated what `includes: []` does
+  (the entry never matches), that a string counts as a one-element list, and
+  which glob options apply ([SY-16](#sy-16)). The rule said only that an
+  entry without `includes` matches everything.
 
 <a id="sy-9"></a>
 ### SY-9 · YAML dialect
@@ -1335,7 +1465,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-10"></a>
 ### SY-10 · Resources and resource types
 
-**Scope:** core (value lookup); later (file and fileset resources) · **Confidence:** medium (read, not traced) · **Status:** confirmed
+**Scope:** core (value lookup); later (file and fileset resources) · **Confidence:** medium (read, not traced) · **Status:** drafted
 
 - **Rule:**
   - A resource is `P.resource.yaml` with `value`, `description`,
@@ -1352,15 +1482,31 @@ differ, the CLI's on-disk form is what a loader sees.
     are resolved at run time ([expressions.md](expressions.md),
     [client-api.md](client-api.md)). Host resolution policy is separate from
     file parsing.
+  - **A resource file without `value`, or with `value: null`, fails the
+    push.** Before creating the resource the CLI looks for an inline
+    `content` reference inside `value`, and reading a field of a missing or
+    `null` value throws a JavaScript `TypeError` (`Cannot read properties of
+    undefined (reading 'content')`, or `… of null …`), so the push stops at
+    that item. Any other value, including a number or a plain string, is
+    sent as written. (The server alone would accept a create request without
+    `value` and store `null`; the CLI never sends one.) `resource_type` is
+    required by the server.
 - **Evidence:** `backend/windmill-api/src/workspaces_export.rs:792-829`;
   `cli/src/commands/sync/sync.ts:1323-1339, 1470-1510, 2520-2525, 2600-2602`;
-  `cli/src/commands/resource/resource.ts:68-94`.
-- **Conformance:** [SY-10/a](conformance.md#sy-10)
+  `cli/src/commands/resource/resource.ts:68-94` (`:69-72` the inline-content
+  check that throws), `:109-130` (create);
+  `backend/windmill-store/src/resources.rs:173-181` (`CreateResource`: `value`
+  optional, `resource_type` required), `:1059-1060` (an absent value is
+  stored as `null`).
+- **Conformance:** [SY-10/a–b](conformance.md#sy-10)
+- **Revision 2026-10-28 (source re-check):** added what a resource file
+  without `value` does. It fails the CLI push; it does not deploy a resource
+  whose value is `null`. The rest of the rule is unchanged.
 
 <a id="sy-11"></a>
 ### SY-11 · Variables and secrets
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high; medium (required fields, read not traced through the CLI's error) · **Status:** drafted
 
 - **Rule:**
   - A variable is `P.variable.yaml` with `value`, `is_secret`, `description`,
@@ -1373,17 +1519,32 @@ differ, the CLI's on-disk form is what a loader sees.
     are absent altogether.
   - The key itself (`encryption_key.yaml`) is exported only with `includeKey`.
   - So a folder alone generally cannot supply secret values.
+  - **A new variable needs `value` (a string), `is_secret` (a boolean) and
+    `description` (a string).** The CLI sends the file's keys as they are,
+    and the server refuses a create request missing any of them, naming the
+    first missing field in that order: a variable file without `value` fails
+    the push with ``missing field `value` ``. There is no default of `""`.
+    (Updating a variable that already exists, without `value`, leaves its
+    value unchanged; a fresh deploy always creates.)
 - **Evidence:** `backend/windmill-api/src/workspaces_export.rs:850-877`
   (variable export; decryption only with plain secrets), `:1607` (key file);
-  `cli/src/commands/variable/variable.ts:113-125, 176-196`;
+  `cli/src/commands/variable/variable.ts:113-125, 176-196` (`:185-196` create
+  with the file's keys);
+  `backend/windmill-common/src/variables.rs:99-113` (`CreateVariable`: `value`,
+  `is_secret` and `description` have no default);
+  `backend/windmill-store/src/variables.rs:568-575` (create decodes that body),
+  `:1033-1042` (an update's fields are all optional);
   `cli/src/commands/sync/pull.ts:105-107`; `cli/src/commands/init/template.ts:93`.
-- **Conformance:** [SY-11/a](conformance.md#sy-11)
+- **Conformance:** [SY-11/a–b](conformance.md#sy-11)
 - **Design note (not Windmill behaviour):** windmill-lite needs a pluggable
   secret resolver (host-supplied values, the key, or delegation to a real
   Windmill); trees pulled with plain secrets must stay usable. A
   "secret not available" error is a windmill-lite policy, not an upstream
   string. Whether windmill-lite ever decrypts exported ciphertext is a design
   decision; this area specifies no cipher.
+- **Revision 2026-10-28 (source re-check):** added the fields a new variable
+  must carry. A variable file without `value` fails the push; it does not
+  read as `""`. The rest of the rule is unchanged.
 
 <a id="sy-12"></a>
 ### SY-12 · Other files a loader must recognise (and may ignore)
@@ -1424,7 +1585,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-13"></a>
 ### SY-13 · `wmill.yaml`
 
-**Scope:** core (defaultTs, nonDottedPaths, codebases, includes/excludes/extraIncludes, skip flags); later (workspaces); out (the rest) · **Confidence:** high (keys, defaults, filters); medium (override merging) · **Status:** confirmed
+**Scope:** core (defaultTs, nonDottedPaths, codebases, includes/excludes/extraIncludes, skip flags, no `wmill.yaml`); later (workspaces); out (the rest) · **Confidence:** high (keys, defaults, filters, no `wmill.yaml`); medium (override merging) · **Status:** drafted
 
 - **Rule:** Keys, from the CLI's sync options and codebase types:
   - `defaultTs`: `bun` | `deno`; absent means `bun`, with a warning.
@@ -1460,12 +1621,34 @@ differ, the CLI's on-disk form is what a loader sees.
        absent or empty, or some entry matches.
     3. `extraIncludes` alone does not activate the filter; it only narrows an
        active one.
-- **Evidence:** `cli/src/core/conf.ts:21-43, 67-131, 218-294, 539-627`;
+    4. Glob options and the matched path are [SY-16](#sy-16); which files of
+       an item the filter decides by is [SY-17](#sy-17).
+  - **No `wmill.yaml`.** When the upward search ([SY-1](#sy-1)) finds none,
+    the CLI does not fail. It warns
+    `No wmill.yaml found. Use 'wmill init' to bootstrap it.` and runs with no
+    settings, so every key takes its absent value unless a command-line
+    option sets it:
+    - the working directory is the root (no directory change);
+    - `defaultTs` is `bun` and `nonDottedPaths` is `false`;
+    - no path filter applies: every file the walk recognises
+      ([SY-18](#sy-18)) is in;
+    - there are no codebases;
+    - every skip and include switch is off, so secret variables in the tree
+      are pushed, and schedules, triggers, users, groups, settings and the
+      key are not.
+- **Evidence:** `cli/src/core/conf.ts:21-43, 67-131, 218-294, 539-627`
+  (`:201-214` no file: a warning and empty settings; `:382-387` merge with the
+  command-line options);
   `cli/src/commands/init/template.ts:78-226`;
   `cli/src/commands/sync/sync.ts:1708-1789, 2570-2588` (filter), `:2598-2635`
-  (bypasses and final rule).
-- **Conformance:** [SY-13/a](conformance.md#sy-13); filter edge cases under
+  (bypasses and final rule), `:3690`, `:3848` (push base: the working
+  directory); `cli/src/utils/resource_folders.ts:41` (`nonDottedPaths`
+  starts `false`).
+- **Conformance:** [SY-13/a–b](conformance.md#sy-13); filter edge cases under
   [SY-V2](conformance.md#sy-v2).
+- **Revision 2026-10-28 (source re-check):** added the case of no
+  `wmill.yaml`, which runs with defaults rather than failing, and pointers to
+  the glob and per-file rules. The keys and filter rules are unchanged.
 
 <a id="sy-14"></a>
 ### SY-14 · `wmill-lock.yaml` is a CLI cache, not part of the model
@@ -1495,12 +1678,13 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-15"></a>
 ### SY-15 · What a folder cannot supply
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** drafted
 
 - **Rule:** These references cannot be resolved from the tree alone:
   - `script` or `flow` steps whose path is `hub/…` (an accepted `hub/` prefix,
     [OF-2](#of-2), does not make every hub path runnable);
-  - a `script` step with a `hash` other than the folder version
+  - a `script` step with any `hash` pin: a folder cannot tell which version
+    a hash names, nor whether a deploy of the folder would produce it
     ([OF-14](#of-14));
   - steps referencing paths excluded by `includes` or `skip*`, or living in
     another workspace;
@@ -1513,6 +1697,159 @@ differ, the CLI's on-disk form is what a loader sees.
 - **Conformance:** [SY-15/a](conformance.md#sy-15)
 - **Design note (not Windmill behaviour):** each needs a windmill-lite policy:
   an error, a host-supplied value, or delegation.
+- **Revision 2026-10-28 (source re-check):** the hash bullet said only a hash
+  "other than the folder version" was unresolvable, implying a folder could
+  recognise its own version's hash. It cannot: hashes depend on the deploy
+  history ([OF-14](#of-14)), so every `hash` pin is outside what a folder can
+  supply.
+
+<a id="sy-16"></a>
+### SY-16 · Globs are minimatch 10 with default options, over the root-relative file path
+
+**Scope:** core · **Confidence:** high (options and subject, source-traced; oracle pending); medium (the bundled version: the published bundle was not inspected) · **Status:** drafted
+
+- **Rule:**
+  - **Library.** The CLI calls minimatch 10. Its manifest asks for
+    `^10.0.0`, both of its lock files pin `10.2.2`, and the published CLI is
+    a bundle built from that install, with minimatch inside it.
+  - **Options.** Every `wmill.yaml` glob is matched with minimatch's
+    **default options**: `includes`, `excludes` and `extraIncludes`
+    ([SY-13](#sy-13)), and a codebase entry's `includes` and `excludes`
+    ([SY-8](#sy-8)). In particular:
+    - matching is case-sensitive;
+    - `*`, `**` and `?` do not match a path segment that starts with `.`
+      unless the pattern spells the dot;
+    - a pattern without `/` is matched against the whole path, not the file
+      name, so `*.ts` matches only a file at the root;
+    - braces expand;
+    - a leading `!` negates the pattern, and a pattern starting with `#`
+      matches nothing.
+  - **Subject.** The string matched is the file's path relative to the
+    push's base directory (the sync root of [SY-1](#sy-1), or the working
+    directory under `noCdToRoot`, [SY-V4](#sy-v4)), with no leading `./`, in
+    the platform's separator (`/` on Linux and macOS). Directories are never
+    matched ([SY-17](#sy-17)). For a codebase entry the subject is the
+    script's content file path, and only paths ending in `.ts` are tried.
+- **Evidence:** `cli/package.json:26`; `cli/bun.lock:253`;
+  `cli/package-lock.json:1204-1207`; `cli/build-npm.ts:30-41` (everything but
+  esbuild, svelte and the parser packages is bundled);
+  `cli/src/commands/sync/sync.ts:12`, `:376-412` (codebase globs), `:2556-2584`
+  (filter globs), `:463-505` (`:475` the relative path), `:3848` (base).
+- **Conformance:** [SY-16/a](conformance.md#sy-16)
+- **Note:** windmill-lite's loader observed the same glob results on
+  minimatch 10.2.6 and 9.0.9; the reference cases name only the options.
+
+<a id="sy-17"></a>
+### SY-17 · The filter decides file by file; a passing file pushes its whole item
+
+**Scope:** core; later (the `__mod` layout) · **Confidence:** high (source-traced; oracle pending) · **Status:** drafted
+
+- **Rule:**
+  - The path filter of [SY-13](#sy-13) is applied to each file on its own,
+    by the file's path ([SY-16](#sy-16)). Directories are not filtered: the
+    walk enters every recognised directory.
+  - `wmill sync push` compares the local files that pass with the
+    workspace's files, filtered by the same function, and pushes an **item**
+    when one of its passing files is new or has changed. The push then reads
+    the item's other files from disk, whether or not they pass the filter.
+    Which files select an item:
+
+    | Item | When the file is new | When the file changed |
+    |---|---|---|
+    | path script | its content file only: a new `.script.yaml`, `.script.json` or `.script.lock` alone selects nothing | its content, metadata or lock file |
+    | flow | any file in its folder: `flow.yaml` or an inline file | the same |
+    | resource | its `.resource.yaml`: a new `.resource.file.<ext>` alone selects nothing | the resource file or its content file |
+    | variable, resource type and other one-file items | the item's file | the same |
+
+    In the `__mod` layout (`later`) any module file also selects its script.
+  - So on a push into an empty workspace, a script is deployed exactly when
+    its content file passes, and a flow when any file of its folder passes.
+    An item none of whose files pass is neither pushed nor deleted.
+- **Evidence:** `cli/src/commands/sync/sync.ts:1541-1594` (each entry is
+  tested on its own), `:1637-1652`, `:2630-2635` (directories), `:4453-4500`
+  (a changed file), `:4604-4650` (a new file: metadata, lock and resource
+  content files skipped); `cli/src/commands/script/script.ts:241-276`
+  (metadata and lock files push their script), `:286-306`, `:419-435`,
+  `:449` (the script's files are read from disk); `cli/src/types.ts:189-233`
+  (a flow file pushes the whole folder); `cli/src/commands/flow/flow.ts:188-206`.
+- **Conformance:** [SY-17/a](conformance.md#sy-17)
+
+<a id="sy-18"></a>
+### SY-18 · Which files the walk reads, and as what
+
+**Scope:** core · **Confidence:** high (classification and extension list, source-traced); medium (the failing push of a `.js` file, read not traced) · **Status:** drafted
+
+- **Rule:** A file under the recognised top-level directories of
+  [SY-1](#sy-1) enters the push only when all of these hold:
+  1. **Its path classifies as an item file.** First match wins:
+     - inside a `__mod/` folder: a module file of that script;
+     - inside a flow, app or raw-app folder (`.flow/`, `__flow/`, `.app/`,
+       …): part of that item;
+     - under `dependencies/`: a workspace dependency file; under
+       `migrations/datatable/`: a datatable migration;
+     - `<p>.resource.file.<ext>`, or a file inside a fileset folder: part of
+       that resource;
+     - a last extension of `.ts`, `.py`, `.go`, `.sh`, `.sql`, `.gql`,
+       `.ps1`, `.js`, `.php`, `.rs`, `.cs`, `.nu`, `.java`, `.rb` or `.r`, or
+       a name ending `.playbook.yml`: a script source;
+     - `folder.meta.yaml`; at the root only, `settings.yaml`,
+       `encryption_key.yaml` and `*.resource-type.yaml` (with their
+       per-workspace variants, [SY-12](#sy-12));
+     - otherwise the last dotted part of the name before its extension:
+       `script` (metadata and lock files), `variable`, `resource`,
+       `resource-type`, `app`, `schedule`, a trigger kind of
+       [SY-12](#sy-12) or `<service>_native_trigger`, `user`, `group`.
+
+     Any other file is ignored without a message: for example `notes.md`,
+     `x.yml`, or `x.yaml` without a type part.
+  2. **It passes the path filter** ([SY-13](#sy-13), [SY-17](#sy-17)).
+  3. **Its last extension is listed.** Except for file and fileset resource
+     files, raw-app files and workspace dependency files, the text after the
+     file's last dot must be one of `json`, `yaml`, `go`, `sh`, `ts`, `py`,
+     `sql`, `gql`, `ps1`, `php`, `js`, `lock`, `rs`, `cs`, `yml`, `nu`,
+     `java`, `rb`, `r`. `.json` files are then dropped in YAML mode and
+     `.yaml` files in JSON mode. This also drops, for instance, a `README.md`
+     inside a flow folder.
+  4. **No skip or include switch of [SY-13](#sy-13) drops it.**
+  - Two script-like names make the push fail rather than being ignored:
+    - a bare `.sql` file, with [SY-3](#sy-3)'s language error;
+    - a `.js` file outside an item folder. It classifies as a script source,
+      but no language matches it, so the push stops with
+      `The item <path> has an unrecognized type ending script`.
+- **Evidence:** `cli/src/commands/sync/sync.ts:2487-2539` (`isNotWmillFile`:
+  unclassified files are ignored), `:2541-2554` (top-level directories),
+  `:1655-1691` (extension list and JSON or YAML mode), `:1710-1766` (switches),
+  `:4604-4690` (a new file's push); `cli/src/types.ts:322-439`
+  (classification), `:189-272` (no push for a `script` type ending);
+  `cli/src/commands/script/script.ts:286-306`, `:942-968` (the script
+  extensions, without `.js`); `cli/src/utils/script_common.ts:59-125`.
+- **Conformance:** [SY-18/a–b](conformance.md#sy-18)
+- **Note:** this enumerates the list that [SY-1](#sy-1) cites as
+  `sync.ts:1668-1693`.
+
+<a id="sy-19"></a>
+### SY-19 · Text files: a UTF-8 byte order mark is stripped, UTF-16 and UTF-32 are refused
+
+**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** drafted
+
+- **Rule:** The CLI reads every text file of the tree through one decoder:
+  script sources, metadata, `flow.yaml`, inline script and lock files, lock
+  references, resource and variable files, and `wmill.yaml` itself.
+  - A leading UTF-8 byte order mark (bytes `EF BB BF`) is removed, so no
+    content or value starts with U+FEFF. A U+FEFF anywhere else is kept.
+  - A leading UTF-16 or UTF-32 byte order mark fails the read, and with it
+    the push:
+    `File <path> is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.`,
+    or the same with `UTF-16 BE`, `UTF-32 LE` or `UTF-32 BE`. The bytes
+    `FF FE 00 00` count as UTF-32 LE. `<path>` is the path the CLI opened,
+    which may be absolute.
+  - Otherwise the bytes are decoded as UTF-8, and each invalid sequence
+    becomes U+FFFD.
+- **Evidence:** `cli/src/utils/utils.ts:135-177` (decoder and readers),
+  `:179-186` (lock references); `cli/src/utils/yaml.ts:27-35` (YAML files);
+  `cli/src/commands/sync/sync.ts:491-501` (files read by the walk);
+  `cli/src/commands/flow/flow.ts:188-190` (flow folder files).
+- **Conformance:** [SY-19/a–b](conformance.md#sy-19)
 
 <a id="sy-v1"></a>
 ### SY-V1 · Inline lock resolution depends on inline content
@@ -1787,3 +2124,17 @@ its licence status is the one given there.
   values, but a second reading of the same source range counted 25. Is a
   language missing from the list? *Settled by:* recounting the `language`
   enum at `backend/windmill-types/src/scripts.rs:41-101`.
+<a id="q-of-13"></a>
+- **Q-OF-13** · affects [SY-4](#sy-4), [SY-5](#sy-5), [SY-7](#sy-7),
+  [SY-8](#sy-8), [SY-10](#sy-10), [SY-11](#sy-11), [SY-13](#sy-13),
+  [SY-16](#sy-16) to [SY-19](#sy-19), [OF-14](#of-14) · The sync-folder
+  rules revised or added on 2026-10-28 are traced in the pinned CLI and
+  server source but not recorded. In particular: that the published
+  `windmill-cli@1.767.0` bundle carries minimatch 10 with default options;
+  that a stray `.js` file fails the push; that resource and variable files
+  without `value` fail it; and how an unknown hash pin fails at run time.
+  *Settled by:* oracle sessions that push the trees of SY-4/b, SY-5/c,
+  SY-7/f, SY-8/c, SY-10/b, SY-11/b, SY-13/b and SY-16/a to SY-19/b with the
+  pinned CLI and read back what was deployed (`scripts/get`, `flows/get`,
+  `resources/get`, `variables/get`) or the push's error, plus a run of
+  OF-14/f.

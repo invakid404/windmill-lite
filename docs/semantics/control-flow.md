@@ -36,9 +36,20 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - Fixture shorthand (`ret(E)`, `fail(M)`, `ERR(M)`) and the run-mode rules
   for conformance cases are defined under
   [Notation](conformance.md#cf-notation).
-- No expectation in this area has been recorded on the v1.767.0 CE oracle yet.
-  Every expectation is source-derived; [Q-CF-1](#q-cf-1) and
-  [Q-CF-17](#q-cf-17) track the recordings.
+- **Recordings.** Recording batch E3d (design record 0012) recorded the
+  cases of CF-2 to CF-15 on the v1.767.0 CE oracle, by path after a
+  successful dependency job (fixtures
+  [`conformance/flows/control-flow`](../../conformance/flows/control-flow);
+  oracle runs 40685057858, 40686532046 and 40692334073). Batch E3a recorded
+  the CF-19 and CF-V6 cases (fixture
+  [`conformance/flows/cf/cf-19`](../../conformance/flows/cf/cf-19), oracle
+  run 40687124625). Every recorded case held, and the recordings settled
+  CF-12 and CF-19. The recorded job kinds agree with this file: a non-simple
+  body runs as a `flownode` child, a simple body that is not collapsed (a
+  parallel loop's) stays inline and runs as a `flowpreview` child, and a
+  collapsed iteration is a script job directly under the loop. The other
+  expectations are source-derived; [Q-CF-1](#q-cf-1) and
+  [Q-CF-17](#q-cf-17) track what remains.
 
 ## Summary for the design
 
@@ -53,11 +64,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
    apply, step ids, result registration and timeout enforcement. A forloop
    collapses only when the flow job executing it is not a `FlowPreview` job;
    while loops have no job-kind condition, but only simple bodies ever
-   collapse. The gate is local to the executing flow. Whether a raw
-   submission prevents collapsing at every depth, including inside a by-path
-   subflow it calls, is disputed ([CF-8](#cf-8), [Q-CF-15](#q-cf-15)). The
-   stored form actually selected (lite or full) must be recorded, because a
-   successful dependency job alone does not determine it ([CF-V5](#cf-v5),
+   collapse. The gate is local to the executing flow: a by-path subflow is
+   always a `Flow` job, so a raw submission does not stop collapsing inside
+   a subflow it calls. Collapse disqualifiers are tested by presence
+   (`retry: {}` and `cache_ttl: 0` disqualify). The stored form actually
+   selected (lite or full) matters, because a successful dependency job
+   alone does not determine it ([CF-8](#cf-8), [CF-V5](#cf-v5),
    [CF-26](#cf-26), [CF-27](#cf-27)).
 3. **Container results are arrays in index or branch order**, never in
    completion order. Entries are child results: error objects, handler
@@ -76,33 +88,37 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
    at a subflow boundary. An error stop is consumed by the copied handler when
    the flow has one. Without a handler, a skippable sequential-branchall
    branch yields a stopped but successful flow. `stop_after_all_iters_if`
-   runs only for active containers. Disputed: whether a sequential loop that
-   breaks on an unhandled error stop with `skip_failures: false` lets the
-   enclosing flow continue (as drafted) or fails it without running the next
-   step (validation: a break clears the stop, not the failure)
-   ([CF-11](#cf-11), [CF-12](#cf-12), [Q-CF-14](#q-cf-14), [CF-13](#cf-13),
-   [CF-29](#cf-29), [CF-V2](#cf-v2)).
+   runs only for active containers. A sequential loop that breaks on an
+   unhandled error stop with `skip_failures: false` fails, and the enclosing
+   flow fails with the loop's array without running its next step: a break
+   clears the stop, not the failure (recorded on the oracle)
+   ([CF-11](#cf-11), [CF-12](#cf-12), [CF-13](#cf-13), [CF-29](#cf-29),
+   [CF-V2](#cf-v2)).
 6. **`results.<id>` is resolved by ordered routes:** whole-expression context
    name, exact input/env property, previous-step shortcut, a narrow direct
    lookup in a scoped last-write-wins map (`null` on a miss), then the JS
    engine (own-step fetch that can throw, then the map). New scopes start
    only at subflows and parallel iterations. The route decides between `null`
-   and an error. Whether direct lookup needs the whole expression to match or
-   can match one line of a multiline expression is disputed; reconcile with
-   [JE-9](expressions.md#je-9) before implementing ([CF-19](#cf-19),
-   [CF-V6](#cf-v6), [Q-CF-16](#q-cf-16)).
+   and an error. Direct lookup is line-anchored: the first qualifying line
+   of a multiline expression answers by itself and the rest of the text is
+   ignored (recorded on the oracle; [CF-19](#cf-19), [CF-V6](#cf-v6),
+   [JE-9](expressions.md#je-9)).
 7. **Absent defaults and stored representation are compatibility inputs.**
    Absent skip flags mean `false` before a successful dependency job and the
-   typed defaults after it; a pulled folder then shows them explicitly. The
-   lite form changes handler ids, inline script paths and job kinds; a
-   by-path `script` keeps its own path ([CF-6](#cf-6), [CF-V4](#cf-v4),
-   [CF-24](#cf-24)).
+   typed defaults after it; a pulled folder, and a folder after the CLI's
+   `generate-metadata`, then shows them explicitly. The lite form changes
+   handler ids, inline script paths and job kinds; a by-path `script` keeps
+   its own path. It reduces only the module lists: the failure and
+   preprocessor modules stay as written, get no virtual step, and their
+   `sleep` is never applied ([CF-6](#cf-6), [CF-V4](#cf-v4),
+   [CF-24](#cf-24), [CF-30](#cf-30)).
 8. **Errors while starting a container take one of three routes:** a root
    flow at pickup records a step failure and handles it normally; a child
    flow at pickup fails and bypasses its own handler; later chaining aborts
    the flow with `InternalError`, bypassing its handler. `branchone`
-   predicate errors are always step failures ([CF-23](#cf-23),
-   [CF-V3](#cf-v3), [CF-14](#cf-14)).
+   predicate errors are always step failures. The pickup and chaining forms
+   are recorded on the oracle ([CF-23](#cf-23), [CF-V3](#cf-v3),
+   [CF-14](#cf-14)).
 9. **Timing and enforcement.** The iterator and `branchone` predicates are
    evaluated once; `timeout` and `parallelism` per child. A container
    `timeout` is enforced only on collapsed script children on the ordinary
@@ -146,7 +162,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
       `<step>` is the container's position in its flow;
     - `preserve_step_tags` is inherited.
   - **Stored-node bodies:** the handler keeps its original id, and
-    `preserve_step_tags` is false.
+    `preserve_step_tags` is false. Every non-empty body of a deployed flow
+    that has a failure module is a stored node, so there the copy reads
+    `failure` (recorded, [FX-34](execution.md#fx-34)).
   - The container step's own result is assembled from the child results
     ([CF-4](#cf-4), [CF-13](#cf-13), [CF-14](#cf-14)).
 - **Evidence:** `worker_flow.rs:5038-5074` (inline construction; the
@@ -162,7 +180,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-2"></a>
 ### CF-2 · `forloopflow` iterator evaluation
 
-**Scope:** core (message); later (error name per route) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (message); later (error name per route) · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - The `iterator` is evaluated **once**, when the loop step starts, and the
@@ -186,9 +204,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     `invalid type: map, expected a sequence at line 1 column 0` (Windmill's
     own test `backend/tests/worker.rs:3342` asserts this text).
   - The error a flow observes is wrapped according to where it is raised
-    ([CF-23](#cf-23)): a root flow at pickup gets name `Anyhow` with a message
-    containing the text above; later chaining gives name `InternalError` with
-    the plain message. Match the message substring only.
+    ([CF-23](#cf-23)): a root flow at pickup gets name `Anyhow` with the
+    message `Error: <text above> @<file>.rs:<line>:<col>`; later chaining
+    gives name `InternalError` with the plain message. Both forms are
+    recorded (oracle: a loop at step 0 gave the suffix `@worker.rs:3822:13`,
+    and the same loop after a first step gave the plain text). The location
+    suffix depends on the build; compare the message with it masked.
   - An empty array completes the step at once with result `[]`; no child is
     created.
   - **Restart.** Continuing a loop that was restarted mid-iteration reuses
@@ -200,13 +221,20 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-common/src/error.rs:145-150`;
   `backend/windmill-common/src/worker.rs:2228-2232`; tests
   `backend/tests/worker.rs:3342` (exact message), `:3284`, `:3381` (empty
-  iterator → `[]`; a later step summing `results.<loop>` gets `0`).
+  iterator → `[]`; a later step summing `results.<loop>` gets `0`). The
+  `Error: … @<location>` form is the display of the `Anyhow` variant,
+  `backend/windmill-common/src/error.rs:73-74`, `:138-150`.
 - **Conformance:** [CF-2/a, CF-2/b](conformance.md#cf-2)
+- **Revision 2026-10-28 (oracle, batch E3d):** the message forms of both
+  routes are now stated exactly, as recorded (fixture
+  `conformance/flows/control-flow/cf-2`, runs `b-step0` and `b-later`);
+  before, the finding said only that the pickup message contains the text.
+  The rule is unchanged.
 
 <a id="cf-3"></a>
 ### CF-3 · The `iter` object and nesting (`iter_parent`)
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - Each loop iteration's child flow input is the enclosing flow input plus
@@ -233,7 +261,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-4"></a>
 ### CF-4 · Loop result shape and order
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - A loop step's result is a JSON array with one entry per iteration that
@@ -243,7 +271,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     single body step's result when the loop collapsed ([CF-8](#cf-8)).
   - A **failed** iteration's entry is its error result object
     (`{"error": {...}}`). The public OpenAPI description says failed
-    iterations "return null"; the source keeps the error object.
+    iterations "return null"; the source keeps the error object, and so does
+    the oracle (CF-4/b).
   - An entry is not always an `{"error": …}` object: when the copied failure
     handler ran in a failed iteration, the entry is the handler's output (any
     JSON, [CF-16](#cf-16)); when the body's last step is itself a failed
@@ -265,7 +294,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-5"></a>
 ### CF-5 · Sequential loop failure, `skip_failures`, and what the flow sees
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:** For a sequential (`parallel: false`) `forloopflow` or a
   `whileloopflow`:
@@ -294,11 +323,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/tests/worker.rs:48` (257-element sequential loop,
   `skip_failures: false`: the result is an array, entry 2 is the error).
 - **Conformance:** [CF-5/a, CF-5/b](conformance.md#cf-5)
+- **Note:** the recorded loops have a one-module body and run by path, so
+  they collapse ([CF-8](#cf-8)): their error entries carry `step_id` equal to
+  the loop's id, where the same body in a parallel loop ([CF-4/b](conformance.md#cf-4))
+  carries the body step's id.
 
 <a id="cf-6"></a>
 ### CF-6 · Absent container fields: defaults depend on the stored state
 
-**Scope:** core · **Confidence:** high (CLI pull output traced in source, not run) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; point 6 oracle-observed; the pull output of point 5 and the un-normalized behaviour traced in source, not run) · **Status:** confirmed
 
 - **Rule:**
   1. **Runtime fallback.** At run time `skip_failures` (forloop, whileloop)
@@ -332,6 +365,19 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      contents. After a successful dependency job, a pulled `flow.yaml`
      therefore shows the materialized fields explicitly; a folder pulled
      from a normalized workspace never has them absent.
+  6. **CLI `generate-metadata`.** The pinned CLI's `wmill generate-metadata`
+     (and its deprecated per-flow predecessors) materializes the same
+     defaults **locally**. For each flow folder whose inline scripts are
+     stale, it inlines their files, sends the flow value to
+     `POST /api/w/{w}/jobs/run/flow_dependencies_async`, waits for that
+     job, and rewrites `flow.yaml` from the job's `updated_flow_value`, with
+     inline scripts extracted back into `!inline` files. That value is the
+     typed re-serialization of point 2, so the written `flow.yaml` carries
+     `skip_failures`, `parallel`, `skip_failure` and `expr` explicitly. The
+     job runs with `skip_flow_update`, so nothing on the server changes. A
+     folder that passed through `generate-metadata` therefore never has
+     these fields absent either; to send them absent, the flow has to reach
+     the API without it.
   - `parallelism` may be a bare number or an input transform. The
     required-ness of `skip_failures` in `openflow.openapi.yaml` is not
     enforced at run time.
@@ -349,18 +395,32 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-api/src/workspaces_export.rs:830-847`, `:347-380`;
   `cli/src/commands/sync/sync.ts:946-1024`; test
   `backend/tests/worker.rs:3677` (raw flow: a branch without `skip_failure`
-  is not skipped).
+  is not skipped). Point 6:
+  `cli/src/commands/flow/flow_metadata.ts:307-347` (the value sent, then
+  `flow.yaml` rewritten from the answer), `:435-513` (the request, and the
+  answer's `updated_flow_value`);
+  `cli/src/commands/generate-metadata/generate-metadata.ts:470-480`;
+  `backend/windmill-api/src/jobs.rs:7151`, `:7163` (`skip_flow_update`
+  set, a raw flow-dependencies payload);
+  `backend/windmill-worker/src/worker_lockfiles.rs:662-669`, `:843-848`
+  (the typed value returned).
 - **Conformance:** [CF-6/a, CF-6/b, CF-6/c](conformance.md#cf-6)
 - **Design note (not Windmill behaviour):** treat "absent" as a compatibility
   input and record which state a fixture represents. The proposed default for
   a sync folder is the steady state of a successful deploy (the materialized
   defaults); a strict mode could reject absent fields instead. The decision
   is [Q-CF-13](#q-cf-13).
+- **Revision 2026-10-28 (oracle, batch E3d):** point 6 is new. Before, the
+  finding said only that `sync pull` writes the materialized fields; the
+  batch's API-deployed fixtures record, beside each run, the flow as
+  submitted (fields absent), as the API answers it after the dependency job
+  (fields filled) and as `generate-metadata` writes it (the same fields
+  filled), and the source shows why the CLI command writes them.
 
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion
 
-**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition); medium (release order under `parallelism`) · **Status:** confirmed
+**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1`; all oracle-observed); medium (start order among several eligible iterations) · **Status:** confirmed
 
 - **Rule:** With `parallel: true`:
   - **Spawning.** All iterations are created at once as child flows; the loop
@@ -397,26 +457,61 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     container has no `sleep`/`suspend`, and the run is not a recovery from a
     crashed worker. A one-element parallel loop or a one-branch parallel
     `branchall` in a `same_worker` flow does not error.
+    - It is raised as a `BadRequest`, whose text is `Bad request: <text>`,
+      while the children are being prepared, so it takes the container-start
+      routes of [CF-23](#cf-23). A loop at step 0 of a root flow fails at
+      pickup with name `Anyhow` and message
+      `Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker @<file>.rs:<line>:<col>`
+      (recorded with the suffix `@worker.rs:3822:13`); no child is
+      created.
+  - **Observed timing (not a rule).** On the one-worker oracle an iteration
+    released by a completion started about 4 to 5 s after that completion,
+    while the first `N` started at once. The one worker ran the body
+    scripts one at a time but not the child flows: with `parallelism: 2`
+    the child flows overlapped, with `parallelism: 1` each started after
+    the previous one completed.
 - **Evidence:** `worker_flow.rs:5352-5414` (all payloads at once),
   `:4484-4515` (held jobs and release counter), `:1097-1115` (release when a
   sibling completes), `:765-916` (per-child completion), `:917-1080`,
   `:1018-1035` (final aggregation, persisted-status query), `:675-682` (no
   `stop_after_if` for parallel loops), `:4100-4110`, `:4573`, `:4793-4798`
-  (`same_worker` condition); `backend/windmill-types/src/flows.rs:1080-1081`;
+  (`same_worker` condition; the error raised as `BadRequest` at `:4793-4798`);
+  `backend/windmill-common/src/error.rs:55-56` (`Bad request: ` text),
+  `:73-74` (the pickup form); `backend/windmill-types/src/flows.rs:1080-1081`;
   `frontend/src/lib/components/flows/content/FlowModuleEarlyStop.svelte:72`
   (the UI hides "break" for parallel loops).
 - **Conformance:** [CF-7/a to CF-7/d](conformance.md#cf-7)
+- **Revision 2026-10-28 (oracle, batch E3d):** the `same_worker` error's
+  recorded form (`Bad request: ` inside the pickup envelope) and the
+  observed release timing are added; the release order under
+  `parallelism: 1` is now recorded, so its confidence rises. Before, the
+  finding gave the error text alone. What one worker cannot show is
+  [Q-CF-18](#q-cf-18).
 
 <a id="cf-8"></a>
 ### CF-8 · The simple-loop-body fast path; eligibility follows the executing job's kind
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** DISPUTED
+**Scope:** core · **Confidence:** high (by-path top-level, nested and step-0 cases oracle-observed; the raw-submission reach and the stored-form condition source-traced) · **Status:** confirmed
 
-- **Rule (as drafted):**
+- **Rule:**
   1. **Body shape.** Exactly one module of type `script`, `rawscript` or
      `flowscript`; that module has no `sleep`, `suspend`, `cache_ttl`,
      `retry`, `stop_after_if`, `stop_after_all_iters_if` or `skip_if`, and no
      enabled `mock`; the flow being executed has no `failure_module`.
+     - **Presence decides, not value.** Each of these fields disqualifies
+       when the key is present with any non-null value: `retry: {}`,
+       `cache_ttl: 0`, `skip_if: {expr: "false"}`, `sleep: {type: static,
+       value: 0}` and a `stop_after_if` that can never fire all prevent
+       collapsing. A field written as `null` counts as absent. `mock`
+       disqualifies only with `enabled: true`. Other envelope fields
+       (`timeout`, `continue_on_error`, `priority`, `summary`, …) never
+       disqualify.
+     - The deployed form keeps these fields as written: the dependency job
+       decodes and re-encodes each module through the typed model, which
+       keeps a present empty `retry` as `{}`. The dependency job uses the
+       same test to decide which bodies become stored nodes: a body that
+       passes it stays inline, one that fails it is stored as a node, and a
+       loop whose body is a node never collapses.
   2. **For a `forloopflow`:** it must also be sequential, and the job
      executing the loop must not be of kind `FlowPreview`. Job kinds:
      - a by-path run of a deployed flow, and a by-path subflow child, are
@@ -432,12 +527,23 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      - a top-level forloop of a by-path run collapses, whether or not the
        dependency job has finished;
      - a forloop nested inside another container body collapses only when
-       that body is a stored node, i.e. a deployed flow after a successful
-       dependency job; before that, or when the lite form is missing, the
-       enclosing body is an inline `FlowPreview` child and the nested loop
-       does not collapse;
-     - in a raw submission, no forloop collapses at any depth;
-     - while loops collapse at any depth in every mode.
+       that body runs as a stored node (`FlowNode`). That is the case for a
+       deployed flow run from its lite version, which a successful
+       dependency job builds and which runs read unless `DISABLE_FLOW_SCRIPT`
+       is set or the lite version is missing. Otherwise the enclosing body
+       is an inline `FlowPreview` child and the nested loop does not
+       collapse;
+     - the gate is local to the flow executing the loop. In a raw
+       submission (`FlowPreview`) and in its inline bodies no forloop
+       collapses, but a by-path subflow it calls is always a `Flow` job,
+       whatever the caller's kind ([CF-17](#cf-17)), so an eligible forloop
+       in that subflow collapses;
+     - the failure and preprocessor modules are not reduced by the lite
+       version, so the bodies of a container-valued failure or preprocessor
+       module always run inline, as `FlowPreview` children, and forloops
+       inside them never collapse ([CF-30](#cf-30));
+     - while loops collapse at any depth in every mode, subject to the body
+       shape: multi-step while bodies never collapse.
   5. **Effects of collapsing:**
      - the body's input transforms are evaluated in the enclosing flow's
        context, with `flow_input` = enclosing input plus `iter`;
@@ -457,25 +563,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        ([CF-19](#cf-19)): `null` unless another visible step or ancestor
        scope has that id;
      - the loop's `timeout` is enforced on each body job ([CF-27](#cf-27)).
-- **Correction (validation):**
-  - "In a raw submission, no forloop collapses at any depth" is overbroad. A
-    raw root can call a deployed subflow by path; that call creates a `Flow`
-    child whatever the caller's kind ([CF-17](#cf-17)), and an otherwise
-    eligible forloop in that child collapses. The gate applies to the flow
-    currently executing the loop; the no-collapse statement holds only for
-    `FlowPreview` jobs and their inline container descendants. Example: a raw
-    parent calling the deployed child that holds [CF-8/a](conformance.md#cf-8)'s
-    loop gets `[101,103,106]`, not `[-999,-998,-997]`.
-  - A successful dependency job alone does not force the lite form: with
-    `DISABLE_FLOW_SCRIPT` active, the full version can be selected. The
-    nested-loop consequence depends on the stored form actually selected,
-    which fixtures must record.
-  - Every collapse consequence is subject to the body-shape requirements;
-    multi-step while bodies never collapse.
-  - Evidence: `worker_flow.rs:5138-5154`, `:5298-5300`, `:6020-6049`;
-    `backend/windmill-queue/src/jobs.rs:5658`, `:5915-5930`, `:5965-5978`.
-- **Open:** [Q-CF-15](#q-cf-15)
-- **Evidence:** `worker_flow.rs:5729-5745` (`is_simple_modules`),
+- **Evidence:** `worker_flow.rs:5729-5745` (`is_simple_modules`; each
+  disqualifier tested as an absent optional field),
   `:5298-5300` (forloop: sequential and not `FlowPreview`), `:5247-5249`
   (while: no job-kind gate), `:5657-5697` (collapsed payload; transforms
   taken from the body), `:4158-4205` (per-iteration evaluation with an empty
@@ -487,21 +576,41 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-queue/src/jobs.rs:5604-5667` (raw flow → `FlowPreview`),
   `:5420-5440` (node → `FlowNode`), `:5912-5980` (by path → `Flow`);
   `backend/windmill-worker/src/worker_lockfiles.rs:1554-1591`, `:1571`
-  (simple bodies stay inline; non-simple, non-empty bodies become nodes);
-  `backend/windmill-types/src/flows.rs:662-665`.
+  (simple bodies stay inline; non-simple, non-empty bodies become nodes,
+  by the same test), `:748-758` (the lite version reduces only the module
+  list); `backend/windmill-types/src/flows.rs:543-588` (the disqualifiers
+  are optional fields), `:433-442` (an empty `retry` decodes to a present
+  default and re-encodes as `{}`), `:662-665`. Raw-submission reach:
+  `worker_flow.rs:5138-5154`, `:6020-6049` (a `flow` step always builds a
+  by-path payload); `backend/windmill-queue/src/jobs.rs:5658`,
+  `:5915-5930` (`DISABLE_FLOW_SCRIPT` and the lite-to-full fallback),
+  `:5965-5978` (that payload is a `Flow` job).
 - **Conformance:** [CF-8/a to CF-8/d](conformance.md#cf-8)
-- **Note:** both sides agree on the body-shape rule, the effects of
-  collapsing, and the top-level, nested and step-0 fixtures; the dispute is
-  the reach of the raw-submission rule and the stored-form condition.
 - **Design note (not Windmill behaviour):** windmill-lite must reproduce both
   paths or record a deliberate divergence; the IR has to mark collapsible
   bodies at load time and take the job kind (stored representation) as an
   input.
+- **Revision 2026-10-28 (oracle, batch E3d; source re-check):** the finding
+  was `DISPUTED` between its draft, which said that in a raw submission no
+  forloop collapses at any depth and that a successful dependency job makes
+  a nested body a stored node, and the validation's correction, which
+  limits the no-collapse rule to the `FlowPreview` job and its inline
+  bodies and makes the nested case depend on the version actually read.
+  The correction is now the rule. The source settles it: a `flow` step
+  always enqueues a `Flow` job, and the forloop gate tests only the kind of
+  the job executing the loop. The by-path halves of CF-8/a to CF-8/c, on
+  which both sides agreed, are recorded: `[101,103,106]`,
+  `[[101,103,106]]` with the outer body a `flownode` child, and the flow
+  input three times. Raw submissions are outside the reference
+  configuration (design record 0001), so their halves are not recorded.
+  Also new: the presence rule for disqualifiers and the bodies of the
+  failure and preprocessor modules (questions asked by windmill-lite's IR
+  compiler).
 
 <a id="cf-9"></a>
 ### CF-9 · `previous_result` at the first step of a non-collapsed loop body or branch
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - In a child flow ([CF-1](#cf-1)), the first step's `previous_result` is
@@ -525,7 +634,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-10"></a>
 ### CF-10 · `whileloopflow`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - Iterations run one after another, with `iter = {index: n, value: n}`.
@@ -558,7 +667,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-11"></a>
 ### CF-11 · A loop module's `stop_after_if` means "break"
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:** On an active **sequential** `forloopflow` or `whileloopflow`
   module, `stop_after_if` is evaluated after each **successful** iteration.
@@ -586,9 +695,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-12"></a>
 ### CF-12 · Early stop raised inside a container body
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** DISPUTED
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
-- **Rule (as drafted):**
+- **Rule:**
   1. **Clean vs error stop.** A body step's `stop_after_if` that fires is a
      **clean stop** when `skip_if_stopped` is true (which takes precedence
      over `error_message`) or no `error_message` is set. Otherwise it is an
@@ -618,10 +727,14 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   4. **Error stop, flow without a handler.** The child completes as failed
      and forwards the stop flag, without a new error message. The container
      reacts:
-     - **sequential forloop/whileloop:** breaks. The loop step succeeds if
-       `skip_failures` is true, otherwise it fails. Its result is the array
-       so far, ending with the `EarlyStopError` entry, "and the flow
-       continues after the loop either way" (disputed, see below);
+     - **sequential forloop/whileloop:** breaks. Its result is the array so
+       far, ending with the `EarlyStopError` entry. Breaking clears the stop
+       flag, not the failure. With `skip_failures: true` the loop step
+       succeeds and the flow continues with the next step. With
+       `skip_failures: false` the loop step fails and is an ordinary failed
+       step: its own `retry` and `continue_on_error` apply, and without them
+       the enclosing flow fails with the loop's array as its result and its
+       next step does not run ([CF-5](#cf-5));
      - **sequential branchall:** no further branch runs and the enclosing
        flow **stops** right after the branchall. The branchall's status, and
        so the stopped flow's status, follows the stopped branch's
@@ -640,16 +753,10 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 
      Stopping and failing are independent: a propagated stop does not imply
      a failed flow.
-- **Correction (validation):** the sentence "the flow continues after the
-  loop either way" is false. Breaking clears the stop flag, not the failure.
-  With `skip_failures: false`, no handler, no loop `retry` and no loop
-  `continue_on_error`, the loop fails and the enclosing flow fails at once
-  without running its next step. Only a successful loop, or an applicable
-  ordinary failure policy, lets the flow continue. This agrees with
-  [CF-5](#cf-5) and with the failure outcome of
-  [CF-12/c](conformance.md#cf-12). Evidence: `worker_flow.rs:1195-1201`,
-  `:1273-1345`, `:1734-1757`.
-- **Open:** [Q-CF-14](#q-cf-14)
+  5. **What the stopped step looks like.** A body step stopped with an
+     error keeps its own job result and status: its job succeeded, its
+     module is marked failed, and it carries the `EarlyStopError`, which is
+     what its child flow returns ([FX-V2](execution.md#fx-v2)).
 - **Evidence:** `worker_flow.rs:304-322` (skip precedence, default message,
   result inclusion), `:599-626` (subflow stop override ignored), `:670-682`
   (child stop applied unless parallel or subflow; forwarded without a
@@ -657,21 +764,29 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   branch while stopped), `:1195-1201` (loop: reset to break), `:1267-1345`,
   `:1273-1284` (container success from skip flags), `:1350-1365`,
   `:1734-1736` (a stopped flow does not continue; an error stop continues
-  into the handler), `:2006-2047`, `:2135-2150` (stop flag handed to the
-  parent), `:2329-2346` (per-branch `skip_failure`); tests
+  into the handler), `:1734-1757` (a failed loop is an ordinary failed
+  step), `:2006-2047`, `:2135-2150` (stop flag handed to the parent),
+  `:2329-2346` (per-branch `skip_failure`); tests
   `backend/tests/worker.rs:645`, `:700` (stop inside a sequential branchall:
   flow result `[-123]`, later step not run);
   `frontend/src/lib/components/flows/content/FlowModuleEarlyStop.svelte:36-82`.
 - **Conformance:** [CF-12/a to CF-12/f](conformance.md#cf-12)
-- **Note:** points 1 to 3, the sequential-branchall, branchone, parallel and
-  subflow reactions of point 4, and the loop's own success/failure status are
-  not contested; only whether the enclosing flow continues after a failed
-  loop is.
+- **Revision 2026-10-28 (oracle, batch E3d):** the finding was `DISPUTED`.
+  Its draft said that after a sequential loop breaks on an unhandled error
+  stop the flow continues after the loop either way; the validation's
+  correction said a break clears the stop, not the failure. The oracle
+  recorded the correction (fixture `conformance/flows/control-flow/cf-12`,
+  runs `c-fail` and `f`: the loop and the flow fail with
+  `[{"error":{"name":"EarlyStopError","message":"halt"}}]` and the next step
+  is not run; runs `c-skip` and `f-skip`: with `skip_failures: true` the loop
+  succeeds and the next step runs). The draft's sentence is withdrawn; every
+  other point, on which both sides agreed, is recorded as stated. Point 5
+  is new: it states what the recordings show of the stopped step.
 
 <a id="cf-13"></a>
 ### CF-13 · `stop_after_all_iters_if` (loops and branchall)
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:** Evaluated **once**, after an **active** `forloopflow`,
   `whileloopflow` or `branchall` has finished all its children, sequential or
@@ -685,23 +800,42 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     stop with the skipped flag; `error_message` produces `EarlyStopError`,
     with the array embedded as `error.result` when `error_include_result` is
     set.
-  - **Evaluation error:** the step fails with
-    ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<expr>`: <cause>"}}``.
+  - **Evaluation error:** it becomes an error stop of the enclosing flow
+    (never a clean one) with the message
+    ``Error evaluating stop_after_all_iters_if expression `<expr>`: <cause>``.
+    The container step fails; its own job result stays the array of child
+    results, and it carries
+    ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<expr>`: <cause>"}}``
+    ([FX-V2](execution.md#fx-v2)). Without a handler that error object is
+    the flow's final result. `<cause>` is the engine error in the
+    `Anyhow` display: for a syntax error,
+    `Error: QuickJS evaluation error: Error: <engine message>`, a newline,
+    the engine frame lines, then ` @<file>.rs:<line>:<col>`. Recorded:
+    ``Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: Error: QuickJS evaluation error: Error: Unexpected token '!'`` followed by
+    `\n    at eval_script:1:7\n @worker_flow.rs:2451:11`.
   - **Not evaluated** for empty containers (empty iterator, empty loop body,
     zero-branch branchall; [CF-V2](#cf-v2)) or for `branchone`.
 - **Evidence:** `worker_flow.rs:342-407`
   (`evaluate_stop_after_all_iters_if`), `:968-1016` (parallel), `:1203-1239`
   (sequential; not after a branchall stopped from inside), `:304-322`,
   `:1350-1365` (`EarlyStopError` object), `:3998-4052`, `:3197-3221`,
-  `:571-595` (empty containers); tests `backend/tests/worker.rs:5550`,
-  `:5607` (bad expression: message contains `stop_after_all_iters_if`),
-  `backend/tests/flow_engine_parity.rs:3136`, `:3241`.
+  `:571-595` (empty containers), `:1006-1015`, `:1236-1243` (an evaluation
+  error sets an error stop with the message), `:2451` (the evaluation whose
+  error is converted at that location); tests
+  `backend/tests/worker.rs:5550`, `:5607` (bad expression: message contains
+  `stop_after_all_iters_if`), `backend/tests/flow_engine_parity.rs:3136`,
+  `:3241`.
 - **Conformance:** [CF-13/a to CF-13/c](conformance.md#cf-13)
+- **Revision 2026-10-28 (oracle, batch E3d):** the evaluation-error bullet
+  said only that the step fails with the `EarlyStopError` object; it now
+  says where that object sits (carried by the failed step, the flow's
+  result) and gives the recorded `<cause>` form (fixture
+  `conformance/flows/control-flow/cf-13`, run `b`).
 
 <a id="cf-14"></a>
 ### CF-14 · `branchone`
 
-**Scope:** core (empty branch at step 0: later) · **Confidence:** high (order, scope, result); medium (error shape, empty-branch quirk) · **Status:** confirmed
+**Scope:** core (empty branch at step 0: later) · **Confidence:** high (order, scope, result, error shape, empty-branch quirk; oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Predicate order.** Branch `expr`s are evaluated **in array order**,
@@ -714,17 +848,22 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     short-circuits; `resume`, `resumes`, `approvers`; `flow_env`.
   - **Predicate errors.** If a predicate throws, evaluation stops and the
     branchone **step fails** in place with
-    `{"error": {"name": "Anyhow", "message": "Error: <engine message> @<source-file>:<line>:<col>"}}`;
-    compare the name and a message substring only. Ordinary failure handling
-    applies (`continue_on_error`, `retry`, `failure_module`, an enclosing
-    loop's `skip_failures`).
+    `{"error": {"name": "Anyhow", "message": "Error: <engine message> @<source-file>:<line>:<col>"}}`,
+    where `<engine message>` is `QuickJS evaluation error: Error: <message>`
+    followed by the engine's frame lines. Recorded at step 1:
+    `Error: QuickJS evaluation error: Error: nope is not defined`, two frame
+    lines, then ` @worker_flow.rs:2451:11` (batch E3a, fixture
+    `conformance/flows/je/branches`, run `je31-a`). The suffix depends on
+    the build; compare with it masked. Ordinary failure handling applies
+    (`continue_on_error`, `retry`, `failure_module`, an enclosing loop's
+    `skip_failures`).
   - **Result.** The chosen branch runs as a child flow; the branchone result
     is that child's result (the branch's last module). A `stop_after_if` on
     the branchone module is evaluated with that result.
   - **Empty chosen branch:** no child runs, and the result passes through the
     `previous_result` handed to the step. When the branchone is the first
     step of its flow and no prior result was supplied, the pass-through is
-    the JSON **string** `"{}"` ([Q-CF-4](#q-cf-4)). Later `results.<id>`
+    the JSON **string** `"{}"` (recorded; [Q-CF-4](#q-cf-4)). Later `results.<id>`
     lookups of an empty-branch branchone depend on the lookup route
     ([CF-19](#cf-19)).
   - Branch path indexes: `default` is index 0 and branch i is index i+1
@@ -738,13 +877,17 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/tests/worker.rs:3513`, `:3551`, `:3759`,
   `backend/tests/flow_engine_parity.rs:252`.
 - **Conformance:** [CF-14/a to CF-14/c](conformance.md#cf-14)
-- **Note:** a multiline predicate can be affected by the disputed direct
-  lookup behaviour of [CF-V6](#cf-v6).
+- **Note:** a multiline predicate can be answered by its first qualifying
+  line through direct lookup ([CF-V6](#cf-v6)).
+- **Revision 2026-10-28 (oracle, batches E3d and E3a):** the predicate
+  error's message form is now stated as recorded, and the step-0
+  empty-branch quirk is recorded (CF-14/c gives the JSON string `"{}"`);
+  both were medium confidence before. The rule is unchanged.
 
 <a id="cf-15"></a>
 ### CF-15 · `branchall`
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - Branch `expr`s are **ignored**.
@@ -770,22 +913,33 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   - A body-level early stop follows [CF-12](#cf-12).
   - **Empty branch** (`modules: []`): a child flow with no steps still runs;
     its result is its own input, the enclosing `flow_input` object
-    ([Q-CF-4](#q-cf-4)).
+    (recorded; [Q-CF-4](#q-cf-4)).
+  - **Stored status.** A completed branchall's entry in the flow status has
+    no `branchall` field (the field that tracks the running branch), so a
+    reader of a completed status takes the branch structure from the flow
+    definition; see [OR-11](oracle.md#or-11) for how the oracle harness
+    walks it.
   - **No branches:** result `[]`.
 - **Evidence:** `worker_flow.rs:5532-5655` (parallel: all payloads;
   sequential: next branch; empty branches still produce a child),
   `:3197-3205` (a flow with no modules → result = its args), `:748-757`,
   `:1173-1192` (sequential skip rule), `:940-966`, `:940-1035` (parallel:
   skipped branches excluded; persisted-status check), `:682` (no
-  `stop_after_if` for branchall), `:3998-4052`; tests
+  `stop_after_if` for branchall), `:3998-4052`;
+  `backend/windmill-types/src/flow_status.rs:233-300` (only the in-progress
+  status entry has the `branchall` and `iterator` fields); tests
   `backend/tests/worker.rs:3589`, `:3629` (`[[1,2],[1,3]]`), `:3677`,
   `:3818` (nested branchall shape), `:591` (`[[42]]`).
 - **Conformance:** [CF-15/a to CF-15/f](conformance.md#cf-15)
+- **Revision 2026-10-28 (oracle, batch E3d):** every case is recorded as
+  stated, CF-15/a and CF-15/b with `parallel` and the skip flags absent as
+  pushed (deployed through the API, so the defaults of [CF-6](#cf-6)
+  applied). The stored-status bullet is new: the recordings showed it.
 
 <a id="cf-16"></a>
 ### CF-16 · `failure_module` inside containers
 
-**Scope:** core · **Confidence:** high (routing, recovery split); medium (handler id per representation; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id); medium (the inline handler id; oracle pending) · **Status:** confirmed
 
 - **Rule:**
   1. **Where the handler runs.** Each child flow carries a copy of the flow's
@@ -815,7 +969,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   6. **Handler id.** An inline child's handler step id is suffixed
      (`<id>-<step>-<index>` for loops and branchall, `<id>-<step>` for
      branchone). A stored-node child, the normal deployed form, keeps `<id>`
-     ([CF-V4](#cf-v4)).
+     ([CF-V4](#cf-v4)); on the oracle a deployed loop's copies ran as
+     `failure` ([FX-34](execution.md#fx-34)).
   7. **`error` after a failed container.** A failure module that runs after
      a failed container sees an `error` binding derived from the array: a
      single error entry yields that entry's `error`; several yield
@@ -831,6 +986,11 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Conformance:** [CF-16/a to CF-16/d](conformance.md#cf-16)
 - **Note:** handler retry and unrecoverable-error exceptions belong to
   [execution.md](execution.md).
+- **Revision 2026-10-28 (oracle, batch E3c):** point 6 was right; execution's
+  FX-34 had said every copy is suffixed and is now corrected to match. The
+  stored-node id was recorded by fixture `conformance/flows/execution/fx-34`
+  (run `step_id`, oracle run 40689442792), as was point 1's once-per-failing
+  iteration run (run `loop`). The CF-16 cases themselves are not recorded.
 
 <a id="cf-17"></a>
 ### CF-17 · Subflows (`type: flow`, by path)
@@ -875,9 +1035,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `:5937`); tests `backend/tests/flow_engine_parity.rs:2584`, `:2664`,
   `:2771` (subflow `flow_env` own and inherited).
 - **Conformance:** [CF-17/a](conformance.md#cf-17)
-- **Note:** whether a forloop inside a by-path subflow collapses when the
-  caller is a raw submission is part of the [CF-8](#cf-8) dispute
-  ([Q-CF-15](#q-cf-15)).
+- **Note:** the subflow job is a `Flow` job whatever the caller's kind, so
+  an eligible forloop inside it collapses even when the caller is a raw
+  submission ([CF-8](#cf-8)).
 
 <a id="cf-18"></a>
 ### CF-18 · `identity`, skipped containers, mocked containers
@@ -907,9 +1067,9 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-19"></a>
 ### CF-19 · How `results.<id>` resolves across container boundaries
 
-**Scope:** core (routes, syntax, scopes, outer visibility, container ids, `null` vs error); later (last-iteration, caller-leak and stale-iteration cases; nil-job fetch-error text) · **Confidence:** high (routes, syntax, scopes); medium (last-iteration, leak and empty-branchone cases; exact nil-job fetch-error text) · **Status:** DISPUTED
+**Scope:** core (routes, syntax, scopes, outer visibility, container ids, `null` vs error); later (last-iteration, caller-leak and stale-iteration cases; nil-job fetch-error text) · **Confidence:** high (routes, line anchoring, scopes, the empty-branchone cases and the nil-job fetch-error text: oracle-observed); medium (leak and stale-iteration cases) · **Status:** confirmed
 
-- **Rule (as drafted):**
+- **Rule:**
   - **Routes.** An expression is resolved by the first route that applies:
     1. **Whole-expression context name.** The whole expression is exactly a
        context name such as `previous_result` and resolves to that value
@@ -922,23 +1082,34 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        `results?.["<p>"]`, where `<p>` is the previous step's id; it resolves
        to `previous_result`. The previous-step id is empty at step 0 of a
        child flow and inside collapsed loop bodies.
-    4. **Direct lookup.** The whole expression is `results` (or `results?`),
+    4. **Direct lookup, line-anchored.** The (trimmed) expression text is
+       searched for a **line** that is exactly `results` (or `results?`),
        then `.` and a step id of `[A-Za-z0-9_]`, then **at most one decimal
        index `[n]` directly after the id**, then zero or more `.segment`s of
-       `[A-Za-z0-9_]`, and nothing else. The last segment must not be
-       `length`. The value is read from the scoped leaf-result map with that
-       path; a miss or any lookup failure gives JSON `null`.
-       - Qualify: `results.X`, `results.X.y.z`, `results.X[2]`,
-         `results.X[2].y`.
-       - Do not qualify: `results.X.y[2].z`, `results.X?.y`,
-         `results["X"].y`, `results.X.length`, or anything inside a larger
-         expression.
+       `[A-Za-z0-9_]`. A line is a stretch between line feeds or the ends of
+       the text; a line ending in a carriage return does not qualify. Only
+       the **first** qualifying line counts:
+       - if its last segment is `length`, direct lookup is skipped and the
+         whole expression goes to route 5, even when a later line would
+         qualify;
+       - otherwise the value is read from the scoped leaf-result map with
+         that line's path and returned, and **the rest of the expression
+         text is ignored**; a miss or any lookup failure gives JSON `null`.
+
+       Examples:
+       - single lines that qualify: `results.X`, `results.X.y.z`,
+         `results.X[2]`, `results.X[2].y`;
+       - single lines that do not: `results.X.y[2].z`, `results.X?.y`,
+         `results["X"].y`, `results.X.length`, `results.X + 1`;
+       - with `a` returning `7`, the two-line expression `results.a`, a
+         newline, `+ 100` gives `7`; the one-line `results.a + 100` goes to
+         the engine and gives `107`.
     5. **JS engine.** Everything else is evaluated by the engine. Each
        `results.X` inside resolves lazily: to `previous_result` if X is the
        previous step's id; else to the stored result of X if X is one of the
        evaluating flow's own steps with a job (all child results for loops
-       and branchall), throwing `Failed to fetch result for step 'X': …` if
-       that fetch fails; else to the leaf-result map, with a miss giving
+       and branchall), throwing `Failed to fetch result for step 'X': <cause>`
+       if that fetch fails; else to the leaf-result map, with a miss giving
        `null`. Ordinary JS semantics follow: reading a property of `null`
        throws, and the input transform fails under the transform-error
        contract in [expressions.md](expressions.md).
@@ -975,22 +1146,22 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
       `[results.br]` gives `[42]` (route 5, via `previous_result`). At any
       later step, `results.br` gives `null` (route 4, nil job) while
       `[results.br]` throws a fetch error (route 5, own step with a nil job).
-- **Correction (validation):** the direct matcher of route 4 is
-  line-anchored in multiline mode, not anchored to the complete expression.
-  A qualifying line can select direct lookup and the rest of the expression
-  text is ignored, so "the whole expression … and nothing else" is false
-  ([CF-V6](#cf-v6)). Example: with step `a` returning `7` and an intervening
-  step, the two-line expression `results.a` / `+ 100` yields `7`, not `107`.
-  [JE-9](expressions.md#je-9) already describes multiline matching; the two
-  areas must be reconciled. Evidence:
-  `backend/windmill-jseval/src/lib.rs:73-76`, `:180-217`;
-  `backend/windmill-worker/src/js_eval.rs:36-79`.
-- **Open:** [Q-CF-16](#q-cf-16)
-- **Evidence:** `backend/windmill-worker/src/js_eval.rs:44-85` (routes 1 to 4
-  in order); `backend/windmill-jseval/src/lib.rs:73-76` (direct-lookup
-  syntax), `:180-217` (direct lookup, `null` on miss), `:189-194` (`length`
-  bypass), `:670-760`, `:697-758` (own-step fetch throws; fallback `null` at
-  `:741-750`), `:806-816` (engine previous-id shortcut);
+      The nil job is the all-zero job id, and the fetch fails with the
+      server's not-found text, so the transform error reads
+      `Failed to fetch result for step 'br': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000 (<file>.rs:<line>)`
+      inside the transform-error envelope of
+      [expressions.md](expressions.md) (recorded with `(jobs.rs:9074)`, a
+      source location of the server that depends on the build).
+- **Evidence:** `backend/windmill-worker/src/js_eval.rs:36-85` (trimming,
+  then routes 1 to 4 in order); `backend/windmill-jseval/src/lib.rs:73-76`
+  (direct-lookup syntax, multi-line anchors), `:180-217` (first match only,
+  direct lookup, `null` on miss), `:168-178`, `:189-194` (`length`
+  bypass), `:670-760`, `:697-758` (own-step fetch throws; fallback `null`
+  at `:741-750`), `:806-816` (engine previous-id shortcut);
+  `backend/windmill-common/src/utils.rs:338-349` (the not-found text with
+  the caller's location), `backend/windmill-common/src/error.rs:31-32`
+  (`Not found: `), `backend/windmill-api/src/jobs.rs:9074` (the completed-job
+  lookup that fails);
   `worker_flow.rs:6155-6172` (own-step context), `:1458-1474` (map write
   keyed by step id into the scope root), `:4318-4330` (scope roots for
   `flow` and parallel forloop children), `:3197-3221`, `:3659-3664`;
@@ -999,14 +1170,20 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   job → `null`); tests `backend/tests/worker.rs:591` (outer step from two
   levels of branchall), `backend/tests/flow_engine_parity.rs:1860`, `:2005`
   (unknown id → `null`).
-- **Conformance:** [CF-19/a to CF-19/c](conformance.md#cf-19); the
-  contested behaviour is exercised by [CF-V6/a](conformance.md#cf-v6).
-- **Note:** the single-line grammar, the route order, the scopes and the
-  `null`-versus-error distinction are not contested; only the anchoring of
-  route 4 is.
+- **Conformance:** [CF-19/a to CF-19/c](conformance.md#cf-19); the line
+  anchoring is exercised by [CF-V6/a and CF-V6/b](conformance.md#cf-v6).
 - **Design note (not Windmill behaviour):** the in-harness segment executor
   needs this scoped map, or an equivalent, to reproduce `null` versus error
   inside and after containers.
+- **Revision 2026-10-28 (oracle, batch E3a):** the finding was `DISPUTED`.
+  Its draft anchored route 4 to the whole expression ("and nothing else");
+  the validation's correction ([CF-V6](#cf-v6)) said the matcher is
+  line-anchored. The oracle recorded the correction: CF-V6/a's two-line
+  expression gave `7` and its one-line control CF-V6/b gave `107` (fixture
+  `conformance/flows/cf/cf-19`, oracle run 40687124625), which agrees with
+  [JE-9](expressions.md#je-9). Route 4 now states the line-anchored rule.
+  CF-19/a to CF-19/c are recorded as stated, and the nil-job fetch-error
+  text, which was open ([Q-CF-5](#q-cf-5)), is added.
 
 <a id="cf-20"></a>
 ### CF-20 · Values crossing container boundaries are JSON copies
@@ -1086,7 +1263,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container
 
-**Scope:** core (that the container fails; the message text); later (route-dependent error name and handler bypass) · **Confidence:** high (routing); medium (exact `Anyhow` text, build-dependent); low (the parent's recorded value on route 3) · **Status:** confirmed
+**Scope:** core (that the container fails; the message text); later (route-dependent error name and handler bypass) · **Confidence:** high (routing; the route 1 and route 3 forms, oracle-observed); low (the parent's recorded value on route 3) · **Status:** confirmed
 
 - **Rule:** Errors raised while preparing a container's children are an
   iterator that is not an array or throws ([CF-2](#cf-2)), a `parallelism`
@@ -1127,6 +1304,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/tests/worker.rs:5468` (an inner iterator error inside a while body
   fails the outer flow).
 - **Conformance:** [CF-23/a to CF-23/c](conformance.md#cf-23)
+- **Note:** the oracle recorded both forms (batch E3d,
+  [CF-2/b](conformance.md#cf-2) and [CF-7/d](conformance.md#cf-7)). Route 1
+  gave name `Anyhow` and `Error: <message> @worker.rs:3822:13`, where
+  `<message>` is the raised error's own text (`Bad request: …` for the
+  `same_worker` error); route 3 gave `InternalError` with the plain message.
+  The route 1 wrapper adds one `Error: ` prefix and one suffix to whatever
+  error escapes. An error that is itself an `Anyhow` value, such as a failed
+  expression evaluation, therefore shows two prefixes and two suffixes at
+  pickup ([JE-35](expressions.md#je-35)). The suffixes depend on the build;
+  compare with them masked.
 
 <a id="cf-24"></a>
 ### CF-24 · Child job paths and step ids
@@ -1337,6 +1524,61 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Evidence:** `worker_flow.rs:3998-4052`, `:3197-3221`, `:571-595`,
   `:675-735`, `:692-702`, `:1195-1209`, `:1350-1365`.
 - **Conformance:** [CF-29/a](conformance.md#cf-29)
+- **Note:** the zero-branch case is recorded on the oracle as
+  [CF-15/d](conformance.md#cf-15): the flow stops after the branchall with
+  result `[]` and the next step does not run.
+
+<a id="cf-30"></a>
+### CF-30 · The failure and preprocessor modules are slots, not list members
+
+**Scope:** core (failure module); later (preprocessor module) · **Confidence:** high (the lite version, virtual steps and `sleep`, source-traced); medium (container-valued slots: read, not traced end to end) · **Status:** drafted
+
+- **Rule:** a flow's `failure_module` and `preprocessor_module` are single
+  modules kept beside the module list, and every transformation that works
+  on module lists leaves them out:
+  1. **Lite version.** The dependency job builds the lite version by
+     reducing the module list only, at the top level and, recursively, in
+     container bodies: inline scripts there become stored `flowscript`
+     entries and non-simple bodies become stored nodes. The failure and
+     preprocessor modules stay as written; an inline script keeps its
+     content and lock. So an inline failure or preprocessor script runs as
+     an inline-script job (kind `preview`, as the oracle shows;
+     [OR-28](oracle.md#or-28)), not as a `flowscript` job. The copy of the
+     failure module that a stored body node holds is also kept as written
+     ([CF-V4](#cf-v4)).
+  2. **No virtual step.** The trailing `<id>-v` identity of
+     [OF-17](openflow.md#of-17) is added to module lists only; a `sleep` or
+     `suspend` on the failure or preprocessor module never gets one.
+  3. **`sleep` is never applied.** A step's delay comes from the `sleep` of
+     the module just before it in the same list. The failure module is not
+     in the list, and step 0 has no predecessor in it, so:
+     - the `sleep` of the failure module and that of the preprocessor
+       module are never evaluated: an expression there that would throw
+       causes no error;
+     - the `sleep` of a step that fails into the failure module is not
+       applied before the handler either (it is applied when the next
+       list step starts, for example under `continue_on_error`).
+  4. **Container-valued slots.** If either module is a container, its
+     bodies are never stored as nodes, so they always run as inline child
+     flows (`FlowPreview`). A forloop inside such a body never collapses
+     ([CF-8](#cf-8)); a while loop with an eligible body still does.
+- **Evidence:** `backend/windmill-worker/src/worker_lockfiles.rs:748-758`
+  (the lite version reduces `modules` only), `:1594-1706` (the reduction
+  walks module lists; virtual steps added at `:1706`), `:1553-1591` (a body
+  node holds the failure module as given), `:934-998` (locking visits the
+  failure and preprocessor modules without reducing them);
+  `backend/windmill-types/src/flows.rs:1252-1280` (virtual step for a
+  list), `:312-330` (the slots are looked up apart from the list);
+  `backend/windmill-worker/src/worker_flow.rs:3658-3681` (the delay is the
+  previous list module's `sleep`; none for the slots or step 0), `:5997`
+  (an inline script step's payload), `:5052-5061` (an inline body is a raw
+  flow), `:5298-5300` (forloop gate); `backend/windmill-queue/src/jobs.rs:5477-5522`
+  (inline-script jobs are `Preview`), `:5604-5667` (raw flows are
+  `FlowPreview`).
+- **Conformance:** [CF-30/a, CF-30/b](conformance.md#cf-30)
+- **Note:** this answers questions from windmill-lite's IR compiler.
+  [FX-23](execution.md#fx-23) and [JE-28](expressions.md#je-28) describe
+  `sleep` on list modules.
 
 ## B. Findings added during validation
 
@@ -1364,7 +1606,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-v2"></a>
 ### CF-V2 · Optimized empty containers bypass the all-iterations stop predicate
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the empty-iterator case oracle-observed) · **Status:** confirmed
 
 - **Rule:** An empty iterator, an empty loop body, or a branchall with zero
   branches completes without child jobs. Its stored module status is already
@@ -1406,7 +1648,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-v4"></a>
 ### CF-V4 · Stored child nodes do not receive runtime handler-id suffixes
 
-**Scope:** core (observable handler step id); out (worker-tag scheduling) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (observable handler step id); out (worker-tag scheduling) · **Confidence:** high (oracle-observed for the stored-node id) · **Status:** confirmed
 
 - **Rule:** Inline child-flow creation copies and suffixes the parent's
   handler id and preserves its step-tag setting ([CF-1](#cf-1)). A stored
@@ -1425,6 +1667,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-queue/src/jobs.rs:5420-5440`, `:5915-5930`;
   `backend/windmill-types/src/flows.rs:277-285`.
 - **Conformance:** [CF-V4/a, CF-V4/b](conformance.md#cf-v4)
+- **Revision 2026-10-28 (oracle, batch E3c):** the stored-node half was
+  recorded: in a deployed flow whose loop at cursor 1 failed in both
+  iterations, each copy reported `WM_FLOW_STEP_ID` `failure`, unsuffixed
+  (fixture `conformance/flows/execution/fx-34`, run `step_id`, oracle run
+  40689442792). This contradicted [FX-34](execution.md#fx-34), which is now
+  corrected to this finding. The inline half (CF-V4/b) is not recorded.
 
 <a id="cf-v5"></a>
 ### CF-V5 · For-loop fast-path eligibility follows runtime job kind
@@ -1456,32 +1704,32 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-v6"></a>
 ### CF-V6 · Direct result lookup can ignore surrounding multiline expression text
 
-**Scope:** core · **Confidence:** high (source-traced; oracle pending) · **Status:** open
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
-- **Rule (as drafted, during validation):** after the whole-expression
-  context-name and previous-step shortcuts have been considered, the direct
-  result matcher searches with multiline line anchors. A qualifying
-  standalone line can select direct lookup even when other lines contain
-  more expression text; the stored result is returned without evaluating the
-  surrounding JS. The index/property grammar and the terminal-`length`
-  exclusion of [CF-19](#cf-19) route 4 still apply, but the exclusion is
-  checked on the first match only; there is no search for a later acceptable
-  line. This affects every evaluation site that supplies the results
-  context, including multiline `branchone` predicates ([CF-14](#cf-14)).
-- **Competing claim (as drafted in CF-19):** route 4 applies only when the
-  whole expression has the direct-lookup form "and nothing else"; anything
-  inside a larger expression goes to the JS engine.
-- **Open:** [Q-CF-16](#q-cf-16)
+- **Rule:** after the whole-expression context-name and previous-step
+  shortcuts have been considered, the direct result matcher searches with
+  multiline line anchors. A qualifying standalone line can select direct
+  lookup even when other lines contain more expression text; the stored
+  result is returned without evaluating the surrounding JS. The
+  index/property grammar and the terminal-`length` exclusion of
+  [CF-19](#cf-19) route 4 still apply, but the exclusion is checked on the
+  first match only; there is no search for a later acceptable line. This
+  affects every evaluation site that supplies the results context,
+  including multiline `branchone` predicates ([CF-14](#cf-14)).
 - **Evidence:** `backend/windmill-jseval/src/lib.rs:73-76` (multiline
   matcher), `:180-217` (first capture, `length` bypass, direct return);
   `backend/windmill-worker/src/js_eval.rs:36-79` (trim and earlier
   shortcuts); `worker_flow.rs:2451-2466` (predicate wrapping and boolean
   result check).
 - **Conformance:** [CF-V6/a, CF-V6/b](conformance.md#cf-v6)
-- **Note:** this is the correction side of the [CF-19](#cf-19) dispute; it
-  has not been recorded on the oracle. [JE-9](expressions.md#je-9) describes
-  the same multiline matching. Do not implement whole-expression matching
-  silently; settle [Q-CF-16](#q-cf-16) first.
+- **Note:** [JE-9](expressions.md#je-9) describes the same multiline
+  matching; [CF-19](#cf-19) route 4 now states it.
+- **Revision 2026-10-28 (oracle, batch E3a):** the finding was `open`, the
+  correction side of the CF-19 dispute ([Q-CF-16](#q-cf-16)), against the
+  competing claim that route 4 applies only when the whole expression has
+  the direct-lookup form. The oracle recorded this finding's reading:
+  CF-V6/a gave `7` and CF-V6/b `107` (fixture `conformance/flows/cf/cf-19`,
+  oracle run 40687124625). The competing claim is withdrawn.
 
 ## Design notes (not Windmill behaviour)
 
@@ -1508,8 +1756,16 @@ These are proposals made while studying the behaviour. They bind nothing.
 <a id="q-cf-1"></a>
 - **Q-CF-1** · affects [CF-5](#cf-5), [CF-6](#cf-6), [CF-8](#cf-8),
   [CF-9](#cf-9), [CF-12](#cf-12), [CF-13](#cf-13), [CF-19](#cf-19),
-  [CF-29](#cf-29), [CF-V1](#cf-v1), [CF-V2](#cf-v2), [CF-V4](#cf-v4) · The
-  oracle matrix of source-traced core rules has not been run. Cases:
+  [CF-29](#cf-29), [CF-V1](#cf-v1), [CF-V2](#cf-v2), [CF-V4](#cf-v4) ·
+  **Re-scoped 2026-10-28.** Batches E3d and E3a recorded CF-5/a and CF-5/b,
+  CF-6/a, the by-path halves of CF-8/a to CF-8/c, CF-9/a and CF-9/b,
+  CF-12/b, CF-12/c and CF-12/e, CF-13/a to CF-13/c, CF-V2/a, and CF-19/b
+  and CF-19/c. CF-6/b waits for a pull read-back (E3e); CF-6/c and the raw
+  halves of CF-8 are outside the reference configuration (design record
+  0001) and are not recorded. Still to record: CF-V1/a to CF-V1/c,
+  CF-V2/b, CF-V2/c and CF-29/a; CF-V4's cases are tracked under
+  [CF-V4](#cf-v4). As first written, the oracle matrix of source-traced
+  core rules had not been run, with the cases:
   CF-8/a to CF-8/c; CF-9/a and CF-9/b; CF-12/b, CF-12/c and CF-12/e;
   CF-19/b and CF-19/c; CF-V1/a to CF-V1/c; CF-V2/a to CF-V2/c and CF-29/a;
   CF-V4/a and CF-V4/b (handler ids in lite versus inline form); CF-6/a to
@@ -1524,22 +1780,36 @@ These are proposals made while studying the behaviour. They bind nothing.
   states, which are source-settled. *Settled by:* measuring push-to-success
   time on the oracle.
 <a id="q-cf-3"></a>
-- **Q-CF-3** · affects [CF-23](#cf-23) · (1) The exact `Anyhow` message and
-  location suffix of route 1 are build-dependent; fixtures match the message
-  substring only. (2) Whether a branchone or subflow parent records the last
+- **Q-CF-3** · affects [CF-23](#cf-23) · **Re-scoped 2026-10-28.** Part (1)
+  is answered: the oracle recorded route 1 as `Anyhow` with
+  `Error: <message> @worker.rs:3822:13` and route 3 as `InternalError` with
+  the plain message ([CF-2/b](conformance.md#cf-2),
+  [CF-7/d](conformance.md#cf-7)); the suffix stays build-dependent and is
+  masked in comparisons. Part (2) remains. As first written: (1) The exact
+  `Anyhow` message and location suffix of route 1 are build-dependent;
+  fixtures match the message substring only. (2) Whether a branchone or subflow parent records the last
   inner result rather than the error on route 3. *Settled by:* an oracle run
   of CF-23/a for (1); for (2), an oracle run of a `branchone` at step 1
   whose chosen branch is `[ret(1), forloop with an object iterator]`,
   inspecting the branchone step's stored result separately from the value
   delivered to the parent and the final result.
 <a id="q-cf-4"></a>
-- **Q-CF-4** · affects [CF-14](#cf-14), [CF-15](#cf-15) · Empty-body
-  quirks: an empty `branchone` branch at step 0 is predicted to give the
-  JSON string `"{}"`, and an empty `branchall` branch the enclosing flow
-  input. *Settled by:* oracle runs of CF-14/c and CF-15/f.
+- **Q-CF-4** · affects [CF-14](#cf-14), [CF-15](#cf-15) · **Answered
+  2026-10-28.** Both predictions hold on the oracle: an empty chosen
+  `branchone` branch at step 0 gives the JSON string `"{}"`
+  ([CF-14/c](conformance.md#cf-14)), and an empty `branchall` branch gives
+  the enclosing flow input ([CF-15/f](conformance.md#cf-15)); batch E3d. As
+  first asked: empty-body quirks, an empty `branchone` branch at step 0
+  predicted to give `"{}"` and an empty `branchall` branch the enclosing
+  flow input, settled by oracle runs of CF-14/c and CF-15/f.
 <a id="q-cf-5"></a>
-- **Q-CF-5** · affects [CF-19](#cf-19) · The exact fetch-error text for a
-  nil job. *Settled by:* an oracle run of CF-19/c, step `e`.
+- **Q-CF-5** · affects [CF-19](#cf-19) · **Answered 2026-10-28.** The
+  recorded text is
+  `Failed to fetch result for step 'br': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000 (jobs.rs:9074)`,
+  the last part a build-dependent server location ([CF-19](#cf-19),
+  [CF-19/c](conformance.md#cf-19); batch E3a). As first asked: the exact
+  fetch-error text for a nil job, settled by an oracle run of CF-19/c,
+  step `e`.
 <a id="q-cf-6"></a>
 - **Q-CF-6** · affects [CF-21](#cf-21) · Mid-loop re-evaluation of a loop
   module's `skip_if`. *Settled by:* an oracle run of CF-21/a, by path.
@@ -1574,39 +1844,74 @@ These are proposals made while studying the behaviour. They bind nothing.
   absent container fields. The two stored states are source-settled; which
   default to adopt is an architect decision.
 <a id="q-cf-14"></a>
-- **Q-CF-14** · affects [CF-12](#cf-12) · DISPUTED: after a sequential loop
-  breaks on a body error stop with no handler and `skip_failures: false`,
-  does the enclosing flow continue (as drafted) or fail without running its
-  next step (correction)? *Settled by:* an oracle run of CF-12/f.
+- **Q-CF-14** · affects [CF-12](#cf-12) · **Answered 2026-10-28.** The
+  correction holds: the loop fails and the enclosing flow fails with the
+  loop's array without running its next step; with `skip_failures: true`
+  the loop succeeds and the flow continues ([CF-12/c](conformance.md#cf-12),
+  [CF-12/f](conformance.md#cf-12); batch E3d). As first asked (DISPUTED):
+  after a sequential loop breaks on a body error stop with no handler and
+  `skip_failures: false`, does the enclosing flow continue (as drafted) or
+  fail without running its next step (correction)? Settled by an oracle run
+  of CF-12/f.
 <a id="q-cf-15"></a>
 - **Q-CF-15** · affects [CF-8](#cf-8), [CF-V5](#cf-v5), [CF-17](#cf-17) ·
-  DISPUTED: does a raw submission prevent forloop collapsing at every depth
-  (as drafted), or only in `FlowPreview` jobs and their inline descendants,
-  so that a by-path subflow called from a raw root collapses (correction)?
-  Also: the nested-loop rule depends on the stored form actually selected,
-  which `DISABLE_FLOW_SCRIPT` can make the full version despite a successful
-  dependency job. *Settled by:* an oracle run of CF-8/d, recording job kinds
-  and stored form.
+  **Answered 2026-10-28.** The correction holds, by a source re-check: a
+  `flow` step always enqueues a `Flow` job, and the forloop gate tests only
+  the kind of the job executing the loop, so a by-path subflow called from
+  a raw root collapses an eligible loop. The nested case follows the
+  version actually read, which is the lite one unless `DISABLE_FLOW_SCRIPT`
+  is set or the lite version is missing ([CF-8](#cf-8)). The by-path halves
+  of CF-8/a to CF-8/c are recorded (batch E3d); CF-8/d and the raw halves
+  are outside the reference configuration and are not recorded. As first
+  asked (DISPUTED): does a raw submission prevent forloop collapsing at
+  every depth (as drafted), or only in `FlowPreview` jobs and their inline
+  descendants (correction)? And the nested-loop rule depends on the stored
+  form actually selected. Settled by an oracle run of CF-8/d, recording
+  job kinds and stored form.
 <a id="q-cf-16"></a>
 - **Q-CF-16** · affects [CF-19](#cf-19), [CF-V6](#cf-v6),
-  [CF-14](#cf-14), [FX-10](execution.md#fx-10) (route 2) · DISPUTED: does
-  direct result lookup require the whole expression to match (as drafted in
-  CF-19 and in FX-10's route 2), or can one line of a multiline expression
-  match and the rest be ignored (CF-V6)? *Settled by:* an oracle run of
-  CF-V6/a and CF-V6/b, and reconciliation with
-  [JE-9](expressions.md#je-9).
+  [CF-14](#cf-14), [FX-10](execution.md#fx-10) (route 2) · **Answered
+  2026-10-28.** One line of a multiline expression can match, and the rest
+  is ignored: CF-V6/a gave `7` and CF-V6/b `107` on the oracle (batch E3a);
+  [CF-19](#cf-19), [CF-V6](#cf-v6) and [JE-9](expressions.md#je-9) agree.
+  As first asked (DISPUTED): does direct result lookup require the whole
+  expression to match (as drafted in CF-19 and in FX-10's route 2), or can
+  one line of a multiline expression match and the rest be ignored (CF-V6)?
+  Settled by an oracle run of CF-V6/a and CF-V6/b, and reconciliation with
+  JE-9.
 <a id="q-cf-17"></a>
 - **Q-CF-17** · affects [CF-1](#cf-1), [CF-2](#cf-2), [CF-3](#cf-3),
   [CF-4](#cf-4), [CF-7](#cf-7), [CF-10](#cf-10), [CF-11](#cf-11),
   [CF-12](#cf-12), [CF-14](#cf-14), [CF-15](#cf-15), [CF-16](#cf-16),
   [CF-17](#cf-17), [CF-18](#cf-18), [CF-19](#cf-19), [CF-20](#cf-20),
   [CF-23](#cf-23), [CF-24](#cf-24), [CF-25](#cf-25), [CF-26](#cf-26),
-  [CF-27](#cf-27), [CF-28](#cf-28), [CF-V3](#cf-v3), [CF-V5](#cf-v5) ·
-  The remaining source-derived cases have not been recorded on the oracle
-  either: CF-1/a; CF-2/a and CF-2/b; CF-3/a; CF-4/a and CF-4/b; CF-7/a to
+  [CF-27](#cf-27), [CF-28](#cf-28), [CF-V3](#cf-v3), [CF-V5](#cf-v5),
+  [CF-30](#cf-30) ·
+  **Re-scoped 2026-10-28.** Batches E3d and E3a recorded CF-2/a and
+  CF-2/b, CF-3/a, CF-4/a and CF-4/b, CF-7/a to CF-7/d, CF-10/a, CF-11/a,
+  CF-12/a and CF-12/d, CF-14/a and CF-14/b, CF-15/a to CF-15/e and
+  CF-19/a. Still to record: CF-1/a; CF-16/a and CF-16/b (tracked under
+  [CF-16](#cf-16)); CF-17/a; CF-18/a; CF-20/a; CF-23/b; CF-24/a to
+  CF-24/e; CF-25/a; CF-26/a; CF-27/a to CF-27/d; CF-28/a; CF-V3/a and
+  CF-V3/b; CF-V5/a and CF-V5/b (CF-V5/a's flow is CF-8/a's, recorded by
+  path); CF-30/a and CF-30/b. As first written, the remaining
+  source-derived cases had not been recorded on the oracle either: CF-1/a; CF-2/a and CF-2/b; CF-3/a; CF-4/a and CF-4/b; CF-7/a to
   CF-7/d; CF-10/a; CF-11/a; CF-12/a and CF-12/d; CF-14/a and CF-14/b;
   CF-15/a to CF-15/e; CF-16/a and CF-16/b; CF-17/a; CF-18/a; CF-19/a;
   CF-20/a; CF-23/b; CF-24/a to CF-24/e; CF-25/a; CF-26/a; CF-27/a to
   CF-27/d; CF-28/a; CF-V3/a and CF-V3/b; CF-V5/a and CF-V5/b. *Settled by:*
   running them on the oracle under the same recording rules as
   [Q-CF-1](#q-cf-1).
+<a id="q-cf-18"></a>
+- **Q-CF-18** · affects [CF-7](#cf-7) · With one oracle worker, the
+  recordings separate release from worker serialisation for the child
+  flows: with `parallelism: 2` they overlapped, with `parallelism: 1` each
+  started after the previous one completed, in index order
+  ([CF-7/a, CF-7/b](conformance.md#cf-7)). They cannot show what happens
+  when several iterations are eligible at once: whether their body scripts
+  then run concurrently, and in which order they start (CF-7 leaves the
+  start order to the scheduler). *Settled by:* a two-worker oracle session
+  running CF-7/a with `parallelism: 2` and recording the body jobs'
+  start and end times, which needs a change to the oracle workflow (it runs
+  one worker, [OR-4](oracle.md#or-4)). Not needed for the first release
+  unless the design promises an order.

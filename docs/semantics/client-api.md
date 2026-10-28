@@ -1349,7 +1349,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-33"></a>
 ### WA-33 · Workflow-as-code is a separate execution model
 
-**Scope:** out · **Confidence:** medium (execution model read, not traced); high (detection paths) · **Status:** confirmed
+**Scope:** out · **Confidence:** medium (execution model read, not traced); high (detection paths) · **Status:** confirmed; drafted (the parsed path's declaration rules, revised 2026-10-28)
 
 - **Rule:**
   - `workflow()`/`task()`/`step()`/`waitForApproval()` with a `WorkflowCtx`
@@ -1359,12 +1359,18 @@ interface); `WA-Vn` findings were added during validation.
     `POST /w/{ws}/jobs/wac/inline_checkpoint/{job}`. The Bun worker injects a
     `WorkflowCtx` re-export into scripts it detects as workflow-as-code (WAC).
   - **Detection.** Windmill's TS parser marks a script as WAC in two ways:
-    1. **Parsed path** (takes priority). If no function declaration provides
-       the entrypoint's parameters, an exported top-level variable declaration
-       named like the entrypoint (default `main`) whose initialiser is a call to
-       the bare identifier `workflow`, with an `async` arrow or `async` function
-       as first argument (possibly parenthesised), sets the WAC flag. This needs
-       no `task(` call and no `windmill-client` substring.
+    1. **Parsed path** (takes priority). The parser walks the top-level
+       items in source order. A variable declaration named like the
+       entrypoint (default `main`), exported or not, whose initialiser is a
+       call to the bare identifier `workflow` with an `async` arrow or
+       `async` function as first argument (possibly parenthesised), sets the
+       WAC flag, provided no earlier item has supplied the entrypoint's
+       parameters (an earlier `function main` declaration does; a later one
+       replaces the parameters but leaves the flag set). An
+       `export default workflow(…)` expression of the same shape sets the
+       flag the same way. This needs no `task(` call and no
+       `windmill-client` substring; [WR-51](languages.md#wr-51) gives the
+       parser's walk in full.
     2. **Substring fallback**, used only when no entrypoint parameters were
        found at all: if the source text contains `workflow(`, `task(` and
        `windmill-client`, the kind is WAC, otherwise `lib`. This is a plain
@@ -1372,8 +1378,15 @@ interface); `WA-Vn` findings were added during validation.
 - **Evidence:** `typescript-client/client.ts:1514-1991` (`:1516-1790`,
   `:1965-1991`); `backend/windmill-worker/src/bun_executor.rs:1190`, `:2068`;
   `backend/windmill-worker/src/wac_executor.rs:18-81`, `:219-260`;
-  `backend/parsers/windmill-parser-ts/src/lib.rs:399-440`, `:476-530`
+  `backend/parsers/windmill-parser-ts/src/lib.rs:367-376` (the default-export
+  form), `:378-423` (exported and plain top-level declarations; the variable
+  form only while no parameters are known), `:428-440`, `:476-530`
   (`extract_workflow_params`).
+- **Revision 2026-10-28 (source re-check):** the parsed path said the
+  variable had to be exported and that any function declaration took
+  priority over it; the parser accepts an unexported declaration too, only
+  an earlier `function main` blocks the variable form, and the
+  default-export form was missing.
 - **Conformance:** [WA-33/a, WA-33/b](conformance.md#wa-33); the policy
   check [WA-33/c](conformance.md#wa-33)
 - **Design note (not Windmill behaviour):** rejecting WAC scripts is

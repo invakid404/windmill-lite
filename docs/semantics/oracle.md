@@ -35,6 +35,19 @@ validation. Open questions are `Q-OR-n`.
   pushed with `windmill-cli@1.767.0`. Its raw captures and fixture tree were
   not retained; the [Probe catalogue](#probe-catalogue) is the durable record
   of what ran and what was observed.
+- **Committed recordings.** Since milestone E2 the oracle also runs in public
+  CI (GitHub-hosted `ubuntu-latest`, amd64, one standalone worker unless a
+  fixture asks for two) through the harness of design record 0011, and each
+  recording is committed beside its fixture under `conformance/flows/` or
+  `conformance/exprs/`: `recorded/<run>.json` holds the normalised
+  observation and its provenance (image digest, CLI version, harness
+  revision, the CI run URL, and every job's kind and timings). The smoke
+  fixture (`conformance/flows/oracle/smoke`, E2), recording batches E3a to
+  E3d (`conformance/exprs`, `conformance/flows/je`, `conformance/flows/cf`,
+  `conformance/flows/execution`, `conformance/flows/control-flow`) and
+  E4a's stub fixtures (`conformance/flows/stub`) are recorded this way.
+  "Recorded" in this area names one of these recordings; "observed on the
+  v1.767.0 CE oracle" with no fixture named still means oracle run 1.
 - **API paths** are relative to the oracle's base URL (`http://localhost:8000`).
   "openapi" means `backend/windmill-api/openapi.yaml` (Apache-2.0); a number
   after it is a line number in that file.
@@ -45,8 +58,9 @@ validation. Open questions are `Q-OR-n`.
   `<job:PATH>`. This path encoding is **disputed** ([OR-V8](#or-v8),
   [Q-OR-17](#q-or-17)): use it to read the examples, not as a final identity
   scheme. Other placeholders: `<ws>` (workspace), `<stack>` (masked runtime
-  stack), `<loc>` (masked source location of one recognised internal error,
-  [OR-27](#or-27)). In quoted raw values, `<worker>`, `<job>`, `<uuid>` and
+  stack), `<loc>` (in a normalised observation, the masked source location
+  of one recognised internal error, [OR-27](#or-27); in an expected message
+  text, Windmill's Rust location suffix, [OR-14](#or-14)). In quoted raw values, `<worker>`, `<job>`, `<uuid>` and
   `<64-hex>` stand for volatile parts elided in this document.
 - **Recipe notation** (probe catalogue): every probe is a Bun `rawscript`
   unless noted; `x→v` means input transform `x = <javascript v>`; "static"
@@ -59,7 +73,8 @@ validation. Open questions are `Q-OR-n`.
    ([OR-1](#or-1); abbreviated digests are not usable pins) runs in
    `MODE=standalone` (API server and one worker in one process, no privileged
    mode), next to `postgres:16-alpine` pinned by digest, with its data on tmpfs
-   and a 1 GiB memory limit. Observed: healthy 6 s after `up`, `/api/version` =
+   and a 1 GiB memory limit. Observed: healthy 6 s after `up` on arm64 and
+   6.4 s on amd64 in CI, `/api/version` =
    `CE v1.767.0`, Bun `1.3.10`. Public CI may pull and run the image unmodified
    as a test oracle; windmill-lite never redistributes, rebuilds, modifies or
    wraps it ([OR-1](#or-1)–[OR-4](#or-4)).
@@ -68,7 +83,9 @@ validation. Open questions are `Q-OR-n`.
    exactly what `generate-metadata` writes and gate drift by regenerating and
    diffing. `sync push` removes selected remote items that are absent locally,
    so push only into harness-owned workspaces and seed variables and resources
-   after the push ([OR-8](#or-8), [OR-31](#or-31)).
+   after the push ([OR-8](#or-8), [OR-31](#or-31)). CE refuses a third
+   workspace besides `admins`, so the harness deletes each fixture's
+   workspace after its runs ([OR-6](#or-6)).
 3. **Run asynchronously and capture through dedicated endpoints.** Gate on the
    lock jobs reaching success (a persisting `job_id` is not a pending flag),
    submit with `jobs/run/f`, poll `get_result_maybe`, and never use
@@ -82,7 +99,11 @@ validation. Open questions are `Q-OR-n`.
    aggregates come from `flow_jobs` in index order; a missing `job` means not
    run; the nil UUID means no child ran and is read together with the module
    type (success or failure); generated `-v` modules are omitted from the
-   projection; collapse rules are known from source but never relied on. **Do
+   projection; collapse rules are known from source but never relied on. A
+   completed loop or `branchall` entry keeps `flow_jobs` but drops `iterator`
+   and `branchall`, so only the flow definition tells the two apart; job kinds
+   follow how each body was stored at deploy and are never the walker's key
+   ([OR-28](#or-28)). **Do
    not implement the drafted path strings as unique identities**: they collide
    ([OR-11](#or-11), [OR-V7](#or-v7), [OR-V8](#or-v8), [Q-OR-17](#q-or-17)).
 5. **Key order is a provenance model.** Stored values (script arguments, older
@@ -106,7 +127,10 @@ validation. Open questions are `Q-OR-n`.
    ([OR-12](#or-12), [OR-25](#or-25), [OR-26](#or-26), [OR-27](#or-27)).
 8. **Effects are grouped by the outer run** (`WM_ROOT_JOB_ID` checked against
    the submitted root), never by `WM_ROOT_FLOW_JOB_ID`, which names the
-   innermost root flow ([OR-16](#or-16), [OR-V6](#or-v6), [Q-OR-10](#q-or-10)).
+   innermost root flow. Recorded: inside a subflow by path and in each
+   parallel iteration `WM_ROOT_JOB_ID` is still the submitted root while
+   `WM_ROOT_FLOW_JOB_ID` is that subflow's or iteration's own job
+   ([OR-16](#or-16), [OR-V6](#or-v6), [Q-OR-10](#q-or-10)).
 9. **CE versus EE:** on CE the asynchronous flow worker skips completion
    cleanup (`delete_after_use`, `delete_after_secs`); synchronous API deletion
    paths are not gated. No wider CE/EE claim is made ([OR-21](#or-21)).
@@ -161,7 +185,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-2"></a>
 ### OR-2 · Image variants: Bun is 1.3.10, slim is amd64-only, the in-image CLI is unpinned
 
-**Scope:** core (Bun); later (other languages) · **Confidence:** high (source and oracle-observed; amd64 on-disk size unmeasured) · **Status:** confirmed
+**Scope:** core (Bun); later (other languages) · **Confidence:** high (source and oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill:**
@@ -181,11 +205,11 @@ validation. Open questions are `Q-OR-n`.
       latest at build time.
     - **Sizes.** Compressed totals: `windmill` 1323 MB arm64 / 1373 MB amd64;
       `windmill-slim` 713 MB amd64; `windmill-full` 2300 / 2408 MB;
-      `windmill-ee` 1361 / 1411 MB. Measured arm64 on-disk size of `windmill`:
-      3,940,469,084 bytes (the gzip trailers of its 37 layers sum to 3,820 MiB
-      uncompressed). The amd64 on-disk size is unmeasured
-      ([Q-OR-2](#q-or-2)); the arm64 figure is not a size for every
-      architecture.
+      `windmill-ee` 1361 / 1411 MB. Measured on-disk size of `windmill`:
+      3,940,469,084 bytes on arm64 (the gzip trailers of its 37 layers sum to
+      3,820 MiB uncompressed) and 4,026,404,788 bytes on amd64 (CI, E2's
+      first recording session, oracle run 40649910412). Each figure holds
+      only for its architecture.
   - **Harness:**
     - never use the in-image CLI; use `windmill-cli@1.767.0` from npm
       ([OR-8](#or-8));
@@ -197,8 +221,13 @@ validation. Open questions are `Q-OR-n`.
   CLI); `Dockerfile:141` (Go 1.26.0); `docker/DockerfileSlim:26-110` (slim
   contents) and `:73,77` (slim Bun and CLI); `docker/DockerfileFull:1-40`;
   `.github/workflows/docker-image.yml:505-546` (slim built for `linux/amd64`
-  only); registry manifests; observed on the v1.767.0 CE oracle.
+  only); registry manifests; observed on the v1.767.0 CE oracle; the amd64
+  size from the session report of oracle run 40649910412.
 - **Conformance:** [OR-2/a, OR-2/b](conformance.md#or-2)
+- **Revision 2026-10-28 (oracle, milestone E2):** the finding said the amd64
+  on-disk size was unmeasured. E2's first CI session measured it
+  (4,026,404,788 bytes); the confidence tag no longer carries the
+  qualification, and [Q-OR-2](#q-or-2) is answered.
 
 <a id="or-3"></a>
 ### OR-3 · Licence of the CE image, and its use as a public CI oracle
@@ -245,7 +274,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-4"></a>
 ### OR-4 · Minimal topology: Postgres plus one `windmill` container in standalone mode
 
-**Scope:** core · **Confidence:** high (source; oracle-observed on arm64) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (source; oracle-observed on arm64 and amd64) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill:**
@@ -287,6 +316,12 @@ validation. Open questions are `Q-OR-n`.
       tmpfs; highest sample 581 MiB;
     - writable layers: Windmill 3.3 MB, Postgres 183 kB;
     - one standalone worker sufficed for every probe.
+  - **Recorded in CI (amd64, `ubuntu-latest`, E2's first session, oracle run
+    40649910412):** healthy 6.4 s after `compose up`; cgroup memory peaks
+    328,458,240 B (Windmill) and 309,182,464 B (Postgres). That session ran
+    only the smoke fixture (two runs, each twice), so its peaks are not
+    comparable with run 1's 45 runs; the figures are the harness session
+    report's, not a sizing rule.
 - **Evidence:** `backend/src/main.rs:153` (`DEFAULT_NUM_WORKERS = 1`),
   `:569-590` (env help: `MODE`, `NO_AUTH`, `SUPERADMIN_SECRET`), `:759-789`
   (worker clamp; server mode for `server` and `standalone`);
@@ -295,8 +330,9 @@ validation. Open questions are `Q-OR-n`.
   `docker-compose.yml:11-30,52-72`; `integration_tests/docker-compose.yml:4-75`;
   `README.md:223,254`; observed on the v1.767.0 CE oracle.
 - **Conformance:** [OR-4/a](conformance.md#or-4)
-- **Note:** amd64 boot time and memory are pending the first CI recording
-  ([Q-OR-2](#q-or-2)).
+- **Revision 2026-10-28 (oracle, milestone E2):** the note said amd64 boot
+  time and memory were pending the first CI recording. E2 recorded them
+  (above); [Q-OR-2](#q-or-2) is answered.
 
 <a id="or-5"></a>
 ### OR-5 · Consequences of a single worker
@@ -315,6 +351,11 @@ validation. Open questions are `Q-OR-n`.
     - `parallel: true` loops and `branchall` still produce Windmill's results on
       one worker, but concurrency itself (`parallelism` limits, interleaving,
       completion order) cannot be observed.
+    - Recorded: two outer runs submitted together on one worker are in
+      flight at the same time, because neither root holds the worker
+      between its steps. E4a's group of runs `r` and
+      `t` (`conformance/flows/stub/scopes`, oracle run 40689406044) had
+      overlapping root jobs by the oracle's own timestamps.
   - **Harness:**
     - a fixture that needs blocking dispatch declares `oracle: {workers: 2}`;
       the harness then adds a second container with `MODE=worker` and the same
@@ -332,6 +373,11 @@ validation. Open questions are `Q-OR-n`.
 - **Conformance:** [OR-5/a, OR-5/b](conformance.md#or-5)
 - **Note:** run 1 used only non-blocking fixtures. Parallel completion order
   needs the multi-worker profile ([Q-OR-7](#q-or-7), [Q-OR-15](#q-or-15)).
+  So does any case that must tell a release of `parallelism` slots from the
+  single worker's own serialisation ([CF-7](control-flow.md#cf-7)).
+- **Revision 2026-10-28 (oracle, milestone E4a):** added the recorded
+  overlap of two outer runs on one worker, which the harness's concurrent
+  run groups rely on.
 
 <a id="or-6"></a>
 ### OR-6 · Bootstrap: identity, token, workspace
@@ -356,9 +402,31 @@ validation. Open questions are `Q-OR-n`.
       token changes `WM_USERNAME` ([OR-29](#or-29)).
   - **Windmill (workspace):** `POST /api/workspaces/create` with
     `{"id":"<ws>","name":"<ws>"}`; the name has a 50-character database limit.
-    `DELETE /api/workspaces/delete/{ws}` removes it (superadmin).
-  - **Harness:** a fresh workspace per fixture run, named `wl-<shortrun>-<n>`,
-    isolates paths, variables and state.
+    `DELETE /api/workspaces/delete/{ws}` removes it (superadmin): the row is
+    deleted outright, not archived. `admins` (and `starter`) cannot be
+    deleted.
+  - **Windmill (CE workspace cap):** a build without the `enterprise`
+    feature, which includes the CE image, refuses to create a workspace once
+    two workspaces other than `admins` exist and are not archived. A fresh
+    database holds only `admins` (the seeded `starter` and `demo` are removed
+    by a later migration when empty), so two creates succeed and the third
+    fails with HTTP 400, `Content-Type: text/plain`, body
+    `Bad request: You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one`.
+    - The count ignores archived workspaces, but CE caps those separately:
+      archiving a second one fails with
+      `Bad request: You have reached the maximum number of archived workspaces (1) without an enterprise license. Permanently delete or unarchive the existing archived workspace first`.
+      Unarchiving and creating a fork apply the same two-workspace check.
+    - Recorded: the first oracle sessions of E3a, E3c, E3d and E4a kept
+      one workspace per fixture alive, and the third fixture's create
+      failed with this message in each.
+  - **Harness:**
+    - a fresh workspace per fixture, named `wl-<6 hex>-<n>`, isolates paths,
+      variables and state;
+    - because of the cap, it is **deleted** (`DELETE /api/workspaces/delete/{ws}`,
+      never archived) after the fixture's runs, and also after a failed
+      deployment, under a context of its own so that a canceled session
+      still cleans up; a workspace that cannot be deleted ends the session.
+      At most one fixture workspace exists at a time.
   - **`NO_AUTH=true` (optional, default off):**
     - **Windmill:** accepts `1` or `true`, ignored when `CLOUD_HOSTED`. Every
       request then bypasses bearer validation and resolves as superadmin
@@ -380,8 +448,24 @@ validation. Open questions are `Q-OR-n`.
   `backend/windmill-common/src/worker.rs:375-376`;
   `backend/windmill-api-auth/src/auth.rs:490-505,693-733`; openapi
   `/health/status` (44), `/workspaces/create` (1117),
-  `/workspaces/delete/{workspace}` (3219); `cli/test/containerized_backend.ts:1081-1097`.
+  `/workspaces/delete/{workspace}` (3219); `cli/test/containerized_backend.ts:1081-1097`;
+  `backend/windmill-api-workspaces/src/workspaces.rs:4844-4870` (the CE
+  workspace and archive caps), `:4883-4884` (create applies the cap only
+  without `enterprise`), `:6653-6654` (forks), `:7350-7351` (archive),
+  `:7470` (unarchive), `:216-224` (routes);
+  `backend/windmill-api-workspaces/src/workspaces_extra.rs:859-872`
+  (`admins` and `starter` refused), `:1132` (hard delete);
+  `backend/windmill-common/src/error.rs:55-56,255-261` (`Bad request:`
+  prefix, status 400, plain-text body);
+  `backend/migrations/20221207103910_admins_workspace.up.sql:1-2`,
+  `backend/migrations/20230524065920_remove_demo_starter.up.sql`; recorded
+  by the first oracle sessions of E3a, E3c, E3d and E4a.
 - **Conformance:** [OR-6/a](conformance.md#or-6)
+- **Revision 2026-10-28 (oracle, batches E3a, E3c, E3d and E4a):** the
+  finding said a fresh workspace per fixture run isolates each run, and
+  named no limit. CE allows two workspaces besides `admins`, so the rule now
+  states the cap, its exact refusal and the archive cap, and the harness
+  deletes each fixture's workspace after its runs.
 
 <a id="or-7"></a>
 ### OR-7 · Environment knobs (env only, image unmodified)
@@ -471,8 +555,18 @@ validation. Open questions are `Q-OR-n`.
     `generate-metadata --yes` against the oracle and fails on any file change
     in the checkout (in CI, `git diff --exit-code` on the fixture tree).
   - **Harness secondary paths:**
-    - direct API push (`POST /api/w/{ws}/scripts/create`, `/flows/create`)
-      only in harness unit tests;
+    - direct API deployment (`POST /api/w/{ws}/folders/create`,
+      `/scripts/create`, `/flows/create`) for a fixture whose defining input
+      the CLI path cannot deliver as written, marked `oracle: {deploy: api}`
+      (milestone E3d). Two reasons were met: `generate-metadata` writes the
+      container defaults into `flow.yaml` ([CF-6](control-flow.md#cf-6)), so
+      an absent `skip_failures` or `parallel` cannot reach the server through
+      the CLI; and a by-path step pinned to a script hash needs a hash the
+      server assigns only at deployment. Such a tree is created as written,
+      passes the same deployment gate ([OR-9](#or-9)), and is outside the
+      metadata drift gate; its recording keeps the submitted flow value, the
+      value `flows/get` answers after the dependency job, and what the CLI
+      would have generated;
     - preview runs (`POST /api/w/{ws}/jobs/run/preview_flow` with a
       `FlowPreview`: inline flow value plus args) need no push but are allowed
       only for rawscript-only fixtures and never as the only oracle for
@@ -484,6 +578,18 @@ validation. Open questions are `Q-OR-n`.
   - **Observed on the v1.767.0 CE oracle:** `folder add-missing --yes`, then
     `generate-metadata --yes`, then `sync push --yes` applied 125 changes in
     2 s. The CLI printed a harmless "outdated" notice.
+  - **Recorded (every CI session since E2):**
+    - `wmill --version` prints `CLI version: 1.767.0` and then, on later
+      lines, `CLI is outdated. Latest version <v> is available. Run \`wmill upgrade\` to update.`
+      and, when no workspace is selected,
+      `Cannot fetch backend version: no active workspace selected`; other
+      commands print the outdated notice too. Both notices are harmless: the
+      harness takes the version from the first line and requires exactly
+      `1.767.0`, and the notice names whatever version npm holds that day,
+      so it is provenance, never compared;
+    - the deployed flows have exactly the module ids of the pushed tree
+      (the harness checks each flow against its tree after the gate),
+      which is [OR-8/b](conformance.md#or-8).
 - **Evidence:** npm registry metadata for `windmill-cli@1.767.0` (licence
   "Apache 2.0", bin `esm/main.js`); `cli/build-npm.ts:58-61`;
   `cli/src/main.ts:137-160` (global flags, `HEADERS`);
@@ -500,6 +606,11 @@ validation. Open questions are `Q-OR-n`.
 - **Conformance:** [OR-8/a, OR-8/b, OR-8/c](conformance.md#or-8)
 - **Note:** the file names inside `windmill/` follow the sync-tree layout that
   [openflow.md](openflow.md) describes.
+- **Revision 2026-10-28 (oracle, milestones E2 and E3d):** the finding
+  limited direct API pushes to harness unit tests. E3d added API deployment
+  for fixtures the CLI would rewrite, with its reasons above. Also added: the
+  CLI's two harmless notices, and the recorded module-id check behind
+  OR-8/b.
 
 <a id="or-9"></a>
 ### OR-9 · Wait for deployment before running
@@ -624,6 +735,12 @@ validation. Open questions are `Q-OR-n`.
       `branch_chosen {type: "branch"|"default", branch?}` and
       `branchall {branch, len}`. `Success` also carries `approvers[]`,
       `failed_retries[]` and `skipped`; `Failure` carries `failed_retries[]`.
+      Only `InProgress` has `iterator`, `branchall`, `parallel` and
+      `while_loop`: a completed (`Success` or `Failure`) loop or `branchall`
+      entry keeps `flow_jobs`, `flow_jobs_success` and `flow_jobs_duration`
+      and nothing that says which container it was, so the walker tells a
+      `branchall` from a loop by the flow definition (recorded by E3c and
+      E3d).
     - **Module `job` is not a semantic field.** While a parallel loop or
       `branchall` is `InProgress`, it is the parent flow's id; at completion it
       is the job whose completion finalised the module (`job_id_for_status`),
@@ -637,6 +754,12 @@ validation. Open questions are `Q-OR-n`.
     - Every flow and child flow carries a `failure_module` entry, which is
       `{"type":"WaitingForPriorSteps"}` when no failure module is defined or it
       did not run.
+    - **An empty flow** (no modules) completes with `step: 1` and a
+      `modules` list holding one entry that is not a module: `Success` with
+      id `failure`, the nil `job` and `skipped: false`; its `failure_module`
+      entry is still `WaitingForPriorSteps`. The walker records no step for
+      it (recorded by E3c, `conformance/flows/execution/fx-36` run `empty`;
+      the flow's result is [FX-3](execution.md#fx-3)'s).
     - **Collapse rules (source).** A for-loop body collapses into leaf
       iterations **iff** the containing flow job is not `FlowPreview`; the loop
       is not `parallel`; the body is exactly one module of type `script`,
@@ -645,7 +768,8 @@ validation. Open questions are `Q-OR-n`.
       `cache_ttl` and no enabled `mock`; and the flow has no `failure_module`.
       A while-loop uses the same body test, without the parallel and preview
       conditions. Run 1's while body carried `stop_after_if`, so it did not
-      collapse, consistent with this rule.
+      collapse, consistent with this rule; E3d's while body without one did
+      ([Q-OR-13](#q-or-13)).
     - Recorded topologies: [OR-28](#or-28) and the
       [Probe catalogue](#probe-catalogue).
     - `GET /api/w/{ws}/jobs/result_by_id/{flow_job_id}/{node_id}` resolves a node
@@ -686,6 +810,34 @@ validation. Open questions are `Q-OR-n`.
   escaping is not injective either ([OR-V8](#or-v8)). Do not implement these
   path strings as unique identities until a shared collision-free encoding is
   chosen.
+- **Recorded shapes (2026-10-28, batches E3a to E3d and milestone E4a):** the
+  walker steps above held for every recorded topology, read with the typed
+  site paths of design record 0011 (`m:<id>`, `i:<n>`, `b:<n>` or
+  `b:default`, `s:failure`, `s:preprocessor`, `r:<k>`), which leave the
+  identity dispute below as it is:
+  - for-loops sequential and collapsed (a collapsed iteration is the body
+    module's own job, recorded at `i:<n>/m:<body>`), sequential with child
+    flows, parallel, and nested two deep; while-loops; `branchone` with the
+    chosen body under `b:<n>` or `b:default`; sequential and parallel
+    `branchall` with empty branches; subflows by path, whose modules are
+    below the module, and cached subflows, whose inner modules are
+    `not_run` on a cache hit; retried modules (`r:<k>`); skipped and mocked
+    modules; early stops inside bodies; cancellation (the canceled step's
+    error, the failure module `not_run`);
+  - the failure module at the top level and copied into loop and branch
+    bodies: a body's copy runs inside the body's child flow, so that child
+    flow's own `failure_module` entry has a job, and the walker records it
+    at `<body>/s:failure` ([FX-34](execution.md#fx-34)). E2's walker
+    refused such an entry until a recording settled it; E3c's did;
+  - a failure module that succeeds lists the flow's earlier failed attempts
+    again in its own `failed_retries`, so one job is met at two sites; its
+    placeholder names the site the walk reaches first, the failed module's
+    attempt ([FX-27](execution.md#fx-27), [FX-29](execution.md#fx-29));
+  - an empty flow's status entry with id `failure` (above) is not a module,
+    and a completed `branchall` is recognised from the definition (above).
+  - Not recorded: a child job still being canceled after its root has
+    completed. The harness's walk refuses that state rather than invent a
+    site; no recording has produced it.
 - **Open:** [Q-OR-17](#q-or-17); live confirmations pending in
   [Q-OR-7](#q-or-7), [Q-OR-8](#q-or-8), [Q-OR-13](#q-or-13), [Q-OR-15](#q-or-15).
 - **Evidence:** `backend/windmill-types/src/flow_status.rs:19-45` (`FlowStatus`),
@@ -701,8 +853,16 @@ validation. Open questions are `Q-OR-n`.
   `backend/windmill-types/src/flows.rs:662-665`;
   `backend/windmill-queue/src/jobs.rs:4403-4700` (`get_result_by_id`);
   `backend/windmill-api/src/jobs.rs:757-790` (debug info); observed on the
-  v1.767.0 CE oracle.
+  v1.767.0 CE oracle; recorded by the fixtures under `conformance/flows/`
+  (raw API captures of many of them are committed under
+  `internal/oracle/testdata/captures/`, among them `fx-36-empty.json` for
+  the empty flow).
 - **Conformance:** [OR-11/a, OR-11/b](conformance.md#or-11)
+- **Revision 2026-10-28 (oracle, batches E3a to E3d and milestone E4a):** the
+  shapes were drafted from oracle run 1 alone. Added: completed entries carry
+  no container field, the empty-flow entry, the recorded topologies, the
+  repeated-attempt rule and the collapsed while body. The identity encoding
+  is unchanged and still disputed.
 
 <a id="or-12"></a>
 ### OR-12 · Failure capture: the stored error envelope
@@ -822,6 +982,28 @@ validation. Open questions are `Q-OR-n`.
     directories are `<WINDMILL_DIR>/<worker_name>/<job_id>` with
     `WINDMILL_DIR` defaulting to `/tmp/windmill`. None of this is part of any
     contract.
+  - **Windmill facts behind location suffixes:** several server-side error
+    kinds append the Rust source location that raised them, as the file's
+    last path segment, line and column after ` @`: `Error: <text> @<file>.rs:<line>:<col>`
+    for a wrapped `anyhow` error, `Internal: <text> @<file>.rs:<line>:<col>`,
+    and likewise the SQL, I/O, JSON and similar kinds. Each wrapping layer
+    that converts the error again adds its own suffix, so a message can end
+    in two (` @worker_flow.rs:2451:11 @worker.rs:3822:13` on an expression
+    error at a child flow's pickup). A separate form sits inside the text:
+    a not-found lookup reads `Not found: <kind> not found at name <name> (<file>.rs:<line>)`,
+    line only, in parentheses. Suffixes recorded so far:
+    ` @worker_flow.rs:2451:11`, ` @worker.rs:3822:13`, ` @common.rs:278:20`,
+    ` @jobs.rs:1133:22` ([OR-27](#or-27)) and `(jobs.rs:9074)` (inside
+    [CF-19/c](conformance.md#cf-19)'s message).
+  - **Harness, recordings:** location suffixes stay verbatim in recordings;
+    only the NUL `InternalErr`'s is masked (item 5). The comparison of
+    windmill-lite with the oracle strips a suffix only where the
+    catalogue's expected message writes it as `<loc>` and windmill-lite's
+    value is an error it generated (design record 0011, "Location
+    suffixes"). In catalogue texts `<loc>` stands for one trailing
+    ` @<file>.rs:<line>:<col>` suffix, or for the parenthesised form where
+    a case says so; two suffixes are written `<loc> <loc>`. The file, line
+    and column are Windmill build details, never compared.
   - **Observed stability:** normalised observations were byte-equal for smoke
     `ok` ×3, smoke `fail` ×2, `effects` ×2 and `loop_seq_simple` ×2;
     `key_order` differed only through [OR-23](#or-23), a real
@@ -839,10 +1021,20 @@ validation. Open questions are `Q-OR-n`.
 - **Open:** [Q-OR-17](#q-or-17).
 - **Evidence:** `backend/windmill-worker/src/worker.rs:1923-1924,1975` (job
   directory, `WINDMILL_DIR`); `backend/windmill-common/src/utils.rs:281-287`
-  (worker name); openapi `CompletedJob` field list;
+  (worker name), `:337-350` (the parenthesised not-found location);
+  `backend/windmill-common/src/error.rs:45-74` (error kinds with a location
+  suffix), `:138-145` (the location is the file's last path segment),
+  `:146-150` (an `anyhow` conversion records its caller); openapi
+  `CompletedJob` field list;
   `backend/windmill-types/src/flow_status.rs:506-531`; observed on the
-  v1.767.0 CE oracle.
+  v1.767.0 CE oracle; the suffixes as recorded in `conformance/exprs` and
+  `conformance/flows` (for example `execution/fx-15` run `child_pickup`,
+  `cf/cf-19` run `cf19-c`).
 - **Conformance:** [OR-14/a, OR-14/b](conformance.md#or-14)
+- **Revision 2026-10-28 (oracle, batches E3a to E3d):** added the location
+  suffix forms the recordings hold and the `<loc>` notation the catalogue's
+  error texts use for them; the normalisation rules themselves are
+  unchanged and still disputed on the identity encoding.
 
 <a id="or-15"></a>
 ### OR-15 · Fixture format (language-neutral, shared by oracle record and windmill-lite replay)
@@ -877,8 +1069,9 @@ validation. Open questions are `Q-OR-n`.
     establish an exact error contract.
   - Fixtures in the public repository contain only synthetic scripts and
     flows.
-  - Walker unit tests "over recorded captures" ([OR-28](#or-28)) mean captures
-    from a **future** recording run: run 1's captures were not retained.
+  - Walker unit tests "over recorded captures" ([OR-28](#or-28)) use the raw
+    API captures committed since E2 (`internal/oracle/testdata/captures/`);
+    run 1's captures were not retained.
 - **Evidence:** design; builds on [OR-8](#or-8) (sync tree as input),
   [OR-11](#or-11)/[OR-12](#or-12) (observation contents) and [OR-14](#or-14)
   (normalisation).
@@ -890,7 +1083,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-16"></a>
 ### OR-16 · Observing side effects
 
-**Scope:** core (sink); later (state and variable snapshots) · **Confidence:** high (whitelist and CE cleanup observation); nested grouping oracle-pending · **Status:** confirmed
+**Scope:** core (sink); later (state and variable snapshots) · **Confidence:** high (whitelist and CE cleanup observation; nested grouping oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill:**
@@ -932,17 +1125,30 @@ validation. Open questions are `Q-OR-n`.
     is the default expectation.
   - **Observed:** two runs of `effects` each recorded
     `[{"step":"a"},{"step":"b"}]` under separate keys. Run 1 keyed effects by
-    `WM_ROOT_FLOW_JOB_ID`, which equals the root for a top-level flow; it does
-    not show that `WM_ROOT_JOB_ID` equals the submitted root inside named
-    subflows and parallel loops ([Q-OR-10](#q-or-10)).
+    `WM_ROOT_FLOW_JOB_ID`, which equals the root for a top-level flow.
+  - **Recorded (E4a, `conformance/flows/stub`, oracle run 40689406044):**
+    every effect posted inside a subflow by path, a parallel iteration, a
+    sequential or collapsed iteration and a nested loop carried
+    `WM_ROOT_JOB_ID` equal to the submitted root, and two outer runs
+    submitted together kept their effects apart. `WM_ROOT_FLOW_JOB_ID` was
+    the subflow's job inside the subflow and each parallel iteration's own
+    job inside that iteration, and the root inside sequential, collapsed
+    and nested sequential iterations ([OR-V6](#or-v6), [Q-OR-10](#q-or-10),
+    answered).
 - **Evidence:** `backend/windmill-common/src/worker.rs:2200-2206`
   (`WHITELIST_ENVS`); `backend/windmill-api-jobs/src/execution.rs:524-545`
   (blanking helper); `backend/windmill-worker/src/worker_flow.rs:1819-1970`
   (gated completion cleanup), `:4316-4332,4418-4421` (outer root propagated);
   `backend/windmill-common/src/variables.rs:381-417`; openapi
   `/variables/create` (5929), `/resources/create` (7343); observed on the
-  v1.767.0 CE oracle.
+  v1.767.0 CE oracle; recorded by `conformance/flows/stub/scopes`,
+  `nested`, `collapsed` and `retry_loop`.
 - **Conformance:** [OR-16/a, OR-16/b, OR-16/c](conformance.md#or-16)
+- **Revision 2026-10-28 (oracle, milestone E4a):** the finding said the
+  grouping by `WM_ROOT_JOB_ID` inside subflows and parallel loops was not
+  shown. E4a's stub recordings show it; [Q-OR-10](#q-or-10) is answered.
+  The `observe:` read-back of variables, resources and state is not yet
+  implemented by the harness and has no recording.
 
 <a id="or-17"></a>
 ### OR-17 · Timing capture (sanity only; the oracle is not the latency baseline)
@@ -1018,7 +1224,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-19"></a>
 ### OR-19 · CI shape
 
-**Scope:** core · **Confidence:** medium (design; CI disk and timing pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (design; the oracle workflow has run since E2) · **Status:** confirmed
 
 - **Rule (harness):**
   - **Pull-request CI (no Docker):** `check` windmill-lite against the committed
@@ -1039,9 +1245,20 @@ validation. Open questions are `Q-OR-n`.
     diffs against the main image.
   - **EE images** are not used in public CI: they need a licence key, which
     would be a secret.
+  - **Recorded:** since E2 the oracle workflow runs on `ubuntu-latest`
+    (amd64) for pull requests that change fixtures or the harness, on a
+    label, nightly and by hand; `record --check --repeat 2` reports every
+    committed recording `unchanged`, with the metadata drift gate clean,
+    across the sessions of E2 to E4a.
 - **Evidence:** [OR-1](#or-1), [OR-2](#or-2), [OR-3](#or-3);
-  `.github/workflows/docker-image.yml:505-546` (slim is amd64-only).
+  `.github/workflows/docker-image.yml:505-546` (slim is amd64-only); the
+  repository's oracle workflow and its CI runs (for example oracle runs
+  40649910412 and 40706584607).
 - **Conformance:** [OR-19/a](conformance.md#or-19)
+- **Revision 2026-10-28 (oracle, milestone E2):** the confidence was medium
+  pending the first CI recording; the workflow now runs as described, and
+  its disk and timing figures are in [OR-2](#or-2), [OR-4](#or-4) and
+  [OR-30](#or-30).
 
 <a id="or-20"></a>
 ### OR-20 · Smoke fixture: a two-step Bun flow with one input transform
@@ -1312,34 +1529,73 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-28"></a>
 ### OR-28 · Job kinds the walker meets
 
-**Scope:** core (harness) · **Confidence:** high (recorded shapes); medium (coverage of other shapes) · **Status:** confirmed
+**Scope:** core (harness) · **Confidence:** high (source-traced and oracle-observed for deployed flows); medium (shapes not yet recorded) · **Status:** confirmed
 
 - **Rule:**
-  - **Windmill (observed on CE 1.767.0, deployed flows):**
+  - **Windmill (deployed flows run by path):** a job's kind follows from the
+    payload its parent pushes, and that follows from how the deployment
+    stored the module:
+    - **Deployment.** The lite form of a deployed flow replaces each inline
+      `rawscript` in its module lists by a `flowscript` reference to a
+      stored node, and stores every loop or branch body as a **flow node**
+      unless the body is empty or is "simple": exactly one module of type
+      `script`, `rawscript` or `flowscript` with no `sleep`, `suspend`,
+      `cache_ttl`, `retry`, `stop_after_if`, `stop_after_all_iters_if` or
+      `skip_if` and no enabled `mock`, in a flow without a failure module.
+      A simple or empty body stays inline. The flow's `failure_module` and
+      `preprocessor_module` are not reduced: they stay `rawscript` (or
+      `script` by path), and so does the failure module's copy stored
+      inside each body node.
+    - **Kinds.**
 
-    | Job | Kind | Args |
-    |---|---|---|
-    | root | `flow` | the flow args |
-    | ordinary step | `flowscript` | — |
-    | iteration of a sequential multi-step for-loop | `flownode` | `{"iter":{index,value}}` |
-    | iteration of the probed while-loop | `flownode` | `{"iter":{index,value}}` |
-    | iteration of a collapsed simple for-loop | `flowscript` | the evaluated body transforms, e.g. `{"i":0,"v":10}` |
-    | iteration of a parallel for-loop | `flowpreview` | — |
-    | `branchone` body | `flowpreview` | the parent's flow args (e.g. `{"n":5}`) |
-    | `branchall` body | `flowpreview` | `{}` |
-    | failure module | `preview` | `{"error": …}` |
-    | `skip_if` step | `identity` | `{"previous_result": …}` |
+      | Job | Kind | Stored args (recorded) |
+      |---|---|---|
+      | root | `flow` | the flow args |
+      | inline step (`rawscript` reduced to a node) | `flowscript` | the evaluated input transforms |
+      | step running a workspace script by path (also a by-path failure module) | `script` | the evaluated input transforms |
+      | subflow by path | `flow` | the evaluated input transforms |
+      | loop iteration or branch body stored as a flow node | `flownode` | an iteration: the body flow's args, `{"iter":{"index":…,"value":…}}` added ([CF-3](control-flow.md#cf-3)); a branch body: the parent's flow args |
+      | loop iteration or branch body kept inline (a parallel loop or a branch whose body is simple, an empty `branchall` branch) | `flowpreview` | as for `flownode`; a `branchall` body gets the parent's flow args (`{}` when the root's args are `{}`, `{"k":1}` when they are `{"k":1}`) |
+      | iteration of a collapsed sequential loop | the body module's own kind, `flowscript` or `script` | the evaluated body transforms, e.g. `{"i":0,"v":10}` |
+      | inline failure module, its copy inside a body, inline preprocessor | `preview` | the failure module: its evaluated input transforms ([FX-32](execution.md#fx-32)); the preprocessor: a marker ([FX-35](execution.md#fx-35)) |
+      | a step that runs no code: an `identity` module, a step skipped by `skip_if`, a mocked step, a retry that `skip_if` skips | `identity` | its transforms, or `{"previous_result": …}` for a skip or a mock |
+      | a failed attempt (`failed_retries`) | the kind of the module's own job | as for that job |
 
-    A raw-flow child payload maps to `flowpreview`, so the kind does not tell a
-    preview run from a deployed one. This is a table of the recorded fixture
-    shapes, not a complete type-to-topology law.
+    - A raw-flow child payload is `flowpreview` and an inline script payload
+      is `preview` in any flow, so the kind tells neither a preview run from
+      a deployed one nor a failure module from a preview script. A
+      by-path failure module is `script`. The recorded batches E3a to E3d
+      and E4a met every row above (`provenance.timings.jobs` of each
+      recording holds each job's kind); shapes no batch recorded, such as
+      AI-agent or suspended steps, are not covered.
   - **Harness:** the walker never keys off job kind; it reads each child's
     actual status ([OR-11](#or-11)).
-- **Evidence:** `backend/windmill-types/src/jobs.rs:574` (`RawFlow` →
-  `FlowPreview`); `backend/windmill-worker/src/worker_flow.rs:5039-5076`
+- **Evidence:** `backend/windmill-types/src/jobs.rs:564-587` (payload to
+  kind: `Code` → `preview`, `FlowNode` → `flownode`, `RawFlow` →
+  `flowpreview`, `FlowScript` → `flowscript`, `ScriptHash` → `script`,
+  `Identity` → `identity`); `backend/windmill-types/src/flows.rs:662-665`
+  (the simple module types);
+  `backend/windmill-worker/src/worker_lockfiles.rs:748-760` (only the module
+  list is reduced to the lite form), `:1553-1591` (a body becomes a node
+  unless it is empty or simple; the node keeps the failure module),
+  `:1594-1700` (rawscripts become `flowscript` nodes; loop and branch
+  bodies recurse); `backend/windmill-worker/src/worker_flow.rs:5039-5076`
   (`FlowNode` versus `RawFlow` child payload), `:5298` (simple-loop fast path
-  disabled for `FlowPreview`); observed on the v1.767.0 CE oracle.
+  disabled for `FlowPreview`), `:5733-5746` (the simple-body test),
+  `:5940-6012` (a `rawscript` value becomes a `Code` payload, a `flowscript`
+  value a `FlowScript` payload); observed on the v1.767.0 CE oracle; the
+  recordings under `conformance/flows/` and the raw captures under
+  `internal/oracle/testdata/captures/`.
 - **Conformance:** [OR-28/a](conformance.md#or-28)
+- **Revision 2026-10-28 (oracle, batches E3a to E3d and milestone E4a):** the
+  table listed oracle run 1's shapes only, with every branch body
+  `flowpreview` and every `branchall` body's args `{}`. The recordings show
+  branch bodies as `flownode` when the deployment stored them as nodes,
+  `branchall` bodies with the parent's flow args, `script` jobs for steps
+  and failure modules by path, `flow` jobs for subflows by path, `preview`
+  jobs for the preprocessor, and `identity` jobs for mocked steps and
+  skipped retries. The rule now derives each kind from how the deployment
+  stored the module.
 
 <a id="or-29"></a>
 ### OR-29 · Environment seen by a Bun step in a flow (CE, standalone)
@@ -1353,7 +1609,14 @@ validation. Open questions are `Q-OR-n`.
     - `WM_JOB_ID` (the step's own job), `WM_FLOW_JOB_ID` (parent flow),
       `WM_ROOT_FLOW_JOB_ID` (innermost root flow), `WM_ROOT_JOB_ID` (outer
       root). The last three coincided only because the probe was a top-level
-      flow ([OR-V6](#or-v6), [Q-OR-10](#q-or-10));
+      flow. Recorded by E4a's stub fixtures (oracle run 40689406044): in a
+      step inside a subflow by path, `WM_FLOW_JOB_ID` and
+      `WM_ROOT_FLOW_JOB_ID` are the subflow's job; inside a parallel
+      iteration both are that iteration's job; inside sequential, collapsed
+      or nested sequential iterations `WM_FLOW_JOB_ID` is the iteration's
+      flow (or, for a collapsed one, the loop's parent flow) and
+      `WM_ROOT_FLOW_JOB_ID` the root; `WM_ROOT_JOB_ID` is the submitted root
+      everywhere ([OR-V6](#or-v6), [Q-OR-10](#q-or-10));
     - `WM_FLOW_STEP_ID` (`a`), `WM_JOB_PATH` (`<flow path>/<step id>`),
       `WM_FLOW_PATH`;
     - `WM_STATE_PATH` (`<flow path>/<step id>_user`), `WM_OBJECT_PATH`
@@ -1372,6 +1635,9 @@ validation. Open questions are `Q-OR-n`.
 - **Conformance:** [OR-29/a](conformance.md#or-29)
 - **Note:** semantics belong to [languages.md](languages.md) and
   [client-api.md](client-api.md).
+- **Revision 2026-10-28 (oracle, milestone E4a):** added the recorded values
+  of the four job-id variables inside nested scopes, which answer
+  [Q-OR-10](#q-or-10).
 
 <a id="or-30"></a>
 ### OR-30 · Disk and pull behaviour of the oracle image (harness preflight)
@@ -1380,17 +1646,21 @@ validation. Open questions are `Q-OR-n`.
 
 - **Rule:**
   - **Windmill image facts:** the arm64 image uses 3.94 GB on disk (3,820 MiB
-    of uncompressed layers); the amd64 variant is 1.37 GB compressed and its
-    on-disk size is unmeasured ([Q-OR-2](#q-or-2)). During a pull, free space
+    of uncompressed layers); the amd64 variant is 1.37 GB compressed and
+    4.03 GB (4,026,404,788 bytes) on disk, measured in CI by E2 (oracle run
+    40649910412). During a pull, free space
     dropped about 1–1.5 GiB below the final after-state because of in-flight
     compressed layers. An interrupted pull keeps its completed layers, and the
-    next pull resumes.
+    next pull resumes. In E2's CI session the pull of both pinned images
+    consumed 4.3 GiB, against a computed need of 5.6 GiB (the stand-in
+    estimate below), so the estimate erred on the safe side.
   - **Harness: fail-closed preflight and stop/resume policy:**
     1. **Measure** free space on the filesystem that holds the Docker data
        root.
     2. **Estimate the need** = on-disk image size for the target architecture
-       (3.94 GB arm64 measured; for amd64 use the compressed size × 3 as a
-       conservative stand-in until measured) + 1.5 GiB transient margin +
+       (3.94 GB arm64 and 4.03 GB amd64, both measured; the compressed size
+       × 3, 4.12 GB for amd64, was the stand-in before the measurement and
+       is close to it) + 1.5 GiB transient margin +
        layers not yet present.
     3. **Start a pull only if** free ≥ 8 GiB **and** free − need ≥ 5 GiB.
     4. **While pulling,** abort the moment free < 5 GiB. Never lower the floor.
@@ -1408,8 +1678,14 @@ validation. Open questions are `Q-OR-n`.
        estimate, which is why steps 4–7 exist.
     - CI runners are measured the same way.
 - **Evidence:** pull measurements of run 1; `docker image inspect` size; layer
-  gzip trailers.
+  gzip trailers; the session report of oracle run 40649910412 (amd64 size
+  and pull consumption).
 - **Conformance:** [OR-30/a, OR-30/b, OR-30/c](conformance.md#or-30)
+- **Revision 2026-10-28 (oracle, milestone E2):** the amd64 on-disk size was
+  unmeasured and the need used the compressed size × 3. E2 measured
+  4,026,404,788 bytes, close to the 4.12 GB stand-in, and its pull consumed
+  less than the computed need; [Q-OR-2](#q-or-2) is answered. The policy
+  itself is unchanged.
 
 <a id="or-31"></a>
 ### OR-31 · `wmill sync push` is destructive: seed after pushing, only into harness-owned workspaces
@@ -1499,12 +1775,20 @@ validation. Open questions are `Q-OR-n`.
     - `skip_if`: the skipped step ran as an `identity` job (module
       `skipped:true`, job `success:true, is_skipped:false`, args
       `{"previous_result":"a0"}`, result `"a0"`).
+  - **Recorded (E3a, `conformance/flows/je/branches` run `je31-a`, oracle run
+    40687124625):** a `branchone` whose first predicate throws is a
+    `Failure` entry with the nil job, recorded `{"status":"failure","ran":false}`;
+    no body runs, and the root fails with the predicate's `Anyhow` error and
+    no `step_id` ([Q-OR-8](#q-or-8)).
 - **Evidence:** `backend/windmill-api/src/jobs.rs:1424,9220-9225`;
   `backend/windmill-types/src/flow_status.rs:219-297`;
   `backend/windmill-worker/src/worker_flow.rs:3842-3920` (`skip_if` as an
   identity job), `:4000-4028`, `:4053-4067,5470-5485` (nil-job failure);
-  observed on the v1.767.0 CE oracle.
+  observed on the v1.767.0 CE oracle; recorded by E3a's `je31-a`.
 - **Conformance:** [OR-V2/a, OR-V2/b, OR-V2/c, OR-V2/d, OR-V2/e](conformance.md#or-v2)
+- **Revision 2026-10-28 (oracle, batch E3a):** the shape of a throwing
+  `branchone` predicate was pending [Q-OR-8](#q-or-8); E3a recorded it, and
+  it matches the nil-failure rule above.
 
 <a id="or-v3"></a>
 ### OR-V3 · Normalisation must preserve negative comparisons
@@ -1593,7 +1877,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v6"></a>
 ### OR-V6 · Use the outer run identity for effects
 
-**Scope:** core (effect capture) · **Confidence:** high (source); nested equality oracle-pending · **Status:** confirmed
+**Scope:** core (effect capture) · **Confidence:** high (source; nested equality oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - **Windmill:** `WM_ROOT_FLOW_JOB_ID` is the "Job id of the innermost root
@@ -1610,8 +1894,18 @@ validation. Open questions are `Q-OR-n`.
   `backend/windmill-worker/src/common.rs:535-550,1834-1839`;
   `backend/windmill-worker/src/worker_flow.rs:4316-4332,4418-4421`.
 - **Conformance:** [OR-V6/a](conformance.md#or-v6)
-- **Note:** that `WM_ROOT_JOB_ID` equals the submitted root inside nested
-  scopes is pending [Q-OR-10](#q-or-10).
+- **Note:** where the innermost scope starts: a flow that pushes a child
+  for a subflow by path or for a parallel for-loop gives the child no
+  innermost root, so the child flow's own steps take that child as their
+  innermost root; every other child (sequential iterations, branch bodies,
+  steps) inherits the parent's innermost root, or the parent itself when
+  it has none. The outer root is copied unchanged into every descendant.
+- **Revision 2026-10-28 (oracle, milestone E4a):** the note said the
+  nested equality of `WM_ROOT_JOB_ID` was pending [Q-OR-10](#q-or-10).
+  E4a's `conformance/flows/stub/scopes` recorded it (oracle run 40689406044):
+  a subflow by path and two parallel iterations each started a new
+  innermost root while every effect named the submitted root, and a
+  concurrent outer run kept its own. Q-OR-10 is answered.
 
 <a id="or-v7"></a>
 ### OR-V7 · Generated virtual steps require an explicit capture policy
@@ -1639,7 +1933,13 @@ validation. Open questions are `Q-OR-n`.
   `backend/windmill-worker/src/worker_flow.rs:5056`;
   `backend/windmill-queue/src/jobs.rs:5605,5956`.
 - **Conformance:** [OR-V7/a, OR-V7/b](conformance.md#or-v7)
-- **Note:** the live topology is pending [Q-OR-9](#q-or-9).
+- **Note:** E3a's `je28-c` recording shows the generated step exists on a
+  deployed flow whose last step sleeps (that step's `sleep` is evaluated and
+  can fail the flow, [JE-28](expressions.md#je-28)); its raw status entry and
+  deployed value are still pending [Q-OR-9](#q-or-9).
+- **Revision 2026-10-28 (oracle, batch E3a):** the note said the live
+  topology was pending; E3a's recording shows the generated step's effect,
+  and Q-OR-9 is re-scoped to the parts still unrecorded.
 
 <a id="or-v8"></a>
 ### OR-V8 · Semantic identities must distinguish special slots and literal module ids
@@ -1847,9 +2147,14 @@ no ports, and `mem_limit: 2g`.
 
 <a id="q-or-2"></a>
 - **Q-OR-2** · affects [OR-2](#or-2), [OR-4](#or-4), [OR-19](#or-19),
-  [OR-30](#or-30) · What are the amd64 image's on-disk size, peak memory and
-  boot time? Do not extrapolate the arm64 measurements. *Settled by:* the first
-  CI `record` run on `ubuntu-latest`, under the [OR-30](#or-30) preflight.
+  [OR-30](#or-30) · **Answered 2026-10-28.** E2's first CI session on
+  `ubuntu-latest` (oracle run 40649910412) measured the amd64 image at
+  4,026,404,788 bytes on disk, a healthy oracle 6.4 s after `compose up`, and
+  cgroup memory peaks of 328,458,240 B (Windmill) and 309,182,464 B
+  (Postgres) for the smoke fixture; the pull consumed 4.3 GiB against a
+  computed need of 5.6 GiB ([OR-2](#or-2), [OR-4](#or-4), [OR-30](#or-30)).
+  *Originally asked:* what are the amd64 image's on-disk size, peak memory
+  and boot time, without extrapolating the arm64 measurements?
 
 <a id="q-or-3"></a>
 - **Q-OR-3** · affects [OR-8](#or-8), [OR-28](#or-28) · Is a preview run
@@ -1884,25 +2189,42 @@ no ports, and `mem_limit: 2g`.
   `flow_jobs` and the result order.
 
 <a id="q-or-8"></a>
-- **Q-OR-8** · affects [OR-V2](#or-v2), [OR-11](#or-11) · What module status and
-  root result does a throwing `branchone` predicate (nil-job `Failure`)
-  record? The nil-failure rule is accepted; the exact shape is pending.
-  *Settled by:* a fixture with predicate
-  `expr: "(() => { throw new Error('p') })()"`.
+- **Q-OR-8** · affects [OR-V2](#or-v2), [OR-11](#or-11) · **Answered
+  2026-10-28.** E3a recorded a `branchone` after one step whose first
+  predicate throws (`conformance/flows/je/branches` run `je31-a`, oracle run
+  40687124625, predicate `nope`): the module is `Failure` with the nil job
+  (`{"status":"failure","ran":false}`), no branch body runs, and the root
+  fails with `{"error":{"name":"Anyhow","message":"Error: QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:42)\n <loc>"}}`,
+  with no `step_id` ([OR-V2/e](conformance.md#or-v2); the message's other
+  sites are [JE-31](expressions.md#je-31) and [JE-35](expressions.md#je-35)).
+  *Originally asked:* what module status and root result does a throwing
+  `branchone` predicate record?
 
 <a id="q-or-9"></a>
-- **Q-OR-9** · affects [OR-V7](#or-v7) · What does the generated `-v` module look
-  like live? *Settled by:* a fixture whose last step has
-  `sleep: {type: static, value: 1}`, checking `flows/get` (the deployed value)
-  and `flow_status`.
+- **Q-OR-9** · affects [OR-V7](#or-v7) · **Re-scoped 2026-10-28.** E3a's
+  `conformance/flows/je/waits` run `je28-c` (oracle run 40687124625) shows
+  that a deployed flow whose last step sleeps runs a generated step after
+  it: the last step's invalid `sleep` is evaluated when the generated step
+  is scheduled, and fails the flow ([JE-28](expressions.md#je-28),
+  [OF-17](openflow.md#of-17)). Still unrecorded: the generated module's
+  deployed value in `flows/get` and its `flow_status` entry, which the
+  walker omits. *Settled by:* a fixture whose last step has
+  `sleep: {type: static, value: 1}`, recording `flows/get` and the raw
+  `flow_status`.
 
 <a id="q-or-10"></a>
-- **Q-OR-10** · affects [OR-16](#or-16), [OR-V6](#or-v6), [OR-29](#or-29) · Is
-  `WM_ROOT_JOB_ID` the submitted root inside named subflows and parallel loops?
-  A required exercise of the first comparison-test phase. *Settled by:* a root
-  R that invokes a named subflow S and has two parallel loop iterations I0/I1,
-  with effects POSTing `WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`,
-  `WM_FLOW_JOB_ID` and `WM_JOB_ID`, plus a concurrent outer run T.
+- **Q-OR-10** · affects [OR-16](#or-16), [OR-V6](#or-v6), [OR-29](#or-29) ·
+  **Answered 2026-10-28: yes.** E4a recorded exactly the settling fixture
+  (`conformance/flows/stub/scopes`, runs `r` and `t` submitted together and
+  `alone`, oracle run 40689406044): inside the subflow by path and in each
+  parallel iteration `WM_ROOT_JOB_ID` is the submitted root while
+  `WM_ROOT_FLOW_JOB_ID` and `WM_FLOW_JOB_ID` are the subflow's or the
+  iteration's own job, and the concurrent run keeps its own root.
+  Sequential, collapsed and nested sequential iterations keep the root as
+  `WM_ROOT_FLOW_JOB_ID` (`stub/nested`, `stub/collapsed`, `stub/retry_loop`).
+  The source agrees ([OR-V6](#or-v6)). *Originally asked:* is
+  `WM_ROOT_JOB_ID` the submitted root inside named subflows and parallel
+  loops?
 
 <a id="q-or-11"></a>
 - **Q-OR-11** · affects [OR-24](#or-24) · What key order is seen on the retry,
@@ -1930,11 +2252,16 @@ no ports, and `mem_limit: 2g`.
   `Object.keys(results.<id>)` and its received-object keys.
 
 <a id="q-or-13"></a>
-- **Q-OR-13** · affects [OR-11](#or-11) · Can a collapsible ("simple") while
-  body terminate, and what shape does it record? *Settled by:* a while-loop
-  whose single body has no `stop_after_if`, terminated by any mechanism the
-  source allows (to be proposed in [control-flow.md](control-flow.md)); if none
-  exists, close as not applicable.
+- **Q-OR-13** · affects [OR-11](#or-11) · **Answered 2026-10-28: yes.** E3d
+  recorded a while-loop whose single body module has no `stop_after_if` and
+  which the loop module's own `stop_after_if` ends
+  (`conformance/flows/control-flow/cf-10` run `a`, oracle run 40685057858,
+  [CF-10](control-flow.md#cf-10), [CF-11](control-flow.md#cf-11)): the body
+  collapses, each iteration is the body module's own `flowscript` job with
+  the evaluated transforms (`{"x":0}`, `{"x":1}`, `{"x":2}`) and no child
+  flow, the loop's result keeps the iteration that made the predicate true,
+  and the flow continues. *Originally asked:* can a collapsible while body
+  terminate, and what shape does it record?
 
 <a id="q-or-14"></a>
 - **Q-OR-14** · affects [OR-7](#or-7) · What error does the result-size limit
@@ -1978,14 +2305,16 @@ no ports, and `mem_limit: 2g`.
 
 <a id="q-or-18"></a>
 - **Q-OR-18** · affects [OR-5](#or-5), [OR-7](#or-7), [OR-8](#or-8),
-  [OR-21](#or-21), [OR-31](#or-31) · (Added when this area was assembled, to
+  [OR-21](#or-21), [OR-31](#or-31) · **Re-scoped 2026-10-28.** `flows/get`
+  returning the pushed module ids is recorded: since E2 the harness checks
+  every deployed flow's module ids against its tree after the deployment
+  gate ([OR-8/b](conformance.md#or-8)). The rest is still open. (Added when
+  this area was assembled, to
   track source-derived expectations that no question above covers.) Do the
   remaining harness-integration expectations hold on the oracle: a one-level
   blocking child completing on a two-worker profile; byte-identical normalised
   smoke observations with `LISTEN_NEW_EVENTS_INTERVAL_SEC=1` and `10`;
-  `flows/get` returning the pushed module ids; the CE outcome of
-  `delete_after_use` inside a subflow; and the 404 / 200 variable check around
-  a push? *Settled by:* the first `record` run that includes
-  [OR-5/b](conformance.md#or-5), [OR-7/a](conformance.md#or-7),
-  [OR-8/b](conformance.md#or-8), [OR-21/a](conformance.md#or-21) and
-  [OR-31/b](conformance.md#or-31).
+  the CE outcome of `delete_after_use` inside a subflow; and the 404 / 200
+  variable check around a push? *Settled by:* the first `record` run that
+  includes [OR-5/b](conformance.md#or-5), [OR-7/a](conformance.md#or-7),
+  [OR-21/a](conformance.md#or-21) and [OR-31/b](conformance.md#or-31).
