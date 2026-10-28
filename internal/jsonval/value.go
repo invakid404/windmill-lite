@@ -77,10 +77,12 @@ func (v Value) HasNUL() bool { return v.r != nil && v.r.nul }
 // already in stored form, and the stored text of a Value made from stored
 // text is that text itself.
 //
-// Stored fails with a *StoreError for the first token jsonb rejects, in text
-// order: errors.Is(err, ErrNUL) for \u0000, and ErrUnpairedSurrogate,
-// ErrNumericOverflow or ErrSyntax otherwise. It fails with another error for
-// the zero Value.
+// Stored fails with a *StoreError when jsonb input rejects the text:
+// errors.Is(err, ErrNUL) for \u0000, and ErrUnpairedSurrogate,
+// ErrNumericOverflow or ErrSyntax otherwise. For valid JSON text it reports
+// the first rejected token in text order, as PostgreSQL does; for text that
+// is not one JSON value the kind can differ from PostgreSQL's. It fails with
+// another error for the zero Value.
 func (v Value) Stored() ([]byte, error) {
 	if v.r == nil {
 		return nil, errZero

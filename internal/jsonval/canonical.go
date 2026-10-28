@@ -26,8 +26,14 @@ import (
 // Stored text is a fixed point: canonicalising it again returns the same
 // bytes, so canonicalise returns src itself when nothing changes.
 //
-// It fails with a *StoreError for the first token, in text order, that jsonb
-// input rejects, as PostgreSQL reports the first one it meets.
+// It fails with a *StoreError. For valid JSON text that is the first token,
+// in text order, that jsonb input rejects, which is the one PostgreSQL
+// reports. Text that is not one JSON value is always rejected, but the kind
+// can differ from PostgreSQL's, whose parser reads one token ahead: it
+// reports the NUL in `[1 "\u0000"]` where this reports the syntax error.
+//
+// PostgreSQL's nesting limit and jsonb's size limits are not reproduced
+// (see the README).
 func canonicalise(src []byte) ([]byte, error) {
 	c := canonicaliser{src: src, out: make([]byte, 0, len(src))}
 	if err := c.run(); err != nil {

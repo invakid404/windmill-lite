@@ -69,6 +69,17 @@ func edgeCases() []edgeCase {
 		{name: "nul-before-overflow", given: `["\u0000",1e-99999]`, kind: ErrNUL},
 		{name: "high-surrogate-then-nul", given: `"\ud800\u0000"`, kind: ErrUnpairedSurrogate},
 
+		// In text that is not one JSON value, PostgreSQL reads one token ahead
+		// and can report a different kind; these pin jsonval's, and the
+		// PostgreSQL test checks only that both reject (see canonicalise).
+		{name: "lookahead-nul-after-number", given: `[1 "\u0000"]`, kind: ErrSyntax},
+		{name: "lookahead-nul-after-key", given: `{"a" "\u0000"}`, kind: ErrSyntax},
+		{name: "lookahead-nul-after-string", given: `"a" "\u0000"`, kind: ErrSyntax},
+		{name: "lookahead-nul-after-literal", given: `[true "\u0000"]`, kind: ErrSyntax},
+		{name: "lookahead-overflow-then-bad-token", given: `[1e99999999999 x]`, kind: ErrNumericOverflow},
+		{name: "lookahead-overflow-then-surrogate", given: `[1e-99999 "\ud800"]`, kind: ErrNumericOverflow},
+		{name: "lookahead-overflow-then-nul", given: `{"a":1e-99999 "\u0000"}`, kind: ErrNumericOverflow},
+
 		// Text that is not one JSON value.
 		{name: "empty", given: ``, kind: ErrSyntax},
 		{name: "only-space", given: " \n", kind: ErrSyntax},
@@ -192,6 +203,13 @@ func TestStoredAgreesWithReferenceOnGeneratedText(t *testing.T) {
 			checkAgainstReference(t, text)
 		})
 	}
+	// Mutations are mostly not JSON, which must be rejected; those that
+	// still are must agree like any other text.
+	for i, text := range brokenTexts(n, 4) {
+		t.Run(fmt.Sprint("broken-", i), func(t *testing.T) {
+			checkAgainstReference(t, text)
+		})
+	}
 }
 
 func FuzzStored(f *testing.F) {
@@ -282,6 +300,30 @@ func generatedTexts(n int, seed uint64) [][]byte {
 		g.value(&b, 0)
 		g.space(&b)
 		texts[i] = b.Bytes()
+	}
+	return texts
+}
+
+// brokenTexts returns n generated texts with one random edit each: a byte
+// deleted, a byte inserted, or a token spliced in, among them tokens jsonb
+// rejects, so rejections meet syntax errors in every order.
+func brokenTexts(n int, seed uint64) [][]byte {
+	r := rand.New(rand.NewPCG(seed, 0x62726f6b656e))
+	splices := []string{`"\u0000"`, `"\ud800"`, `1e-99999`, `1e99999999999`, `x`, `,`, `:`, `{`, `]`, `"`, `\`, ` 1`, `""`, `0`}
+	texts := generatedTexts(n, seed)
+	for i, text := range texts {
+		at := r.IntN(len(text) + 1)
+		var edited []byte
+		switch k := r.IntN(3); {
+		case k == 0 && at < len(text):
+			edited = append(append(edited, text[:at]...), text[at+1:]...)
+		case k == 1:
+			const inserts = `{}[],:"0e-\ x`
+			edited = append(append(append(edited, text[:at]...), inserts[r.IntN(len(inserts))]), text[at:]...)
+		default:
+			edited = append(append(append(edited, text[:at]...), splices[r.IntN(len(splices))]...), text[at:]...)
+		}
+		texts[i] = edited
 	}
 	return texts
 }

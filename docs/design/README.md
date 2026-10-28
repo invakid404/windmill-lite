@@ -117,7 +117,7 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
-   point or 16383 after it). Does Windmill fail a step whose result or
+   point or 16383 after it, or an exponent beyond 2³⁰−1 in magnitude). Does Windmill fail a step whose result or
    arguments hold one, as [FX-48](../semantics/execution.md#fx-48) and
    [OR-27](../semantics/oracle.md#or-27) say it does for NUL, and with which
    message? The reference covers only NUL. Until it is answered, `jsonval`

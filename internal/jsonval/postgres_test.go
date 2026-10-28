@@ -16,9 +16,10 @@ import (
 
 // TestStoredMatchesPostgreSQL is ADR 0005's check against PostgreSQL itself.
 // It casts every input of the other tests (the conformance cases, the edge
-// cases and generated text) to jsonb and back, and checks that Stored
-// agrees: the same text once jsonb's output spaces are removed, or a
-// rejection whose DatabaseMessage is PostgreSQL's message.
+// cases, generated text and its mutations) to jsonb and back, and checks
+// that Stored agrees: the same text once jsonb's output spaces are removed,
+// or a rejection whose DatabaseMessage is PostgreSQL's message. For text
+// that is not one JSON value it checks only that both reject.
 //
 // It needs a server, so it runs only when WL_JSONB_PSQL holds a psql command
 // line (split on spaces) that reaches one. CI's jsonb job sets it to psql
@@ -83,6 +84,11 @@ func TestStoredMatchesPostgreSQL(t *testing.T) {
 			var se *StoreError
 			if !errors.As(err, &se) {
 				problem = fmt.Sprintf("PostgreSQL rejects it (%s %s); Stored() = %.120q, %v", row[1], row[2], got, err)
+			} else if !json.Valid([]byte(in)) {
+				// PostgreSQL's parser reads one token ahead, so in text
+				// that is not JSON its rejection can be another kind
+				// (see canonicalise); that both reject is the check.
+				outcomes["not JSON, both reject"]++
 			} else if se.DatabaseMessage() != row[2] {
 				problem = fmt.Sprintf("PostgreSQL rejects it with %s %q; Stored() rejects it with %q (%v)", row[1], row[2], se.DatabaseMessage(), err)
 			}
@@ -112,6 +118,9 @@ func postgresInputs(t *testing.T) []string {
 		all = append(all, c.given)
 	}
 	for _, text := range generatedTexts(4000, 3) {
+		all = append(all, string(text))
+	}
+	for _, text := range brokenTexts(2000, 5) {
 		all = append(all, string(text))
 	}
 	seen := map[string]bool{}

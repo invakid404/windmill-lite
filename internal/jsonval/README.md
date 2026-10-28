@@ -63,12 +63,19 @@ its own stack, so deep nesting cannot overflow Go's.
 
 ## Rejections
 
-`Stored` fails with a `*StoreError` for the first token, in text order, that
-`jsonb` input rejects, as PostgreSQL reports the first one it meets. Its
-`Kind` is one of four sentinels, so `errors.Is` works on it, its `Offset` is
-the token's byte offset, and `DatabaseMessage` gives PostgreSQL's message:
-the text that follows `error returned from database: ` in the error Windmill
-reports when storing fails. The engine routes these failures as FX-48 says.
+`Stored` fails with a `*StoreError` when `jsonb` input rejects the text. For
+valid JSON text it reports the first rejected token in text order, which is
+the one PostgreSQL reports. Text that is not one JSON value is always
+rejected, but the kind can differ from PostgreSQL's, whose parser reads one
+token ahead (it reports the NUL in `[1 "\u0000"]`, where `Stored` reports the
+syntax error); producers never write such text.
+
+The error's `Kind` is one of four sentinels, so `errors.Is` works on it. Its
+`Offset` is the byte offset of the rejected escape inside its string, of the
+number, or of the unexpected character. `DatabaseMessage` gives PostgreSQL's
+message: the text that follows `error returned from database: ` in the error
+Windmill reports when storing fails. The engine routes these failures as
+FX-48 says.
 
 | Kind | The text holds | `DatabaseMessage` | Source |
 |---|---|---|---|
@@ -103,7 +110,9 @@ ADR 0005 checks the canonicaliser three ways, and all three run in CI:
    Edge cases, seeded generated text, the conformance cases and the fuzz
    target `FuzzStored` compare the two.
 3. **PostgreSQL itself.** `TestStoredMatchesPostgreSQL` casts every input of
-   the other tests to `jsonb` and back and compares. It runs only when
+   the other tests, and mutations of the generated text, to `jsonb` and back.
+   It compares the stored text and, for valid JSON, PostgreSQL's message; for
+   text that is not one JSON value it checks that both reject. It runs only when
    `WL_JSONB_PSQL` holds a `psql` command line (split on spaces) that reaches
    a server. CI's `jsonb (PostgreSQL)` job sets it to `psql` inside the
    oracle's PostgreSQL image, pinned by the digest in
