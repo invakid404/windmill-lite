@@ -544,6 +544,31 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 			}()
 		}
 		wg.Wait()
+		if group != "" {
+			// A group is one test of concurrent outer runs: if a run
+			// failed, or the runs did not overlap on the oracle, none of
+			// them showed what the group is for.
+			var failedRun string
+			for _, k := range live {
+				if results[k].err != nil {
+					failedRun = batch[k].Name
+					break
+				}
+			}
+			var gerr error
+			if failedRun != "" {
+				gerr = refusal("group_member_failed", "group", jsonString(group), "run", jsonString(failedRun))
+			} else if err := checkOverlap(batch, live, results); err != nil {
+				gerr = refusal("group_not_concurrent", "group", jsonString(group), "reason", jsonString(err.Error()))
+			}
+			if gerr != nil {
+				for _, k := range live {
+					if results[k].err == nil {
+						results[k].err = gerr
+					}
+				}
+			}
+		}
 		for _, k := range live {
 			res := results[k]
 			switch {
@@ -574,6 +599,31 @@ type executed struct {
 	obs  conformance.Observation
 	prov Provenance
 	err  error
+}
+
+// checkOverlap requires the root jobs of a group's runs to have been in
+// flight together: each created before every other completed, by the
+// oracle's own timestamps.
+func checkOverlap(batch []conformance.Run, live []int, results []executed) error {
+	type span struct{ from, to time.Time }
+	spans := map[int]span{}
+	for _, k := range live {
+		j := results[k].prov.Timings.Jobs[""]
+		from, err1 := time.Parse(time.RFC3339Nano, j.CreatedAt)
+		to, err2 := time.Parse(time.RFC3339Nano, j.CompletedAt)
+		if err1 != nil || err2 != nil {
+			return fmt.Errorf("run %s has no root created_at and completed_at", batch[k].Name)
+		}
+		spans[k] = span{from, to}
+	}
+	for _, a := range live {
+		for _, b := range live {
+			if a != b && !spans[a].from.Before(spans[b].to) {
+				return fmt.Errorf("run %s started after run %s completed", batch[a].Name, batch[b].Name)
+			}
+		}
+	}
+	return nil
 }
 
 // conclude compares a run's stable observation with its expect and its
@@ -646,6 +696,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	root := newUUID()
 	sink.Open(root)
 	defer sink.Close(root)
+	foreignReplays := replay.Foreign()
 	if f.Stub {
 		replay.Open(root, r.Replay, &Locator{Client: c, Workspace: ws, Tree: tree, Interval: s.pollInterval})
 		defer replay.Close(root)
@@ -718,6 +769,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	p.RecordedAt = time.Now().UTC().Format(time.RFC3339)
 	p.Timings = RunTimings{SubmitToCompleteMS: elapsed.Milliseconds(), Jobs: w.Timings}
 	p.ForeignEffects = foreign
+	p.ForeignReplayCalls = replay.Foreign() - foreignReplays
 	return obs, p, nil
 }
 
@@ -796,6 +848,9 @@ type Provenance struct {
 	Repeats        int               `json:"repeats"`
 	Timings        RunTimings        `json:"timings"`
 	ForeignEffects int               `json:"foreign_effects,omitempty"`
+	// ForeignReplayCalls counts the stub calls refused while the run was
+	// open, because their root was no open run.
+	ForeignReplayCalls int `json:"foreign_replay_calls,omitempty"`
 	// Group names the batch of concurrent outer runs the run was
 	// submitted with.
 	Group string `json:"group,omitempty"`

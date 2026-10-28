@@ -60,7 +60,10 @@ each run's stubs from its `replay` table through the replay service at
 `$WL_EFFECT_SINK/replay`. A run also fails when a stub's call has no
 outcome in the table, when a call disagrees with the walk, or when a
 script job never called ([internal/oracle](../../internal/oracle/README.md#stub-mode)).
-Runs that share a `group` are submitted together, as concurrent outer runs.
+Runs that share a `group` are submitted together, as concurrent outer runs,
+and fail together when one fails or when they did not overlap. Each
+fixture's workspace is deleted after its runs, because CE admits only two
+workspaces besides `admins`.
 
 ## stub
 

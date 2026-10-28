@@ -21,6 +21,8 @@ func TestStubSourceCases(t *testing.T) {
 		Params string   `json:"params"`
 		Keep   []string `json:"keep"`
 		Refuse string   `json:"refuse"`
+		// Annotations, when given, are the lines the stub starts with.
+		Annotations []string `json:"annotations"`
 	}
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
@@ -59,6 +61,15 @@ func TestStubSourceCases(t *testing.T) {
 			}
 			if again2, _ := StubSource(stub); again2 != stub {
 				t.Fatal("stubbing a stub changed it")
+			}
+			if c.Annotations != nil {
+				want := strings.Join(append(append([]string(nil), c.Annotations...), stubHeader), "\n")
+				if len(c.Annotations) == 0 {
+					want = stubHeader
+				}
+				if !strings.HasPrefix(stub, want) {
+					t.Fatalf("the stub starts\n%s\nwant\n%s", stub[:min(len(stub), 200)], want)
+				}
 			}
 			for _, gone := range []string{"@private/db", "conn.get", "return x * 2", "return at"} {
 				if strings.Contains(c.Source, gone) && strings.Contains(stub, gone) {

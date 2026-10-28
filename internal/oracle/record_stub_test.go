@@ -197,3 +197,23 @@ func TestSessionStubRefusals(t *testing.T) {
 		}
 	})
 }
+
+// TestCheckOverlap requires a group's root jobs to have been in flight
+// together, by the oracle's timestamps.
+func TestCheckOverlap(t *testing.T) {
+	batch := []conformance.Run{{Name: "r"}, {Name: "t"}}
+	at := func(from, to string) executed {
+		var e executed
+		e.prov.Timings.Jobs = map[string]JobTiming{"": {CreatedAt: "2026-10-28T10:00:" + from + "Z", CompletedAt: "2026-10-28T10:00:" + to + "Z"}}
+		return e
+	}
+	if err := checkOverlap(batch, []int{0, 1}, []executed{at("00.1", "00.5"), at("00.2", "00.3")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkOverlap(batch, []int{0, 1}, []executed{at("00.1", "00.2"), at("00.3", "00.4")}); err == nil || !strings.Contains(err.Error(), "run t started after run r completed") {
+		t.Fatalf("got %v", err)
+	}
+	if err := checkOverlap(batch, []int{0, 1}, []executed{at("00.1", "00.2"), {}}); err == nil || !strings.Contains(err.Error(), "no root created_at") {
+		t.Fatalf("got %v", err)
+	}
+}

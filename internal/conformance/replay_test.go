@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestReplayTableCases decodes the replay tables of testdata/replay: each
@@ -329,5 +330,46 @@ func TestFixtureReplayNeedsStub(t *testing.T) {
 	}
 	if _, ok := f.Runs[0].Replay.Lookup(SitePath{}.Child(Module("a")), 1); ok {
 		t.Fatal("attempt 1 has no outcome")
+	}
+}
+
+// slowLocator answers after a delay, so concurrent calls of one job race.
+type slowLocator struct{ calls chan struct{} }
+
+func (l slowLocator) Locate(ctx context.Context, root, job string) (SitePath, error) {
+	l.calls <- struct{}{}
+	<-ctx.Done()
+	return SitePath{}.Child(Module("a")), nil
+}
+
+// TestReplayServiceRacedDuplicates calls one job many times at once: every
+// call gets the one outcome of attempt 0, the job is recorded once, and
+// the attempt count does not move.
+func TestReplayServiceRacedDuplicates(t *testing.T) {
+	s := ReplayService{LocateTimeout: 50 * time.Millisecond}
+	srv := httptest.NewServer(&s)
+	defer srv.Close()
+	loc := slowLocator{calls: make(chan struct{}, 64)}
+	s.Open("R", table(t, `{"m:a": [{"result": 0}, {"result": 1}]}`), loc)
+	var wg sync.WaitGroup
+	bodies := make(chan string, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, body := replayClient{t, srv.URL}.call("R", "j", `[]`)
+			bodies <- body
+		}()
+	}
+	wg.Wait()
+	close(bodies)
+	for b := range bodies {
+		if b != `{"result":0}` {
+			t.Errorf("a duplicate got %s", b)
+		}
+	}
+	calls := s.Close("R")
+	if len(calls) != 1 || calls[0].Attempt != 0 || calls[0].Duplicates != 7 {
+		t.Fatalf("%+v", calls)
 	}
 }

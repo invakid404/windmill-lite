@@ -157,7 +157,8 @@ string as `<stack>` (OR-V3 clause c) and `mask` replaces any value with
 
 Runs with the same `group` are submitted together, as concurrent outer runs
 (`RunBatches`: each group at its first run's place, in name order); every
-other run runs alone.
+other run runs alone. The oracle fails a group as a whole when one of its
+runs fails or when they were not in flight together.
 
 ## Stub mode
 

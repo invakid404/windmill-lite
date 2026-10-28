@@ -113,6 +113,7 @@ func TestStubTreeRefuses(t *testing.T) {
 		{"a hub script step", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: h\n      value:\n        type: script\n        path: hub/1/x\n        input_transforms: {}\n")}, "hub path"},
 		{"a script step outside the tree", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: script\n        path: f/elsewhere/s\n        input_transforms: {}\n")}, "f/elsewhere/s"},
 		{"a subflow outside the tree", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: flow\n        path: f/elsewhere/w\n        input_transforms: {}\n")}, "f/elsewhere/w"},
+		{"a retried loop", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules: []\n      retry: {constant: {attempts: 1, seconds: 0}}\n")}, "a retry on a subflow, loop or branch step"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

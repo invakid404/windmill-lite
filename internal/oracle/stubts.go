@@ -16,7 +16,10 @@ import (
 //   - every top-level type alias and interface, verbatim: the parser
 //     resolves local aliases to decide which parameters are hydrated as
 //     Date (WR-8, WR-V3). Types are erased before the code runs, so they
-//     cannot reach the systems the original body talks to.
+//     cannot reach the systems the original body talks to;
+//   - the annotation flags of the leading comment block that change how
+//     Windmill runs the script (npm, nodejs, nobundling, sandbox; WR-31),
+//     first in the stub so they stay in its leading block.
 //
 // Everything else (imports, top-level code, the body) is dropped. The scan
 // is textual over a small lexer: it decides what is top level by bracket
@@ -32,6 +35,10 @@ func StubSource(src string) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
+	for _, a := range annotations(src) {
+		b.WriteString(a)
+		b.WriteByte('\n')
+	}
 	b.WriteString(stubHeader)
 	for _, d := range m.keep {
 		b.WriteString(d)
@@ -84,6 +91,31 @@ async function __wlReplay(args) {
   return outcome.result;
 }
 `
+
+// keptFlags are the annotations of WR-31 a stub keeps; native is refused
+// before a script gets here, and unknown keys have no effect.
+var keptFlags = map[string]bool{"npm": true, "nodejs": true, "nobundling": true, "sandbox": true}
+
+// annotations returns the lines of the leading comment block (WR-31: blank
+// lines skipped, ended by the first line that does not start with "//")
+// whose text is a flag the stub keeps.
+func annotations(src string) []string {
+	var out []string
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		text, ok := strings.CutPrefix(line, "//")
+		if !ok {
+			break
+		}
+		if keptFlags[strings.TrimSpace(text)] {
+			out = append(out, line)
+		}
+	}
+	return out
+}
 
 // stubError is a script StubSource refuses, with the reason.
 type stubError struct{ reason string }
@@ -554,16 +586,16 @@ func angles(t tsToken) int {
 }
 
 // defaultWords are the identifiers a parameter default may use besides the
-// parameters themselves: literals, operators and standard globals, which
-// a stub still has. A default that names anything else may name a binding
-// the stub drops, and fail when it applies.
+// parameters themselves: literals, operators and standard globals with no
+// reach outside the process, which a stub still has. A default that names
+// anything else may name a binding the stub drops, and fail when it
+// applies, or reach a system (process, Bun, globalThis, fetch).
 var defaultWords = map[string]bool{
 	"true": true, "false": true, "null": true, "undefined": true, "NaN": true, "Infinity": true,
 	"new": true, "typeof": true, "void": true, "in": true, "instanceof": true,
 	"Date": true, "Math": true, "Number": true, "String": true, "Boolean": true, "Array": true,
 	"Object": true, "JSON": true, "BigInt": true, "Symbol": true, "RegExp": true, "Map": true,
-	"Set": true, "Error": true, "process": true, "Bun": true, "globalThis": true,
-	"parseInt": true, "parseFloat": true,
+	"Set": true, "Error": true, "parseInt": true, "parseFloat": true,
 }
 
 // checkParams refuses a parameter list whose defaults name a binding the
@@ -575,9 +607,31 @@ func checkParams(toks []tsToken) error {
 		dflt
 	)
 	mode, depth, angle := pattern, 0, 0
+	inner := -1 // the depth of a default inside a destructuring pattern
 	names := map[string]bool{}
+	checkIdent := func(k int, t tsToken) error {
+		member := k > 0 && (toks[k-1].is(tsPunct, ".") || toks[k-1].is(tsPunct, "?."))
+		key := k+1 < len(toks) && toks[k+1].is(tsPunct, ":")
+		if !defaultWords[t.text] && !names[t.text] && !member && !key {
+			return refuseTS("a parameter default names %s, which the stub does not keep; write the value inline", t.text)
+		}
+		return nil
+	}
 	for k, t := range toks {
 		top := depth == 0
+		if mode == pattern && inner >= 0 {
+			// A default inside a pattern runs until the next "," or the
+			// closing bracket at its own depth.
+			if depth == inner && (t.is(tsPunct, ",") || t.delta() < 0) {
+				inner = -1
+			} else if t.kind == tsIdent {
+				if err := checkIdent(k, t); err != nil {
+					return err
+				}
+			}
+			depth += t.delta()
+			continue
+		}
 		switch {
 		case top && t.is(tsPunct, ",") && (mode != typed || angle == 0):
 			mode, angle = pattern, 0
@@ -585,6 +639,8 @@ func checkParams(toks []tsToken) error {
 			mode = typed
 		case mode == pattern && top && t.is(tsPunct, "="):
 			mode = dflt
+		case mode == pattern && !top && t.is(tsPunct, "="):
+			inner = depth
 		case mode == pattern && t.kind == tsIdent:
 			if strings.HasPrefix(t.text, "__wl") {
 				return refuseTS("parameter %s collides with the stub's helper", t.text)
@@ -596,10 +652,8 @@ func checkParams(toks []tsToken) error {
 				mode = dflt
 			}
 		case mode == dflt && t.kind == tsIdent:
-			member := k > 0 && (toks[k-1].is(tsPunct, ".") || toks[k-1].is(tsPunct, "?."))
-			key := k+1 < len(toks) && toks[k+1].is(tsPunct, ":")
-			if !defaultWords[t.text] && !names[t.text] && !member && !key {
-				return refuseTS("a parameter default names %s, which the stub does not keep; write the value inline", t.text)
+			if err := checkIdent(k, t); err != nil {
+				return err
 			}
 		}
 		depth += t.delta()
@@ -616,15 +670,19 @@ var typeContinuesAfter = map[string]bool{
 }
 
 // typeContinuesWith are tokens that continue a type on the next line.
+// TypeScript reads an array suffix, type arguments and a conditional
+// extends only without a line break before them, so a line that starts
+// with "[", "<" or "extends" begins a new statement.
 var typeContinuesWith = map[string]bool{
-	"|": true, "&": true, "?": true, ":": true, ".": true, "?.": true, "=>": true, "[": true, "<": true,
-	">": true, "extends": true, ",": true, "as": true, "is": true,
+	"|": true, "&": true, "?": true, ":": true, ".": true, "?.": true, "=>": true,
 }
 
 // scanTypeDecl reads the type alias or interface whose keyword is at i. It
 // returns the declaration's text (with any export or declare before it)
 // and the index of its last token; ok is false when the keyword is not a
-// declaration there.
+// declaration there. At the top level, "type" and a name on one line
+// before "=" or "<", and "interface" and a name on one line, are always a
+// declaration: neither reads as code, whatever the line before ends with.
 func scanTypeDecl(src string, toks []tsToken, i int) (decl string, end int, ok bool, err error) {
 	kw := toks[i].text
 	n := i + 1
@@ -632,9 +690,6 @@ func scanTypeDecl(src string, toks []tsToken, i int) (decl string, end int, ok b
 		return "", 0, false, nil
 	}
 	s := declStart(toks, i, "export", "declare")
-	if s == i && !statementStart(toks, i) {
-		return "", 0, false, nil
-	}
 	k := n + 1
 	if kw == "type" {
 		if k < len(toks) && toks[k].is(tsPunct, "<") {

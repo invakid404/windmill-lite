@@ -121,9 +121,11 @@ func TestLocatorGivesUp(t *testing.T) {
 // TestLocatorSites places jobs in each shape the walker knows (OR-11).
 func TestLocatorSites(t *testing.T) {
 	tree := treeOf(t, map[string]string{
-		"f/x/w": twoScripts,
-		"f/x/b": "summary: s\nvalue:\n  modules:\n    - id: pick\n      value:\n        type: branchone\n        branches:\n          - {expr: 'false', modules: [{id: x, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n          - {expr: 'true', modules: [{id: y, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n        default: []\n",
-		"f/x/l": "summary: s\nvalue:\n  modules:\n    - id: loop\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1]'}\n        modules:\n          - {id: p, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n          - {id: q, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
+		"f/x/w":     twoScripts,
+		"f/x/b":     "summary: s\nvalue:\n  modules:\n    - id: pick\n      value:\n        type: branchone\n        branches:\n          - {expr: 'false', modules: [{id: x, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n          - {expr: 'true', modules: [{id: y, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n        default: []\n",
+		"f/x/l":     "summary: s\nvalue:\n  modules:\n    - id: loop\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1]'}\n        modules:\n          - {id: p, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n          - {id: q, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
+		"f/x/s":     "summary: s\nvalue:\n  modules:\n    - {id: sub, value: {type: flow, path: f/x/child, input_transforms: {}}}\n    - id: fan\n      value:\n        type: branchall\n        branches:\n          - {modules: [{id: u, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n          - {modules: [{id: v, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}]}\n    - id: each\n      value:\n        type: forloopflow\n        iterator: {type: javascript, expr: '[1, 2]'}\n        modules:\n          - {id: one, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
+		"f/x/child": "summary: s\nvalue:\n  modules:\n    - {id: c, value: {type: rawscript, content: c, language: bun, input_transforms: {}}}\n",
 	})
 	jobs := map[string]string{
 		// A failure handler is at s:failure; a failed attempt at the
@@ -137,6 +139,15 @@ func TestLocatorSites(t *testing.T) {
 		"L":  flowJob("L", "f/x/l", "QueuedJob", `{"modules":[{"type":"InProgress","id":"loop","job":"L","flow_jobs":["L0","L1"]}]}`),
 		"L0": flowJob("L0", "", "CompletedJob", `{"modules":[{"type":"Success","id":"p","job":"P0"},{"type":"Success","id":"q","job":"Q0"}]}`),
 		"N":  flowJob("N", "f/x/l", "QueuedJob", `{"modules":[{"type":"InProgress","id":"loop","job":"N"}]}`),
+		// A retried step inside an iteration of a parallel loop.
+		"L2": flowJob("L2", "f/x/l", "QueuedJob", `{"modules":[{"type":"InProgress","id":"loop","job":"L2","flow_jobs":["M0","M1"]}]}`),
+		"M0": flowJob("M0", "", "QueuedJob", `{"modules":[{"type":"InProgress","id":"p","job":"P2","failed_retries":["P1"]},{"type":"WaitingForPriorSteps","id":"q"}]}`),
+		"M1": flowJob("M1", "", "QueuedJob", `{"modules":[{"type":"InProgress","id":"p","job":"P3"},{"type":"WaitingForPriorSteps","id":"q"}]}`),
+		// A named subflow, a branchall and a collapsed loop in one flow.
+		"S":   flowJob("S", "f/x/s", "QueuedJob", `{"modules":[{"type":"Success","id":"sub","job":"SUB"},{"type":"Success","id":"fan","job":"FB1","flow_jobs":["FB0","FB1"],"branchall":{"branch":1,"len":2}},{"type":"InProgress","id":"each","job":"S","flow_jobs":["E0","E1"],"iterator":{"index":1}}]}`),
+		"SUB": flowJob("SUB", "f/x/child", "CompletedJob", `{"modules":[{"type":"Success","id":"c","job":"C"}]}`),
+		"FB0": flowJob("FB0", "", "CompletedJob", `{"modules":[{"type":"Success","id":"u","job":"U"}]}`),
+		"FB1": flowJob("FB1", "", "CompletedJob", `{"modules":[{"type":"Success","id":"v","job":"V"}]}`),
 	}
 	l, api := newLocator(t, tree, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -147,6 +158,13 @@ func TestLocatorSites(t *testing.T) {
 		{"F", "A1", "m:a~0"},
 		{"B", "Y", "m:pick/b:1/m:y"},
 		{"L", "Q0", "m:loop/i:0/m:q"},
+		{"L2", "P1", "m:loop/i:0/m:p"},
+		{"L2", "P2", "m:loop/i:0/m:p"},
+		{"L2", "P3", "m:loop/i:1/m:p"},
+		{"S", "C", "m:sub/m:c"},
+		{"S", "U", "m:fan/b:0/m:u"},
+		{"S", "V", "m:fan/b:1/m:v"},
+		{"S", "E1", "m:each/i:1/m:one"},
 	} {
 		site, err := l.Locate(ctx, c.root, c.job)
 		if err != nil || site.String() != c.site {
@@ -168,7 +186,9 @@ func TestLocatorSites(t *testing.T) {
 	}
 	// A leaf iteration needs a one-module body.
 	api.set("L", flowJob("L", "f/x/l", "QueuedJob", `{"modules":[{"type":"InProgress","id":"loop","flow_jobs":["LEAF"]}]}`))
-	if _, err := l.Locate(ctx, "L", "LEAF"); err == nil || !strings.Contains(err.Error(), "one-module body") {
+	short2, cancel3 := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel3()
+	if _, err := l.Locate(short2, "L", "LEAF"); err == nil || !strings.Contains(err.Error(), "(last walk: oracle: job LEAF is the leaf iteration m:loop/i:0, but the fixture does not define a one-module body)") {
 		t.Fatalf("got %v", err)
 	}
 	// A script run's root is the stub itself.

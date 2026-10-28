@@ -47,6 +47,8 @@ type fakeEngine struct {
 
 type fjob struct {
 	kind, path string
+	created    time.Time
+	finished   time.Time
 	completed  bool
 	success    bool
 	args       json.RawMessage
@@ -93,7 +95,7 @@ func (e *fakeEngine) complete(id string, ok bool, result any) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	j := e.jobs[id]
-	j.completed, j.success, j.result = true, ok, data
+	j.completed, j.success, j.result, j.finished = true, ok, data, time.Now()
 }
 
 // set changes a module entry under the lock, which the API reads.
@@ -190,8 +192,12 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				typ = "CompletedJob"
 			}
 			job := map[string]any{"type": typ, "id": id, "job_kind": j.kind, "script_path": j.path, "canceled": false, "is_skipped": false}
+			if !j.created.IsZero() {
+				job["created_at"] = j.created.UTC().Format(time.RFC3339Nano)
+			}
 			if j.completed {
 				job["success"] = j.success
+				job["completed_at"] = j.finished.UTC().Format(time.RFC3339Nano)
 			}
 			if j.fs != nil {
 				job["flow_status"] = j.fs
@@ -236,7 +242,7 @@ func (e *fakeEngine) run(w http.ResponseWriter, r *http.Request, path string) {
 	}
 	fs := waitingStatus(fl.Document.Value.Modules)
 	e.mu.Lock()
-	e.jobs[root] = &fjob{kind: "flow", path: path, args: body, fs: fs}
+	e.jobs[root] = &fjob{kind: "flow", path: path, args: body, fs: fs, created: time.Now()}
 	e.mu.Unlock()
 	e.wg.Add(1)
 	go func() {

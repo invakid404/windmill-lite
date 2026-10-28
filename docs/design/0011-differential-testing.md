@@ -37,7 +37,9 @@ The `oracle` package implements the reference's design as written:
    [OR-31](../semantics/oracle.md#or-31)): a fresh workspace per fixture run;
    the sync tree pushed with `windmill-cli@1.767.0` from npm on the runner,
    never the CLI inside the image; setup applied after the push; the
-   deployment gate polls each lock job to success.
+   deployment gate polls each lock job to success. The workspace is deleted
+   once the fixture's runs are done, because CE admits only two workspaces
+   besides `admins` (observed on the oracle in E4a's first recording).
 3. **Run and capture** ([OR-10](../semantics/oracle.md#or-10),
    [OR-V1](../semantics/oracle.md#or-v1), [OR-V2](../semantics/oracle.md#or-v2)):
    asynchronous submission and `get_result_maybe` polling, never
@@ -217,19 +219,25 @@ arguments bind by the names found there ([WR-6](../semantics/languages.md#wr-6),
 [WR-7](../semantics/languages.md#wr-7)), and every top-level type alias and
 interface verbatim, since local aliases decide `Date` hydration
 ([WR-8](../semantics/languages.md#wr-8), [WR-V3](../semantics/languages.md#wr-v3))
-and types are erased before code runs. Imports, top-level code and the body
-are dropped. Only Bun scripts and `!inline` Bun rawscripts are stubbed; the
+and types are erased before code runs. It also keeps the leading block's
+`npm`, `nodejs`, `nobundling` and `sandbox` flags, which decide how Windmill
+runs the script ([WR-31](../semantics/languages.md#wr-31)). Imports,
+top-level code and the body are dropped. Only Bun scripts and `!inline` Bun rawscripts are stubbed; the
 generator refuses a tree in which some executed script would keep its body
 (another language, the `native` annotation, content written in
-`flow.yaml`, a hub or out-of-tree target, an AI-agent step) and a script
-whose signature it cannot keep (no exported `function main` declaration, a
+`flow.yaml`, a hub or out-of-tree target, an AI-agent step), a retry on a
+subflow, loop or branch step (the walk puts a failed attempt's inner steps
+under `r:<k>`, which a table does not address), and a script whose
+signature it cannot keep (no exported `function main` declaration, a
 default-exported, generic, generator or overloaded `main`, a
-`preprocessor`, a parameter default naming a dropped binding). `wltest
-stub` writes the stubbed copy to a new directory, never in place. Because
-the copy's metadata still describes the originals, `record` runs the CLI's
-`generate-metadata` in it and requires every script's generated schema to
-equal the original's: the CLI derives the schema from the signature, so this
-checks on the oracle that the stub kept it.
+`preprocessor`, a parameter default naming a dropped binding or `process`,
+`Bun` or `globalThis`). `wltest stub` writes the stubbed copy to a new
+directory, never in place. Because the copy's metadata still describes the
+originals, `record` runs the CLI's `generate-metadata` in it and requires
+every path script's generated schema to equal the original's: the CLI
+derives the schema from the signature, so this checks on the oracle that the
+stub kept it. Inline scripts have no schema; for them the scanner's cases,
+and the arguments each recorded call shows, are the evidence.
 
 **The replay service (chosen by E4a).** It is served by the effect sink's
 server at `$WL_EFFECT_SINK/replay`, so the stub needs no new whitelisted
@@ -252,7 +260,8 @@ each call must agree with the walk (a failed attempt `k` at
 `<site>/r:<k>`, the module's last job at `<site>`) and every walked job that
 executed a script must have called, or the run fails. A fixture opts in
 with `stub: true`; runs that share a `group` are submitted together as
-concurrent outer runs.
+concurrent outer runs, and fail together when one of them fails or when
+their root jobs were not in flight together.
 
 ### CI
 
@@ -314,10 +323,14 @@ concurrent outer runs.
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.
 - Milestone E4a chose the stub's shape and the replay protocol above, and
-  answers [Q-OR-10](../semantics/oracle.md#q-or-10) with its recordings:
-  every call records the `WM_ROOT_JOB_ID` and `WM_ROOT_FLOW_JOB_ID` it saw
-  inside a named subflow and parallel iterations, beside a concurrent outer
-  run.
+  answers [Q-OR-10](../semantics/oracle.md#q-or-10) with its recordings
+  (`conformance/flows/stub/scopes`): inside a named subflow and inside each
+  parallel iteration, beside a concurrent outer run, `WM_ROOT_JOB_ID` is
+  the submitted root, while `WM_ROOT_FLOW_JOB_ID` and `WM_FLOW_JOB_ID` are
+  the subflow's or the iteration's own job; in sequential iterations and a
+  collapsed body `WM_ROOT_FLOW_JOB_ID` stays the root. It also found that CE
+  admits only two workspaces besides `admins`, so a session deletes each
+  fixture's workspace after its runs.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
 - Disputed findings get settled by recordings, early, through a reviewed

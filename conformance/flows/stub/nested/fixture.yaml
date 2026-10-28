@@ -6,7 +6,7 @@
 id: stub/nested
 spec: [OR-11, CF-1, CF-3, CF-4, CF-9]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, effects: true}
 stub: true

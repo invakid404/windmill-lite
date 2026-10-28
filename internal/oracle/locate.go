@@ -29,7 +29,8 @@ import (
 //
 // A job that is not in the tree yet (its parent's status is written after
 // the job is queued) is looked for again every Interval until the
-// context ends. Completed jobs are cached, since their status no longer
+// context ends, and so is a walk that failed, whose last error the
+// result then carries. Completed jobs are cached, since their status no longer
 // changes; it is safe for concurrent use.
 type Locator struct {
 	Client    *Client
@@ -48,19 +49,20 @@ func (l *Locator) Locate(ctx context.Context, root, job string) (conformance.Sit
 	if interval == 0 {
 		interval = 100 * time.Millisecond
 	}
+	var last error
 	notFound := func() error {
+		if last != nil {
+			return fmt.Errorf("oracle: job %s is not in the job tree of run %s: %w (last walk: %v)", job, root, ctx.Err(), last)
+		}
 		return fmt.Errorf("oracle: job %s is not in the job tree of run %s: %w", job, root, ctx.Err())
 	}
 	for {
 		site, found, err := l.find(ctx, root, job)
-		if err != nil {
-			if ctx.Err() != nil {
-				return site, notFound()
-			}
-			return site, err
-		}
-		if found {
+		if found && err == nil {
 			return site, nil
+		}
+		if err != nil && ctx.Err() == nil {
+			last = err
 		}
 		select {
 		case <-ctx.Done():

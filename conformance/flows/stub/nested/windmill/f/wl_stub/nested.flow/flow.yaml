@@ -24,12 +24,12 @@ value:
                     type: rawscript
                     content: '!inline write.ts'
                     input_transforms:
-                      row:
-                        type: javascript
-                        expr: flow_input.iter_parent.index
                       value:
                         type: javascript
                         expr: results.read
+                      row:
+                        type: javascript
+                        expr: flow_input.iter_parent.index
                     lock: '!inline write.lock'
                     language: bun
               iterator:
