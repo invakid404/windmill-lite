@@ -16,6 +16,7 @@ import {
   type Outgoing,
   ProtocolError,
   Raw,
+  RAW_FIELDS,
   split,
 } from "../runtime/frame.ts";
 
@@ -43,7 +44,7 @@ const dec = new TextDecoder();
  * their JSON.stringify text, part chunks their base64. */
 function outgoing(m: Message): Outgoing {
   const o: Outgoing = { ...m };
-  const raw = ({ invoke: ["args"], result: ["body"], late: ["body"] } as Record<string, string[]>)[m.t] ?? [];
+  const raw = RAW_FIELDS[m.t] ?? [];
   for (const k of raw) if (k in m) o[k] = new Raw(JSON.stringify(m[k]));
   if (m.t === "part" && m.chunk instanceof Uint8Array) o.chunk = Buffer.from(m.chunk).toString("base64");
   return o;

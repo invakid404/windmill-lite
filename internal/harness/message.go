@@ -17,24 +17,29 @@ import (
 // `proto` in hello and welcome.
 const ProtocolVersion = 1
 
-// Message types (the `t` field, ADR 0004). This package implements the
-// frames that milestone C1 needs; `platform`/`platform_reply` (PF1),
-// `host_call`/`host_reply` (F2c) and `run`/`run_done`/`run_cancel` (host
-// mode, W1 and F3a) are added by the milestones that serve them, and are
-// refused as CodeUnknownType until then.
+// Message types (the `t` field, ADR 0004). Milestone C1 implemented the
+// frames of spawned harnesses; the walking skeleton (W1) added
+// `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
+// and host mode's `run`/`run_done`/`run_cancel`. `host_call`/`host_reply`
+// (F2c) are refused as CodeUnknownType until their milestone.
 const (
-	TypeHello   = "hello"
-	TypeWelcome = "welcome"
-	TypeInvoke  = "invoke"
-	TypeResult  = "result"
-	TypeLate    = "late"
-	TypeCancel  = "cancel"
-	TypeLog     = "log"
-	TypePing    = "ping"
-	TypePong    = "pong"
-	TypePart    = "part"
-	TypeDrain   = "drain"
-	TypeBye     = "bye"
+	TypeHello         = "hello"
+	TypeWelcome       = "welcome"
+	TypeInvoke        = "invoke"
+	TypeResult        = "result"
+	TypeLate          = "late"
+	TypeCancel        = "cancel"
+	TypeLog           = "log"
+	TypePlatform      = "platform"
+	TypePlatformReply = "platform_reply"
+	TypeRun           = "run"
+	TypeRunDone       = "run_done"
+	TypeRunCancel     = "run_cancel"
+	TypePing          = "ping"
+	TypePong          = "pong"
+	TypePart          = "part"
+	TypeDrain         = "drain"
+	TypeBye           = "bye"
 )
 
 // Message is one protocol message. Encode writes its canonical payload.
@@ -98,6 +103,11 @@ type WelcomeConfig struct {
 	HeartbeatMS int
 	// MaxMessage is the largest message either side may send, in bytes.
 	MaxMessage int64
+	// Facade is the platform facade's origin ("http://127.0.0.1:<port>"),
+	// or "" when the engine serves no platform calls. The harness turns
+	// fetch requests to this origin into platform frames (ADR 0004,
+	// per-invocation identity).
+	Facade string
 }
 
 // Reject says why the engine refused a harness. Code is one of the
@@ -172,6 +182,62 @@ type Log struct {
 	Lines []string
 }
 
+// PlatformRequest is a fetch to the platform facade that the harness
+// intercepted, attributed to the invocation whose context made it
+// (ADR 0004, ADR 0007). Body is nil for a request without one.
+type PlatformRequest struct {
+	ID string
+	// Inv is the invocation the request is attributed to.
+	Inv     string
+	Method  string
+	URL     string
+	Headers map[string]string
+	Body    *string
+}
+
+// PlatformReply answers a PlatformRequest with the same id.
+type PlatformReply struct {
+	ID      string
+	Status  int
+	Headers map[string]string
+	Body    *string
+}
+
+// Run kinds of a run frame.
+const (
+	RunFlow   = "flow"
+	RunScript = "script"
+)
+
+// RunRequest is a run that a host-mode harness submits (ADR 0004 host
+// mode, ADR 0009): the target by kind and path and its arguments. Its id is
+// the run's id in the engine, so invocations of the run carry it as `run`
+// and the host can re-enter the scope it captured at submission (H11).
+// Intercept, if not zero, is a JSON object of module ids to the results
+// that stand in for those modules: the static, no-code form of H1
+// (ADR 0008).
+type RunRequest struct {
+	ID        string
+	Kind      string
+	Path      string
+	Args      jsonval.Value
+	Intercept jsonval.Value
+}
+
+// RunDone is a run's outcome, answering a RunRequest with the same id.
+// Status is a conformance.RunStatus value; Result is the run's final result
+// in stored form, zero when the run has none (canceled, latched, halted).
+type RunDone struct {
+	ID     string
+	Status string
+	Result jsonval.Value
+}
+
+// RunCancel cancels a run the harness submitted.
+type RunCancel struct {
+	ID string
+}
+
 // Health is what a ping or pong reports about its sender.
 type Health struct {
 	InFlight  int
@@ -213,18 +279,23 @@ type Drain struct{}
 // Bye is the harness's answer to drain, its last frame.
 type Bye struct{}
 
-func (Hello) Type() string   { return TypeHello }
-func (Welcome) Type() string { return TypeWelcome }
-func (Invoke) Type() string  { return TypeInvoke }
-func (Result) Type() string  { return TypeResult }
-func (Late) Type() string    { return TypeLate }
-func (Cancel) Type() string  { return TypeCancel }
-func (Log) Type() string     { return TypeLog }
-func (Ping) Type() string    { return TypePing }
-func (Pong) Type() string    { return TypePong }
-func (Part) Type() string    { return TypePart }
-func (Drain) Type() string   { return TypeDrain }
-func (Bye) Type() string     { return TypeBye }
+func (Hello) Type() string           { return TypeHello }
+func (Welcome) Type() string         { return TypeWelcome }
+func (Invoke) Type() string          { return TypeInvoke }
+func (Result) Type() string          { return TypeResult }
+func (Late) Type() string            { return TypeLate }
+func (Cancel) Type() string          { return TypeCancel }
+func (Log) Type() string             { return TypeLog }
+func (PlatformRequest) Type() string { return TypePlatform }
+func (PlatformReply) Type() string   { return TypePlatformReply }
+func (RunRequest) Type() string      { return TypeRun }
+func (RunDone) Type() string         { return TypeRunDone }
+func (RunCancel) Type() string       { return TypeRunCancel }
+func (Ping) Type() string            { return TypePing }
+func (Pong) Type() string            { return TypePong }
+func (Part) Type() string            { return TypePart }
+func (Drain) Type() string           { return TypeDrain }
+func (Bye) Type() string             { return TypeBye }
 
 func (m Hello) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeHello)
@@ -258,6 +329,9 @@ func (m Welcome) appendPayload(b []byte) ([]byte, error) {
 			e.str("module_state", c.ModuleState)
 			e.int("heartbeat_ms", int64(c.HeartbeatMS))
 			e.int("max_message", c.MaxMessage)
+			if c.Facade != "" {
+				e.str("facade", c.Facade)
+			}
 		})
 	} else {
 		r := m.Reject
@@ -280,18 +354,7 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 	e.str("script", m.Script)
 	e.str("entry", m.Entry)
 	e.raw("args", m.Args.Producer())
-	keys := make([]string, 0, len(m.Env))
-	for k := range m.Env {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	// Variable names are data, so they are escaped like values; they are
-	// sorted because a Go map has no order.
-	e.object("env", func(e *envelope) {
-		for _, k := range keys {
-			e.pair(k, m.Env[k])
-		}
-	})
+	e.strMap("env", m.Env)
 	e.str("boundary", m.Boundary)
 	return e.end()
 }
@@ -339,6 +402,61 @@ func (m Log) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeLog)
 	e.str("id", m.ID)
 	e.strings("lines", m.Lines)
+	return e.end()
+}
+
+func (m PlatformRequest) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypePlatform)
+	e.str("id", m.ID)
+	e.str("inv", m.Inv)
+	e.str("method", m.Method)
+	e.str("url", m.URL)
+	e.strMap("headers", m.Headers)
+	if m.Body != nil {
+		e.str("body", *m.Body)
+	}
+	return e.end()
+}
+
+func (m PlatformReply) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypePlatformReply)
+	e.str("id", m.ID)
+	e.int("status", int64(m.Status))
+	e.strMap("headers", m.Headers)
+	if m.Body != nil {
+		e.str("body", *m.Body)
+	}
+	return e.end()
+}
+
+func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
+	if m.Args.IsZero() {
+		return b, protoErr(CodeMissingField, "run without args")
+	}
+	e := newEnvelope(b, TypeRun)
+	e.str("id", m.ID)
+	e.str("kind", m.Kind)
+	e.str("path", m.Path)
+	e.raw("args", m.Args.Producer())
+	if !m.Intercept.IsZero() {
+		e.raw("intercept", m.Intercept.Producer())
+	}
+	return e.end()
+}
+
+func (m RunDone) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeRunDone)
+	e.str("id", m.ID)
+	e.str("status", m.Status)
+	if !m.Result.IsZero() {
+		e.raw("result", m.Result.Producer())
+	}
+	return e.end()
+}
+
+func (m RunCancel) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeRunCancel)
+	e.str("id", m.ID)
 	return e.end()
 }
 
@@ -447,6 +565,9 @@ func Decode(payload []byte) (Message, error) {
 		case config:
 			if cd := d.object("config"); cd != nil {
 				wm.Config = &WelcomeConfig{ModuleState: cd.str("module_state"), HeartbeatMS: cd.int("heartbeat_ms"), MaxMessage: cd.int64("max_message")}
+				if cd.present("facade") {
+					wm.Config.Facade = cd.str("facade")
+				}
 			}
 		case reject:
 			if rd := d.object("reject"); rd != nil {
@@ -506,6 +627,43 @@ func Decode(payload []byte) (Message, error) {
 		m = c
 	case TypeLog:
 		m = Log{ID: d.str("id"), Lines: d.strings("lines")}
+	case TypePlatform:
+		m = PlatformRequest{
+			ID:      d.str("id"),
+			Inv:     d.str("inv"),
+			Method:  d.str("method"),
+			URL:     d.str("url"),
+			Headers: d.env("headers"),
+			Body:    d.optStr("body"),
+		}
+	case TypePlatformReply:
+		r := PlatformReply{ID: d.str("id"), Status: d.int("status"), Headers: d.env("headers"), Body: d.optStr("body")}
+		if derr == nil && (r.Status < 100 || r.Status > 599) {
+			d.fail(CodeBadField, "platform_reply status %d", r.Status)
+		}
+		m = r
+	case TypeRun:
+		r := RunRequest{ID: d.str("id"), Kind: d.str("kind"), Path: d.str("path"), Args: d.raw("args")}
+		switch r.Kind {
+		case RunFlow, RunScript:
+		default:
+			d.fail(CodeBadField, "run kind %q", r.Kind)
+		}
+		if d.present("intercept") {
+			r.Intercept = d.raw("intercept")
+		}
+		m = r
+	case TypeRunDone:
+		r := RunDone{ID: d.str("id"), Status: d.str("status")}
+		if !slices.Contains(runStatuses, r.Status) && derr == nil {
+			d.fail(CodeBadField, "run_done status %q", r.Status)
+		}
+		if d.present("result") {
+			r.Result = d.raw("result")
+		}
+		m = r
+	case TypeRunCancel:
+		m = RunCancel{ID: d.str("id")}
 	case TypePing:
 		m = Ping{ID: d.str("id"), Health: d.health()}
 	case TypePong:
@@ -537,6 +695,10 @@ func Decode(payload []byte) (Message, error) {
 	}
 	return m, nil
 }
+
+// runStatuses are the statuses of a run_done frame: the values of
+// conformance.RunStatus.
+var runStatuses = []string{"success", "failure", "canceled", "skipped", "latched", "halted"}
 
 // Late kinds of a late frame (engine.LateKind spells the same).
 const (
@@ -577,6 +739,15 @@ func (d *decoder) field(name string) json.RawMessage {
 
 func (d *decoder) badType(name string) {
 	d.fail(CodeBadField, "field %q has the wrong type", d.prefix+name)
+}
+
+// optStr returns an optional string field, nil when it is absent or null.
+func (d *decoder) optStr(name string) *string {
+	if !d.present(name) {
+		return nil
+	}
+	s := d.str(name)
+	return &s
 }
 
 func (d *decoder) str(name string) string {
@@ -668,7 +839,8 @@ func (d *decoder) strings(name string) []string {
 	return out
 }
 
-// env decodes an object of strings; a null value is a wrong type.
+// env decodes an object of strings (env, headers); a null value is a wrong
+// type.
 func (d *decoder) env(name string) map[string]string {
 	raw := d.field(name)
 	if raw == nil {

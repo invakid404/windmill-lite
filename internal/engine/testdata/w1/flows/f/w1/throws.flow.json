@@ -1,0 +1,4 @@
+{
+  "summary": "W1: a step that throws; the flow fails with the step's wrapped error (FX-12, FX-36)",
+  "value": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/w1/throws", "input_transforms": {}}}, {"id": "b", "value": {"type": "script", "path": "f/w1/must_not_run", "input_transforms": {}}}]}
+}

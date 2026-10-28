@@ -84,11 +84,23 @@ type ProcessConfig struct {
 	// diagnostics about the process; nil means os.Stderr.
 	Diagnostics io.Writer
 
+	// Facade is the platform facade's origin, sent in the welcome, or ""
+	// when the engine serves no platform calls. Platform answers the
+	// platform frames of fetches to it; nil answers each with a 501.
+	Facade   string
+	Platform PlatformHandler
+
 	// notify is called, outside every lock, after an invocation is
 	// abandoned, after an abandoned invocation settles, and after the
 	// process exits. The pool sets it.
 	notify func(*Process)
 }
+
+// PlatformHandler answers one platform request, the fetch of an
+// invocation to the facade (ADR 0004, ADR 0007). It runs on a goroutine of
+// its own; ctx ends when the process does. The facade itself, its router
+// and its policies are milestone PF1's.
+type PlatformHandler func(ctx context.Context, req PlatformRequest) PlatformReply
 
 // PinnedBun is the Bun version the harness must run on: the version of
 // Windmill v1.767.0's images (WR-3, ADR 0001).
@@ -143,12 +155,14 @@ func (s ExitStatus) String() string {
 	return fmt.Sprintf("exit code %d", s.Code)
 }
 
-// Process is one spawned harness process and the engine side of its
-// connection: the handshake, the invocations in flight, health and the
-// watchdog. It is safe for concurrent use.
+// Process is one harness process and the engine side of its connection:
+// the handshake, the invocations in flight, health and the watchdog. It is
+// a process the engine spawned (Spawn), or in host mode the host the engine
+// is a child of (AttachHost). It is safe for concurrent use.
 type Process struct {
 	cfg        ProcessConfig
 	cmd        *exec.Cmd
+	host       *hostSide // nil for a spawned process
 	conn       *conn
 	dir        string
 	pid        int
@@ -163,12 +177,17 @@ type Process struct {
 	errR     *os.File
 	stdioWG  sync.WaitGroup
 	exited   chan struct{} // closed when the exit has been handled
+	// life ends when the connection does; platform handlers and a host's
+	// runs run under it.
+	life    context.Context
+	endLife context.CancelCauseFunc
 
 	mu         sync.Mutex
 	state      procState
 	helloCh    chan Hello
 	hello      Hello
 	invs       map[string]*invocation
+	runs       map[string]context.CancelCauseFunc // a host's runs in flight
 	recent     recentInvocations
 	inFlight   int
 	abandoned  int
@@ -210,7 +229,7 @@ type invocation struct {
 	report  engine.Reporter
 	state   invState
 	tail    tail
-	outcome chan engine.StepOutcome // buffered, receives exactly one value
+	outcome chan execResult // buffered, receives exactly one value
 	// calls runs the invocation's Reporter calls and its outcome delivery,
 	// one at a time and in order, away from the connection's reader: a slow
 	// Reporter neither stalls the frames of other invocations nor looks
@@ -224,14 +243,30 @@ type invocation struct {
 	fixed func()
 }
 
+// execResult is what an invocation's outcome channel delivers: an
+// outcome, or in host mode the error of a lost host.
+type execResult struct {
+	out engine.StepOutcome
+	err error
+}
+
 // Spawn starts a harness process and completes the handshake. On success
 // the process is serving and its watchdog runs.
 func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
+	p, timeout, err := newProcess(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return p.spawn(ctx, timeout)
+}
+
+// newProcess applies cfg's defaults and checks them.
+func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	if cfg.ModuleState == "" {
 		cfg.ModuleState = engine.ModuleStateWarm
 	}
 	if cfg.ModuleState != engine.ModuleStateWarm {
-		return nil, fmt.Errorf("harness: module-state mode %q is not implemented (fresh mode is milestone C3b)", cfg.ModuleState)
+		return nil, 0, fmt.Errorf("harness: module-state mode %q is not implemented (fresh mode is milestone C3b)", cfg.ModuleState)
 	}
 	p := &Process{
 		cfg:        cfg,
@@ -242,6 +277,7 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 		exited:     make(chan struct{}),
 		helloCh:    make(chan Hello, 1),
 		invs:       map[string]*invocation{},
+		runs:       map[string]context.CancelCauseFunc{},
 		pings:      map[string]chan *Health{},
 	}
 	if p.killAfter == 0 {
@@ -256,10 +292,10 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	p.heartbeat = max(p.heartbeat, time.Millisecond)
 	switch {
 	case cfg.Heartbeat < 0 || cfg.MaxMessage < 0:
-		return nil, errors.New("harness: Heartbeat and MaxMessage cannot be negative")
+		return nil, 0, errors.New("harness: Heartbeat and MaxMessage cannot be negative")
 	case p.killAfter > 0 && p.heartbeat >= p.killAfter:
 		// An idle harness would look silent between two heartbeats.
-		return nil, fmt.Errorf("harness: heartbeat %s must be shorter than the watchdog's killAfter %s", p.heartbeat, p.killAfter)
+		return nil, 0, fmt.Errorf("harness: heartbeat %s must be shorter than the watchdog's killAfter %s", p.heartbeat, p.killAfter)
 	}
 	if p.maxMessage == 0 || p.maxMessage > DefaultMaxMessage {
 		p.maxMessage = DefaultMaxMessage
@@ -277,7 +313,12 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	if timeout == 0 {
 		timeout = DefaultHandshakeTimeout
 	}
+	p.life, p.endLife = context.WithCancelCause(context.Background())
+	return p, timeout, nil
+}
 
+func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, error) {
+	cfg := p.cfg
 	dir, err := os.MkdirTemp(cfg.WorkRoot, "wl-harness-")
 	if err != nil {
 		return nil, fmt.Errorf("harness: working directory: %w", err)
@@ -395,10 +436,17 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		reject = &Reject{RejectRuntime, fmt.Sprintf("runtime %q, the bundle pins %q", h.Runtime, p.cfg.Runtime)}
 	case h.Bundle != p.cfg.Bundle:
 		reject = &Reject{RejectBundle, fmt.Sprintf("bundle %q, want %q", h.Bundle, p.cfg.Bundle)}
-	case h.PID != p.pid:
+	case p.host == nil && h.PID != p.pid:
 		// The engine would otherwise signal a process other than the one
 		// that speaks the protocol, such as a wrapper script.
 		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine spawned pid %d", h.PID, p.pid)}
+	case p.host != nil && !h.Caps.Host:
+		reject = &Reject{RejectHarness, "a harness that connects in host mode must offer the host capability"}
+	case p.host != nil && h.PID != p.host.getppid():
+		// In host mode the engine is the host's child: the process its
+		// watchdog would signal is its parent, and the one that greets it
+		// must be that process (ADR 0004 host mode item 4).
+		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine's parent is pid %d", h.PID, p.host.getppid())}
 	}
 	if reject != nil {
 		w.Reject = reject
@@ -415,12 +463,17 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		ModuleState: string(p.cfg.ModuleState),
 		HeartbeatMS: int(max(p.heartbeat/time.Millisecond, 1)),
 		MaxMessage:  p.maxMessage,
+		Facade:      p.cfg.Facade,
 	}
 	p.mu.Lock()
 	if p.state == stateHandshake {
 		p.state = stateServing
 	}
 	p.hello = h
+	if p.host != nil {
+		p.pid = h.PID
+		p.diag.pid.Store(int64(h.PID))
+	}
 	p.mu.Unlock()
 	if err := p.conn.send(w); err != nil {
 		p.kill("welcome not sent")
@@ -493,6 +546,18 @@ func (p *Process) handleMessage(m Message) error {
 		}
 	case Bye:
 		p.bye = true
+	case PlatformRequest:
+		p.onPlatform(m)
+	case RunRequest:
+		err = p.onRun(m)
+	case RunCancel:
+		if p.host == nil {
+			err = protoErr(CodeUnexpected, "run_cancel from a harness that is not in host mode")
+		} else if cancel := p.runs[m.ID]; cancel != nil {
+			// A run that already ended is no longer in the table; its
+			// cancel crossed the run_done on the wire.
+			cancel(engine.CancelCanceled)
+		}
 	default:
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())
 	}
@@ -524,7 +589,7 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 		} else {
 			inv.state = invFixed
 		}
-		return inv, append(calls, func() { inv.outcome <- out }), nil
+		return inv, append(calls, func() { inv.outcome <- execResult{out: out} }), nil
 	case invAbandoned:
 		l := lateOf(r)
 		calls := []func(){func() { inv.report.Late(l) }}
@@ -608,6 +673,10 @@ func (p *Process) readerDone(err error) {
 	p.mu.Lock()
 	p.ending = true
 	p.mu.Unlock()
+	if p.host != nil {
+		p.hostDone(err)
+		return
+	}
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrDeadlineExceeded) {
 		p.mu.Lock()
 		if p.readErr == nil {
@@ -629,22 +698,45 @@ func (p *Process) readerDone(err error) {
 		<-p.waitDone
 	}
 	p.conn.close()
+	status := p.endInvocations()
+	// A process that dies fails its in-flight invocations as escaped, with
+	// its real exit code or the signal that ended it (ADR 0004, WR-4).
+	p.failInvocations(func(inv *invocation) execResult {
+		return execResult{out: engine.StepOutcome{
+			Kind:     engine.OutcomeEscaped,
+			Tail:     inv.tail.String(),
+			ExitCode: status.Code,
+			Signal:   status.Signal,
+		}}
+	})
+	p.closeStdio()
+	os.RemoveAll(p.dir)
+	p.finishExit()
+}
 
+// endInvocations marks the process exited and returns its exit status.
+// What was in flight stays in p.invs for failInvocations.
+func (p *Process) endInvocations() ExitStatus {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.state = stateExited
-	status := p.status
-	invs := p.invs
-	p.invs = map[string]*invocation{}
-	p.recent = recentInvocations{limit: p.recent.limit}
-	p.inFlight, p.abandoned = 0, 0
 	for id, ch := range p.pings {
 		close(ch)
 		delete(p.pings, id)
 	}
-	p.mu.Unlock()
+	return p.status
+}
 
-	// A process that dies fails its in-flight invocations as escaped, with
-	// its real exit code or the signal that ended it (ADR 0004, WR-4).
+// failInvocations settles every invocation still in the table with the
+// process (SettleProcessExited) and gives each pending one the outcome
+// that result builds, in id order.
+func (p *Process) failInvocations(result func(*invocation) execResult) {
+	p.mu.Lock()
+	invs := p.invs
+	p.invs = map[string]*invocation{}
+	p.recent = recentInvocations{limit: p.recent.limit}
+	p.inFlight, p.abandoned = 0, 0
+	p.mu.Unlock()
 	ids := make([]string, 0, len(invs))
 	for id := range invs {
 		ids = append(ids, id)
@@ -658,18 +750,17 @@ func (p *Process) readerDone(err error) {
 		}
 		calls = append(calls, func() { inv.report.Settled(engine.SettleProcessExited) })
 		if inv.state == invPending {
-			out := engine.StepOutcome{
-				Kind:     engine.OutcomeEscaped,
-				Tail:     inv.tail.String(),
-				ExitCode: status.Code,
-				Signal:   status.Signal,
-			}
-			calls = append(calls, func() { inv.outcome <- out })
+			r := result(inv)
+			calls = append(calls, func() { inv.outcome <- r })
 		}
 		inv.calls.do(calls...)
 	}
-	p.closeStdio()
-	os.RemoveAll(p.dir)
+}
+
+// finishExit ends the process's life: its runs and platform handlers see
+// their context end, Done closes, and the pool hears of it.
+func (p *Process) finishExit() {
+	p.endLife(errUnavailable)
 	close(p.exited)
 	if p.cfg.notify != nil {
 		p.cfg.notify(p)
@@ -704,6 +795,25 @@ func (p *Process) Execute(ctx context.Context, inv engine.Invocation) (engine.St
 	return out, err
 }
 
+// onPlatform answers a platform request on a goroutine of its own, so a
+// slow facade never stalls the reader. It runs with p.mu held.
+func (p *Process) onPlatform(req PlatformRequest) {
+	h := p.cfg.Platform
+	go func() {
+		var rep PlatformReply
+		if h == nil {
+			body := "windmill-lite: this engine serves no platform calls"
+			rep = PlatformReply{Status: 501, Headers: map[string]string{"content-type": "text/plain"}, Body: &body}
+		} else {
+			rep = h(p.life, req)
+		}
+		rep.ID = req.ID
+		if err := p.conn.send(rep); err != nil && !errors.Is(err, net.ErrClosed) {
+			p.diag.printf("platform reply %q not sent: %v", req.ID, err)
+		}
+	}()
+}
+
 // exec runs inv. fixed, if not nil, is called once the engine stops waiting
 // for the invocation (see invocation.fixed), but never for one that was
 // not dispatched.
@@ -727,7 +837,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if ctx.Err() != nil {
 		return engine.StepOutcome{}, notDispatched, context.Cause(ctx)
 	}
-	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan engine.StepOutcome, 1), fixed: fixed}
+	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), fixed: fixed}
 	p.mu.Lock()
 	if p.state != stateServing || p.killReason != "" || p.ending {
 		p.mu.Unlock()
@@ -749,15 +859,16 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	p.mu.Unlock()
 
 	select {
-	case out := <-e.outcome:
-		return out, completed, nil
+	case r := <-e.outcome:
+		return r.out, completed, r.err
 	case <-ctx.Done():
 	}
 	p.mu.Lock()
 	if e.state != invPending || p.invs[inv.ID] != e {
 		// The outcome won the race: it is in the channel or on its way.
 		p.mu.Unlock()
-		return <-e.outcome, completed, nil
+		r := <-e.outcome
+		return r.out, completed, r.err
 	}
 	e.state = invAbandoned
 	p.inFlight--
@@ -857,12 +968,20 @@ func (p *Process) Kill() { p.kill("killed by the engine") }
 // does not signal a child it has already reaped, so a reused pid is never
 // hit. The handshake checked that this process is the one speaking the
 // protocol.
+//
+// In host mode the engine signals the host only from its watchdog
+// (killHost); kill then only ends the connection, which ends the engine's
+// side of it.
 func (p *Process) kill(reason string) {
 	p.mu.Lock()
 	if p.killReason == "" {
 		p.killReason = reason
 	}
 	p.mu.Unlock()
+	if p.host != nil {
+		p.conn.close()
+		return
+	}
 	if p.cmd != nil {
 		p.cmd.Process.Signal(syscall.SIGKILL)
 	}
@@ -876,6 +995,10 @@ func (p *Process) watchdog() {
 	for {
 		silence := time.Since(p.conn.lastReceived())
 		if silence >= p.killAfter {
+			if p.host != nil {
+				p.killHost(silence)
+				return
+			}
 			p.mu.Lock()
 			var runs []string
 			for _, inv := range p.invs {

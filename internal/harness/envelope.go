@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"slices"
 	"strconv"
 	"unicode/utf8"
 )
@@ -56,6 +57,22 @@ func (e *envelope) pair(k, v string) {
 	if e.b, err = appendJSONString(e.b, v); err != nil && e.err == nil {
 		e.err = err
 	}
+}
+
+// strMap writes an object of strings whose keys are data (env, headers):
+// keys are escaped like values and sorted bytewise, because a Go map has no
+// order.
+func (e *envelope) strMap(k string, m map[string]string) {
+	keys := make([]string, 0, len(m))
+	for name := range m {
+		keys = append(keys, name)
+	}
+	slices.Sort(keys)
+	e.object(k, func(e *envelope) {
+		for _, name := range keys {
+			e.pair(name, m[name])
+		}
+	})
 }
 
 func (e *envelope) int(k string, v int64) {

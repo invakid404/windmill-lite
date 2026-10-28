@@ -1,0 +1,4 @@
+{
+  "summary": "W1: a step that leaves one detached rejection and returns",
+  "value": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/w1/detached", "input_transforms": {}}}]}
+}

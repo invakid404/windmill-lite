@@ -114,7 +114,9 @@ func (c *conn) send(m Message) error {
 }
 
 // invocationOf returns the invocation a message is about, for the
-// ordering rule, or "" for one that is about none.
+// ordering rule, or "" for one that is about none. A host's runs are
+// ordered the same way, under a key of their own: a run_cancel never
+// overtakes the large run it cancels.
 func invocationOf(m Message) string {
 	switch m := m.(type) {
 	case Invoke:
@@ -127,6 +129,12 @@ func invocationOf(m Message) string {
 		return m.ID
 	case Log:
 		return m.ID
+	case RunRequest:
+		return "run:" + m.ID
+	case RunDone:
+		return "run:" + m.ID
+	case RunCancel:
+		return "run:" + m.ID
 	}
 	return ""
 }

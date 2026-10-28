@@ -50,6 +50,11 @@ const FIELDS: Record<string, readonly string[]> = {
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
   log: ["id", "lines"],
+  platform: ["id", "inv", "method", "url", "headers", "body"],
+  platform_reply: ["id", "status", "headers", "body"],
+  run: ["id", "kind", "path", "args", "intercept"],
+  run_done: ["id", "status", "result"],
+  run_cancel: ["id"],
   ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   part: ["id", "seq", "last", "chunk"],
@@ -61,7 +66,7 @@ const FIELDS: Record<string, readonly string[]> = {
 const NESTED: Record<string, readonly string[]> = {
   harness: ["kind", "version"],
   caps: ["fetch", "native", "fresh", "host"],
-  config: ["module_state", "heartbeat_ms", "max_message"],
+  config: ["module_state", "heartbeat_ms", "max_message", "facade"],
   reject: ["code", "message"],
 };
 
@@ -75,9 +80,9 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
   if (Array.isArray(v)) return "[" + v.map((x) => value(x)).join(",") + "]";
   if (v && typeof v === "object") {
     const o = v as Record<string, unknown>;
-    // Protocol objects use their fixed order; data objects (env) sort
-    // their keys by UTF-16 code units, as Go sorts env bytewise for the
-    // ASCII names the cases use.
+    // Protocol objects use their fixed order; data objects (env, headers)
+    // sort their keys by UTF-16 code units, as Go sorts them bytewise for
+    // the ASCII names the cases use.
     const keys = nestedOrder ? nestedOrder.filter((k) => o[k] !== undefined) : Object.keys(o).sort();
     return "{" + keys.map((k) => JSON.stringify(k) + ":" + value(o[k])).join(",") + "}";
   }
@@ -148,6 +153,11 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   late: { id: "string", kind: "string", settled: "bool" },
   cancel: { id: "string", reason: "string" },
   log: { id: "string", lines: "strings" },
+  platform: { id: "string", inv: "string", method: "string", url: "string", headers: "env" },
+  platform_reply: { id: "string", status: "int", headers: "env" },
+  run: { id: "string", kind: "string", path: "string", args: "raw" },
+  run_done: { id: "string", status: "string" },
+  run_cancel: { id: "string" },
   ping: { id: "string" },
   pong: { id: "string" },
   part: { id: "string", seq: "int", last: "bool", chunk: "string" },
@@ -208,6 +218,7 @@ export function decode(payload: Uint8Array): Message {
       if (m.config != null) {
         checkField(m.t, m, "config", "object");
         checkNested(m.t, m, "config", { module_state: "string", heartbeat_ms: "int", max_message: "int" });
+        if (m.config.facade != null) checkField(m.t, m.config, "facade", "string");
       } else if (m.reject != null) {
         checkField(m.t, m, "reject", "object");
         checkNested(m.t, m, "reject", { code: "string", message: "string" });
@@ -237,6 +248,19 @@ export function decode(payload: Uint8Array): Message {
     case "cancel":
       if (!["timeout", "canceled", "run_ended"].includes(m.reason)) throw new ProtocolError("bad_field", `cancel reason ${JSON.stringify(m.reason)}`);
       break;
+    case "platform":
+      if (m.body != null) checkField(m.t, m, "body", "string");
+      break;
+    case "platform_reply":
+      if (m.status < 100 || m.status > 599) throw new ProtocolError("bad_field", `platform_reply status ${m.status}`);
+      if (m.body != null) checkField(m.t, m, "body", "string");
+      break;
+    case "run":
+      if (!["flow", "script"].includes(m.kind)) throw new ProtocolError("bad_field", `run kind ${JSON.stringify(m.kind)}`);
+      break;
+    case "run_done":
+      if (!RUN_STATUSES.includes(m.status)) throw new ProtocolError("bad_field", `run_done status ${JSON.stringify(m.status)}`);
+      break;
     case "ping":
     case "pong": {
       // Null counts as absent here too, as everywhere outside raw values.
@@ -252,6 +276,19 @@ export function decode(payload: Uint8Array): Message {
   return own(m);
 }
 
+/** The statuses of a run_done frame (conformance.RunStatus in Go). */
+const RUN_STATUSES = ["success", "failure", "canceled", "skipped", "latched", "halted"];
+
+/** Raw values: JSON that the codec splices in and never re-encodes. An
+ * optional raw field that is null counts as absent, as in Go. */
+export const RAW_FIELDS: Record<string, readonly string[]> = {
+  invoke: ["args"],
+  result: ["body"],
+  late: ["body"],
+  run: ["args", "intercept"],
+  run_done: ["result"],
+};
+
 /** The message with only the fields its type has, as Go's decoder keeps
  * them: unknown fields, and fields of another outcome, are dropped. */
 function own(m: Message): Message {
@@ -265,12 +302,16 @@ function own(m: Message): Message {
       const o: Record<string, unknown> = {};
       for (const n of nested) if (m[k][n] !== undefined) o[n] = m[k][n];
       out[k] = o;
-    } else if (m[k] !== null || ["args", "body"].includes(k)) {
+    } else if (m[k] !== null || REQUIRED_RAW.has(`${m.t}.${k}`)) {
       out[k] = m[k];
     }
   }
   return out;
 }
+
+/** Raw fields that are required, and so may be JSON null; an optional raw
+ * field (run's intercept, run_done's result) that is null is absent. */
+const REQUIRED_RAW = new Set(["invoke.args", "result.body", "late.body", "run.args"]);
 
 /** Splits a byte stream into frame payloads. */
 export class FrameReader {
@@ -362,8 +403,11 @@ export function decodeAll(payloads: Uint8Array[], maxMessage = DEFAULT_MAX_MESSA
   return out;
 }
 
-/** The messages that are about one invocation, by their id. */
+/** The messages that are about one invocation, by their id, and those
+ * about one host-mode run, which keep their order under a key of their
+ * own. */
 const ABOUT_INVOCATION = new Set(["invoke", "cancel", "result", "late", "log"]);
+const ABOUT_RUN = new Set(["run", "run_done", "run_cancel"]);
 
 type OutStream = { id: string; about?: string; payload: Uint8Array; off: number; seq: number; after: Queued[] };
 type Queued = { frame: Uint8Array } | { stream: OutStream };
@@ -397,7 +441,8 @@ export class Sender {
       throw new ProtocolError("message_too_large", `${m.t} message of ${payload.length} bytes exceeds ${this.maxMessage}`);
     }
     if (this.closed) return;
-    const about = ABOUT_INVOCATION.has(m.t) && typeof m.id === "string" ? m.id : undefined;
+    const about =
+      typeof m.id !== "string" ? undefined : ABOUT_INVOCATION.has(m.t) ? m.id : ABOUT_RUN.has(m.t) ? `run:${m.id}` : undefined;
     const q: Queued =
       payload.length <= this.maxFrame
         ? { frame: frame(payload) }

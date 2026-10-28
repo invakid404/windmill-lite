@@ -1,7 +1,8 @@
 // Command windmill-lite is the windmill-lite command-line entry point.
 //
-// It only reports its version today; the commands that load and run a
-// Windmill folder do not exist yet.
+// It reports its version, and serves host mode for the Bun host SDK with
+// the walking skeleton (`windmill-lite host`, milestone W1). The commands
+// that build a Windmill folder and run its flows do not exist yet.
 package main
 
 import (
@@ -26,7 +27,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "windmill-lite %s\n", resolveVersion())
 		return 0
 	}
-	fmt.Fprintln(stderr, "usage: windmill-lite [version]")
+	if args[0] == "host" {
+		return runHost(args[1:], stderr)
+	}
+	fmt.Fprintln(stderr, "usage: windmill-lite [version] | windmill-lite host --bundle <dir> [--kill-after <duration>]")
 	return 2
 }
 

@@ -1,0 +1,9 @@
+{
+  "summary": "W1: H11, a step reads the host's scope through a host-provided module, then a step with its own copy of that module reads nothing",
+  "value": {
+    "modules": [
+      {"id": "a", "value": {"type": "script", "path": "f/w1/scope_shim", "input_transforms": {"delay": {"type": "javascript", "expr": "flow_input.delay"}}}},
+      {"id": "b", "value": {"type": "script", "path": "f/w1/scope_copy", "input_transforms": {"shim": {"type": "javascript", "expr": "previous_result"}}}}
+    ]
+  }
+}
