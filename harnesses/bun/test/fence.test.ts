@@ -172,3 +172,72 @@ test("a request the invocation leaves in flight is aborted at settlement, and a 
     server.stop(true);
   }
 });
+
+test("a request stays in flight until its body has been read to the end, canceled or failed, whatever reads it (c3b review 1, R1-2)", async () => {
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (req) => (new URL(req.url).pathname === "/empty" ? new Response(null, { status: 204 }) : new Response(JSON.stringify({ a: 1 }))),
+  });
+  try {
+    const left = async (read: (r: Response) => Promise<unknown>) => {
+      const c = context();
+      const res = await invocations.run(c, () => fetch(server.url));
+      const before = JSON.stringify(c.resources.pending());
+      await invocations.run(c, () => read(res));
+      await Bun.sleep(1);
+      return [before, JSON.stringify(c.resources.pending())];
+    };
+    const inFlight = '{"fetch":1}';
+    expect(await left((r) => r.text())).toEqual([inFlight, "{}"]);
+    expect(await left((r) => r.json())).toEqual([inFlight, "{}"]);
+    expect(await left((r) => r.arrayBuffer())).toEqual([inFlight, "{}"]);
+    expect(await left((r) => r.bytes())).toEqual([inFlight, "{}"]);
+    expect(await left(async (r) => { for await (const _ of r.body!) {} })).toEqual([inFlight, "{}"]);
+    expect(await left((r) => r.body!.cancel())).toEqual([inFlight, "{}"]);
+    expect(await left(async (r) => r.status)).toEqual([inFlight, inFlight]);
+    // Looking at body leaves the reading methods working, and the request
+    // ends when one of them has read it.
+    expect(await left(async (r) => (r.body, r.json()))).toEqual([inFlight, "{}"]);
+    // A response without a body is done at once.
+    const c = context();
+    const empty = await invocations.run(c, () => fetch(new URL("/empty", server.url)));
+    const head = await invocations.run(c, () => fetch(server.url, { method: "HEAD" }));
+    expect([empty.status, head.status, JSON.stringify(c.resources.pending())]).toEqual([204, 200, "{}"]);
+    // The Response API is unchanged.
+    const res = await invocations.run(context(), () => fetch(server.url));
+    expect([res instanceof Response, res.url, res.ok, res.bodyUsed, res.body === res.body]).toEqual([true, server.url.href, true, false, true]);
+    expect(await res.json()).toEqual({ a: 1 });
+    expect(res.bodyUsed).toBe(true);
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("a refresh() that re-arms a fired timeout registers it again, with the invocation that made it, and does nothing once that invocation has settled (c3b review 1, R1-3)", async () => {
+  const c = context();
+  let fired = 0;
+  let t!: ReturnType<typeof setTimeout>;
+  await invocations.run(c, () => new Promise<void>((r) => (t = setTimeout(() => (fired++, r()), 1))));
+  expect(c.resources.pending()).toEqual({});
+  // Refreshed outside the invocation's context: the timer is still its.
+  t.refresh();
+  expect(c.resources.pending()).toEqual({ timeout: 1 });
+  // A cleared timeout is not re-armed by refresh, so it is not registered.
+  const cleared = invocations.run(c, () => setTimeout(() => fired++, 1));
+  clearTimeout(cleared);
+  cleared.refresh();
+  expect(c.resources.settle()).toEqual({ timeout: 1 });
+  t.refresh();
+  await Bun.sleep(20);
+  expect(fired).toBe(1);
+  // A timer of the module's own work is not the invocation's: refresh is
+  // Bun's.
+  const module = context({}, true);
+  let moduleFired = 0;
+  const m = invocations.run(module, () => setTimeout(() => moduleFired++, 1));
+  await Bun.sleep(10);
+  m.refresh();
+  await Bun.sleep(10);
+  expect([moduleFired, module.resources.pending()]).toEqual([2, {}]);
+});

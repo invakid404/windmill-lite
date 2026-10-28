@@ -62,6 +62,11 @@ cases:
     variant: finally-runs
     provenance: policy
     title: a finally block runs after the exit in warm mode, which a later run of the script sees (with D1)
+    note: >-
+      The fresh reading here only shows a new process; that no catch or
+      finally block runs after a fresh exit is shown by side effects outside
+      the process, in internal/harness's TestBunFreshExitRunsNoMoreCode (c3b
+      review 1, R1-1).
     deviation: D11
     script: |
       export function main(check: boolean) {

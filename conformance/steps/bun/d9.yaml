@@ -325,3 +325,75 @@ cases:
         by_mode:
           warm: {expect: {status: success, result: [true, false]}}
           fresh: {expect: {status: success, result: [false, false]}}
+  - spec: D9
+    variant: fence-fetch-body
+    provenance: policy
+    title: a request whose response headers arrived but whose body is still arriving is in flight, so it is reported and its body aborted; a response read to the end is not
+    note: >-
+      The module's server sends a first chunk and holds the rest. The step
+      awaits the headers, starts reading the body without awaiting it, and
+      returns; a second request, read to the end, is the control (c3b
+      review 1, R1-2).
+    deviation: D9
+    script: |
+      const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req) =>
+          new URL(req.url).pathname === "/whole"
+            ? new Response("whole")
+            : new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("first")); } })),
+      });
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 100 && globalThis.wlBody === undefined && globalThis.wlRequested; i++) await Bun.sleep(10);
+          return [globalThis.wlWhole ?? null, globalThis.wlBody ?? null];
+        }
+        globalThis.wlRequested = true;
+        globalThis.wlWhole = await (await fetch(new URL("/whole", server.url))).text();
+        const res = await fetch(new URL("/stream", server.url));
+        res.text().then(() => "read", (e) => e.name).then((r) => { globalThis.wlBody = r; });
+        return "headers";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: headers}
+        warnings: [left_behind]
+        left: {fetch: 1}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: [whole, AbortError]}}
+          fresh: {expect: {status: success, result: [null, null]}}
+  - spec: D9
+    variant: fence-refresh
+    provenance: policy
+    title: a timeout re-armed with refresh() after it fired, by the step or by its own callback, is the step's again, so it is reported and cleared
+    note: >-
+      A process-scope timeout that refreshes itself is the control: it fires
+      twice, after the step settled (c3b review 1, R1-3).
+    deviation: D9
+    script: |
+      const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
+      const count = (k) => { globalThis[k] = (globalThis[k] ?? 0) + 1; };
+      export async function main(wait: boolean) {
+        if (wait) {
+          for (let i = 0; i < 100 && !(globalThis.wlControl >= 2); i++) await Bun.sleep(10);
+          return [globalThis.wlControl ?? 0, globalThis.wlRefreshed ?? 0, globalThis.wlSelf ?? 0];
+        }
+        // Each is re-armed last, so both are pending when the step returns.
+        await new Promise((r) => { const s = setTimeout(() => { count("wlSelf"); s.refresh(); r(); }, 50); });
+        let t;
+        await new Promise((r) => { t = setTimeout(() => { count("wlRefreshed"); r(); }, 1); });
+        t.refresh();
+        inProcess(() => { const c = setTimeout(() => { count("wlControl"); if (globalThis.wlControl === 1) c.refresh(); }, 5); });
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: done}
+        warnings: [left_behind]
+        left: {timeout: 2}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: [2, 1, 1]}}
+          fresh: {expect: {status: success, result: [0, 0, 0]}}

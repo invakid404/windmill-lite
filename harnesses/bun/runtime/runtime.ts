@@ -91,6 +91,11 @@ export const EXIT = {
 export type Transport = {
   /** Writes bytes; returns how many were accepted, or -1 when closed. */
   write(b: Uint8Array): number;
+  /** Writes all of b before it returns, waiting for the socket if need
+   * be, or throws. A fresh process that has one ends synchronously,
+   * through the real process.exit, once its frames are written: the step's
+   * code never runs again (ADR 0004, failure model item 8). */
+  writeSync?(b: Uint8Array): void;
   /** Closes the harness's end. */
   end(): void;
 };
@@ -471,13 +476,11 @@ export class Runtime {
   }
 
   /** Fresh mode: ends the process with status, as the job's process would
-   * end, once what its invocation logged has been written. The invocation
-   * is fenced at once, so a step that catches the sentinel of an
-   * intercepted process.exit can do nothing through the fenced channels
-   * meanwhile, and nothing else is sent: no result, late frame or warning.
-   * When the socket takes everything at once, the process ends before this
-   * returns. A second call, or one after the connection ended, changes
-   * nothing. */
+   * end, once what its invocation logged has been written, and sends
+   * nothing else: no result, late frame or warning. With a synchronous
+   * transport the process ends before this returns, so the step's code,
+   * its catch and finally blocks included, never runs again (WR-2); a
+   * second call, or one after the connection ended, changes nothing. */
   private exitNow(status: number) {
     if (this.stopped || this.exiting) return;
     for (const inv of this.invocations.values()) {
@@ -485,7 +488,23 @@ export class Runtime {
       inv.resources.settle();
       inv.log.close();
     }
+    this.end(status);
+  }
+
+  /** Ends a fresh process with status once everything queued has been
+   * written: at once, through the synchronous transport, when there is one
+   * (the harness's); otherwise when the sender has flushed. */
+  private end(status: number) {
     this.exiting = true;
+    const writeSync = this.opts.transport.writeSync;
+    if (writeSync) {
+      try {
+        this.sender.drainSync((b) => writeSync(b));
+      } catch (e) {
+        this.diag(`windmill-lite harness: the last frames were not written: ${describe(e)}`);
+      }
+      exitProcess(status);
+    }
     this.sender.whenFlushed(() => this.stop(status));
   }
 
@@ -764,12 +783,10 @@ export class Runtime {
         this.invocations.delete(inv.id);
         inv.resources.settle();
         inv.log.close();
-        // A fresh process ends once its result has been written: a frame
-        // the socket did not take at once must not be cut off.
-        if (this.mode === "fresh") {
-          this.exiting = true;
-          this.sender.whenFlushed(() => this.stop(EXIT.ok));
-        }
+        // A fresh process ends once its result has been written, as the
+        // wrapper exits right after writing it (WR-2): a frame the socket
+        // did not take at once must not be cut off.
+        if (this.mode === "fresh") this.end(EXIT.ok);
         return;
       } catch (e) {
         this.diag(`windmill-lite harness: ${e instanceof ProtocolError ? e.message : describe(e)}`);

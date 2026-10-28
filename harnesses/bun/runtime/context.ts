@@ -457,8 +457,11 @@ function settledAbort(): DOMException {
  *   with a TypeError (the D9 fence), as is one outside every invocation.
  * - Any other request passes through, with a signal of the fence's added
  *   to its own when an invocation starts it: it is registered as "fetch"
- *   until its response arrives or it fails, and aborted with an
- *   AbortError if the invocation settles first.
+ *   until it fails or its response's body has been read to the end,
+ *   canceled or failed (holdUntilRead), and aborted with an AbortError if
+ *   the invocation settles first, which also fails a body still being
+ *   read. A response with no body ends it at once; one whose body the
+ *   step never reads stays registered until settlement.
  *
  * origin() is read per call, because the welcome names the facade after
  * this is installed. */
@@ -480,11 +483,15 @@ export function installFetch(
       if (work === undefined) return inner(input, init);
       const fence = new AbortController();
       const done = work.track("fetch", () => fence.abort(settledAbort()));
+      let res: Response;
       try {
-        return await inner(input, { ...init, signal: own ? AbortSignal.any([own, fence.signal]) : fence.signal });
-      } finally {
+        res = await inner(input, { ...init, signal: own ? AbortSignal.any([own, fence.signal]) : fence.signal });
+      } catch (e) {
         done();
+        throw e;
       }
+      const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+      return holdUntilRead(res, method, done);
     }
     if (inv === undefined) throw new TypeError("windmill-lite: a platform call outside any invocation cannot be attributed");
     if (inv.resources.settled) throw new TypeError("windmill-lite: the invocation has settled, so its platform calls are refused");
@@ -503,6 +510,76 @@ export function installFetch(
     }
   };
   globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+}
+
+const BODY_METHODS = ["arrayBuffer", "blob", "bytes", "formData", "json", "text"] as const;
+const nativeBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!;
+
+/** Statuses whose responses have no body, whatever Bun gives them. */
+const NO_BODY = new Set([204, 205, 304]);
+
+/** res, with done called once its body has been read to the end, canceled
+ * or failed: the request is in flight until then, since the body may still
+ * be arriving. A response with no body (none at all, a 204, 205 or 304,
+ * or the answer to a HEAD request) is done at once. The Response API
+ * is unchanged: the reading methods are res's own, which end the request
+ * when they settle, and res.body is one stream that passes the native
+ * body's chunks through as they are pulled and ends the request when it
+ * ends; it reads the native body only once a reader pulls, so a reading
+ * method still works after body was merely looked at. */
+function holdUntilRead(res: Response, method: string, done: () => void): Response {
+  if (nativeBody.call(res) === null || NO_BODY.has(res.status) || method.toUpperCase() === "HEAD") {
+    done();
+    return res;
+  }
+  const r = res as unknown as Record<string, TimerFn>;
+  for (const m of BODY_METHODS) {
+    const real = r[m];
+    if (typeof real !== "function") continue;
+    Object.defineProperty(res, m, {
+      configurable: true,
+      writable: true,
+      value: function (this: Response, ...args: unknown[]) {
+        const p = real.apply(this, args) as Promise<unknown>;
+        p.then(done, done);
+        return p;
+      },
+    });
+  }
+  let stream: ReadableStream<Uint8Array> | undefined;
+  Object.defineProperty(res, "body", {
+    configurable: true,
+    get(this: Response) {
+      const native = nativeBody.call(this) as ReadableStream<Uint8Array> | null;
+      if (native === null) return null;
+      if (stream) return stream;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      stream = new ReadableStream<Uint8Array>(
+        {
+          async pull(c) {
+            reader ??= native.getReader();
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) {
+                c.close();
+                done();
+              } else c.enqueue(chunk.value);
+            } catch (e) {
+              done();
+              c.error(e);
+            }
+          },
+          cancel(reason) {
+            done();
+            return (reader ?? native).cancel(reason);
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      return stream;
+    },
+  });
+  return res;
 }
 
 function originOf(input: RequestInfo | URL): string | undefined {
@@ -566,9 +643,11 @@ export function installTimers() {
     const done = live.get(h);
     if (done) done();
   };
-  const remember = (kind: string, h: object, clear: (h: any) => void) => {
-    const work = workOf();
-    if (work === undefined) return;
+  // Handles the step cleared, which refresh() does not re-arm on Bun
+  // 1.3.10, and the live ones by numeric id, for a clear by id.
+  const cleared = new WeakSet<object>();
+  const byId = new Map<number, object>();
+  const remember = (work: InvocationResources, kind: string, h: object, clear: (h: any) => void) => {
     const id = Number(h);
     let gone = false;
     const done = work.track(kind, () => {
@@ -578,7 +657,10 @@ export function installTimers() {
     function drop() {
       gone = true;
       live.delete(h);
-      if (!Number.isNaN(id)) live.delete(id);
+      if (!Number.isNaN(id)) {
+        live.delete(id);
+        byId.delete(id);
+      }
     }
     if (gone) return;
     const end = () => {
@@ -586,11 +668,15 @@ export function installTimers() {
       done();
     };
     live.set(h, end);
-    if (!Number.isNaN(id)) live.set(id, end);
+    if (!Number.isNaN(id)) {
+      live.set(id, end);
+      byId.set(id, h);
+    }
   };
   const wrap = (name: string, real: TimerFn, kind: string, clear: (h: any) => void, once: boolean): TimerFn => {
     const w = function (fn: unknown, ...rest: unknown[]) {
-      if (typeof fn !== "function" || workOf() === undefined) return real(fn, ...rest);
+      const work = workOf();
+      if (typeof fn !== "function" || work === undefined) return real(fn, ...rest);
       // A timeout or an immediate fires once: it is unregistered first.
       const cb = once
         ? function (this: unknown, ...a: unknown[]) {
@@ -598,8 +684,25 @@ export function installTimers() {
             return (fn as TimerFn).apply(this, a);
           }
         : fn;
-      const h: object = real(cb, ...rest);
-      remember(kind, h, clear);
+      const h = real(cb, ...rest) as { refresh?: () => unknown };
+      remember(work, kind, h, clear);
+      // refresh() re-arms a timeout that fired, even from its own callback:
+      // it is the invocation's again, so it is registered again, with the
+      // invocation that made it. Once that invocation has settled, refresh
+      // re-arms nothing.
+      const refresh = h.refresh;
+      if (typeof refresh === "function") {
+        Object.defineProperty(h, "refresh", {
+          configurable: true,
+          writable: true,
+          value: function (this: object) {
+            if (work.settled) return h;
+            if (!live.has(h) && !cleared.has(h)) remember(work, kind, h, clear);
+            refresh.call(h);
+            return h;
+          },
+        });
+      }
       return h;
     };
     // util.promisify(setTimeout) reads this, as on Bun's own functions.
@@ -611,7 +714,9 @@ export function installTimers() {
   const unwrap = (name: string, real: TimerFn): TimerFn =>
     Object.defineProperty(
       function (h: unknown) {
+        const handle = typeof h === "number" ? byId.get(h) : h;
         forget(h);
+        if (handle !== null && typeof handle === "object") cleared.add(handle);
         return real(h);
       },
       "name",

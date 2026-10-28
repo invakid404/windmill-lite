@@ -678,6 +678,46 @@ func freshInvocation(script, args string, rep engine.Reporter) engine.Invocation
 // gone reports whether no process has pid any more.
 func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
 
+// A fresh process.exit ends the process at the call, as the job's process
+// ends on Windmill (WR-2, c3b review 1, R1-1): no catch or finally block of
+// the step runs afterwards, whether its log goes out at once or has to wait
+// for the socket, and the log still reaches the engine. In a warm process
+// both blocks run (D11), the control.
+func TestBunFreshExitRunsNoMoreCode(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	fresh := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+	warm := newPool(t, PoolConfig{Process: cfg})
+	for _, tc := range []struct {
+		name  string
+		x     *Pool
+		inv   func(string, string, engine.Reporter) engine.Invocation
+		lines int
+		ran   bool
+	}{
+		{"fresh, a short log", fresh, freshInvocation, 1, false},
+		{"fresh, a log the socket cannot take at once", fresh, freshInvocation, 3000, false},
+		{"warm", warm, newInvocation, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "marker")
+			args, _ := json.Marshal(map[string]any{"marker": marker, "lines": tc.lines})
+			rec := newRecorder()
+			out, err := execute(t, tc.x, tc.inv("exit-side-effects", string(args), rec), 10*time.Second)
+			last := fmt.Sprintf("line %d ", tc.lines-1)
+			if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 6 || !strings.Contains(out.Tail, last) {
+				t.Fatalf("got %s exit %d, tail has %q: %v, %v", out.Kind, out.ExitCode, last, strings.Contains(out.Tail, last), err)
+			}
+			rec.waitSettled(t, 5*time.Second)
+			for _, block := range []string{"catch", "finally"} {
+				_, err := os.Stat(marker + "." + block)
+				if ran := err == nil; ran != tc.ran {
+					t.Errorf("the %s block ran: %v, want %v", block, ran, tc.ran)
+				}
+			}
+		})
+	}
+}
+
 // Work a step module starts while it evaluates is the module's (ADR 0004,
 // loading): once the invocation that loaded the module has settled, what
 // the work writes reaches the process's stdout, as from a process scope,

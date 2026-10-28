@@ -490,6 +490,19 @@ export class Sender {
     for (const cb of cbs) cb();
   }
 
+  /** Writes everything still queued, in the order flush would, with
+   * write, which writes all of its bytes before it returns or throws: for
+   * a process that ends now and cannot wait for its socket. */
+  drainSync(write: (b: Uint8Array) => void) {
+    while (!this.closed) {
+      if (!this.current) this.current = this.next();
+      if (!this.current) break;
+      const b = this.current;
+      this.current = null;
+      write(b);
+    }
+  }
+
   /** Calls cb once everything queued so far is written. */
   whenFlushed(cb: () => void) {
     if (!this.current && this.small.length === 0 && this.streams.length === 0) cb();

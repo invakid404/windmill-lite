@@ -6,6 +6,7 @@
 // which carries every protocol frame (ADR 0004); stdout and stderr stay
 // free for output no invocation owns.
 
+import { writeSync } from "node:fs";
 import { join } from "node:path";
 import { exitProcess } from "./context.ts";
 import { registerHostModules, Runtime } from "./runtime.ts";
@@ -48,6 +49,21 @@ const runtime = new Runtime({
   bundleDigest,
   transport: {
     write: (b) => socket!.write(b),
+    // A fresh process ends synchronously once its last frames are on the
+    // socket: they go straight to file descriptor 3, which the socket
+    // shares, after what the socket already took (a Bun socket keeps no
+    // buffer of its own). A socket that is full is waited for.
+    writeSync: (b) => {
+      const deadline = Date.now() + 30_000;
+      for (let off = 0; off < b.length; ) {
+        try {
+          off += writeSync(3, b, off, b.length - off);
+        } catch (e) {
+          if ((e as { code?: string }).code !== "EAGAIN" || Date.now() > deadline) throw e;
+          Bun.sleepSync(1);
+        }
+      }
+    },
     end: () => {
       socket!.flush();
       socket!.end();

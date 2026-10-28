@@ -70,11 +70,14 @@ cannot corrupt the protocol.
   out as the `late` frame that settles it.
 - **Fresh mode** ([ADR 0006](../../docs/design/0006-module-state.md)): the
   process serves one invocation (a second `invoke` is a protocol error)
-  and exits once its result has been written to the socket, however large,
-  as Windmill's wrapper exits after writing the result. `process.exit` and an uncaught error or
-  unhandled rejection end the process, with its code or with 1, after the
-  invocation's log has gone out: nothing keeps it alive (D9, D11). The
-  engine kills it on timeout or cancellation.
+  and exits as soon as its result has been written to the socket, however
+  large, as Windmill's wrapper exits after writing the result.
+  `process.exit` and an uncaught error or unhandled rejection end the
+  process at once, with its code or with 1: what is queued, the
+  invocation's log included, is written straight to file descriptor 3
+  (`Transport.writeSync`, which waits for a full socket), and the real
+  `process.exit` follows, so no `catch` or `finally` block of the step
+  runs (D9, D11). The engine kills it on timeout or cancellation.
 - **Drain** stops the heartbeat. Once everything queued has gone out, the
   runtime sends `bye`, its last frame, and exits when its socket has closed,
   whatever is still running.
@@ -121,12 +124,21 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   made outside every invocation, or after its invocation settled, is
   refused with a `TypeError`, and one whose signal has already aborted is
   not sent. One still waiting when its invocation settles is aborted, and
-  the reply that comes later is dropped.
+  the reply that comes later is dropped. Any other request stays
+  registered until its response's body has been read to the end, canceled
+  or failed: the reading methods (`text`, `json` and the rest) are the
+  response's own, and `body` is one stream that passes the native body's
+  chunks through, so the `Response` API is unchanged. A response with no
+  body (a 204, 205 or 304, or the answer to `HEAD`) ends the request at
+  once; one whose body the step never reads stays registered until
+  settlement, which aborts it.
 - **The timer fence.** `setTimeout`, `setInterval` and `setImmediate`, on
   `globalThis` and on `node:timers`, register each handle a step creates
   in its invocation's registry; the clear functions, and a timeout or
-  immediate that fires, unregister it. Bun's `util.promisify` form is
-  kept. Handles created outside every invocation, in a process scope, or
+  immediate that fires, unregister it. A `refresh()` that re-arms a
+  timeout that fired registers it again, with the invocation that made
+  it, wherever it is called; once that invocation has settled, `refresh()`
+  re-arms nothing. Bun's `util.promisify` form is kept. Handles created outside every invocation, in a process scope, or
   while a step module evaluates are not registered. `node:timers` is
   patched before any step module imports it. On Bun 1.3.10 the first named
   import of a builtin fixes its named bindings for every later importer:

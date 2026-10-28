@@ -294,7 +294,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   and fresh mode, fresh pools (a process and a directory per invocation,
   a kill on cancel, results of 200 KB and 3 MB and a long log before an
   exit, all written before the process ends, an exit with the step's
-  code, Close), output of a module's own work after its loading
+  code, Close), a fresh `process.exit` after which no `catch` or
+  `finally` block runs, with a short log and with one the socket cannot
+  take at once (`TestBunFreshExitRunsNoMoreCode`, whose warm control runs
+  both), output of a module's own work after its loading
   invocation settled, and the pool rules above. The late work of `TestBunWorkAfterTheResultIsLate` comes
   from continuations of a `Bun.sleep`, which the fence cannot stop, since
   it clears the timers a step leaves behind. A step that must still run when the test

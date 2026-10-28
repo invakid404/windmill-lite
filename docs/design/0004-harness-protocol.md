@@ -182,9 +182,15 @@ microtask see none.
    ([WR-2](../semantics/languages.md#wr-2)). A warm process cannot exit,
    so it fences each invocation when the invocation settles (D9):
    - Its pending `setTimeout`, `setInterval` and `setImmediate` handles,
-     on `globalThis` and on `node:timers`, are cleared.
+     on `globalThis` and on `node:timers`, are cleared. A timeout that
+     fired and was re-armed with `refresh()` is pending again, and still
+     the invocation's.
    - Its requests in flight through the `fetch` view are aborted with an
-     `AbortError`.
+     `AbortError`. A request is in flight until its response's body has
+     been read to the end, canceled or failed, since the body may still be
+     arriving after the headers; one whose body the step never reads is in
+     flight until settlement. A response with no body (a 204, 205 or 304,
+     or the answer to `HEAD`) ends it at once.
    - Its later log writes are dropped, and its later platform calls are
      refused with a `TypeError`.
    - A handle that its queued code creates after settlement is cleared at
@@ -244,16 +250,16 @@ microtask see none.
    - **One process per invocation**, in its own working directory. The
      engine starts the process for the invocation, and the process offers
      the `fresh` capability and refuses a second `invoke`.
-   - **Exit after the result.** The process exits once its result frame
-     has been written to the socket, however large, as the wrapper exits
-     after writing `result.json`.
+   - **Exit after the result.** The process exits as soon as its result
+     frame has been written to the socket, however large, as the wrapper
+     exits after writing `result.json`.
    - **No handlers, no interception.** An uncaught error or an unhandled
      rejection ends it with exit code 1, and `process.exit` ends it with
-     its code, each once the invocation's log has been written. The
-     invocation is fenced at once, so a step that catches the sentinel
-     meanwhile can do nothing through the fenced channels. An exit 0 before
-     any result is [WR-V2](../semantics/languages.md#wr-v2)'s empty
-     result.
+     its code, at the call: the harness writes the invocation's log, and
+     whatever else it had queued, straight to its socket, waiting for the
+     socket if it is full, and then exits, so no `catch` or `finally`
+     block of the step runs. An exit 0 before any result is
+     [WR-V2](../semantics/languages.md#wr-v2)'s empty result.
    - **Killed, not abandoned.** The engine kills it on timeout or
      cancellation, so the invocation settles with the process and reports
      nothing late.
