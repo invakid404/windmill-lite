@@ -195,9 +195,15 @@ func Verify(artifact string, opts VerifyOptions) (*Verification, error) {
 // readTree reads a bundle directory: the manifest's bytes and the digest
 // of every other file.
 func readTree(dir string) ([]byte, map[string]string, error) {
+	// The walk does not follow a symbolic link, the artifact's own path
+	// included.
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, nil, err
+	}
 	var manifest []byte
 	found := map[string]string{}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

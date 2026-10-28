@@ -179,6 +179,16 @@ func TestVerify(t *testing.T) {
 			t.Errorf("a symbolic link: %v", err)
 		}
 	})
+	t.Run("a link to the bundle", func(t *testing.T) {
+		dir, manifest := writeBundle(t, testFiles)
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(dir, link); err != nil {
+			t.Skip(err)
+		}
+		if _, err := Verify(link, VerifyOptions{Release: manifest}); err != nil {
+			t.Errorf("a link to a bundle directory: %v", err)
+		}
+	})
 	t.Run("manifest not canonical", func(t *testing.T) {
 		dir, manifest := writeBundle(t, testFiles)
 		os.WriteFile(filepath.Join(dir, ManifestFile), bytes.TrimSuffix(manifest, []byte("\n")), 0o644)
