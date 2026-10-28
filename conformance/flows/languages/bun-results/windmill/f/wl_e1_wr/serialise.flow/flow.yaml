@@ -13,15 +13,15 @@ value:
         type: rawscript
         content: '!inline b.ts'
         input_transforms:
-          has_a:
-            type: javascript
-            expr: previous_result.hasOwnProperty("a")
           a:
             type: javascript
             expr: previous_result.a
           d:
             type: javascript
             expr: previous_result.d
+          has_a:
+            type: javascript
+            expr: previous_result.hasOwnProperty("a")
         lock: '!inline b.lock'
         language: bun
     - id: c

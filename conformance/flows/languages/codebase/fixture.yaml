@@ -11,6 +11,6 @@
 id: languages/codebase
 spec: [SY-8, WR-47, WR-49, WR-50]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}

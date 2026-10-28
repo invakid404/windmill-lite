@@ -382,6 +382,15 @@ their root jobs were not in flight together.
   the same source, run on a copy.
 - Disputed findings get settled by recordings, early, through a reviewed
   pull request that changes one function.
+- Milestone E1 implemented `check` for flow fixtures. The runner turns a
+  run's trace into the walker's records: a module the trace has no record
+  of is `not_run`; stored values (the root's result, each site's arguments
+  and result) are in their stored form, and `carried` and `resolved_args`
+  are the texts the trace holds. It normalises them by OR-14, with the run's
+  id as the root's job id and each invocation's id as its site's, and
+  compares them with `expect`, or with `recorded` where there is none. The
+  location rule above is `conformance.StripLocations`, applied on the
+  reference's side at the values the trace says windmill-lite generated.
 
 ## Spec IDs relied on
 

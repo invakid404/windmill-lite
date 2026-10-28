@@ -10,6 +10,6 @@
 id: client-api/job-env
 spec: [WA-4/a, FX-45/a, WR-22, WA-V1, OR-14]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
