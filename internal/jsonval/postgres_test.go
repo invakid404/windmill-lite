@@ -2,6 +2,7 @@ package jsonval
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,9 +67,13 @@ func TestStoredMatchesPostgreSQL(t *testing.T) {
 		switch {
 		case row[0] == "ok":
 			outcomes["stored"]++
+			text, herr := hex.DecodeString(row[1])
 			var want bytes.Buffer
-			if cerr := json.Compact(&want, []byte(row[1])); cerr != nil {
-				t.Fatalf("PostgreSQL's text %q: %v", row[1], cerr)
+			if herr == nil {
+				herr = json.Compact(&want, text)
+			}
+			if herr != nil {
+				t.Fatalf("PostgreSQL's text %q: %v", row[1], herr)
 			}
 			if err != nil || !bytes.Equal(got, want.Bytes()) {
 				problem = fmt.Sprintf("PostgreSQL stores %.120q; Stored() = %.120q, %v", want.Bytes(), got, err)
@@ -121,16 +126,18 @@ func postgresInputs(t *testing.T) []string {
 }
 
 // postgresScript returns a psql script that prints the server version, then
-// one row per input: R, its index, and either "ok" and jsonb's text or
-// "err", the SQLSTATE and PostgreSQL's message. Inputs are standard string
-// literals, in which only a quote needs escaping.
+// one row per input: R, its index, and either "ok" and jsonb's text in
+// hexadecimal or "err", the SQLSTATE and PostgreSQL's message. The text is
+// hex-encoded because psql drops characters it cannot display, such as
+// U+10FFFF, from what it prints. Inputs are standard string literals, in
+// which only a quote needs escaping.
 func postgresScript(inputs []string) string {
 	var b strings.Builder
 	b.WriteString(`SET client_encoding = 'UTF8';
 SELECT 'V' || chr(9) || version();
 CREATE FUNCTION pg_temp.wl_stored(t text) RETURNS text LANGUAGE plpgsql AS $wl$
 BEGIN
-  RETURN 'ok' || chr(9) || (t::jsonb)::text;
+  RETURN 'ok' || chr(9) || encode(convert_to((t::jsonb)::text, 'UTF8'), 'hex');
 EXCEPTION WHEN OTHERS THEN
   RETURN 'err' || chr(9) || SQLSTATE || chr(9) || SQLERRM;
 END

@@ -35,6 +35,8 @@ func edgeCases() []edgeCase {
 		{name: "noncharacters", given: `"\uffff\ufffe\ufdd0"`, stored: "\"\uffff\ufffe\ufdd0\""},
 		{name: "latin1-range", given: `"\u0080\u00a0\u00ff"`, stored: "\"\u0080\u00a0\u00ff\""},
 		{name: "astral-pairs", given: `"\ud800\udc00\uDBFF\uDFFF"`, stored: "\"\U00010000\U0010FFFF\""},
+		{name: "astral-noncharacters", given: `"\ud83f\udffe\udbff\udfff"`, stored: "\"\U0001FFFE\U0010FFFF\""},
+		{name: "astral-noncharacters-raw", given: "\"\U0001FFFE\U0010FFFF\"", stored: "\"\U0001FFFE\U0010FFFF\""},
 		{name: "control-in-key", given: `{"\t":2,"\u0001":1}`, stored: `{"\u0001":1,"\t":2}`},
 
 		// Numbers at the edges of numeric's range and of a double's.
