@@ -65,7 +65,9 @@ milestone C1 fixed the details they left open.
 - **Order per invocation.** A message about an invocation (`invoke`,
   `cancel`, `result`, `late`, `log`) queued while a part stream about the
   same invocation is open waits for that stream's last part, so a `cancel`
-  never overtakes the large `invoke` it cancels.
+  never overtakes the large `invoke` it cancels. Messages about one
+  host-mode run (`run`, `run_done`, `run_cancel`) keep their order the same
+  way, under a key of their own.
 - **Limits.** `DefaultMaxMessage` is 512 MiB; `ProcessConfig.MaxMessage`
   lowers it and the welcome passes it on. It applies to whole frames and to
   reassembled messages. An invocation whose `invoke` would exceed it is not
@@ -111,7 +113,8 @@ WR-22's base set that needs no later milestone.
 `bundle_mismatch`, `pid_mismatch`) and `Spawn` returns a `*HandshakeError`.
 The pid check refuses a wrapper that forks the harness, which the
 watchdog's signal would otherwise miss. An accepted harness gets the
-module-state mode, `heartbeat_ms` and `max_message`. `Spawn` refuses a
+module-state mode, `heartbeat_ms`, `max_message` and, when the engine serves
+platform calls, `facade`. `Spawn` refuses a
 heartbeat that is not shorter than `KillAfter`, and negative values.
 
 ## Invocations and settlement
@@ -125,6 +128,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 | `result` with `settled` false | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
+| host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
 
 Reporter calls for one invocation run in the order the contract fixes, one
 at a time, on a goroutine of their own; `Settled(not_started)` runs on the
@@ -228,8 +232,8 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   of `process.env`, a variable they write, a process variable half of them
   delete, the dependency and the client's call, whose platform frame must
   be attributed to them; in a process without the variables and in one that
-  has them. It needs
-  `WL_WINDMILL_CLIENT`, a directory whose `node_modules` holds that client.
+  has them. It needs `WL_WINDMILL_CLIENT`, a directory whose `node_modules`
+  holds that client.
 - `host_test.go` plays a host on a socketpair: the handshake's parent check,
   a host gone before its hello, runs and their invocations, `run_cancel`, a
   lost host, and the watchdog, which signals its parent and spares a pid
