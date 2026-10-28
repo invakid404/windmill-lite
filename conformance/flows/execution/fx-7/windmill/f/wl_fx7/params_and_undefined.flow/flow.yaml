@@ -1,0 +1,16 @@
+summary: FX-7/b params is empty; FX-7/c undefined becomes null
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms:
+          p:
+            type: javascript
+            expr: params
+          u:
+            type: javascript
+            expr: undefined
+        lock: '!inline a.lock'
+        language: bun

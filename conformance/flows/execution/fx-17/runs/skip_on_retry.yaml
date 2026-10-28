@@ -1,0 +1,13 @@
+# FX-17/b: a's skip_if reads "run" first, so a runs, sets the flag to
+# "skip" and throws. The retry re-evaluates skip_if, which is now true, so a
+# is skipped; its identity reuses the failed attempt's args {x: 1}, which
+# have no previous_result, so it returns {}.
+spec: [FX-17/b]
+target: f/wl_fx17/skip_on_retry
+expect:
+  status: success
+  result: {}
+  steps:
+    "m:reset": {status: success, args: {}, result: reset}
+    "m:a/r:0": {status: failure, args: {x: 1}, result: {error: {message: "attempt with x=1", name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: success, skipped: true, args: {x: 1}, result: {}}

@@ -1,0 +1,16 @@
+summary: FX-19 clean stop without skip_if_stopped or error_message
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_fx19/three
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+    - id: b
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_fx19/four

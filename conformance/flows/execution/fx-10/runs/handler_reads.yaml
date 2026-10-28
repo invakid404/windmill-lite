@@ -1,0 +1,16 @@
+# FX-10/a: in an ordinarily entered failure module the preceding id is the
+# failed module's (FX-32). results.a is the exact preceding-id spelling, so
+# it is the carried EarlyStopError from memory; results.a.x is a simple
+# path, answered from a's stored success value (FX-V2); Object.keys(results.a)
+# contains a preceding-id spelling, so it reads memory under both readings.
+spec: [FX-10/a, FX-19, FX-V2]
+target: f/wl_fx10/handler_reads
+expect:
+  status: failure
+  result: {p: {error: {name: EarlyStopError, message: E}}, x: 1, k: [error]}
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: {x: 1}}
+    "s:failure":
+      status: success
+      args: {p: {error: {name: EarlyStopError, message: E}}, x: 1, k: [error]}
+      result: {p: {error: {name: EarlyStopError, message: E}}, x: 1, k: [error]}

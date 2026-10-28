@@ -1,0 +1,9 @@
+# FX-19/f: continue_on_error at the last module, no failure module: the
+# flow succeeds with the EarlyStopError as its result.
+spec: [FX-19/f]
+target: f/wl_fx19/tolerated_last
+expect:
+  status: success
+  result: {error: {name: EarlyStopError, message: E}}
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 3}

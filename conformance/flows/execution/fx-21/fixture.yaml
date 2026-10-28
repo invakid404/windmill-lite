@@ -1,0 +1,10 @@
+# FX-21: a stop_after_if that throws fails the step unrecoverably: the
+# error value is a string, continue_on_error does not apply (FX-21/a), and
+# a failure module still runs (the rule's third bullet). Synthetic, written
+# for this repository from docs/semantics/execution.md#fx-21.
+id: execution/fx-21
+spec: [FX-21, FX-21/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,14 @@
+# FX-19: stop_after_if on a step, with its interactions. The clean stops
+# (FX-19/a, and skip_if_stopped false without error_message), the
+# error-stop's error value (FX-19/b, FX-19/c), skip_if_stopped winning over
+# error_message, and the error-stop matrix of retry, continue_on_error and
+# the failure module (FX-19/d to FX-19/i). Steps run the path scripts
+# f/wl_fx19/three (returns 3), four (returns 4) and handler (returns "H"),
+# so the flows differ only in their module settings. Synthetic, written for
+# this repository from docs/semantics/execution.md#fx-19.
+id: execution/fx-19
+spec: [FX-19, FX-19/a, FX-19/b, FX-19/c, FX-19/d, FX-19/e, FX-19/f, FX-19/g, FX-19/h, FX-19/i, FX-V2, FX-V4]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

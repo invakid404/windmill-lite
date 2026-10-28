@@ -1,0 +1,9 @@
+# FX-19/h: without a failure module the continue decision stops first, so
+# the configured retry is not used: a runs once.
+spec: [FX-19/h]
+target: f/wl_fx19/retry_no_handler
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError, message: E}}
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 3}

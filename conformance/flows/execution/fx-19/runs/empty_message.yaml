@@ -1,0 +1,9 @@
+# FX-19/c: FX-19/b with error_message "": the message is
+# "stop after if: <expr>".
+spec: [FX-19/c]
+target: f/wl_fx19/empty_message
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError, message: "stop after if: result > 2", result: 3}}
+  steps:
+    "m:a": {status: success, module: failure, args: {}, result: 3}
