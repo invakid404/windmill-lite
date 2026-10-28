@@ -1,0 +1,12 @@
+{
+  "name": "windmill-lite-bun-build",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@babel/parser": "8.0.7"
+  },
+  "overrides": {
+    "@babel/helper-string-parser": "8.0.6",
+    "@babel/types": "8.0.6"
+  }
+}

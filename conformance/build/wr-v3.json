@@ -1,0 +1,23 @@
+{
+  "finding": "WR-V3",
+  "cases": [
+    {
+      "spec": "WR-V3/a",
+      "provenance": "source-derived",
+      "title": "a local alias is hydrated",
+      "part": "build",
+      "rest_in": "C3a hydrates the argument",
+      "given": {"source": "type Timestamp = Date;\nexport function main(d: Timestamp) { return d.toISOString(); }"},
+      "expect": {"signatures": {"main": {"params": [{"name": "d", "date": true}]}}}
+    },
+    {
+      "spec": "WR-V3/b",
+      "provenance": "source-derived",
+      "title": "array elements are not hydrated",
+      "part": "build",
+      "rest_in": "C3a passes the array",
+      "given": {"source": "export function main(items: Date[]) { return items[0]; }"},
+      "expect": {"signatures": {"main": {"params": [{"name": "items", "date": false}]}}}
+    }
+  ]
+}
