@@ -239,7 +239,8 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "ping":
     case "pong": {
-      const present = ["in_flight", "abandoned", "errors", "lag_ms", "rss"].filter((k) => m[k] !== undefined);
+      // Null counts as absent here too, as everywhere outside raw values.
+      const present = ["in_flight", "abandoned", "errors", "lag_ms", "rss"].filter((k) => m[k] !== undefined && m[k] !== null);
       if (present.length > 0) for (const k of ["in_flight", "abandoned", "errors", "lag_ms", "rss"]) checkField(m.t, m, k, "int");
       break;
     }
@@ -258,7 +259,7 @@ function own(m: Message): Message {
   for (const k of FIELDS[m.t]) {
     if (m[k] === undefined) continue;
     if (m.t === "result" && (k === "body" ? !["ok", "error"].includes(m.outcome) : (k === "tail" || k === "exit_code") && m.outcome !== "escaped")) continue;
-    if ((m.t === "ping" || m.t === "pong") && k !== "id" && m.in_flight === undefined) continue;
+    if ((m.t === "ping" || m.t === "pong") && k !== "id" && (m.in_flight === undefined || m.in_flight === null)) continue;
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;
     if (nested && m[k] !== null) {
       const o: Record<string, unknown> = {};

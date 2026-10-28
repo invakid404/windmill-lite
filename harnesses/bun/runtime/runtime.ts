@@ -37,6 +37,9 @@ export const EXIT = {
   rejected: 2,
   /** The engine violated the protocol. */
   protocol: 3,
+  /** No frame that ends an invocation fits max_message, so the engine
+   * could never learn how it ended; it settles it with the process. */
+  unreportable: 5,
 } as const;
 
 export type Transport = {
@@ -265,27 +268,40 @@ export class Runtime {
   }
 
   /** Reports how the entrypoint call ended: as the result, or, for an
-   * abandoned invocation, as the late frame that settles it. */
+   * abandoned invocation, as the late frame that settles it. The invocation
+   * stays in flight until one such frame is queued. When the outcome is
+   * larger than max_message, a smaller frame that fits takes its place: an
+   * escaped result whose tail says why (milestone C3a decides the final
+   * mapping), then one with no tail; for an abandoned call, a late error
+   * without a body. If none fits, the connection ends, and the engine
+   * settles the invocation with the process. */
   private finish(inv: Invocation, o: Outcome) {
     if (this.stopped || this.byeSent || this.invocations.get(inv.id) !== inv) return;
-    this.invocations.delete(inv.id);
-    let msg: Outgoing;
-    if (!inv.abandoned) {
-      msg = { t: "result", id: inv.id, ...rawBody(o), settled: true };
-    } else {
+    for (const msg of this.terminalFrames(inv, o)) {
+      try {
+        this.sender.send(msg);
+        this.invocations.delete(inv.id);
+        return;
+      } catch (e) {
+        this.diag(`windmill-lite harness: ${e instanceof ProtocolError ? e.message : describe(e)}`);
+      }
+    }
+    this.diag(`windmill-lite harness: no frame that ends invocation ${JSON.stringify(inv.id)} fits; ending the connection`);
+    this.stop(EXIT.unreportable);
+  }
+
+  private terminalFrames(inv: Invocation, o: Outcome): Outgoing[] {
+    if (inv.abandoned) {
       const kind = o.outcome === "ok" ? "result" : "error";
-      msg = { t: "late", id: inv.id, kind, body: "body" in o ? new Raw(o.body) : undefined, settled: true };
+      const full: Outgoing = { t: "late", id: inv.id, kind, body: "body" in o ? new Raw(o.body) : undefined, settled: true };
+      return [full, { t: "late", id: inv.id, kind: "error", settled: true }];
     }
-    try {
-      this.sender.send(msg);
-    } catch (e) {
-      if (!(e instanceof ProtocolError) || e.code !== "message_too_large") throw e;
-      // The result cannot cross the protocol at all. The engine sees an
-      // escaped failure; milestone C3a decides the final mapping.
-      this.diag(`windmill-lite harness: ${e.message}`);
-      const tail = `result exceeds the protocol's maximum message size of ${this.sender.maxMessage} bytes`;
-      this.send(inv.abandoned ? { t: "late", id: inv.id, kind: "error", settled: true } : { t: "result", id: inv.id, outcome: "escaped", tail, exit_code: 1, settled: true });
-    }
+    const escaped = (tail: string): Outgoing => ({ t: "result", id: inv.id, outcome: "escaped", tail, exit_code: 1, settled: true });
+    return [
+      { t: "result", id: inv.id, ...rawBody(o), settled: true },
+      escaped(`result exceeds the protocol's maximum message size of ${this.sender.maxMessage} bytes`),
+      escaped(""),
+    ];
   }
 
   /** bye is the last frame: heartbeats stop, everything queued goes out

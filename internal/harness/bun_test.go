@@ -697,3 +697,130 @@ func TestBunPoolClose(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A Reporter may run another step on the same pool when one settles, even
+// with a cap of one: the finished invocation's slot is freed before its
+// Reporter is told.
+func TestBunPoolReporterRunsAStepUnderACap(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	pool := newPool(t, PoolConfig{Process: cfg, Cap: 1})
+	inner := make(chan error, 1)
+	rep := &reentrantReporter{recorder: newRecorder(), call: func() {
+		_, err := execute(t, pool, newInvocation("echo", `{}`, newRecorder()), 2*time.Second)
+		inner <- err
+	}}
+	if out, err := execute(t, pool, newInvocation("echo", `{}`, rep), 5*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	if err := <-inner; err != nil {
+		t.Fatalf("the step started from Settled: %v", err)
+	}
+}
+
+// A tainted process whose abandoned invocation settles while its
+// replacement is still starting does not take the pool past Max: one of
+// the two leaves, without losing work.
+func TestBunPoolTaintClearsWhileTheReplacementStarts(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	// Every start takes 0.7 s, through a wrapper that keeps the pid.
+	cfg.Args = append([]string{"-c", `sleep 0.7; exec "$0" "$@"`, cfg.Path}, cfg.Args...)
+	cfg.Path = "/bin/sh"
+	pool := newPool(t, PoolConfig{Process: cfg, Max: 1})
+	if err := pool.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	long := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, _ := execute(t, pool, newInvocation("sleep", `{"ms":2500}`, newRecorder()), 10*time.Second)
+		long <- out
+	}()
+	rec := newRecorder()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go pool.Execute(ctx, newInvocation("sleep", `{"ms":300}`, rec))
+	waitFor(t, "both invocations in flight", func() bool {
+		s := pool.Stats()
+		return len(s) == 1 && s[0].Active == 2
+	})
+	cancel(engine.CancelTimeout)
+	waitFor(t, "the taint", func() bool { s := pool.Stats(); return len(s) == 1 && s[0].Tainted })
+	// The next invocation needs a replacement, which takes 0.7 s to start;
+	// the abandoned call settles about 0.3 s in.
+	next := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, _ := execute(t, pool, newInvocation("echo", `{}`, newRecorder()), 10*time.Second)
+		next <- out
+	}()
+	if k := rec.waitSettled(t, 3*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s", k)
+	}
+	if out := <-next; out.Kind != engine.OutcomeOK {
+		t.Fatalf("the next invocation got %+v", out)
+	}
+	if out := <-long; out.Kind != engine.OutcomeOK {
+		t.Fatalf("the co-resident invocation got %+v", out)
+	}
+	waitFor(t, "one process serving", func() bool {
+		serving := 0
+		for _, s := range pool.Stats() {
+			if !s.Tainted && !s.Surplus && !s.Retiring {
+				serving++
+			}
+		}
+		return serving == 1
+	})
+	// And it stays that way.
+	time.Sleep(300 * time.Millisecond)
+	serving := 0
+	for _, s := range pool.Stats() {
+		if !s.Tainted && !s.Surplus && !s.Retiring {
+			serving++
+		}
+	}
+	if serving != 1 {
+		t.Fatalf("Max 1, but %d processes serve: %+v", serving, pool.Stats())
+	}
+}
+
+// The first Execute establishes the pool's minimum, as Start does.
+func TestBunPoolLazyMinimum(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	pool := newPool(t, PoolConfig{Process: cfg, Min: 3, Max: 3})
+	if out, err := execute(t, pool, newInvocation("echo", `{}`, newRecorder()), 10*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	waitFor(t, "three processes", func() bool { return len(pool.Stats()) == 3 })
+}
+
+// A result too large for a lowered message limit, for an invocation whose
+// id is long, still ends the invocation: the escaped fallback that fits is
+// sent, and Execute returns.
+func TestBunOversizeResultFallbackFits(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	cfg.MaxMessage = 512
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	inv := newInvocation("big", `{"bytes":1000}`, rec)
+	inv.ID = strings.Repeat("i", 370)
+	inv.Run, inv.Env = "r", nil
+	out, err := execute(t, p, inv, 5*time.Second)
+	if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 1 {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	if got := rec.log(); got != "settled completed" {
+		t.Fatalf("reporter calls %q", got)
+	}
+	if h, err := p.Ping(context.Background()); err != nil || h.InFlight != 0 || h.Abandoned != 0 {
+		t.Fatalf("health %+v, %v", h, err)
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

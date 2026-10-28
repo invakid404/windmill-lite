@@ -159,6 +159,9 @@ type Process struct {
 	stdio      *lineWriter
 
 	waitDone chan struct{} // closed when cmd.Wait has returned
+	outR     *os.File      // the read ends of stdout and stderr
+	errR     *os.File
+	stdioWG  sync.WaitGroup
 	exited   chan struct{} // closed when the exit has been handled
 
 	mu         sync.Mutex
@@ -173,7 +176,8 @@ type Process struct {
 	pings      map[string]chan *Health
 	health     *Health
 	bye        bool
-	ending     bool // the reader stopped or the process exited
+	ending     bool      // the reader stopped or the process exited
+	exitAt     time.Time // when cmd.Wait returned
 	killReason string
 	readErr    error
 	status     ExitStatus
@@ -212,6 +216,12 @@ type invocation struct {
 	// Reporter neither stalls the frames of other invocations nor looks
 	// like silence to the watchdog.
 	calls serial
+	// fixed, if set, runs once when the engine stops waiting for the
+	// invocation: first in calls when its outcome is fixed, before any
+	// Reporter call, or when it is abandoned. A pool frees the
+	// invocation's slot there, so a Reporter that runs another step does
+	// not wait for its own.
+	fixed func()
 }
 
 // Spawn starts a harness process and completes the handshake. On success
@@ -317,8 +327,10 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("harness: start %s: %w", cfg.Path, err)
 	}
-	go copyLines(outR, p.stdio.stream("stdout"))
-	go copyLines(errR, p.stdio.stream("stderr"))
+	p.outR, p.errR = outR, errR
+	p.stdioWG.Add(2)
+	go p.copyLines(outR, p.stdio.stream("stdout"))
+	go p.copyLines(errR, p.stdio.stream("stderr"))
 	p.cmd = cmd
 	p.pid = cmd.Process.Pid
 	p.diag.pid.Store(int64(p.pid))
@@ -327,6 +339,9 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	if err != nil {
 		cmd.Process.Kill()
 		cmd.Wait()
+		outR.Close()
+		errR.Close()
+		p.stdioWG.Wait()
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("harness: socket: %w", err)
 	}
@@ -334,6 +349,7 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 		cmd.Wait()
 		p.mu.Lock()
 		p.status = exitStatus(cmd.ProcessState)
+		p.exitAt = time.Now()
 		p.ending = true
 		p.mu.Unlock()
 		close(p.waitDone)
@@ -499,6 +515,9 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 		out := stepOutcome(r)
 		p.inFlight--
 		var calls []func()
+		if inv.fixed != nil {
+			calls = append(calls, inv.fixed)
+		}
 		if r.Settled {
 			p.settleLocked(inv)
 			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) })
@@ -633,7 +652,11 @@ func (p *Process) readerDone(err error) {
 	slices.Sort(ids)
 	for _, id := range ids {
 		inv := invs[id]
-		calls := []func(){func() { inv.report.Settled(engine.SettleProcessExited) }}
+		var calls []func()
+		if inv.state == invPending && inv.fixed != nil {
+			calls = append(calls, inv.fixed)
+		}
+		calls = append(calls, func() { inv.report.Settled(engine.SettleProcessExited) })
 		if inv.state == invPending {
 			out := engine.StepOutcome{
 				Kind:     engine.OutcomeEscaped,
@@ -645,6 +668,7 @@ func (p *Process) readerDone(err error) {
 		}
 		inv.calls.do(calls...)
 	}
+	p.closeStdio()
 	os.RemoveAll(p.dir)
 	close(p.exited)
 	if p.cfg.notify != nil {
@@ -673,14 +697,17 @@ func (p *Process) Execute(ctx context.Context, inv engine.Invocation) (engine.St
 	if inv.Report == nil {
 		inv.Report = engine.NopReporter{}
 	}
-	out, d, err := p.exec(ctx, inv)
+	out, d, err := p.exec(ctx, inv, nil)
 	if d == notDispatched {
 		inv.Report.Settled(engine.SettleNotStarted)
 	}
 	return out, err
 }
 
-func (p *Process) exec(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, dispatch, error) {
+// exec runs inv. fixed, if not nil, is called once the engine stops waiting
+// for the invocation (see invocation.fixed), but never for one that was
+// not dispatched.
+func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func()) (engine.StepOutcome, dispatch, error) {
 	if err := checkInvocation(inv, p.Hello().Caps); err != nil {
 		return engine.StepOutcome{}, notDispatched, err
 	}
@@ -700,7 +727,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation) (engine.StepO
 	if ctx.Err() != nil {
 		return engine.StepOutcome{}, notDispatched, context.Cause(ctx)
 	}
-	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan engine.StepOutcome, 1)}
+	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan engine.StepOutcome, 1), fixed: fixed}
 	p.mu.Lock()
 	if p.state != stateServing || p.killReason != "" || p.ending {
 		p.mu.Unlock()
@@ -738,6 +765,9 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation) (engine.StepO
 	reason := engine.CancelReasonOf(ctx)
 	p.conn.send(Cancel{ID: inv.ID, Reason: string(reason)})
 	p.mu.Unlock()
+	if fixed != nil {
+		fixed()
+	}
 	p.notifyFunc()()
 	return engine.StepOutcome{}, abandoned, context.Cause(ctx)
 }
@@ -976,10 +1006,32 @@ func exitStatus(ps *os.ProcessState) ExitStatus {
 }
 
 // copyLines forwards one of the process's output pipes until every writer
-// has closed it.
-func copyLines(r *os.File, w io.Writer) {
-	defer r.Close()
+// has closed it, or until the engine closes it after the exit grace.
+func (p *Process) copyLines(r *os.File, w io.Writer) {
+	defer p.stdioWG.Done()
 	io.Copy(w, r)
+}
+
+// closeStdio waits for the output pipes to reach their end until
+// exitReadGrace after the exit, then closes their read ends: a child that
+// inherited a writer and outlives the harness must not keep the engine's
+// descriptors and goroutines.
+func (p *Process) closeStdio() {
+	done := make(chan struct{})
+	go func() {
+		p.stdioWG.Wait()
+		close(done)
+	}()
+	p.mu.Lock()
+	until := p.exitAt.Add(exitReadGrace)
+	p.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Until(until)):
+	}
+	p.outR.Close()
+	p.errR.Close()
+	<-done
 }
 
 // socketpair returns the two ends of a stream socketpair, both

@@ -348,6 +348,18 @@
       "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"settled\":true}"
     },
     {
+      "case": "health-one-null",
+      "title": "a null health field is absent: a bare ping",
+      "message_text": "{\"t\":\"ping\",\"id\":\"p\",\"in_flight\":null}",
+      "payload": "{\"t\":\"ping\",\"id\":\"p\"}"
+    },
+    {
+      "case": "health-all-null",
+      "title": "all health fields null: a bare pong",
+      "message_text": "{\"t\":\"pong\",\"id\":\"p\",\"in_flight\":null,\"abandoned\":null,\"errors\":null,\"lag_ms\":null,\"rss\":null}",
+      "payload": "{\"t\":\"pong\",\"id\":\"p\"}"
+    },
+    {
       "case": "split-result",
       "title": "a message longer than the frame limit goes as a part stream",
       "message": {
@@ -785,6 +797,14 @@
       ],
       "max_message": 8,
       "error": "message_too_large"
+    },
+    {
+      "case": "health-null-in-group",
+      "title": "a null inside a populated health group leaves it incomplete",
+      "frames": [
+        "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":null,\"errors\":0,\"lag_ms\":0,\"rss\":0}"
+      ],
+      "error": "missing_field"
     }
   ]
 }

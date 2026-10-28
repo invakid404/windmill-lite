@@ -110,7 +110,10 @@ left running (D9).
 ## Death and the watchdog
 
 A harness that exits fails every in-flight invocation as escaped, with its
-exit code or the signal that ended it (WR-4). The watchdog kills a process
+exit code or the signal that ended it (WR-4). The engine reads its stdout
+and stderr for one more second (`exitReadGrace`), then closes its ends of
+them, so a child that inherited them cannot keep the engine's descriptors
+or goroutines; `Done` closes after that. The watchdog kills a process
 from which no frame has arrived for `KillAfter` (`DefaultKillAfter`, 30 s;
 `WatchdogOff` disables it), writes a diagnostics line naming the
 invocations in flight, and the pool replaces the process. It measures
@@ -131,13 +134,16 @@ module-state mode.
   process whose lag exceeds `LagThreshold` (250 ms by default) is used only
   when no other process can take the invocation and none can be started.
 - **Cap.** `Cap` bounds invocations in flight per process (deviation D15);
-  abandoned ones do not count. None by default.
+  abandoned ones do not count. None by default. A finished invocation frees
+  its slot before its Reporter hears of it, so a Reporter may run another
+  step on the same pool.
 - **Tainting.** An abandoned invocation taints its process: it gets no new
   invocations and does not count toward `Max`. Once nothing else is in
   flight in it, it is drained (killed after `RecycleTimeout`, 5 s) and
   replaced. If its abandoned invocations settle first, it returns to
-  service when the pool is below `Max` without it; otherwise it is surplus
-  and leaves once idle.
+  service when the pool is below `Max` without it, counting processes still
+  starting; otherwise it is surplus and leaves once idle. A process that
+  finishes starting when the pool has reached `Max` is surplus itself.
 - **Replacement.** A process that dies is replaced up to `Min`; a failed
   start is logged and retried by the next `Execute`.
 - **Close.** It refuses new invocations, waits for those in flight until

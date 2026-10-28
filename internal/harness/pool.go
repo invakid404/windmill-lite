@@ -186,9 +186,13 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 			inv.Report.Settled(engine.SettleNotStarted)
 			return engine.StepOutcome{}, err
 		}
-		out, d, err := m.p.exec(ctx, inv)
+		// The slot is freed as soon as the engine stops waiting for the
+		// invocation, before its Reporter learns the outcome, or else here.
+		var once sync.Once
+		release := func(unavailable bool) { once.Do(func() { pl.release(m, unavailable) }) }
+		out, d, err := m.p.exec(ctx, inv, func() { release(false) })
 		unavailable := d == notDispatched && errors.Is(err, errUnavailable)
-		pl.release(m, unavailable)
+		release(unavailable)
 		if d == notDispatched {
 			if unavailable {
 				// The process stopped serving between the pick and the
@@ -208,6 +212,10 @@ func (pl *Pool) acquire(ctx context.Context, run string) (*member, error) {
 		if pl.closed {
 			pl.mu.Unlock()
 			return nil, ErrPoolClosed
+		}
+		// The first Execute establishes the minimum, as Start would.
+		for spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Min {
+			pl.spawnLocked()
 		}
 		m, lagging := pl.pickLocked(run)
 		canSpawn := spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Max
@@ -313,7 +321,12 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 				drainWithin(p, pl.cfg.RecycleTimeout)
 			}()
 		} else {
-			pl.members = append(pl.members, &member{p: p})
+			// The pool may have reached Max while this process started, by a
+			// taint that cleared; then the newcomer is the surplus one,
+			// which has no work to lose.
+			m := &member{p: p, surplus: pl.inServiceLocked() >= pl.cfg.Max}
+			pl.members = append(pl.members, m)
+			pl.reviewLocked(m)
 		}
 	} else {
 		// The caller that wanted this process gets err; a replacement
@@ -385,8 +398,9 @@ func (pl *Pool) reviewLocked(m *member) {
 	case abandoned > 0:
 		m.tainted = true
 	case m.tainted:
-		// While tainted, m does not count as serving.
-		m.surplus = pl.inServiceLocked() >= pl.cfg.Max
+		// While tainted, m does not count as serving; a process still
+		// starting does, since it will be admitted.
+		m.surplus = pl.inServiceLocked()+pl.starting >= pl.cfg.Max
 		m.tainted = false
 	}
 	if (m.tainted || m.surplus) && m.active == 0 {

@@ -317,8 +317,10 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   item 4) do not count toward the maximum: they are leaving the pool, and a
   replacement takes the new invocations, so one abandoned step does not
   stall a pool of one. A tainted process whose abandoned invocations settle
-  returns to service only if the pool is below its maximum without it;
-  otherwise it takes no new invocations and leaves once idle.
+  returns to service only if the pool is below its maximum without it,
+  counting processes still starting; otherwise it takes no new invocations
+  and leaves once idle. A cap (D15) counts an invocation until its outcome
+  is fixed, not until its Reporter has heard of it.
 
 ### Host mode
 

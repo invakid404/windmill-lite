@@ -59,7 +59,7 @@ with `JSON.stringify(value ?? null)`.
 | the export is not a function | `error` with `<entry> function is missing` |
 | the module fails to load or evaluate, or the call throws `null` or `undefined` | `escaped`, exit code 1 |
 | the error object cannot be built or serialised (a BigInt or a cycle in it, a throwing getter) | `escaped`, exit code 1; the process lives on |
-| the result is larger than `max_message` | `escaped`, with a tail that says so |
+| the result is larger than `max_message` | `escaped`, with a tail that says so, or with none when that frame does not fit either; if no frame fits, the harness exits with code 5 |
 
 Milestone C3a replaces this with Windmill's wrapper rules: binding by the
 recorded signature, `Date` hydration, the WR-13 replacer, the WR-18 error
@@ -71,7 +71,9 @@ invocation in it as escaped. Per-invocation env, log and `fetch` views
 
 Exit codes: 0 after `bye` or when the engine's end closes, 2 for a rejected
 or unusable welcome, 3 for a protocol error by the engine, 4 when the
-bundle cannot be read.
+bundle cannot be read, 5 when no frame that ends an invocation fits
+`max_message`. The invocation stays in flight until such a frame is queued,
+so the engine always learns how it ended, by that frame or by the exit.
 
 ## Tests
 

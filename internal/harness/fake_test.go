@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -511,5 +512,26 @@ func TestSpawnConfigValidation(t *testing.T) {
 		if _, err := Spawn(context.Background(), cfg); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+// The engine's ends of the harness's stdout and stderr are closed a grace
+// after the exit, even while a child of the harness still holds the
+// writers: no goroutine or descriptor outlives the process.
+func TestOutputPipesCloseAfterExit(t *testing.T) {
+	cfg, _ := fakeConfig(t, "exit-leaving-child")
+	start := time.Now()
+	p := spawn(t, cfg)
+	<-p.Done()
+	// The child sleeps for 3 s; Done comes after the 1 s grace, before it.
+	if d := time.Since(start); d > 2500*time.Millisecond {
+		t.Fatalf("Done after %s, as late as the child's exit", d)
+	}
+	b := make([]byte, 1<<20)
+	if stack := string(b[:runtime.Stack(b, true)]); strings.Contains(stack, "harness.(*Process).copyLines") {
+		t.Fatal("an output pipe is still being read after Done")
+	}
+	if _, err := p.outR.Stat(); err == nil {
+		t.Fatal("the stdout read end is still open")
 	}
 }
