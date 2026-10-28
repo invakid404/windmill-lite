@@ -58,8 +58,8 @@ step without failing the others.
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, facade origin, log limits) or `reject` with a reason | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
-| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` (the last log text for `escaped`) | step outcome |
-| `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body` | something an already settled or abandoned invocation produced (D9) |
+| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` (the last log text for `escaped`), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
+| `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
@@ -131,9 +131,12 @@ microtask see none.
 2. **Attribution.** An error whose context names an invocation is
    attributed to it. If that invocation is still in flight, it fails as
    `escaped` with exit code 1 and its log tail, which is what the process
-   exit would have done to that job on Windmill. If it has already settled,
-   the error is reported as a `late` frame and recorded in the run trace;
-   the outcome stands (D9).
+   exit would have done to that job on Windmill. Its entrypoint call may
+   still be pending (the error came from a timer while the call awaits
+   something else), so that `result` frame has `settled` false, and the
+   call settles when it ends or its process does. If the invocation's
+   outcome is already fixed, the error is reported as a `late` frame and
+   recorded in the run trace; the outcome stands (D9).
 3. **Unattributable errors** (rejections, microtask throws) fail no
    invocation, because the harness cannot know whose they are and never
    guesses. Each is counted in `pong`, logged with its text and stack, and
@@ -170,6 +173,19 @@ microtask see none.
 
 Each of D9, D10 and D11 has a case that runs in `warm` and in `fresh` and
 expects the two to differ as stated.
+
+**Settlement.** An invocation settles when its entrypoint call can run no
+more code. The harness reports it on exactly one frame: the `result` frame,
+normally, or else the `late` frame that says how the call ended after it was
+abandoned or after its outcome was fixed early (an intercepted
+`process.exit`, D11, or an attributed error, item 2 above), each with
+`settled` set. An invocation that never
+reached a harness settles at once, and one whose process ends first settles
+with the process. Work the call left running (D9) is not part of
+settlement. The engine releases the resources that step code can reach when
+a run's invocations have all settled (`onRunSettled`, host mode item 5
+below), so a late error from detached work, or the engine giving up on a
+step, never releases them.
 
 ### Per-invocation identity, logs and environment
 
@@ -387,8 +403,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 3. Cancellation completes the run as `Canceled` and skips the failure module
    ([FX-38](../semantics/execution.md#fx-38), [CF-28](../semantics/control-flow.md#cf-28)),
    with FX-38's one exception: when an error stop and the cancel coincide in
-   a flow that has a failure module, the continue decision still requests the
-   failure module.
+   a flow that has a failure module, the continue decision still continues
+   the flow, and what it asks for starts: a retry when one is due, the next
+   module under `continue_on_error`, or else the failure module
+   ([FX-19](../semantics/execution.md#fx-19); the precedence of
+   [0008](0008-host-hooks.md)).
 4. **Abandonment (deviation D2).** The harness aborts the invocation's
    signal and later reports anything it produces as `late`. In a process the
    engine spawned, the process is marked **tainted**: it gets no new
@@ -412,9 +431,17 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   is still recovered, by the engine's watchdog and the host's supervisor.
 - The protocol is language-neutral; a Python harness implements the same
   frames.
+- Milestone K1 added the `settled` field and the settlement rule. Without
+  them the engine could not tell an abandoned call that ended from one that
+  only produced late output, so `onRunSettled` had no reliable trigger. An
+  outcome fixed before the call ends (D11, or an attributed error that
+  fails the invocation at once) does not settle it either.
+- Milestone K1 widened the FX-38 exception in §Cancellation and deadlines
+  item 3 from "the failure module" to whatever the continue decision asks
+  for, to match FX-19 and the precedence of [0008](0008-host-hooks.md).
 
 ## Spec IDs relied on
 
 WR-1, WR-2, WR-4, WR-12, WR-13, WR-15, WR-18, WR-20 to WR-23, WR-37, WR-V1,
-WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-23, FX-24, FX-25, FX-38,
+WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
 CF-4, CF-7, CF-28.

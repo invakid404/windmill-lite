@@ -177,7 +177,10 @@ to it.
 ### 5a. Restrictions
 
 These are cases windmill-lite refuses rather than runs differently. Each
-fails at load or at the call, with a named error, and has a case.
+fails at build, at load or at the call, and has a case. All but the first
+fail with the named error the table gives. The first has none: the kernel
+refuses the connection before any windmill-lite code sees it, so the step
+sees only the error its client library raises, and nothing is recorded.
 
 | Restriction | Error | Record |
 |---|---|---|
@@ -252,6 +255,10 @@ switch through a change to this record, naming the reason.
   it is running, and `fresh` mode turns five of them off (D1, D2, D9 to D11).
 - Contested rules are settled by recording, early, so the engine is built
   against observed behaviour rather than kept with two readings.
+- Milestone K1 corrected the §5a preamble. It had said every restriction
+  fails "with a named error", but the `fetch`-only restriction raises no
+  windmill-lite error at all, and two restrictions fail at build rather than
+  at load. The preamble now says so; the table is unchanged.
 - §5a gained the YAML restriction when milestone A2 implemented the dialect
   of [0002](0002-ir-and-loader.md): a few YAML constructs the CLI accepts
   cannot be read as the CLI reads them over a YAML 1.1 parser, so they fail

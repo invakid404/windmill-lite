@@ -5,11 +5,14 @@ points here, so there is one copy.
 
 ## Current state
 
-The repository is bootstrapping. It holds a Go module, a placeholder
-`windmill-lite` command that prints its version, CI, the documentation gate,
-and the Windmill semantics reference under `docs/semantics/`. The package
-layout is decided by the design phase, which will land under `docs/design/`;
-until then, do not add packages or top-level directories that pre-empt it.
+The repository is in its first implementation milestones. It holds a Go
+module, a placeholder `windmill-lite` command that prints its version, CI,
+the documentation gate, the Windmill semantics reference under
+`docs/semantics/`, the design under `docs/design/`, and the first components
+and shared contracts under `internal/`. The package layout is decided by
+[ADR 0012](docs/design/0012-layout-and-milestones.md): add packages or
+top-level directories only where it places them, or amend it in the same
+pull request.
 
 ## Language
 
