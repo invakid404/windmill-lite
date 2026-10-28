@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "JE-48/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "a recursion of depth 1 000 fits",
       "given": {
         "expr": "(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()"
@@ -14,7 +14,7 @@
     },
     {
       "spec": "JE-48/b",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "a recursion of depth 1 000 000 overflows",
       "given": {
         "expr": "(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000000); })()"
@@ -29,7 +29,7 @@
     },
     {
       "spec": "JE-48/c",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "the overflow is a catchable RangeError",
       "given": {
         "expr": "(() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()"
@@ -40,7 +40,7 @@
     },
     {
       "spec": "JE-48/d",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "stringifying deeply nested JSON overflows",
       "given": {
         "expr": "(() => { let v = []; for (let i = 0; i < 100000; i++) v = [v]; return JSON.stringify(v).length; })()"

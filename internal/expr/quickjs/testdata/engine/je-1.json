@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "JE-1/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "Intl is absent",
       "given": {
         "expr": "typeof Intl"
@@ -14,7 +14,7 @@
     },
     {
       "spec": "JE-1/b",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "atob is absent",
       "given": {
         "expr": "typeof atob"
@@ -25,7 +25,7 @@
     },
     {
       "spec": "JE-1/c",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "ES2023 array methods exist",
       "given": {
         "expr": "[1,2,3].at(-1)"
@@ -36,7 +36,7 @@
     },
     {
       "spec": "JE-1/d",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "Object.groupBy exists",
       "given": {
         "expr": "Object.groupBy([1,2,3], n => n % 2 ? \"odd\" : \"even\")"
@@ -47,7 +47,7 @@
     },
     {
       "spec": "JE-1/e",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "console is absent",
       "given": {
         "expr": "typeof console"
