@@ -1,8 +1,9 @@
 # internal/ir
 
 **Current state:** implemented (milestone A5 of
-[0012](../../docs/design/0012-layout-and-milestones.md)); no other package
-calls it yet. This README covers `internal/ir/` and its `testdata/`. The
+[0012](../../docs/design/0012-layout-and-milestones.md)); its one caller is
+the build of [internal/bundle](../bundle/README.md), `bundle.Build`, which
+calls `ir.Compile`. This README covers `internal/ir/` and its `testdata/`. The
 package is the compiler of [0002](../../docs/design/0002-ir-and-loader.md):
 `ir.Compile` turns a sync folder, read by
 [internal/syncfolder](../syncfolder/README.md), and a host contract into the
@@ -13,9 +14,10 @@ decided program, and it validates what the contract's roots reach.
 What it does not do, and which milestone does:
 
 - **Expressions:** an expression holds its site and its text as written.
-  The textual pipeline (trimming, shortcuts, rewrites, mode, bound names,
-  the engine source; JE-5 to JE-15) fills the rest of
-  [`expr.Expr`](../expr/README.md) in B2a.
+  B2a's textual pipeline, `expr.Compile` (trimming, shortcuts, rewrites,
+  mode, bound names, the engine source; JE-5 to JE-15), computes the rest
+  of [`expr.Expr`](../expr/README.md), but `compileExpr` still fills only
+  `Site` and `Text`: filling the rest from `expr.Compile` is still to do.
 - **The build:** signatures, the relative-import closure, workflow-as-code
   detection and the refusal of a bundled script that imports a bare
   package with no lock need the Bun helper's scans (C2a), and bundling is

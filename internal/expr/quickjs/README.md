@@ -2,8 +2,8 @@
 
 **Current state:** implemented (milestone B1a of
 [0012](../../../docs/design/0012-layout-and-milestones.md)); milestone F4
-gave its heap the mimalloc allocator. Only `windmill-lite selfcheck` calls it
-yet. This README covers `internal/expr/quickjs/`, with its vendored
+gave its heap the mimalloc allocator. Only `windmill-lite selfcheck` and
+`windmill-lite host` (`cmd/windmill-lite/host.go`) call it yet. This README covers `internal/expr/quickjs/`, with its vendored
 `quickjs-ng/` and `mimalloc/` sources and its `testdata/`. The package is windmill-lite's
 JavaScript engine for flow expressions: QuickJS-ng at revision `be664ca1`,
 the engine Windmill's expressions run on
