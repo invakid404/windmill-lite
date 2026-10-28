@@ -116,7 +116,8 @@ and FX-33 (Q-FX-19), both for the stated default. It also found one
 confirmed finding contradicted, the id of a failure module copied into an
 inline body (FX-34, FX-32). E3b recorded Q-FX-16 (FX-42) and the half of
 Q-FX-15 that needs no failure module, also for the stated defaults. 0001 §6
-gives the results.
+gives the results. Batch E3d recorded CF-12 and FX-40 as reading (b), the
+default each already had (request 6 below).
 
 ## Requests to the semantics team
 
@@ -187,6 +188,27 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      Chaining errors end in Rust location suffixes, and at a child flow's
      pickup the message starts `Error: Error: ` and carries two suffixes
      ([FX-15](../semantics/execution.md#fx-15)).
+6. **Batch E3d's recordings**
+   ([conformance/flows/control-flow](../../conformance/flows/control-flow),
+   [conformance/flows/execution/fx-40](../../conformance/flows/execution/fx-40)):
+   the CF-2 to CF-15 and FX-40 cases they record can become
+   `oracle-observed`, and they answer
+   [Q-CF-14](../semantics/control-flow.md#q-cf-14) (reading (b)),
+   [Q-CF-4](../semantics/control-flow.md#q-cf-4) (both predictions hold),
+   [Q-FX-6](../semantics/execution.md#q-fx-6) (yes) and
+   [Q-FX-17](../semantics/execution.md#q-fx-17). Three observations go
+   beyond the reference's text. In FX-40/d, a deployed flow's inline
+   rawscript body without an explicit `path` also shares an entry between
+   collapsed iterations; it runs as `flowscript` jobs with one script hash,
+   though their paths end in `/loop-<index>`, and the correction expected
+   no sharing there (a body pinned by hash shares too, as both readings
+   expect). The pinned CLI's `generate-metadata` writes container defaults
+   into `flow.yaml`, as [CF-6](../semantics/control-flow.md#cf-6) says
+   `sync pull` does; CF-6/a's recording holds its output beside the value
+   the API answers after the dependency job. CF-7/d fails at pickup, with
+   name `Anyhow` and the message
+   `Error: Bad request: Cannot continue on same worker …` plus a location.
+   The design waits on none of this.
 
 ## Changing the design
 

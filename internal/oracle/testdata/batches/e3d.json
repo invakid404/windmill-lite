@@ -1,0 +1,99 @@
+{
+  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. CF-6, CF-15 and the hash-pinned FX-40/d runs are deployed through the API (oracle.deploy api), so their trees reach the server as written. TestRecordingBatches enforces it.",
+  "batch": "E3d",
+  "findings": [
+    "CF-2",
+    "CF-3",
+    "CF-4",
+    "CF-5",
+    "CF-6",
+    "CF-7",
+    "CF-8",
+    "CF-9",
+    "CF-10",
+    "CF-11",
+    "CF-12",
+    "CF-13",
+    "CF-14",
+    "CF-15",
+    "FX-40"
+  ],
+  "cases": [
+    "CF-V2/a"
+  ],
+  "fixtures": [
+    "conformance/flows/control-flow/cf-2",
+    "conformance/flows/control-flow/cf-3",
+    "conformance/flows/control-flow/cf-4",
+    "conformance/flows/control-flow/cf-5",
+    "conformance/flows/control-flow/cf-6",
+    "conformance/flows/control-flow/cf-7",
+    "conformance/flows/control-flow/cf-8",
+    "conformance/flows/control-flow/cf-9",
+    "conformance/flows/control-flow/cf-10",
+    "conformance/flows/control-flow/cf-11",
+    "conformance/flows/control-flow/cf-12",
+    "conformance/flows/control-flow/cf-13",
+    "conformance/flows/control-flow/cf-14",
+    "conformance/flows/control-flow/cf-15",
+    "conformance/flows/execution/fx-40",
+    "conformance/flows/execution/fx-40-hash"
+  ],
+  "deferred": [
+    {
+      "case": "CF-6/b",
+      "milestone": "E3e",
+      "reason": "it reads the deployed flow back with wmill sync pull, and the harness has no pull verb (OR-8 covers the push). CF-6/a's recording holds the value the API answers after the dependency job, which carries the materialized fields, and what generate-metadata writes for the same source"
+    },
+    {
+      "case": "CF-6/c",
+      "milestone": "none",
+      "reason": "a raw submission or a version whose dependency job failed: outside the reference configuration, where windmill-lite applies the deployed defaults (ADR 0001 sections 1 and 7, Q-CF-13); the harness runs deployed flows by path only"
+    },
+    {
+      "case": "CF-8/d",
+      "milestone": "none",
+      "reason": "a raw parent submission (Q-CF-15): windmill-lite never runs raw submissions, so ADR 0001 section 6 needs no recording; the harness runs deployed flows by path only"
+    }
+  ],
+  "parts": [
+    {
+      "case": "CF-8/a",
+      "part": "the raw-submission comparison run ([-999,-998,-997])",
+      "milestone": "none",
+      "reason": "windmill-lite never runs raw submissions (ADR 0001 sections 1 and 6, Q-CF-15); the by-path half, the reference configuration, is recorded"
+    },
+    {
+      "case": "CF-8/b",
+      "part": "the pending-dependency and raw-submission comparison runs ([[-999,-998,-997]])",
+      "milestone": "none",
+      "reason": "outside the reference configuration (ADR 0001 sections 1 and 6, Q-CF-15); the by-path run after a successful dependency job is recorded, with the outer body's job kind flownode in the provenance"
+    }
+  ],
+  "prefixes": [
+    {
+      "case": "CF-2/b",
+      "run": "conformance/flows/control-flow/cf-2/b-step0",
+      "pointer": "/result/error/message",
+      "prefix": "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence"
+    },
+    {
+      "case": "CF-2/b",
+      "run": "conformance/flows/control-flow/cf-2/b-later",
+      "pointer": "/result/error/message",
+      "prefix": "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence"
+    },
+    {
+      "case": "CF-7/d",
+      "run": "conformance/flows/control-flow/cf-7/d",
+      "pointer": "/result/error/message",
+      "prefix": "Error: Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker"
+    },
+    {
+      "case": "CF-13/b",
+      "run": "conformance/flows/control-flow/cf-13/b",
+      "pointer": "/result/error/message",
+      "prefix": "Error evaluating stop_after_all_iters_if expression `bad!!!syntax`: "
+    }
+  ]
+}

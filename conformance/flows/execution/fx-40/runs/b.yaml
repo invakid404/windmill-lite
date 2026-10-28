@@ -1,0 +1,29 @@
+# FX-40/b (Q-FX-6): a failed flow whose handler ran without recover caches
+# the handler's result, which the second call serves as a success.
+spec: [FX-40/b, Q-FX-6]
+target: f/fx40/b_twice
+expect:
+  status: success
+  result: H
+  steps:
+    "m:n": {status: success, args: {}, result: "<job:>"}
+    "m:s1":
+      status: failure
+      args: {v: "<job:>"}
+      result: H
+    "m:s1/m:a":
+      status: failure
+      args: {}
+      result:
+        error:
+          name: Error
+          stack: "<stack>"
+          message: x
+          step_id: a
+    "m:s1/s:failure": {status: success, args: {}, result: H}
+    "m:s2":
+      status: success
+      args: {v: "<job:>"}
+      result: H
+    "m:s2/m:a": {status: not_run, ran: false}
+    "m:s2/s:failure": {status: not_run, ran: false}

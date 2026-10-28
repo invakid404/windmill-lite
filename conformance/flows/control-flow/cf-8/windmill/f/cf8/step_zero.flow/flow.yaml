@@ -1,0 +1,33 @@
+summary: 'CF-8/c: an eligible loop at step 0'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: previous_result
+              lock: '!inline b.lock'
+              language: bun
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+            - 3
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    z:
+      type: number
+  required:
+    - z

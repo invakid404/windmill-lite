@@ -1,0 +1,26 @@
+# CF-12/b: each iteration's copy of the flow handler consumes its error stop;
+# the loop sees ordinary failed children and skip_failures lets it continue.
+spec: [CF-12/b]
+target: f/cf12/handled
+expect:
+  status: success
+  result: [handled, handled]
+  steps:
+    "m:l": {status: success, result: [handled, handled]}
+    "m:l/i:0/m:b":
+      status: success
+      module: failure
+      args: {x: 1}
+      result: 1
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:l/i:0/m:c": {status: not_run, ran: false}
+    "m:l/i:0/s:failure": {status: success, args: {}, result: handled}
+    "m:l/i:1/m:b":
+      status: success
+      module: failure
+      args: {x: 2}
+      result: 2
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:l/i:1/m:c": {status: not_run, ran: false}
+    "m:l/i:1/s:failure": {status: success, args: {}, result: handled}
+    "s:failure": {status: not_run, ran: false}
