@@ -19,7 +19,7 @@
         "signatures": {"main": {"params": [{"name": "t", "date": false}, {"name": "when", "date": true}]}},
         "imports": [],
         "host_modules": [],
-        "bundle_contains": ["(async function (__windmill_lite_native) {\"use strict\";", "wmill = __windmill_lite_native.imports[0]", "x = __windmill_lite_native.imports[1][\"x\"]", "get \"main\"() { return main; }"],
+        "bundle_contains": ["(async (__windmill_lite_native) => {\"use strict\";", "wmill = __windmill_lite_native.imports[0]", "x = __windmill_lite_native.imports[1][\"x\"]", "get \"main\"() { return main; }"],
         "bundle_not_contains": ["import * as", "from \"./helper.ts\"", "type T"],
         "warnings": ["native_import_unavailable"]
       }

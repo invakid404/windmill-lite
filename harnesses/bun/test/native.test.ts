@@ -7,7 +7,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import vm from "node:vm";
 import { nativeHeader, nativeModule, transpile } from "../build/native.ts";
-import { InvocationResources } from "../runtime/context.ts";
+import { type InvocationContext, InvocationResources, invocations } from "../runtime/context.ts";
 import { DEFAULT_USER_AGENT, Native, type NativeForm, NativeJob } from "../runtime/native.ts";
 
 // Runs a module's native form in a fresh context with the imports given,
@@ -36,7 +36,7 @@ describe("the native form", () => {
     // The body starts on the second line and keeps the module's lines.
     const lines = m.text.split("\n");
     expect(lines[2]).toBe("function bump() { n++; }");
-    expect(m.form.preamble_at).toBe('(async function (__windmill_lite_native) {"use strict";'.length);
+    expect(m.form.preamble_at).toBe('(async (__windmill_lite_native) => {"use strict";'.length);
   });
 
   test("imports bind from the imports the harness passes, and links name what must exist", async () => {
@@ -75,6 +75,38 @@ describe("the native form", () => {
     expect(ns.top).toBe(true);
     expect((ns.f as () => unknown)()).toBe(undefined);
   });
+
+  test("the module's scope has no arguments; an arrow inherits none, a function has its own (c3n review, finding 3)", async () => {
+    const js = [
+      "const top = typeof arguments;",
+      "const arrow = () => typeof arguments;",
+      "function ordinary() { return [typeof arguments, arguments.length]; }",
+      "export const read = () => { try { return arguments[0]; } catch (e) { return e.name; } };",
+      "export function main() { return [top, arrow(), ordinary(1, 2)]; }",
+    ].join("\n");
+    const { ns } = await evaluate(js);
+    expect((ns.main as () => unknown)()).toEqual(["undefined", "undefined", ["object", 2]]);
+    expect((ns.read as () => unknown)()).toBe("ReferenceError");
+  });
+
+  test("this is the module's undefined outside functions and class members, and theirs inside", async () => {
+    const js = [
+      "const arrow = () => this;",
+      "export const member = () => { try { return this.x; } catch (e) { return e.name; } };",
+      "class C { field = this; static s = this; m() { return this; } [String(this)]() { return 1; } }",
+      "const o = { m() { return this; } };",
+      "export function main() { const c = new C(); return [arrow(), c.field === c, C.s === C, c.m() === c, o.m() === o, typeof c.undefined]; }",
+    ].join("\n");
+    const { ns } = await evaluate(js);
+    expect((ns.main as () => unknown)()).toEqual([undefined, true, true, true, true, "function"]);
+    expect((ns.member as () => unknown)()).toBe("TypeError");
+  });
+});
+
+test("nativets keeps the module's this undefined through the transpile, which would write null", () => {
+  const out = transpile("const t: unknown = this;\nexport function f(this: Window) { return this; }\nexport { t };");
+  expect("js" in out && out.js).toContain("const t = undefined;");
+  expect("js" in out && out.js).toContain("return this;");
 });
 
 test("nativets transpiles TypeScript, and reports a syntax error with its position (WR-40, WR-43)", () => {
@@ -149,6 +181,86 @@ describe("a native realm", () => {
     expect(await pending).toBe("AbortError");
     await Bun.sleep(40);
     expect(fired).toBe(false);
+  });
+
+  test("a fetch stays the invocation's until its body ends, and settling first aborts it (c3n review, finding 2)", async () => {
+    let open: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const enc = new TextEncoder();
+    const streaming = Bun.serve({
+      port: 0,
+      fetch(req) {
+        if (new URL(req.url).pathname === "/whole") return new Response("all of it");
+        return new Response(new ReadableStream({ start: (c) => { open = c; c.enqueue(enc.encode("prefix")); } }));
+      },
+    });
+    const base = `http://127.0.0.1:${streaming.port}`;
+    try {
+      // A body read to its end releases the request.
+      const a = job();
+      const whole = await a.job.g.fetch(`${base}/whole`);
+      expect(whole instanceof a.job.g.Response).toBe(true);
+      expect([whole.url, whole.status, whole.ok]).toEqual([`${base}/whole`, 200, true]);
+      expect(await whole.text()).toBe("all of it");
+      expect(a.resources.settle()).toEqual({});
+      // So does a clone's branch read to its end.
+      const b = job();
+      const cloned = (await b.job.g.fetch(`${base}/whole`)).clone();
+      expect(await cloned.text()).toBe("all of it");
+      expect(b.resources.settle()).toEqual({});
+      // A body never read is still the invocation's when it settles.
+      const c = job();
+      await c.job.g.fetch(`${base}/whole`);
+      expect(c.resources.settle()).toEqual({ fetch: 1 });
+      // Headers in, body still open: settling aborts it, and nothing sent
+      // afterwards arrives.
+      const d = job();
+      const streamed = await d.job.g.fetch(`${base}/open`);
+      await Bun.sleep(10);
+      const body = streamed.text().then((v: string) => ({ body: v }), (e: Error) => ({ error: e.name }));
+      expect(d.resources.settle()).toEqual({ fetch: 1 });
+      expect(await body).toEqual({ error: "AbortError" });
+      // The abort may have reached the server and closed its stream.
+      try {
+        open?.enqueue(enc.encode(" after settlement"));
+        open?.close();
+      } catch {
+        // Already cancelled by the client's abort.
+      }
+      expect(await body).toEqual({ error: "AbortError" });
+    } finally {
+      streaming.stop(true);
+    }
+  });
+
+  test("what a web API returns is the calling invocation's: promises of its realm, objects of its classes (c3n review, finding 1)", async () => {
+    const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {} });
+    native.capture();
+    const resources = new InvocationResources();
+    const ctx: InvocationContext = { id: "i", run: "r", env: {}, signal: new AbortController().signal, resources };
+    const j = native.open({ id: "i", script: "s", entry: "main", args: {}, env: {}, resources }, { kind: "nativets", param: "P", preamble_at: 0, imports: [], links: [] }, ctx);
+    const g = j.g;
+    await invocations.run(ctx, async () => {
+      const r = new g.Response('{"a":1}');
+      expect([r instanceof g.Response, r instanceof Response]).toEqual([true, true]);
+      const p = r.json();
+      expect(p instanceof g.Promise).toBe(true);
+      expect(native.jobOfPromise(p)).toBe(j);
+      expect(await p).toEqual({ a: 1 });
+      expect((await new g.Response("x").blob()) instanceof g.Blob).toBe(true);
+      expect(g.crypto instanceof g.Crypto).toBe(true);
+      const digest = g.crypto.subtle.digest("SHA-256", new Uint8Array());
+      expect(digest instanceof g.Promise).toBe(true);
+      expect(new Uint8Array(await digest).length).toBe(32);
+      // A rejection is the realm's too, so the runtime attributes it.
+      const bad = new g.Response("invalid json").json();
+      expect(native.jobOfPromise(bad)).toBe(j);
+      expect(await bad.catch((e: Error) => e.name)).toBe("SyntaxError");
+      // A stream's closed is marked handled, as the standard marks it.
+      const reader = new g.ReadableStream({ start: (c: ReadableStreamDefaultController) => c.error(new Error("x")) }).getReader();
+      expect(reader instanceof g.ReadableStreamDefaultReader && reader.closed instanceof g.Promise).toBe(true);
+    });
+    // The harness realm's own objects keep their prototypes.
+    expect(Object.getPrototypeOf(crypto) === Crypto.prototype && Object.getPrototypeOf(new Response("y")) === Response.prototype).toBe(true);
   });
 
   test("errors take WR-43's shape", () => {

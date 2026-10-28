@@ -120,6 +120,68 @@ cases:
       - args: '{}'
         expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
   - spec: WR-43
+    variant: web-api-rejection-nativets
+    provenance: source-derived
+    title: a rejection nobody handles from a web API's promise fails the job too (nativets)
+    note: >-
+      WR-43/d with promises the web APIs return (c3n review, finding 1).
+      The error's message is Bun's; the run gets no warning.
+    language: nativets
+    script: |
+      export async function main(api: string) {
+        if (api === "json") new Response("invalid json").json();
+        else crypto.subtle.digest("bad-algorithm", new Uint8Array());
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"api":"json"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: SyntaxError}
+          - {at: /result/error/step_id, absent: true}
+      - args: '{"api":"digest"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: NotSupportedError}
+          - {at: /result/error/step_id, absent: true}
+  - spec: WR-43
+    variant: web-api-rejection-bunnative
+    provenance: source-derived
+    title: a rejection nobody handles from a web API's promise fails the job too (bunnative)
+    note: The same case as a //native step.
+    script: |
+      //native
+      export async function main(api: string) {
+        if (api === "json") new Response("invalid json").json();
+        else crypto.subtle.digest("bad-algorithm", new Uint8Array());
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"api":"json"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: SyntaxError}
+      - args: '{"api":"digest"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: NotSupportedError}
+  - spec: WR-43
+    variant: web-api-rejection-handled
+    provenance: source-derived
+    title: a web API's rejection the script handles fails nothing
+    language: nativets
+    script: |
+      export async function main() {
+        const r = await new Response("invalid json").json().catch((e: Error) => e.name);
+        const body = await (await fetch("data:text/plain,ok")).text().catch(() => "fetched");
+        return [r, typeof body];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [SyntaxError, string]}
+  - spec: WR-43
     variant: timer-throw
     provenance: source-derived
     title: an exception thrown from a timer callback fails the job too

@@ -303,14 +303,30 @@ this mode cannot reproduce is deviation D5 of
   empty `core`, and `addEventListener`, `removeEventListener` and
   `dispatchEvent` on `globalThis`. Nothing of Bun's: no `Bun`, `Buffer`,
   `require`, `module`, `process`, `setImmediate` or `ShadowRealm`.
+- **Realm-facing web classes.** The classes whose methods return promises
+  or other web objects (`Request`, `Response`, `Blob`, `File`, `FormData`,
+  the streams and their readers and writers, `Crypto`, `SubtleCrypto`) are
+  given to the realm as subclasses, made once per process: each method and
+  getter calls the class's own and hands the realm what it returns, a
+  promise as one of the calling invocation's realm (a getter's marked
+  handled, as a stream's `closed` is), an instance of such a class with its
+  subclass's prototype. A rejection of a web API's promise is therefore
+  attributed by realm as any other. `crypto` and `crypto.subtle` are
+  objects of those subclasses that forward to the shared ones; the harness
+  realm's own classes and objects are never changed.
 - **Timers and fetch are the invocation's.** `setTimeout` and
   `setInterval` return numeric ids; each pending handle and each fetch in
   flight is registered with the invocation and released when it settles,
-  as the isolate is dropped. `fetch` is this realm's, so a request to the
+  as the isolate is dropped. A fetch stays registered until its response's
+  body has been read to its end, has failed or was cancelled, whatever
+  reads it (a clone included), so a body still open when the invocation
+  settles is aborted and counted. `fetch` is this realm's, so a request to the
   facade is a platform call; it sends `User-Agent: windmill/beta`, or the
   text of a `//useragent` header, unless the request sets one.
 - **The module** is the script's native form, `scripts/bun/<id>.native.js`
-  ([build/](build/README.md)): one async function, compiled in the realm
+  ([build/](build/README.md)): one async arrow function, so its scope has
+  no `arguments`, as a module's has none, and its module-level `this` is
+  `undefined`, compiled in the realm
   once per process for each set of preamble names. Its **preamble**
   declares `process = { env }`, `BASE_URL` and `BASE_INTERNAL_URL` (both the
   facade's origin), and for nativets every job variable as a `const` of its

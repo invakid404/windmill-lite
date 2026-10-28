@@ -183,3 +183,34 @@ cases:
     runs:
       - args: '{"spec":"./windmill.ts"}'
         expect: {status: success, result: "Failed to load file:///windmill.ts"}
+  - spec: WR-40
+    variant: module-scope-nativets
+    provenance: source-derived
+    title: the module's scope is a module's, with no arguments and this undefined (nativets)
+    note: The c3n review's finding 3.
+    language: nativets
+    script: |
+      const top = [typeof arguments, this === undefined];
+      const arrow = () => typeof arguments;
+      function ordinary() { return arguments.length; }
+      export function main() { return [top, arrow(), (ordinary as any)(1, 2)]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [["undefined", true], "undefined", 2]}
+  - spec: WR-40
+    variant: module-scope-bunnative
+    provenance: policy
+    title: the module's scope has no arguments (bunnative), and its this is what Bun's bundle makes of it
+    note: >-
+      Bun's bundler writes a module's own `this` as `null`, so `this ===
+      undefined` is false in the bundle as loaded; a //native bundle on
+      Windmill is Bun 1.3.10's too (WR-40).
+    script: |
+      //native
+      const top = [typeof arguments, this === undefined];
+      const arrow = () => typeof arguments;
+      function ordinary() { return arguments.length; }
+      export function main() { return [top, arrow(), (ordinary as any)(1, 2)]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [["undefined", false], "undefined", 2]}

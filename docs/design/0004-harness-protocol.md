@@ -606,7 +606,13 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     with the other escapes, naming the mismatch.
   - **Attribution by realm.** Item 2 of the failure model cannot attribute a
     rejection nobody handles, which carries no async context; for a native
-    invocation the promise's realm names it. Such a rejection, a throw from
+    invocation the promise's realm names it. The web APIs a realm gets are
+    subclasses of the harness's classes whose methods return the calling
+    invocation's promises and objects, so a rejection of what `fetch`,
+    `Response.json()` or `crypto.subtle` returned is attributed the same
+    way, and warns no other invocation. A fetch is the invocation's until
+    its response's body ends, and is aborted when the invocation settles
+    first. Such a rejection, a throw from
     one of its timers and a throw from a microtask it queued fail a running
     native invocation with that value's WR-43 object (`settled` false), as
     they fail a native job, and are `late` errors after its outcome.

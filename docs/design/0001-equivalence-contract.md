@@ -180,8 +180,10 @@ Its global object holds the native runtime's web APIs and nothing of Bun's
 ([WR-45](../semantics/languages.md#wr-45)). The realm keeps the argument
 binding, the result's serialisation (V8's BigInt message included), both
 error shapes, the environment preamble and its redeclaration failures, the
-timeout text, the failure of a job by a rejection nobody handles or a throw
-from a timer, and the end of its timers and fetches when it settles. It
+timeout text, the failure of a job by a rejection nobody handles (of its
+own promises or of those the web APIs return it) or a throw from a timer,
+a module scope with no `arguments` and an undefined `this`, and the end of
+its timers and fetches (a response's body included) when it settles. It
 cannot keep:
 
 - JavaScriptCore's texts where they differ from V8's: a redeclared name, a
@@ -196,9 +198,12 @@ cannot keep:
   (WR-43/e): with other invocations on the event loop, the harness cannot
   know that nothing is pending, so such a step runs until its timeout;
 - `FileReader`, which Bun 1.3.10 lacks;
-- separate web API objects: they are the harness realm's, shared by every
-  invocation of the process, so a script that changes one (a prototype,
-  `crypto`) changes it for the others, as D1 says of Bun's `globalThis`;
+- separate web API objects: the realm gets the harness realm's classes,
+  as subclasses made once per process whose methods hand it what they
+  return as its own, and `crypto` as an object that forwards to the shared
+  one; a script that changes one of them (a prototype, `crypto`) changes
+  it for the other native invocations of the process, as D1 says of Bun's
+  `globalThis`;
 - imports of files of the host: windmill-lite reads none, so only the
   embedded client resolves ([WR-40](../semantics/languages.md#wr-40)); the
   client is `windmill-client@1.326.0`, the version Windmill embeds, built

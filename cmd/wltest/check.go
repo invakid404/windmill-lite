@@ -280,18 +280,7 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 // one run to the next (D1).
 func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out, digest, id string) ([]string, string) {
 	var diag syncBuffer
-	path, args := harness.BunCommand(sc.bun, filepath.Join(sc.repo, "harnesses", "bun", "runtime", "main.ts"), out)
-	p, err := harness.Spawn(ctx, harness.ProcessConfig{
-		Path:          path,
-		Args:          args,
-		Kind:          "bun",
-		Runtime:       harness.PinnedBun,
-		Bundle:        digest,
-		ModuleState:   engine.ModuleStateWarm,
-		EngineVersion: "wltest-check",
-		Diagnostics:   &diag,
-		Facade:        stepFacade,
-	})
+	p, err := sc.spawn(ctx, out, digest, &diag)
 	if err != nil {
 		return []string{"spawn: " + err.Error()}, diag.String()
 	}
@@ -308,6 +297,22 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 		}
 	}
 	return problems, diag.String()
+}
+
+// spawn starts a warm harness process on the bundle in out.
+func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Writer) (*harness.Process, error) {
+	path, args := harness.BunCommand(sc.bun, filepath.Join(sc.repo, "harnesses", "bun", "runtime", "main.ts"), out)
+	return harness.Spawn(ctx, harness.ProcessConfig{
+		Path:          path,
+		Args:          args,
+		Kind:          "bun",
+		Runtime:       harness.PinnedBun,
+		Bundle:        digest,
+		ModuleState:   engine.ModuleStateWarm,
+		EngineVersion: "wltest-check",
+		Diagnostics:   diag,
+		Facade:        stepFacade,
+	})
 }
 
 // runOne runs one invocation and checks what it produced.

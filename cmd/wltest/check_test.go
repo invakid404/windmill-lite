@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 )
@@ -228,4 +230,98 @@ func TestStepCatalogue(t *testing.T) {
 		}
 	}
 	t.Logf("catalogue cases of the findings with a step file: %d; step cases: %d; deferred: %d", n, len(covered), len(isDeferred))
+}
+
+// A native invocation's rejection that nobody handles, from a promise a web
+// API returned, fails that invocation (WR-43/d) and no other: a native and
+// a Bun invocation in flight beside it in the same process succeed with no
+// warning (c3n review, finding 1).
+func TestNativeRejectionIsItsInvocationsOwn(t *testing.T) {
+	bun := bunOrSkip(t)
+	dir := filepath.Join(t.TempDir(), "steps", "bun")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "wr-43.yaml")
+	if err := os.WriteFile(path, []byte(`finding: WR-43
+scope: core
+cases:
+  - spec: WR-43
+    variant: rejects
+    provenance: source-derived
+    title: a web API's rejection nobody handles
+    language: nativets
+    script: |
+      export async function main() {
+        new Response("invalid json").json();
+        crypto.subtle.digest("bad-algorithm", new Uint8Array());
+        await new Promise(r => setTimeout(r, 300));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: SyntaxError}
+  - spec: WR-43
+    variant: healthy-native
+    provenance: source-derived
+    title: a native invocation beside it
+    language: nativets
+    script: |
+      export async function main() { await new Promise(r => setTimeout(r, 600)); return "ok"; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ok}
+  - spec: WR-43
+    variant: healthy-bun
+    provenance: source-derived
+    title: a Bun invocation beside it
+    script: |
+      export async function main() { await new Promise(r => setTimeout(r, 600)); return "ok"; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ok}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := conformance.LoadStepFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := &stepChecker{bun: bun, repo: repo(t), mode: conformance.ModeWarm}
+	ctx := context.Background()
+	out, digest, problems, err := sc.build(ctx, f, t.TempDir())
+	if err != nil || len(problems) > 0 {
+		t.Fatalf("build: %v %v", err, problems)
+	}
+	var diag syncBuffer
+	p, err := sc.spawn(ctx, out, digest, &diag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		dctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		p.Drain(dctx)
+	}()
+	got := make([][]string, len(f.Cases))
+	var wg sync.WaitGroup
+	for i := range f.Cases {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := &f.Cases[i]
+			got[i] = sc.runOne(ctx, p, c, &c.Runs[0], caseID(f, c), newUUID())
+		}()
+	}
+	wg.Wait()
+	for i, problems := range got {
+		if len(problems) > 0 {
+			t.Errorf("%s:\n  %s", f.Cases[i].Name(), strings.Join(problems, "\n  "))
+		}
+	}
+	if t.Failed() {
+		t.Logf("harness diagnostics:\n%s", diag.String())
+	}
 }

@@ -152,11 +152,17 @@ with the native boundary (deviation D5;
   modules inlined rather than shimmed: a native step's realm does not reach
   the process registry.
 - **The native form.** Either module is then parsed as JavaScript and
-  written as the source of one async function, `scripts/bun/<id>.native.js`
-  (no `.mjs`): its import declarations bound on the first line from the
-  function's parameter, its `export` keywords removed and every later line
-  kept in place, `import.meta` and `import(…)` read from the parameter, and
-  a namespace of getters returned, so live bindings stay live. A default
+  written as the source of one async arrow function,
+  `scripts/bun/<id>.native.js` (no `.mjs`): an arrow, so that the module's
+  scope has no `arguments`; its import declarations bound on the first line
+  from the function's parameter, its `export` keywords removed and every
+  later line kept in place, `import.meta` and `import(…)` read from the
+  parameter, the module's own `this` (outside every function but arrows,
+  and every class member) written as `(void 0)`, and a namespace of getters
+  returned, so live bindings stay live. A nativets script's own `this` is
+  written so before its transpile too, because Bun's transpiler writes it
+  as `null`; a `//native` bundle keeps what Bun's bundler makes of it, as
+  Windmill's bundle of it does. A default
   export of an expression, or of an anonymous declaration, becomes a
   `const`. The parameter's name is one the text never spells. The metadata's
   `boundary` is `native`, and its `native` part records the kind, the

@@ -9,11 +9,13 @@
 // turns each module into the source of one async function, its native
 // form, which the harness compiles in the invocation's realm:
 //
-//   (async function (P) {"use strict";<preamble>PROLOGUE
+//   (async (P) => {"use strict";<preamble>PROLOGUE
 //   BODY
 //   EPILOGUE
 //   })
 //
+// An arrow, so that the module's scope has no `arguments` binding, as an
+// ES module has none;
 // - P is a parameter name that the module's text never spells;
 // - the harness inserts the preamble (process, BASE_URL and, for nativets,
 //   one const per environment variable) at `preamble_at`, so its names are
@@ -22,8 +24,10 @@
 // - PROLOGUE binds the static imports from P.imports, which the harness
 //   resolves and links first (WR-40);
 // - BODY is the module's text with its import declarations and `export`
-//   keywords taken out, line for line, `import.meta` read from P.meta and
-//   `import(…)` sent to P.import;
+//   keywords taken out, line for line, `import.meta` read from P.meta,
+//   `import(…)` sent to P.import, and `this` outside every function and
+//   class body (the module's own, which the arrow would otherwise take from
+//   the script it is compiled as) written as `(void 0)`;
 // - EPILOGUE returns the module namespace: a getter per export, so live
 //   bindings stay live, and the names of `export *` re-exports.
 //
@@ -213,6 +217,7 @@ export function nativeModule(js: string, kind: string): NativeModule {
       edits.push({ start: n.start, end: n.start + 6, text: `${P}.import` });
     }
   });
+  moduleThis(program, (n) => edits.push({ start: n.start, end: n.end, text: "(void 0)" }));
   edits.sort((a, b) => a.start - b.start || a.end - b.end);
   let body = "";
   let at = 0;
@@ -222,7 +227,7 @@ export function nativeModule(js: string, kind: string): NativeModule {
   }
   body += js.slice(at);
 
-  const head = `(async function (${P}) {"use strict";`;
+  const head = `(async (${P}) => {"use strict";`;
   const bind = prologue.length > 0 ? `const ${prologue.join(", ")};` : "";
   const ns = getters.map((g) => `get ${q(g.name)}() { return ${g.expr}; }`).join(", ");
   const epilogue = `;return ${P}.namespace({ ${ns} }, [${stars.map((i) => `${P}.imports[${i}]`).join(", ")}]);`;
@@ -231,6 +236,62 @@ export function nativeModule(js: string, kind: string): NativeModule {
     form: { kind, param: P, preamble_at: head.length, imports, links },
     exports: [...new Set(getters.map((g) => g.name))],
   };
+}
+
+// The nodes that give `this` a value of their own: functions other than
+// arrows, and the members of a class body, whose computed keys are still
+// evaluated outside.
+const FUNCTIONS = new Set(["FunctionDeclaration", "FunctionExpression", "ObjectMethod"]);
+const MEMBERS = new Set(["ClassMethod", "ClassPrivateMethod", "ClassProperty", "ClassPrivateProperty", "ClassAccessorProperty", "StaticBlock"]);
+
+/** Calls found for every `this` of the module's own scope: outside every
+ * function but arrows, and outside every class member. */
+function moduleThis(n: unknown, found: (node: Node) => void): void {
+  if (Array.isArray(n)) {
+    for (const c of n) moduleThis(c, found);
+    return;
+  }
+  if (n === null || typeof n !== "object") return;
+  const node = n as Node;
+  if (node.type === "ThisExpression") {
+    found(node);
+    return;
+  }
+  if (FUNCTIONS.has(node.type)) {
+    if (node.type === "ObjectMethod" && node.computed) moduleThis(node.key, found);
+    return;
+  }
+  if (MEMBERS.has(node.type)) {
+    if (node.computed) moduleThis(node.key, found);
+    return;
+  }
+  for (const [k, v] of Object.entries(node)) {
+    if (k === "loc" || k === "extra" || k.endsWith("Comments")) continue;
+    if (v !== null && typeof v === "object") moduleThis(v, found);
+  }
+}
+
+/** TypeScript source with every `this` of the module's own scope written
+ * as `(void 0)`; source that does not parse is returned as it is, for the
+ * transpiler to report. */
+export function withoutModuleThis(source: string): string {
+  let program;
+  try {
+    program = parse(source, { sourceType: "module", plugins: ["typescript", "decorators-legacy", "decoratorAutoAccessors"] }).program;
+  } catch {
+    return source;
+  }
+  const at: Node[] = [];
+  moduleThis(program, (n) => at.push(n));
+  if (at.length === 0) return source;
+  at.sort((a, b) => a.start - b.start);
+  let out = "";
+  let from = 0;
+  for (const n of at) {
+    out += source.slice(from, n.start) + "(void 0)";
+    from = n.end;
+  }
+  return out + source.slice(from);
 }
 
 /** The native form of a CommonJS bundle: its namespace is its exports
@@ -266,10 +327,12 @@ const transpiler = new Bun.Transpiler({ loader: "ts" });
 
 /** A nativets script's JavaScript: its TypeScript with the types stripped
  * and nothing bundled (WR-40), or the transpiler's diagnostic, which fails
- * the step when it runs (WR-43). */
+ * the step when it runs (WR-43). Bun's transpiler writes a module's own
+ * `this` as `null`, where Windmill's leaves it, undefined, so the module's
+ * `this` is written as `(void 0)` before. */
 export function transpile(source: string): { js: string } | { error: string } {
   try {
-    return { js: transpiler.transformSync(source) };
+    return { js: transpiler.transformSync(withoutModuleThis(source)) };
   } catch (e) {
     const msg = e as { message?: string; position?: { line?: number; column?: number } | null };
     const pos = msg.position;

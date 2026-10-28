@@ -8,7 +8,10 @@
 // the ECMAScript built-ins and the web APIs the native runtime installs
 // (WR-45), taken from the harness's own realm, and nothing of Bun's; its
 // timers and fetches are the invocation's, released when it settles, as
-// the isolate is dropped when the job ends. The script runs in its native
+// the isolate is dropped when the job ends. The web API classes whose
+// methods return promises or other web objects are given to the realm as
+// subclasses (realm-facing classes, below), so that what they return
+// belongs to the invocation that called them. The script runs in its native
 // form (harnesses/bun/build/native.ts): one async function that the
 // harness compiles with the environment preamble in front of its text,
 // then calls with the static imports it resolved and linked.
@@ -24,7 +27,7 @@
 
 import { join } from "node:path";
 import vm from "node:vm";
-import type { InvocationResources } from "./context.ts";
+import { current, type InvocationResources } from "./context.ts";
 import { type Param, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 /** The URL a native step's module is loaded as, and the embedded client's,
@@ -81,6 +84,28 @@ const WEB_GLOBALS = [
   "performance", "Performance", "PerformanceEntry", "PerformanceMark", "PerformanceMeasure",
 ];
 
+/** The web API classes a native realm gets as realm-facing subclasses:
+ * those whose methods or getters return a promise or another web object.
+ * The harness realm's prototypes cannot be changed (Bun 1.3.10 makes most
+ * of their methods read-only, and Bun steps share them), so each of these
+ * is a subclass, made once per process, whose methods and getters call the
+ * class's own and pass on what it returns as the realm's (Native.toRealm):
+ * a promise becomes one of the calling invocation's realm, so a rejection
+ * nobody handles is attributed to it (WR-43); an instance of one of these
+ * classes takes its subclass's prototype, so what it returns in turn is
+ * handled alike. `crypto` and `crypto.subtle`, which every caller shares,
+ * become objects of their subclasses that forward to them. */
+const REALM_CLASSES = [
+  "Request", "Response", "Blob", "File", "FormData",
+  "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamBYOBReader",
+  "WritableStream", "WritableStreamDefaultWriter", "TransformStream",
+  "TextEncoderStream", "TextDecoderStream", "CompressionStream", "DecompressionStream",
+  "Crypto", "SubtleCrypto",
+];
+
+/** Statuses whose response has no body. */
+const NULL_BODY = new Set([101, 103, 204, 205, 304]);
+
 /** A failure to load a native module: its static imports, its link or its
  * compilation. It fails the step as an `execution error:` (WR-43). */
 class LoadFailure extends Error {}
@@ -119,6 +144,10 @@ export class Native {
   private realms = new WeakMap<object, NativeJob>();
   private byContext = new WeakMap<object, NativeJob>();
   private web: Record<string, unknown> = {};
+  /** Each realm-facing class's prototype, by the prototype of its class. */
+  private realmProtos = new Map<object, object>();
+  /** Objects every caller shares, whose prototype is never changed. */
+  private shared = new WeakSet<object>();
   private timers = { setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask };
   private fetch: typeof fetch = fetch;
   private console: Console = console;
@@ -143,6 +172,145 @@ export class Native {
     this.fetch = globalThis.fetch;
     this.console = console;
     this.timers = { setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask };
+    for (const name of REALM_CLASSES) {
+      const C = this.web[name];
+      if (typeof C === "function" && this.realmProtos.get(C.prototype) === undefined) this.web[name] = this.realmClass(name, C as new (...a: unknown[]) => object);
+    }
+    const crypto = globalThis.crypto;
+    this.shared.add(crypto);
+    this.shared.add(crypto.subtle);
+    const subtle = this.forwarder(crypto.subtle, this.web.SubtleCrypto as { prototype: object });
+    this.web.crypto = this.forwarder(crypto, this.web.Crypto as { prototype: object }, { subtle });
+  }
+
+  /** The realm-facing subclass of a web API class: its prototype's methods
+   * and getters, and its static methods, call the class's own and pass on
+   * the result with toRealm. */
+  private realmClass(name: string, C: new (...a: unknown[]) => object) {
+    const native = this;
+    const R = { [name]: class extends C {} }[name];
+    const wrap = (target: object, from: object, self?: object) => {
+      for (const k of Object.getOwnPropertyNames(from)) {
+        if (k === "constructor" || k === "prototype" || k === "length" || k === "name") continue;
+        const d = Object.getOwnPropertyDescriptor(from, k)!;
+        if (typeof d.value === "function") {
+          const m = d.value as (...a: unknown[]) => unknown;
+          const value = {
+            [k](this: unknown, ...a: unknown[]) {
+              return native.toRealm(Reflect.apply(m, self ?? this, a));
+            },
+          }[k];
+          Object.defineProperty(target, k, { ...d, value });
+        } else if (d.get !== undefined) {
+          const get = d.get;
+          // A promise a getter returns (a stream's closed and ready) is
+          // marked handled, as the streams standard marks it.
+          Object.defineProperty(target, k, {
+            ...d,
+            get(this: unknown) {
+              return native.toRealm(Reflect.apply(get, this, []), true);
+            },
+          });
+        }
+      }
+    };
+    wrap(R.prototype, C.prototype);
+    wrap(R, C, C);
+    this.realmProtos.set(C.prototype, R.prototype);
+    return R;
+  }
+
+  /** An object of a realm-facing class that forwards every method of the
+   * shared object obj to it, and holds props. */
+  private forwarder(obj: object, R: { prototype: object }, props: Record<string, unknown> = {}) {
+    const out = Object.create(R.prototype);
+    for (const k of Object.getOwnPropertyNames(Object.getPrototypeOf(obj))) {
+      const m = (obj as Record<string, unknown>)[k];
+      if (k === "constructor" || typeof m !== "function") continue;
+      const value = { [k]: (...a: unknown[]) => this.toRealm(Reflect.apply(m, obj, a)) }[k];
+      Object.defineProperty(out, k, { value, writable: true, enumerable: false, configurable: true });
+    }
+    for (const [k, v] of Object.entries(props)) Object.defineProperty(out, k, { value: v, enumerable: true, configurable: true });
+    return out;
+  }
+
+  /** What a web API returned, as the calling invocation's realm gets it: a
+   * promise of the harness realm becomes one of the realm, settled as it
+   * settles, with its value passed on alike; an instance of a class with a
+   * realm-facing subclass takes that subclass's prototype; an array has its
+   * elements passed on. Anything else is returned as it is. handled marks
+   * the realm's promise handled. */
+  toRealm(v: unknown, handled = false): unknown {
+    if (v instanceof Promise) {
+      const job = this.currentJob();
+      if (job === undefined) return v;
+      const p = new job.g.Promise((ok: (x: unknown) => void, fail: (e: unknown) => void) => {
+        v.then((x) => ok(this.toRealm(x)), fail);
+      });
+      if (handled) p.catch(() => {});
+      return p;
+    }
+    if (Array.isArray(v)) {
+      for (let i = 0; i < v.length; i++) v[i] = this.toRealm(v[i]);
+      return v;
+    }
+    if (v !== null && typeof v === "object" && !this.shared.has(v)) {
+      const proto = this.realmProtos.get(Object.getPrototypeOf(v));
+      if (proto !== undefined) Object.setPrototypeOf(v, proto);
+    }
+    return v;
+  }
+
+  /** A fetch's response as the realm gets it: of the realm-facing Response,
+   * with a body that reports its end. The request stays the invocation's
+   * until its body has been read to its end, has failed or was cancelled,
+   * or the invocation settles, whatever reads it (a clone included);
+   * done is called once, at that end. */
+  respond(res: Response, done: () => void): Response {
+    const src = res.body;
+    if (src === null || NULL_BODY.has(res.status)) {
+      done();
+      return this.toRealm(res) as Response;
+    }
+    const reader = src.getReader();
+    let ended = false;
+    const end = () => {
+      if (!ended) {
+        ended = true;
+        done();
+      }
+    };
+    const body = new ReadableStream({
+      async pull(c) {
+        try {
+          const r = await reader.read();
+          if (r.done) {
+            end();
+            c.close();
+          } else c.enqueue(r.value);
+        } catch (e) {
+          end();
+          c.error(e);
+        }
+      },
+      cancel(reason) {
+        end();
+        return reader.cancel(reason);
+      },
+    });
+    const R = this.web.Response as typeof Response;
+    const out = new R(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    Object.defineProperties(out, {
+      url: { value: res.url, configurable: true },
+      redirected: { value: res.redirected, configurable: true },
+      type: { value: res.type, configurable: true },
+    });
+    return out;
+  }
+
+  private currentJob(): NativeJob | undefined {
+    const c = current();
+    return c === undefined ? undefined : this.byContext.get(c);
   }
 
   /** The native job whose realm made promise, for an unhandled rejection,
@@ -178,9 +346,7 @@ export class Native {
     if (sig?.error !== undefined) return { error: signatureErrorText(sig.error, stepId) };
     // A proxy is an Enterprise Edition feature (WR-45).
     if (form.proxy !== undefined) return { error: signatureErrorText("Proxy is an EE feature", stepId) };
-    const job = new NativeJob(this, inv, form);
-    this.realms.set(job.promiseProto, job);
-    this.byContext.set(context, job);
+    const job = this.open(inv, form, context);
     let ns: Record<string, unknown>;
     try {
       ns = await job.load(join("scripts", "bun", ...inv.script.split("/")) + ".native.js", form, SCRIPT_URL);
@@ -197,6 +363,15 @@ export class Native {
     } catch (e) {
       return { error: job.errorText(e) };
     }
+  }
+
+  /** A new realm for an invocation, which context (its async-context
+   * store) names from then on, as the realm of its promises does. */
+  open(inv: NativeInvocation, form: NativeForm, context: object): NativeJob {
+    const job = new NativeJob(this, inv, form);
+    this.realms.set(job.promiseProto, job);
+    this.byContext.set(context, job);
+    return job;
   }
 
   /** A bundle file's text, read once per process. */
@@ -344,8 +519,10 @@ export class NativeJob {
 
   /** fetch of the realm (WR-45): the harness's own, so a request to the
    * facade becomes a platform call; with the User-Agent the script's
-   * header names, or windmill/beta, unless the request sets one; aborted
-   * when the invocation settles; settled as a promise of the realm. */
+   * header names, or windmill/beta, unless the request sets one; settled as
+   * a promise of the realm, with a response of the realm (Native.respond).
+   * The request is the invocation's until its body ends, and aborted if
+   * the invocation settles first. */
   private fetch() {
     const { fetch } = this.native.hooks;
     const g = this.g;
@@ -357,9 +534,13 @@ export class NativeJob {
           if (!req.headers.has("user-agent")) req.headers.set("user-agent", ua);
           const abort = new AbortController();
           const untrack = this.inv.resources.track("fetch", () => abort.abort());
-          fetch(new Request(req, { signal: AbortSignal.any([req.signal, abort.signal]) }))
-            .then(resolve, reject)
-            .finally(untrack);
+          fetch(new Request(req, { signal: AbortSignal.any([req.signal, abort.signal]) })).then(
+            (res) => resolve(this.native.respond(res, untrack)),
+            (e) => {
+              untrack();
+              reject(e);
+            },
+          );
         } catch (e) {
           reject(e);
         }
