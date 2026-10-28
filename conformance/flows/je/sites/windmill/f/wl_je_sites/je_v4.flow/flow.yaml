@@ -1,0 +1,16 @@
+summary: "JE-V4/a, b, c: missing transform payloads"
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_sites/xyz
+        input_transforms:
+          x:
+            type: javascript
+          "y":
+            type: static
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

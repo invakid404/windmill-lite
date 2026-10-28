@@ -1,0 +1,10 @@
+spec: [JE-36/f]
+target: f/wl_je_branches/je36_f
+args:
+  seed: 4
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:br~1b:0~1m:p/args/x"
+    equals:
+      seed: 4

@@ -1,0 +1,31 @@
+# JE-48: the stack limit is quickjs-ng's built-in 1 MiB. The cases bracket
+# the limit; none locates it (Q-JE-11).
+finding: JE-48
+scope: later
+cases:
+  - spec: JE-48/a
+    provenance: source-derived
+    title: a recursion of depth 1 000 fits
+    expr: '(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()'
+    expect: {value: '1000'}
+  - spec: JE-48/b
+    provenance: source-derived
+    title: a recursion of depth 1 000 000 overflows
+    expr: '(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000000); })()'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: ['QuickJS evaluation error: Error: Maximum call stack size exceeded']
+  - spec: JE-48/c
+    provenance: source-derived
+    title: the overflow is a catchable RangeError
+    expr: '(() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()'
+    expect: {value: '["RangeError","Maximum call stack size exceeded"]'}
+  - spec: JE-48/d
+    provenance: source-derived
+    title: stringifying deeply nested JSON overflows
+    expr: '(() => { let v = []; for (let i = 0; i < 100000; i++) v = [v]; return JSON.stringify(v).length; })()'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: [Maximum call stack size exceeded]

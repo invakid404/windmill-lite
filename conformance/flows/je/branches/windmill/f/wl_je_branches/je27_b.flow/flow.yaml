@@ -1,0 +1,41 @@
+summary: "JE-27/b on branchall: an error fails the module"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: false
+        branches:
+          - modules:
+              - id: s
+                value:
+                  type: script
+                  path: f/wl_je_branches/echo
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 1
+          - modules:
+              - id: t
+                value:
+                  type: script
+                  path: f/wl_je_branches/echo
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 2
+      stop_after_all_iters_if:
+        expr: nope
+        skip_if_stopped: false
+    - id: c
+      value:
+        type: script
+        path: f/wl_je_branches/echo
+        input_transforms:
+          x:
+            type: static
+            value: 3
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

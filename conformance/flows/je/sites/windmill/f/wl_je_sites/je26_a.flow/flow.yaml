@@ -1,0 +1,27 @@
+summary: "JE-26/a: a true stop_after_if stops the flow"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_sites/echo
+        input_transforms:
+          x:
+            type: static
+            value:
+              done: true
+      stop_after_if:
+        expr: result.done
+        skip_if_stopped: true
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_sites/echo
+        input_transforms:
+          x:
+            type: static
+            value: 1
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

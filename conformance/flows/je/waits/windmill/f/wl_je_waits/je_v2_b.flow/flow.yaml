@@ -1,0 +1,22 @@
+summary: "JE-V2/b: markers are resolved again on retry"
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_waits/setfail
+        input_transforms:
+          v:
+            type: static
+            value: f/wl_je_waits/retry_b
+          x:
+            type: static
+            value: "$var:f/wl_je_waits/retry_b"
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

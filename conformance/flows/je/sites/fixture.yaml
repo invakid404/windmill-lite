@@ -1,0 +1,23 @@
+# Recording batch E3a: the sequential expression sites that N1a implements
+# (skip_if, stop_after_if, skipped transforms), and the later flow-level
+# skip_expr, missing-payload and nesting-depth cases. Synthetic, written for
+# this repository from docs/semantics/conformance.md.
+id: je/sites
+spec:
+  - JE-22/c
+  - JE-23/c
+  - JE-25/a
+  - JE-26/a
+  - JE-33/a
+  - JE-33/b
+  - JE-V4/a
+  - JE-V4/b
+  - JE-V4/c
+  - JE-49/a
+  - JE-49/b
+  - JE-49/c
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle:
+  workers: 1

@@ -1,0 +1,31 @@
+summary: "JE-9/g: 'results.a\\n+ 100'"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 7
+    - id: m
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: "results.a\n+ 100"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

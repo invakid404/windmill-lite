@@ -1,0 +1,30 @@
+summary: "JE-24/a: a predicate selects a branch"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: "flow_input.n > 3"
+            modules:
+              - id: s
+                value:
+                  type: script
+                  path: f/wl_je_branches/echo
+                  input_transforms:
+                    x:
+                      type: static
+                      value: b0
+        default:
+          - id: d
+            value:
+              type: script
+              path: f/wl_je_branches/echo
+              input_transforms:
+                x:
+                  type: static
+                  value: def
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,14 @@
+summary: "JE-38/d: a subflow called by path inherits its caller's env"
+value:
+  modules:
+    - id: S
+      value:
+        type: flow
+        path: f/wl_je_scopes/je38_sub
+        input_transforms: {}
+  flow_env:
+    K: parent
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

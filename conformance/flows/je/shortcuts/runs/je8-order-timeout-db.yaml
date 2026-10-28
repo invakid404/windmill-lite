@@ -1,0 +1,22 @@
+# The control of je8-order-timeout: p is no longer the previous step,
+# so results.p is a JE-9 path lookup and returns the stored jsonb text.
+spec: [JE-8, JE-9, JE-29]
+target: f/wl_je_shortcuts/je8_order_timeout_db
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["Value was:"]
+    not_contains: ["{\"b\":1,\"a\":2}"]
+unit:
+  - spec: JE-9
+    site: m:q
+    input: timeout
+    expr: results.p
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        p: "{\"a\": 2, \"b\": 1}"
+    expect:
+      text: "{\"a\": 2, \"b\": 1}"

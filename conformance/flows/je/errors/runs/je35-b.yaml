@@ -1,0 +1,9 @@
+spec: [JE-35/b]
+target: f/wl_je_errors/je35_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/name
+    equals: Anyhow
+  - at: /result/error/message
+    prefix: "Error: QuickJS evaluation error: Error: nope is not defined"

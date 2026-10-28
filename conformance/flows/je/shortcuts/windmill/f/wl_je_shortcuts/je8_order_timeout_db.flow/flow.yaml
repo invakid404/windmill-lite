@@ -1,0 +1,31 @@
+summary: "JE-8: with a step in between, the same read is a jsonb lookup"
+value:
+  modules:
+    - id: p
+      value:
+        type: script
+        path: f/wl_je_shortcuts/pair
+        input_transforms: {}
+    - id: m
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+    - id: q
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+      timeout:
+        type: javascript
+        expr: results.p
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

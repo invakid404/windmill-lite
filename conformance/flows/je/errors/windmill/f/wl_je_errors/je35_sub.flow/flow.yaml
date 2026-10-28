@@ -1,0 +1,26 @@
+summary: "JE-35/d: the subflow"
+value:
+  modules:
+    - id: z
+      value:
+        type: script
+        path: f/wl_je_errors/echo
+        input_transforms:
+          x:
+            type: static
+            value: 1
+      skip_if:
+        expr: nope
+  failure_module:
+    id: failure
+    value:
+      type: script
+      path: f/wl_je_errors/echo
+      input_transforms:
+        x:
+          type: static
+          value: ran
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

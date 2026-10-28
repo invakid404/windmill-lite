@@ -1,0 +1,48 @@
+summary: "JE-31/a: a branchone predicate error stops the scan"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_branches/echo
+        input_transforms:
+          x:
+            type: static
+            value: 1
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: nope
+            modules:
+              - id: s
+                value:
+                  type: script
+                  path: f/wl_je_branches/echo
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 0
+          - expr: "true"
+            modules:
+              - id: t
+                value:
+                  type: script
+                  path: f/wl_je_branches/echo
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 1
+        default:
+          - id: d
+            value:
+              type: script
+              path: f/wl_je_branches/echo
+              input_transforms:
+                x:
+                  type: static
+                  value: 2
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

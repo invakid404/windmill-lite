@@ -1,0 +1,21 @@
+summary: "JE-32/a: a true retry_if allows the retries"
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_waits/fail
+        input_transforms:
+          msg:
+            type: static
+            value: retryable
+      retry:
+        constant:
+          attempts: 2
+          seconds: 0
+        retry_if:
+          expr: "error.message.includes('retryable')"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,31 @@
+summary: "JE-26/b: a throwing stop_after_if fails the flow, not the child"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_errors/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_errors/echo
+        input_transforms:
+          x:
+            type: static
+            value: 11
+      stop_after_if:
+        expr: nope
+        skip_if_stopped: false
+      retry:
+        constant:
+          attempts: 2
+          seconds: 0
+      continue_on_error: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

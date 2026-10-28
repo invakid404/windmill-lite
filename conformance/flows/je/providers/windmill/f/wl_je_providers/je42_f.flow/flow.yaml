@@ -1,0 +1,64 @@
+summary: "JE-42/f: depth 49 is resolved"
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_providers/echo
+        input_transforms:
+          x:
+            type: static
+            value:
+              k:
+                k:
+                  k:
+                    k:
+                      k:
+                        k:
+                          k:
+                            k:
+                              k:
+                                k:
+                                  k:
+                                    k:
+                                      k:
+                                        k:
+                                          k:
+                                            k:
+                                              k:
+                                                k:
+                                                  k:
+                                                    k:
+                                                      k:
+                                                        k:
+                                                          k:
+                                                            k:
+                                                              k:
+                                                                k:
+                                                                  k:
+                                                                    k:
+                                                                      k:
+                                                                        k:
+                                                                          k:
+                                                                            k:
+                                                                              k:
+                                                                                k:
+                                                                                  k:
+                                                                                    k:
+                                                                                      k:
+                                                                                        k:
+                                                                                          k:
+                                                                                            k:
+                                                                                              k:
+                                                                                                k:
+                                                                                                  k:
+                                                                                                    k:
+                                                                                                      k:
+                                                                                                        k:
+                                                                                                          k:
+                                                                                                            k:
+                                                                                                              k: "$var:f/wl_je_providers/s"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

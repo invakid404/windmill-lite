@@ -1,0 +1,13 @@
+spec: [JE-32/a]
+target: f/wl_je_waits/je32_a
+claims:
+  - at: /status
+    equals: failure
+  - at: "/steps/m:b~1r:0/status"
+    equals: failure
+  - at: "/steps/m:b~1r:1/status"
+    equals: failure
+  - at: /steps/m:b/status
+    equals: failure
+  - at: "/steps/m:b~1r:2"
+    absent: true

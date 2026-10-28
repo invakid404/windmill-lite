@@ -1,0 +1,10 @@
+# Recording batch E3a: the sleep, timeout and retry expression sites that N2
+# implements, and the retry argument cases of JE-V2 (N2 and F1). Synthetic,
+# written for this repository from docs/semantics/conformance.md.
+id: je/waits
+spec: [JE-22/a, JE-22/b, JE-28/a, JE-28/b, JE-28/c, JE-29/a, JE-32/a, JE-32/b, JE-V2/a, JE-V2/b, JE-V2/c]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle:
+  workers: 1

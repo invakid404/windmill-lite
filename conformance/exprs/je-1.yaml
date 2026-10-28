@@ -1,0 +1,73 @@
+# JE-1: QuickJS-ng evaluates every expression that reaches the engine.
+# Synthetic cases from docs/semantics/conformance.md#je-1, a census of host
+# APIs (Q-JE-2), and transcendental Math values: quickjs-ng takes them from
+# the C library's libm, so the static musl engine must be checked against
+# the digits the oracle gives (review item cl R3-2).
+finding: JE-1
+scope: core
+cases:
+  - spec: JE-1/a
+    provenance: source-derived
+    title: Intl is absent
+    expr: 'typeof Intl'
+    expect: {value: '"undefined"'}
+  - spec: JE-1/b
+    provenance: source-derived
+    title: atob is absent
+    expr: 'typeof atob'
+    expect: {value: '"undefined"'}
+  - spec: JE-1/c
+    provenance: source-derived
+    title: ES2023 array methods exist
+    expr: '[1,2,3].at(-1)'
+    expect: {value: '3'}
+  - spec: JE-1/d
+    provenance: source-derived
+    title: Object.groupBy exists
+    expr: 'Object.groupBy([1,2,3], n => n % 2 ? "odd" : "even")'
+    expect: {value: '{"odd":[1,3],"even":[2]}'}
+  - spec: JE-1/e
+    provenance: source-derived
+    title: console is absent
+    expr: 'typeof console'
+    expect: {value: '"undefined"'}
+  - spec: JE-1
+    variant: absent-host-apis
+    provenance: source-derived
+    title: the host APIs the reference lists as absent (Q-JE-2)
+    expr: '[typeof console, typeof Intl, typeof atob, typeof btoa, typeof TextEncoder, typeof TextDecoder, typeof URL, typeof URLSearchParams, typeof fetch, typeof setTimeout, typeof process, typeof require]'
+    expect: {value: '["undefined","undefined","undefined","undefined","undefined","undefined","undefined","undefined","undefined","undefined","undefined","undefined"]'}
+  - spec: JE-1
+    variant: present-built-ins
+    provenance: source-derived
+    title: the built-ins the reference lists as present
+    expr: '[typeof JSON, typeof Math, typeof Date, typeof RegExp, typeof Map, typeof Set, typeof Proxy, typeof Promise, typeof BigInt, "ab".replace(/(?<=a)b/, "c"), /(?<y>\d+)/.exec("x12").groups.y]'
+    expect: {value: '["object","object","function","function","function","function","function","function","function","ac","12"]'}
+  - spec: JE-1
+    variant: math-trig
+    provenance: source-derived
+    title: trigonometric functions, as Number#toString text
+    note: libm values differ in the last digits between C libraries; the oracle's are the reference
+    expr: '[Math.sin(1), Math.cos(1), Math.tan(1), Math.sin(1e22), Math.tan(1e10), Math.asin(0.3), Math.acos(0.3), Math.atan(3), Math.atan2(1, 3)].map(String)'
+    expect: {value: '["0.8414709848078965","0.5403023058681398","1.557407724654902","-0.8522008497671888","-0.5583496378112419","0.30469265401539747","1.266103672779499","1.2490457723982544","0.3217505543966422"]'}
+  - spec: JE-1
+    variant: math-exp-log
+    provenance: source-derived
+    title: exponential and logarithmic functions, as Number#toString text
+    note: libm values differ in the last digits between C libraries; the oracle's are the reference
+    expr: '[Math.exp(1), Math.exp(-7.5), Math.expm1(1e-5), Math.expm1(0.5), Math.log(3), Math.log1p(1e-5), Math.log2(10), Math.log10(7)].map(String)'
+    expect: {value: '["2.718281828459045","0.0005530843701478336","0.000010000050000166668","0.6487212707001282","1.0986122886681098","0.000009999950000333332","3.321928094887362","0.8450980400142568"]'}
+  - spec: JE-1
+    variant: math-pow-roots
+    provenance: source-derived
+    title: powers and roots, as Number#toString text
+    note: libm values differ in the last digits between C libraries; the oracle's are the reference
+    expr: '[Math.pow(2, 0.5), Math.pow(10, -5.5), 2 ** 0.1, Math.cbrt(10), Math.sqrt(2), Math.hypot(3, 4, 5), Math.hypot(1e200, 1e200)].map(String)'
+    expect: {value: '["1.4142135623730951","0.000003162277660168379","1.0717734625362931","2.154434690031884","1.4142135623730951","7.0710678118654755","1.414213562373095e+200"]'}
+  - spec: JE-1
+    variant: math-hyperbolic
+    provenance: source-derived
+    title: hyperbolic functions, as Number#toString text
+    note: libm values differ in the last digits between C libraries; the oracle's are the reference
+    expr: '[Math.sinh(0.1), Math.cosh(10), Math.tanh(0.5), Math.asinh(1), Math.acosh(2), Math.atanh(0.5)].map(String)'
+    expect: {value: '["0.10016675001984403","11013.232920103323","0.46211715726000974","0.881373587019543","1.3169578969248166","0.5493061443340549"]'}

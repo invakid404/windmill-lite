@@ -1,0 +1,9 @@
+spec: [JE-31/b]
+target: f/wl_je_branches/je31_b
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:br/branch_chosen
+    equals:
+      type: branch
+      branch: 1

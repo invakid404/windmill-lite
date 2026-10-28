@@ -1,0 +1,13 @@
+spec: [JE-V2/b]
+target: f/wl_je_waits/je_v2_b
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:b~1r:0/status"
+    equals: failure
+  - at: "/steps/m:b~1r:0/args/x"
+    equals: "$var:f/wl_je_waits/retry_b"
+  - at: /steps/m:b/args/x
+    equals: "$var:f/wl_je_waits/retry_b"
+  - at: /steps/m:b/result
+    equals: second

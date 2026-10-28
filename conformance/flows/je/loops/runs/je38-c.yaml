@@ -1,0 +1,7 @@
+spec: [JE-38/c]
+target: f/wl_je_loops/je38_c
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:l~1i:0~1m:s/args/x"
+    equals: v

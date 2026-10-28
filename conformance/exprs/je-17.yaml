@@ -1,0 +1,12 @@
+# JE-17: the error helper variable. At module 0 previous_result is the flow
+# input, an empty object, which is truthy (rule 3). The failure-module and
+# predecessor cases are flow fixtures.
+finding: JE-17
+scope: core
+cases:
+  - spec: JE-17/c
+    provenance: source-derived
+    title: an empty object is truthy
+    flow_input: '{}'
+    expr: error.name
+    expect: {value: '"UnknownError"'}

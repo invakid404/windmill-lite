@@ -1,0 +1,9 @@
+spec: [JE-41/c]
+target: f/wl_je_providers/je41_c
+args:
+  v: "$var:f/wl_je_providers/v"
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: 24

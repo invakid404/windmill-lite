@@ -1,0 +1,16 @@
+# JE-6: an exact context name returns the stored value verbatim. The step
+# is module 0, so previous_result is the flow input (JE-36 rule 1).
+finding: JE-6
+scope: core
+flow_input: '{"n":12345678901234567890}'
+cases:
+  - spec: JE-6/a
+    provenance: source-derived
+    title: the shortcut keeps full precision
+    expr: previous_result
+    expect: {value: '{"n":12345678901234567890}'}
+  - spec: JE-6/b
+    provenance: source-derived
+    title: JavaScript rounds the same value
+    expr: previous_result.n
+    expect: {value: '12345678901234567000'}

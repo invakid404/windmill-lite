@@ -1,0 +1,33 @@
+summary: "JE-37/a: nested loops displace iter to iter_parent"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator:
+          type: static
+          value: [1]
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: inner
+            value:
+              type: forloopflow
+              iterator:
+                type: static
+                value: [a]
+              skip_failures: false
+              parallel: false
+              modules:
+                - id: s
+                  value:
+                    type: script
+                    path: f/wl_je_loops/echo
+                    input_transforms:
+                      x:
+                        type: javascript
+                        expr: "[flow_input.iter.value, flow_input.iter_parent.value]"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

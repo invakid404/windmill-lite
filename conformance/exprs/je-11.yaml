@@ -1,0 +1,10 @@
+# JE-11: calls to variable(, resource( and flow_user_state( are rewritten
+# textually, even inside a string literal.
+finding: JE-11
+scope: later
+cases:
+  - spec: JE-11/a
+    provenance: source-derived
+    title: the rewrite applies inside string literals
+    expr: '"call variable(1)"'
+    expect: {value: '"call (await variable(1))"'}

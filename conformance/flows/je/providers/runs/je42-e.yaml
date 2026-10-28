@@ -1,0 +1,9 @@
+spec: [JE-42/e]
+target: f/wl_je_providers/je42_e
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/status
+    equals: failure
+  - at: /steps/m:b/result/error/message
+    contains: ["Variable f/wl_je_providers/missing not found for `x`:"]

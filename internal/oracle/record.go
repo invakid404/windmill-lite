@@ -41,14 +41,17 @@ type Session struct {
 	Repeat int
 	// RegenerateMetadata runs folder add-missing and generate-metadata in
 	// each fixture's sync tree before the push, in place, so a CI step can
-	// diff the tree (the drift gate of OR-8).
+	// diff the tree (the drift gate of OR-8). A generated fixture's tree
+	// (conformance.LiftExprFile) gets its metadata this way whatever the
+	// setting, since none is committed for it.
 	RegenerateMetadata bool
 	// Check fails a run that has no committed recording or whose
 	// observation differs from it, and never writes into a fixture.
 	Check bool
 	// OutDir, when set, receives new and changed recordings at
-	// <OutDir>/<fixture path relative to RepoRoot>/recorded/<run>.json
-	// instead of the fixture directory.
+	// <OutDir>/<recording directory relative to RepoRoot>/<run>.json, for
+	// a flow fixture <OutDir>/<fixture path>/recorded/<run>.json, instead
+	// of the recording directory.
 	OutDir string
 	// RawDir, when set, receives the raw API captures of every run.
 	RawDir string
@@ -440,7 +443,7 @@ func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance
 		return nil, dep, err
 	}
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
-	if s.RegenerateMetadata {
+	if s.RegenerateMetadata || f.Generated {
 		if err := cli.AddMissingFolders(ctx, f.SyncTree(), t); err != nil {
 			return nil, dep, err
 		}
@@ -532,11 +535,11 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 	dest := ""
 	switch {
 	case s.OutDir != "":
-		rel := s.rel(f.Dir)
+		rel := s.rel(f.RecordingDir())
 		if rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(filepath.FromSlash(rel)) {
 			return fail(OutcomeFailed, fmt.Errorf("oracle: fixture %s is outside %s, so --out cannot place its recording", f.Dir, s.RepoRoot), nil)
 		}
-		dest = filepath.Join(s.OutDir, filepath.FromSlash(rel), conformance.RecordedDir, r.Name+".json")
+		dest = filepath.Join(s.OutDir, filepath.FromSlash(rel), r.Name+".json")
 	case !s.Check:
 		dest = f.RecordingPath(r.Name)
 	}

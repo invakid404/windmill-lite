@@ -1,0 +1,34 @@
+summary: "JE-9/k: a predicate served by the shortcut"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value:
+              flag: true
+    - id: m
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+    - id: c
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+      skip_if:
+        expr: "false ||\nresults.a.flag\n"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

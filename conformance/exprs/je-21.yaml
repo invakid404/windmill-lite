@@ -1,0 +1,14 @@
+# JE-21: the evaluator's own error text, wrapped by the transform site
+# (JE-23). The stack after the message is not part of the expectation
+# (Q-JE-1); the recording holds it.
+finding: JE-21
+scope: core
+cases:
+  - spec: JE-21/a
+    provenance: source-derived
+    title: the full message structure for an unknown global
+    expr: nope
+    expect:
+      error:
+        name: ExecutionErr
+        prefix: "Error during isolated evaluation of expression `nope`:\nQuickJS evaluation error: Error: nope is not defined"

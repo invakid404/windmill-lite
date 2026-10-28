@@ -1,0 +1,30 @@
+# Recording batch E3a: the variable helpers, flow_env resolution and the
+# $var: resolution cases that PF2 implements. Synthetic, written for this
+# repository from docs/semantics/conformance.md; the variables are created
+# after the push. Each observer returns its argument, so its result shows the
+# resolved value (point O3, seen as O4).
+id: je/providers
+spec:
+  - JE-20/a
+  - JE-20/b
+  - JE-38/a
+  - JE-38/b
+  - JE-41/a
+  - JE-41/b
+  - JE-41/c
+  - JE-42/a
+  - JE-42/b
+  - JE-42/c
+  - JE-42/f
+  - JE-42/d
+  - JE-42/e
+  - JE-42/g
+  - JE-42/h
+  - JE-V3/a
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle:
+  workers: 1
+compare:
+  mask: [/steps/m:d/result/0]

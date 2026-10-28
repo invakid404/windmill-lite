@@ -1,0 +1,86 @@
+summary: "CF-19/a: visibility of inner and outer steps after containers"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_cf19/echo
+        input_transforms:
+          x:
+            type: static
+            value: 1
+    - id: ba
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: x1
+            value:
+              type: script
+              path: f/wl_cf19/inc
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.a
+    - id: l
+      value:
+        type: forloopflow
+        iterator:
+          type: static
+          value: [10, 20]
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: y1
+            value:
+              type: script
+              path: f/wl_cf19/echo
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+          - id: y2
+            value:
+              type: script
+              path: f/wl_cf19/echo
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.y1
+    - id: p
+      value:
+        type: forloopflow
+        iterator:
+          type: static
+          value: [1]
+        skip_failures: false
+        parallel: true
+        modules:
+          - id: z1
+            value:
+              type: script
+              path: f/wl_cf19/echo
+              input_transforms:
+                x:
+                  type: static
+                  value: 5
+          - id: z2
+            value:
+              type: script
+              path: f/wl_cf19/echo
+              input_transforms:
+                x:
+                  type: static
+                  value: 0
+    - id: f
+      value:
+        type: script
+        path: f/wl_cf19/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: "[results.x1, results.y1, results.z1, results.l, results.nope]"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

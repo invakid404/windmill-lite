@@ -1,0 +1,7 @@
+spec: [JE-49/a]
+target: f/wl_je_sites/je49_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: 1

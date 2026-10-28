@@ -1,0 +1,13 @@
+# JE-22: the scope table. Input transforms have no result; the sleep and
+# stop_after_if rows are in flows/je/waits and flows/je/sites.
+finding: JE-22
+scope: core
+cases:
+  - spec: JE-22/d
+    provenance: source-derived
+    title: input transforms have no result
+    expr: result
+    expect:
+      error:
+        name: ExecutionErr
+        contains: [result is not defined]

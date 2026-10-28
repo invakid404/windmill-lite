@@ -1,0 +1,7 @@
+spec: [JE-30/a]
+target: f/wl_je_loops/je30_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:l/result
+    length: 2

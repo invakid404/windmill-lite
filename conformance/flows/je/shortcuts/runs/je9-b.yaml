@@ -1,0 +1,24 @@
+spec: [JE-9/b]
+target: f/wl_je_shortcuts/je9_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/status
+    equals: failure
+  - at: /steps/m:b/result/error/message
+    prefix: "Error during isolated evaluation of expression `(results.a.b.c)`:\n"
+    contains: ["QuickJS evaluation error: Error:"]
+unit:
+  - spec: JE-9/b
+    site: m:b
+    input: x
+    expr: "(results.a.b.c)"
+    context:
+      previous_id: m
+      previous_result: "0"
+      results:
+        a: "{}"
+    expect:
+      error:
+        prefix: "Error during isolated evaluation of expression `(results.a.b.c)`:\n"
+        contains: ["QuickJS evaluation error: Error:"]

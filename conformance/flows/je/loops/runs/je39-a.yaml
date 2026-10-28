@@ -1,0 +1,7 @@
+spec: [JE-39/a]
+target: f/wl_je_loops/je39_a
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["iter is not defined"]

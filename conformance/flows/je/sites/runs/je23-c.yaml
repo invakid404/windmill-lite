@@ -1,0 +1,7 @@
+spec: [JE-23/c]
+target: f/wl_je_sites/je23_c
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/skipped
+    equals: true

@@ -1,0 +1,15 @@
+summary: "JE-19/d: the subflow, with no step a"
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_je_scopes/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.a
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

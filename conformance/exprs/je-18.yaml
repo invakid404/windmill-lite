@@ -1,0 +1,21 @@
+# JE-18: how a results.<id> read resolves on the QuickJS path. No step is
+# named nonexistent; the forward-reference case is in flows/je/shortcuts.
+finding: JE-18
+scope: core
+cases:
+  - spec: JE-18/a
+    provenance: source-derived
+    title: an absent step
+    note: the text is a qualifying JE-9 line, so the path lookup answers it
+    expr: results.nonexistent
+    expect: {value: 'null'}
+  - spec: JE-18/b
+    provenance: source-derived
+    title: nullish coalescing on an absent step
+    expr: 'results.nonexistent ?? "d"'
+    expect: {value: '"d"'}
+  - spec: JE-18/c
+    provenance: source-derived
+    title: optional chaining on an absent step
+    expr: 'results.nonexistent?.v ?? "n"'
+    expect: {value: '"n"'}

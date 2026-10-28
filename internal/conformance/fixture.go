@@ -47,6 +47,18 @@ type Fixture struct {
 	Setup *Setup `json:"-"`
 	// Runs are the runs, sorted by name.
 	Runs []Run `json:"-"`
+
+	// Tree, when set, is the sync tree's directory in place of
+	// Dir/windmill: a generated fixture's tree lives outside the
+	// repository (LiftExprFile).
+	Tree string `json:"-"`
+	// RecordedIn, when set, is the directory of the recordings in place of
+	// Dir/recorded.
+	RecordedIn string `json:"-"`
+	// Generated reports that the sync tree was generated, not committed,
+	// so the recorder writes its metadata with the CLI before every push
+	// and no drift gate applies to it (OR-8).
+	Generated bool `json:"-"`
 }
 
 // OracleNeeds is what a fixture needs from the oracle (OR-5, OR-16).
@@ -148,7 +160,19 @@ type Run struct {
 	CancelAfterMS *int `json:"cancel_after_ms,omitempty"`
 	// Expect is the expected normalised observation, or nil.
 	Expect *Observation `json:"expect,omitempty"`
-	Note   string       `json:"note,omitempty"`
+	// Claims are what the catalogue says about the observation, where it
+	// says less than the whole of it (an error message's prefix, one
+	// argument). A test of the recording batch checks them against the
+	// committed recording; the recorder does not, so a contradicted claim
+	// still leaves its recording to inspect.
+	Claims []Claim `json:"claims,omitempty"`
+	// Delays are lower bounds on the time between two of the run's jobs,
+	// checked against the recording's provenance like Claims.
+	Delays []Delay `json:"delays,omitempty"`
+	// Unit restates the run's expressions at unit level, with the context
+	// each evaluation sees (UnitCase).
+	Unit []UnitCase `json:"unit,omitempty"`
+	Note string     `json:"note,omitempty"`
 
 	// Recorded is recorded/<name>.json, or nil when the run has no
 	// recording yet.
@@ -191,13 +215,28 @@ func WriteRecording(path string, rec Recording) error {
 	return os.WriteFile(path, out, 0o644)
 }
 
-// RecordingPath returns the path of the run's recording in f.
-func (f *Fixture) RecordingPath(run string) string {
-	return filepath.Join(f.Dir, RecordedDir, run+".json")
+// RecordingDir returns the directory of f's recordings: RecordedIn, or
+// Dir/recorded.
+func (f *Fixture) RecordingDir() string {
+	if f.RecordedIn != "" {
+		return f.RecordedIn
+	}
+	return filepath.Join(f.Dir, RecordedDir)
 }
 
-// SyncTree returns the fixture's sync tree directory.
-func (f *Fixture) SyncTree() string { return filepath.Join(f.Dir, SyncTreeDir) }
+// RecordingPath returns the path of the run's recording in f.
+func (f *Fixture) RecordingPath(run string) string {
+	return filepath.Join(f.RecordingDir(), run+".json")
+}
+
+// SyncTree returns the fixture's sync tree directory: Tree, or
+// Dir/windmill.
+func (f *Fixture) SyncTree() string {
+	if f.Tree != "" {
+		return f.Tree
+	}
+	return filepath.Join(f.Dir, SyncTreeDir)
+}
 
 // LoadFixture reads the fixture in dir and checks its fields.
 func LoadFixture(dir string) (*Fixture, error) {
@@ -394,6 +433,21 @@ func (r *Run) check() error {
 	}
 	if r.CancelAfterMS != nil && *r.CancelAfterMS < 0 {
 		return errors.New("cancel_after_ms is negative")
+	}
+	for _, c := range r.Claims {
+		if err := c.check(); err != nil {
+			return err
+		}
+	}
+	for _, d := range r.Delays {
+		if err := d.check(); err != nil {
+			return err
+		}
+	}
+	for i := range r.Unit {
+		if err := r.Unit[i].check(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

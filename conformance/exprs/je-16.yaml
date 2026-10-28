@@ -1,0 +1,16 @@
+# JE-16: context values arrive as converted JSON. The in-memory and
+# negative-zero cases (JE-16/d to JE-16/f) are in flows/je/shortcuts.
+finding: JE-16
+scope: core
+flow_input: '{"n":9007199254740993}'
+cases:
+  - spec: JE-16/a
+    provenance: source-derived
+    title: JavaScript arithmetic loses precision beyond 2^53
+    expr: flow_input.n * 1
+    expect: {value: '9007199254740992'}
+  - spec: JE-16/b
+    provenance: source-derived
+    title: the shortcut keeps it
+    expr: flow_input.n
+    expect: {value: '9007199254740993'}

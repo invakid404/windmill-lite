@@ -1,0 +1,26 @@
+summary: "JE-28/c: the last module's sleep is never evaluated"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_waits/echo
+        input_transforms:
+          x:
+            type: static
+            value: 1
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_waits/echo
+        input_transforms:
+          x:
+            type: static
+            value: 2
+      sleep:
+        type: javascript
+        expr: nope
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

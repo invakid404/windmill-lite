@@ -1,0 +1,13 @@
+spec: [JE-40/a, JE-40/b]
+target: f/wl_je_loops/je40_ab
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:l~1i:0~1m:t/args/x"
+    equals: "Item 0"
+  - at: "/steps/m:l~1i:1~1m:t/args/x"
+    equals: "Item 1"
+  - at: "/steps/m:l~1i:0~1m:u/args/x"
+    equals: "`Item ${flow_input.iter.index}`"
+  - at: "/steps/m:l~1i:1~1m:u/args/x"
+    equals: "`Item ${flow_input.iter.index}`"

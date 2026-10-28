@@ -1,0 +1,7 @@
+spec: [JE-27/a]
+target: f/wl_je_loops/je27_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:c/status
+    equals: not_run

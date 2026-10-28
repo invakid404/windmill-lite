@@ -1,0 +1,56 @@
+summary: "JE-12/a, b, c, e: results.<id> rewrites"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value:
+              v: 3
+    - id: m
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: static
+            value: 0
+    - id: b_a
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: "results['a'].v"
+    - id: b_b
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: "results['a']"
+    - id: b_c
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: "\"see results.a\""
+    - id: b_e
+      value:
+        type: script
+        path: f/wl_je_shortcuts/echo
+        input_transforms:
+          x:
+            type: javascript
+            expr: results
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

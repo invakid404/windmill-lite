@@ -1,0 +1,18 @@
+summary: "JE-42/b: an array at depth 3 is not walked"
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        path: f/wl_je_providers/echo
+        input_transforms:
+          x:
+            type: static
+            value:
+              a:
+                b:
+                  c: ["$var:f/wl_je_providers/s"]
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

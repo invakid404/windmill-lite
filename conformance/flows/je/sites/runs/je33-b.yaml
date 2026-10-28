@@ -1,0 +1,7 @@
+spec: [JE-33/b]
+target: f/wl_je_sites/je33_b
+claims:
+  - at: /status
+    equals: success
+  - at: /result
+    equals: "stopped early"

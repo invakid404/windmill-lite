@@ -1,0 +1,10 @@
+# Recording batch E3a: the branchone, branchall and while-loop expression
+# cases that N3b implements. Synthetic, written for this repository from
+# docs/semantics/conformance.md.
+id: je/branches
+spec: [JE-24/a, JE-27/a, JE-27/b, JE-31/a, JE-31/b, JE-36/d, JE-36/f]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle:
+  workers: 1

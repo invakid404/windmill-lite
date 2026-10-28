@@ -3,9 +3,10 @@
 //
 //	wltest record [flags] <fixture or directory>...
 //
-// record runs flow fixtures on the pinned Windmill CE oracle and writes
-// their recordings with provenance. check, diff and stub are later
-// milestones (E1, E4a).
+// record runs flow fixtures, and the expression cases of conformance/exprs
+// lifted into generated one-step flows, on the pinned Windmill CE oracle
+// and writes their recordings with provenance. check, diff and stub are
+// later milestones (E1, E4a).
 package main
 
 import (
@@ -19,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,10 +37,11 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = `usage: wltest record [flags] <fixture or directory>...
+const usage = `usage: wltest record [flags] <fixture, expression file or directory>...
 
-record runs flow fixtures on the Windmill CE v1.767.0 oracle and writes
-recorded/<run>.json with provenance. Run wltest record -h for its flags.
+record runs flow fixtures, and expression-case files lifted into generated
+one-step flows, on the Windmill CE v1.767.0 oracle and writes their
+recordings with provenance. Run wltest record -h for its flags.
 check, diff and stub are not implemented yet.
 `
 
@@ -87,7 +90,12 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "wltest:", err)
 		return 1
 	}
-	if len(dirs) == 0 {
+	exprFiles, err := conformance.FindExprFiles(fs.Args()...)
+	if err != nil {
+		fmt.Fprintln(stderr, "wltest:", err)
+		return 1
+	}
+	if len(dirs)+len(exprFiles) == 0 {
 		fmt.Fprintln(stderr, "wltest:", oracle.ErrNoFixtures)
 		return 1
 	}
@@ -99,6 +107,36 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fixtures = append(fixtures, f)
+	}
+	// Expression cases are lifted into generated one-step flow fixtures
+	// (ADR 0011), whose trees live only for the session.
+	if len(exprFiles) > 0 {
+		gen, err := os.MkdirTemp("", "wltest-exprs-")
+		if err != nil {
+			fmt.Fprintln(stderr, "wltest:", err)
+			return 1
+		}
+		defer os.RemoveAll(gen)
+		var files []*conformance.ExprFile
+		for _, p := range exprFiles {
+			ef, err := conformance.LoadExprFile(p)
+			if err != nil {
+				fmt.Fprintln(stderr, "wltest:", err)
+				return 1
+			}
+			files = append(files, ef)
+		}
+		// Slow cases go last, so that whatever they leave running on the
+		// oracle (JE-2) cannot slow the others.
+		sort.SliceStable(files, func(i, j int) bool { return !files[i].Slow && files[j].Slow })
+		for i, ef := range files {
+			f, err := conformance.LiftExprFile(ef, filepath.Join(gen, fmt.Sprint(i)))
+			if err != nil {
+				fmt.Fprintln(stderr, "wltest:", err)
+				return 1
+			}
+			fixtures = append(fixtures, f)
+		}
 	}
 	root, _ := os.Getwd()
 	s := &oracle.Session{

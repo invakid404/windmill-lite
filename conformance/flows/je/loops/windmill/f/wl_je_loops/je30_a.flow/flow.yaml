@@ -1,0 +1,33 @@
+summary: "JE-30/a: the iterator can read results"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/wl_je_loops/echo
+        input_transforms:
+          x:
+            type: static
+            value:
+              items: [1, 2]
+    - id: l
+      value:
+        type: forloopflow
+        iterator:
+          type: javascript
+          expr: results.a.items
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: i
+            value:
+              type: script
+              path: f/wl_je_loops/echo
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,18 @@
+# JE-14: a trailing // comment breaks a single-line direct expression.
+finding: JE-14
+scope: later
+flow_input: '{"n":5}'
+cases:
+  - spec: JE-14/a
+    provenance: source-derived
+    title: a trailing line comment fails
+    expr: 'flow_input.n // the count'
+    expect:
+      error:
+        name: ExecutionErr
+        contains: ['QuickJS evaluation error:']
+  - spec: JE-14/b
+    provenance: source-derived
+    title: a block comment is fine
+    expr: 'flow_input.n /* the count */'
+    expect: {value: '5'}

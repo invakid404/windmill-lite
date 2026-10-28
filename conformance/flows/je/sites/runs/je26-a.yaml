@@ -1,0 +1,7 @@
+spec: [JE-26/a]
+target: f/wl_je_sites/je26_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/status
+    equals: not_run
