@@ -190,6 +190,7 @@ sees only the error its client library raises, and nothing is recorded.
 | Two codebase scripts may not extract different assets to the same relative path | build error `asset_collision` | [0002](0002-ir-and-loader.md) |
 | A hook selector that names a module id occurring more than once in one module list must give the occurrence; a mandatory provided-site selector must match exactly one site | load error `ambiguous_selector` | [0008](0008-host-hooks.md) |
 | A codebase entry with `customBundler`, and a script with a `schema_validation` annotation, until the reference covers them | load error `unsupported_feature` | [0002](0002-ir-and-loader.md), [0009](0009-host-adapters.md) |
+| YAML that the CLI's parser accepts but yamlx cannot read as the CLI does ([SY-9](../semantics/openflow.md#sy-9)): JavaScript-specific values (the tags `!!binary`, `!!timestamp`, `!!set`, `!!omap`, `!!pairs` and `!!merge`, collection keys), directives other than `%YAML 1.2`, a carriage return without a line feed (a line break only to a YAML 1.1 parser), anchor names that YAML 1.2 reads further, a `?` or `:` in a flow collection that the two parsers read as different indicators (`[?v]`, `[v:]`), aliases beyond an expansion bound, and some YAML 1.2 syntax the YAML 1.1 parser rejects (the `\/` escape) | load error `unsupported_yaml`, or the parser's `yaml_syntax` for its own rejections | [0002](0002-ir-and-loader.md) |
 
 Anything not in this table and not out of scope is a bug when it differs.
 
@@ -258,6 +259,10 @@ switch through a change to this record, naming the reason.
   fails "with a named error", but the `fetch`-only restriction raises no
   windmill-lite error at all, and two restrictions fail at build rather than
   at load. The preamble now says so; the table is unchanged.
+- §5a gained the YAML restriction when milestone A2 implemented the dialect
+  of [0002](0002-ir-and-loader.md): a few YAML constructs the CLI accepts
+  cannot be read as the CLI reads them over a YAML 1.1 parser, so they fail
+  at load instead of parsing differently.
 
 ## Spec IDs relied on
 
@@ -265,4 +270,4 @@ FX-1, FX-2, FX-4, FX-10, FX-26, FX-33, FX-36, FX-39, FX-40, FX-41, FX-42,
 FX-46, FX-49, FX-V2, FX-V6, CF-6, CF-7, CF-8, CF-12, CF-19, CF-V5, CF-V6,
 OF-3, OF-7, OF-17, OF-V5, JE-2, JE-9, JE-10, WR-1, WR-2, WR-3, WR-16,
 WR-27, WR-28, WR-30, WR-32, WR-36, WA-33, OR-5, OR-11, OR-14, OR-15, OR-21,
-OR-23, OR-V3, OR-V5, OR-V8, OR-V9, and the questions named in the tables.
+OR-23, OR-V3, OR-V5, OR-V8, OR-V9, SY-9, and the questions named in the tables.

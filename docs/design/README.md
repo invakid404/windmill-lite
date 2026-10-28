@@ -2,15 +2,16 @@
 
 **Current state:** first edition, proposed. Milestone A3 implements the
 OpenFlow decoder of [0002](0002-ir-and-loader.md) in
-[internal/openflow](../../internal/openflow/README.md), milestone K1 the
-contracts of [0012](0012-layout-and-milestones.md) (the shared types and
+[internal/openflow](../../internal/openflow/README.md), milestone A2 its YAML
+dialect in [internal/yamlx](../../internal/yamlx/README.md), milestone K1
+the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
 interfaces under `internal/`), and milestone C1 the harness protocol of
 [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness; nothing runs flows yet. This README covers
-`docs/design/`: this index and the decision records it links. The records decide the architecture, the
-equivalence contract with Windmill `v1.767.0`, the Go package layout and the
-implementation milestones. They build on the
+`docs/design/`: this index and the decision records it links. The records
+decide the architecture, the equivalence contract with Windmill `v1.767.0`,
+the Go package layout and the implementation milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
 
 The records are written by the build team under the clean-room rule of
@@ -46,8 +47,8 @@ flowchart LR
 
 | Record | Decision |
 |---|---|
-| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and six restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
-| [0002 IR, loader and validation](0002-ir-and-loader.md) | Hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
+| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and seven restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
+| [0002 IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
 | [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a pinned stack size; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
 | [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, large messages in parts; validated entrypoint names; a shared-process failure model (handlers that never exit, attribution without guessing, D9–D11); `fetch` as the only platform transport in warm processes (other transports refused, unrecorded); no in-flight cap unless a host sets one (D15); host mode never tainted, drained by the host, and killed by the engine's watchdog when its event loop stops answering. |
 | [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
