@@ -345,6 +345,20 @@ their root jobs were not in flight together.
 - Milestone E2 chose that escape and the container sites above. It also
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.
+- Recording batch E3a lifted expression cases as this record says: one
+  generated fixture per expression file, whose tree (one flow per case,
+  each a single step that runs a sink script returning `null`, so the
+  recorded argument is the observation) lives only for the session and gets
+  its metadata from the CLI before each push; the recordings are committed
+  under `conformance/exprs/recorded/`. Runs gained `claims` (partial
+  assertions in the catalogue's terms, such as a message's prefix),
+  `delays` (lower bounds on a sleep, read from provenance timings, which are
+  never compared) and `unit` cases, all checked against the committed
+  recordings by Go tests rather than by `record`, so a contradicted claim
+  still leaves its recording to inspect.
+- E3a met the workspace limit and the completed `branchall` entry of E3c's
+  item independently; the session also deletes a workspace whose deployment
+  failed, under a context of its own.
 - Milestone E4a chose the stub's shape and the replay protocol above, and
   answers [Q-OR-10](../semantics/oracle.md#q-or-10) with its recordings
   (`conformance/flows/stub/scopes`): inside a named subflow and inside each

@@ -2,12 +2,14 @@
 
 **Current state:** the shared identity and observation vocabulary of
 milestone K1, the fixture format, normaliser and comparator of milestone
-E2, and the replay table and replay service of stub mode, milestone E4a
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)).
-This README covers `internal/conformance` and its `testdata/`. The oracle
-harness ([internal/oracle](../oracle/README.md)) uses all of it; the flow
-runner that checks windmill-lite against a fixture (`wltest check`) is
-milestone E1 and does not exist yet.
+E2, the expression-case format, its lifting into generated flows, and the
+claims and unit cases of recording batch E3a, and the replay table and
+replay service of stub mode, milestone E4a
+([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
+covers `internal/conformance` and its `testdata/`. The oracle harness
+([internal/oracle](../oracle/README.md)) uses all of it; the flow runner
+that checks windmill-lite against a fixture (`wltest check`) is milestone E1
+and does not exist yet.
 
 ## What it holds
 
@@ -17,6 +19,9 @@ milestone E1 and does not exist yet.
 | `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`), `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) and `ModuleStatus` ([FX-1](../../docs/semantics/execution.md#fx-1)) |
 | `observation.go` | `Observation`, `StepObservation` and `BranchChosen`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments (see below) |
 | `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
+| `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
+| `claims.go` | `Claim`, `CheckClaims`, `Delay`, `ValueAt`, `SameJSON`: partial assertions about an observation |
+| `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
 | `normalise.go` | `Normaliser` and `MaskPaths`: the value rules of [OR-14](../../docs/semantics/oracle.md#or-14) |
@@ -160,6 +165,47 @@ Runs with the same `group` are submitted together, as concurrent outer runs
 other run runs alone. The oracle fails a group as a whole when one of its
 runs fails or when they were not in flight together.
 
+A run may also carry `claims`, `delays` and `unit`, which the comparator
+does not read (see [Claims](#claims)). A fixture whose tree is generated
+sets `Tree`, `RecordedIn` and `Generated` instead of using `windmill/` and
+`recorded/` under its directory.
+
+## Expression cases
+
+`LoadExprFile` reads one `conformance/exprs/<finding>.yaml` strictly, and
+refuses a case that names a predecessor, a handler or a container with
+`contextual_case_needs_flow_fixture` (`ExprCaseError`): a case key such as
+`previous_result`, `results` or `failure_module`, or a site other than
+`transform`, `static` and `skip_if`. It also refuses a file not named after
+its finding, and an expectation its site cannot produce. `FindExprFiles`
+finds the files below its roots once each, skipping flow fixtures, and
+`IsExprFile` tells one by its path. The format is described in
+[conformance](../../conformance/README.md#expression-cases).
+
+`LiftExprFile` writes a file's generated sync tree into a new directory and
+returns its `Fixture`: `wmill.yaml`, the sink script `f/wl_expr/sink.ts`
+(it returns `null`), and per case a flow `f/wl_expr/<case>` written as
+JSON, which the CLI and `internal/yamlx` read alike. Each case becomes one
+run, named by its spec and variant (`je-7-a`, `je-1-math-trig`), with the
+case's flow input as its arguments and, as its claims, what the case's
+`expect` says about module `b`'s recorded argument or error. Recordings are
+read from and written to `conformance/exprs/recorded/<finding>/`.
+
+## Claims
+
+A `Claim` is a JSON Pointer into an observation's canonical encoding and
+one assertion about the value there: `equals` (compared as the comparator
+compares values, with `key_order: strict` optional), a string's `prefix`,
+`contains` and `not_contains`, an array's `length`, or `absent`.
+`CheckClaims` returns one line per claim that does not hold. A `Delay` is a
+lower bound on the time from one job's completion to another's start,
+checked against a recording's provenance. A `UnitCase` restates an
+expression at unit level with the context its evaluation sees; a
+`MessageMatch` matches an error object's name and message exactly or by
+prefix and substrings, as the catalogue compares engine messages.
+`ValueAt` reads one value of an observation, and `SameJSON` compares two
+JSON texts as the comparator does.
+
 ## Stub mode
 
 A fixture with `stub: true` runs with every script body replaced by a stub
@@ -209,7 +255,6 @@ Each answered call is a `ReplayCall` whose `Effect` is
 `{"site","attempt","step","job","flow","root_flow","root","args"}` in that
 order: the resolved site and attempt, then what the stub sent. The runner
 appends the calls to the run's effects.
-
 ## Normalised text
 
 A normalised string ([OR-14](../../docs/semantics/oracle.md#or-14) items 1

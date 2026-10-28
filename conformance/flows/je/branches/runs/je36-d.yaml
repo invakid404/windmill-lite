@@ -1,0 +1,8 @@
+# JE-36/d: the deployed run only; the preview run is deferred (conformance/exprs/deferred.yaml).
+spec: [JE-36/d]
+target: f/wl_je_branches/je36_d
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:w~1i:0~1m:s/args/x"
+    equals: 9

@@ -1,0 +1,7 @@
+spec: [JE-29/a]
+target: f/wl_je_waits/je29_a
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["Error parsing result as i32: invalid type: floating point `1.5`, expected i32"]

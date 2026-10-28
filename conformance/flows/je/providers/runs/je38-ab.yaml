@@ -1,0 +1,9 @@
+spec: [JE-38/a, JE-38/b]
+target: f/wl_je_providers/je38_ab
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:a/args/x
+    equals: v
+  - at: /steps/m:b/args/x
+    equals: s3cr3t

@@ -1,0 +1,42 @@
+summary: "JE-9/e, f: an index selects a loop child's result"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value * 10
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
+    - id: b_e
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.l[1]
+        path: f/wl_je_loops/echo
+    - id: b_f
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.l.foo
+        path: f/wl_je_loops/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,27 @@
+summary: 'JE-38/c: loop bodies inherit the env'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_env.K
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+  flow_env:
+    K: v
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

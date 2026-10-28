@@ -1,0 +1,26 @@
+summary: 'JE-35/c: route (b), with a failure module'
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_je_errors/echo
+      skip_if:
+        expr: nope
+  failure_module:
+    id: failure
+    value:
+      type: script
+      input_transforms:
+        x:
+          type: static
+          value: ran
+      path: f/wl_je_errors/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

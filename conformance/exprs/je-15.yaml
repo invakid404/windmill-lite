@@ -1,0 +1,52 @@
+# JE-15: the returned value becomes JSON.
+finding: JE-15
+scope: core
+cases:
+  - spec: JE-15/a
+    provenance: oracle-observed
+    title: top-level undefined
+    expr: undefined
+    expect: {value: 'null'}
+  - spec: JE-15/b
+    provenance: oracle-observed
+    title: undefined and function array items
+    expr: '[undefined, () => 1]'
+    expect: {value: '[null,null]'}
+  - spec: JE-15/c
+    provenance: oracle-observed
+    title: undefined properties are dropped
+    expr: '({a: undefined, b: 1})'
+    expect: {value: '{"b":1}'}
+  - spec: JE-15/d
+    provenance: oracle-observed
+    title: a Date becomes its ISO string
+    expr: 'new Date("2024-01-15T12:30:00.000Z")'
+    expect: {value: '"2024-01-15T12:30:00.000Z"'}
+  - spec: JE-15/e
+    provenance: oracle-observed
+    title: a Map becomes {}
+    expr: 'new Map([["k",1]])'
+    expect: {value: '{}'}
+  - spec: JE-15/f
+    provenance: oracle-observed
+    title: NaN becomes null
+    expr: 0/0
+    expect: {value: 'null'}
+  - spec: JE-15/g
+    provenance: oracle-observed
+    title: number text comes from Number#toString
+    expr: '1.0'
+    expect: {value: '1'}
+  - spec: JE-15/h
+    provenance: oracle-observed
+    title: a BigInt fails serialisation
+    expr: 10n
+    expect:
+      error:
+        name: ExecutionErr
+        contains: ['QuickJS evaluation error:', BigInt are forbidden in JSON.stringify]
+  - spec: JE-15/i
+    provenance: oracle-observed
+    title: a returned Promise is awaited
+    expr: 'Promise.resolve({k: 1})'
+    expect: {value: '{"k":1}'}

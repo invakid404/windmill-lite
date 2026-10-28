@@ -1,0 +1,13 @@
+# JE-36/c: the body returns {got: x}, so iteration 1's previous_result differs from 9.
+spec: [JE-36/c]
+target: f/wl_je_loops/je36_c
+args:
+  seed: 4
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:l~1i:0~1m:s/args/x"
+    equals: 9
+  - at: "/steps/m:l~1i:1~1m:s/args/x"
+    equals:
+      got: 9

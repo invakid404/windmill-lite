@@ -1,0 +1,7 @@
+spec: [JE-20/b]
+target: f/wl_je_providers/je20_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/result/error/message
+    contains: ["QuickJS evaluation error: Error:"]

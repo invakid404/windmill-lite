@@ -43,14 +43,17 @@ type Session struct {
 	Repeat int
 	// RegenerateMetadata runs folder add-missing and generate-metadata in
 	// each fixture's sync tree before the push, in place, so a CI step can
-	// diff the tree (the drift gate of OR-8).
+	// diff the tree (the drift gate of OR-8). A generated fixture's tree
+	// (conformance.LiftExprFile) gets its metadata this way whatever the
+	// setting, since none is committed for it.
 	RegenerateMetadata bool
 	// Check fails a run that has no committed recording or whose
 	// observation differs from it, and never writes into a fixture.
 	Check bool
 	// OutDir, when set, receives new and changed recordings at
-	// <OutDir>/<fixture path relative to RepoRoot>/recorded/<run>.json
-	// instead of the fixture directory.
+	// <OutDir>/<recording directory relative to RepoRoot>/<run>.json, for
+	// a flow fixture <OutDir>/<fixture path>/recorded/<run>.json, instead
+	// of the recording directory.
 	OutDir string
 	// RawDir, when set, receives the raw API captures of every run.
 	RawDir string
@@ -427,9 +430,16 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		}
 		// CE refuses a third workspace besides admins, so the next
 		// fixture needs this one gone; a workspace that cannot be deleted
-		// ends the session.
-		if err := c.DeleteWorkspace(ctx, ws); err != nil {
+		// ends the session. The deletion has a context of its own, so a
+		// canceled session still cleans up and reports the cancellation.
+		del, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err = c.DeleteWorkspace(del, ws)
+		cancel()
+		if err != nil {
 			return fmt.Errorf("oracle: fixture %s: deleting workspace %s: %w", name, ws, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -473,7 +483,7 @@ func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance
 func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
-	if s.RegenerateMetadata {
+	if s.RegenerateMetadata || f.Generated {
 		if err := cli.AddMissingFolders(ctx, f.SyncTree(), t); err != nil {
 			return nil, dep, err
 		}
@@ -756,11 +766,11 @@ func (s *Session) conclude(f *conformance.Fixture, r conformance.Run, first conf
 	dest := ""
 	switch {
 	case s.OutDir != "":
-		rel := s.rel(f.Dir)
+		rel := s.rel(f.RecordingDir())
 		if rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(filepath.FromSlash(rel)) {
 			return fail(OutcomeFailed, fmt.Errorf("oracle: fixture %s is outside %s, so --out cannot place its recording", f.Dir, s.RepoRoot), nil)
 		}
-		dest = filepath.Join(s.OutDir, filepath.FromSlash(rel), conformance.RecordedDir, r.Name+".json")
+		dest = filepath.Join(s.OutDir, filepath.FromSlash(rel), r.Name+".json")
 	case !s.Check:
 		dest = f.RecordingPath(r.Name)
 	}

@@ -1,0 +1,21 @@
+# The oracle discriminator for ADR 0003's JE-8 example (review item
+# cx R16): timeout is a site with a results context, so results.p takes the
+# JE-8 shortcut, and its i32 parse error quotes the value (JE-29), producer
+# key order and all.
+spec: [JE-8, JE-29]
+target: f/wl_je_shortcuts/je8_order_timeout
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["Value was: {\"b\":1,\"a\":2}"]
+unit:
+  - spec: JE-8
+    site: m:q
+    input: timeout
+    expr: results.p
+    context:
+      previous_id: p
+      previous_result: "{\"b\":1,\"a\":2}"
+    expect:
+      text: "{\"b\":1,\"a\":2}"

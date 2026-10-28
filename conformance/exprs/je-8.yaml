@@ -1,0 +1,18 @@
+# JE-8: the previous step's id returns previous_result verbatim. At module
+# 0 the previous id is "", so the empty-id spellings return the flow input.
+# The named-predecessor cases (JE-8/a, JE-8/b) are in the flow fixture
+# flows/je/shortcuts.
+finding: JE-8
+scope: later
+flow_input: '{"seed":4}'
+cases:
+  - spec: JE-8/c
+    provenance: oracle-observed
+    title: the empty previous id at module 0
+    expr: 'results[""]'
+    expect: {value: '{"seed":4}'}
+  - spec: JE-8/d
+    provenance: oracle-observed
+    title: an invalid-JavaScript spelling still matches
+    expr: 'results.'
+    expect: {value: '{"seed":4}'}

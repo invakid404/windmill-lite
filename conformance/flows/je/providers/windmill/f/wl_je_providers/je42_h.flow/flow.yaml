@@ -1,0 +1,67 @@
+summary: 'JE-42/h: the depth guard is not limited to strings'
+value:
+  modules:
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              deep:
+                k:
+                  k:
+                    k:
+                      k:
+                        k:
+                          k:
+                            k:
+                              k:
+                                k:
+                                  k:
+                                    k:
+                                      k:
+                                        k:
+                                          k:
+                                            k:
+                                              k:
+                                                k:
+                                                  k:
+                                                    k:
+                                                      k:
+                                                        k:
+                                                          k:
+                                                            k:
+                                                              k:
+                                                                k:
+                                                                  k:
+                                                                    k:
+                                                                      k:
+                                                                        k:
+                                                                          k:
+                                                                            k:
+                                                                              k:
+                                                                                k:
+                                                                                  k:
+                                                                                    k:
+                                                                                      k:
+                                                                                        k:
+                                                                                          k:
+                                                                                            k:
+                                                                                              k:
+                                                                                                k:
+                                                                                                  k:
+                                                                                                    k:
+                                                                                                      k:
+                                                                                                        k:
+                                                                                                          k:
+                                                                                                            k:
+                                                                                                              k:
+                                                                                                                k:
+                                                                                                                  k: 1
+              m: $var:f/wl_je_providers/s
+        path: f/wl_je_providers/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,13 @@
+spec: [CF-19/c]
+target: f/wl_cf19/cf19_c
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:c/args/x
+    equals: [42]
+  - at: /steps/m:d/args/x
+    equals: null
+  - at: /steps/m:e/status
+    equals: failure
+  - at: /steps/m:e/result/error/message
+    contains: ["Failed to fetch result for step 'br'"]

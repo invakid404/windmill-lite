@@ -1,13 +1,15 @@
 // Command wltest is windmill-lite's conformance and oracle runner (ADR
 // 0011). It has two verbs so far:
 //
-//	wltest record [flags] <fixture or directory>...
+//	wltest record [flags] <fixture, expression file or directory>...
 //	wltest stub --out <dir> <sync tree>
 //
-// record runs flow fixtures on the pinned Windmill CE oracle and writes
-// their recordings with provenance; fixtures in stub mode run stubbed,
-// with the replay service answering from each run's table. stub writes a
-// stubbed copy of a sync tree. check and diff are later milestones (E1).
+// record runs flow fixtures, and the expression cases of conformance/exprs
+// lifted into generated one-step flows, on the pinned Windmill CE oracle
+// and writes their recordings with provenance; fixtures in stub mode run
+// stubbed, with the replay service answering from each run's table. stub
+// writes a stubbed copy of a sync tree. check and diff are later
+// milestones (E1).
 package main
 
 import (
@@ -21,6 +23,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,11 +40,12 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-const usage = `usage: wltest record [flags] <fixture or directory>...
+const usage = `usage: wltest record [flags] <fixture, expression file or directory>...
        wltest stub --out <dir> <sync tree>
 
-record runs flow fixtures on the Windmill CE v1.767.0 oracle and writes
-recorded/<run>.json with provenance. Run wltest record -h for its flags.
+record runs flow fixtures, and expression-case files lifted into generated
+one-step flows, on the Windmill CE v1.767.0 oracle and writes their
+recordings with provenance. Run wltest record -h for its flags.
 stub copies a sync tree to <dir> with every Bun script body replaced by a
 replay stub (ADR 0011). check and diff are not implemented yet.
 `
@@ -88,12 +92,34 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
-	dirs, err := conformance.FindFixtures(fs.Args()...)
+	// An explicit file must be an expression file: anything else would be
+	// silently skipped.
+	for _, a := range fs.Args() {
+		if info, err := os.Stat(a); err == nil && !info.IsDir() && !conformance.IsExprFile(a) {
+			fmt.Fprintf(stderr, "wltest: %s is neither a fixture directory nor an expression file (exprs/<finding>.yaml)\n", a)
+			return 2
+		}
+	}
+	found, err := conformance.FindFixtures(fs.Args()...)
 	if err != nil {
 		fmt.Fprintln(stderr, "wltest:", err)
 		return 1
 	}
-	if len(dirs) == 0 {
+	// Overlapping arguments reach a fixture once.
+	var dirs []string
+	seen := map[string]bool{}
+	for _, d := range found {
+		if !seen[filepath.Clean(d)] {
+			seen[filepath.Clean(d)] = true
+			dirs = append(dirs, d)
+		}
+	}
+	exprFiles, err := conformance.FindExprFiles(fs.Args()...)
+	if err != nil {
+		fmt.Fprintln(stderr, "wltest:", err)
+		return 1
+	}
+	if len(dirs)+len(exprFiles) == 0 {
 		fmt.Fprintln(stderr, "wltest:", oracle.ErrNoFixtures)
 		return 1
 	}
@@ -105,6 +131,36 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fixtures = append(fixtures, f)
+	}
+	// Expression cases are lifted into generated one-step flow fixtures
+	// (ADR 0011), whose trees live only for the session.
+	if len(exprFiles) > 0 {
+		gen, err := os.MkdirTemp("", "wltest-exprs-")
+		if err != nil {
+			fmt.Fprintln(stderr, "wltest:", err)
+			return 1
+		}
+		defer os.RemoveAll(gen)
+		var files []*conformance.ExprFile
+		for _, p := range exprFiles {
+			ef, err := conformance.LoadExprFile(p)
+			if err != nil {
+				fmt.Fprintln(stderr, "wltest:", err)
+				return 1
+			}
+			files = append(files, ef)
+		}
+		// Slow cases go last, so that whatever they leave running on the
+		// oracle (JE-2) cannot slow the others.
+		sort.SliceStable(files, func(i, j int) bool { return !files[i].Slow && files[j].Slow })
+		for i, ef := range files {
+			f, err := conformance.LiftExprFile(ef, filepath.Join(gen, fmt.Sprint(i)))
+			if err != nil {
+				fmt.Fprintln(stderr, "wltest:", err)
+				return 1
+			}
+			fixtures = append(fixtures, f)
+		}
 	}
 	root, _ := os.Getwd()
 	s := &oracle.Session{

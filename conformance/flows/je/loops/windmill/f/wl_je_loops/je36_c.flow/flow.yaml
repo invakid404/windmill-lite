@@ -1,0 +1,34 @@
+summary: 'JE-36/c: a collapsed sequential loop at module 1'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 9
+        path: f/wl_je_loops/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: previous_result
+              path: f/wl_je_loops/wrap
+        iterator:
+          type: static
+          value:
+            - x
+            - y
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

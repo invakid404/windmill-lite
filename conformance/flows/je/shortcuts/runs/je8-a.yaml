@@ -1,0 +1,18 @@
+# JE-8/a: a Python producer keeps the integer exact; the shortcut returns its text.
+spec: [JE-8/a]
+target: f/wl_je_shortcuts/je8_a
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:b/args/x
+    equals: {"n":12345678901234567890}
+unit:
+  - spec: JE-8/a
+    site: m:b
+    input: x
+    expr: results.a
+    context:
+      previous_id: a
+      previous_result: "{\"n\": 12345678901234567890}"
+    expect:
+      text: "{\"n\": 12345678901234567890}"

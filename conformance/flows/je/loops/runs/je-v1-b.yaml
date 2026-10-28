@@ -1,0 +1,9 @@
+spec: [JE-V1/b]
+target: f/wl_je_loops/je_v1_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/name
+    equals: InternalError
+  - at: /result/error/message
+    contains: ["Error parsing result as u16:"]

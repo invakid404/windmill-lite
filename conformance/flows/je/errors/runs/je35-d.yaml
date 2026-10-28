@@ -1,0 +1,9 @@
+spec: [JE-35/d]
+target: f/wl_je_errors/je35_d
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:S~1s:failure/status"
+    equals: not_run
+  - at: /steps/m:T/args/x/error/name
+    equals: Anyhow

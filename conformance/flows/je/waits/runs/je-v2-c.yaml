@@ -1,0 +1,12 @@
+# JE-V2/c (Q-JE-4): both attempts' recorded arguments and outcomes.
+spec: [JE-V2/c]
+target: f/wl_je_waits/je_v2_c
+claims:
+  - at: "/steps/m:b~1r:0/status"
+    equals: failure
+  - at: "/steps/m:b~1r:0/args"
+    equals: {}
+  - at: /steps/m:b/status
+    equals: success
+  - at: /steps/m:b/args
+    equals: {}

@@ -1,0 +1,35 @@
+summary: 'JE-22/c: stop_after_if sees results when it names it'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              stop: true
+        path: f/wl_je_sites/echo
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_je_sites/echo
+      stop_after_if:
+        expr: results.a.stop
+        skip_if_stopped: true
+    - id: c
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_je_sites/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

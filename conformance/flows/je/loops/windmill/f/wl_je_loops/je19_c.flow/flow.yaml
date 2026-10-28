@@ -1,0 +1,43 @@
+summary: 'JE-19/c: a collapsed body records only the loop id'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/wl_je_loops/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: i
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value * 10
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+            - 3
+        parallel: false
+        skip_failures: false
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.i
+        path: f/wl_je_loops/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

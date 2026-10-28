@@ -1,10 +1,11 @@
 name: Oracle
 
-# Records the flow fixtures under conformance/flows on the unmodified
-# Windmill CE v1.767.0 image (ADR 0011, OR-19) and fails when a normalised
-# observation differs from the committed recording, when a run has no
-# recording, or when the CLI-generated metadata of a sync tree drifts
-# (OR-8). Provenance (dates, timings, image ids) never fails it (OR-V5).
+# Records the flow fixtures under conformance/flows, and the expression
+# cases under conformance/exprs lifted into generated one-step flows, on the
+# unmodified Windmill CE v1.767.0 image (ADR 0011, OR-19) and fails when a
+# normalised observation differs from the committed recording, when a run
+# has no recording, or when the CLI-generated metadata of a committed sync
+# tree drifts (OR-8). Provenance (dates, timings, image ids) never fails it (OR-V5).
 # The image is pulled by digest and run as a black box; it is never built
 # on, tagged or pushed (OR-3). It runs nightly, on demand, and on pull
 # requests that change the fixtures or the harness or carry the oracle
@@ -97,7 +98,7 @@ jobs:
             --out "$RUNNER_TEMP/oracle/recorded" \
             --raw "$RUNNER_TEMP/oracle/raw" \
             --report "$RUNNER_TEMP/oracle/report.json" \
-            conformance/flows
+            conformance/flows conformance/exprs
 
       - name: Metadata drift gate (OR-8)
         if: ${{ !cancelled() }}

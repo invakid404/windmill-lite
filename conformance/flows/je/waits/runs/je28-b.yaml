@@ -1,0 +1,7 @@
+spec: [JE-28/b]
+target: f/wl_je_waits/je28_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /result/error/message
+    contains: ["Expected an integer, found: -1"]

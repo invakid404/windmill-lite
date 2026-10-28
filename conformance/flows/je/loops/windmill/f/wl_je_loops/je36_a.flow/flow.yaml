@@ -1,0 +1,25 @@
+summary: 'JE-36/a: a parallel one-step body is never collapsed'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: s
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: previous_result
+              path: f/wl_je_loops/echo
+        iterator:
+          type: static
+          value:
+            - x
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

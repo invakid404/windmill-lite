@@ -1,0 +1,10 @@
+spec: [JE-49/b]
+target: f/wl_je_sites/je49_b
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:b/status
+    equals: failure
+  - at: /steps/m:b/result/error/message
+    contains: ["recursion limit exceeded at line 1 column 128"]
+    not_contains: ["QuickJS evaluation error"]

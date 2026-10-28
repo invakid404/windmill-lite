@@ -1,0 +1,7 @@
+spec: [JE-9/k]
+target: f/wl_je_shortcuts/je9_k
+claims:
+  - at: /status
+    equals: success
+  - at: /steps/m:c/skipped
+    equals: true

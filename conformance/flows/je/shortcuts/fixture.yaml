@@ -1,0 +1,42 @@
+# Recording batch E3a: the shortcut and read-route cases of JE-8, JE-9,
+# JE-12, JE-16, JE-17, JE-18, JE-44 and JE-V6 that name a predecessor, so
+# they are flow fixtures (ADR 0003). Synthetic, written for this repository
+# from docs/semantics/conformance.md. Each run's unit cases restate its
+# expressions with the context they see, for the expression milestones.
+id: je/shortcuts
+spec:
+  - JE-8/a
+  - JE-8/b
+  - JE-8
+  - JE-29
+  - JE-9
+  - JE-9/a
+  - JE-9/b
+  - JE-9/c
+  - JE-9/d
+  - JE-9/g
+  - JE-9/h
+  - JE-9/i
+  - JE-9/l
+  - JE-9/j
+  - JE-24
+  - JE-9/k
+  - JE-12/a
+  - JE-12/b
+  - JE-12/c
+  - JE-12/e
+  - JE-12/d
+  - JE-16/d
+  - JE-16/e
+  - JE-16/f
+  - JE-17/b
+  - JE-18/d
+  - JE-44/a
+  - JE-44/b
+  - JE-V6/a
+  - JE-V6/b
+scope: core
+provenance: oracle-observed
+languages: [bun, python3]
+oracle:
+  workers: 1

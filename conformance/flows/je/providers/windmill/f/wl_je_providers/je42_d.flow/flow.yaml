@@ -1,0 +1,25 @@
+summary: 'JE-42/d: with a marker, reserved names are looked up'
+value:
+  modules:
+    - id: d
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value:
+              - $WM_WORKSPACE
+              - $var:f/wl_je_providers/s
+        path: f/wl_je_providers/echo
+    - id: z
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/wl_je_providers/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

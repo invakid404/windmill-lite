@@ -1,0 +1,14 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_je_sites/nest.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    k:
+      type: number
+      description: ''
+      default: null
+  required:
+    - k

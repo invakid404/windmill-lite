@@ -219,7 +219,7 @@ switch through a change to this record, naming the reason.
 | Finding | Readings | Default until recorded, and why | Settled by | Recorded in, gating |
 |---|---|---|---|---|
 | [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | **recorded: (b)**, the default, which agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10). In FX-V6/a's handler `results[flow_input.target]` read the stored `3` and `previous_result && results[flow_input.target]` the in-memory `EarlyStopError` (fixture `conformance/flows/execution/fx-v6`, oracle run 40685766017). Without a failure module, `previous_result && Object.keys(await results[k])` and `typeof error && …` read the preceding result from memory and a bare computed read reads storage (run `memory_or_storage` of [`execution/fx-10`](../../conformance/flows/execution/fx-10), oracle run 40685013818) | Q-FX-15, case FX-V6/a | E3c in a failure handler (recorded), gating N1b; E3b without one (recorded), gating N1a |
-| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | (b): it is the confirmed [JE-9](../semantics/expressions.md#je-9) rule | Q-CF-16, cases CF-V6/a,b | E3a, gating B2a and B2b |
+| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | **Recorded: (b).** CF-V6/a (`results.a`, a newline, `+ 100`, with `a` returning 7) gives 7 on the oracle, and its single-line control CF-V6/b gives 107; JE-9/g to JE-9/i agree. The default was (b), so nothing changes | Q-CF-16, cases CF-V6/a,b (oracle run 40687124625) | E3a, gating B2a and B2b |
 | [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | **recorded: (b)**, the default. A successful handler returning `[true]` made the flow succeed with result `[true]`; `[false]`, `[null]`, `[]`, `[true,false]` and `{"recover":"true"}` left it failed, and `{"recover":true,…}` recovered (fixture `conformance/flows/execution/fx-33`, oracle run 40685766017) | Q-FX-19, cases FX-33/c–g | E3c (recorded), gating N1b |
 | [FX-34](../semantics/execution.md#fx-34) / [FX-32](../semantics/execution.md#fx-32) | a failure module copied into an inline body has (a) its id suffixed with the parent cursor and the iteration or branch, in its status and in `WM_FLOW_STEP_ID`, or (b) its own id | **recorded: (b)**. The reference states (a) as confirmed; the oracle contradicts it. In a loop at cursor 1 whose two iterations fail, both copies reported `WM_FLOW_STEP_ID` `failure`, and each body flow's status and stored flow name the copy `failure` (fixture `conformance/flows/execution/fx-34`, run `step_id`, oracle run 40689442792) | E3c's run `fx-34/step_id`; a correction requested from the semantics team | E3c (recorded), gating N1b |
 | [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | **recorded: (b).** The loop fails with the array ending in the `EarlyStopError`, the flow fails with that array, and the next step does not run; with `skip_failures: true` the loop succeeds and the flow continues | Q-CF-14, cases CF-12/c and CF-12/f | E3d (`conformance/flows/control-flow/cf-12`, runs `c-fail` and `f`), gating N3a and N3b |
@@ -307,6 +307,15 @@ switch through a change to this record, naming the reason.
   `parallel` and `expr`) into `flow.yaml`, so a folder that has been
   through it carries them explicitly. Each such recording's provenance
   holds the three values.
+- Recording batch E3a settled the CF-19 / CF-V6 row of §6 on the oracle:
+  the direct lookup is line-anchored, which confirms the default. Its cases are
+  `conformance/flows/cf/cf-19` and the expression cases of
+  `conformance/exprs`. The batch also recorded behaviour that differs from
+  the reference's source-derived expectations without touching a contested
+  rule (the JE-48 stack bracket, the final `sleep` of JE-28/c, the JE-35/b
+  envelope, the JE-2/a timeout); those cases now expect what the oracle did,
+  and the differences are asked of the semantics team ([README](README.md),
+  request 7).
 
 ## Spec IDs relied on
 

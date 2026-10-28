@@ -1,0 +1,7 @@
+spec: [JE-19/d]
+target: f/wl_je_scopes/je19_d
+claims:
+  - at: /status
+    equals: success
+  - at: "/steps/m:S~1m:s/args/x"
+    equals: 7
