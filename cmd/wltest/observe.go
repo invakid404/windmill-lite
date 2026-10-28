@@ -28,8 +28,9 @@ import (
 //     (OR-V3 clause a), as a failed leaf that executed a script is.
 //
 // It also returns the pointers of the values windmill-lite generated (the
-// errors whose origin is the engine, a harness or the facade), where a
-// comparison with the oracle strips a location suffix
+// errors whose origin is the engine, a harness or the facade): a site's
+// result, its carried value when that is the same value, and the root's
+// result. There a comparison with the oracle strips a location suffix
 // (conformance.StripLocations).
 func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
@@ -72,6 +73,16 @@ func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance
 		}
 		if rec.ResultOrigin.Generated() {
 			generated = append(generated, conformance.JoinPointer([]string{"steps", rec.Site.String(), "result"}))
+			// The trace records the provenance of the result only. A
+			// carried value that is the same value, in whatever member
+			// order, has it too; one that differs, such as an error stop's
+			// EarlyStopError carried over a user's result, has none
+			// recorded and is never stripped.
+			if !rec.Carried.IsZero() {
+				if same, err := conformance.SameJSON(rec.Carried.Producer(), rec.Result.Producer(), false); err == nil && same {
+					generated = append(generated, conformance.JoinPointer([]string{"steps", rec.Site.String(), "carried"}))
+				}
+			}
 		}
 		steps[rec.Site] = st
 	}

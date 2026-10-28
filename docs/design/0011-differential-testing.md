@@ -390,7 +390,10 @@ their root jobs were not in flight together.
   id as the root's job id and each invocation's id as its site's, and
   compares them with `expect`, or with `recorded` where there is none. The
   location rule above is `conformance.StripLocations`, applied on the
-  reference's side at the values the trace says windmill-lite generated.
+  reference's side at the values the trace says windmill-lite generated: a
+  result whose recorded origin is windmill-lite's, and a carried value that
+  is the same value. Steps run the scripts the compiler's inventory names,
+  never a script found by its job path, which two scripts can share.
 
 ## Spec IDs relied on
 

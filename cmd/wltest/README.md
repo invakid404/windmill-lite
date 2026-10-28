@@ -160,12 +160,18 @@ a few at a time (`flows.go`):
    each run's target flow with [internal/ir](../../internal/ir/README.md),
    the target as the bundle's only root, so that a flow the compiler refuses
    leaves the fixture's others to run. The Bun scripts the targets reach are
-   built with `bundle.BuildBun` into one bundle, named as the walking
-   skeleton runs them: `scripts/bun/<path>.mjs`, where an inline step's path
-   is `<flow path>/<module id>`. A codebase script
-   ([SY-8](../../docs/semantics/openflow.md#sy-8)) is built the same way, as
-   an ordinary Bun script: a stand-in, printed as a `note` under the run,
-   until milestone C2b builds it with esbuild.
+   built with `bundle.BuildBun` into one bundle, each named by its inventory
+   id ([ADR 0002](../../docs/design/0002-ir-and-loader.md)):
+   `scripts/bun/<path>.mjs` for a path script, `scripts/bun/inline-<16
+   hex>.mjs` for an inline step. A script's job path
+   ([WR-29](../../docs/semantics/languages.md#wr-29)) cannot name it, since
+   an inline step `a` of flow `f/x` and a path script `f/x/a` share one. A
+   codebase script ([SY-8](../../docs/semantics/openflow.md#sy-8)) is built
+   the same way, as an ordinary Bun script: a stand-in, printed as a `note`
+   under the run, until milestone C2b builds it with esbuild. What goes
+   wrong with one target (a compile error, a refused script, a script that
+   does not build) fails or skips only the runs of that target; a folder
+   that does not load, or a build that fails as a whole, fails them all.
 2. **Run.** Each target flow gets a walking skeleton of its own
    (`engine.Skeleton`, milestone W1), and every run goes to one pool of Bun
    harness processes per fixture, the `warm` configuration. Runs go in name
@@ -174,6 +180,9 @@ a few at a time (`flows.go`):
    that has not ended after 60 s fails. Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, and the checker
    records the id of every invocation it makes (`WM_JOB_ID`) with its site.
+   The skeleton names an invocation's script by its job path, which stays
+   the step's `WM_JOB_PATH`; the checker sends it with the inventory id of
+   the script the compiler put at that site.
 3. **Observe** (`observe.go`). The run's trace becomes the observation the
    oracle's walker produces ([ADR 0011](../../docs/design/0011-differential-testing.md),
    [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow that
@@ -192,8 +201,11 @@ a few at a time (`flows.go`):
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location of
    the recognised internal error is stripped where windmill-lite generated
-   the value (`conformance.StripLocations`, ADR 0011's location rule). A run
-   with nothing to compare fails.
+   the value (`conformance.StripLocations`, ADR 0011's location rule): a
+   result whose origin the trace records as the engine, a harness or the
+   facade, and a carried value that is the same value, in either member
+   order. A carried value that differs from the result has no recorded
+   origin and is never stripped. A run with nothing to compare fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with `setup.yaml` (resources and variables,
@@ -224,12 +236,16 @@ without it they skip, unless `WL_REQUIRE_BUN` is set, as CI sets it.
   runs that pass without being required.
 - `TestFlowCheckerReportsDifferences` checks that a run whose result, job
   placeholder, recording or claim differs fails with its differences, that
-  a flow the skeleton refuses is unsupported, and that a run that holds
-  passes. `TestObserveTrace` and `TestCompareRun` need no Bun: they check
-  the observation of a trace (stored forms, `not_run` sites, placeholders,
-  stack masking, the kept `carried` and `resolved_args`, the generated
-  values) and which reference a run is compared with, including the
-  location rule's positive and negative cases.
+  a flow the skeleton refuses is unsupported, that an inline step and a
+  path script sharing a job path both run and both see it, that a script
+  that does not build fails only the runs that reach it, and that a run
+  that holds passes. `TestObserveTrace`, `TestCompareRun` and
+  `TestCarriedLocation` need no Bun: they check the observation of a trace
+  (stored forms, `not_run` sites, placeholders, stack masking, the kept
+  `carried` and `resolved_args`, the generated values) and which reference
+  a run is compared with, including the location rule's positive and
+  negative cases for a result and for a carried value in either member
+  order.
 
 ## Version
 

@@ -177,7 +177,9 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 
 // The flow checker fails a run whose observation differs from its expect,
 // its recording or a claim, names the job placeholders it compared, and
-// reports a run the skeleton cannot run as unsupported, not failed.
+// reports a run the skeleton cannot run as unsupported, not failed. Two
+// scripts that share a job path both run, each seeing that path, and a
+// script that does not build fails only the runs that reach it.
 func TestFlowCheckerReportsDifferences(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "flows", "e1", "checker")
@@ -198,11 +200,22 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"windmill/f/t/two.flow/a.ts":         "export async function main() { throw new Error(\"no\"); }\n",
 		"windmill/f/t/two.flow/b.ts":         "export async function main() { return 2; }\n",
 		"windmill/f/t/branch.flow/flow.yaml": flow("    - id: o\n      value:\n        type: branchone\n        branches: []\n        default: []\n"),
+		// Inline step a of f/t/same has the job path f/t/same/a, which is
+		// also the path of the script that step b runs (WR-29): two scripts,
+		// one job path.
+		"windmill/f/t/same.flow/flow.yaml":   flow(inline("a") + "    - id: b\n      value:\n        type: script\n        input_transforms: {}\n        path: f/t/same/a\n"),
+		"windmill/f/t/same.flow/a.ts":        "export async function main() { return [1, process.env.WM_JOB_PATH]; }\n",
+		"windmill/f/t/same/a.ts":             "export async function main() { return [2, process.env.WM_JOB_PATH]; }\n",
+		"windmill/f/t/same/a.script.yaml":    "summary: ''\ndescription: ''\nkind: script\nschema:\n  type: object\n  properties: {}\n  required: []\n",
+		"windmill/f/t/broken.flow/flow.yaml": flow(inline("a")),
+		"windmill/f/t/broken.flow/a.ts":      "export async function main( { return 1; }\n",
 		"runs/a_wrong_result.yaml":           "target: f/t/one\nexpect:\n  status: success\n  result: 2\n  steps:\n    \"m:a\": {status: success, args: {}, result: 2}\n",
 		"runs/b_wrong_job.yaml":              "target: f/t/job\nexpect:\n  status: success\n  result: \"<job:m:b>\"\n  steps:\n    \"m:a\": {status: success, args: {}, result: \"<job:m:b>\"}\n",
 		"runs/c_wrong_recording.yaml":        "target: f/t/two\n",
 		"runs/d_wrong_claim.yaml":            "target: f/t/two\nclaims:\n  - {at: /steps/m:b/status, equals: success}\n",
 		"runs/e_unsupported.yaml":            "target: f/t/branch\nexpect: {status: success, result: {}}\n",
+		"runs/g_same_job_path.yaml":          "target: f/t/same\nexpect:\n  status: success\n  result: [2, f/t/same/a]\n  steps:\n    \"m:a\": {status: success, args: {}, result: [1, f/t/same/a]}\n    \"m:b\": {status: success, args: {}, result: [2, f/t/same/a]}\n",
+		"runs/h_build_problem.yaml":          "target: f/t/broken\nexpect: {status: success, result: 1}\n",
 		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}}\n    \"m:b\": {status: not_run}\n",
 		// The recording says b ran; the skeleton's run stops at a.
 		"recorded/c_wrong_recording.json": `{"observation":{"status":"failure","result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}},"steps":{"m:a":{"status":"failure","args":{},"result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}}},"m:b":{"status":"success","args":{},"result":2}}},"provenance":{}}`,
@@ -221,7 +234,12 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		`observed {"status":"success","result":"<job:m:a>",`,
 		"unsupported " + dir + " e_unsupported: the walking skeleton does not run it: engine: flow f/t/branch: module \"o\": branchone modules",
 		"pass " + dir + " f_holds\n",
-		"1 passed, 4 failed, 1 unsupported (mode warm)",
+		"pass " + dir + " g_same_job_path\n",
+		// A script that does not build fails only the runs of the flows
+		// that reach it.
+		"fail " + dir + " h_build_problem\n  build: script inline-",
+		" (inline step a of f/t/broken): parse_failed: ",
+		"2 passed, 5 failed, 1 unsupported (mode warm)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -307,8 +325,8 @@ func TestObserveTrace(t *testing.T) {
 		t.Fatalf("strict: %v", d)
 	}
 
-	// A generated error is named for the location rule, and a run with no
-	// result observes null.
+	// A generated error, and the carried value that is the same value, are
+	// named for the location rule, and a run with no result observes null.
 	tr = &engine.Trace{RunID: runID, Status: conformance.RunFailure, ResultOrigin: engine.OriginEngine, Steps: []engine.StepRecord{
 		{Site: site("a"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, ResultOrigin: engine.OriginHarness,
 			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`{"error":{"name":"InternalErr","message":"m"}}`), Carried: v(`{"error":{"name":"InternalErr","message":"m"}}`)},
@@ -317,7 +335,7 @@ func TestObserveTrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(generated, []string{"/steps/m:a/result", "/result"}) || string(got.Result) != "null" {
+	if !slices.Equal(generated, []string{"/steps/m:a/result", "/steps/m:a/carried", "/result"}) || string(got.Result) != "null" {
 		t.Fatalf("generated %v, result %s", generated, got.Result)
 	}
 }
@@ -372,6 +390,71 @@ func TestCompareRun(t *testing.T) {
 			}
 			if len(lines) != c.problems {
 				t.Fatalf("problems %q, want %d", lines, c.problems)
+			}
+		})
+	}
+}
+
+// The location rule reaches a generated error wherever the observation
+// keeps it: its stored result and its carried value, which keeps the
+// producer's member order (ADR 0011). It never reaches a user's error, nor
+// a carried value that is not the generated result.
+func TestCarriedLocation(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	const msg = "Internal: Could not add completed job x: error returned from database: unsupported Unicode escape sequence"
+	produced := `{"error":{"message":"` + msg + `","name":"InternalErr"}}`
+	other := `{"error":{"message":"` + msg + ` here","name":"InternalErr"}}`
+	trace := func(origin engine.Origin, carried string) *engine.Trace {
+		return &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(produced), ResultOrigin: origin, Steps: []engine.StepRecord{{
+			Site: conformance.SitePath{}.Child(conformance.Module("a")), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true,
+			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(produced), Carried: v(carried), ResultOrigin: origin,
+		}}}
+	}
+	// The oracle's side: the stored result in jsonb's member order, and an
+	// explicit carried value in the producer's, both with the location.
+	expect := func(carried string) *conformance.Observation {
+		stored := `{"error":{"name":"InternalErr","message":"` + msg + ` <loc>"}}`
+		var o conformance.Observation
+		if err := json.Unmarshal([]byte(`{"status":"failure","result":`+stored+`,"steps":{"m:a":{"status":"failure","args":{},"result":`+stored+`,"carried":`+carried+`}}}`), &o); err != nil {
+			t.Fatal(err)
+		}
+		return &o
+	}
+	withLoc := func(m string) string { return `{"error":{"message":"` + m + ` <loc>","name":"InternalErr"}}` }
+	for _, c := range []struct {
+		name    string
+		trace   *engine.Trace
+		expect  *conformance.Observation
+		strict  bool
+		differs []string
+	}{
+		{"generated, carried in producer order", trace(engine.OriginEngine, produced), expect(withLoc(msg)), false, nil},
+		// Under strict key order both forms are checked exactly, and a
+		// carried value written in the stored order differs.
+		{"generated, strict key order", trace(engine.OriginHarness, produced), expect(withLoc(msg)), true, nil},
+		{"generated, strict, carried in stored order", trace(engine.OriginHarness, produced), expect(`{"error":{"name":"InternalErr","message":"` + msg + ` <loc>"}}`), true, []string{"/steps/m:a/carried/error"}},
+		{"user error", trace(engine.OriginUser, produced), expect(withLoc(msg)), false, []string{"/result/error/message", "/steps/m:a/carried/error/message", "/steps/m:a/result/error/message"}},
+		{"carried is another value", trace(engine.OriginEngine, other), expect(withLoc(msg + " here")), false, []string{"/steps/m:a/carried/error/message"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, conformance.CompareSpec{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := &conformance.Fixture{}
+			if c.strict {
+				f.Compare.KeyOrder = "strict"
+			}
+			var differs []string
+			for _, p := range compareRun(f, conformance.Run{Expect: c.expect}, got, generated) {
+				if !strings.HasPrefix(p, "observed ") {
+					ptr, _, _ := strings.Cut(p, ": ")
+					differs = append(differs, ptr)
+				}
+			}
+			slices.Sort(differs)
+			if !slices.Equal(differs, c.differs) {
+				t.Fatalf("differences at %q, want %q", differs, c.differs)
 			}
 		})
 	}

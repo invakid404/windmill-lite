@@ -207,7 +207,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, skeletons[r.Target], pool, t.modules)
+				res.problems = fc.runOne(ctx, f, r, skeletons[r.Target], pool, t)
 			}()
 		}
 		wg.Wait()
@@ -241,6 +241,16 @@ type fixtureBundle struct {
 type target struct {
 	flowJSON []byte
 	modules  []string // the module ids of the flow, in order
+	// scripts maps the site of each of the flow's leaf modules to its
+	// script's inventory id (ADR 0002), which names the script in the
+	// bundle. The skeleton names a script by its job path (WR-29), which
+	// two distinct scripts can share: an inline step `a` of flow f/x and a
+	// path script f/x/a.
+	scripts map[conformance.SitePath]string
+	// reached are the scripts the flow reaches, and names how a problem
+	// names each, by inventory id.
+	reached []*ir.Script
+	names   map[string]string
 	// unsupported or problem, when set, is why the flow's runs are not
 	// checked, or fail.
 	unsupported, problem string
@@ -253,13 +263,16 @@ type target struct {
 var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLanguage: true, ir.ErrPinnedHash: true}
 
 // build compiles each run's target flow and builds the Bun scripts they
-// reach into one bundle below work: scripts/bun/<path>.mjs and
-// <path>.meta.json, where an inline step's path is `<flow path>/<module
-// id>`, the names the skeleton runs them by. Codebase scripts are built
-// the same way, by the Bun build helper, until milestone C2b builds them
-// with esbuild. Its manifest lists the host-provided modules, none, which
-// is all the harness reads of it besides its digest; the bundle format is
-// F4's.
+// reach into one bundle below work: scripts/bun/<id>.mjs and
+// <id>.meta.json, named by each script's inventory id (ir.Script.ID), as a
+// bundle names them (ADR 0010). Codebase scripts are built the same way,
+// by the Bun build helper, until milestone C2b builds them with esbuild.
+// Its manifest lists the host-provided modules, none, which is all the
+// harness reads of it besides its digest; the bundle format is F4's.
+//
+// What goes wrong with one target (a compile error, a refused script, a
+// build problem of a script it reaches) is that target's; only a folder
+// that does not load, or a build that fails as a whole, fails the fixture.
 func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work string) (*fixtureBundle, error) {
 	root, err := syncfolder.Find(f.SyncTree())
 	if err != nil {
@@ -278,72 +291,37 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 
 	b := &fixtureBundle{out: filepath.Join(work, "bundle"), targets: map[string]*target{}}
 	entries := map[string]bundle.BunScript{}
-	users := map[string][]string{} // script path → the targets that reach it
+	users := map[string][]string{} // inventory id → the targets that reach it
 	for _, run := range f.Runs {
 		if run.IsScript() || b.targets[run.Target] != nil {
 			continue
 		}
-		t := &target{}
+		t := &target{scripts: map[conformance.SitePath]string{}}
 		b.targets[run.Target] = t
 		b.order = append(b.order, run.Target)
-		contract, err := json.Marshal(ir.Contract{Roots: []ir.Root{{Flow: run.Target}}})
-		if err != nil {
-			return nil, err
-		}
-		c, err := ir.ParseContract(contract)
-		if err != nil {
-			return nil, err
-		}
-		prog, err := ir.Compile(folder, c, ir.Options{})
-		if err != nil {
-			var ie *ir.Error
-			if errors.As(err, &ie) && unsupportedKinds[ie.Kind] {
-				t.unsupported = "compile: " + err.Error()
-			} else {
-				t.problem = "compile: " + err.Error()
-			}
+		if err := fc.compile(folder, r, run.Target, t); err != nil {
+			t.problem = err.Error()
 			continue
 		}
-		fl := prog.Flows[run.Target]
-		if fl == nil {
-			t.problem = "compile: no flow " + run.Target
+		if t.unsupported != "" || t.problem != "" {
 			continue
 		}
-		for _, m := range fl.Modules {
-			t.modules = append(t.modules, m.ID)
-		}
-		doc, err := folder.FlowDocument(run.Target)
-		if err != nil {
-			return nil, err
-		}
-		data, err := r.ReadFile(doc.File)
-		if err != nil {
-			return nil, err
-		}
-		if t.flowJSON, err = yamlx.ToJSON(data); err != nil {
-			return nil, err
-		}
-		for _, s := range prog.Scripts {
-			if s.Harness != ir.ClassBun || s.Boundary != ir.BoundaryBun {
-				t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which is milestone C3n's", s.Path, s.Boundary, s.Harness)
-				break
-			}
-			if s.Bundling == ir.BundlingCodebase {
-				t.notes = append(t.notes, fmt.Sprintf(codebaseNote, s.Path))
-			}
-			e := bundle.BunScript{ID: s.Path, Path: s.ImportBase, Lock: lockText(s.Lock)}
+		for _, s := range t.reached {
+			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock)}
 			if s.Kind == ir.PathScript {
 				e.File = s.File
 			} else {
 				e.Content = s.Content
 			}
-			if prev, ok := entries[s.Path]; ok && prev != e {
-				return nil, fmt.Errorf("two scripts are named %s in the bundle", s.Path)
+			if prev, ok := entries[s.ID]; ok && prev != e {
+				// One inventory id is one script in every compile of the
+				// folder; two readings of it are the compiler's fault.
+				t.problem = "build: script " + s.ID + " compiled to two different entries"
+				break
 			}
-			entries[s.Path] = e
-			users[s.Path] = append(users[s.Path], run.Target)
+			entries[s.ID] = e
+			users[s.ID] = append(users[s.ID], run.Target)
 		}
-		slices.Sort(t.notes)
 	}
 
 	cfg := bundle.BunConfig{
@@ -372,7 +350,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 				}
 				for _, tp := range users[id] {
 					if t := b.targets[tp]; t.problem == "" {
-						t.problem = "build: script " + id + ": " + p.Kind + ": " + p.Message
+						t.problem = "build: script " + t.names[id] + ": " + p.Kind + ": " + p.Message
 					}
 				}
 			}
@@ -384,6 +362,76 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 		return nil, err
 	}
 	return b, nil
+}
+
+// compile compiles one target flow, with it as the only root, into t: its
+// module ids, the inventory id of each leaf's script, the scripts it
+// reaches and the flow document the skeleton runs. A feature the compiler
+// or this runner refuses makes t unsupported; a compile error is t's
+// problem. The error it returns is the target's problem too: its flow
+// document did not read after it compiled.
+func (fc *flowChecker) compile(folder *syncfolder.Folder, r *os.Root, path string, t *target) error {
+	contract, err := json.Marshal(ir.Contract{Roots: []ir.Root{{Flow: path}}})
+	if err != nil {
+		return err
+	}
+	c, err := ir.ParseContract(contract)
+	if err != nil {
+		return err
+	}
+	prog, err := ir.Compile(folder, c, ir.Options{})
+	if err != nil {
+		var ie *ir.Error
+		if errors.As(err, &ie) && unsupportedKinds[ie.Kind] {
+			t.unsupported = "compile: " + err.Error()
+		} else {
+			t.problem = "compile: " + err.Error()
+		}
+		return nil
+	}
+	fl := prog.Flows[path]
+	if fl == nil {
+		t.problem = "compile: no flow " + path
+		return nil
+	}
+	segs := make([]string, len(fl.Modules))
+	for i, m := range fl.Modules {
+		segs[i] = m.ID
+	}
+	t.modules = segs
+	for i, seg := range conformance.ModuleSegments(segs) {
+		if l := fl.Modules[i].Leaf; l != nil {
+			t.scripts[conformance.SitePath{}.Child(seg)] = l.Script
+		}
+	}
+	t.names = map[string]string{}
+	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
+		s := prog.Scripts[id]
+		if s.Harness != ir.ClassBun || s.Boundary != ir.BoundaryBun {
+			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which is milestone C3n's", s.Path, s.Boundary, s.Harness)
+			return nil
+		}
+		if s.Bundling == ir.BundlingCodebase {
+			t.notes = append(t.notes, fmt.Sprintf(codebaseNote, s.Path))
+		}
+		t.reached = append(t.reached, s)
+		t.names[id] = s.Path
+		if s.Kind != ir.PathScript {
+			t.names[id] = fmt.Sprintf("%s (inline step %s of %s)", id, s.Module, s.Flow)
+		}
+	}
+	doc, err := folder.FlowDocument(path)
+	if err != nil {
+		return fmt.Errorf("flow document: %w", err)
+	}
+	data, err := r.ReadFile(doc.File)
+	if err != nil {
+		return fmt.Errorf("flow document: %w", err)
+	}
+	if t.flowJSON, err = yamlx.ToJSON(data); err != nil {
+		return fmt.Errorf("flow document: %w", err)
+	}
+	return nil
 }
 
 // folderScripts maps every TypeScript script of the folder to its file: the
@@ -437,14 +485,14 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 }
 
 // runOne runs one run on the skeleton and compares its observation.
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, s *engine.Skeleton, pool *harness.Pool, modules []string) []string {
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, s *engine.Skeleton, pool *harness.Pool, t *target) []string {
 	rctx, cancel := context.WithTimeout(ctx, flowRunTimeout)
 	defer cancel()
 	if r.CancelAfterMS != nil {
 		stop := time.AfterFunc(time.Duration(*r.CancelAfterMS)*time.Millisecond, cancel)
 		defer stop.Stop()
 	}
-	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
+	exec := &jobRecorder{exec: pool, scripts: t.scripts, jobs: map[string]conformance.SitePath{}}
 	tr, err := s.Run(rctx, engine.SkeletonRun{
 		ID:   newUUID(),
 		Path: r.Target,
@@ -457,7 +505,7 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, modules, exec.ids(), f.Compare)
+	got, generated, err := observeTrace(tr, t.modules, exec.ids(), f.Compare)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}
@@ -507,16 +555,26 @@ func compareRun(f *conformance.Fixture, r conformance.Run, got conformance.Obser
 	return problems
 }
 
-// jobRecorder is the executor of one run: it records the site of every
+// jobRecorder is the executor of one run. It records the site of every
 // invocation the run makes, by its id, which the normaliser replaces with
-// the site's placeholder (OR-14), and passes it on.
+// the site's placeholder (OR-14); it names the invocation's script by the
+// inventory id of the site's script, as the bundle does, where the
+// skeleton names it by its job path, which stays the invocation's
+// WM_JOB_PATH; and it passes the invocation on.
 type jobRecorder struct {
-	exec engine.StepExecutor
-	mu   sync.Mutex
-	jobs map[string]conformance.SitePath
+	exec    engine.StepExecutor
+	scripts map[conformance.SitePath]string
+	mu      sync.Mutex
+	jobs    map[string]conformance.SitePath
 }
 
 func (j *jobRecorder) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+	id, ok := j.scripts[inv.Site]
+	if !ok {
+		inv.Report.Settled(engine.SettleNotStarted)
+		return engine.StepOutcome{}, fmt.Errorf("wltest: the compiled flow has no script at site %s", inv.Site)
+	}
+	inv.Script = id
 	j.mu.Lock()
 	j.jobs[inv.ID] = inv.Site
 	j.mu.Unlock()
