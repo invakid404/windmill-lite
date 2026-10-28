@@ -195,6 +195,13 @@ func (c *Client) CreateWorkspace(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteWorkspace deletes a workspace with DELETE /workspaces/delete/{ws},
+// which needs the superadmin (OR-6).
+func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/workspaces/delete/"+url.PathEscape(id), nil, nil, http.StatusOK)
+	return err
+}
+
 // QueueCount returns database_length of GET /w/{ws}/jobs/queue/count.
 func (c *Client) QueueCount(ctx context.Context, workspace string) (int, error) {
 	var v struct {

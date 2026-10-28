@@ -11,8 +11,13 @@
 #   FX-10 rule reads storage, FX-V6 (the ADR 0001 section 6 default, from
 #   the confirmed JE-10 binding rule) reads memory, because the text names
 #   previous_result or contains error.
+# The rewrite of JE-12 awaits only results.<id> and results["<id>"], so the
+# computed reads and results?.["a"] await explicitly; computed_unawaited
+# shows the Promise a computed key leaves (JE-12 rule 3): it has no keys.
+# The first oracle run, without the explicit awaits, recorded [] for all
+# four (run 40684097626).
 # In c, a is not the preceding id, so Object.keys(results.a) reads storage.
-spec: [FX-10, FX-V6, FX-42/c, JE-10, JE-18]
+spec: [FX-10, FX-V6, FX-42/c, JE-10, JE-12, JE-18]
 target: f/wl_fx10/memory_or_storage
 args: {t: a}
 expect:
@@ -31,6 +36,7 @@ expect:
         computed: [b, zz, aaa]
         computed_prev: [zz, b, aaa]
         computed_error: [zz, b, aaa]
+        computed_unawaited: []
       result:
         prev: [zz, b, aaa]
         literal: [zz, b, aaa]
@@ -40,4 +46,5 @@ expect:
         computed: [b, zz, aaa]
         computed_prev: [zz, b, aaa]
         computed_error: [zz, b, aaa]
+        computed_unawaited: []
     "m:c": {status: success, args: {other: [b, zz, aaa]}, result: [b, zz, aaa]}

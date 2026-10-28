@@ -5,8 +5,9 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
     - id: b
       value:
         type: identity

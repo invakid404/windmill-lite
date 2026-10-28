@@ -7,6 +7,7 @@ export async function main(
   computed: any,
   computed_prev: any,
   computed_error: any,
+  computed_unawaited: any,
 ) {
-  return { prev, literal, optional, bracket, optional_bracket, computed, computed_prev, computed_error };
+  return { prev, literal, optional, bracket, optional_bracket, computed, computed_prev, computed_error, computed_unawaited };
 }

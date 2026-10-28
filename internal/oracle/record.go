@@ -406,10 +406,18 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 			for _, r := range runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
 			}
-			continue
+		} else {
+			for _, r := range runs {
+				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
+			}
 		}
-		for _, r := range runs {
-			rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
+		// Community Edition keeps at most two workspaces besides admins, so
+		// each fixture's workspace goes before the next one is created
+		// (OR-6). After a failed deployment the workspace may never have
+		// been created, and a failure to delete it then surfaces when the
+		// next fixture cannot create its own.
+		if derr := c.DeleteWorkspace(ctx, ws); derr != nil && err == nil {
+			return fmt.Errorf("oracle: deleting workspace %s of fixture %s: %w", ws, name, derr)
 		}
 	}
 	return nil

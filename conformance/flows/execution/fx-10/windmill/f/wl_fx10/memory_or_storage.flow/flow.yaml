@@ -5,47 +5,53 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
     - id: b
       value:
         type: rawscript
         content: '!inline b.ts'
-        language: bun
         input_transforms:
-          prev:
+          bracket:
             type: javascript
-            expr: Object.keys(previous_result)
+            expr: Object.keys(results["a"])
+          computed:
+            type: javascript
+            expr: Object.keys(await results[flow_input.t])
+          computed_error:
+            type: javascript
+            expr: typeof error && Object.keys(await results[flow_input.t])
+          computed_prev:
+            type: javascript
+            expr: previous_result && Object.keys(await results[flow_input.t])
+          computed_unawaited:
+            type: javascript
+            expr: Object.keys(results[flow_input.t])
           literal:
             type: javascript
             expr: Object.keys(results.a)
           optional:
             type: javascript
             expr: Object.keys(results?.a)
-          bracket:
-            type: javascript
-            expr: 'Object.keys(results["a"])'
           optional_bracket:
             type: javascript
-            expr: 'Object.keys(results?.["a"])'
-          computed:
+            expr: Object.keys(await results?.["a"])
+          prev:
             type: javascript
-            expr: Object.keys(results[flow_input.t])
-          computed_prev:
-            type: javascript
-            expr: previous_result && Object.keys(results[flow_input.t])
-          computed_error:
-            type: javascript
-            expr: typeof error && Object.keys(results[flow_input.t])
+            expr: Object.keys(previous_result)
+        lock: '!inline b.lock'
+        language: bun
     - id: c
       value:
         type: rawscript
         content: '!inline c.ts'
-        language: bun
         input_transforms:
           other:
             type: javascript
             expr: Object.keys(results.a)
+        lock: '!inline c.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -163,10 +164,15 @@ type fakeOracle struct {
 	jobs    map[string]fakeJob
 	n       int
 	runs    int
+	// workspaces are the live workspaces besides admins; like Community
+	// Edition, the fake refuses to create a third (OR-6).
+	workspaces map[string]bool
+	created    []string
+	deleted    []string
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
-	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}}
+	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}}
 }
 
 func (o *fakeOracle) newID() string {
@@ -193,11 +199,35 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(200, "session-token")
 		return
 	case p == "/workspaces/create":
+		var body struct {
+			ID string `json:"id"`
+		}
+		data, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(data, &body); err != nil || body.ID == "" {
+			write(400, "bad workspace")
+			return
+		}
+		if len(o.workspaces) >= 2 {
+			write(400, "Bad request: You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one")
+			return
+		}
+		o.workspaces[body.ID] = true
+		o.created = append(o.created, body.ID)
 		write(201, "created")
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer session-token" {
 		write(401, "unauthorized")
+		return
+	}
+	if id, ok := strings.CutPrefix(p, "/workspaces/delete/"); ok && r.Method == http.MethodDelete {
+		if !o.workspaces[id] {
+			write(404, "no such workspace")
+			return
+		}
+		delete(o.workspaces, id)
+		o.deleted = append(o.deleted, id)
+		write(200, "deleted")
 		return
 	}
 	rest := p[strings.Index(p[3:], "/")+4:] // after /w/{ws}/
@@ -499,6 +529,43 @@ func TestSessionUnstableObservation(t *testing.T) {
 		if r.Outcome != OutcomeUnstable || len(r.Differences) == 0 {
 			t.Fatalf("%+v", r)
 		}
+	}
+}
+
+// TestSessionDeletesEachWorkspace: Community Edition keeps at most two
+// workspaces besides admins, so a session of three fixtures records all
+// three only because each fixture's workspace is deleted before the next
+// is created (OR-6). The fake oracle refuses a third workspace as CE does.
+func TestSessionDeletesEachWorkspace(t *testing.T) {
+	// spec: OR-6/a
+	rig := newRig(t)
+	fixtures := []*conformance.Fixture{rig.load(t)}
+	for _, name := range []string{"second", "third"} {
+		dir := filepath.Join(t.TempDir(), name)
+		if err := CopyTree(rig.fixture, dir); err != nil {
+			t.Fatal(err)
+		}
+		f, err := conformance.LoadFixture(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixtures = append(fixtures, f)
+	}
+	rep, err := rig.session(20*GiB).Run(context.Background(), fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Runs) != 9 {
+		t.Fatalf("%d runs, want 9: %+v", len(rep.Runs), rep.Runs)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("%s %s: %s %s", r.Fixture, r.Run, r.Outcome, r.Error)
+		}
+	}
+	o := rig.oracle
+	if len(o.created) != 3 || !slices.Equal(o.created, o.deleted) || len(o.workspaces) != 0 {
+		t.Fatalf("created %q, deleted %q, left %v", o.created, o.deleted, o.workspaces)
 	}
 }
 

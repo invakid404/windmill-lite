@@ -5,8 +5,10 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms:
+          w:
+            type: javascript
+            expr: results.later === null
           x:
             type: javascript
             expr: results.zzz
@@ -16,12 +18,12 @@ value:
           z:
             type: javascript
             expr: results.later
-          w:
-            type: javascript
-            expr: results.later === null
+        lock: '!inline a.lock'
+        language: bun
     - id: later
       value:
         type: rawscript
         content: '!inline later.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline later.lock'
+        language: bun
