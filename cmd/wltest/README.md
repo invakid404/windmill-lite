@@ -3,8 +3,9 @@
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
 E3a added expression files), `stub` (milestone E4a) and `check` for step
-cases (milestone C3a). This README covers the `wltest` command in this
-directory. `check` for flow fixtures, and `diff`, are milestone E1's; `diff`
+cases (milestone C3a; C2b added codebase scripts and their Node side). This
+README covers the `wltest` command in this directory, with
+`noderun.mjs`, the Node driver `check` embeds. `check` for flow fixtures, and `diff`, are milestone E1's; `diff`
 prints that it is not implemented and exits 2.
 
 `wltest` is windmill-lite's conformance and oracle runner
@@ -103,7 +104,7 @@ exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm] [--bun PATH] [--repo DIR] [-v] <step file or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file or directory>...
 ```
 
 Runs the step cases of `conformance/steps` ([ADR 0003](../../docs/design/0003-semantics-placement.md),
@@ -127,6 +128,25 @@ collected until then, and its late reports are compared when the case
 states them. A run whose call must not settle says `settled: pending` and
 is observed for 500 ms instead.
 
+A case with `codebase` is a codebase script: `check` writes its `files`
+into the folder and builds it with esbuild (`bundle.BuildCodebase`), with
+its entry's settings and the shims the scan wrote; its runs go to the
+harness as any other's. With `--node` (default `WL_NODE`; empty skips
+it), each run of a **CommonJS** codebase case also runs on Node, as
+Windmill runs such a bundle (deviation D13,
+[WR-50](../../docs/semantics/languages.md#wr-50)): in a fresh job
+directory holding the bundle as `main.js` beside a `package.json` of `{}`,
+the entry's assets at their paths, its metadata and arguments, and
+`noderun.mjs`, run as `node --preserve-symlinks noderun.mjs <entry>`. The
+driver applies the harness's own wrapper rules (`harnesses/bun/runtime/wrapper.ts`,
+transpiled for Node by the pinned Bun) in the harness's order and writes
+the outcome as a result frame carries it; a process that exits without
+writing it ended as `empty` (status 0) or `escaped` (the last 600
+characters of its stderr). The outcome is mapped by `engine.StoreOutcome`
+and compared with the run's `node` check, or its own expect and claims
+(`conformance.CompareStepNode`); differences are reported as `run N on
+node: …`.
+
 It prints `pass` or `fail`, the case and its file, then each difference,
 and a summary; it exits 1 when a case failed or a file is invalid, and 2
 for usage errors. `--mode` is `warm` only: `fresh` is milestone C3b's, host
@@ -138,11 +158,15 @@ dependencies installed (`bun install --frozen-lockfile` in
 case.
 
 `go test ./cmd/wltest` runs the suite (`TestStepSuite`, milestone C3a's
-exit gate), checks that a wrong expectation of each kind fails
-(`TestStepCheckerReportsDifferences`), and that every catalogue case of a
-finding with a step file is a step case or deferred (`TestStepCatalogue`).
+exit gate, and with `WL_NODE` the D13 cases of milestone C2b), checks that
+a wrong expectation of each kind fails
+(`TestStepCheckerReportsDifferences`, and on Node
+`TestStepCheckerReportsNodeDifferences`), and that every catalogue case of
+a finding with a step file is a step case or deferred (`TestStepCatalogue`).
 The Bun tests need `WL_BUN`; without it they skip, unless `WL_REQUIRE_BUN`
-is set, as CI sets it.
+is set, as CI sets it. The Node side needs `WL_NODE`; without it the suite
+runs on Bun only, unless `WL_REQUIRE_NODE` is set, as CI sets it (with
+Node 20, the major of Windmill v1.767.0's image).
 
 ## Version
 

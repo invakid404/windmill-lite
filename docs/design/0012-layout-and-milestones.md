@@ -184,6 +184,13 @@ waits on an external gate except R1.
   [0003](0003-semantics-placement.md) that milestone C3a gave its format
   and its runner, `wltest check`; C3a runs them in `warm`, and C3b adds
   `fresh`.
+- C2b placed codebase bundling in `internal/bundle` (`BuildCodebase`,
+  esbuild through its Go API) beside the Bun build, and gave the step
+  cases a `codebase` field and a per-run `node` check: `wltest check` runs
+  each CommonJS codebase bundle on Node as well, which is how its D13
+  cases compare Node against Bun. Its CLI parity check runs the pinned CLI
+  in a workflow of its own, `parity.yml`, which branch protection does not
+  require; the fallback runs in the Go jobs.
 - F4 added `windmill-lite selfcheck`, which starts the expression engine and
   runs a few probes, to the CLI: it is how its exit gate starts the static
   Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).

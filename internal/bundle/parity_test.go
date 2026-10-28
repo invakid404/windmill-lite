@@ -31,11 +31,15 @@ import (
 // pinned windmill-cli, run unmodified as a black-box tool against a
 // recording HTTP stub, produces the codebase bundle it would upload, and
 // the esbuild reproduction of its settings (CodebaseSettings.CLIBundle)
-// must produce the same bytes. The CLI runs only where WL_WMILL_CLI names
-// it, the command line that starts it ("npx --yes windmill-cli@1.767.0" in
-// CI): it is used as a tool, never a dependency, and nothing of it is read
-// (decisions.md, Q-OF-7(a) narrowed). Without WL_WMILL_CLI the check
-// skips, and the documented fallback, TestCLIOptionsFollowWR47, stands in.
+// must produce the same bytes. The one normalisation: a single-file bundle
+// travels as a multipart string field, whose line breaks the form-data
+// encoding writes as CRLF, so the upload must equal the reproduction with
+// each LF written as CRLF; a tar travels as bytes and must equal it as it
+// is. The CLI runs only where WL_WMILL_CLI names it, the command line that
+// starts it ("npx --yes windmill-cli@1.767.0" in CI): it is used as a
+// tool, as the oracle uses it (OR-8), never a dependency, and nothing of
+// it is read. Without WL_WMILL_CLI the check skips, and the documented
+// fallback, TestCLIOptionsFollowWR47, stands in.
 
 // parityFixture is one codebase entry and its scripts, pushed one script at
 // a time.
@@ -243,29 +247,44 @@ func TestCLIParity(t *testing.T) {
 				for _, b := range want {
 					main = b
 				}
-				if !bytes.Equal(got["main.js"], main) {
-					t.Errorf("%s: the CLI's bundle differs from windmill-lite's reproduction\n--- CLI ---\n%s\n--- windmill-lite ---\n%s", script, got["main.js"], main)
+				// A bundle sent as text is a multipart string field, which
+				// the form-data encoding writes with CRLF line breaks; a tar
+				// is sent as bytes.
+				if !got.tar {
+					main = bytes.ReplaceAll(main, []byte("\n"), []byte("\r\n"))
+				}
+				if !bytes.Equal(got.files["main.js"], main) {
+					t.Errorf("%s: the CLI's bundle differs from windmill-lite's reproduction\n--- CLI ---\n%q\n--- windmill-lite ---\n%q", script, got.files["main.js"], main)
 				}
 				for _, a := range settings.Assets {
 					data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(a.From)))
 					if err != nil {
 						t.Fatal(err)
 					}
-					if !bytes.Equal(got[a.To], data) {
-						t.Errorf("%s: the upload's asset %s is %q, want %q", script, a.To, got[a.To], data)
+					if !bytes.Equal(got.files[a.To], data) {
+						t.Errorf("%s: the upload's asset %s is %q, want %q", script, a.To, got.files[a.To], data)
 					}
 				}
-				if extra := len(got) - 1 - len(settings.Assets); extra != 0 {
-					t.Errorf("%s: the upload has %d entries beyond main.js and the assets: %v", script, extra, sortedKeys(got))
+				if got.tar != (len(settings.Assets) > 0) {
+					t.Errorf("%s: the upload is a tar: %v; the entry has %d assets (WR-49)", script, got.tar, len(settings.Assets))
 				}
+				if extra := len(got.files) - 1 - len(settings.Assets); extra != 0 {
+					t.Errorf("%s: the upload has %d entries beyond main.js and the assets: %v", script, extra, sortedKeys(got.files))
+				}
+				t.Logf("%s: the CLI's upload equals windmill-lite's reproduction (%d bytes, tar: %v)", script, len(got.files["main.js"]), got.tar)
 			}
 		})
 	}
 }
 
-// uploadedBundle returns the files of an upload's bundle: main.js alone
-// for a plain bundle, every entry of a tar (WR-49).
-func uploadedBundle(t *testing.T, up upload) map[string][]byte {
+// uploadedFiles are the files of an upload's bundle: main.js alone for a
+// plain bundle, every entry of a tar (WR-49).
+type uploadedFiles struct {
+	files map[string][]byte
+	tar   bool
+}
+
+func uploadedBundle(t *testing.T, up upload) uploadedFiles {
 	t.Helper()
 	var file *uploadField
 	for i := range up.fields {
@@ -276,10 +295,10 @@ func uploadedBundle(t *testing.T, up upload) map[string][]byte {
 	if file == nil {
 		t.Fatalf("the upload has no file field")
 	}
-	if !strings.Contains(up.path, ".tar") && !strings.HasSuffix(file.filename, ".tar") && !isTar(file.data) {
-		return map[string][]byte{"main.js": file.data}
+	if !isTar(file.data) {
+		return uploadedFiles{files: map[string][]byte{"main.js": file.data}}
 	}
-	out := map[string][]byte{}
+	out := uploadedFiles{files: map[string][]byte{}, tar: true}
 	tr := tar.NewReader(bytes.NewReader(file.data))
 	for {
 		h, err := tr.Next()
@@ -293,7 +312,7 @@ func uploadedBundle(t *testing.T, up upload) map[string][]byte {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out[strings.TrimPrefix(h.Name, "./")] = b
+		out.files[strings.TrimPrefix(h.Name, "./")] = b
 	}
 }
 

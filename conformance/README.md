@@ -17,7 +17,8 @@ flows, milestone E1). The tests of the expression pipeline
 expression cases and the flow fixtures' unit cases through its shortcuts
 and textual stages on a fake engine; what the engine computes waits for
 B2b. The step cases in `steps/` run on windmill-lite's Bun harness through
-`wltest check` (milestone C3a).
+`wltest check` (milestone C3a); those of a CommonJS codebase script also
+run on Node, where Windmill runs them (milestone C2b, deviation D13).
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -475,7 +476,8 @@ which it expects their results.
 
 A step file holds the step cases of one finding, or of a deviation of
 [ADR 0001](../docs/design/0001-equivalence-contract.md) §5 that has none
-(`d9.yaml`, `d11.yaml`, `d12.yaml`), and is named after it in lower case.
+(`d9.yaml`, `d11.yaml`, `d12.yaml`, `d13.yaml`), and is named after it in
+lower case.
 Each case is one Bun script and the runs that one harness process serves
 in order, so a later run sees what an earlier one left in memory (D1). A
 run's observation is the step's **stored** value,
@@ -504,6 +506,8 @@ cases:
 | `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` |
 | `env` | job variables that add to or replace the core `WM_*` ones |
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
+| `codebase` | makes the script a codebase script, bundled by esbuild (C2b): the settings of its `codebases` entry as `wmill.yaml` gives them (`format`, `define`, `inject`, `loader`, `banner`, `external`, `assets`) |
+| `files` | other files of the folder, by path from the sync root, that a codebase build reads: modules it imports, inject files, asset sources |
 | `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared); `unordered` arrays; `strict_key_order` |
 | `deviation` | the deviation whose two readings the case's `by_mode` gives |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
@@ -511,6 +515,16 @@ cases:
 | `runs[].late`, `settled` | what the invocation reports after its outcome before it settles (`kind`, `final`, `body`), compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
 | `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9); none when absent |
 | `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own; `fresh` is checked from milestone C3b |
+| `runs[].node` | for a CommonJS codebase case: what the same bundle shows on Node (`expect`, `claims`) where it differs from the run's own check (D13); without it, the run's own `expect` and `claims` must hold on Node too |
+
+**D13.** `wltest check --node` (or `WL_NODE`) runs each run of a CommonJS
+codebase case on Node as well, as Windmill runs such a bundle
+([WR-30](../docs/semantics/languages.md#wr-30),
+[WR-50](../docs/semantics/languages.md#wr-50)): in a job directory of its
+own holding the bundle as `main.js` beside a `package.json` of `{}` and the
+entry's assets, with the harness's own wrapper rules, so that the two sides
+differ only in the runtime and its module loader. `d13.yaml` holds the
+differential: where Node and the Bun harness agree, and where they differ.
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step
@@ -589,6 +603,15 @@ imports a package without a lock
 | `given.contract` | the host contract's text; without it every flow and script is a root |
 | `given.locks` | by script file, the npm dependencies whose lock the runner makes from `given.packages` and writes as `<path>.script.lock` |
 | `expect.build_problems` | every problem the build reports, each an `item` (the start of the reported item: `script <path>`, or `<flow> step '<id>' (script inline-` for an inline step), a `kind` and message substrings in `contains`; empty for a clean build, which must then verify |
+| `expect.entries` | for a clean build, by script id: what its metadata in the bundle records (`format`, `target`, `exports`, `signatures`, `host_modules`) and text of its module (`bundle_contains`, `bundle_not_contains`, `first_line`) |
+| `expect.assets` | for a clean build, the files under the bundle's `assets/`, by path, with their content |
+| `expect.warnings` | for a clean build, when given, the codes of every warning the build reports, in order |
+| `expect.run` | for a clean build, as above: each call's `entry` is a script id, its module the bundle's `.cjs` or `.mjs`; `register` names host-provided modules by id |
+
+The codebase cases are whole-folder cases: `wr-47.json` (how the pinned
+CLI bundles a codebase script, WR-47), `wr-49.json` (assets, WR-49), and
+the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
+output) and `d12.json` (host-provided modules through their shims).
 
 `deferred.json` lists the catalogue cases of these findings that are not
 build cases, each with the reason and where it is checked. A test fails
