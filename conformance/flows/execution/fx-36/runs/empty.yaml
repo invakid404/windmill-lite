@@ -1,0 +1,7 @@
+# FX-36 and FX-3/a: a flow with no modules returns its input.
+spec: [FX-36, FX-3/a]
+target: f/wl_fx36/empty
+args: {b: 1, a: 2}
+expect:
+  status: success
+  result: {a: 2, b: 1}

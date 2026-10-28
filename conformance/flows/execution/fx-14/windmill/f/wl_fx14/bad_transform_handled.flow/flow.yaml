@@ -1,0 +1,27 @@
+summary: FX-14/a throwing transform, with a failure module
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input.a.b.c
+        language: bun
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms:
+        e:
+          type: javascript
+          expr: error
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

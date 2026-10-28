@@ -1,0 +1,23 @@
+summary: FX-15/c child flow
+value:
+  modules:
+    - id: c
+      value:
+        type: rawscript
+        content: '!inline c.ts'
+        input_transforms: {}
+        language: bun
+      skip_if:
+        expr: null.x
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms: {}
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

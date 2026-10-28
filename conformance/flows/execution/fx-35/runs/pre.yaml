@@ -1,0 +1,10 @@
+# FX-35/a: the preprocessor's 5 replaces the input as {"value": 5},
+# which step a receives as flow_input.
+spec: [FX-35/a]
+target: f/wl_fx35/pre
+expect:
+  status: success
+  result: {value: 5}
+  steps:
+    "s:preprocessor": {status: success, args: {}, result: 5}
+    "m:a": {status: success, args: {x: {value: 5}}, result: {value: 5}}

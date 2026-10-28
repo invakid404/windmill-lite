@@ -1,0 +1,13 @@
+# FX-15/b: context 2. The negative timeout fails module a at the root
+# pickup with an Anyhow error, and the failure module runs.
+spec: [FX-15/b]
+target: f/wl_fx15/root_pickup
+expect:
+  status: failure
+  result: {n: Anyhow, m: "Error: Timeout value cannot be negative"}
+  steps:
+    "m:a": {status: failure, ran: false}
+    "s:failure":
+      status: success
+      args: {e: {name: Anyhow, message: "Error: Timeout value cannot be negative"}}
+      result: {n: Anyhow, m: "Error: Timeout value cannot be negative"}

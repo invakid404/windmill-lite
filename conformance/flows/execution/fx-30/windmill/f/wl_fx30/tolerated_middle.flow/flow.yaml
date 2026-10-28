@@ -1,0 +1,27 @@
+summary: FX-30 tolerated middle step
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        language: bun
+      continue_on_error: true
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          p:
+            type: javascript
+            expr: previous_result
+          r:
+            type: javascript
+            expr: results.a
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

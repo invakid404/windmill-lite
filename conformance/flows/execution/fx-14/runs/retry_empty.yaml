@@ -1,0 +1,14 @@
+# FX-14/b: attempt 1 fails before running (r:0); the retry reuses its
+# empty args without re-evaluating the transform, and the script
+# runs with none and returns 7.
+spec: [FX-14/b]
+target: f/wl_fx14/retry_empty
+expect:
+  status: success
+  result: 7
+  steps:
+    "m:a/r:0":
+      status: failure
+      args: {}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `null.x`:\nTypeError: cannot read property 'x' of null"}}
+    "m:a": {status: success, args: {}, result: 7}

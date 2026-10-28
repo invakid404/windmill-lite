@@ -1,0 +1,14 @@
+# FX-36, executor part: which value a flow completes with. The HTTP
+# response cases FX-36/a to FX-36/g are the later HTTP part, deferred to
+# E3e. These runs show the selections no other fixture of this batch
+# shows: an empty flow returns its input, normal completion returns the
+# last module's result, a clean stop returns the stopping module's result,
+# an error-stop without a failure module returns the EarlyStopError, and a
+# failed branchall returns the array of its branches' results. Synthetic,
+# written for this repository from docs/semantics/execution.md#fx-36.
+id: execution/fx-36
+spec: [FX-36, FX-3/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

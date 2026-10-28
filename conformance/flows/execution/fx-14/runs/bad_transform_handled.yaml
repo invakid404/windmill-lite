@@ -1,0 +1,16 @@
+# FX-14/a, with a handler present: it is an ordinary step failure,
+# so the failure module runs and sees the pre-run error as error.
+spec: [FX-14/a]
+target: f/wl_fx14/bad_transform_handled
+expect:
+  status: failure
+  result: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}}
+    "s:failure":
+      status: success
+      args: {e: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}}
+      result: {name: ExecutionErr, message: "Error during isolated evaluation of expression `flow_input.a.b.c`:\nTypeError: cannot read property 'b' of undefined"}

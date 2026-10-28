@@ -1,0 +1,34 @@
+summary: FX-10/a three reads of an error-stopped step
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        language: bun
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+        error_message: E
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms:
+        p:
+          type: javascript
+          expr: results.a
+        x:
+          type: javascript
+          expr: results.a.x
+        k:
+          type: javascript
+          expr: Object.keys(results.a)
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

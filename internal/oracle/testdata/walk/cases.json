@@ -2487,6 +2487,360 @@
      }
     }
    }
+  },
+  {
+   "name": "FX-34/a: a loop body's copy of the failure module runs inside the iteration, at i:<n>/s:failure",
+   "spec": [
+    "FX-34/a",
+    "FX-5",
+    "OR-11"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "l",
+      "value": {
+       "type": "forloopflow",
+       "iterator": {
+        "type": "javascript",
+        "expr": "[1, 2]"
+       },
+       "skip_failures": true,
+       "modules": [
+        {
+         "id": "x",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "failure_module": {
+     "id": "failure",
+     "value": {
+      "type": "rawscript",
+      "language": "bun",
+      "content": "export function main() {}"
+     }
+    }
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "l",
+        "job": "${i1}",
+        "flow_jobs": [
+         "${i0}",
+         "${i1}"
+        ],
+        "iterator": {
+         "index": 1
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      "F",
+      2
+     ]
+    },
+    "i0": {
+     "kind": "flownode",
+     "success": false,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Failure",
+        "id": "x",
+        "job": "${xa}"
+       }
+      ],
+      "failure_module": {
+       "type": "Success",
+       "id": "failure-0-0",
+       "job": "${fa}",
+       "parent_module": "x"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 0,
+       "value": 1
+      }
+     },
+     "result": "F"
+    },
+    "xa": {
+     "kind": "flowscript",
+     "success": false,
+     "args": {
+      "v": 1
+     },
+     "result": {
+      "error": {
+       "message": "one",
+       "name": "Error",
+       "stack": "Error: one\n    at main (x.ts:1:1)",
+       "step_id": "x"
+      }
+     }
+    },
+    "fa": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "F"
+    },
+    "i1": {
+     "kind": "flownode",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "x",
+        "job": "${xb}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure-0-1"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 1,
+       "value": 2
+      }
+     },
+     "result": 2
+    },
+    "xb": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "v": 2
+     },
+     "result": 2
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": [
+     "F",
+     2
+    ],
+    "steps": {
+     "m:l": {
+      "status": "success",
+      "result": [
+       "F",
+       2
+      ]
+     },
+     "m:l/i:0/m:x": {
+      "status": "failure",
+      "args": {
+       "v": 1
+      },
+      "result": {
+       "error": {
+        "message": "one",
+        "name": "Error",
+        "stack": "<stack>",
+        "step_id": "x"
+       }
+      }
+     },
+     "m:l/i:0/s:failure": {
+      "status": "success",
+      "args": {},
+      "result": "F"
+     },
+     "m:l/i:1/m:x": {
+      "status": "success",
+      "args": {
+       "v": 2
+      },
+      "result": 2
+     },
+     "m:l/i:1/s:failure": {
+      "status": "not_run"
+     },
+     "s:failure": {
+      "status": "not_run"
+     }
+    }
+   }
+  },
+  {
+   "name": "FX-5: a loop body that runs a failure module its enclosing flow does not define is an error",
+   "spec": [
+    "FX-5",
+    "OR-11"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "l",
+      "value": {
+       "type": "forloopflow",
+       "iterator": {
+        "type": "javascript",
+        "expr": "[1, 2]"
+       },
+       "skip_failures": true,
+       "modules": [
+        {
+         "id": "x",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "l",
+        "job": "${i1}",
+        "flow_jobs": [
+         "${i0}",
+         "${i1}"
+        ],
+        "iterator": {
+         "index": 1
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      "F",
+      2
+     ]
+    },
+    "i0": {
+     "kind": "flownode",
+     "success": false,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Failure",
+        "id": "x",
+        "job": "${xa}"
+       }
+      ],
+      "failure_module": {
+       "type": "Success",
+       "id": "failure-0-0",
+       "job": "${fa}",
+       "parent_module": "x"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 0,
+       "value": 1
+      }
+     },
+     "result": "F"
+    },
+    "xa": {
+     "kind": "flowscript",
+     "success": false,
+     "args": {
+      "v": 1
+     },
+     "result": {
+      "error": {
+       "message": "one",
+       "name": "Error",
+       "stack": "Error: one\n    at main (x.ts:1:1)",
+       "step_id": "x"
+      }
+     }
+    },
+    "fa": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {},
+     "result": "F"
+    },
+    "i1": {
+     "kind": "flownode",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "x",
+        "job": "${xb}"
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure-0-1"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 1,
+       "value": 2
+      }
+     },
+     "result": 2
+    },
+    "xb": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "v": 2
+     },
+     "result": 2
+    }
+   },
+   "error": "site m:l/i:0 ran a failure module the fixture does not define"
   }
  ]
 }

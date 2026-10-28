@@ -1,0 +1,13 @@
+# FX-33: the flow's final result after the failure module ran, and
+# recover. One flow whose step fails and whose failure module returns
+# flow_input.ret, run with the object controls and the one-element-array
+# cases of Q-FX-19 (FX-33/a to FX-33/g of
+# docs/semantics/conformance.md#fx-33), plus the finding's parent view: a
+# child flow that ran its failure module reports failure to its parent
+# even when it recovered. Synthetic, written for this repository.
+id: execution/fx-33
+spec: [FX-33/a, FX-33/b, FX-33/c, FX-33/d, FX-33/e, FX-33/f, FX-33/g, FX-33, FX-36]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

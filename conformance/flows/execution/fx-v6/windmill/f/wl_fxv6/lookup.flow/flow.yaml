@@ -1,0 +1,31 @@
+summary: FX-V6/a computed indexing
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        language: bun
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: false
+        error_message: E
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms:
+        stored:
+          type: javascript
+          expr: results[flow_input.target]
+        carried:
+          type: javascript
+          expr: previous_result && results[flow_input.target]
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

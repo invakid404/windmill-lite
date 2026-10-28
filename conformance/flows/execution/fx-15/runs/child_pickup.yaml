@@ -1,0 +1,16 @@
+# FX-15/c: context 3. The child fails at its pickup with Anyhow; its
+# module c and its failure module never run; the parent's failure
+# module does, so the parent fails with "P".
+spec: [FX-15/c]
+target: f/wl_fx15/child_parent
+expect:
+  status: failure
+  result: P
+  steps:
+    "m:s":
+      status: failure
+      args: {}
+      result: {error: {name: Anyhow, message: "Error: TypeError: cannot read property 'x' of null"}}
+    "m:s/m:c": {status: not_run}
+    "m:s/s:failure": {status: not_run}
+    "s:failure": {status: success, args: {}, result: P}

@@ -1,0 +1,16 @@
+summary: FX-33 parent of a recovering child
+value:
+  modules:
+    - id: s
+      value:
+        type: flow
+        path: f/wl_fx33/recover
+        input_transforms:
+          ret:
+            type: javascript
+            expr: flow_input.ret
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

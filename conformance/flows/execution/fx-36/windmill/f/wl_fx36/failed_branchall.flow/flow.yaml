@@ -1,0 +1,29 @@
+summary: FX-36 failed branchall
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: false
+        branches:
+          - skip_failure: false
+            modules:
+              - id: x
+                value:
+                  type: rawscript
+                  content: '!inline x.ts'
+                  input_transforms: {}
+                  language: bun
+          - skip_failure: false
+            modules:
+              - id: y
+                value:
+                  type: rawscript
+                  content: '!inline y.ts'
+                  input_transforms: {}
+                  language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

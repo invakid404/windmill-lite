@@ -1,0 +1,44 @@
+{
+  "about": "Recording batch E3c of ADR 0012, FX errors: the catalogue cases of FX-12 to FX-15 and FX-30 to FX-38 (FX-36's executor part only) and of FX-V6, with FX-10/a, which also needs a failure module. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. TestRecordingBatches enforces it.",
+  "batch": "E3c",
+  "findings": ["FX-12", "FX-13", "FX-14", "FX-15", "FX-30", "FX-31", "FX-32", "FX-33", "FX-34", "FX-35", "FX-36", "FX-37", "FX-38", "FX-V6"],
+  "cases": ["FX-10/a"],
+  "fixtures": [
+    "conformance/flows/execution/fx-12",
+    "conformance/flows/execution/fx-12-deno",
+    "conformance/flows/execution/fx-13",
+    "conformance/flows/execution/fx-14",
+    "conformance/flows/execution/fx-15",
+    "conformance/flows/execution/fx-30",
+    "conformance/flows/execution/fx-31",
+    "conformance/flows/execution/fx-32",
+    "conformance/flows/execution/fx-33",
+    "conformance/flows/execution/fx-34",
+    "conformance/flows/execution/fx-35",
+    "conformance/flows/execution/fx-36",
+    "conformance/flows/execution/fx-37",
+    "conformance/flows/execution/fx-38",
+    "conformance/flows/execution/fx-v6"
+  ],
+  "deferred": [
+    {"case": "FX-36/a", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/b", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/c", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/d", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/e", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/f", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/g", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"}
+  ],
+  "parts": [
+    {"case": "FX-12/a", "part": "over HTTP, run-and-wait returns status 422", "milestone": "E3e", "reason": "FX-36's HTTP part; the oracle harness never calls run-and-wait (OR-10)"},
+    {"case": "FX-37/a", "part": "run-and-wait returns 1 in well under 2 s", "milestone": "E3e", "reason": "early_return affects only run-and-wait, which the oracle harness never calls (OR-10); the executor part, a final result unaffected by early_return, is recorded"}
+  ],
+  "prefixes": [
+    {"case": "FX-14/a", "run": "conformance/flows/execution/fx-14/bad_transform", "pointer": "/result/error/message", "prefix": "Error during isolated evaluation of expression `flow_input.a.b.c`:\n"},
+    {"case": "FX-14/a", "run": "conformance/flows/execution/fx-14/bad_transform_handled", "pointer": "/result/message", "prefix": "Error during isolated evaluation of expression `flow_input.a.b.c`:\n"},
+    {"case": "FX-14/b", "run": "conformance/flows/execution/fx-14/retry_empty", "pointer": "/steps/m:a~1r:0/result/error/message", "prefix": "Error during isolated evaluation of expression `null.x`:\n"},
+    {"case": "FX-15/a", "run": "conformance/flows/execution/fx-15/later_transition", "pointer": "/result/error/message", "prefix": "Error: "},
+    {"case": "FX-15/b", "run": "conformance/flows/execution/fx-15/root_pickup", "pointer": "/result/m", "prefix": "Error: Timeout value cannot be negative"},
+    {"case": "FX-15/c", "run": "conformance/flows/execution/fx-15/child_pickup", "pointer": "/steps/m:s/result/error/message", "prefix": "Error: "}
+  ]
+}
