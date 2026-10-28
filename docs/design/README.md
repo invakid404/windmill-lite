@@ -135,6 +135,35 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
+5. **Fold in recording batch E3c.** E3c recorded the catalogue cases of
+   FX-12 to FX-15, FX-30 to FX-38 (FX-36's executor part), FX-V6/a and
+   FX-10/a on the CE oracle (`conformance/flows/execution`, oracle run
+   40685766017), and every catalogue expectation it recorded held. The
+   reference still tags those cases `source-derived` or `disputed`. Two
+   disputes are now settled for their corrections: Q-FX-15 (FX-V6) and
+   Q-FX-19 (FX-33, SR-1). The recordings also show behaviour the reference
+   does not state:
+   - CE refuses a third workspace besides `admins`, so a fresh workspace per
+     fixture ([OR-6](../semantics/oracle.md#or-6)) means deleting each one
+     after its runs;
+   - an empty flow's status holds one `Success` entry with id `failure` and
+     a nil job ([FX-3](../semantics/execution.md#fx-3));
+   - a completed `branchall` entry has no `branchall` field. Failure-module
+     and preprocessor jobs are of kind `preview`, branch bodies
+     `flowpreview` and loop bodies `flownode`
+     ([OR-11](../semantics/oracle.md#or-11), [OR-28](../semantics/oracle.md#or-28));
+   - a failure module whose retry its `skip_if` skips runs an identity job
+     that is not marked skipped ([FX-17](../semantics/execution.md#fx-17),
+     [FX-32](../semantics/execution.md#fx-32));
+   - a preprocessor runs on a run-API start, and its job stores the args
+     `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}`
+     ([FX-35](../semantics/execution.md#fx-35));
+   - the exact error texts ([Q-FX-13](../semantics/execution.md#q-fx-13)).
+     An input-transform error continues `QuickJS evaluation error: Error: …`
+     with the engine's frames ([FX-14](../semantics/execution.md#fx-14)).
+     Chaining errors end in Rust location suffixes, and at a child flow's
+     pickup the message starts `Error: Error: ` and carries two suffixes
+     ([FX-15](../semantics/execution.md#fx-15)).
 
 ## Changing the design
 

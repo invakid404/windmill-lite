@@ -217,9 +217,9 @@ switch through a change to this record, naming the reason.
 
 | Finding | Readings | Default until recorded, and why | Settled by | Recorded in, gating |
 |---|---|---|---|---|
-| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | (b): it agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10) | Q-FX-15, case FX-V6/a | E3c, gating N1b (the discriminating case runs in a failure handler) |
+| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | **recorded: (b)**, the default, which agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10). In FX-V6/a's handler `results[flow_input.target]` read the stored `3` and `previous_result && results[flow_input.target]` the in-memory `EarlyStopError` (fixture `conformance/flows/execution/fx-v6`, oracle run 40685766017) | Q-FX-15, case FX-V6/a | E3c (recorded), gating N1b |
 | [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | (b): it is the confirmed [JE-9](../semantics/expressions.md#je-9) rule | Q-CF-16, cases CF-V6/a,b | E3a, gating B2a and B2b |
-| [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | (b): the correction traces the decoder | Q-FX-19, cases FX-33/c–g | E3c, gating N1b |
+| [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | **recorded: (b)**, the default. A successful handler returning `[true]` made the flow succeed with result `[true]`; `[false]`, `[null]`, `[]`, `[true,false]` and `{"recover":"true"}` left it failed, and `{"recover":true,…}` recovered (fixture `conformance/flows/execution/fx-33`, oracle run 40685766017) | Q-FX-19, cases FX-33/c–g | E3c (recorded), gating N1b |
 | [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | (b): the correction traces that a break clears the stop, not the failure | Q-CF-14, case CF-12/f | E3d, gating N3a and N3b |
 | [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`) | Q-FX-16, case FX-42/h | E3b, gating PF2 |
 | [OF-3](../semantics/openflow.md#of-3) / [OF-V5](../semantics/openflow.md#of-v5) | one or two form selections | not applicable: both readings agree on the successful lite deployment, which is the reference configuration | Q-OF-11 | none needed |
@@ -268,6 +268,11 @@ switch through a change to this record, naming the reason.
 - §5a gained the sync-folder restriction, and §3 the JSON-mode and `later`
   sync-folder rows, when milestone A4 implemented the loader of
   [0002](0002-ir-and-loader.md).
+- Recording batch E3c recorded the two contested rules of §6 that it gates,
+  Q-FX-15 (FX-10/FX-V6) and Q-FX-19 (FX-33). Both recordings agree with the
+  stated default (b), so that default is now recorded behaviour. No engine
+  function changes, because none exists yet: N1b implements both rules
+  against these recordings.
 
 ## Spec IDs relied on
 
