@@ -112,8 +112,8 @@ JE-6 to JE-8 answer the scope's texts as they are, so the form the engine
 puts there for a value read from the database is observable too, and is
 open (request 8).
 
-When no shortcut fires, the source runs on the engine with these bindings
-(JE-10):
+When no shortcut fires, the expression's program runs on the engine with
+these bindings (JE-10):
 
 | Binding | Kind | When |
 |---|---|---|
@@ -174,9 +174,10 @@ The preludes take the intrinsics they call later (`JSON.parse`,
 stack frame in an error message gives a position in these scripts, so
 their layout is observable (JE-21). It reproduces the frames E3a recorded:
 `<anonymous> (eval_script:1:1)` and `<eval> (eval_script:1:<29 + length>)`
-for an expression, `stringify (native)` called from `eval_script:1:64` for a
-three-character expression, `variable (eval_script:7:50)`, and
-`__throwOrParse (eval_script:5:54)` with `__getResult (eval_script:11:59)`.
+for an unknown name read by a one-line expression, `stringify (native)`
+called from `eval_script:1:64` for a three-character expression,
+`variable (eval_script:7:50)`, and `__throwOrParse (eval_script:5:54)` with
+`__getResult (eval_script:11:59)`.
 
 Before the scripts run, each bound context value is checked for depth
 ([JE-49](../../docs/semantics/expressions.md#je-49)): `flow_input` as a
@@ -333,9 +334,8 @@ end with no leaked heap block.
   end or before a Rust location suffix. Two cases differ by a named
   deviation and say what windmill-lite gives: the transcendental `Math`
   cases of JE-1 (review item cl R3-2), each value the oracle's or one unit
-  in the last place from it, every difference logged (D16: the static musl
-  engines give all 30 exactly, Ubuntu 24.04's glibc differs on one and
-  macOS's libm on six), and JE-48/a (D17). JE-2/a is not run: the oracle
+  in the last place from it, every difference logged (D16; ADR 0001 gives
+  what each C library measured), and JE-48/a (D17). JE-2/a is not run: the oracle
   canceled its run before the evaluator's text surfaced; `TestJE2OnEngine`
   runs the same expression with a short limit.
 - `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
