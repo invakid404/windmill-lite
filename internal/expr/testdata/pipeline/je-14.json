@@ -1,0 +1,42 @@
+{
+  "finding": "JE-14",
+  "cases": [
+    {
+      "spec": "JE-14/a",
+      "provenance": "oracle-observed",
+      "title": "a trailing line comment sits before the wrapper's closing text",
+      "note": "TestWrapperSingleLine checks that the closing text follows the code on its last line, so the engine cannot compile the source",
+      "recorded": {"exprs": "je-14", "case": "je-14-a"},
+      "site": "input_transform",
+      "text": "flow_input.n // the count",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "n // the count"}}, "mode": "expression", "code": "flow_input.n // the count", "route": "engine", "bound": {"flow_input": "{\"n\":5}"}}
+    },
+    {
+      "spec": "JE-14/b",
+      "provenance": "oracle-observed",
+      "title": "a block comment leaves the closing text alone",
+      "recorded": {"exprs": "je-14", "case": "je-14-b"},
+      "site": "input_transform",
+      "text": "flow_input.n /* the count */",
+      "expect": {"mode": "expression", "code": "flow_input.n /* the count */", "route": "engine"}
+    },
+    {
+      "spec": "JE-14",
+      "variant": "statement-mode",
+      "provenance": "source-derived",
+      "title": "statement mode is wrapped on the same line",
+      "site": "input_transform",
+      "text": "let y = 1; return y // c",
+      "expect": {"mode": "statement", "code": "let y = 1; return y // c"}
+    },
+    {
+      "spec": "JE-14",
+      "variant": "predicate-newline",
+      "provenance": "source-derived",
+      "title": "a predicate is wrapped before trimming, so a trailing newline puts its ) on the next line",
+      "site": "skip_if",
+      "text": "flow_input.n > 1 // c\n",
+      "expect": {"trimmed": "Boolean(flow_input.n > 1 // c\n)", "mode": "expression", "code": "Boolean(flow_input.n > 1 // c\n)"}
+    }
+  ]
+}

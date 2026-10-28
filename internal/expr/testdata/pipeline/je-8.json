@@ -1,0 +1,158 @@
+{
+  "finding": "JE-8",
+  "cases": [
+    {
+      "spec": "JE-8/a",
+      "provenance": "oracle-observed",
+      "title": "results.<previous id> returns previous_result's text verbatim",
+      "recorded": {"fixture": "je/shortcuts", "run": "je8-a", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "results.a",
+      "expect": {
+        "shortcut": {"previous_id": "a", "results_path": {"step": "a"}},
+        "mode": "expression",
+        "binds": ["result", "results"],
+        "code": "(await results.a)",
+        "route": "previous_id",
+        "text": "{\"n\": 12345678901234567890}"
+      }
+    },
+    {
+      "spec": "JE-8/b",
+      "provenance": "oracle-observed",
+      "title": "in parentheses the text is no spelling and reaches the engine, with previous_result bound",
+      "recorded": {"fixture": "je/shortcuts", "run": "je8-b", "at": "m:b", "input": "x"},
+      "site": "input_transform",
+      "text": "(results.a)",
+      "expect": {
+        "shortcut": {},
+        "binds": ["result", "results"],
+        "code": "((await results.a))",
+        "route": "engine",
+        "bound": {"previous_result": "{\"n\": 12345678901234567890}"},
+        "results_lookup": true
+      }
+    },
+    {
+      "spec": "JE-8/c",
+      "provenance": "oracle-observed",
+      "title": "the empty previous id at module 0",
+      "recorded": {"exprs": "je-8", "case": "je-8-c"},
+      "site": "input_transform",
+      "text": "results[\"\"]",
+      "expect": {
+        "shortcut": {"previous_id": ""},
+        "code": "(await results[\"\"])",
+        "route": "previous_id",
+        "text": "{\"seed\":4}"
+      }
+    },
+    {
+      "spec": "JE-8/d",
+      "provenance": "oracle-observed",
+      "title": "an invalid-JavaScript spelling still matches",
+      "recorded": {"exprs": "je-8", "case": "je-8-d"},
+      "site": "input_transform",
+      "text": "results.",
+      "expect": {
+        "shortcut": {"previous_id": ""},
+        "code": "results.",
+        "route": "previous_id",
+        "text": "{\"seed\":4}"
+      }
+    },
+    {
+      "spec": "JE-8",
+      "variant": "order-transform",
+      "provenance": "oracle-observed",
+      "title": "ADR 0003's example: results.p answers p's producer text, keys in its order",
+      "note": "review item cx R16; TestJE8KeyOrderExample ties the text to the recording",
+      "recorded": {"fixture": "je/shortcuts", "run": "je8-order-transform", "at": "m:q", "input": "x"},
+      "site": "input_transform",
+      "text": "results.p",
+      "expect": {"shortcut": {"previous_id": "p", "results_path": {"step": "p"}}, "route": "previous_id", "text": "{\"b\":1,\"a\":2}"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "order-timeout",
+      "provenance": "oracle-observed",
+      "title": "the same read at the timeout site, whose parse error quotes the text",
+      "recorded": {"fixture": "je/shortcuts", "run": "je8-order-timeout", "at": "m:q", "input": "timeout"},
+      "site": "timeout",
+      "text": "results.p",
+      "expect": {"route": "previous_id", "text": "{\"b\":1,\"a\":2}"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "bracket",
+      "provenance": "source-derived",
+      "title": "results[\"<previous id>\"] is a spelling",
+      "site": "input_transform",
+      "text": "results[\"a\"]",
+      "context": {"previous_id": "a", "previous_result": "{\"k\": 1}"},
+      "expect": {"shortcut": {"previous_id": "a"}, "route": "previous_id", "text": "{\"k\": 1}"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "optional-dot",
+      "provenance": "source-derived",
+      "title": "results?.<previous id> is a spelling",
+      "site": "input_transform",
+      "text": "results?.a",
+      "context": {"previous_id": "a", "previous_result": "{\"k\": 1}"},
+      "expect": {"shortcut": {"previous_id": "a", "results_path": {"step": "a"}}, "route": "previous_id", "text": "{\"k\": 1}"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "optional-bracket",
+      "provenance": "source-derived",
+      "title": "results?.[\"<previous id>\"] is a spelling, of the id between the quotes",
+      "site": "input_transform",
+      "text": "results?.[\"a\"]",
+      "context": {"previous_id": "a", "previous_result": "{\"k\": 1}"},
+      "expect": {"shortcut": {"previous_id": "a"}, "code": "results?.[\"a\"]", "route": "previous_id", "text": "{\"k\": 1}"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "unusual-id",
+      "provenance": "source-derived",
+      "title": "the whole text is compared with the four spellings, so a previous id [\"a\"] fires for results?.[\"a\"]",
+      "note": "module ids are never validated (OF-5); the text spells both a and [\"a\"]",
+      "site": "input_transform",
+      "text": "results?.[\"a\"]",
+      "context": {"previous_id": "[\"a\"]", "previous_result": "{\"k\": 2}"},
+      "expect": {"shortcut": {"previous_id": "a"}, "route": "previous_id", "text": "{\"k\": 2}"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "other-id",
+      "provenance": "source-derived",
+      "title": "a spelling of another id misses; the bracket form is no JE-9 path, so the engine reads it",
+      "site": "input_transform",
+      "text": "results[\"a\"]",
+      "context": {"previous_id": "m", "previous_result": "0", "results": {"a": "{\"k\": 1}"}},
+      "expect": {
+        "shortcut": {"previous_id": "a"},
+        "code": "(await results[\"a\"])",
+        "route": "engine",
+        "bound": {},
+        "results_lookup": true
+      }
+    },
+    {
+      "spec": "JE-8",
+      "variant": "no-results-context",
+      "provenance": "source-derived",
+      "title": "a site without a results context takes no spelling of results",
+      "note": "sleep has no results (JE-22), so neither JE-8 nor JE-9 fires and the engine has no results to read",
+      "site": "sleep",
+      "text": "results.a",
+      "context": {"previous_id": "a", "previous_result": "1"},
+      "expect": {
+        "route": "engine",
+        "bound": {"previous_result": "1", "result": "1"},
+        "results_lookup": false
+      }
+    }
+  ]
+}

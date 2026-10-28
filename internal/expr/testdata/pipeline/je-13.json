@@ -1,0 +1,169 @@
+{
+  "finding": "JE-13",
+  "cases": [
+    {
+      "spec": "JE-13/a",
+      "provenance": "oracle-observed",
+      "title": "a trailing semicolon selects statement mode",
+      "recorded": {"exprs": "je-13", "case": "je-13-a"},
+      "site": "input_transform",
+      "text": "flow_input.n;",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "n;"}}, "mode": "statement", "code": "flow_input.n;", "route": "engine"}
+    },
+    {
+      "spec": "JE-13/b",
+      "provenance": "oracle-observed",
+      "title": "a leading await selects statement mode",
+      "recorded": {"exprs": "je-13", "case": "je-13-b"},
+      "site": "input_transform",
+      "text": "await Promise.resolve(1)",
+      "expect": {"shortcut": {}, "mode": "statement", "code": "await Promise.resolve(1)", "route": "engine", "bound": {}}
+    },
+    {
+      "spec": "JE-13/c",
+      "provenance": "oracle-observed",
+      "title": "a semicolon in a regular expression literal selects statement mode",
+      "recorded": {"exprs": "je-13", "case": "je-13-c"},
+      "site": "input_transform",
+      "text": "/;/.test(flow_input.s)",
+      "expect": {"mode": "statement", "route": "engine"}
+    },
+    {
+      "spec": "JE-13/d",
+      "provenance": "oracle-observed",
+      "title": "a semicolon inside quotes does not",
+      "recorded": {"exprs": "je-13", "case": "je-13-d"},
+      "site": "input_transform",
+      "text": "flow_input.s.split(\";\")",
+      "expect": {"mode": "expression", "route": "engine", "bound": {"flow_input": "{\"n\":5,\"s\":\"a;b\"}"}}
+    },
+    {
+      "spec": "JE-13/e",
+      "provenance": "oracle-observed",
+      "title": "a leading brace is an object literal, returned in expression mode",
+      "recorded": {"exprs": "je-13", "case": "je-13-e"},
+      "site": "input_transform",
+      "text": "{a: 1}",
+      "expect": {"mode": "expression", "code": "{a: 1}", "route": "engine"}
+    },
+    {
+      "spec": "JE-13/f",
+      "provenance": "oracle-observed",
+      "title": "statement mode runs the text as the body",
+      "recorded": {"exprs": "je-13", "case": "je-13-f"},
+      "site": "input_transform",
+      "text": "let y = flow_input.n * 2; return y + 1",
+      "expect": {"mode": "statement", "code": "let y = flow_input.n * 2; return y + 1", "route": "engine"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "return",
+      "provenance": "source-derived",
+      "title": "return followed by a space or a semicolon, or alone",
+      "site": "input_transform",
+      "text": "return 1",
+      "expect": {"mode": "statement"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "bare-return",
+      "provenance": "source-derived",
+      "title": "the text return alone",
+      "site": "input_transform",
+      "text": "return",
+      "expect": {"mode": "statement"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "return-newline",
+      "provenance": "source-derived",
+      "title": "return and a newline is none of the forms, so the text is an expression",
+      "note": "the reference lists return followed by a space or a semicolon (docs/design/README.md request 8)",
+      "site": "input_transform",
+      "text": "return\n1",
+      "expect": {"mode": "expression"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "keyword-forms",
+      "provenance": "source-derived",
+      "title": "a keyword and a parenthesis or brace selects statement mode",
+      "site": "input_transform",
+      "text": "if(flow_input.n) return 1",
+      "expect": {"mode": "statement"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "keyword-space",
+      "provenance": "source-derived",
+      "title": "a keyword and a space selects statement mode",
+      "site": "input_transform",
+      "text": "async () => 1",
+      "expect": {"mode": "statement"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "identifier",
+      "provenance": "source-derived",
+      "title": "an identifier that starts with a keyword is an expression",
+      "site": "input_transform",
+      "text": "letter",
+      "expect": {"mode": "expression"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "backticks",
+      "provenance": "source-derived",
+      "title": "a semicolon inside backticks does not count",
+      "site": "input_transform",
+      "text": "`a;b`",
+      "expect": {"mode": "expression"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "single-quotes",
+      "provenance": "source-derived",
+      "title": "a semicolon inside single quotes does not count",
+      "site": "input_transform",
+      "text": "'a;b'",
+      "expect": {"mode": "expression"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "escaped-quote",
+      "provenance": "source-derived",
+      "title": "a quote after a backslash does not close the quote",
+      "site": "input_transform",
+      "text": "\"a\\\";b\"",
+      "expect": {"mode": "expression"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "other-quote-inside",
+      "provenance": "source-derived",
+      "title": "inside double quotes a single quote is text, so a later semicolon counts",
+      "note": "one reading of the quote scan (docs/design/README.md request 8)",
+      "site": "input_transform",
+      "text": "\"it's\"; 1",
+      "expect": {"mode": "statement"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "comment",
+      "provenance": "source-derived",
+      "title": "the scan knows no comments",
+      "site": "input_transform",
+      "text": "1 // ;",
+      "expect": {"mode": "statement"}
+    },
+    {
+      "spec": "JE-13",
+      "variant": "empty",
+      "provenance": "source-derived",
+      "title": "an empty text is an expression whose return is empty (JE-V4)",
+      "site": "input_transform",
+      "text": "",
+      "expect": {"trimmed": "", "shortcut": {}, "mode": "expression", "code": ""}
+    }
+  ]
+}

@@ -403,6 +403,21 @@ error, with the database route (a step in between) as its control.
   `conformance/exprs/recorded/`. Flow fixtures restate their expressions as
   unit cases with their recorded context, for B2a and B2b, and the JE-8
   example has the oracle discriminator above (review item cx R16).
+- Milestone B2a implemented the textual pipeline (`expr.Compile`) and the
+  evaluator's dispatch (`expr.Pipeline`), and drew its line with B2b in the
+  engine source. An expression's `Source` is its rewritten text in a
+  single-line async function that its mode selects, called at once; B2b
+  writes the program around it, which turns the bound host strings into
+  values, gives the user's code `results`, `error` and the helpers, and
+  serialises the value (JE-15). The evaluator binds a host string per
+  context value the text names, and the results lookup and the helpers as
+  host functions that answer JSON text; it answers JE-18's previous-step
+  read from memory itself. Its cases are a pipeline level inside the
+  package, `internal/expr/testdata/pipeline/<finding>.json`: each restates
+  an E3a case, whose context it rebuilds from the recording's case, or
+  gives its own, and says what `Compile` makes of the text and which route
+  answers on a fake engine. B2b runs the same restatements on the real
+  engine.
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that

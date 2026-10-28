@@ -1,0 +1,79 @@
+{
+  "finding": "JE-11",
+  "cases": [
+    {
+      "spec": "JE-11/a",
+      "provenance": "oracle-observed",
+      "title": "the rewrite applies inside string literals",
+      "note": "the recorded value is the rewritten literal",
+      "recorded": {"exprs": "je-11", "case": "je-11-a"},
+      "site": "input_transform",
+      "text": "\"call variable(1)\"",
+      "expect": {"shortcut": {}, "binds": [], "code": "\"call (await variable(1))\"", "route": "engine", "bound": {}}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "no-word-boundary",
+      "provenance": "source-derived",
+      "title": "a longer name ending in a helper's is rewritten",
+      "site": "input_transform",
+      "text": "myvariable('x')",
+      "expect": {"code": "my(await variable('x'))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "each-helper",
+      "provenance": "source-derived",
+      "title": "variable, resource and flow_user_state are each awaited",
+      "site": "input_transform",
+      "text": "[variable('v'), resource('r'), flow_user_state('k')]",
+      "expect": {"code": "[(await variable('v')), (await resource('r')), (await flow_user_state('k'))]"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "nested",
+      "provenance": "source-derived",
+      "title": "a call inside another is awaited inside it",
+      "site": "input_transform",
+      "text": "variable(resource('a'))",
+      "expect": {"code": "(await variable((await resource('a'))))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "back-to-back",
+      "provenance": "source-derived",
+      "title": "a call that ends where the next begins closes first",
+      "site": "input_transform",
+      "text": "variable(1)variable(2)",
+      "expect": {"code": "(await variable(1))(await variable(2))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "parentheses-in-strings",
+      "provenance": "source-derived",
+      "title": "a parenthesis inside a string counts",
+      "site": "input_transform",
+      "text": "variable(\"a)b\")",
+      "expect": {"code": "(await variable(\"a))b\")"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "unbalanced",
+      "provenance": "source-derived",
+      "title": "a call whose parentheses never close is awaited to the end",
+      "note": "the reference rewrites every occurrence and does not say where an unclosed call ends; this reading closes it at the end of the text (docs/design/README.md request 8)",
+      "site": "input_transform",
+      "text": "\"x\" + \"variable(\"",
+      "expect": {"code": "\"x\" + \"(await variable(\")"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "before-results",
+      "provenance": "source-derived",
+      "title": "JE-12 rewrites the result of JE-11",
+      "site": "input_transform",
+      "text": "variable(results.a)",
+      "expect": {"binds": ["result", "results"], "code": "(await variable((await results.a)))"}
+    }
+  ]
+}
