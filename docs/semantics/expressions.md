@@ -42,7 +42,7 @@ O1 is not the only point where pre-database values matter: a later step can comp
 7. **Transforms run serially, once per step** ([JE-23](#je-23), [JE-V2](#je-v2), [JE-V5](#je-v5)). A step's transforms are evaluated one at a time, in unspecified order, each in its own runtime, stopping at the first error. Ordinary step retries reuse the recorded arguments without re-evaluating the transforms; collapsed loop bodies evaluate their transforms per iteration. Isolation does not make concurrent evaluation, a shared runtime or shared read caching behaviour-preserving.
 8. **Argument references are resolved per leaf step and per attempt** ([JE-41](#je-41), [JE-42](#je-42), [JE-V3](#je-v3)). `$var:`/`$res:` markers are resolved when a script job builds its arguments, into a map separate from the recorded arguments. Expressions see unresolved strings, except in `flow_env` ([JE-38](#je-38)). Recorded arguments, resolved arguments, child-job results and parent-flow errors are distinct observation points.
 9. **Errors take five routes** ([JE-35](#je-35), [JE-26](#je-26)): chaining after a child completed (`InternalError`, failure module not run); first pickup of a root flow (failure module runs); first pickup of a nested flow (the parent handles it); ordinary step failures; and an unrecoverable string-valued error from `stop_after_if`, while the child job stays successful. The message wrappers are part of the contract: at a first pickup an evaluation error is named `Anyhow` and carries two `Error: ` prefixes and two Rust location suffixes, after a completed child one of each. The location suffixes must be normalised before comparing. The flow-level `skip_expr` ends a flow `skipped`, and a final module's `sleep` is evaluated, because of the virtual step after it ([JE-28](#je-28), [JE-33](#je-33)).
-10. **JSON boundaries depend on the read path** ([JE-16](#je-16), [JE-44](#je-44)). Reads from the database see `jsonb`: keys reordered, exponents expanded. The in-memory previous result keeps the producer's text, including `-0`, and its consequences are observable downstream. The top-level key order of `flow_input` and of script arguments comes from a hash map and is not stable.
+10. **JSON boundaries depend on the read path** ([JE-16](#je-16), [JE-44](#je-44)). Reads from the database see `jsonb`: keys reordered, exponents expanded. The in-memory previous result keeps the producer's text, including `-0`, and its consequences are observable downstream. The text a shortcut returns follows the same split: a `flow_input` member and a previous result read back from storage come in `jsonb`'s spaced form, and a previous result after a loop or `branchall` is a compact array with re-printed numbers (JE-44's table). The top-level key order of `flow_input` and of script arguments comes from a hash map and is not stable.
 
 Every finding below is source-confirmed at its stated scope and confidence, except [JE-50](#je-50) to [JE-52](#je-52), which are `drafted` (written from the pinned source, not yet independently checked). Recording batch E3a (design record 0012) recorded every case of this area on the CE oracle except JE-16/c, JE-19/e and JE-V5/a, and three cases only in part (JE-28/a, JE-36/d, JE-V1/a); the recordings confirmed the source-derived expectations except JE-2/a, JE-28/c, JE-33/a–b, JE-35/b and JE-48/a and c, whose findings were corrected on 2026-10-28. The questions still open are listed at the end.
 
@@ -197,16 +197,18 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-5"></a>
 ### JE-5 · Trimming, and what error messages quote
 
-**Scope:** core (evaluation); later (message spelling) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (evaluation); later (message spelling) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - **What is trimmed.** The evaluator removes leading and trailing whitespace, newlines included, from the text it evaluates. The shortcuts and the statement-mode detection ([JE-13](#je-13)) see the trimmed text.
+    - "Whitespace" is every character with the Unicode `White_Space` property, the set Rust's string trim removes: ASCII space, tab, `\n`, `\r`, vertical tab and form feed, and also U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000. A zero-width space (U+200B) and a byte order mark (U+FEFF) are not `White_Space` and stay.
   - **What messages quote.**
     - Site error messages (``Error during isolated evaluation of expression `…` ``, ``Error during evaluation of expression `…` `` and the predicate log lines) quote the expression **as written in the flow**, untrimmed.
     - The timeout message ([JE-2](#je-2)) quotes the trimmed text.
   - **Predicates are wrapped before trimming.** The text evaluated is `Boolean(` + the expression as written + `)`. Whitespace and newlines inside the wrapper survive; only the outside of the wrapper is trimmed ([JE-24](#je-24)).
-- **Evidence:** `backend/windmill-worker/src/js_eval.rs:36`; `backend/windmill-worker/src/worker_flow.rs:2451-2452`, `:2691-2694`, `:2763-2765`; `backend/windmill-jseval/src/lib.rs:243`, `:324-327`.
+- **Evidence:** `backend/windmill-worker/src/js_eval.rs:36` (the standard library's trim, defined by `White_Space`); `backend/windmill-worker/src/worker_flow.rs:2451-2452`, `:2691-2694`, `:2763-2765`; `backend/windmill-jseval/src/lib.rs:243`, `:324-327`, `:866` (statement detection trims again, a no-op).
 - **Conformance:** [JE-5/a, JE-5/b](conformance.md#je-5)
+- **Revision 2026-10-28 (source re-check, design request 8):** added which characters "whitespace" means. The reading windmill-lite's textual pipeline (B2a) took, Unicode `White_Space` as Rust's trim removes, is confirmed; nothing changes.
 
 <a id="je-6"></a>
 ### JE-6 · An exact context name returns the stored value verbatim
@@ -217,28 +219,31 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
   - If the trimmed text is exactly the name of a value in the evaluation context, that value's stored JSON is returned unchanged.
   - The possible names depend on the site ([JE-22](#je-22)): `previous_result`, `result`, `params`, `resume`, `resumes`, `approvers`, `all_iters`, `started_at`, `flow_job_id`.
   - `flow_input` and `flow_env` are passed separately, not as context entries, so this shortcut does not apply to them; [JE-7](#je-7) does.
+  - "Unchanged" means the text the worker holds for that name. For `previous_result` that text depends on where the value came from ([JE-44](#je-44), the table of returned texts).
 - **Evidence:** `backend/windmill-worker/src/js_eval.rs:44-46`.
 - **Conformance:** [JE-6/a, JE-6/b](conformance.md#je-6)
 
 <a id="je-7"></a>
 ### JE-7 · A top-level `flow_input` or `flow_env` key returns the stored value verbatim
 
-**Scope:** core (plain keys); later (dotted-key quirk) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (plain keys); later (dotted-key quirk) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
-  - **Dot form.** If the text starts with `flow_input` followed by `.`, *everything after the first dot* is used as **one** key of the flow input. If the input has that key, its stored JSON is returned verbatim.
+  - **Dot form.** If the text starts with `flow_input` followed by `.`, *everything after the first dot* is used as **one** key of the flow input. If the input has that key, its stored JSON is returned verbatim. The key may be empty: `flow_input.` looks up the key `""`, and returns its value when the input has a key that is the empty string (otherwise the text goes to the engine, where it is a `SyntaxError`).
   - **Bracket form.** For `flow_input["…"]`, the text must end with `"]` and the key between the quotes must be non-empty.
   - `flow_env.<…>` and `flow_env["…"]` behave the same way against the flow env ([JE-38](#je-38)).
   - **On a miss**, the text is evaluated on the QuickJS path with ordinary JavaScript semantics. Only a missing **direct** property of an existing object yields `null` ([JE-15](#je-15)); `flow_input.absent.child` throws a `TypeError` and the step fails.
   - **Quirk:** `flow_input.a.b` first looks up a top-level key literally named `a.b`. Only if there is none does JavaScript evaluate `flow_input.a.b`.
   - The returned text is exactly the stored text, so a number like `12345678901234567890` keeps its full precision. JavaScript arithmetic on it does not ([JE-16](#je-16)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:117-163`; `backend/windmill-worker/src/js_eval.rs:48-52`, `:81-107`.
+  - **Which text that is.** The flow input is the flow job's arguments as decoded from its `jsonb` column, member by member without re-encoding. A member is therefore returned as PostgreSQL prints the stored `jsonb`: an object or array value has `": "` after each key and `", "` between members and items, its keys are in `jsonb` order, and its numbers are in `numeric`'s spelling ([JE-44](#je-44)). `flow_input.o` with `o` submitted as `{"b":1,"a":[1,2]}` returns `{"a": [1, 2], "b": 1}`, not a compact text.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:51-55` (the prefixes), `:117-163` (`:136-138` the dot form, with no emptiness check; `:139-150` the bracket form, whose key must be non-empty), `backend/windmill-worker/src/js_eval.rs:48-52`, `:81-107`; the flow input's source `backend/windmill-worker/src/worker_flow.rs:3186-3194`, its type and query `backend/windmill-queue/src/jobs.rs:2754-2758`, `:3231-3241` (the arguments decoded as raw text per member from `v2_job.args`).
 - **Conformance:** [JE-7/a–g](conformance.md#je-7)
+- **Revision 2026-10-28 (source re-check, design request 8):** windmill-lite's textual pipeline (B2a) took two readings here. (1) The dot form takes an empty key: confirmed. (2) A member read from storage is returned as a compact stored text: **corrected**. An object or array member comes back in `jsonb`'s printed form, with a space after each `:` and `,`; scalars agree with the compact reading. B2b's tests that pin a compact text for an object or array member of `flow_input` must change. Not yet recorded ([Q-JE-13](#q-je-13)).
 
 <a id="je-8"></a>
 ### JE-8 · The previous step's id returns `previous_result` verbatim
 
-**Scope:** core (named previous id); later (empty-id spellings) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (named previous id); later (empty-id spellings) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - When the site has a results context and its context holds `previous_result`, four spellings return `previous_result` verbatim: `results.<P>`, `results?.<P>`, `results["<P>"]` and `results?.["<P>"]`, where `<P>` is the previous id.
@@ -246,14 +251,16 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
   - **Empty previous id.** The spellings are built even when the previous id is empty. At the first module of a flow or body the previous id is `""`, so the exact texts `results[""]` and `results?.[""]` return `previous_result`, which is that flow job's input object ([JE-36](#je-36)). So do `results.` and `results?.`, which are not valid JavaScript.
   - On the QuickJS path, the `results` proxy compares against the same empty id, so `results[""]` inside a larger expression also yields `previous_result` ([JE-18](#je-18)).
   - **"Verbatim" means the producer's text** (oracle-observed). The shortcut returns the previous step's in-memory result text, in the producer's key order and spelling. Where that text is stored as step arguments it is `jsonb`-normalised ([JE-44](#je-44)), but a site that quotes the value keeps it: when a `timeout` of `results.p` (with `p` the previous step, returning `{"b":1,"a":2}`) fails the integer parse, the message ends `Value was: {"b":1,"a":2}`, while the same expression reaching `p` through the [JE-9](#je-9) lookup (another step in between) quotes the stored text, `Value was: {"a": 2, "b": 1}` ([JE-29](#je-29)).
-- **Evidence:** `backend/windmill-worker/src/js_eval.rs:54-72`; previous-id computation `backend/windmill-worker/src/worker_flow.rs:3658-3663`; proxy `backend/windmill-jseval/src/lib.rs:805-817`. Recorded: runs `je8-a`, `je8-b`, `je8-order-transform`, `je8-order-timeout` and `je8-order-timeout-db` of `conformance/flows/je/shortcuts`, cases JE-8/c and JE-8/d of `conformance/exprs/je-8.yaml` (oracle run 40687124625).
+  - **"Verbatim" depends on where `previous_result` came from.** The producer's text holds only after an ordinary step whose job completed in the same transition. At other positions `previous_result` is a text the worker built, which the shortcut returns as it is ([JE-44](#je-44) gives the table): at the first module and in the preprocessor, a compact object of the flow arguments whose member values are `jsonb`'s printed text; after a loop or `branchall`, a compact array the worker rewrote from the stored child results; and when `previous_result` was read back from storage, `jsonb`'s printed text.
+- **Evidence:** `backend/windmill-worker/src/js_eval.rs:54-72`; previous-id computation `backend/windmill-worker/src/worker_flow.rs:3658-3663`; proxy `backend/windmill-jseval/src/lib.rs:805-817`; where `previous_result` comes from `backend/windmill-worker/src/worker_flow.rs:3324-3346`, `:3776-3792`, `:2299-2326`, `:6234-6264`. Recorded: runs `je8-a`, `je8-b`, `je8-order-transform`, `je8-order-timeout` and `je8-order-timeout-db` of `conformance/flows/je/shortcuts`, cases JE-8/c and JE-8/d of `conformance/exprs/je-8.yaml` (oracle run 40687124625).
 - **Conformance:** [JE-8/a–d](conformance.md#je-8)
 - **Revision 2026-10-28 (oracle, batch E3a):** added the recorded key-order discriminator: a quoting site shows the producer's text through this shortcut and the `jsonb` text through JE-9. The rule is unchanged.
+- **Revision 2026-10-28 (source re-check, design request 8):** added which text "verbatim" is at the positions where `previous_result` was not produced in memory. windmill-lite's textual pipeline (B2a) reads a value from storage as the compact stored text. That reading is **corrected** for the step after a loop or `branchall`, where numbers are re-printed ([JE-44](#je-44)), and for a `previous_result` read back from storage, which is spaced. B2b's tests that pin those texts must change. Not yet recorded ([Q-JE-13](#q-je-13)).
 
 <a id="je-9"></a>
 ### JE-9 · Simple `results` paths are served by a lenient database lookup
 
-**Scope:** core (shortcut and leniency); later (first-match `.length` decline) · **Confidence:** high (oracle-observed; per-path `#>` edge cases: medium) · **Status:** confirmed
+**Scope:** core (shortcut and leniency); later (first-match `.length` decline) · **Confidence:** high (oracle-observed; per-path `#>` edge cases: medium) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - **Where it applies.** At every site with both an authenticated client and a results context: step input transforms, the loop iterator, `parallelism`, `timeout`, and predicates (`skip_if` and `branchone` always; `stop_after_if` and `stop_after_all_iters_if` when their text mentions `results`). It does not apply to `sleep`, `retry_if` or flow `skip_expr` (no results context) or to `suspend.user_groups_required` (no client). See [JE-22](#je-22).
@@ -267,6 +274,8 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - if its last segment is `length`, the whole shortcut declines and the text goes to QuickJS; later lines are **not** searched for another match;
     - otherwise the shortcut fires on that line: **all other text is ignored**, and no JavaScript runs.
   - Indented lines never qualify. The first line is never indented, because the text is trimmed.
+  - **Where a line ends.** Lines are split at `\n` only. A `\r` before the `\n` stays part of the line, and so does any trailing space or tab; since neither is a character the pattern allows, such a line does not qualify. Only the last line has its trailing whitespace removed, by the trim.
+  - **The `length` decline reads the last `.segment` only.** A step whose id is `length` (`results.length`, or `results.length.x`) is looked up like any other id; only a path whose final `.segment` is `length` (`results.a.length`, `results.length.length`) declines.
   - In a predicate, the shortcut's value goes to the strict boolean check ([JE-24](#je-24)).
   - **How it resolves.** The step's stored result is looked up through the "result by node id" lookup ([JE-19](#je-19) gives the resolution order). The path is then applied the way Postgres's `#>` operator applies a path to `jsonb`:
     - a missing step, a lookup failure, a missing key, a type mismatch or a `null` intermediate all give **`null`**, never an error;
@@ -274,8 +283,9 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - the returned text is the database's `jsonb` text ([JE-44](#je-44)).
   - **This lookup is more lenient than JavaScript.** With `a` returning `{}`, `results.a.b.c` gives `null` here, where JavaScript would throw. `results.nope.x` gives `null` where JavaScript would throw a `TypeError`. `results.a.0` is not valid JavaScript but resolves here.
   - It reads the database even when the step is the previous one ([JE-V6](#je-v6)).
-- **Evidence:** pattern and fallback `backend/windmill-jseval/src/lib.rs:73-75`, `:165-218` (first-match inspection `:184-197`); dispatch `backend/windmill-worker/src/js_eval.rs:74-79`; predicate wrapping `backend/windmill-worker/src/worker_flow.rs:2451-2466`; lookup `backend/windmill-queue/src/jobs.rs:4403-4461`, `:4711-4777`; endpoint `backend/windmill-common/src/client.rs:137-155`; test `backend/tests/worker.rs:5731-5778`.
+- **Evidence:** pattern and fallback `backend/windmill-jseval/src/lib.rs:73-75` (multi-line mode without CRLF mode, so `^` and `$` meet `\n` only), `:165-218` (first-match inspection `:184-197`; the decline tests the last segment of the path after the step id, `:170-178`); dispatch `backend/windmill-worker/src/js_eval.rs:74-79`; predicate wrapping `backend/windmill-worker/src/worker_flow.rs:2451-2466`; lookup `backend/windmill-queue/src/jobs.rs:4403-4461`, `:4711-4777`; endpoint `backend/windmill-common/src/client.rs:137-155`; test `backend/tests/worker.rs:5731-5778`.
 - **Conformance:** [JE-9/a–l](conformance.md#je-9)
+- **Revision 2026-10-28 (source re-check, design request 8):** added where a line ends and that a step id `length` does not decline. The readings windmill-lite's textual pipeline (B2a) took, lines ending at `\n` only and no decline for a step id `length`, are confirmed; nothing changes.
 - **Note:** [CF-19](control-flow.md#cf-19) once drafted a whole-expression
   form of this shortcut. The oracle settled that dispute
   ([Q-CF-16](control-flow.md#q-cf-16), answered) for the line-by-line
@@ -303,22 +313,25 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-11"></a>
 ### JE-11 · Calls to `variable(`, `resource(` and `flow_user_state(` are rewritten textually
 
-**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - Before evaluation, every occurrence of the character sequences `variable(`, `resource(` and `flow_user_state(` is rewritten so that the call is awaited: `F(args)` becomes `(await F(args))`.
   - The closing parenthesis is found by counting `(` and `)` from the call onwards. Parentheses inside string literals count too.
+    - **When they never balance**, the inserted `)` goes at the end of the text that follows the call.
+    - **The position is counted in characters but applied as a byte offset.** For text that is ASCII up to the insertion point the two agree, and the rules above hold exactly. Otherwise the `)` lands early, by the number of extra UTF-8 bytes in that stretch. `variable("é")` becomes `(await variable("é)")`, with the parenthesis inside the string, which leaves a parenthesis open and fails as a `SyntaxError`. If the early offset falls inside a multi-byte character, the rewrite panics in the worker instead of producing an evaluation error (`variable("éé")`; medium: the consequence of the panic for the job was not traced).
   - The rewrite is purely textual, not a JavaScript parse. It has no word boundary and no awareness of strings or comments:
     - `myvariable('x')` becomes `my(await variable('x'))`, which fails because `my` is not defined;
     - the text `"variable(x)"` inside a string literal is rewritten as well.
   - A rewritten call inside a non-`async` nested function is a syntax error (as in [JE-12](#je-12)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:81-115`, `:446-449`; tests `:1103-1116`.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:81-115` (`:101-113`: a character count used as the insertion offset; the standard library's string insert takes a byte offset and panics off a character boundary), `:446-449`; tests `:1103-1116`.
 - **Conformance:** [JE-11/a](conformance.md#je-11)
+- **Revision 2026-10-28 (source re-check, design request 8):** added where an unbalanced call ends, and the character-versus-byte offset. The reading windmill-lite's textual pipeline (B2a) took, that an unbalanced call ends at the end of the text, is confirmed for ASCII text. For non-ASCII text before the insertion point it is extended, not reversed: the parenthesis lands early or the rewrite panics, as above. Not yet recorded ([Q-JE-13](#q-je-13)).
 
 <a id="je-12"></a>
 ### JE-12 · `results.<id>` is rewritten textually into an awaited lookup
 
-**Scope:** core (single-quoted and computed keys, bare `results`); later (other consequences) · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core (single-quoted and computed keys, bare `results`); later (other consequences) · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:** after [JE-11](#je-11), every match of this pattern is wrapped as `(await <match>)`: the characters `results`, optionally followed by `?`, followed by either `.` and one or more `[A-Za-z0-9_]`, or by `["…"]` (double quotes only, matched lazily). Observable consequences:
   1. **No word boundary.** `flow_input.results.x` becomes `flow_input.(await results.x)`, a syntax error. `my_results.x` becomes `my_(await results.x)`.
@@ -329,25 +342,30 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
      - `{y: results['a']}` gives `{"y":{}}`.
   4. **A nested non-async function breaks.** If `results.x` appears inside a non-`async` function or arrow, the inserted `await` is a compile-time `SyntaxError` and the whole expression fails; quickjs-ng reads `await` there as a plain name, so the diagnostic is `Unexpected identifier 'results'` (oracle-observed, JE-12/d). `results.x.map(a => a.y)` is fine, because `results` is read outside the callback; `arr.map(a => results.x[a])` fails.
   5. **Bare `results`** (not followed by `.` or `["`) is the lookup proxy itself. `JSON.stringify` of it is `{}`, so `x = results` gives `{}`.
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:59-68`, `:92-95`, `:555-570`, `:805-817`; test `:1119-1132`.
+  6. **A `["…"]` read never spans lines.** The lazy match inside the brackets does not cross a newline, so it ends at the first `"]` on the same line. `results["a` followed by a newline and `"]` is not rewritten, and neither is any other bracket read whose closing `"]` is on a later line.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:59-68` (`:66`: the bracket alternative's `.` is not in dot-matches-newline mode), `:92-95`, `:555-570`, `:805-817`; test `:1119-1132`.
 - **Conformance:** [JE-12/a–e](conformance.md#je-12)
+- **Revision 2026-10-28 (source re-check, design request 8):** added consequence 6. The reading windmill-lite's textual pipeline (B2a) took, that a `["…"]` read does not span lines, is confirmed; nothing changes.
 
 <a id="je-13"></a>
 ### JE-13 · Expression mode or statement mode
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:** after the rewrites, the code is placed in an `async` function body. **Statement mode** is chosen when any of these holds:
-  - the text starts with `return ` or `return;`, or is exactly `return`;
+  - the text starts with `return ` or `return;`, or is exactly `return`. The space is a literal space: `return` followed by a newline or a tab matches none of these, so without a `;` such a text runs in expression mode as `return return…;` and fails as a `SyntaxError`;
   - the text starts with one of `const `, `let `, `var `, `if `, `if(`, `for `, `for(`, `while `, `while(`, `switch `, `switch(`, `try `, `try{`, `throw `, `function `, `class `, `async `, `await `;
-  - the text contains a `;` outside single, double and backtick quotes. The scan toggles a quote state on each unescaped quote character; it knows nothing about regex literals, comments or `${}` nesting.
+  - the text contains a `;` outside single, double and backtick quotes. The scan reads one character at a time. A quote character opens a quote of its own kind, or closes the quote of its kind that is open, but only when no quote of another kind is open and the character just before it is not a backslash. So a quote of another kind inside a string is plain text. The backslash test looks at the raw previous character, so a quote after an escaped backslash (`"\\"`) still counts as escaped and the string stays open. The scan knows nothing about regex literals, comments or `${}` nesting.
+
+  The wrapper is an `async function` expression called at once, not an async arrow, so the text sees that function's own (empty) `arguments` object.
 
   Then:
   - **Statement mode:** the text runs as the function body. The value is whatever it `return`s; with no `return` it is `undefined`, which becomes `null` ([JE-15](#je-15)).
   - **Expression mode:** the text is used as `return <text>;`. A leading `{` is therefore an **object literal**, not a block.
   - An empty text yields `null` ([JE-V4](#je-v4)).
-- **Evidence:** `backend/windmill-jseval/src/lib.rs:554-559`, `:864-937`; tests `:1073-1100`, `:1466-1490`.
+- **Evidence:** `backend/windmill-jseval/src/lib.rs:554-559` (`:556`, `:558`: the `async function` wrapper), `:864-937` (`:872` the `return` forms; `:911-937` the quote scan, which tests the raw previous character at `:919`, `:922`, `:925`); tests `:1073-1100`, `:1466-1490`.
 - **Conformance:** [JE-13/a–f](conformance.md#je-13)
+- **Revision 2026-10-28 (source re-check, design request 8):** added the `return`-newline case, the exact quote rule and the wrapper's form. windmill-lite's textual pipeline (B2a) took three readings here, and all are confirmed: `return` followed by a newline does not select statement mode; a quote opens or closes its own kind unless a backslash precedes it, so another kind of quote inside a string is text; and the wrapper is a function, not an arrow. Nothing changes. The detail that an escaped backslash still escapes the next quote is new; it follows from the same rule.
 
 <a id="je-14"></a>
 ### JE-14 · A trailing `//` comment breaks a single-line direct expression
@@ -355,7 +373,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 **Scope:** later · **Confidence:** high (oracle-observed) · **Status:** confirmed
 
 - **Rule:**
-  - In both modes the code is wrapped on a single line, with the wrapper's own closing text after the user's text. In a one-line expression, a trailing `//` line comment comments out that closing text, and the expression fails with a `SyntaxError`.
+  - In both modes the code is wrapped on a single line, with the wrapper's own closing text after the user's text. The wrapper is an `async function` expression ([JE-13](#je-13)). In a one-line expression, a trailing `//` line comment comments out that closing text, and the expression fails with a `SyntaxError`.
   - Direct (non-predicate) expressions are trimmed before wrapping ([JE-5](#je-5)), so a trailing newline does not help them.
   - A `//` comment followed by more lines is fine, and `/* */` comments are fine.
   - Predicates differ: they are wrapped before trimming, so a trailing newline after the comment rescues them ([JE-24](#je-24)).
@@ -971,7 +989,7 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
 <a id="je-44"></a>
 ### JE-44 · Which reads go through `jsonb`
 
-**Scope:** core · **Confidence:** medium (its cases oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** medium (its cases oracle-observed) · **Status:** confirmed; drafted (the 2026-10-28 additions for design request 8)
 
 - **Rule:**
   - **What `jsonb` does.** Windmill stores job arguments and job results in Postgres `jsonb` columns, which normalise them:
@@ -990,8 +1008,23 @@ Every flow expression goes through one entry point. It **trims** the text ([JE-5
     - `results.<previous id>` through the whole-result spellings of [JE-8](#je-8) or rule 1 of [JE-18](#je-18), which return P.
   - **Top-level key order** of `flow_input` and of a script's arguments is unstable ([JE-16](#je-16)); fixtures must not depend on it.
   - As a result, `Object.keys(previous_result)` and `Object.keys(results.<same step>)` can differ in order.
+  - **The text a shortcut returns.** [JE-6](#je-6) to [JE-9](#je-9) hand their value on as text, without the engine, so its exact spelling is observable wherever a site quotes it (the `Value was:` of [JE-29](#je-29)) and wherever it becomes a step's arguments. That text depends on how the value reached the worker:
+
+    | Value | Text |
+    |---|---|
+    | P after an ordinary step whose job completed in this transition | the producer's text, as the job returned it ([JE-8](#je-8), oracle-observed) |
+    | a member of `flow_input` ([JE-7](#je-7)) | PostgreSQL's printed form of the stored `jsonb`: `": "` after each key and `", "` between members and items, keys in `jsonb` order, numbers in `numeric`'s spelling |
+    | P at the first module of a flow or body, and in the preprocessor | a compact object the worker writes from the flow arguments: no spaces at the top level, top-level keys in an unstable order ([JE-16](#je-16)), each member value in `jsonb`'s printed form as in the row above |
+    | P after a loop or `branchall` | a compact array the worker writes after decoding each child's stored result: no spaces at any level, object keys in `jsonb` order (the decoder keeps insertion order), and numbers re-printed by the backend's JSON library. An integer that fits in 64 bits stays exact; any other number becomes the nearest double in its shortest form, so a stored `1.50` reads `1.5` (the spelling rules of [FX-42](execution.md#fx-42) rule 2) |
+    | P read back from storage: the re-fetch fallback ([JE-36](#je-36)), after a suspend or a restart from a step, and when a retry re-evaluates its predicates | that one job's stored result in `jsonb`'s printed form |
+    | a [JE-9](#je-9) lookup | `jsonb`'s printed form (oracle-observed, the discriminator of [JE-8](#je-8)) |
+    | P after an empty chosen branch | the JSON string `"{}"` ([OR-25](oracle.md#or-25)) |
+
+    A static or JavaScript transform that passes one of these values on stores it as the step's arguments, where `jsonb` normalises it again, so the difference shows only where a text is quoted or compared before storage.
 - **Evidence:** column types `backend/migrations/20220123221903_first.up.sql:130`, `:161-162`, `backend/migrations/20250201124431_v2_job.up.sql:31`; in-memory passing of the last result `backend/windmill-worker/src/worker_flow.rs:1477-1488`, `:2086-2099`; `backend/windmill-jseval/src/lib.rs:805-817`; `backend/windmill-worker/src/js_eval.rs:54-72`; [PostgreSQL JSON types](https://www.postgresql.org/docs/current/datatype-json.html) ("jsonb does not preserve white space, does not preserve the order of object keys, and does not keep duplicate object keys").
 - **Conformance:** [JE-44/a–c](conformance.md#je-44)
+- **Evidence (the text a shortcut returns):** the flow input decoded per member from `v2_job.args` `backend/windmill-queue/src/jobs.rs:2754-2758`, `:3231-3241`, and used as is `backend/windmill-worker/src/worker_flow.rs:3186-3194`; P at the first module `:3324-3331`, `:3779-3783` (the arguments written out again); P after a loop or `branchall` `:2299-2326` (each child's result decoded as a JSON value and the array written out again), used at `:1477-1488`, `:371`, `:695`; P read back from storage `:3333-3346`, `:3769-3792`, `:6234-6264` (one job's result decoded as raw text); the backend's JSON library with `preserve_order` and without `arbitrary_precision` `backend/Cargo.toml:435`. PostgreSQL prints `jsonb` with a space after `:` and `,` in its text output, which is also what its binary form carries after the version byte (outside Windmill; the spaced text is oracle-observed through JE-9).
+- **Revision 2026-10-28 (source re-check, design request 8):** added the table of returned texts. windmill-lite's textual pipeline (B2a) reads every value from storage as the compact stored text. That reading is **corrected**: a `flow_input` member and a `previous_result` read back from storage are spaced, and a `previous_result` after a loop or `branchall` is compact but has its numbers re-printed. Only the producer's text and the compact top level at the first module agree with the reading as it stands. B2b's tests that pin these texts must change. Not yet recorded ([Q-JE-13](#q-je-13)): two runs settle the first and fourth rows, `timeout: flow_input.o` with `o` an object, and `timeout: results.l` right after a loop `l` whose iterations return `1.50`; their parse errors quote the text.
 
 <a id="je-v6"></a>
 ### JE-V6 · The exact spelling, not the module id, decides memory or database
@@ -1084,3 +1117,5 @@ None of these blocks a source-derived core rule; they confirm exact text or end-
 
 <a id="q-je-12"></a>
 - **Q-JE-12** · affects [JE-50](#je-50), [JE-51](#je-51), [JE-52](#je-52) · open (oracle) · Do strict mode, the job-queue rules and the unpaired-surrogate rules hold end to end? *Settled by:* recording [JE-50/a](conformance.md#je-50), [JE-51/a](conformance.md#je-51) and [JE-52/a](conformance.md#je-52) as expression cases on the oracle, together with an expression whose job chain never ends after its value settled (expected: the timeout of JE-2, or the monitor cancel), and the evaluator output (O1) of `"\ud83d"` from an evaluator-level check with rquickjs 0.11.0 outside Windmill.
+<a id="q-je-13"></a>
+- **Q-JE-13** · affects [JE-7](#je-7), [JE-8](#je-8), [JE-11](#je-11), [JE-44](#je-44) · open (oracle) · Do the texts the shortcuts return for values that reached the worker from storage match the source trace, and what does a non-ASCII argument do to the call rewrite? *Settled by:* oracle runs, as flow fixtures, that quote the text through the `timeout` site's parse error ([JE-29](#je-29)): `timeout: flow_input.o` with `o` an object of two keys and a nested array (expected: `jsonb`'s spaced text); `timeout: results.l` right after a loop `l` whose iterations return `{"b":1.50,"a":1}` (expected: a compact array, `1.5`, keys `a` before `b`); and transforms `variable("f/é")` and `variable("f/éé")` against existing variables (expected: a `SyntaxError` for the first and a worker panic for the second, whose job-level outcome the recording shows).
