@@ -5,7 +5,8 @@
 # mode (JE-13): an error still fails the step, but a value is discarded,
 # which is why JE-48/c gives null. The variants are written without ; so
 # that they return their value: one shows the overflow is a catchable
-# RangeError, one brackets the limit lower; none locates it.
+# RangeError, one shows that depths up to 600 fit (so the limit is between
+# 600 and 1 000 frames of this shape on the oracle); none locates it.
 finding: JE-48
 scope: later
 cases:
@@ -34,13 +35,13 @@ cases:
     expect: {value: 'null'}
   - spec: JE-48
     variant: catchable
-    provenance: source-derived
+    provenance: oracle-observed
     title: the overflow is a catchable RangeError, in expression mode
     expr: '((f) => { try { return f(f, 0) } catch (e) { return [e.name, e.message] } })((g, n) => 1 + g(g, n + 1))'
     expect: {value: '["RangeError","Maximum call stack size exceeded"]'}
   - spec: JE-48
     variant: depth-bracket
-    provenance: source-derived
+    provenance: oracle-observed
     title: which of four recursion depths fit, each caught on its own, in expression mode
     expr: '[10, 100, 300, 600].map(k => ((f) => { try { return f(f, k) } catch (e) { return e instanceof RangeError ? "RangeError" : typeof e } })((g, n) => n === 0 ? 0 : 1 + g(g, n - 1)))'
     expect: {value: '[10,100,300,600]'}
