@@ -324,6 +324,16 @@ func TestFixtureReplayNeedsStub(t *testing.T) {
 	if !f.Stub || f.Runs[0].Group != "g" {
 		t.Fatalf("%+v", f)
 	}
+	// Stub mode pushes a stubbed tree with the CLI, never through the API.
+	if err := os.WriteFile(filepath.Join(dir, FixtureFile), []byte(fixture+"stub: true\noracle: {deploy: api}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFixture(dir); err == nil || !strings.Contains(err.Error(), "stub: true needs oracle.deploy cli") {
+		t.Fatalf("stub with an API deployment: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, FixtureFile), []byte(fixture+"stub: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	o, ok := f.Runs[0].Replay.Lookup(SitePath{}.Child(Module("a")), 0)
 	if !ok || string(o.Result) != "1" {
 		t.Fatalf("outcome %+v %v", o, ok)

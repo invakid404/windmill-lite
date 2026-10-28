@@ -69,8 +69,8 @@ func TestStubTreeOfTheFixtures(t *testing.T) {
 	}
 }
 
-// writeTree writes a sync tree of the given files below a new directory.
-func writeTree(t *testing.T, files map[string]string) string {
+// writeStubTree writes a sync tree of the given files below a new directory.
+func writeStubTree(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
 	files["wmill.yaml"] = "defaultTs: bun\nincludes: [\"f/**\"]\n"
@@ -119,7 +119,7 @@ func TestStubTreeRefuses(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			src := writeTree(t, c.files)
+			src := writeStubTree(t, c.files)
 			dst := filepath.Join(t.TempDir(), "out")
 			_, err := StubTree(src, dst)
 			var r *Refusal
@@ -131,7 +131,7 @@ func TestStubTreeRefuses(t *testing.T) {
 			}
 		})
 	}
-	src := writeTree(t, map[string]string{"f/x/a.ts": okScript})
+	src := writeStubTree(t, map[string]string{"f/x/a.ts": okScript})
 	if _, err := StubTree(src, src); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("an existing output: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestStubTreeRefuses(t *testing.T) {
 // original's schema and refuses when it did not.
 func TestCheckStubSignatures(t *testing.T) {
 	meta := "summary: ''\ndescription: ''\nkind: script\nschema:\n  type: object\n  properties:\n    x: {type: number}\n  required: [x]\n"
-	orig := writeTree(t, map[string]string{"f/x/a.ts": okScript, "f/x/a.script.yaml": meta})
+	orig := writeStubTree(t, map[string]string{"f/x/a.ts": okScript, "f/x/a.script.yaml": meta})
 	stubbed := filepath.Join(t.TempDir(), "stubbed")
 	if _, err := StubTree(orig, stubbed); err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func run2(t *testing.T, bun, dir, sink string) string {
 // before writing anything, and removes the output and the parents it made
 // when the copy fails.
 func TestStubTreeKeepsItsOutputOutsideTheTree(t *testing.T) {
-	src := writeTree(t, map[string]string{"f/x/a.ts": okScript})
+	src := writeStubTree(t, map[string]string{"f/x/a.ts": okScript})
 	before := listTree(t, src)
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(src, link); err != nil {
@@ -311,7 +311,7 @@ func TestStubTreeKeepsItsOutputOutsideTheTree(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads unreadable files")
 	}
-	bad := writeTree(t, map[string]string{"f/x/a.ts": okScript, "f/x/notes.txt": "n"})
+	bad := writeStubTree(t, map[string]string{"f/x/a.ts": okScript, "f/x/notes.txt": "n"})
 	if err := os.Chmod(filepath.Join(bad, "f/x/notes.txt"), 0); err != nil {
 		t.Fatal(err)
 	}

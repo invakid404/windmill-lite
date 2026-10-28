@@ -1,0 +1,13 @@
+summary: returns its job id; cached for 60 s
+description: ''
+lock: '!inline f/fx40/job_id_ttl.script.lock'
+cache_ttl: 60
+kind: script
+schema:
+  properties:
+    v:
+      type: ''
+      description: ''
+      default: null
+  required:
+    - v

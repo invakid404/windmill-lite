@@ -152,11 +152,19 @@ func TestClientUsesTheOpenAPISurface(t *testing.T) {
 	c := &Client{BaseURL: srv.URL, Token: "tok"}
 	const ws, path, id = "wl-abc-1", "f/wl_smoke/two_step", "00000000-0000-4000-8000-000000000001"
 	calls := map[string]func() error{
-		"Version":                func() error { _, err := c.Version(ctx); return err },
-		"Health":                 func() error { _, err := c.Health(ctx); return err },
-		"Login":                  func() error { _, err := c.Login(ctx, AdminEmail, AdminPassword); return err },
-		"CreateWorkspace":        func() error { return c.CreateWorkspace(ctx, ws) },
-		"DeleteWorkspace":        func() error { return c.DeleteWorkspace(ctx, ws) },
+		"Version":         func() error { _, err := c.Version(ctx); return err },
+		"Health":          func() error { _, err := c.Health(ctx); return err },
+		"Login":           func() error { _, err := c.Login(ctx, AdminEmail, AdminPassword); return err },
+		"CreateWorkspace": func() error { return c.CreateWorkspace(ctx, ws) },
+		"DeleteWorkspace": func() error { return c.DeleteWorkspace(ctx, ws) },
+		"CreateFolder":    func() error { return c.CreateFolder(ctx, ws, "t") },
+		"CreateScript": func() error {
+			_, err := c.CreateScript(ctx, ws, NewScript{Path: "f/t/s", Summary: "s", Content: "x", Language: "bun"})
+			return err
+		},
+		"CreateFlow": func() error {
+			return c.CreateFlow(ctx, ws, json.RawMessage(`{"path":"f/t/x","summary":"x","value":{"modules":[]}}`))
+		},
 		"QueueCount":             func() error { _, err := c.QueueCount(ctx, ws); return err },
 		"ListScripts":            func() error { _, err := c.ListScripts(ctx, ws); return err },
 		"ListFlows":              func() error { _, err := c.ListFlows(ctx, ws); return err },

@@ -63,7 +63,23 @@ type OracleNeeds struct {
 	// Concurrency reports that the fixture asserts something about
 	// concurrency, which needs as many workers as it says (OR-5).
 	Concurrency bool `json:"concurrency,omitempty"`
+	// Deploy is how the harness deploys the sync tree: DeployCLI (the
+	// default) pushes it with the CLI, after generate-metadata when the
+	// session regenerates metadata (OR-8); DeployAPI creates its folders,
+	// scripts and flows through the REST API exactly as written, so a field
+	// the tree leaves out reaches the server absent and the dependency job
+	// fills it (CF-6).
+	Deploy string `json:"deploy,omitempty"`
 }
+
+// The deployment methods of OracleNeeds.Deploy.
+const (
+	DeployCLI = "cli"
+	DeployAPI = "api"
+)
+
+// DeploysThroughAPI reports whether the tree is deployed through the API.
+func (o OracleNeeds) DeploysThroughAPI() bool { return o.Deploy == DeployAPI }
 
 // NeedWorkers returns the number of workers the fixture needs.
 func (o OracleNeeds) NeedWorkers() int {
@@ -348,6 +364,14 @@ func (f *Fixture) check() error {
 	}
 	if w := f.Oracle.Workers; w != 0 && w != 1 && w != 2 {
 		return fmt.Errorf("oracle.workers is %d, want 1 or 2", w)
+	}
+	switch f.Oracle.Deploy {
+	case "", DeployCLI, DeployAPI:
+	default:
+		return fmt.Errorf("oracle.deploy %q is not %s or %s", f.Oracle.Deploy, DeployCLI, DeployAPI)
+	}
+	if f.Stub && f.Oracle.DeploysThroughAPI() {
+		return fmt.Errorf("stub: true needs oracle.deploy %s: stub mode pushes a stubbed tree with the CLI", DeployCLI)
 	}
 	switch f.Compare.Mode {
 	case "", "exact", "subset":

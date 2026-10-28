@@ -1,0 +1,17 @@
+# CF-12/f with skip_failures true: both readings agree that n runs.
+spec: [CF-12/f]
+target: f/cf12/loop_error_stop_skip
+expect:
+  status: success
+  result: after
+  steps:
+    "m:l":
+      status: success
+      result: [{error: {name: EarlyStopError, message: halt}}]
+    "m:l/i:0/m:b":
+      status: success
+      module: failure
+      args: {}
+      result: 7
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:n": {status: success, args: {}, result: after}

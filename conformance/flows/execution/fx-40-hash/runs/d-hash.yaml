@@ -1,0 +1,22 @@
+# FX-40/d (contested, Q-FX-17): the catalogue's setup, a script pinned by hash
+# under a loop cache_ttl, identical arguments in both iterations. Reading (b),
+# the default of ADR 0001 section 6: the iterations share an entry, so
+# iteration 1 returns iteration 0's result.
+spec: [FX-40/d, Q-FX-17]
+target: f/fx40h/d_hash
+expect:
+  status: success
+  result: ["<job:m:l/i:0/m:b>", "<job:m:l/i:0/m:b>"]
+  steps:
+    "m:l":
+      status: success
+      result: ["<job:m:l/i:0/m:b>", "<job:m:l/i:0/m:b>"]
+    "m:l/i:0/m:b":
+      status: success
+      args: {v: "<job:>"}
+      result: "<job:m:l/i:0/m:b>"
+    "m:l/i:1/m:b":
+      status: success
+      args: {v: "<job:>"}
+      result: "<job:m:l/i:0/m:b>"
+    "m:n": {status: success, args: {}, result: "<job:>"}

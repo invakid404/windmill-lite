@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/yamlx"
 )
 
 // Session records fixtures on one oracle (OR-18): one compose stack per
@@ -413,7 +414,7 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 			failAll(err)
 			continue
 		}
-		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
+		tree, dep, flows, err := s.deploy(ctx, c, cli, f, ws, tmp)
 		rep.Session.Deployments[name] = dep
 		if err != nil {
 			failAll(err)
@@ -421,7 +422,7 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 			// Runs of one group are submitted together, as concurrent
 			// outer runs; every other run alone.
 			for _, batch := range conformance.RunBatches(runs) {
-				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, batch, tree, sink, replay, base)...)
+				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, batch, tree, sink, replay, base, flows)...)
 			}
 		}
 		// CE refuses a third workspace besides admins, so the next
@@ -452,10 +453,24 @@ func (s *Session) rel(p string) string {
 
 // deploy optionally regenerates the fixture's metadata, pushes a copy of
 // its sync tree with the CLI into its new workspace ws, applies its setup
-// and passes the deployment gate. A stub fixture's copy is its stubbed
-// tree (StubTree), whose metadata the CLI regenerates before the push;
-// the stub must keep every path script's schema (CheckStubSignatures).
-func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
+// and passes the deployment gate. A fixture with oracle.deploy api is
+// deployed by deployAPI instead; a stub fixture always goes through the
+// CLI, which pushes its stubbed tree.
+func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, map[string]FlowDeployment, error) {
+	if f.Oracle.DeploysThroughAPI() {
+		if f.Stub {
+			return nil, Deployment{}, nil, fmt.Errorf("oracle: fixture %s: stub mode pushes a stubbed tree with the CLI and cannot deploy through the API", s.rel(f.Dir))
+		}
+		return s.deployAPI(ctx, c, cli, f, ws, tmp)
+	}
+	tree, dep, err := s.deployCLI(ctx, c, cli, f, ws, tmp)
+	return tree, dep, nil, err
+}
+
+// deployCLI is deploy through the CLI. A stub fixture's copy is its
+// stubbed tree (StubTree), whose metadata the CLI regenerates before the
+// push; the stub must keep every path script's schema (CheckStubSignatures).
+func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
 	if s.RegenerateMetadata {
@@ -500,11 +515,80 @@ func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance
 	return tree, dep, CheckDeployedModules(tree, dep)
 }
 
+// deployAPI deploys a fixture whose tree must reach the server as written
+// (oracle.deploy api): its metadata is never regenerated and the CLI never
+// pushes it, so the drift gate does not apply to it. DeployAPI creates the
+// tree's items, setup is applied, and the same deployment gate waits for
+// every lock and dependency job (OR-9). For each flow, the evidence records
+// the value submitted, the value the API answers after the gate, and what
+// the CLI's generate-metadata writes for the same source, run on a copy
+// against the same workspace (OR-8), so the committed tree is untouched.
+func (s *Session) deployAPI(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, map[string]FlowDeployment, error) {
+	var dep Deployment
+	tree, err := LoadSyncTree(f.SyncTree())
+	if err != nil {
+		return nil, dep, nil, err
+	}
+	api, err := DeployAPI(ctx, c, ws, f.SyncTree())
+	if err != nil {
+		return nil, dep, nil, err
+	}
+	if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+		return nil, dep, nil, err
+	}
+	if dep, err = Gate(ctx, c, ws, s.pollInterval, 2*time.Minute); err != nil {
+		return nil, dep, nil, err
+	}
+	if err := CheckDeployedModules(tree, dep); err != nil {
+		return nil, dep, nil, err
+	}
+	flows := make(map[string]FlowDeployment, len(api.Flows))
+	for p, submitted := range api.Flows {
+		raw, err := c.GetFlow(ctx, ws, p)
+		if err != nil {
+			return nil, dep, nil, err
+		}
+		materialized, err := flowValue(raw)
+		if err != nil {
+			return nil, dep, nil, fmt.Errorf("oracle: flow %s: %w", p, err)
+		}
+		flows[p] = FlowDeployment{Method: conformance.DeployAPI, Submitted: submitted, Materialized: materialized}
+	}
+	copyDir := filepath.Join(tmp, "generate-metadata", ws)
+	if err := CopyTree(f.SyncTree(), copyDir); err != nil {
+		return nil, dep, nil, err
+	}
+	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
+	if err := cli.AddMissingFolders(ctx, copyDir, t); err != nil {
+		return nil, dep, nil, err
+	}
+	if err := cli.GenerateMetadata(ctx, copyDir, t); err != nil {
+		return nil, dep, nil, err
+	}
+	for p, fd := range flows {
+		data, err := os.ReadFile(filepath.Join(copyDir, filepath.FromSlash(p)+".flow", "flow.yaml"))
+		if err != nil {
+			return nil, dep, nil, err
+		}
+		j, err := yamlx.ToJSON(data)
+		if err != nil {
+			return nil, dep, nil, fmt.Errorf("oracle: generate-metadata's flow %s: %w", p, err)
+		}
+		if fd.CLIGenerated, err = flowValue(j); err != nil {
+			return nil, dep, nil, fmt.Errorf("oracle: generate-metadata's flow %s: %w", p, err)
+		}
+		flows[p] = fd
+	}
+	return tree, dep, flows, nil
+}
+
 // record runs a batch of runs (one run, or a group of concurrent outer
 // runs) Repeat times, compares each run's observations with each other,
 // with the run's expect and with its committed recording, and writes the
 // recordings as the session's policy says.
-func (s *Session) record(ctx context.Context, c *Client, ws string, f *conformance.Fixture, batch []conformance.Run, tree *SyncTree, sink *Sink, replay *conformance.ReplayService, base Provenance) []RunReport {
+// flows holds the deployment evidence of an API deployment, by flow path;
+// a run that targets one of those flows carries it in its provenance.
+func (s *Session) record(ctx context.Context, c *Client, ws string, f *conformance.Fixture, batch []conformance.Run, tree *SyncTree, sink *Sink, replay *conformance.ReplayService, base Provenance, flows map[string]FlowDeployment) []RunReport {
 	out := make([]*RunReport, len(batch))
 	fail := func(k int, outcome string, err error, diffs []conformance.Difference) {
 		r := &RunReport{Fixture: s.rel(f.Dir), Run: batch[k].Name, Outcome: outcome}
@@ -541,7 +625,11 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				results[k].obs, results[k].prov, results[k].err = s.execute(ctx, c, ws, f, batch[k], tree, sink, replay, base, i)
+				rb := base
+				if fd, ok := flows[batch[k].Target]; ok && !batch[k].IsScript() {
+					rb.Deployment = &fd
+				}
+				results[k].obs, results[k].prov, results[k].err = s.execute(ctx, c, ws, f, batch[k], tree, sink, replay, rb, i)
 			}()
 		}
 		wg.Wait()
@@ -855,6 +943,9 @@ type Provenance struct {
 	// Group names the batch of concurrent outer runs the run was
 	// submitted with.
 	Group string `json:"group,omitempty"`
+	// Deployment is the target flow's deployment evidence when the fixture
+	// is deployed through the API (oracle.deploy api).
+	Deployment *FlowDeployment `json:"deployment,omitempty"`
 }
 
 // CheckRecordingIdentity requires a recording's provenance to name the

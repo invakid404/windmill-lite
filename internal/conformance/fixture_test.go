@@ -110,11 +110,26 @@ func TestLoadFixtureRejects(t *testing.T) {
 	if _, err := LoadFixture(write(t, good)); err != nil {
 		t.Fatalf("good fixture: %v", err)
 	}
+	for _, d := range []string{"cli", "api"} {
+		files := map[string]string{}
+		for k, v := range good {
+			files[k] = v
+		}
+		files["fixture.yaml"] = "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\noracle: {deploy: " + d + "}\n"
+		f, err := LoadFixture(write(t, files))
+		if err != nil {
+			t.Fatalf("deploy %s: %v", d, err)
+		}
+		if f.Oracle.DeploysThroughAPI() != (d == "api") {
+			t.Errorf("deploy %s: DeploysThroughAPI is %v", d, f.Oracle.DeploysThroughAPI())
+		}
+	}
 	for name, edit := range map[string][2]string{
 		"unknown fixture key": {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\ncolour: red\n"},
 		"no spec":             {"fixture.yaml", "id: x\nscope: core\nprovenance: policy\n"},
 		"bad scope":           {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: soon\nprovenance: policy\n"},
 		"three workers":       {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\noracle: {workers: 3}\n"},
+		"unknown deploy":      {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\noracle: {deploy: rest}\n"},
 		"bad pointer":         {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\ncompare: {mask: [steps/a]}\n"},
 		"subset and strict":   {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\ncompare: {mode: subset, key_order: strict}\n"},
 		"args not an object":  {"runs/r.yaml", "target: f/x/y\nargs: [1]\n"},

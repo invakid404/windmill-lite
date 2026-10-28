@@ -141,7 +141,7 @@ A flow fixture is a directory (OR-15, [ADR 0003](../../docs/design/0003-semantic
 
 | Entry | Content |
 |---|---|
-| `fixture.yaml` | `id`; `spec` (findings and catalogue cases); `scope` (`core`, `later`, `out`, `EE`); `provenance` (the catalogue's tags); `languages`; `oracle: {workers, effects, concurrency}`; `compare: {mode, key_order, stack, mask, unordered}`; `stub` (stub mode); `note` |
+| `fixture.yaml` | `id`; `spec` (findings and catalogue cases); `scope` (`core`, `later`, `out`, `EE`); `provenance` (the catalogue's tags); `languages`; `oracle: {workers, effects, concurrency, deploy}` (`deploy`: `cli`, the default, or `api`, which has the oracle harness create the tree through the REST API as written); `compare: {mode, key_order, stack, mask, unordered}`; `stub` (stub mode, which deploys through the CLI only); `note` |
 | `windmill/` | the sync tree the oracle's CLI pushes, with the metadata and locks `generate-metadata` writes |
 | `setup.yaml` | optional `resource_types`, `variables` and `resources`, created after the push |
 | `runs/<name>.yaml` | `target`, `kind` (`flow` or `script`), `args` (an object), `cancel_after_ms`, `group`, `replay` (stub mode only), `spec`, `expect` (an observation), `note` |

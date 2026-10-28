@@ -167,11 +167,14 @@ type fakeOracle struct {
 	// fake refuses a third (deleted counts them).
 	workspaces map[string]bool
 	deleted    int
+	// created holds what an API deployment created: folders by name,
+	// scripts and flows by path, with their request bodies.
+	created    map[string]json.RawMessage
 	failDelete bool // deleting a workspace answers 500
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
-	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}}
+	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}, created: map[string]json.RawMessage{}}
 }
 
 // ceWorkspaceLimit is CE v1.767.0's refusal of a third workspace besides
@@ -249,7 +252,25 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(200, `{"lock_error_logs":null,"job_id":"20000000-0000-4000-8000-000000000001"}`)
 	case rest == "jobs_u/completed/get_result_maybe/20000000-0000-4000-8000-000000000001":
 		write(200, `{"completed":true,"success":true,"result":{}}`)
+	case rest == "folders/create" || rest == "scripts/create" || rest == "flows/create":
+		body, _ := io.ReadAll(r.Body)
+		var item struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal(body, &item)
+		o.created[rest+" "+item.Name+item.Path] = body
+		answer := "created"
+		if rest == "scripts/create" {
+			answer = "5a1f"
+		}
+		write(201, answer)
 	case rest == "flows/get/f/wl_smoke/two_step":
+		if _, ok := o.created["flows/create f/wl_smoke/two_step"]; ok {
+			// Stands in for the dependency job's write-back (CF-6).
+			write(200, `{"path":"f/wl_smoke/two_step","value":{"modules":[{"id":"a"},{"id":"b"}],"materialized":true}}`)
+			return
+		}
 		write(200, `{"path":"f/wl_smoke/two_step","value":{"modules":[{"id":"a"},{"id":"b"}]}}`)
 	case strings.HasPrefix(rest, "jobs/run/f/"):
 		o.run(w, r)

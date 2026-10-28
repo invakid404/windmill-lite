@@ -11,12 +11,14 @@ only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.
 and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
 records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)),
 the fixtures of the recording batches, E3c's and E3b's under
-[conformance/flows/execution](../../conformance/flows/execution), and the
-stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
-see [Stub mode](#stub-mode)). E3c also extended the session and the walker
-(below), and E3b the walker and the batch test. Comparing windmill-lite
-against a recording (`wltest check`, milestone E1) and stub mode on
-windmill-lite (E4b) do not exist yet.
+[conformance/flows/execution](../../conformance/flows/execution) and E3d's
+under [conformance/flows/control-flow](../../conformance/flows/control-flow),
+and the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
+see [Stub mode](#stub-mode)). E3c extended the session and the walker
+(below), E3b the walker and the batch test, and E3d the walker and added the
+API deployment (below). Comparing windmill-lite against a recording
+(`wltest check`, milestone E1) and stub mode on windmill-lite (E4b) do not
+exist yet.
 
 ## A session
 
@@ -51,7 +53,9 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
 ++++++ prnlnlyu 326af80f "E3c: Recording batch FX errors (#26)"
    `folder add-missing` and `generate-metadata` in the fixture's sync tree
    (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)); push a
-   copy of the tree with the CLI; apply `setup.yaml` after the push
+   copy of the tree with the CLI, or create it through the API for a
+   fixture with `oracle: {deploy: api}` ([API deployment](#api-deployment));
+   apply `setup.yaml` after the push
    ([OR-31](../../docs/semantics/oracle.md#or-31)); pass the deployment gate
    ([OR-9](../../docs/semantics/oracle.md#or-9)) and check each deployed
    flow's module ids against the tree (OR-8/b). A stub fixture pushes its
@@ -93,6 +97,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml`, the deployment gate and the deployed-module check. |
+| `apideploy.go` | The API deployment of a fixture with `oracle: {deploy: api}` (see below). |
 | `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root of a run that is open (several can be, for concurrent outer runs), and answers anything else with `{"error":"foreign_effect"}`. It also serves the replay service at `/replay`. |
 | `stub.go`, `stubts.go` | Stub mode's generator: `StubTree` writes a stubbed copy of a sync tree, `StubSource` the stub of one Bun script, `CheckStubSignatures` compares schemas after `generate-metadata`. |
 | `locate.go` | The oracle's `Locator` for the replay service: the site of a stub's job in a run that is still in progress. |
@@ -148,10 +153,14 @@ failure module (also inside loop bodies), its retries, subflows by path,
 and empty-flow rules above; E3b recorded skipped and identity modules,
 mocks, clean and error stops, retried modules, failure modules after a
 retry and at the end of the flow, and a `branchone` body, and added the
-first-site rule for a repeated attempt; E4a's stub fixtures
-([conformance/flows/stub](../../conformance/flows/stub)) recorded failed
-attempts, sequential, collapsed, parallel and nested loop iterations and a
-named subflow. The other recording batches confirm the rest.
+first-site rule for a repeated attempt. E3d recorded collapsed and
+child-flow loops at two depths, parallel loops, while loops, `branchone`,
+sequential and parallel `branchall` with empty branches, early stops in
+bodies, and cached subflows, whose inner modules are `not_run` on a hit.
+E4a's stub fixtures ([conformance/flows/stub](../../conformance/flows/stub))
+recorded failed attempts, sequential, collapsed, parallel and nested loop
+iterations and a named subflow. The other recording batches confirm the
+rest.
 
 ## Stub mode
 
@@ -162,7 +171,9 @@ replaced by a stub, and each run's `replay` table gives the stubs their
 outcomes; the service and the table format are in
 [internal/conformance](../conformance/README.md).
 
-**The stubbed push.** `StubTree` copies the fixture's tree and replaces the
+**The stubbed push.** A stub fixture is always deployed through the CLI
+(`stub: true` with `oracle: {deploy: api}` is refused when the fixture
+loads, and again by the session). `StubTree` copies the fixture's tree and replaces the
 source of every Bun script and every `!inline` Bun rawscript of a flow,
 which it finds with [internal/syncfolder](../syncfolder/README.md). It
 refuses (`stub_unsupported`, with the file or step and the reason) a tree
@@ -266,9 +277,45 @@ oracle version, image and Postgres image references and ids, the CLI and its
 `--version` output, the harness build, the host and CI run, the recording
 time, the workers, the oracle's non-default environment
 ([OR-7](../../docs/semantics/oracle.md#or-7)), the repeat count, raw
-timings and foreign effects. It is never compared
+timings, foreign effects and, for an API-deployed fixture, the target
+flow's deployment (below). It is never compared
 ([OR-V5](../../docs/semantics/oracle.md#or-v5)). Recordings hold neither
 carried values nor resolved arguments, which the oracle does not expose.
+
+## API deployment
+
+A fixture with `oracle: {deploy: api}` needs its tree to reach the server
+as written, which the CLI path cannot do: `generate-metadata` writes
+container defaults into `flow.yaml` (CF-6/a and CF-15/a need them absent),
+and a tree cannot hold a script hash the server has not assigned yet
+(FX-40/d pins one). `DeployAPI` creates the tree through the REST API
+instead (`createFolder`, `createScript`, `createFlow`), and nothing
+regenerates or pushes it, so the drift gate does not apply to it. It reads
+a narrow tree and refuses anything else:
+
+- `wmill.yaml` and `folder.meta.yaml`, which are not sent; a folder is
+  created for every `f/<folder>/`;
+- Bun scripts `f/<folder>/<name>.ts`, with an optional
+  `<name>.script.yaml` of `summary`, `description` and `cache_ttl`;
+- flows `f/<folder>/<name>.flow/flow.yaml`, whose rawscript `content` and
+  `lock` may be `!inline <file>` in the flow's directory, and whose by-path
+  `script` modules may pin the hash `0000000000000000`
+  (`PinToDeployedHash`), which is replaced by the hash the deployment
+  assigned the path.
+
+Only modules are resolved: the flow's module list, its failure and
+preprocessor modules, and the bodies of loops and branches. Everything else
+is sent as written ([FX-7](../../docs/semantics/execution.md#fx-7)),
+including a static input, an iterator or a mock whose value looks like a
+module value.
+
+The session then applies `setup.yaml` and passes the same deployment gate.
+For each flow it keeps a `FlowDeployment`: the value submitted, the value
+`GET /flows/get` answers after the gate (after the dependency job's
+write-back, [CF-6](../../docs/semantics/control-flow.md#cf-6)), and what
+`generate-metadata` writes for the same source, run on a copy of the tree
+against the same workspace. A run's provenance holds its target flow's, as
+`deployment`.
 
 ## Recording batches
 
@@ -318,10 +365,14 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | Test | What it checks | Cases |
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
-| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
+| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionDeploysThroughTheAPI`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
-| `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
+| `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c and E3d recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
+| `TestFlowFixtureTreesResolve` | every fixture's sync tree decodes as the walker reads it, and each run's target and every flow or script a module names by path is in the tree | `conformance/flows` |
+| `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |
+| `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
+| `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; FX-40/d's body carries the deployed script's hash | `conformance/flows` |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |

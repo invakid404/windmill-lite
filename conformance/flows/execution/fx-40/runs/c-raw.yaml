@@ -1,0 +1,27 @@
+# FX-40/c, rawscript body: the collapsed iteration takes the loop module's
+# cache_ttl, so the second call hits the first call's entry.
+spec: [FX-40/c, Q-FX-5]
+target: f/fx40/c_raw_twice
+expect:
+  status: success
+  result: ["<job:m:s1/m:l/i:0/m:b>"]
+  steps:
+    "m:n": {status: success, args: {}, result: "<job:>"}
+    "m:s1":
+      status: success
+      args: {v: "<job:>"}
+      result: ["<job:m:s1/m:l/i:0/m:b>"]
+    "m:s1/m:l": {status: success, result: ["<job:m:s1/m:l/i:0/m:b>"]}
+    "m:s1/m:l/i:0/m:b":
+      status: success
+      args: {v: "<job:>"}
+      result: "<job:m:s1/m:l/i:0/m:b>"
+    "m:s2":
+      status: success
+      args: {v: "<job:>"}
+      result: ["<job:m:s1/m:l/i:0/m:b>"]
+    "m:s2/m:l": {status: success, result: ["<job:m:s1/m:l/i:0/m:b>"]}
+    "m:s2/m:l/i:0/m:b":
+      status: success
+      args: {v: "<job:>"}
+      result: "<job:m:s1/m:l/i:0/m:b>"

@@ -1,0 +1,41 @@
+# parallel is absent on purpose (CF-15/a).
+summary: "CF-15/a: a parallel branchall that skips a failure"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        input_transforms: {}
+        language: bun
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: b0
+                value:
+                  type: rawscript
+                  content: "!inline b0.ts"
+                  input_transforms: {x: {type: javascript, expr: results.a}}
+                  language: bun
+          - skip_failure: true
+            modules:
+              - id: b1
+                value:
+                  type: rawscript
+                  content: "!inline b1.ts"
+                  input_transforms: {}
+                  language: bun
+          - modules:
+              - id: b2
+                value:
+                  type: rawscript
+                  content: "!inline b2.ts"
+                  input_transforms: {x: {type: javascript, expr: results.a}}
+                  language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []
