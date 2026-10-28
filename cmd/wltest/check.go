@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,28 +21,32 @@ import (
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
-// check runs step-case files (the step level of ADR 0003) on windmill-lite:
-// each file's scripts are built by the Bun build helper into one bundle,
-// each case's runs go in order to a harness process of its own through the
-// protocol, and each outcome is mapped to the value Windmill stores
+// check runs step-case files (the step level of ADR 0003) and flow
+// fixtures (the flow level) on windmill-lite. For a step file, the file's
+// scripts are built by the Bun build helper into one bundle, each case's
+// runs go in order to a harness process of its own through the protocol,
+// and each outcome is mapped to the value Windmill stores
 // (engine.StoreOutcome) and compared with the case's expectation
-// (conformance.CompareStep). Flow fixtures are milestone E1's.
+// (conformance.CompareStep). For a flow fixture, each run's flow runs on
+// the walking skeleton's interpreter (flowChecker) and its observation is
+// compared with the run's expect or recording (milestone E1).
 func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	mode := fs.String("mode", conformance.ModeWarm, "configuration: warm (fresh is milestone C3b, host mode F3b)")
 	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun executable: the pin, "+harness.PinnedBun)
 	repo := fs.String("repo", "", "the repository root, which holds harnesses/bun (default: found from the working directory)")
-	verbose := fs.Bool("v", false, "print the harness diagnostics of every failed case")
+	verbose := fs.Bool("v", false, "print the harness diagnostics of every failed case or run")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() == 0 {
-		fmt.Fprintln(stderr, "usage: wltest check [flags] <step file or directory>...")
+		fmt.Fprintln(stderr, "usage: wltest check [flags] <step file, fixture or directory>...")
 		return 2
 	}
 	if *mode != conformance.ModeWarm {
@@ -51,7 +55,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	for _, a := range fs.Args() {
 		if info, err := os.Stat(a); err == nil && !info.IsDir() && !conformance.IsStepFile(a) {
-			fmt.Fprintf(stderr, "wltest check: %s is not a step file (steps/<lang>/<finding>.yaml); flow fixtures are milestone E1's\n", a)
+			fmt.Fprintf(stderr, "wltest check: %s is not a step file (steps/<lang>/<finding>.yaml); a flow fixture is named by its directory, and expression cases are checked by go test ./internal/expr\n", a)
 			return 2
 		}
 	}
@@ -60,8 +64,13 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "wltest check:", err)
 		return 1
 	}
-	if len(files) == 0 {
-		fmt.Fprintln(stderr, "wltest check: no step files found; flow fixtures are milestone E1's")
+	dirs, err := findFixtures(fs.Args())
+	if err != nil {
+		fmt.Fprintln(stderr, "wltest check:", err)
+		return 1
+	}
+	if len(files)+len(dirs) == 0 {
+		fmt.Fprintln(stderr, "wltest check: no step files or flow fixtures found")
 		return 2
 	}
 	root := *repo
@@ -71,8 +80,8 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
+	failed, passed, unsupported := 0, 0, 0
 	sc := &stepChecker{bun: *bun, repo: root, mode: *mode}
-	failed, passed := 0, 0
 	for _, path := range files {
 		f, err := conformance.LoadStepFile(path)
 		if err != nil {
@@ -96,11 +105,71 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	fmt.Fprintf(stdout, "%d passed, %d failed (mode %s)\n", passed, failed, *mode)
+	if len(dirs) > 0 {
+		js, err := quickjs.New(quickjs.Options{})
+		if err != nil {
+			fmt.Fprintln(stderr, "wltest check:", err)
+			return 1
+		}
+		defer js.Close()
+		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, js: js}
+		for _, fr := range fc.runFixtures(ctx, dirs) {
+			if fr.err != nil {
+				fmt.Fprintln(stdout, "invalid", fr.dir, fr.err)
+				failed++
+				continue
+			}
+			for _, r := range fr.runs {
+				switch {
+				case r.unsupported != "":
+					unsupported++
+					fmt.Fprintf(stdout, "unsupported %s %s: %s\n", r.fixture, r.run, r.unsupported)
+					continue
+				case len(r.problems) == 0:
+					passed++
+					fmt.Fprintf(stdout, "pass %s %s\n", r.fixture, r.run)
+				default:
+					failed++
+					fmt.Fprintf(stdout, "fail %s %s\n", r.fixture, r.run)
+					for _, p := range r.problems {
+						fmt.Fprintf(stdout, "  %s\n", p)
+					}
+				}
+				for _, n := range r.notes {
+					fmt.Fprintf(stdout, "  note: %s\n", n)
+				}
+				if *verbose && len(r.problems) > 0 && r.diag != "" {
+					fmt.Fprintf(stdout, "  harness diagnostics:\n%s", indent(r.diag, "    "))
+				}
+			}
+		}
+	}
+	fmt.Fprintf(stdout, "%d passed, %d failed, %d unsupported (mode %s)\n", passed, failed, unsupported, *mode)
 	if failed > 0 {
 		return 1
 	}
 	return 0
+}
+
+// findFixtures returns the flow fixtures at or below the arguments, each
+// once, sorted.
+func findFixtures(args []string) ([]string, error) {
+	var dirs []string
+	for _, a := range args {
+		if info, err := os.Stat(a); err == nil && !info.IsDir() {
+			continue
+		}
+		found, err := conformance.FindFixtures(a)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, found...)
+	}
+	for i := range dirs {
+		dirs[i] = filepath.Clean(dirs[i])
+	}
+	slices.Sort(dirs)
+	return slices.Compact(dirs), nil
 }
 
 // stepChecker runs step files in one configuration.
@@ -232,28 +301,15 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 	case err != nil:
 		return "", "", nil, err
 	}
-	type hostModule struct {
-		Key string `json:"key"`
-		ID  string `json:"id"`
-	}
-	manifest := struct {
-		Format      string       `json:"format"`
-		Note        string       `json:"note"`
-		HostModules []hostModule `json:"host_modules"`
-	}{Format: "windmill-lite-step-cases", Note: "Built by wltest check for one step file; the bundle format is milestone F4's.", HostModules: []hostModule{}}
+	var registered []hostModuleEntry
 	for _, id := range res.HostModuleOrder {
-		manifest.HostModules = append(manifest.HostModules, hostModule{Key: res.HostModules[id].Key, ID: id})
+		registered = append(registered, hostModuleEntry{Key: res.HostModules[id].Key, ID: id})
 	}
-	b, err := json.MarshalIndent(manifest, "", "  ")
+	digest, err = writeManifest(out, "windmill-lite-step-cases", "Built by wltest check for one step file; the bundle format is milestone F4's.", registered)
 	if err != nil {
 		return "", "", nil, err
 	}
-	b = append(b, '\n')
-	if err := os.WriteFile(filepath.Join(out, "manifest.json"), b, 0o644); err != nil {
-		return "", "", nil, err
-	}
-	sum := sha256.Sum256(b)
-	return out, "sha256:" + hex.EncodeToString(sum[:]), problems, nil
+	return out, digest, problems, nil
 }
 
 // runCase runs a case's runs in order in one harness process of its own,
@@ -499,12 +555,41 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+// compactJSON writes an observation on one line, with its placeholders and
+// markers as written: encoding/json escapes <, > and & in strings, and
+// compactJSON writes them back.
 func compactJSON(o conformance.Observation) string {
-	b, err := json.Marshal(o)
+	data, err := json.Marshal(o)
 	if err != nil {
 		return err.Error()
 	}
-	return string(b)
+	var b strings.Builder
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if c != '\\' || i+1 >= len(data) {
+			b.WriteByte(c)
+			continue
+		}
+		// An escape inside a string: \u003c, \u003e and \u0026 are the
+		// HTML escapes; every other escape is copied whole.
+		n := 2
+		if data[i+1] == 'u' {
+			n = 6
+		}
+		esc := string(data[i:min(i+n, len(data))])
+		switch esc {
+		case `\u003c`:
+			b.WriteByte('<')
+		case `\u003e`:
+			b.WriteByte('>')
+		case `\u0026`:
+			b.WriteByte('&')
+		default:
+			b.WriteString(esc)
+		}
+		i += n - 1
+	}
+	return b.String()
 }
 
 func indent(s, prefix string) string {

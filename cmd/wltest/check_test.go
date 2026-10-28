@@ -152,7 +152,7 @@ cases:
 		"fail wr-6-e ",
 		"run 1: /result/error/stack: \"actual data\" != \"expected data\"",
 		"pass wr-6-c ",
-		"1 passed, 4 failed (mode warm)",
+		"1 passed, 4 failed, 0 unsupported (mode warm)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

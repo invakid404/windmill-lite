@@ -188,6 +188,62 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 	return out, nil
 }
 
+// StripLocations applies the one rule that comparing windmill-lite with
+// the oracle adds to OR-14 (ADR 0011, Location suffixes; ADR 0001 §2, D14).
+// Each pointer names a value of windmill-lite's observation that
+// windmill-lite generated (an engine, harness or facade error, never a
+// user's). Where the oracle's normalised observation o holds there the
+// recognised internal error of OR-27, whose location the normaliser
+// masked, the marker and the space before it are removed, leaving the
+// message windmill-lite writes without a Rust location. The value at a
+// pointer is the error object, or an object whose error member is it, as
+// a stored failure value is. Nothing else is stripped: the normaliser
+// never masks a location in a user's message, and a pointer that does not
+// resolve, or names another value, is skipped.
+func StripLocations(o Observation, at []string) (Observation, error) {
+	if len(at) == 0 {
+		return o, nil
+	}
+	data, err := json.Marshal(o)
+	if err != nil {
+		return o, err
+	}
+	tree, err := parseJSON(data)
+	if err != nil {
+		return o, err
+	}
+	// In normalised text, " <loc>" can only end in the marker: a user's
+	// literal "<loc>" is written "<<loc>".
+	const suffix = " " + MarkerLoc
+	for _, p := range at {
+		toks, err := SplitPointer(p)
+		if err != nil {
+			return o, err
+		}
+		v := tree.at(toks)
+		if v != nil && v.kind == kindObject {
+			if e := v.member("error"); e != nil && e.kind == kindObject {
+				v = e
+			}
+		}
+		if v == nil || v.kind != kindObject {
+			continue
+		}
+		name, msg := v.member("name"), v.member("message")
+		if name == nil || name.kind != kindString || name.str() != "InternalErr" || msg == nil || msg.kind != kindString {
+			continue
+		}
+		if s := msg.str(); strings.HasPrefix(s, internalErrPrefix) && strings.HasSuffix(s, suffix) {
+			*msg = jnode{kind: kindString, text: quote(strings.TrimSuffix(s, suffix))}
+		}
+	}
+	var out Observation
+	if err := json.Unmarshal(tree.raw(), &out); err != nil {
+		return o, err
+	}
+	return out, nil
+}
+
 // at resolves reference tokens below t, or returns nil.
 func (t *jnode) at(toks []string) *jnode {
 	for _, k := range toks {

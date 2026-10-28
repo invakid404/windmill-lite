@@ -1,0 +1,30 @@
+summary: E1 job environment
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          prev:
+            type: javascript
+            expr: previous_result
+        lock: '!inline b.lock'
+        language: bun
+    - id: c
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_e1_env/report
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

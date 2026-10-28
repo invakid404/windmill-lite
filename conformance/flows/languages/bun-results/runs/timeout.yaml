@@ -1,0 +1,13 @@
+# WR-37/a and FX-24/a: a step that outlives its static one-second timeout
+# fails with the job-specific limit's text, and b never gets a job.
+spec: [WR-37/a, FX-24/a, FX-36, OR-11]
+target: f/wl_e1_wr/timeout
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}
+    "m:b": {status: not_run}
