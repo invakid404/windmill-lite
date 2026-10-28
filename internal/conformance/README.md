@@ -211,12 +211,15 @@ number text and duplicate elements:
 `Compare(got, want, options)` returns the differences as
 `<pointer>: <got> != <want>` (case OR-15/b):
 
-- **exact** by default; `Subset` accepts extra members and steps;
+- **exact** by default; `Subset` accepts extra members and steps, and has
+  no member order to compare, so a fixture cannot combine `subset` with
+  `key_order: strict`;
 - objects without regard to member order ([OR-13](../../docs/semantics/oracle.md#or-13));
   `StrictKeyOrder` compares member order inside values, never in the
   observation's own fields;
 - arrays in order, except at `Unordered` pointers, which compare as
-  multisets ([OR-23](../../docs/semantics/oracle.md#or-23));
+  multisets ([OR-23](../../docs/semantics/oracle.md#or-23)); their elements
+  compare as values, with the same key-order policy;
 - numbers by their JSON text;
 - a step field one side leaves to its canonical absence and the other spells
   out is expanded first, so the two spellings compare equal;

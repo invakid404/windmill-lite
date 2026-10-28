@@ -150,6 +150,9 @@ type fakeOracle struct {
 	version string
 	tag     string
 	jitter  bool
+	extra   bool // a's result gains a member
+	hang    bool // roots never complete until canceled
+	cancels []string
 	docker  *fakeDocker
 	jobs    map[string]fakeJob
 	n       int
@@ -209,6 +212,14 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(200, `{"path":"f/wl_smoke/two_step","value":{"modules":[{"id":"a"},{"id":"b"}]}}`)
 	case strings.HasPrefix(rest, "jobs/run/f/"):
 		o.run(w, r)
+	case strings.HasPrefix(rest, "jobs_u/queue/cancel/"):
+		id := rest[strings.LastIndex(rest, "/")+1:]
+		o.cancels = append(o.cancels, id)
+		if j, ok := o.jobs[id]; ok {
+			j.Canceled, j.Success = true, false
+			o.jobs[id] = j
+		}
+		write(200, "canceled")
 	case strings.HasPrefix(rest, "jobs_u/"):
 		id := rest[strings.LastIndex(rest, "/")+1:]
 		j, ok := o.jobs[id]
@@ -227,6 +238,10 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case strings.HasPrefix(rest, "jobs_u/get_args/"):
 			write(200, string(j.Args))
 		default:
+			if o.hang && j.Kind == "flow" && !j.Canceled {
+				write(200, `{"completed":false,"result":null}`)
+				return
+			}
 			write(200, fmt.Sprintf(`{"completed":true,"started":true,"success":%v,"result":%s}`, j.Success, j.Result))
 		}
 	default:
@@ -250,6 +265,9 @@ func (o *fakeOracle) run(w http.ResponseWriter, r *http.Request) {
 		n += o.runs
 	}
 	aRes := fmt.Sprintf(`{"doubled":%d,"seen":%d}`, n, args.X)
+	if o.extra {
+		aRes = fmt.Sprintf(`{"doubled":%d,"seen":%d,"extra":1}`, n, args.X)
+	}
 	bArgs := fmt.Sprintf(`{"n":%d,"tag":%q}`, n, o.tag)
 	success := n <= 100
 	bRes := fmt.Sprintf(`"%s:%d"`, o.tag, n)
@@ -562,4 +580,69 @@ func TestSessionRefusals(t *testing.T) {
 			t.Fatalf("ran %d runs; up %v", rig.oracle.runs, rig.docker.up)
 		}
 	})
+}
+
+// TestSessionSubsetFixtureRecordsExactly: a subset expect accepts an extra
+// member, but the recording is compared exactly, so the oracle's change is
+// reported (two oracle observations are never compared as a subset).
+func TestSessionSubsetFixtureRecordsExactly(t *testing.T) {
+	rig := newRig(t)
+	ctx := context.Background()
+	f := rig.load(t)
+	f.Compare.Mode = "subset"
+	if _, err := rig.session(20*GiB).Run(ctx, []*conformance.Fixture{f}); err != nil {
+		t.Fatal(err)
+	}
+	f = rig.load(t)
+	f.Compare.Mode = "subset"
+	rig.oracle.extra = true
+	s := rig.session(20 * GiB)
+	s.Check = true
+	rep, err := s.Run(ctx, []*conformance.Fixture{f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := outcomes(rep)["ok"]
+	if ok.Outcome != OutcomeChanged || !contains(ok.Differences, `/steps/m:a/result/extra: 1 != (absent)`) {
+		t.Fatalf("ok: %+v", ok)
+	}
+}
+
+// TestSessionCancelsATimedOutRun: a run that does not complete within the
+// timeout is canceled, so it cannot hold the worker for the next runs.
+func TestSessionCancelsATimedOutRun(t *testing.T) {
+	rig := newRig(t)
+	rig.oracle.hang = true
+	s := rig.session(20 * GiB)
+	s.Repeat = 1
+	s.RunTimeout, s.minRunTimeout = 50*time.Millisecond, time.Millisecond
+	rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeFailed || !strings.Contains(r.Error, "did not complete (canceled)") {
+			t.Fatalf("%+v", r)
+		}
+	}
+	if len(rig.oracle.cancels) != len(rep.Runs) {
+		t.Fatalf("canceled %v for %d runs", rig.oracle.cancels, len(rep.Runs))
+	}
+}
+
+// TestSessionOutDirStaysInside: --out never places a recording outside its
+// directory, which would overwrite a fixture's own recording.
+func TestSessionOutDirStaysInside(t *testing.T) {
+	rig := newRig(t)
+	s := rig.session(20 * GiB)
+	s.Check, s.OutDir, s.RepoRoot = true, t.TempDir(), t.TempDir()
+	rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeFailed || !strings.Contains(r.Error, "is outside") || r.Wrote != "" {
+			t.Fatalf("%+v", r)
+		}
+	}
 }

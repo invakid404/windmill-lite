@@ -74,7 +74,7 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	cli := fs.String("cli", strings.Join(oracle.DefaultCLICommand, " "), "command that runs "+oracle.CLIPackage)
 	dataRoot := fs.String("docker-data-root", "", "directory whose filesystem the disk preflight measures (default: docker's data root)")
 	sinkListen := fs.String("sink-listen", "0.0.0.0:0", "listen address of the effect sink")
-	runTimeout := fs.Duration("run-timeout", 5*time.Minute, "timeout of one run (at least 60s)")
+	runTimeout := fs.Duration("run-timeout", 5*time.Minute, "timeout of one run; less than 60s is raised to 60s, and a timed-out run is canceled")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

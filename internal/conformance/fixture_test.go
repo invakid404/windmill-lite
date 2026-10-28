@@ -116,6 +116,7 @@ func TestLoadFixtureRejects(t *testing.T) {
 		"bad scope":           {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: soon\nprovenance: policy\n"},
 		"three workers":       {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\noracle: {workers: 3}\n"},
 		"bad pointer":         {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\ncompare: {mask: [steps/a]}\n"},
+		"subset and strict":   {"fixture.yaml", "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\ncompare: {mode: subset, key_order: strict}\n"},
 		"args not an object":  {"runs/r.yaml", "target: f/x/y\nargs: [1]\n"},
 		"no target":           {"runs/r.yaml", "args: {}\n"},
 		"bad expect status":   {"runs/r.yaml", "target: f/x/y\nexpect: {status: fine, result: 1}\n"},

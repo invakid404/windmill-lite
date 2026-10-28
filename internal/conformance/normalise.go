@@ -61,9 +61,11 @@ func (n *Normaliser) prepare() error {
 			return fmt.Errorf("conformance: runtime error value: %w", err)
 		}
 		n.runtime = append(n.runtime, v)
+		var inner any // stays aligned with runtime; nil matches nothing
 		if m, ok := v.(map[string]any); ok {
-			n.inner = append(n.inner, m["error"])
+			inner = m["error"]
 		}
+		n.inner = append(n.inner, inner)
 	}
 	return nil
 }

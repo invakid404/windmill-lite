@@ -48,6 +48,7 @@ jobs:
         run: |
           changed=$(git diff --name-only "$BASE...$HEAD" -- \
             conformance/ internal/oracle/ internal/conformance/ cmd/wltest/ \
+            internal/openflow/ internal/yamlx/ \
             .github/workflows/oracle.yml go.mod go.sum)
           if [ "$HAS_LABEL" = "true" ] || [ -n "$changed" ]; then
             echo "record=true" >> "$GITHUB_OUTPUT"
@@ -61,7 +62,9 @@ jobs:
   record:
     name: Oracle record
     needs: changes
-    if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.record == 'true')
+    # !cancelled() lets the job run when the trigger job was skipped (on a
+    # schedule or dispatch) but not after a cancellation.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.record == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -97,7 +100,7 @@ jobs:
             conformance/flows
 
       - name: Metadata drift gate (OR-8)
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           drift=$(git status --porcelain -uall -- conformance/)
           if [ -z "$drift" ]; then
@@ -117,7 +120,7 @@ jobs:
           exit 1
 
       - name: Upload recordings, raw captures and report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oracle-${{ github.run_id }}-${{ github.run_attempt }}

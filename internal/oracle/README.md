@@ -42,11 +42,13 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    flow's module ids against the tree (OR-8/b).
 5. **Per run.** Pre-assign the root job id, open the sink for it, submit
    asynchronously and poll `get_result_maybe` until completion, never
-   `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); walk the
-   run, normalise it, and repeat as asked (the observations must be equal,
-   OR-14/a). Compare the observation with the run's `expect` and with its
-   committed recording, then write the recording as the session's policy
-   says.
+   `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
+   that times out is canceled, so it cannot hold the worker. Walk the run,
+   normalise it, and repeat as asked (the observations must be equal,
+   OR-14/a). Compare the observation with the run's `expect`, under the
+   fixture's compare options, and with its committed recording, exactly
+   (two oracle observations are never compared as a subset), then write the
+   recording as the session's policy says.
 6. **Teardown.** Record the containers' cgroup memory peaks where the host
    exposes them, `docker compose down -v`, and require that no container,
    volume or network with the project label is left (OR-18/a). Teardown
@@ -61,7 +63,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 |---|---|
 | `pins.go` | The image pins (tag and multi-arch index digest), the version string, the CLI package, the compose project and the seeded superadmin. |
 | `compose.yaml` | The oracle's compose file, embedded. A test checks it against the pins, the hygiene rules and `OracleEnv`. |
-| `docker.go` | The docker runner. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
+| `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `Capture` records exchanges for replay. |
 | `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. |
@@ -138,9 +140,11 @@ carried values nor resolved arguments, which the oracle does not expose.
 Two Go tests run on every pull request in the `Go` CI jobs (ADR 0011, CI
 item 1):
 
-- **Image lint** (`LintImages`, OR-3): no Dockerfile or Containerfile builds
-  `FROM` a Windmill image, and no workflow or shell script that names a
-  Windmill image runs `docker push`, `docker tag`, `docker image push|tag`,
+- **Image lint** (`LintImages`, OR-3): no Dockerfile or Containerfile names
+  a Windmill image at all (so none can bake it in through `FROM`,
+  `COPY --from`, `RUN --mount=from=` or an `ARG` that `FROM ${…}` expands),
+  and no workflow, composite action (any YAML under `.github/`), shell
+  script, Makefile or justfile that names a Windmill image runs `docker push`, `docker tag`, `docker image push|tag`,
   `buildx imagetools create`, `skopeo copy`, `crane` copy commands or
   `regctl image copy`. Pulling and running the image is allowed.
 - **Manifest guard** (`GuardManifests`, LIC-1/a and LIC-1/b): `go.mod` and
@@ -148,8 +152,9 @@ item 1):
   modules; `package.json`, lockfiles and import maps may not name the
   AGPL-derived `windmill-parser-wasm-*` packages, `windmill-yaml-validator`,
   `windmill-utils-internal` or `windmill-cli` (Q-OF-7(a), decided no), or
-  depend on the Windmill repository; `Cargo.toml` may not name the Rust client
-  or a Windmill crate; and a directory whose `NOTICE` names the Windmill
+  depend on the Windmill repository or an npm tarball of an excluded package;
+  `Cargo.toml` may not name the Rust client or a Windmill crate, by key,
+  table or `package =`; and a directory whose `NOTICE` names the Windmill
   repository may hold only the Apache schemas, their licence and the notice,
   and may cite no `backend/` path but `backend/windmill-api/openapi.yaml`.
 
@@ -161,7 +166,8 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | Test | What it checks | Cases |
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
-| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), effects grouped by the outer root, instability, and the refusals of OR-1/b, OR-5/a, OR-30/a, OR-30/c, OR-V5/b and a stale session | the smoke fixture |
+| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, `--out` kept inside its directory, and the refusals of OR-1/b, OR-5/a, OR-30/a, OR-30/c, OR-V5/b and a stale session | the smoke fixture |
+| `TestReplayRecordedCaptures` | the raw API captures of the CI recording, replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28 | `testdata/captures/` |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |

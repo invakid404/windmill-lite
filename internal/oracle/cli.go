@@ -97,6 +97,9 @@ func redact(args []string) []string {
 // CLIVersion: a different CLI is a provenance failure, never a silent
 // change of loader (OR-8).
 func (c CLI) Version(ctx context.Context) (string, error) {
+	if len(c.Command) == 0 {
+		return "", fmt.Errorf("oracle: no CLI command")
+	}
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, c.Command[0], append(append([]string(nil), c.Command[1:]...), "--version")...)
 	cmd.Env = c.env()

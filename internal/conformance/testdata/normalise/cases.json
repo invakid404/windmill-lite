@@ -79,6 +79,13 @@
       "want": {"error": {"name": "Error", "message": "boom", "stack": "S", "extra": {"code": 1}}}
     },
     {
+      "name": "a runtime error that is not an object masks nothing and does not stop the others",
+      "spec": ["OR-V3"], "provenance": "policy",
+      "runtime_errors": ["not an object", {"error": {"name": "Error", "message": "boom", "stack": "S"}}],
+      "raw": [{"name": "Error", "message": "boom", "stack": "S"}, "not an object"],
+      "want": [{"name": "Error", "message": "boom", "stack": "<stack>"}, "not an object"]
+    },
+    {
       "name": "OR-27/a: the NUL InternalErr loses its job id and its location",
       "spec": ["OR-27/a"], "provenance": "oracle-observed",
       "raw": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job ${a}: error returned from database: unsupported Unicode escape sequence @jobs.rs:1133:22"}},

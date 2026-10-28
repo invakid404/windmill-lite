@@ -50,7 +50,7 @@ func (d ExecDocker) Run(ctx context.Context, env []string, args ...string) ([]by
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(dockerEnv(os.Environ()), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -62,6 +62,21 @@ func (d ExecDocker) Run(ctx context.Context, env []string, args ...string) ([]by
 		return stdout.Bytes(), fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
+}
+
+// dockerEnv drops the variables that would change the oracle's topology
+// behind the compose file's back: compose profiles, files, project names
+// and env files, and a default platform (OR-4, OR-5).
+func dockerEnv(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, e := range environ {
+		k, _, _ := strings.Cut(e, "=")
+		if strings.HasPrefix(k, "COMPOSE_") || k == "DOCKER_DEFAULT_PLATFORM" {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // dockerAllowed lists the docker subcommands the harness may run, by

@@ -60,7 +60,7 @@ func walkRepo(fsys fs.FS, visit func(p string) error) error {
 }
 
 // windmillImageRef matches a reference to a Windmill image.
-var windmillImageRef = regexp.MustCompile(`(?i)(ghcr\.io/windmill-labs/|(^|[^a-z0-9./-])(docker\.io/)?windmilllabs/)`)
+var windmillImageRef = regexp.MustCompile(`(?i)(ghcr\.io/windmill-labs/|(^|[^a-z0-9./-])((index\.|registry-1\.)?docker\.io/)?windmilllabs/)`)
 
 // repush matches a command that re-tags, re-pushes or copies an image.
 var repush = regexp.MustCompile(`\bdocker\s+(image\s+)?(push|tag)\b|\bdocker\s+buildx\s+imagetools\s+create\b|\bskopeo\s+copy\b|\bcrane\s+(copy|cp|push|tag|mutate|append|rebase)\b|\bregctl\s+image\s+(copy|mod)\b`)
@@ -74,11 +74,15 @@ func isDockerfile(name string) bool {
 }
 
 // isScript reports whether a file holds shell commands the lint reads: a
-// workflow or a shell script.
+// workflow or composite action (any YAML under .github/), a shell script, a
+// Makefile or a justfile.
 func isScript(p string) bool {
-	dir, name := path.Split(p)
-	return (dir == ".github/workflows/" && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml"))) ||
-		strings.HasSuffix(name, ".sh")
+	switch path.Base(p) {
+	case "Makefile", "makefile", "GNUmakefile", "justfile", "Justfile", ".justfile":
+		return true
+	}
+	return (strings.HasPrefix(p, ".github/") && (strings.HasSuffix(p, ".yml") || strings.HasSuffix(p, ".yaml"))) ||
+		strings.HasSuffix(p, ".sh") || strings.HasSuffix(p, ".mk")
 }
 
 // logicalLines joins backslash-continued lines and reports each with the
@@ -110,8 +114,8 @@ func logicalLines(data []byte) (lines []string, nums []int) {
 }
 
 // LintImages is the image lint of OR-3: no Dockerfile in the repository
-// builds FROM a Windmill image, and no workflow or shell script that names
-// a Windmill image re-tags, re-pushes or copies an image. Pulling and
+// builds FROM a Windmill image, and no workflow, composite action or shell
+// script that names a Windmill image re-tags, re-pushes or copies an image. Pulling and
 // running the unmodified image is allowed; deriving, mirroring or
 // re-pushing it is not (licensing.md, Decision).
 func LintImages(fsys fs.FS) ([]Finding, error) {
@@ -128,20 +132,13 @@ func LintImages(fsys fs.FS) ([]Finding, error) {
 		}
 		lines, nums := logicalLines(data)
 		if dockerfile {
+			// A Dockerfile may not name a Windmill image at all: not in
+			// FROM, nor COPY --from, RUN --mount=from=, or an ARG that a
+			// later FROM ${…} expands, so none of those can bake it in.
 			for i, l := range lines {
-				f := strings.Fields(l)
-				if len(f) < 2 || !strings.EqualFold(f[0], "FROM") {
-					continue
-				}
-				img := ""
-				for _, a := range f[1:] {
-					if !strings.HasPrefix(a, "--") {
-						img = a
-						break
-					}
-				}
-				if windmillImageRef.MatchString(img) {
-					out = append(out, Finding{File: p, Line: nums[i], Rule: RuleImageFrom, Detail: "builds FROM a Windmill image: " + img})
+				if m := windmillImageRef.FindString(l); m != "" {
+					f := strings.Fields(l)
+					out = append(out, Finding{File: p, Line: nums[i], Rule: RuleImageFrom, Detail: "a Dockerfile names a Windmill image (" + strings.ToUpper(f[0]) + "): " + strings.TrimSpace(l)})
 				}
 			}
 			return nil
@@ -173,8 +170,11 @@ var (
 	// repository itself, which is AGPL by default.
 	windmillRepoRef = regexp.MustCompile(`(?i)(github\.com[/:]|github:)windmill-labs/windmill(\.git)?([#/@"'\s]|$)`)
 	// deniedCrate matches a Cargo dependency on the Rust client or a
-	// Windmill crate.
-	deniedCrate = regexp.MustCompile(`^\s*(wmill|windmill[A-Za-z0-9_-]*)\s*=`)
+	// Windmill crate: by key, as a [dependencies.<name>] table, or through
+	// package = "<name>".
+	deniedCrate = regexp.MustCompile(`^\s*(?:(wmill|windmill[A-Za-z0-9_-]*)\s*=|\[[A-Za-z.-]*dependencies\.(wmill|windmill[A-Za-z0-9_-]*)\]|.*\bpackage\s*=\s*"(wmill|windmill[A-Za-z0-9_-]*)")`)
+	// deniedTarball matches an npm registry tarball of an excluded package.
+	deniedTarball = regexp.MustCompile(`/(windmill-parser-wasm[A-Za-z0-9._-]*|windmill-yaml-validator|windmill-utils-internal|windmill-cli)/-/`)
 	// backendPath matches a path into Windmill's backend/.
 	backendPath = regexp.MustCompile(`\bbackend/[A-Za-z0-9_./-]+`)
 )
@@ -240,6 +240,7 @@ func guardGo(fsys fs.FS, p string, add func(Finding)) error {
 		return err
 	}
 	for i, l := range strings.Split(string(data), "\n") {
+		l, _, _ = strings.Cut(l, "//") // a comment is not a requirement
 		for _, f := range strings.Fields(l) {
 			f = strings.Trim(f, `"`)
 			if !strings.HasPrefix(f, "github.com/windmill-labs/") {
@@ -275,6 +276,8 @@ func guardPackageJSON(fsys fs.FS, p string, add func(Finding)) error {
 		}
 		if windmillRepoRef.MatchString(spec) {
 			add(Finding{File: p, Rule: RuleManifestDep, Detail: fmt.Sprintf("%s %q depends on the Windmill repository: %q", where, name, spec)})
+		} else if m := deniedTarball.FindStringSubmatch(spec); m != nil {
+			add(Finding{File: p, Rule: RuleManifestDep, Detail: fmt.Sprintf("%s %q: %q is a tarball of the excluded package %s", where, name, spec, m[1])})
 		}
 	}
 	var walk func(where string, raw json.RawMessage)
@@ -329,7 +332,7 @@ func guardCargo(fsys fs.FS, p string, add func(Finding)) error {
 	}
 	for i, l := range strings.Split(string(data), "\n") {
 		if m := deniedCrate.FindStringSubmatch(l); m != nil {
-			add(Finding{File: p, Line: i + 1, Rule: RuleManifestDep, Detail: "Cargo dependency " + m[1] + " is a Windmill crate"})
+			add(Finding{File: p, Line: i + 1, Rule: RuleManifestDep, Detail: "Cargo dependency " + m[1] + m[2] + m[3] + " is a Windmill crate"})
 		}
 	}
 	return nil

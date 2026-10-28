@@ -345,6 +345,9 @@ func (f *Fixture) check() error {
 	default:
 		return fmt.Errorf("compare.key_order %q is not loose or strict", f.Compare.KeyOrder)
 	}
+	if f.Compare.Mode == "subset" && f.Compare.KeyOrder == "strict" {
+		return errors.New("compare.mode subset cannot be combined with key_order strict: a subset has no member order to compare")
+	}
 	for _, group := range [][]string{f.Compare.Stack, f.Compare.Mask, f.Compare.Unordered} {
 		for _, p := range group {
 			if _, err := SplitPointer(p); err != nil {

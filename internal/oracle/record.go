@@ -33,7 +33,8 @@ type Session struct {
 	// SinkListen is the effect sink's listen address; empty means
 	// 0.0.0.0:0, reachable from the containers through the host gateway.
 	SinkListen string
-	// RunTimeout bounds one run; it stays at 60 s or more (OR-10).
+	// RunTimeout bounds one run: zero means 5 minutes, and less than 60 s
+	// is raised to 60 s (OR-10). A run that times out is canceled.
 	RunTimeout time.Duration
 	// Repeat runs every run that many times and requires equal
 	// observations (OR-14/a). Zero means 1.
@@ -58,10 +59,11 @@ type Session struct {
 
 	// Test seams: the oracle's URL, the poll interval, the disk
 	// measurement and the settle delay of OR-30 step 6.
-	baseURL      string
-	pollInterval time.Duration
-	measure      FreeSpace
-	settle       time.Duration
+	baseURL       string
+	pollInterval  time.Duration
+	measure       FreeSpace
+	settle        time.Duration
+	minRunTimeout time.Duration
 }
 
 func (s *Session) base() string {
@@ -146,8 +148,14 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 	if s.settle == 0 {
 		s.settle = 30 * time.Second
 	}
-	if s.RunTimeout < 60*time.Second {
+	if s.minRunTimeout == 0 {
+		s.minRunTimeout = 60 * time.Second // OR-10: never less than 60 s
+	}
+	switch {
+	case s.RunTimeout == 0:
 		s.RunTimeout = 5 * time.Minute
+	case s.RunTimeout < s.minRunTimeout:
+		s.RunTimeout = s.minRunTimeout
 	}
 	rep := &Report{Session: SessionReport{Images: map[string]ImageInfo{}, MemoryPeak: map[string]int64{}, Deployments: map[string]Deployment{}}}
 
@@ -376,12 +384,18 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 	return nil
 }
 
+// rel returns a fixture directory relative to RepoRoot, both made
+// absolute first, in slash form.
 func (s *Session) rel(p string) string {
 	if s.RepoRoot == "" {
 		return filepath.ToSlash(p)
 	}
-	if r, err := filepath.Rel(s.RepoRoot, p); err == nil {
-		return filepath.ToSlash(r)
+	root, err1 := filepath.Abs(s.RepoRoot)
+	abs, err2 := filepath.Abs(p)
+	if err1 == nil && err2 == nil {
+		if r, err := filepath.Rel(root, abs); err == nil {
+			return filepath.ToSlash(r)
+		}
 	}
 	return filepath.ToSlash(p)
 }
@@ -439,7 +453,11 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 		return out
 	}
 	repeat := max(s.Repeat, 1)
-	opts := f.Compare.Options()
+	// The run's expect may be a subset assertion; two oracle observations
+	// are compared exactly, so an extra member or step is a change.
+	expectOpts := f.Compare.Options()
+	opts := expectOpts
+	opts.Subset = false
 	var first conformance.Observation
 	var prov Provenance
 	for i := 0; i < repeat; i++ {
@@ -458,7 +476,7 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 	}
 	prov.Repeats = repeat
 	if r.Expect != nil {
-		ro := opts
+		ro := expectOpts
 		ro.WithRecording = true
 		diffs, err := conformance.Compare(first, *r.Expect, ro)
 		if err != nil || len(diffs) > 0 {
@@ -483,7 +501,11 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 	dest := ""
 	switch {
 	case s.OutDir != "":
-		dest = filepath.Join(s.OutDir, filepath.FromSlash(s.rel(f.Dir)), conformance.RecordedDir, r.Name+".json")
+		rel := s.rel(f.Dir)
+		if rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(filepath.FromSlash(rel)) {
+			return fail(OutcomeFailed, fmt.Errorf("oracle: fixture %s is outside %s, so --out cannot place its recording", f.Dir, s.RepoRoot), nil)
+		}
+		dest = filepath.Join(s.OutDir, filepath.FromSlash(rel), conformance.RecordedDir, r.Name+".json")
 	case !s.Check:
 		dest = f.RecordingPath(r.Name)
 	}
@@ -529,7 +551,14 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	err = WaitJob(runCtx, c, ws, id, s.pollInterval, false)
 	cancel()
 	if err != nil {
-		return conformance.Observation{}, base, fmt.Errorf("oracle: run %s did not complete: %w", r.Name, err)
+		// A run left going would hold the only worker and post its late
+		// effects into later runs: cancel it and give it a moment to stop.
+		stop, done := context.WithTimeout(context.Background(), 30*time.Second)
+		if cerr := c.Cancel(stop, ws, id, "wltest: run timeout"); cerr == nil {
+			_ = WaitJob(stop, c, ws, id, s.pollInterval, false)
+		}
+		done()
+		return conformance.Observation{}, base, fmt.Errorf("oracle: run %s did not complete (canceled): %w", r.Name, err)
 	}
 	elapsed := time.Since(submitted)
 	effects, foreign := sink.Close()

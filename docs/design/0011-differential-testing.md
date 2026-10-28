@@ -223,7 +223,8 @@ merged.
    manifests (cases LIC-1/a, LIC-1/b).
 2. **Oracle workflow** (nightly, on a `oracle` label, and on changes under
    `conformance/` or to the harness itself, `internal/oracle/`,
-   `internal/conformance/`, `cmd/wltest/` and the workflow): `wltest record`
+   `internal/conformance/`, `cmd/wltest/`, the decoders it reads fixtures
+   with (`internal/openflow/`, `internal/yamlx/`) and the workflow): `wltest record`
    on `ubuntu-latest` amd64, failing when a recording differs from the
    committed one, when a run has no recording, or when the sync trees'
    generated metadata drifts ([OR-8](../semantics/oracle.md#or-8)). A changed recording is

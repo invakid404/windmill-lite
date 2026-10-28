@@ -39,8 +39,8 @@ The oracle runs in public CI; see
 | `--workers N` | 1 | Worker containers, 1 or 2 ([OR-5](../../docs/semantics/oracle.md#or-5)). |
 | `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must name 1.767.0. |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
-| `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`. |
-| `--run-timeout D` | `5m` | The timeout of one run, at least 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). |
+| `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
+| `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
 `expect_mismatch`, `failed` or `refused`, the fixture and the run, then any

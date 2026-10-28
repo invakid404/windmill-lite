@@ -18,7 +18,9 @@ type CompareOptions struct {
 	// observation. Subset assertions alone cannot establish an exact error
 	// contract (OR-15); fixtures use them sparingly.
 	Subset bool
-	// StrictKeyOrder compares object members in order.
+	// StrictKeyOrder compares object members in order, inside values and
+	// inside the elements of unordered arrays. A subset has no member
+	// order, so Subset ignores it; a fixture may not ask for both.
 	StrictKeyOrder bool
 	// Unordered lists JSON Pointers, into the expected observation, of
 	// arrays that compare as multisets (OR-23): ["a","a","b"] differs from
@@ -183,7 +185,7 @@ func (c *comparer) compare(path []string, got, want *jnode) {
 		c.compareObjects(path, got, want)
 	case kindArray:
 		if c.unordered[JoinPointer(path)] {
-			if !multisetEqual(got.elems, want.elems, c.opt) {
+			if !multisetEqual(path, got.elems, want.elems, c.opt) {
 				c.add(path, got, want)
 			}
 			return
@@ -246,10 +248,11 @@ func sameKeyOrder(a, b *jnode) bool {
 	return true
 }
 
-// multisetEqual reports whether got and want hold the same elements with
-// the same multiplicity. Element equality is an equivalence, so a greedy
-// matching decides it.
-func multisetEqual(got, want []*jnode, opt CompareOptions) bool {
+// multisetEqual reports whether got and want, the elements of the array at
+// path, hold the same elements with the same multiplicity. Element equality
+// is an equivalence, so a greedy matching decides it. Elements are compared
+// as values below path, with the same options.
+func multisetEqual(path []string, got, want []*jnode, opt CompareOptions) bool {
 	if len(got) != len(want) {
 		return false
 	}
@@ -257,7 +260,7 @@ func multisetEqual(got, want []*jnode, opt CompareOptions) bool {
 	for _, w := range want {
 		found := false
 		for i, g := range got {
-			if !used[i] && nodesEqual(g, w, opt) {
+			if !used[i] && nodesEqual(path, g, w, opt) {
 				used[i] = true
 				found = true
 				break
@@ -270,9 +273,13 @@ func multisetEqual(got, want []*jnode, opt CompareOptions) bool {
 	return true
 }
 
-func nodesEqual(a, b *jnode, opt CompareOptions) bool {
-	c := comparer{opt: CompareOptions{StrictKeyOrder: opt.StrictKeyOrder}}
-	c.compare(nil, a, b)
+// nodesEqual compares two elements of the array at path. The element's
+// path carries the placeholder token "*", which no index has, so the
+// element is a value (strict key order applies to it) and no unordered
+// pointer matches below it.
+func nodesEqual(path []string, a, b *jnode, opt CompareOptions) bool {
+	c := comparer{opt: opt, unordered: map[string]bool{}}
+	c.compare(append(append([]string(nil), path...), "*"), a, b)
 	return len(c.diffs) == 0
 }
 
