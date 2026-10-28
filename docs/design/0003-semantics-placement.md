@@ -278,8 +278,9 @@ grew several times over. A run at a load average of about 20 before it
 started gave a paced 4 KB p99 of 1.98 ms and a paced 256 KB p99 of 59.5 ms,
 so the gate needs a quiet machine. The unloaded rows are not a lower bound:
 an idle caller on this machine often runs at a lower clock. CI reports the
-same table on each run, from its Linux runner (4 vCPUs, so 4 slots) and its
-macOS runner (3 slots).
+same table on each run from its shared Linux and macOS runners, where the
+default pool follows the runner's CPU count (3 to 5 slots so far); those
+figures show the trend, not the gate.
 
 ### The conformance-suite format
 
