@@ -1,0 +1,26 @@
+{
+  "finding": "WR-V4",
+  "cases": [
+    {
+      "spec": "WR-V4/a",
+      "provenance": "source-derived",
+      "title": "pin removal reaches a string literal",
+      "given": {
+        "source": "import { tag } from \"fixture-pkg@1.2.3\";\nexport function main() { return tag === \"ok\" ? \"fixture-pkg@1.2.3\" : null; }",
+        "dependencies": {"fixture-pkg": "1.2.3"},
+        "packages": {"fixture-pkg@1.2.3": {"index.js": "export const tag = \"ok\";\n"}}
+      },
+      "expect": {"run": {"calls": [{"result": "fixture-pkg"}]}}
+    },
+    {
+      "spec": "WR-V4/b",
+      "provenance": "source-derived",
+      "title": "the .ts rewrite reaches a string literal",
+      "given": {
+        "source": "import { h } from \"./helper\";\nexport function main() { return h === 1 ? \"./helper\" : null; }",
+        "files": {"f/case/helper.ts": "export const h = 1;\n"}
+      },
+      "expect": {"run": {"calls": [{"result": "./helper.ts"}]}}
+    }
+  ]
+}

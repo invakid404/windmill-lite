@@ -1,0 +1,8 @@
+{
+  "Bun": "__windmill_lite_Bun",
+  "Bun.env": "__windmill_lite_Bun.env",
+  "global.Bun": "__windmill_lite_Bun",
+  "globalThis.Bun": "__windmill_lite_Bun",
+  "import.meta.env": "__windmill_lite_Bun.env",
+  "self.Bun": "__windmill_lite_Bun"
+}

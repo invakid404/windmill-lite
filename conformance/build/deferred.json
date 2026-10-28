@@ -1,0 +1,16 @@
+{
+  "note": "Catalogue cases of the findings in this directory that are not build cases. Each names why and where it is checked. The test in internal/bundle fails unless every catalogue case of a finding with a file here is a build case or listed here.",
+  "deferred": [
+    {"spec": "WR-6/b", "reason": "the same script as WR-6/a, whose signature is its build half; null kept and unknown keys dropped is argument binding", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-6/c", "reason": "the same script as WR-6/a; no coercion is argument binding", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-6/f", "reason": "the same script as WR-6/e; the order of the fallback's values is argument binding", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-7/d", "reason": "the same script as WR-7/c, whose signature (anon1) is its build half; binding through anon1 is the step runner's", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-8/e", "reason": "the same script as WR-8/d; reading a number as epoch milliseconds is hydration at run time", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-8/f", "reason": "the same script as WR-8/d; an unparsable string becoming an Invalid Date is hydration at run time", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-V3/c", "reason": "no Date for a missing input is hydration at run time; the parameter's Date marking is WR-8/d's", "expected_in": "C3a (the step suite)"},
+    {"spec": "WR-26/b", "reason": "dependency inference: windmill-lite consumes the folder's locks and does not generate them (ADR 0002, validation 5)", "expected_in": "a later milestone that adds lock generation (L1)"},
+    {"spec": "WA-33/c", "reason": "the loader's refusal; the build records the markers it acts on (workflow_as_code in the metadata)", "expected_in": "A5 (load errors)"},
+    {"spec": "WA-31/a", "reason": "per-invocation isolation in a warm process is the harness's env view and fetch interception", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"},
+    {"spec": "WA-31/b", "reason": "the concurrent Bun.env reads run in the harness; the rewrite they rely on is checked by this directory's WA-31 cases", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"}
+  ]
+}

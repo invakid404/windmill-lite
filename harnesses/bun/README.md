@@ -7,11 +7,13 @@ the process-level error handlers, host mode, and a minimal host SDK. This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md) in W1's
-minimal form (F3a completes it); and `test/`, its developer checks. The
-build helper (`build/`, C2a) does not exist yet. The harness runs on the
-pinned Bun 1.3.10, the version of Windmill v1.767.0's images
-([WR-3](../../docs/semantics/languages.md#wr-3)). It has no dependencies, no
-`package.json` and no `node_modules`.
+minimal form (F3a completes it); and `test/`, the developer checks. The
+build helper of milestone C2a, which bundles scripts and parses their
+signatures, has its own README: [build/](build/README.md). The harness runs
+on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
+([WR-3](../../docs/semantics/languages.md#wr-3)). The runtime and the host
+SDK have no dependencies and no `package.json`; only the build helper has
+one, its TypeScript parser.
 
 ## Running
 
@@ -178,14 +180,16 @@ checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation, partial writes and `whenFlushed`.
 `test/context.test.ts` checks the environment view's rules in one process,
 and `test/host.test.ts` the SDK's refusals: the working directory and an
-engine that cannot start. All are
-developer checks, run by CI's non-required `Bun harness checks` job. The
-merge gate is the Go side: [internal/harness](../../internal/harness/README.md)
-drives this runtime through every exchange in
-`conformance/protocol/exchanges/` and runs the Q-WA-4 test, and
-[cmd/windmill-lite](../../cmd/windmill-lite/README.md) runs host mode end to
-end in a host compiled with `bun build --compile`.
+engine that cannot start. `test/build.test.ts` checks the build helper's
+scans and parse. All are developer checks, run by CI's non-required
+`Bun harness checks` job. The merge gate is the Go side:
+[internal/harness](../../internal/harness/README.md) drives this runtime
+through every exchange in `conformance/protocol/exchanges/` and runs the
+Q-WA-4 test, [internal/bundle](../../internal/bundle/README.md) runs the
+build helper, and [cmd/windmill-lite](../../cmd/windmill-lite/README.md)
+runs host mode end to end in a host compiled with `bun build --compile`.
 
 ```sh
+(cd harnesses/bun/build && bun install --frozen-lockfile)
 cd harnesses/bun && bun test
 ```
