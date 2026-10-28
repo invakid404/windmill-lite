@@ -72,6 +72,11 @@
       "expected_in": "a follow-up of A4"
     },
     {
+      "spec": "SY-17/c",
+      "reason": "an unreferenced file in the folder selects the flow; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
+      "expected_in": "a follow-up of A4"
+    },
+    {
       "spec": "SY-18/a",
       "reason": "unclassified files are ignored; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
       "expected_in": "a follow-up of A4"
@@ -94,6 +99,11 @@
     {
       "spec": "SY-19/c",
       "reason": "a refused lock reached only as a reference resolves to an empty lock with a warning; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
+      "expected_in": "a follow-up of A4"
+    },
+    {
+      "spec": "SY-19/d",
+      "reason": "a refused inline file falls back to a readable one; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
       "expected_in": "a follow-up of A4"
     },
     {
