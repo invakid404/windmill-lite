@@ -44,7 +44,7 @@ internal/oracle/            the oracle harness (0011)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
-conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, protocol/: the shared cases (0003)
+conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/: the shared cases (0003)
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
@@ -81,7 +81,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | W1 | **Walking skeleton** (scaffolding that N1a, B2b, C3a and F3a replace; its review bar is that it retires the gates, not that its code survives): one sequential flow, one Bun step, a static and a JavaScript transform, a step timeout, the real protocol, host mode through a minimal SDK with abandonment counted in health and the engine watchdog, one H1 intercept, one H11 read through one host-provided module whose shim is written by hand | K1, A3, B1a, C1 | on Bun 1.3.10: the Q-WA-4 env-view test 16/16; the host-provided-module ALS test 16/16 in a compiled host; one detached rejection does not end the host; the never-settling-step test and the watchdog test of [0004](0004-harness-protocol.md); a first per-step latency figure | 2 | yes |
 | E3a | Recording batch **JE**: the core JE catalogue cases and the contested CF-19/CF-V6 cases, as context-free expression cases or flow fixtures | E2 | recordings committed with provenance; [0001](0001-equivalence-contract.md) §6 updated | 2 | yes |
 | E3b | Recording batch **FX core**: FX-6 to FX-10 and FX-16 to FX-21, with the contested FX-10 route cases that need no handler and FX-42/h | E2 | as E3a | 2 | yes |
-| E3c | Recording batch **FX errors**: FX-12 to FX-15 and FX-30 to FX-38 (FX-36's executor part only), with the contested FX-33 and FX-V6/a cases | E2 | as E3a | 2 | yes |
+| E3c | Recording batch **FX errors**: FX-12 to FX-15 and FX-30 to FX-38 (the executor parts only of FX-36 and FX-37; their run-and-wait HTTP halves are E3e's), with the contested FX-33 and FX-V6/a cases | E2 | as E3a | 2 | yes |
 | E3d | Recording batch **CF**: CF-2 to CF-15, with the contested CF-12 and FX-40 cases | E2 | as E3a | 2 | yes |
 | A4 | `internal/syncfolder`: SY-1 to SY-15, SY-V1 to SY-V4 | A2, A3 | SY cases | 2 | yes |
 | C2a | `harnesses/bun/build` and the shared build transforms: bundling per WR-26 to WR-29, the export list and signatures, annotations, workflow-as-code detection, the export scan, the shim generator and the define table (one implementation for both bundlers, [0010](0010-packaging.md)) | C1 | parser and build golden tests for WR-6 to WR-8, WR-31 and WR-32; the `host_module_live_binding` refusal; generated shim and define golden tests | 2 | yes |
@@ -96,7 +96,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | E1 | `wltest check` for flows: the flow runner, first fixtures per area, run on W1's skeleton engine | K1, C3a, W1 | the first fixtures pass in `warm`, the only mode before C3b | 4 | yes |
 | F4 | `internal/bundle`, `windmill-lite build` and `verify`: format, manifest, digest, reproducibility | A5, B1a, C2a | two builds of one fixture give one digest; the static Linux engine starts on an empty base | 4 | yes |
 | N1a | engine core, sequential: transforms, the `results` routes, `skip_if`, stops, identity, mock, the hook seams of K1 | A5, B2b, E1, E3b | the E3b cases except FX-42/h (PF2's); the sequential, context-free subset of E3a end to end: flow cases whose flows use only plain steps, transforms, `skip_if`, `stop_after_if` and identity, with no failure module, container, wait, retry or platform provider. E3a's other flow cases gate the milestones below that implement their features | 5 | yes |
-| E3e | the remaining recordings, the contested `later` cases and the probe-catalogue reconstruction (Q-OR-16) | E3a, E3b, E3c, E3d, E1 | — | 5 | yes |
+| E3e | the remaining recordings, among them the run-and-wait HTTP halves of FX-36 and FX-37, the contested `later` cases and the probe-catalogue reconstruction (Q-OR-16) | E3a, E3b, E3c, E3d, E1 | — | 5 | yes |
 | N1b | engine errors: `continue_on_error`, failure module and recovery, error shapes, chaining errors, final result, cancellation outcome | N1a, E3c | the E3c cases; E3a's failure-module and error-route cases (JE-17/a, JE-26/b–c, JE-35/a–d) | 6 | yes |
 | N2 | engine waits and time: `sleep`, `timeout` and its messages, retry arithmetic, jitter and argument reuse, deadlines, the clock | N1a | FX-23 to FX-29 cases; E3a's wait, timeout and retry cases (JE-2/a, JE-22/a–b, JE-28/a–c, JE-29/a, JE-32/a–b, JE-V2/a and /c) | 6 | yes |
 | N3a | for loops: sequential, collapsed, parallel, `parallelism` | N1a, E3d | the E3d for-loop cases; E3a's for-loop cases (JE-9/e–f, JE-19/a and /c, JE-26/d, JE-27/a–b on loops, JE-30/a–b, JE-36/a–c and /e, JE-37/a, JE-38/c, JE-39/a, JE-V1/a–e) | 6 | yes |
@@ -114,7 +114,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F2b | budgets and latches: H3, H4, H5, H7, H10 | F1 | latch-precedence cases | 9 | yes |
 | F3a | host-mode transport: `run` frames, host-provided-module registration, scope capture, health, drain, the watchdog option, the working-directory checks | F1, C2b, C3b | `workdir_not_writable` and `workdir_mismatch` cases; a codebase script reads its extracted asset in host mode | 9 | yes |
 | F5 | go-plugin adapter, `runner.proto`, `wl/plugin` | F1 | — | 9 | no |
-| F7b | HTTP adapter | F1, E3e | the E3e FX-36 cases | 9 | no |
+| F7b | HTTP adapter | F1, E3e | the E3e FX-36 and FX-37 HTTP cases | 9 | no |
 | F7c | `windmill-lite gen go` | F1 | — | 9 | no |
 | F7d | `windmill-lite gen ts` | F1 | — | 9 | no |
 | F6 | `pack --single` and `image` | F1, F3a | the image runs on its base: empty for the static engine; for the compiled Bun harness, the smallest base that provides the C library it links, recorded in the manifest | 10 | no |
@@ -154,6 +154,14 @@ waits on an external gate except R1.
   `conformance/jsonb/` the stored-form cases, a level added with milestone A1.
 - `conformance/syncfolder/` holds the sync-folder load cases, a level that
   [0003](0003-semantics-placement.md) added with milestone A4.
+- E3c's row names the executor part of FX-37 as well as FX-36's.
+  `early_return` changes only the synchronous run-and-wait response, which
+  the oracle harness never calls ([OR-10](../semantics/oracle.md#or-10)). So
+  E3c records that the flow's own final result is unaffected, and FX-37/a's
+  early response joins FX-36's HTTP cases in E3e, gating F7b.
+- `conformance/ir/` holds the compile cases, a level that
+  [0003](0003-semantics-placement.md) added with milestone A5; they are the
+  exit gate's IR cases, with the golden programs in `internal/ir/testdata/`.
 - `conformance/protocol/` holds the harness protocol's golden frames and
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against

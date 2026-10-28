@@ -1,0 +1,24 @@
+summary: FX-30/a tolerated last step
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+      continue_on_error: true
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: '!inline failure.ts'
+      input_transforms: {}
+      lock: '!inline failure.lock'
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

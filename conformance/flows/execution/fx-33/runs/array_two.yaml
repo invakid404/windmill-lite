@@ -1,0 +1,13 @@
+# FX-33/g: [true, false] is a decode error (too many elements).
+spec: [FX-33/g]
+target: f/wl_fx33/recover
+args: {ret: [true, false]}
+expect:
+  status: failure
+  result: [true, false]
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: [true, false]}, result: [true, false]}

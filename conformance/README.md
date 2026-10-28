@@ -1,12 +1,12 @@
 # conformance
 
-**Current state:** five levels of the shared conformance suite exist: the
+**Current state:** six levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
-sync-folder load cases in `syncfolder/`, the harness protocol cases in
-`protocol/`, and the flow fixtures in `flows/`: the oracle smoke fixture
-and the fixtures of the recording batches of
-[ADR 0012](../docs/design/0012-layout-and-milestones.md), which
-`wltest record` records on the Windmill CE oracle. This
+sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
+harness protocol cases in `protocol/`, and the flow fixtures in `flows/`,
+which `wltest record` records on the Windmill CE oracle: the oracle smoke
+fixture and the fixtures of recording batches E3c (flow execution errors)
+and E3d (loops, branches and the result cache). This
 README covers `conformance/`. Nothing runs the flow fixtures on
 windmill-lite yet (`wltest check`, milestone E1), and the step and
 expression levels that [0003](../docs/design/0003-semantics-placement.md)
@@ -25,8 +25,9 @@ repository to exercise one behaviour each.
 | decode | `openflow/<finding>.json` | in use; run by `go test ./internal/openflow` |
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
+| compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | the smoke fixture and the recording batches' fixtures; recorded on the oracle by `wltest record` |
+| flow | `flows/<area>/<case>/` | `flows/oracle/smoke`, `flows/execution/fx-*` and `flows/control-flow/cf-*`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
 
@@ -42,6 +43,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/execution/fx-12` … `fx-38`, `fx-v6` | Recording batch E3c (ADR 0012): the catalogue cases of [FX-12](../docs/semantics/execution.md#fx-12) to [FX-15](../docs/semantics/execution.md#fx-15) and [FX-30](../docs/semantics/execution.md#fx-30) to [FX-38](../docs/semantics/execution.md#fx-38) (FX-36's executor part), FX-V6/a and FX-10/a. Covered: error values, chaining errors, `continue_on_error`, the failure module (what it sees, its retry, `recover`, inside loop bodies), the preprocessor, final-result selection, `early_return` and cancellation. One fixture per finding, `fx-12-deno` for the Deno case. Each run's `expect` states the catalogue's expectation. It holds the recorded value instead where the catalogue asserts only a prefix of a text, says nothing about a field, or is contradicted by the oracle: one case, FX-34/a's handler id, listed in the batch manifest and in [0001](../docs/design/0001-equivalence-contract.md) §6. The batch's coverage, deferrals and prefix checks are in `internal/oracle/testdata/batches/e3c.json` ([internal/oracle](../internal/oracle/README.md)). |
 | `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop runs (cf-2 to cf-8, cf-9 run `a`, cf-11, cf-13 and the loop runs of cf-12) gate N3a; the while and branch runs (cf-10, cf-9 run `b`, cf-14, cf-15 and the branch runs `d` and `e-*` of cf-12) gate N3b. |
 | `flows/execution/fx-40`, `fx-40-hash` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)); `fx-40-hash` pins the body's script by the hash its deployment assigns. Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4. |
 
@@ -208,6 +210,56 @@ directory at its root so that the upward search for `wmill.yaml` stays in the
 case. `deferred.json` lists the catalogue's SY and PA cases checked elsewhere,
 each with the reason; the SY-9 cases are the YAML dialect's, in
 [internal/yamlx](../internal/yamlx/README.md).
+
+## Compile cases
+
+A compile case gives a sync folder, as a load case does, and optionally a
+host contract and build options, and what the compiler of
+[internal/ir](../internal/ir/README.md) makes of it: the errors, or parts of
+the compiled program ([0002](../docs/design/0002-ir-and-loader.md)). Most
+catalogue cases they encode are flow cases whose expectation depends on
+what a deploy applies (container defaults, the native switch, virtual
+steps, collapse); a compile case checks that part (`part: compile`), and
+its `note` says which milestone checks the run.
+
+```json
+{
+  "finding": "CF-8",
+  "cases": [
+    {
+      "spec": "CF-8/c",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Both readings agree; the case is carried as disputed with its finding. The run half, every iteration getting the flow input, is N3a's.",
+      "title": "a loop at step 0 collapses",
+      "given": {"files": {"wmill.yaml": "defaultTs: bun\n", "f/x/main.flow/flow.yaml": "..."}},
+      "expect": {"steps": {"f/x/main m:l": {"at": {"/forloop/collapse": true}}}}
+    }
+  ]
+}
+```
+
+Case fields beyond those of the load cases:
+
+| Field | Meaning |
+|---|---|
+| `provenance` | as the catalogue tags the case, `disputed` included: a disputed case's `note` says which reading it encodes and why the design fixes it ([0001](../docs/design/0001-equivalence-contract.md) §6) |
+| `part` | `compile` when the catalogue case's run half is checked elsewhere |
+| `given.contract` | the host contract, as the YAML text of its file; without one every flow and script is a root |
+| `given.options` | build options (`{"strict": true}`) |
+| `expect.errors` | errors that must all be among those the compile reports: `kind` and message substrings (`contains`) |
+| `expect.at`, `expect.absent` | JSON Pointers into the program's JSON form |
+| `expect.flows`, `expect.no_flows` | per flow path, pointers into that flow; flows that must not be in the program (opaque or unreached) |
+| `expect.steps` | per `"<flow path> <site>"`, pointers into that module, and `script` for its inventory entry; the site is a site path with iteration segments left out (`m:l/m:x`, `m:o/b:default/m:c`, `s:failure`) |
+| `expect.lists` | per `"<flow path>"` or `"<flow path> <site>"` (a loop, or a branch), the site segments of that module list in order, occurrences and virtual steps included |
+| `expect.scripts` | per inventory id, pointers into that entry |
+
+`deferred.json` lists the catalogue cases of these findings that are
+neither compile cases nor checked at the decode or load level, each with the
+reason and where it is expected to be checked. A test fails unless every
+catalogue case of a finding with a file here is accounted for, and unless
+every case that `openflow/deferred.json` defers to `conformance/ir` is a
+compile case.
 
 ## Protocol cases
 

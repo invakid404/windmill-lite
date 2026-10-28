@@ -1,0 +1,543 @@
+{
+  "finding": "FX-39",
+  "cases": [
+    {
+      "spec": "FX-39/a",
+      "provenance": "policy",
+      "title": "a flow that suspends is refused at load",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: suspend",
+              "f/x/main step 'a'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "anywhere",
+      "provenance": "policy",
+      "policy": "0001 §3",
+      "title": "a suspend in a body or the failure module is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  failure_module:\n    id: failure\n    suspend: {required_events: 1}\n    value: {type: identity}\n  modules:\n    - id: l\n      value:\n        type: whileloopflow\n        modules:\n          - id: b\n            suspend: {required_events: 1}\n            value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: suspend",
+              "step 'b'"
+            ]
+          },
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: suspend",
+              "step 'failure'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-without",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "without the contract entry, the subflow's suspend fails the load",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: suspend",
+              "f/x/permit step 'wait'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-with",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "with it, the subflow is opaque and the site keeps its envelope",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: permit}\n    provider: approval\n    mandatory: true\n"
+      },
+      "expect": {
+        "no_flows": [
+          "f/x/permit"
+        ],
+        "steps": {
+          "f/x/main m:permit": {
+            "at": {
+              "/kind": "provided",
+              "/provided/site": 0,
+              "/provided/provider": "approval",
+              "/provided/target": {
+                "kind": "flow",
+                "path": "f/x/permit"
+              },
+              "/provided/inputs/0/name": "who",
+              "/provided/inputs/0/transform/expr/text": "flow_input.user",
+              "/skip_if/text": "flow_input.skip",
+              "/stop_after_if/expr/text": "result.denied",
+              "/stop_after_if/error_message": "denied",
+              "/retry/constant/attempts": 2,
+              "/continue_on_error": true
+            },
+            "absent": [
+              "/subflow"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-ambiguous",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "a mandatory selector that matches two sites is ambiguous",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n    - id: o\n      value:\n        type: branchone\n        branches: []\n        default:\n          - id: permit\n            value: {type: flow, path: f/x/permit}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: permit}\n    provider: approval\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "ambiguous_selector",
+            "contains": [
+              "matches 2 sites",
+              "f/x/main m:permit",
+              "f/x/main m:o/b:default/m:permit"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-occurrence-missing",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "an id repeated in one list needs its occurrence",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: permit}\n    provider: approval\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "ambiguous_selector",
+            "contains": [
+              "give its occurrence"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-reached-otherwise",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "The selector provides the second permit step only; the first still calls f/x/permit, which is therefore loaded and validated.",
+      "title": "a target that another path reaches is loaded and checked",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: permit, occurrence: 1}\n    provider: approval\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "unsupported: suspend",
+              "f/x/permit step 'wait'"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-occurrence",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "the occurrence selects one of the repeated ids",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/other\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n",
+          "f/x/other.flow/flow.yaml": "value:\n  modules: []\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: permit, occurrence: 0}\n    provider: approval\n    mandatory: true\n"
+      },
+      "expect": {
+        "no_flows": [
+          "f/x/permit"
+        ],
+        "lists": {
+          "f/x/main": [
+            "m:permit~0",
+            "m:permit~1"
+          ]
+        },
+        "steps": {
+          "f/x/main m:permit~0": {
+            "at": {
+              "/kind": "provided",
+              "/occurrence": 0
+            }
+          },
+          "f/x/main m:permit~1": {
+            "at": {
+              "/kind": "flow",
+              "/subflow/path": "f/x/other"
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-script",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "an opaque target need not be in the folder",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: ask\n      value: {type: script, path: f/x/missing}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {script: f/x/missing}\n    static: {granted: true}\n    mandatory: true\n"
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:ask": {
+            "at": {
+              "/kind": "provided",
+              "/provided/static": {
+                "granted": true
+              },
+              "/provided/target": {
+                "kind": "script",
+                "path": "f/x/missing"
+              }
+            }
+          }
+        },
+        "at": {
+          "/scripts": {}
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-inline-files",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "p's content and lock files are absent, q's content is not UTF-8, and r's content reference leaves the sync root; the case without the contract entries fails on each.",
+      "title": "a provided rawscript's inline files are never read",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline absent.ts'\n        lock: '!inline absent.lock'\n        input_transforms: {}\n    - id: q\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline bad.ts'\n        input_transforms: {}\n    - id: r\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline ../../../../outside.ts'\n        input_transforms: {}\n"
+        },
+        "hex_files": {
+          "f/x/main.flow/bad.ts": "6578706f7274ff0a"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: p}\n    provider: host\n    mandatory: true\n  - selector: {flow: f/x/main, module: q}\n    provider: host\n    mandatory: true\n  - selector: {flow: f/x/main, module: r}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:p": {
+            "at": {
+              "/kind": "provided",
+              "/provided/target": {
+                "kind": "rawscript"
+              }
+            },
+            "absent": [
+              "/leaf"
+            ]
+          },
+          "f/x/main m:q": {
+            "at": {
+              "/kind": "provided"
+            }
+          },
+          "f/x/main m:r": {
+            "at": {
+              "/kind": "provided"
+            }
+          }
+        },
+        "at": {
+          "/scripts": {}
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-inline-control",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "the same rawscripts, not provided, fail to load",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline absent.ts'\n        lock: '!inline absent.lock'\n        input_transforms: {}\n    - id: q\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline bad.ts'\n        input_transforms: {}\n    - id: r\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline ../../../../outside.ts'\n        input_transforms: {}\n"
+        },
+        "hex_files": {
+          "f/x/main.flow/bad.ts": "6578706f7274ff0a"
+        },
+        "contract": "roots:\n  - flow: f/x/main\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "load",
+            "contains": [
+              "f/x/main step 'p'",
+              "missing inline script file(s)",
+              "absent.ts"
+            ]
+          },
+          {
+            "kind": "load",
+            "contains": [
+              "f/x/main step 'q'",
+              "not valid UTF-8"
+            ]
+          },
+          {
+            "kind": "load",
+            "contains": [
+              "f/x/main step 'r'",
+              "leaves the sync root"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-inline-subflow",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "The subflow is a step's target, so its document is read and checked, but its inline files only as each rawscript is compiled.",
+      "title": "a provided rawscript in a by-path subflow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value: {type: flow, path: f/x/sub}\n",
+          "f/x/sub.flow/flow.yaml": "value:\n  modules:\n    - id: p\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline absent.ts'\n        input_transforms: {}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/sub, module: p}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:s": {
+            "at": {
+              "/subflow/path": "f/x/sub"
+            }
+          },
+          "f/x/sub m:p": {
+            "at": {
+              "/kind": "provided"
+            }
+          }
+        },
+        "at": {
+          "/scripts": {}
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-empty-id",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "note": "Module ids may be empty and repeat (OF-2); a script selector would match both calls of f/x/s.",
+      "title": "a selector can name the empty id with its occurrence",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: ''\n      value: {type: script, path: f/x/s}\n    - id: ''\n      value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: '', occurrence: 1}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "lists": {
+          "f/x/main": [
+            "m:~0",
+            "m:~1"
+          ]
+        },
+        "steps": {
+          "f/x/main m:~0": {
+            "at": {
+              "/kind": "script",
+              "/id": ""
+            }
+          },
+          "f/x/main m:~1": {
+            "at": {
+              "/kind": "provided",
+              "/occurrence": 1
+            }
+          }
+        },
+        "at": {
+          "/contract/provided/0/selector/module": ""
+        }
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-empty-id-ambiguous",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "the empty id repeated needs its occurrence too",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: ''\n      value: {type: script, path: f/x/s}\n    - id: ''\n      value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: ''}\n    provider: host\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "ambiguous_selector",
+            "contains": [
+              "give its occurrence"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-no-match",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "a selector that matches nothing is an error",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: nope}\n    provider: p\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "invalid_contract",
+            "contains": [
+              "matches no site"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-inside-opaque",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "a module inside an opaque flow cannot be selected",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: permit\n      skip_if: {expr: 'flow_input.skip'}\n      stop_after_if: {expr: 'result.denied', skip_if_stopped: false, error_message: denied}\n      retry: {constant: {attempts: 2, seconds: 1}}\n      continue_on_error: true\n      value:\n        type: flow\n        path: f/x/permit\n        input_transforms:\n          who: {type: javascript, expr: flow_input.user}\n",
+          "f/x/permit.flow/flow.yaml": "value:\n  modules:\n    - id: wait\n      suspend: {required_events: 1}\n      value: {type: identity}\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: permit}\n    provider: approval\n    mandatory: true\n  - selector: {flow: f/x/permit, module: wait}\n    provider: p\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "invalid_contract",
+            "contains": [
+              "provided site 1",
+              "flow f/x/permit is not in the program"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "FX-39",
+      "variant": "provided-container",
+      "provenance": "policy",
+      "policy": "0002 host contract: mandatory provided sites",
+      "title": "a provided site must be a call site",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: whileloopflow\n        modules: []\n"
+        },
+        "contract": "roots:\n  - flow: f/x/main\nprovided:\n  - selector: {flow: f/x/main, module: l}\n    provider: p\n    mandatory: true\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "invalid_contract",
+            "contains": [
+              "must be a script, flow or rawscript step"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Durable suspend is out of scope (0001 §3), unless every path to it passes through a mandatory host-provided call site. The provided-site cases are the compile-time half of 0002's provided-site policy case; the run-time half is F2a's."
+}

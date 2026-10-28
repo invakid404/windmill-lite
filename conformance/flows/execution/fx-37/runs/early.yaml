@@ -1,0 +1,9 @@
+# FX-37/a: the flow completes with 2, as without early_return.
+spec: [FX-37/a]
+target: f/wl_fx37/early
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: success, args: {}, result: 2}

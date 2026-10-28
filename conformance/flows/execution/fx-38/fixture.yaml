@@ -1,0 +1,12 @@
+# FX-38/a: canceling a flow while its step runs kills the step and ends
+# the flow as canceled with the Canceled error, without running the
+# failure module. The harness cancels with the fixed reason "wltest:
+# cancel_after_ms" as the seeded superadmin, so reason and canceler differ
+# from the catalogue's r and u. Synthetic, written for this repository
+# from docs/semantics/conformance.md#fx-38.
+id: execution/fx-38
+spec: [FX-38/a, FX-36]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

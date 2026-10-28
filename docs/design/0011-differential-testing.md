@@ -34,7 +34,9 @@ The `oracle` package implements the reference's design as written:
    `workers: 2` get a second worker container ([OR-5](../semantics/oracle.md#or-5)).
 2. **Bootstrap and push** ([OR-6](../semantics/oracle.md#or-6),
    [OR-8](../semantics/oracle.md#or-8), [OR-9](../semantics/oracle.md#or-9),
-   [OR-31](../semantics/oracle.md#or-31)): a fresh workspace per fixture run;
+   [OR-31](../semantics/oracle.md#or-31)): a fresh workspace per fixture run,
+   deleted after its runs, because CE refuses a third workspace besides
+   `admins`;
    the sync tree pushed with `windmill-cli@1.767.0` from npm on the runner,
    never the CLI inside the image; setup applied after the push; the
    deployment gate polls each lock job to success. A fixture whose tree
@@ -134,7 +136,10 @@ behind them carry Windmill's own (`{"iter":…}`, the parent's flow args).
 Iteration and branch bodies (`i:<n>`, `b:<n>`, `b:default`) are path
 segments without records of their own; the modules inside them are sites.
 A collapsed iteration is recorded at `i:<n>/m:<body>`, as a
-non-collapsed one is. The harness walker of `internal/oracle` produces
+non-collapsed one is. An inline body's child flow carries a copy of the
+enclosing flow's failure module ([FX-34](../semantics/execution.md#fx-34)),
+recorded at `i:<n>/s:failure` or `b:<n>/s:failure` when that flow defines
+one (milestone E3c). The harness walker of `internal/oracle` produces
 these records from the oracle, and windmill-lite's runner must produce the
 same records from its trace.
 
@@ -270,6 +275,13 @@ merged.
   text as the job id of a module named `a>b`. Windmill puts no restriction
   on module ids ([OF-2](../semantics/openflow.md#of-2)). K1 also recorded
   that the escape for placeholder-like user text is still E2's to choose.
+- Recording batch E3c found three things on the oracle that the
+  harness had to follow. CE allows two workspaces besides `admins`, so each
+  fixture's workspace is deleted after its runs. A completed `branchall`
+  status entry need not say that it is one, so the walker takes that from
+  the fixture. An empty flow's status holds one entry with a nil job that is
+  no module. E3c also placed a body's failure-module copy at
+  `<body>/s:failure`.
 - Milestone E2 chose that escape and the container sites above. It also
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.

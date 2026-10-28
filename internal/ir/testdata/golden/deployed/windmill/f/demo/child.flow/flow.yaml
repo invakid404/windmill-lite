@@ -1,0 +1,22 @@
+summary: A subflow with a failure module, so its loop does not collapse
+value:
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      language: bun
+      content: 'export async function main(e: any) { return { recovered: e } }'
+      input_transforms:
+        e: {type: javascript, expr: error}
+  modules:
+    - id: again
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1]}
+        modules:
+          - id: twice
+            value:
+              type: script
+              path: f/demo/double
+              input_transforms:
+                x: {type: static, value: 1}

@@ -1,0 +1,32 @@
+{
+  "finding": "OF-18",
+  "cases": [
+    {
+      "spec": "OF-18",
+      "variant": "schema-validation",
+      "provenance": "policy",
+      "policy": "0001 §5a",
+      "note": "The reference does not cover the annotation's rules yet (0009). Its spelling is read by the header rule of WR-31.",
+      "title": "a script that opts into argument validation is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/s.ts": "//schema_validation\nexport function main(x: number){return x}\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "script f/x/s",
+              "unsupported: schema_validation"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "note": "A flow's schema fills nothing (OF-18), but a script may opt into validation, which is refused until the reference covers it."
+}

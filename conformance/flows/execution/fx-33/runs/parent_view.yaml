@@ -1,0 +1,21 @@
+# FX-33, seen from a parent: the child recovers, so its own job is
+# marked successful, but the parent sees a failed module whose result
+# is the failure module's; without a failure module of its own the
+# parent fails with that result.
+spec: [FX-33]
+target: f/wl_fx33/parent
+args: {ret: {recover: true, v: 1}}
+expect:
+  status: failure
+  result: {recover: true, v: 1}
+  steps:
+    "m:s":
+      status: success
+      module: failure
+      args: {ret: {recover: true, v: 1}}
+      result: {recover: true, v: 1}
+    "m:s/m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:s/s:failure": {status: success, args: {v: {recover: true, v: 1}}, result: {recover: true, v: 1}}

@@ -7,7 +7,8 @@ dialect in [internal/yamlx](../../internal/yamlx/README.md), milestone A1 the
 jsonb canonicaliser of [0005](0005-json-step-boundaries.md) in
 [internal/jsonval](../../internal/jsonval/README.md), milestone A4 its
 sync-folder loader in
-[internal/syncfolder](../../internal/syncfolder/README.md), milestone K1
+[internal/syncfolder](../../internal/syncfolder/README.md), milestone A5 its
+compiler in [internal/ir](../../internal/ir/README.md), milestone K1
 the contracts of [0012](0012-layout-and-milestones.md) (the shared types and
 interfaces under `internal/`), milestone B1a the QuickJS-ng engine of
 [0003](0003-semantics-placement.md) in
@@ -16,7 +17,9 @@ C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, and milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
-[internal/oracle](../../internal/oracle/README.md); nothing runs flows yet.
+[internal/oracle](../../internal/oracle/README.md), on which recording batch
+E3c recorded the flow-execution error cases and settled two contested rules
+of [0001](0001-equivalence-contract.md) §6; nothing runs flows yet.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -59,7 +62,7 @@ flowchart LR
 |---|---|
 | [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and eight restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
 | [0002 IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; a sync-folder loader that reads each item on demand; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
-| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a stack pinned at 1 MiB on threads the engine creates; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases, sync-folder load cases and harness protocol cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
+| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a stack pinned at 1 MiB on threads the engine creates; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases, sync-folder load cases, compile cases and harness protocol cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
 | [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and large messages in base64 part streams; validated entrypoint names; a shared-process failure model (handlers that never exit, attribution without guessing, D9–D11); `fetch` as the only platform transport in warm processes (other transports refused, unrecorded); no in-flight cap unless a host sets one (D15); host mode never tainted, drained by the host, and killed by the engine's watchdog when its event loop stops answering. |
 | [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
 | [0006 Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition. |
@@ -98,8 +101,12 @@ Recording batches E3a to E3e record them on the oracle (E3e holds the
 contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
-keeps both readings. Batch E3d recorded CF-12 and FX-40 as reading (b), the
-default each already had (request 5 below).
+keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
+and FX-33 (Q-FX-19), both for the stated default. It also found one
+confirmed finding contradicted, the id of a failure module copied into an
+inline body (FX-34, FX-32). 0001 §6 gives the results. Batch E3d
+recorded CF-12 and FX-40 as reading (b), the default each already had
+(request 6 below).
 
 ## Requests to the semantics team
 
@@ -136,7 +143,41 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
-5. **Batch E3d's recordings**
+5. **Fold in recording batch E3c.** E3c recorded the catalogue cases of
+   FX-12 to FX-15, FX-30 to FX-38 (FX-36's executor part), FX-V6/a and
+   FX-10/a on the CE oracle (`conformance/flows/execution`, oracle run
+   40685766017; FX-34/a's step-id run, run 40689442792). Every catalogue
+   expectation it recorded held but one. A failure module copied into an
+   inline body keeps its own id, `failure`, in its status and in
+   `WM_FLOW_STEP_ID`; FX-34 (`failure-0-0`) and FX-32 say it is suffixed
+   with the parent cursor and the iteration. Please correct both findings;
+   [0001](0001-equivalence-contract.md) §6 lists the recorded behaviour.
+   The reference still tags the recorded cases `source-derived` or
+   `disputed`. Two disputes are now settled for their corrections: Q-FX-15
+   (FX-V6) and Q-FX-19 (FX-33, SR-1). The recordings also show behaviour
+   the reference does not state:
+   - CE refuses a third workspace besides `admins`, so a fresh workspace per
+     fixture ([OR-6](../semantics/oracle.md#or-6)) means deleting each one
+     after its runs;
+   - an empty flow's status holds one `Success` entry with id `failure` and
+     a nil job ([FX-3](../semantics/execution.md#fx-3));
+   - a completed `branchall` entry has no `branchall` field. Failure-module
+     and preprocessor jobs are of kind `preview`, branch bodies
+     `flowpreview` and loop bodies `flownode`
+     ([OR-11](../semantics/oracle.md#or-11), [OR-28](../semantics/oracle.md#or-28));
+   - a failure module whose retry its `skip_if` skips runs an identity job
+     that is not marked skipped ([FX-17](../semantics/execution.md#fx-17),
+     [FX-32](../semantics/execution.md#fx-32));
+   - a preprocessor runs on a run-API start, and its job stores the args
+     `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}`
+     ([FX-35](../semantics/execution.md#fx-35));
+   - the exact error texts ([Q-FX-13](../semantics/execution.md#q-fx-13)).
+     An input-transform error continues `QuickJS evaluation error: Error: …`
+     with the engine's frames ([FX-14](../semantics/execution.md#fx-14)).
+     Chaining errors end in Rust location suffixes, and at a child flow's
+     pickup the message starts `Error: Error: ` and carries two suffixes
+     ([FX-15](../semantics/execution.md#fx-15)).
+6. **Batch E3d's recordings**
    ([conformance/flows/control-flow](../../conformance/flows/control-flow),
    [conformance/flows/execution/fx-40](../../conformance/flows/execution/fx-40)):
    the CF-2 to CF-15 and FX-40 cases they record can become

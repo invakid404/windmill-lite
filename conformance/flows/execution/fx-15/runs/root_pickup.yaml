@@ -1,0 +1,14 @@
+# FX-15/b: context 2. The negative timeout fails module a at the root
+# pickup with an Anyhow error, and the failure module runs. Module a
+# never got a job: its entry is a Failure with a nil job.
+spec: [FX-15/b]
+target: f/wl_fx15/root_pickup
+expect:
+  status: failure
+  result: {n: Anyhow, m: "Error: Timeout value cannot be negative @worker.rs:3822:13"}
+  steps:
+    "m:a": {status: failure, ran: false}
+    "s:failure":
+      status: success
+      args: {e: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}
+      result: {n: Anyhow, m: "Error: Timeout value cannot be negative @worker.rs:3822:13"}

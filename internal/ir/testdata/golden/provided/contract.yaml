@@ -1,0 +1,11 @@
+roots:
+  - flow: f/app/root
+provided:
+  - selector: {flow: f/app/root, module: permit}
+    provider: permitCheck
+    mandatory: true
+  - selector: {script: f/app/audit_log}
+    static: {logged: true}
+    mandatory: true
+host_modules:
+  - f/app/scope.ts

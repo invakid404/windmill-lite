@@ -1,0 +1,13 @@
+# FX-12/d: the flow fails with the failure module's result "H", not
+# {"error": "H"} (FX-33, FX-36: the failure module ran).
+spec: [FX-12/d, FX-36]
+target: f/wl_fx12/handled
+expect:
+  status: failure
+  result: H
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {}, result: H}

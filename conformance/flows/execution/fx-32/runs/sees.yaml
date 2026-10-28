@@ -1,0 +1,28 @@
+# FX-32/a: x and y are a's wrapped error, e its inner error, and the
+# handler's WM_FLOW_STEP_ID is its own id.
+spec: [FX-32/a]
+target: f/wl_fx32/sees
+expect:
+  status: failure
+  result:
+    x: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    y: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    e: {message: x, name: Error, stack: "<stack>", step_id: a}
+    sid: failure
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:b": {status: not_run}
+    "s:failure":
+      status: success
+      args:
+        x: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+        y: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+        e: {message: x, name: Error, stack: "<stack>", step_id: a}
+      result:
+        x: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+        y: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+        e: {message: x, name: Error, stack: "<stack>", step_id: a}
+        sid: failure
