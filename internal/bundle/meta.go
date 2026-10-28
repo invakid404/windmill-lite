@@ -30,8 +30,18 @@ type ScriptMeta struct {
 	// bundle uses (D12).
 	HostModules []string `json:"host_modules"`
 	// Metafile is the bundler's metafile, with paths relative to the
-	// dependency set's directory.
+	// dependency set's directory; for a codebase script, esbuild's inputs,
+	// with paths relative to the sync root.
 	Metafile json.RawMessage `json:"metafile,omitempty"`
+	// Bundler is "esbuild" for a codebase script (BuildCodebase), whose
+	// module the harness loads from its working directory; empty for a
+	// module of the Bun build.
+	Bundler string `json:"bundler,omitempty"`
+	// Format is a codebase script's module format: "cjs", whose module is
+	// scripts/bun/<id>.cjs, or "esm". Empty means ESM, the Bun build's.
+	Format Format `json:"format,omitempty"`
+
+	esbuildWarnings []string
 }
 
 // Annotations are a script's leading-comment flags (WR-31).

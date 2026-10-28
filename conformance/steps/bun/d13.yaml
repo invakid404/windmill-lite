@@ -1,0 +1,189 @@
+# D13 (ADR 0001 §5, ADR 0002): codebase scripts built as CommonJS run on
+# Bun's CommonJS loader, not on Node as Windmill runs them (WR-30, WR-50).
+# Each case is a codebase script that esbuild bundles as CommonJS (its
+# codebases entry has no format, WR-47). wltest check runs the bundle on
+# the Bun harness, and, given Node (--node, WL_NODE), runs the same bundle
+# file on Node in a job directory laid out as Windmill's Node path lays
+# one out (main.js beside a package.json of {}, the entry's assets at
+# their paths), with the harness's own wrapper rules, so that the two
+# sides differ only in the runtime and its module loader. A run's own
+# check holds on both; `node` gives what Node shows where the two differ.
+# The differences found: the runtime itself is visible (globalThis.Bun,
+# process.versions.bun), and the default export of a module built from
+# ES module source is the module's default on Bun but the whole exports
+# object on Node.
+finding: D13
+scope: core
+cases:
+  - spec: WR-47/a
+    provenance: source-derived
+    title: an absent format builds CommonJS, which Windmill runs on Node and windmill-lite on Bun
+    note: >-
+      The catalogue's expectation, "undefined", is Node's; on the Bun
+      harness the global Bun exists. This is D13 itself.
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_runtime
+    script: |
+      export function main() { return typeof (globalThis as any).Bun; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: object}
+        node: {expect: {status: success, result: undefined}}
+  - spec: WR-49/a
+    provenance: source-derived
+    title: an asset is extracted beside the bundle, into the working directory, where the script reads it
+    note: >-
+      The spawned harness extracts the bundle's assets into its working
+      directory before any module loads; Node's job directory holds the
+      asset as Windmill unpacks it (WR-50).
+    codebase:
+      relative_path: f/wl_step
+      assets: [{from: f/wl_step/data/a.txt, to: data/a.txt}]
+    files:
+      f/wl_step/data/a.txt: asset
+    path: f/wl_step/cb_asset
+    script: |
+      import { readFileSync } from "node:fs";
+      export function main() { return readFileSync("data/a.txt", "utf8"); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: asset}
+  - spec: D13
+    variant: named-exports
+    provenance: policy
+    title: esbuild's CommonJS shape exposes the same named exports on Node and on Bun, main and an override's
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_exports
+    script: |
+      export async function main(a: number, when: Date) { return { next: a + 1, year: when.getUTCFullYear() }; }
+      export function other(x: string) { return `other ${x}`; }
+      export const arrow = () => "arrow";
+    runs:
+      - args: '{"a":1,"when":"2026-01-02T00:00:00Z"}'
+        expect: {status: success, result: {next: 2, year: 2026}}
+      - args: '{"x":"y","_ENTRYPOINT_OVERRIDE":"other"}'
+        expect: {status: success, result: other y}
+      - args: '{"_ENTRYPOINT_OVERRIDE":"arrow"}'
+        expect: {status: success, result: arrow}
+  - spec: D13
+    variant: default-export
+    provenance: policy
+    title: an override naming default calls the module's default export on Bun, and finds the whole exports object on Node
+    note: >-
+      esbuild marks the CommonJS output of ES module source with
+      __esModule. Bun's loader honours it, so the default import is the
+      source's default export; Node's makes the default import the whole
+      module.exports object, which is not a function. A script that works
+      on Windmill does not rely on it.
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_default
+    script: |
+      export default function () { return "default"; }
+      export function main() { return "main"; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: main}
+      - args: '{"_ENTRYPOINT_OVERRIDE":"default"}'
+        expect: {status: success, result: default}
+        node:
+          claims:
+            - {at: /status, equals: failure}
+            - {at: /result/error/name, equals: Error}
+            - {at: /result/error/message, equals: default function is missing}
+  - spec: D13
+    variant: module-paths
+    provenance: policy
+    title: __dirname is the working directory, where the assets are, and the bundle's own require resolves from it
+    note: >-
+      Windmill places the bundle as main.js in the job directory, its
+      working directory (WR-50); the harness loads a codebase module from
+      a copy in its working directory, so __dirname, a run-time require of
+      a relative path (a JSON asset here) and a require of the bundle's
+      own file agree. Only the file's name differs (main.js on Windmill).
+    codebase:
+      relative_path: f/wl_step
+      assets: [{from: f/wl_step/data/conf.json, to: data/conf.json}]
+    files:
+      f/wl_step/data/conf.json: '{"k": 7}'
+    path: f/wl_step/cb_paths
+    script: |
+      import { join } from "node:path";
+      declare const require: (p: string) => any;
+      declare const module: { exports: unknown };
+      declare const __dirname: string;
+      declare const __filename: string;
+      export function main() {
+        const name = "./data/conf.json";
+        return [
+          __dirname === process.cwd(),
+          require(join(__dirname, "data", "conf.json")).k,
+          require(name).k,
+          require(__filename) === module.exports,
+          typeof require("node:fs").readFileSync,
+          __filename.endsWith("js"),
+        ];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [true, 7, 7, true, function, true]}
+  - spec: D13
+    variant: thrown-error
+    provenance: policy
+    title: an error the entrypoint throws is stored alike, its class name and extra fields included
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_throw
+    script: |
+      class AppError extends Error {
+        code = 42;
+        constructor(message: string) { super(message); this.name = "AppError"; }
+      }
+      export function main() { throw new AppError("boom"); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, name: AppError, stack: "<stack>", step_id: a, extra: {code: 42}}}}
+  - spec: D13
+    variant: load-failure
+    provenance: policy
+    title: a throw while the bundle loads escapes the wrapper on both, before the entrypoint runs
+    note: >-
+      The escaped text is the last 600 characters of the error's stack
+      (WR-20), whose frames differ between the runtimes. Bun's stack is
+      short enough to keep the message; Node's loader adds about ten
+      frames, which push it out, so Node's claims leave it out.
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_load
+    script: |
+      const ready = (globalThis as any).wlNeverSet;
+      if (!ready) throw new Error("not ready at load");
+      export function main() { return "unreachable"; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+          - {at: /result/error/message, contains: ["Error: not ready at load"]}
+          - {at: /result/error/exit_code, equals: 1}
+        node:
+          claims:
+            - {at: /status, equals: failure}
+            - {at: /result/error/name, equals: ExecutionErr}
+            - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
+            - {at: /result/error/message, not_contains: [unreachable]}
+            - {at: /result/error/exit_code, equals: 1}
+  - spec: D13
+    variant: runtime-identity
+    provenance: policy
+    title: a script can tell the runtimes apart
+    note: >-
+      process.versions.bun exists only on Bun. Bun reports a Node version
+      of its own, and Windmill's image installs Node 20 (WR-50), so the
+      two process.version values differ as well.
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_identity
+    script: |
+      export function main() { return [typeof process.versions.bun, typeof process.version, typeof Buffer]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [string, string, function]}
+        node: {expect: {status: success, result: [undefined, string, function]}}

@@ -31,6 +31,18 @@ func bunOrSkip(t *testing.T) string {
 	return bun
 }
 
+// nodeOrSkip returns the Node of WL_NODE, which runs CommonJS codebase
+// bundles as Windmill does (D13), or "" when it is not set; with
+// WL_REQUIRE_NODE set, as CI sets it, a missing Node fails the test.
+func nodeOrSkip(t *testing.T) string {
+	t.Helper()
+	node := os.Getenv("WL_NODE")
+	if node == "" && os.Getenv("WL_REQUIRE_NODE") != "" {
+		t.Fatal("WL_REQUIRE_NODE is set but WL_NODE is not")
+	}
+	return node
+}
+
 func repo(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs("../..")
@@ -42,9 +54,16 @@ func repo(t *testing.T) string {
 
 // TestStepSuite is milestone C3a's exit gate: every step case of
 // conformance/steps passes in warm mode, through the real Bun harness on
-// the pinned Bun, each script built by the Bun build helper.
+// the pinned Bun, each script built by the Bun build helper or, for a
+// codebase script, by esbuild. With WL_NODE it is also milestone C2b's D13
+// gate: each CommonJS codebase bundle runs on Node too, as on Windmill,
+// and shows its node check there.
 func TestStepSuite(t *testing.T) {
 	bun := bunOrSkip(t)
+	node := nodeOrSkip(t)
+	if node == "" {
+		t.Log("WL_NODE is not set: CommonJS codebase bundles run on the Bun harness only (D13's Node side is skipped)")
+	}
 	files, err := conformance.FindStepFiles(stepsDir)
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +71,7 @@ func TestStepSuite(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no step files")
 	}
-	sc := &stepChecker{bun: bun, repo: repo(t), mode: conformance.ModeWarm}
+	sc := &stepChecker{bun: bun, node: node, repo: repo(t), mode: conformance.ModeWarm}
 	n := 0
 	for _, path := range files {
 		f, err := conformance.LoadStepFile(path)
@@ -153,6 +172,77 @@ cases:
 		"run 1: /result/error/stack: \"actual data\" != \"expected data\"",
 		"pass wr-6-c ",
 		"1 passed, 4 failed (mode warm)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// The Node side of a CommonJS codebase case (D13) is compared too: a run
+// whose node check, or own check, does not hold on Node fails, and a case
+// that holds on both passes.
+func TestStepCheckerReportsNodeDifferences(t *testing.T) {
+	bun := bunOrSkip(t)
+	node := nodeOrSkip(t)
+	if node == "" {
+		t.Skip("WL_NODE is not set")
+	}
+	dir := filepath.Join(t.TempDir(), "steps", "bun")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "d13.yaml")
+	if err := os.WriteFile(path, []byte(`finding: D13
+scope: core
+cases:
+  - spec: D13
+    variant: wrong-node
+    provenance: policy
+    title: a wrong node check
+    codebase: {relative_path: f/wl_step}
+    script: |
+      export function main() { return typeof (globalThis as any).Bun; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: object}
+        node: {expect: {status: success, result: object}}
+  - spec: D13
+    variant: unstated-difference
+    provenance: policy
+    title: a difference no node check states
+    codebase: {relative_path: f/wl_step}
+    script: |
+      export function main() { return typeof process.versions.bun; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: string}
+  - spec: D13
+    variant: agree
+    provenance: policy
+    title: a case that holds on both
+    codebase: {relative_path: f/wl_step}
+    script: |
+      export function main(a: number) { return a * 2; }
+    runs:
+      - args: '{"a":2}'
+        expect: {status: success, result: 4}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"check", "--bun", bun, "--node", node, "--repo", repo(t), path}, &stdout, &stderr)
+	out := stdout.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\n%s%s", code, out, stderr.String())
+	}
+	for _, want := range []string{
+		"fail d13-wrong-node ",
+		`run 1 on node: /result: "undefined" != "object"`,
+		"fail d13-unstated-difference ",
+		`run 1 on node: /result: "undefined" != "string"`,
+		"pass d13-agree ",
+		"1 passed, 2 failed (mode warm)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

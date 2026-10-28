@@ -32,7 +32,10 @@ export type EntryRequest = {
 
 export type Request = {
   version: 1;
-  op: "scan" | "build";
+  // scan: the host-provided modules' exports; build: every module; parse:
+  // only what the source of each entry records, for codebase scripts,
+  // which esbuild bundles in Go (C2b).
+  op: "scan" | "build" | "parse";
   require_bun?: string;
   folder: string;
   work: string;

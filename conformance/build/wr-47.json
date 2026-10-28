@@ -1,0 +1,265 @@
+{
+  "finding": "WR-47",
+  "scope": "core",
+  "note": "How the pinned CLI bundles a codebase script, reproduced through esbuild's Go API at 0.28.0 (bundle.BuildCodebase, milestone C2b). Each case is a whole sync folder with one codebases entry, built by bundle.Build; cases that run call the built module on the pinned Bun. Which runtime a CommonJS bundle runs on is deviation D13, whose cases (Node against the Bun harness) are in steps/bun/d13.yaml.",
+  "cases": [
+    {
+      "spec": "WR-47/a",
+      "provenance": "source-derived",
+      "title": "an absent format builds CommonJS",
+      "part": "build",
+      "rest_in": "the step suite (steps/bun/d13.yaml) runs the bundle on Node and on the Bun harness (D13)",
+      "note": "The module is scripts/bun/<id>.cjs, in esbuild's CommonJS shape, with the export-name annotation Node's loader reads.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/runtime.ts": "export function main() { return typeof (globalThis as any).Bun; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/runtime": {
+            "format": "cjs",
+            "bundle_contains": [
+              "module.exports = __toCommonJS(runtime_exports);",
+              "0 && (module.exports = {\n  main\n});"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-47/b",
+      "provenance": "source-derived",
+      "title": "format: esm builds ES module output, which runs on Bun",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    format: esm\n",
+          "f/cb/runtime.ts": "export function main() { return typeof (globalThis as any).Bun; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/runtime": {
+            "format": "esm",
+            "bundle_contains": [
+              "export {\n  main\n};"
+            ],
+            "bundle_not_contains": [
+              "module.exports"
+            ]
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/runtime",
+              "result": "object"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47/c",
+      "provenance": "source-derived",
+      "title": "define is applied",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    define: {\"__MODE__\": \"\\\"lite\\\"\"}\n",
+          "f/cb/mode.ts": "declare const __MODE__: string;\nexport function main() { return __MODE__; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/mode",
+              "result": "lite"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47/d",
+      "provenance": "source-derived",
+      "title": "inject supplies a free identifier",
+      "note": "Inject paths resolve against the sync root, the CLI's working directory. The injected file is a script of the entry too, built on its own.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    inject: [\"f/cb/shim.ts\"]\n",
+          "f/cb/shim.ts": "export const answer = 42;\n",
+          "f/cb/inject.ts": "declare const answer: number;\nexport function main() { return answer; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/inject",
+              "result": 42
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47/e",
+      "provenance": "source-derived",
+      "title": "a loader map is applied",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    loader: {\".txt\": \"text\"}\n",
+          "f/cb/note.txt": "hi",
+          "f/cb/text.ts": "import note from \"./note.txt\";\nexport function main() { return note; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/text",
+              "result": "hi"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47/f",
+      "provenance": "source-derived",
+      "title": "banner is prepended",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    banner: {js: \"globalThis.__banner = 1;\"}\n",
+          "f/cb/banner.ts": "export function main() { return (globalThis as any).__banner; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/banner": {
+            "first_line": "globalThis.__banner = 1;"
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/banner",
+              "result": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47",
+      "variant": "packages-inlined",
+      "provenance": "source-derived",
+      "title": "npm packages are inlined from the folder's node_modules, with no lock",
+      "note": "Packages are bundled (packages: bundle, WR-47), and a codebase script has no lock (SY-8), so the build installs nothing and asks for no lock.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "node_modules/fixture-cb/package.json": "{\"name\":\"fixture-cb\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "node_modules/fixture-cb/index.js": "exports.tag = \"inlined\";\n",
+          "f/cb/pkg.ts": "import { tag } from \"fixture-cb\";\nexport function main() { return tag; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/pkg": {
+            "format": "cjs",
+            "bundle_contains": [
+              "node_modules/fixture-cb/index.js"
+            ]
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/pkg",
+              "result": "inlined"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-47",
+      "variant": "signature-from-source",
+      "provenance": "source-derived",
+      "title": "the signatures of a codebase script's exports are parsed from its source",
+      "note": "Windmill parses the script's content, which the push sends with the bundle (SY-8); the Bun helper's parse records it, as for any Bun script: Date marking (WR-8), a destructured parameter as anonN (WR-7), no parameters for an arrow export (WR-6).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/sig.ts": "export async function main(a: number, when: Date, { x }: { x: string }) { return a; }\nexport const other = (y: string) => y;\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/sig": {
+            "exports": [
+              "main",
+              "other"
+            ],
+            "signatures": {
+              "main": {
+                "params": [
+                  {
+                    "name": "a",
+                    "date": false
+                  },
+                  {
+                    "name": "when",
+                    "date": true
+                  },
+                  {
+                    "name": "anon1",
+                    "date": false
+                  }
+                ]
+              },
+              "other": {
+                "params": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-47",
+      "variant": "format-other",
+      "provenance": "policy",
+      "title": "a format other than cjs or esm is refused",
+      "note": "WR-47 names only cjs and esm; the CLI passes any other value to esbuild, and Windmill runs every bundle without .esm as CommonJS on Node.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    format: iife\n",
+          "f/cb/x.ts": "export function main() { return 1; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "script f/cb/x",
+            "kind": "bundle_failed",
+            "contains": [
+              "format \"iife\""
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

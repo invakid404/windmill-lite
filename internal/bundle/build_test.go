@@ -93,9 +93,11 @@ func TestBuildFixture(t *testing.T) {
 		}
 	}
 	wantFiles := []string{
+		"assets/data/greeting.txt",
 		"data/resource_types.json", "data/resources.json", "data/variables.json",
 		"ir.json",
 		"scripts/bun/f/app/report.meta.json", "scripts/bun/f/app/report.mjs",
+		"scripts/bun/f/cb/stamp.cjs", "scripts/bun/f/cb/stamp.meta.json",
 		"scripts/bun/" + inline + ".meta.json", "scripts/bun/" + inline + ".mjs",
 		"scripts/bun/provided/f/shared/ctx.mjs", "scripts/bun/provided/shims/f/shared/ctx.mjs",
 	}
@@ -103,13 +105,15 @@ func TestBuildFixture(t *testing.T) {
 	if got := sortedKeys(m.Files); !slices.Equal(got, wantFiles) {
 		t.Errorf("files %q, want %q", got, wantFiles)
 	}
-	// The sources: what the compiler read, the scripts the bundles inline
-	// and the host-provided module. Not the folder's other files, and not
-	// the secret's.
+	// The sources: what the compiler read, the scripts the bundles inline,
+	// the host-provided module, and what esbuild read for the codebase
+	// script with its asset. Not the folder's other files, and not the
+	// secret's.
 	wantSources := []string{
 		"c_settings.resource-type.yaml", "f/app/format.ts", "f/app/main.flow/flow.yaml",
 		"f/app/main.flow/greet.ts", "f/app/region.variable.yaml", "f/app/report.ts",
-		"f/app/settings.resource.yaml", "f/shared/ctx.ts", "wmill.yaml",
+		"f/app/settings.resource.yaml", "f/cb/greeting.txt", "f/cb/lib/suffix.ts", "f/cb/stamp.ts",
+		"f/shared/ctx.ts", "wmill.yaml",
 	}
 	if got := sortedKeys(m.Sources); !slices.Equal(got, wantSources) {
 		t.Errorf("sources %q, want %q", got, wantSources)
@@ -124,13 +128,13 @@ func TestBuildFixture(t *testing.T) {
 	if m.Format != FormatVersion || m.Engine.Version != fixtureEngine || m.Engine.ExpressionStackBytes != 1<<20 {
 		t.Errorf("format and engine: %d, %+v", m.Format, m.Engine)
 	}
-	if m.Bundlers.Bun != harness.PinnedBun || m.NonconformantRuntime {
+	if m.Bundlers.Bun != harness.PinnedBun || m.Bundlers.Esbuild != EsbuildVersion || m.NonconformantRuntime {
 		t.Errorf("bundlers %+v, nonconformant %v", m.Bundlers, m.NonconformantRuntime)
 	}
 	if m.ModuleState != engine.ModuleStateWarm {
 		t.Errorf("module state %q", m.ModuleState)
 	}
-	if want := []string{"D1", "D2", "D3", "D8", "D9", "D10", "D11", "D12", "D14"}; !slices.Equal(m.Deviations, want) {
+	if want := []string{"D1", "D2", "D3", "D8", "D9", "D10", "D11", "D12", "D13", "D14"}; !slices.Equal(m.Deviations, want) {
 		t.Errorf("deviations %q, want %q", m.Deviations, want)
 	}
 	if want := []HostModuleEntry{{Key: "f/shared/ctx.ts", ID: "f/shared/ctx"}}; !slices.Equal(m.HostModules, want) {
@@ -139,7 +143,7 @@ func TestBuildFixture(t *testing.T) {
 	if want, _ := TreeDigest(cfg.HarnessRuntime); m.HarnessRuntimes["bun"] != want || len(m.HarnessRuntimes) != 1 {
 		t.Errorf("harness runtimes %v, want bun %s", m.HarnessRuntimes, want)
 	}
-	if len(m.Contract.Roots) != 2 || !slices.Equal(m.Contract.HostModules, []string{"f/shared/ctx.ts"}) {
+	if len(m.Contract.Roots) != 3 || !slices.Equal(m.Contract.HostModules, []string{"f/shared/ctx.ts"}) {
 		t.Errorf("contract %+v", m.Contract)
 	}
 
@@ -186,15 +190,18 @@ func TestBuildFixture(t *testing.T) {
 	}
 
 	// The modules run, sharing the host-provided module's one instance: the
-	// inline step stores the name that the report reads.
+	// inline step stores the name that the report and the codebase script
+	// read.
 	scripts := filepath.Join(cfg.Out, "scripts", "bun")
-	results := runModules(t, bun, map[string]string{},
+	results := runModules(t, bun, map[string]string{"WL_FIXTURE": "view"},
 		[][2]string{{"f/shared/ctx.ts", filepath.Join(scripts, "provided", "f", "shared", "ctx.mjs")}},
 		[]call{
 			{Module: filepath.Join(scripts, inline+".mjs"), Export: "main", Args: []any{"fixture"}},
 			{Module: filepath.Join(scripts, "f", "app", "report.mjs"), Export: "main", Args: []any{2, "2026-01-01T00:00:00Z"}},
+			{Module: filepath.Join(scripts, "f", "cb", "stamp.cjs"), Export: "main", Args: []any{"cb"}},
 		})
-	want := []string{`"[hello, fixture]"`, `{"text":"[fixture]","count":2,"when":"2026-01-01T00:00:00Z"}`}
+	want := []string{`"[hello, fixture]"`, `{"text":"[fixture]","count":2,"when":"2026-01-01T00:00:00Z"}`,
+		`{"tag":"cb!","last":"fixture","kind":"codebase","env":"view"}`}
 	for i, r := range results {
 		if r.Error != nil {
 			t.Errorf("call %d: %s", i, *r.Error)
@@ -307,6 +314,10 @@ func TestDigestFollowsInputs(t *testing.T) {
 		{"a lock", write("f/app/report.script.lock", "{}\n//bun.lock\n<empty>"), true},
 		{"a resource", edit("f/app/settings.resource.yaml", "retries: 3", "retries: 4"), true},
 		{"the host-provided module's metadata", write("f/shared/ctx.script.yaml", "summary: the shared context\n"), true},
+		{"a codebase script", edit("f/cb/stamp.ts", "tag + suffix()", "suffix() + tag"), true},
+		{"a module a codebase script imports", edit("f/cb/lib/suffix.ts", `"!"`, `"?"`), true},
+		{"a codebase entry's define", edit("wmill.yaml", `'"codebase"'`, `'"other"'`), true},
+		{"a codebase asset", edit("f/cb/greeting.txt", "hello", "hi"), true},
 		// A secret's file is not a source: its digest would let a reader of
 		// the manifest test guesses of a plain-text value.
 		{"a secret variable", edit("f/app/token.variable.yaml", "synthetic-not", "other-synthetic-not"), false},
@@ -386,14 +397,6 @@ func TestBuildRefusesUnbuilt(t *testing.T) {
 		kind     string
 		message  string
 	}{
-		"codebase script": {
-			files: map[string]string{
-				"wmill.yaml":     "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: ['f/cb/**']\n",
-				"f/cb/entry.ts":  "export async function main() { return 1; }\n",
-				"f/app/plain.ts": "export async function main() { return 2; }\n",
-			},
-			item: "script f/cb/entry", message: "unsupported: codebase script",
-		},
 		"host-provided module that does not read": {
 			files: map[string]string{
 				"wmill.yaml":            "defaultTs: bun\n",
