@@ -50,7 +50,8 @@ server. Struct decoding follows the serde rules the effective decoder uses:
 4. **Null versus omission.** Optional fields, and every field of a module
    value, treat null as absent. Fields with a plain default reject null:
    branch `expr`, `skip_failure` and `parallel`, `same_worker`,
-   `preserve_step_tags`, the retry sub-fields and an envelope's `id`.
+   `preserve_step_tags`, the retry sub-fields other than `random_factor`,
+   and an envelope's `id`.
 5. **Integers** are JSON integer literals within the field's width (`i8`,
    `i16`, `i32`, `u16`, `u32`, and `i64` for the debouncing fields); `1.0`,
    `1e3` and `-0` are floating point and rejected.
@@ -97,7 +98,7 @@ flowchart LR
 | `ErrModule` | a module value, with the envelopes of its body modules | `Module '<id>': …` |
 | `ErrRetryBase` | exponential retry with attempts and a zero base | `Module '<id>': Exponential backoff base (seconds) must be greater than 0. …` |
 | `ErrStepPath` | non-empty script or flow path outside `u/`, `f/`, `g/`, `hub/` | `step '<id>' references '<path>', which is not a workspace path …` |
-| `ErrFlow` | a flow-document field outside `value` | `invalid flow: <pointer>: …` |
+| `ErrFlow` | a flow-document field outside `value` | `invalid flow: …`, with the field's JSON Pointer before the detail |
 | `ErrEEOnly` | `ws_error_handler_muted: true` | windmill-lite's own text |
 | `ErrSyntax` | the input is not JSON | `invalid JSON: …` |
 

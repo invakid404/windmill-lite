@@ -1,8 +1,10 @@
 # windmill-lite design
 
-**Current state:** first edition, proposed. Nothing in the repository
-implements these records yet. This README covers `docs/design/`: this index
-and the decision records it links. The records decide the architecture, the
+**Current state:** first edition, proposed. Milestone A3 implements the
+OpenFlow decoder of [0002](0002-ir-and-loader.md) in
+[internal/openflow](../../internal/openflow/README.md); nothing else in the
+repository implements these records yet. This README covers `docs/design/`:
+this index and the decision records it links. The records decide the architecture, the
 equivalence contract with Windmill `v1.767.0`, the Go package layout and the
 implementation milestones. They build on the
 [semantics reference](../semantics/README.md) and cite its finding IDs.
