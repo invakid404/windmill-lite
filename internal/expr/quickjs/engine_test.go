@@ -445,6 +445,53 @@ func TestForeignPrograms(t *testing.T) {
 	}
 }
 
+// TestPreludes covers the preludes of expr.Input: they run in order, after
+// the bindings and before the program, on the program's context, so their
+// top-level lexical declarations are global bindings the program sees but
+// globalThis does not hold (JE-10). A prelude that throws ends the
+// evaluation before the program runs, and a prelude must be the engine's
+// own.
+func TestPreludes(t *testing.T) {
+	e := newEngine(t, Options{Slots: 1})
+	in := expr.Input{
+		Strings: []expr.HostString{{Name: "flow_input", Text: []byte(`{"n":2}`)}},
+		Preludes: []expr.Program{
+			compile(t, e, `globalThis.flow_input = JSON.parse(flow_input); const order = ["first"];`),
+			compile(t, e, `order.push("second"); let doubled = flow_input.n * 2;`),
+		},
+	}
+	got := mustRun(t, e, `JSON.stringify([order, doubled, typeof globalThis.order, typeof globalThis.doubled, flow_input])`, in)
+	if want := `[["first","second"],4,"undefined","undefined",{"n":2}]`; got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+
+	ran := false
+	in = expr.Input{
+		Funcs:    []expr.HostFunc{hostFunc("mark", func(context.Context, string) ([]byte, error) { ran = true; return []byte("x"), nil })},
+		Preludes: []expr.Program{compile(t, e, `throw new TypeError("in the prelude")`)},
+	}
+	_, err := run(t, e, `mark("")`, in)
+	var ex *expr.Exception
+	if !errors.As(err, &ex) || ex.Name != "TypeError" || ex.Message != "in the prelude" || ran {
+		t.Fatalf("a throwing prelude: %v (the program ran: %v)", err, ran)
+	}
+
+	other := newEngine(t, Options{Slots: 1})
+	in = expr.Input{Preludes: []expr.Program{compile(t, other, `1`)}}
+	if _, err := run(t, e, `"x"`, in); !errors.Is(err, errForeign) {
+		t.Fatalf("a foreign prelude: %v", err)
+	}
+}
+
+func TestCLibrary(t *testing.T) {
+	want := map[string]string{"darwin": "apple", "linux": "glibc or musl"}[runtime.GOOS]
+	got := CLibrary()
+	if want == "" || !strings.Contains(want, got) {
+		t.Errorf("CLibrary() = %q on %s", got, runtime.GOOS)
+	}
+	t.Logf("the engine's C library: %s", got)
+}
+
 func TestClose(t *testing.T) {
 	e, err := New(Options{Slots: 1})
 	if err != nil {

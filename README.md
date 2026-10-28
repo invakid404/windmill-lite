@@ -45,10 +45,11 @@ runs on two milestones no other command uses: the jsonb canonicaliser in
 protocol between the engine ([internal/harness](internal/harness/README.md))
 and a skeleton Bun harness ([harnesses/bun](harnesses/bun/README.md)), which
 runs one exported function of a bundled module per step but not yet with
-Windmill's wrapper rules. No command uses B2a yet: the textual stages and
-shortcuts of the expression pipeline in
-[internal/expr](internal/expr/README.md), tested on a fake engine until B2b
-runs them on QuickJS-ng. The last six are the oracle's: E2, the oracle
+Windmill's wrapper rules. No command uses B2a and B2b yet: the expression
+pipeline in [internal/expr](internal/expr/README.md), whose textual stages
+and shortcuts (B2a) run on QuickJS-ng with Windmill's program around each
+expression, its serialisation and its error texts (B2b), held to every
+expression that batch E3a recorded. The last six are the oracle's: E2, the oracle
 harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
 which records synthetic flow fixtures on an unmodified Windmill CE image in
 public CI; recording batch E3c, which recorded the reference's
@@ -119,7 +120,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-15). |
 | [internal/ir](internal/ir/README.md) | The compiler: a sync folder and a host contract become the program the engine runs, normalised to Windmill's deployed form (container defaults, the native switch, virtual steps), with collapse decided, harness classes, provided sites, occurrences of repeated ids and the script inventory, and validated. |
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
-| [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names) and the evaluator's shortcuts and bindings. It runs on a fake engine; the program on QuickJS-ng and the error texts are B2b's. |
+| [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names), the evaluator's shortcuts and bindings, and the program each expression runs as on QuickJS-ng: its preludes, serialisation, error texts, attempt retries and depth check; the expression suite against the E3a recordings and the budget gate. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a heap on vendored mimalloc, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
 | [internal/engine](internal/engine/README.md) | Contracts of the flow interpreter: the step executor, the hook seams with no-op defaults, the precedence of host signals, and the run trace; and the walking skeleton's interpreter, which runs one sequential flow and which N1a replaces. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture and expression-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator; stub mode's replay table and replay service. |
@@ -149,13 +150,14 @@ helper's parser and `windmill-client@1.767.0` installed, so the harness,
 build and host-mode tests cannot skip; the tests include the image lint and
 the manifest guard), builds a fixture
 bundle twice with `windmill-lite build` and compares the digests and the
-archives, prints a load measurement of the expression engine's pool (report
-only), and runs the unit tests of the helpers in `scripts/`, on Ubuntu and
+archives, prints a load measurement of the expression engine's pool and
+the expression budget gate (report only), and runs the unit tests of the helpers in `scripts/`, on Ubuntu and
 macOS for pull requests and pushes to `main`. Two more jobs run on Linux
 runners. One builds the engine and the expression suite as static musl
 binaries with `zig cc` for `amd64` and `arm64`, checks that they are static,
-runs the suite, starts the engine in an image built `FROM scratch`, and
-compares the expression pool's allocators (report only). The other,
+runs the suite, reports the expression budget gate from those binaries,
+starts the engine in an image built `FROM scratch`, and compares the
+expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
 the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
 job runs the Bun harness's own `bun test`, which is not a required check.

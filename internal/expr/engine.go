@@ -28,10 +28,11 @@ type Engine interface {
 	//
 	// Before the program runs, each HostString is a global property holding
 	// its text as a JavaScript string, and each HostFunc is a global
-	// function; nothing else is defined beyond the engine's built-ins. The
-	// program's completion value must be a string, or a Promise that
-	// settles with one; Eval runs pending jobs until it settles and returns
-	// the string as UTF-8.
+	// function; nothing else is defined beyond the engine's built-ins. Then
+	// each of in.Preludes runs, in order, as a global script of the same
+	// context. The program's completion value must be a string, or a
+	// Promise that settles with one; Eval runs pending jobs until it settles
+	// and returns the string as UTF-8.
 	//
 	// Errors:
 	//   - *Exception: the program threw, or its Promise rejected;
@@ -42,6 +43,10 @@ type Engine interface {
 	//   - context.Cause(ctx), when ctx ended before or during the
 	//     evaluation, which is then interrupted.
 	Eval(ctx context.Context, p Program, in Input) ([]byte, error)
+
+	// Limits returns the per-evaluation limits the engine applies, which
+	// Windmill's time-limit and memory-limit messages quote (JE-2, JE-3).
+	Limits() Limits
 }
 
 // Program is a program compiled by an Engine, for example its bytecode. Only
@@ -50,10 +55,20 @@ type Program any
 
 // Input is what one evaluation binds: context values as host strings that
 // the program parses once (ADR 0003: values are never spliced into source
-// text), and host functions for lookups the program awaits.
+// text), host functions for lookups the program awaits, and the preludes
+// that run before the program.
 type Input struct {
 	Strings []HostString
 	Funcs   []HostFunc
+	// Preludes are programs compiled by the same Engine that run, in order,
+	// after the bindings and before the program, each as a global script of
+	// the evaluation's context. A prelude's top-level let, const and class
+	// declarations are therefore global lexical bindings that the program
+	// sees, which no property of globalThis can give (JE-10). A prelude's
+	// completion value is discarded, and pending jobs do not run between
+	// preludes. A prelude that throws ends the evaluation with its
+	// exception, and the program does not run.
+	Preludes []Program
 }
 
 // HostString is a global string property: Text, a JSON text in practice,

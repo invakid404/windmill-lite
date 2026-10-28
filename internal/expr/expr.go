@@ -13,9 +13,9 @@
 //     expression site (milestones B2a and B2b implement it).
 //
 // Compile runs the textual stages and Pipeline is the Evaluator (milestone
-// B2a). The program around an expression's source on the engine, the
-// serialisation of its value and Windmill's error texts are milestone
-// B2b's; until then a Pipeline runs only on a fake Engine.
+// B2a). On the engine, an expression runs as Windmill's program: preludes
+// that bind its scope, its source, and the serialisation of its value; its
+// failures carry Windmill's error texts (milestone B2b, program.go).
 package expr
 
 import "fmt"
@@ -183,8 +183,8 @@ type Expr struct {
 	// Source is the expression's code on the engine: Trimmed after the
 	// rewrites of JE-11 and JE-12, in the single-line async function that
 	// Mode selects (JE-13, JE-14), called at once. The program the engine
-	// compiles around it, which binds the scope's values and serialises the
-	// value as JSON.stringify(value ?? null) (JE-15), is milestone B2b's.
+	// compiles is Source followed by the serialisation of JE-15, and the
+	// preludes that bind the scope run before it (program.go).
 	Source string `json:"source,omitempty"`
 }
 

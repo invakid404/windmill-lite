@@ -119,6 +119,13 @@ type e3aCase struct {
 	scope      func(t *testing.T) *Scope
 	// check judges a shortcut's answer against the recorded expectation.
 	check func(out jsonval.Value) error
+	// exprs is the context-free case, or unit the flow fixture's unit case,
+	// whose whole expectation the real engine is held to (B2b).
+	exprs *conformance.ExprCase
+	unit  *conformance.UnitCase
+	// recorded are the error messages the oracle recorded where the case's
+	// evaluation can fail: its step's, then its run's.
+	recorded []string
 }
 
 func storedText(t *testing.T, producer string) string {
@@ -234,6 +241,8 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 				text:       *c.Expr,
 				scope:      func(t *testing.T) *Scope { return siteScope(t, site, *c.Expr, ctx) },
 				check:      exprsCheck(t, c.Expect),
+				exprs:      c,
+				recorded:   exprsRecorded(t, path, c),
 			})
 		}
 	}
@@ -247,7 +256,8 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 			t.Fatal(err)
 		}
 		for _, r := range fx.Runs {
-			for _, u := range r.Unit {
+			for i := range r.Unit {
+				u := &r.Unit[i]
 				site := unitSite(u.Input)
 				ctx := caseContext{PreviousID: *u.Context.PreviousID, PreviousResult: u.Context.PreviousResult, FlowInput: u.Context.FlowInput, Results: u.Context.Results}
 				if ctx.FlowInput == nil {
@@ -267,10 +277,54 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 					text:       u.Expr,
 					scope:      func(t *testing.T) *Scope { return siteScope(t, site, u.Expr, ctx) },
 					check:      unitCheck(u.Expect),
+					unit:       u,
+					recorded:   recordedMessages(r.Recorded, u.Site),
 				})
 			}
 		}
 	}
+	return out
+}
+
+// exprsRecorded returns the messages recorded for a context-free case,
+// from conformance/exprs/recorded/<file>/<case>.json, at its step b.
+func exprsRecorded(t *testing.T, path string, c *conformance.ExprCase) []string {
+	t.Helper()
+	stem := strings.TrimSuffix(filepath.Base(path), ".yaml")
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(path), conformance.RecordedDir, stem, c.Name()+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec conformance.Recording
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	return recordedMessages(&rec, "m:b")
+}
+
+// recordedMessages returns the error messages of a recording: the one in
+// the stored result of the step at site, then the run's own.
+func recordedMessages(rec *conformance.Recording, site string) []string {
+	if rec == nil {
+		return nil
+	}
+	var out []string
+	add := func(result json.RawMessage) {
+		var r struct {
+			Error struct {
+				Message *string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(result, &r) == nil && r.Error.Message != nil {
+			out = append(out, *r.Error.Message)
+		}
+	}
+	if at, err := conformance.ParseSitePath(site); err == nil {
+		if st, ok := rec.Observation.Steps[at]; ok {
+			add(st.Result)
+		}
+	}
+	add(rec.Observation.Result)
 	return out
 }
 
@@ -463,8 +517,8 @@ func TestPipelineCases(t *testing.T) {
 				if string(out.Producer()) != fakeAnswer {
 					t.Errorf("the engine answered %s, the pipeline returned %s", fakeAnswer, out.Producer())
 				}
-				if call.source != e.Source {
-					t.Errorf("the engine compiled %q, the expression's source is %q", call.source, e.Source)
+				if call.source != programSource(e) {
+					t.Errorf("the engine ran %q, the expression's program is %q", call.source, programSource(e))
 				}
 				if c.Expect.Text != nil {
 					t.Error("the case expects a shortcut's text, but the engine answered")

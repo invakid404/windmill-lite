@@ -1,20 +1,20 @@
 # internal/expr
 
-**Current state:** the contracts of milestone K1 and the textual pipeline
-and evaluator of milestone B2a
+**Current state:** the contracts of milestone K1, the textual pipeline
+and evaluator of milestone B2a, and their run on the real engine of
+milestone B2b
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/expr` and its `testdata/`, but not its `quickjs/`
 directory. `Compile` runs the textual stages of an expression, and
-`Pipeline` is the evaluator: it answers with a shortcut, or evaluates on an
-`Engine`. The `Engine` is implemented by the QuickJS-ng backend of milestone
-B1a, in [internal/expr/quickjs](quickjs/README.md), but the pipeline does
-not run on it yet: the program around an expression's source, the
-serialisation of its value and Windmill's error texts are milestone B2b's.
-Until then a `Pipeline` runs only on the fake engine of its tests, and
-nothing outside this package calls it. [internal/ir](../ir/README.md)
-still writes each expression with only its site and text; the engine
-milestone N1a decides whether the IR or the engine, when a bundle opens,
-calls `Compile`.
+`Pipeline` is the evaluator: it answers with a shortcut, or runs the
+expression's program on an `Engine`, the QuickJS-ng backend of milestone
+B1a in [internal/expr/quickjs](quickjs/README.md): Windmill's preludes,
+the expression in its wrapper, the serialisation of its value, and
+Windmill's error texts. Nothing outside this package calls it yet.
+[internal/ir](../ir/README.md) still writes each expression with only its
+site and text; the engine milestone N1a decides whether the IR or the
+engine, when a bundle opens, calls `Compile`, and gives the evaluator its
+scopes.
 
 ## Contracts
 
@@ -22,8 +22,9 @@ calls `Compile`.
 |---|---|---|
 | `SiteKind` | the expression sites of [JE-22](../../docs/semantics/expressions.md#je-22) (the suspend site is left out, because `suspend` is rejected at load); `Predicate` marks the boolean sites of [JE-24](../../docs/semantics/expressions.md#je-24) | this package |
 | `Expr`, `Shortcut`, `Mode` | a compiled expression as the IR carries it ([ADR 0002](../../docs/design/0002-ir-and-loader.md)): the text as written, the trimmed text, the shortcuts its text allows ([JE-6](../../docs/semantics/expressions.md#je-6) to [JE-9](../../docs/semantics/expressions.md#je-9)), the mode ([JE-13](../../docs/semantics/expressions.md#je-13)), the bound names ([JE-10](../../docs/semantics/expressions.md#je-10)) and the engine source; its JSON form (snake-case names, the site and mode by name, empty parts omitted) is the one the IR's `ir.json` holds | `Compile` (B2a), from the site and the text that [internal/ir](../ir/README.md) sets |
-| `Engine`, `Program`, `Input`, `Exception`, `Limits` | the JavaScript engine behind a Go interface ([ADR 0003](../../docs/design/0003-semantics-placement.md)): compile once, evaluate on a fresh runtime with host strings and host functions, one attempt's limits | B1a: [internal/expr/quickjs](quickjs/README.md) |
-| `Evaluator`, `Scope`, `Results`, `Helpers` | what the flow interpreter calls at an expression site: the scope of [JE-22](../../docs/semantics/expressions.md#je-22), the results lookups of [JE-18](../../docs/semantics/expressions.md#je-18) and [JE-19](../../docs/semantics/expressions.md#je-19), and the `variable`, `resource` and `flow_user_state` helpers of [JE-20](../../docs/semantics/expressions.md#je-20) | `Pipeline` (B2a; B2b completes its engine path); the engine provides `Scope` and `Results`, and the platform milestones `Helpers` |
+| `Engine`, `Program`, `Input`, `Exception`, `Limits` | the JavaScript engine behind a Go interface ([ADR 0003](../../docs/design/0003-semantics-placement.md)): compile once, evaluate on a fresh runtime with host strings, host functions and preludes (global scripts that run first, B2b), one attempt's limits | B1a: [internal/expr/quickjs](quickjs/README.md) |
+| `Evaluator`, `Scope`, `Results`, `Helpers` | what the flow interpreter calls at an expression site: the scope of [JE-22](../../docs/semantics/expressions.md#je-22), the results lookups of [JE-18](../../docs/semantics/expressions.md#je-18) and [JE-19](../../docs/semantics/expressions.md#je-19), and the `variable`, `resource` and `flow_user_state` helpers of [JE-20](../../docs/semantics/expressions.md#je-20) | `Pipeline` (B2a, B2b); the engine provides `Scope` and `Results`, and the platform milestones `Helpers` |
+| `EvalError`, `ErrOutOfMemory`, `ErrTooDeep` | a failed evaluation with Windmill's text, and its cause | `Pipeline` (B2b) |
 
 ## The textual stages
 
@@ -68,11 +69,14 @@ it depends on a run.
    of `results`, an optional `?`, and `.<name>` or `["…"]` on one line is
    awaited ([JE-12](../../docs/semantics/expressions.md#je-12)). Neither
    knows words, strings or comments. `Source` is the result in the mode's
-   wrapper, called at once: `(async function () { return <code>; })()` or
-   `(async function () { <code> })()`. The wrapper's opening and closing
+   wrapper, called at once: `(async function() { return <code>; })()` or
+   `(async function() { <code> })()`. The wrapper's opening and closing
    text sit on the code's first and last lines, so a trailing `//` comment
    on one line comments the closing text out
-   ([JE-14](../../docs/semantics/expressions.md#je-14)).
+   ([JE-14](../../docs/semantics/expressions.md#je-14)). The wrapper's
+   text is observable in stack frames: the one above puts the code where
+   E3a's recorded stacks place it, at column 28 in expression mode and 21
+   in statement mode.
 
 [Request 8](../../docs/design/README.md) to the semantics team lists the
 details these stages decide where the reference is silent.
@@ -130,29 +134,103 @@ Every host function answers JSON text:
   `flow_user_state` without a results context with `flow_user_state() is
   not available in this context`.
 
-The engine's text is returned as the value's producer text. Its errors (an
-`*Exception`, `ErrAttemptTimeout`, `ErrNotString`) are returned unwrapped.
+The engine's text, `JSON.stringify`'s output, is returned as the value's
+producer text. A failure is an `*EvalError` whose message is Windmill's
+text (below); a context that ends during the evaluation gives its cause.
 
-## What B2b adds
+## The program on the engine
 
-- **The program around `Source`.** It turns the host strings into values
-  and checks their depth
-  ([JE-49](../../docs/semantics/expressions.md#je-49)). It gives the user's
-  code a lexical `results` proxy over the lookup and a lexical `error`
-  derived from `previous_result` (JE-17). It names the helpers, so the
-  host functions are not seen, and serialises the value as
-  `JSON.stringify(value ?? null)`
-  ([JE-15](../../docs/semantics/expressions.md#je-15)).
-- **Windmill's error texts**
-  ([JE-21](../../docs/semantics/expressions.md#je-21)), the attempt
-  retries of [JE-2](../../docs/semantics/expressions.md#je-2), and the
-  out-of-memory reading of [JE-3](../../docs/semantics/expressions.md#je-3).
-- **The budget gate** of ADR 0003.
+`program.go` writes what an evaluation runs (milestone B2b). An evaluation
+runs these global scripts, each named `eval_script`, on one fresh context:
+
+1. **The context prelude**, always. It parses each bound host string in
+   place with `JSON.parse`, so a context value, `flow_input` and `flow_env`
+   are properties of `globalThis` holding values that keep their text's
+   key order, `-0` and a double's precision
+   ([JE-10](../../docs/semantics/expressions.md#je-10),
+   [JE-16](../../docs/semantics/expressions.md#je-16)). It defines
+   `variable`, `resource` and `flow_user_state` on `globalThis`, each
+   awaiting its host function, and removes the host functions. A helper
+   whose host function rejects throws `new Error(<the API's text>)` from
+   its own frame (JE-20).
+2. **The results prelude**, when the evaluation binds the results lookup.
+   It declares the lexical `results`: a proxy over an empty object, so
+   that `JSON.stringify(results)` is `{}`
+   ([JE-12](../../docs/semantics/expressions.md#je-12)), whose symbol keys
+   give `undefined` and whose string keys give a Promise of the step's
+   value (JE-18). A failed read throws the read's text from
+   `__throwOrParse`, called from `__getResult`.
+3. **The error prelude**, when the text mentions `error`. It declares the
+   lexical `error`, derived from `previous_result` by
+   [JE-17](../../docs/semantics/expressions.md#je-17)'s decision list.
+4. **The program**: `Source`, then `.then((v) => JSON.stringify(v ?? null)
+   ?? "null")` on its last line, so a value `JSON.stringify` gives no text
+   for becomes `null`
+   ([JE-15](../../docs/semantics/expressions.md#je-15)).
+
+The preludes take the intrinsics they call later (`JSON.parse`,
+`Promise.prototype.then`, `Reflect.apply`) before the user's code runs. A
+stack frame in an error message gives a position in these scripts, so
+their layout is observable (JE-21). It reproduces the frames E3a recorded:
+`<anonymous> (eval_script:1:1)` and `<eval> (eval_script:1:<29 + length>)`
+for an expression, `stringify (native)` called from `eval_script:1:64` for a
+three-character expression, `variable (eval_script:7:50)`, and
+`__throwOrParse (eval_script:5:54)` with `__getResult (eval_script:11:59)`.
+
+Before the scripts run, each bound context value is checked for depth
+([JE-49](../../docs/semantics/expressions.md#je-49)): `flow_input` as a
+whole, compacted, its object a level; each other context value as bound;
+each member of `flow_env` on its own. A value nested deeper than 127 levels
+fails with `recursion limit exceeded at line <l> column <c>`, the position
+of the bracket that goes past the limit, and no JavaScript runs. A text
+with no more than 127 brackets is not scanned.
+
+The engine's errors become Windmill's texts, the `*EvalError` message that
+each site then wraps
+([JE-23](../../docs/semantics/expressions.md#je-23) to
+[JE-35](../../docs/semantics/expressions.md#je-35)):
+
+| The engine reports | Message | Cause |
+|---|---|---|
+| a thrown `Error` of any class, or a source that does not compile | `QuickJS evaluation error: Error: <message>`, then a newline and the stack when there is one ([JE-21](../../docs/semantics/expressions.md#je-21)) | the `*Exception` |
+| another thrown value | `QuickJS evaluation error: Exception generated by quickjs: <its string form>` and a newline (JE-21) | the `*Exception` |
+| a `null` or `undefined` throw, or `InternalError: out of memory` | ``The expression evaluation exceeded the memory limit of <N> MB. …`` ([JE-3](../../docs/semantics/expressions.md#je-3)) | `ErrOutOfMemory` |
+| the attempt's time limit, three times | ``The expression evaluation `<trimmed text>` took too long to execute (>20000ms)`` ([JE-2](../../docs/semantics/expressions.md#je-2)) | `ErrAttemptTimeout` |
+| a completion value that is not a string (`JSON.stringify` replaced by the user's code) | `QuickJS evaluation error: the serialised value is not a string`, windmill-lite's own | `ErrNotString` |
+
+`<N>` and the time limit are the engine's `Limits`. An evaluation whose
+error text contains `took too long`, the time limit's or the user's own, is
+tried three times in all, with a pause of 5 s between attempts (JE-2); a
+context that ends during a pause ends it. Each attempt is interrupted at
+the limit (deviation D8).
+
+Readings where the reference is silent, each pinned by a test:
+
+- **A thrown value that is not an `Error`.** Windmill prints the engine's
+  debug form of the value, which is open
+  ([Q-JE-1](../../docs/semantics/expressions.md#q-je-1)); windmill-lite
+  prints its string form.
+- **JE-17's "or else"** for an entry's tag and text: read as `??`, so an
+  empty `step_id` or `message` is kept.
+- **JE-49's positions** for `flow_input` and `flow_env`, which Windmill
+  re-serialises: counted in the compact text, members of `flow_env` in key
+  order. Which value is reported first when several are too deep:
+  `flow_input`, the context values by name, then `flow_env`.
+- **`results` and `error`** are `const` declarations.
+
+Two named deviations of
+[ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 come from the
+engine's build, not from this program: D16, the last digit of a
+transcendental `Math` function on a C library other than glibc, and D17,
+the recursion depth that fits the 1 MiB stack.
 
 ## The engine boundary
 
 - **Bindings.** An evaluation binds context values as host strings, which
   the program parses itself. Values are never spliced into source text.
+- **Preludes.** Programs the evaluation runs, in order, before the
+  program, on its context; their top-level `const` declarations are the
+  lexical `results` and `error` of JE-10.
 - **Host functions.** These cover the `results` lookups and the helpers. They
   return text that resolves a Promise, or an error that rejects it.
 - **Result.** The program's completion value must be a string, which the
@@ -164,7 +242,7 @@ The engine's text is returned as the value's producer text. Its errors (an
   an `InternalError` whose text is exactly `out of memory`, or as a bare
   `null` or `undefined` throw, and Windmill treats all three as out of memory
   ([JE-3](../../docs/semantics/expressions.md#je-3)). Message texts belong to
-  the pipeline.
+  the pipeline, which reads the limits they quote from `Engine.Limits`.
 - **Limits.** `DefaultLimits` gives 128 MiB per runtime
   ([JE-3](../../docs/semantics/expressions.md#je-3)), 20 s per attempt
   ([JE-2](../../docs/semantics/expressions.md#je-2); an attempt that reaches
@@ -225,3 +303,40 @@ context-free case's recorded argument as its stored form.
   output is checked on fixed cases, and on generated values: it parses to
   the same value, with one space per `:` and `,` of the decoded value.
   `FuzzCompile` and `FuzzJSONText` fuzz the stages and the scanners.
+
+The tests of milestone B2b run on the real engine. Package `expr` cannot
+import [internal/expr/quickjs](quickjs/README.md), which imports it, so
+`quickjs_test.go`, of the external test package `expr_test` in the same
+test binary, registers the engine for them; an engine a test starts must
+end with no leaked heap block.
+
+- `TestE3aOnEngine` is B2b's exit gate (ADR 0012: the expression suite
+  against the E3a recordings, at unit level as in B2a). It runs every
+  expression E3a recorded, the context-free cases and the unit cases of
+  the flow fixtures, through the pipeline with the context the recording
+  gives, as `TestRecordedCasesThroughPipeline` does on the fake engine. It
+  holds each to its whole expectation: a value through its stored form
+  (point O2) or an exact evaluator text (O1), a predicate's skip, or an
+  error, wrapped as its site wraps it. Each evaluator error must also stand
+  in a message the oracle recorded, byte for byte, stack included, at its
+  end or before a Rust location suffix. Two cases differ by a named
+  deviation and say what windmill-lite gives: the transcendental `Math`
+  cases of JE-1 (review item cl R3-2), exact with glibc and within one
+  unit in the last place otherwise (D16), and JE-48/a (D17). JE-2/a is not
+  run: the oracle canceled its run before the evaluator's text surfaced;
+  `TestJE2OnEngine` runs the same expression with a short limit.
+- `TestBudgetGate` measures ADR 0003's budget gate through the pipeline. It
+  runs with `WL_EXPR_BUDGET=gate` (asserts the bounds, on the benchmark
+  machine) or `=report` (prints the table, as CI does on its runners and
+  from the static musl engine); `WL_EXPR_BUDGET_SECONDS` sets each row's
+  length.
+- `program_test.go` covers the program on the engine, case by case from
+  the findings: serialisation (JE-15), JE-21's error forms, the attempt
+  retries (JE-2), the memory limit's text (JE-3), `error` (JE-17), the
+  `results` proxy (JE-12, JE-18), the helpers (JE-20), the bindings
+  (JE-10, JE-16), the depth check (JE-49), the recursion depth (JE-48,
+  D17), and ADR 0003's JE-8 key-order example on the engine's routes: the
+  proxy answers the previous step from memory in the producer's key order
+  and another step from the database in jsonb's (review item cx R16).
+- The fake-engine tests check the retries and the error texts' mapping
+  for every kind of engine error.
