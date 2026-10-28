@@ -68,7 +68,7 @@ and observed behaviour.
 `go vet ./...` and `go test -race ./...`, prints a load measurement of the
 expression engine's pool (report only), and runs the unit tests of the
 helpers in `scripts/`, on Ubuntu and macOS for pull requests and pushes to
-`main`. Two more jobs run there. One builds the expression engine's tests
+`main`. Two more jobs run on Linux runners. One builds the expression engine's tests
 as a static musl binary with `zig cc` for `amd64` and `arm64`, checks that
 it is static, and runs it on a runner of that architecture. The other,
 `jsonb (PostgreSQL)`, compares the canonicaliser with PostgreSQL in the
