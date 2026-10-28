@@ -1,0 +1,64 @@
+{
+  "finding": "OF-5",
+  "cases": [
+    {
+      "spec": "OF-5",
+      "variant": "derived-id",
+      "provenance": "source-derived",
+      "deviation": "D6",
+      "note": "Windmill generates a random id (OF-5); windmill-lite derives one from the module's position (0002), in the decoder.",
+      "title": "a module without an id gets a derived one",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:wl469842c1": {
+            "at": {
+              "/derived_id": true
+            }
+          }
+        },
+        "at": {
+          "/deviations": [
+            "D6"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "OF-5",
+      "variant": "dropped",
+      "provenance": "source-derived",
+      "note": "Queue, placement and cleanup fields have no effect (0001 §3, OF-12).",
+      "title": "queue, placement and cleanup fields are dropped",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      priority: 3\n      delete_after_secs: 5\n      delete_after_use: true\n      debouncing: {debounce_delay_s: 1}\n      cache_ttl: 9\n      apply_preprocessor: true\n      pass_flow_input_directly: true\n      value: {type: identity}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "at": {
+              "/cache_ttl": 9,
+              "/apply_preprocessor": true,
+              "/pass_flow_input_directly": true
+            },
+            "absent": [
+              "/priority",
+              "/delete_after_secs",
+              "/delete_after_use",
+              "/debouncing"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "The envelope as the program holds it."
+}

@@ -1,0 +1,25 @@
+{
+  "note": "Catalogue cases of the findings in this directory that are not compile cases. Each names why it is not checked here and where it is expected to be checked. The test in internal/ir fails unless every catalogue case of a finding with a file here is a case at this level, at the decode or load level, or deferred in one of their deferred.json files.",
+  "deferred": [
+    {
+      "spec": "CF-6/b",
+      "reason": "what a pull writes after a deploy; the compiler reads whatever the folder holds. The pull round trip is an optional oracle corroboration (Q-OF-1)",
+      "expected_in": "E3e"
+    },
+    {
+      "spec": "CF-6/c",
+      "reason": "a raw payload or a failed dependency job keeps the raw value; windmill-lite always runs the successful deploy (0001 §1)",
+      "expected_in": "not applicable"
+    },
+    {
+      "spec": "CF-8/d",
+      "reason": "a raw parent; windmill-lite never runs raw submissions (0001 §1, §6)",
+      "expected_in": "not applicable"
+    },
+    {
+      "spec": "CF-V5/b",
+      "reason": "a raw-flow preview request; windmill-lite has no preview mode (0001 §1)",
+      "expected_in": "not applicable"
+    }
+  ]
+}

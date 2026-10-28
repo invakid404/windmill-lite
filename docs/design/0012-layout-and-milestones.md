@@ -44,7 +44,7 @@ internal/oracle/            the oracle harness (0011)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
-conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, protocol/: the shared cases (0003)
+conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/: the shared cases (0003)
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
@@ -159,6 +159,9 @@ waits on an external gate except R1.
   the oracle harness never calls ([OR-10](../semantics/oracle.md#or-10)). So
   E3c records that the flow's own final result is unaffected, and FX-37/a's
   early response joins FX-36's HTTP cases in E3e, gating F7b.
+- `conformance/ir/` holds the compile cases, a level that
+  [0003](0003-semantics-placement.md) added with milestone A5; they are the
+  exit gate's IR cases, with the golden programs in `internal/ir/testdata/`.
 - `conformance/protocol/` holds the harness protocol's golden frames and
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against

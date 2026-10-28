@@ -114,8 +114,10 @@ applied ([0001](0001-equivalence-contract.md) §1):
   [OF-7](../semantics/openflow.md#of-7)); with the `strict` option an absent
   for-loop `skip_failures` or `branchall` branch `skip_failure` is an error
   instead ([Q-CF-13](../semantics/control-flow.md#q-cf-13));
-- the `bun` → `bunnative` switch by header annotation
-  ([SY-V3](../semantics/openflow.md#sy-v3)), with the exact spelling rules;
+- the `bun`/`bunnative` switch by header annotation, in both directions:
+  a deploy relabels a Bun-family rawscript from its header
+  ([SY-V3](../semantics/openflow.md#sy-v3), [OF-15](../semantics/openflow.md#of-15),
+  [WR-40](../semantics/languages.md#wr-40)), with the exact spelling rules;
 - the while-loop `parallel` fields dropped ([OF-8](../semantics/openflow.md#of-8));
 - the `<id>-v` virtual step after a final `sleep`, at every level (a final
   `suspend` would add it too, but `suspend` is rejected at load)
@@ -198,6 +200,13 @@ inlined), the codebase's id for codebase scripts. Harness pools are keyed by
 harness class, runtime pin and dependency set
 ([0004](0004-harness-protocol.md)).
 
+`ir.Compile` records what the folder gives: everything above but the
+relative-import closure. An inline step's inventory id is derived from its
+flow path and its site, since module ids may repeat. The relative-import
+closure, the export signatures (below) and the workflow-as-code flag come
+from the Bun build helper's scans and are added by the build (milestones
+C2a and F4).
+
 Signatures are parsed by the Bun build helper, not by Go, because that parse
 is TypeScript-specific and the harness must agree with it
 ([WR-6](../semantics/languages.md#wr-6), [WR-8](../semantics/languages.md#wr-8),
@@ -223,7 +232,13 @@ lists the bundle's **roots** (the flows and scripts the host will run, and
 every by-path target that steps dispatch locally with `runScript*` or
 `runFlow*`, since no static path reaches those) and its **provided sites**, each a selector ([0008](0008-host-hooks.md)) with
 the form of its provider (a static value, or a named provider the host
-registers at run time) and `mandatory: true`.
+registers at run time) and `mandatory: true`. A provided site must be a
+call site (a `script`, `flow` or `rawscript` step; a provided rawscript's
+`!inline` files are not read), and its selector cannot
+narrow it to some `iterations` or `branches`, because its target is replaced
+everywhere. A `{script: <path>}` selector names a `script` step by its path
+and an inline step by `<flow path>/<module id>`. The contract also lists the
+host-provided modules ([0010](0010-packaging.md)).
 
 1. The loader walks the dependency closure from the roots only. At a
    provided site it stops: the site's target (a by-path subflow or script)
@@ -270,9 +285,18 @@ Load fails, naming the step and the rule, when:
 5. a bundled Bun script imports a bare package and has no lock. An empty
    lock is not an error by itself; windmill-lite does not generate locks in
    its first release (this answers [Q-OF-5](../semantics/openflow.md#q-of-5)
-   for Bun);
+   for Bun). Finding a bare import needs the Bun helper's import scan, so
+   the build checks this rule; the compiler keeps every lock as given;
 6. a `script.hash` pins a version other than the folder's script
-   ([OF-14](../semantics/openflow.md#of-14)).
+   ([OF-14](../semantics/openflow.md#of-14)). A folder never records the
+   hash Windmill gave its version, so no pin can be shown to be the
+   folder's, and every pin is refused (`pinned_hash`); a provided site can
+   stand in for the step.
+
+Rules 1 to 4 and 6 are the compiler's, with `flowscript` modules (the lite
+form's internal reference, which a folder cannot hold) refused under rule 2;
+workflow-as-code detection, like rule 5, needs a Bun helper scan and is the
+build's.
 
 ### Codebase scripts
 
@@ -368,9 +392,18 @@ only hand-written files.
   for a server value, so they are refused, as a restriction of
   [0001](0001-equivalence-contract.md) §5a.
 
+- Milestone A5 implemented `ir.Compile` in `internal/ir`. It made the native
+  switch two-way, as OF-15 and WR-40 describe a deploy relabelling either
+  way; assigned the rules that need the Bun helper's scans (the bare-import
+  lock rule, workflow-as-code) and the relative-import closure to the build;
+  refused every hash pin, since rule 6 cannot be decided from a folder; and
+  fixed the host contract's provided sites to mandatory call sites that
+  match one module everywhere. Its expressions hold their site and text;
+  the textual pipeline of milestone B2a fills in the rest.
+
 ## Spec IDs relied on
 
 OF-1 to OF-18, OF-V1, OF-V2, OF-V4, SY-1 to SY-15, SY-V1 to SY-V4, PA-1 to
 PA-3, FX-4, FX-39, FX-46, CF-6, CF-8, JE-5 to JE-15, JE-40, WR-6, WR-8,
-WR-12, WR-13, WR-18, WR-27 to WR-31, WR-33 to WR-35, WR-39, WR-V1, WA-60,
+WR-12, WR-13, WR-18, WR-27 to WR-31, WR-33 to WR-35, WR-39, WR-40, WR-47, WR-V1, WA-60,
 LIC-3, Q-OF-5, Q-OF-6, Q-OF-7, Q-CF-13.

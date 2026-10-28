@@ -1,0 +1,94 @@
+{
+  "finding": "WR-29",
+  "cases": [
+    {
+      "spec": "WR-29/a",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "Read as a file, either base resolves ./x to f/a/fl/x and ../shared_lib to f/a/shared_lib. Resolving and bundling the imports is the build's (C2a, F4).",
+      "title": "the default import base, at top level and inside a loop",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: s\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/a/fl m:s": {
+            "script": {
+              "at": {
+                "/import_base": "f/a/fl/s",
+                "/path": "f/a/fl/s"
+              }
+            }
+          },
+          "f/a/fl m:l/m:s": {
+            "script": {
+              "at": {
+                "/import_base": "f/a/fl/flow"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-29/b",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The base resolves ./x to f/elsewhere/x; resolving it is the build's (C2a, F4).",
+      "title": "an explicit path overrides the import base",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: rawscript\n        path: f/elsewhere/entry\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:s": {
+            "script": {
+              "at": {
+                "/import_base": "f/elsewhere/entry",
+                "/path": "f/x/main/s"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-29",
+      "variant": "others",
+      "provenance": "source-derived",
+      "title": "the preprocessor and path scripts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  preprocessor_module:\n    id: pre\n    value:\n      type: rawscript\n      language: bun\n      content: 'export async function preprocessor() { return {} }'\n      input_transforms: {}\n  modules:\n    - id: a\n      value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main s:preprocessor": {
+            "script": {
+              "at": {
+                "/import_base": "f/x/main/preprocessor"
+              }
+            }
+          },
+          "f/x/main m:a": {
+            "script": {
+              "at": {
+                "/import_base": "f/x/s"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "The import base the inventory records for each script (WR-29); the build resolves relative imports against it."
+}

@@ -1,11 +1,11 @@
 # conformance
 
-**Current state:** five levels of the shared conformance suite exist: the
+**Current state:** six levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
-sync-folder load cases in `syncfolder/`, the harness protocol cases in
-`protocol/`, and the flow fixtures in `flows/`, which `wltest record`
-records on the Windmill CE oracle: the oracle smoke fixture and the fixtures
-of recording batch E3c (flow execution errors). This
+sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
+harness protocol cases in `protocol/`, and the flow fixtures in `flows/`,
+which `wltest record` records on the Windmill CE oracle: the oracle smoke
+fixture and the fixtures of recording batch E3c (flow execution errors). This
 README covers `conformance/`. Nothing runs the flow fixtures on
 windmill-lite yet (`wltest check`, milestone E1), and the step and
 expression levels that [0003](../docs/design/0003-semantics-placement.md)
@@ -24,6 +24,7 @@ repository to exercise one behaviour each.
 | decode | `openflow/<finding>.json` | in use; run by `go test ./internal/openflow` |
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
+| compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | flow | `flows/<area>/<case>/` | `flows/oracle/smoke` and `flows/execution/fx-*`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
@@ -190,6 +191,56 @@ directory at its root so that the upward search for `wmill.yaml` stays in the
 case. `deferred.json` lists the catalogue's SY and PA cases checked elsewhere,
 each with the reason; the SY-9 cases are the YAML dialect's, in
 [internal/yamlx](../internal/yamlx/README.md).
+
+## Compile cases
+
+A compile case gives a sync folder, as a load case does, and optionally a
+host contract and build options, and what the compiler of
+[internal/ir](../internal/ir/README.md) makes of it: the errors, or parts of
+the compiled program ([0002](../docs/design/0002-ir-and-loader.md)). Most
+catalogue cases they encode are flow cases whose expectation depends on
+what a deploy applies (container defaults, the native switch, virtual
+steps, collapse); a compile case checks that part (`part: compile`), and
+its `note` says which milestone checks the run.
+
+```json
+{
+  "finding": "CF-8",
+  "cases": [
+    {
+      "spec": "CF-8/c",
+      "provenance": "disputed",
+      "part": "compile",
+      "note": "Both readings agree; the case is carried as disputed with its finding. The run half, every iteration getting the flow input, is N3a's.",
+      "title": "a loop at step 0 collapses",
+      "given": {"files": {"wmill.yaml": "defaultTs: bun\n", "f/x/main.flow/flow.yaml": "..."}},
+      "expect": {"steps": {"f/x/main m:l": {"at": {"/forloop/collapse": true}}}}
+    }
+  ]
+}
+```
+
+Case fields beyond those of the load cases:
+
+| Field | Meaning |
+|---|---|
+| `provenance` | as the catalogue tags the case, `disputed` included: a disputed case's `note` says which reading it encodes and why the design fixes it ([0001](../docs/design/0001-equivalence-contract.md) §6) |
+| `part` | `compile` when the catalogue case's run half is checked elsewhere |
+| `given.contract` | the host contract, as the YAML text of its file; without one every flow and script is a root |
+| `given.options` | build options (`{"strict": true}`) |
+| `expect.errors` | errors that must all be among those the compile reports: `kind` and message substrings (`contains`) |
+| `expect.at`, `expect.absent` | JSON Pointers into the program's JSON form |
+| `expect.flows`, `expect.no_flows` | per flow path, pointers into that flow; flows that must not be in the program (opaque or unreached) |
+| `expect.steps` | per `"<flow path> <site>"`, pointers into that module, and `script` for its inventory entry; the site is a site path with iteration segments left out (`m:l/m:x`, `m:o/b:default/m:c`, `s:failure`) |
+| `expect.lists` | per `"<flow path>"` or `"<flow path> <site>"` (a loop, or a branch), the site segments of that module list in order, occurrences and virtual steps included |
+| `expect.scripts` | per inventory id, pointers into that entry |
+
+`deferred.json` lists the catalogue cases of these findings that are
+neither compile cases nor checked at the decode or load level, each with the
+reason and where it is expected to be checked. A test fails unless every
+catalogue case of a finding with a file here is accounted for, and unless
+every case that `openflow/deferred.json` defers to `conformance/ir` is a
+compile case.
 
 ## Protocol cases
 
