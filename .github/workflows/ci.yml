@@ -60,3 +60,42 @@ jobs:
       - name: Test repository scripts
         # Unit tests for the Renovate auto-ack helpers in scripts/.
         run: python3 -m unittest discover -s scripts -v
+
+  jsonb:
+    # ADR 0005 checks the jsonb canonicaliser (internal/jsonval) against
+    # PostgreSQL itself: every canonicaliser input of its tests is cast to
+    # jsonb in the oracle's PostgreSQL image, pinned by the same digest as
+    # the oracle's compose file (docs/semantics/oracle.md), and compared.
+    # Service containers need a Linux runner. Branch protection does not
+    # require this job.
+    name: jsonb (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+        env:
+          # The test connects through the container's local socket; no
+          # password is involved.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Compare jsonval with PostgreSQL jsonb
+        env:
+          WL_JSONB_PSQL: docker exec -i ${{ job.services.postgres.id }} psql -U postgres
+        run: go test -count=1 -v -run '^TestStoredMatchesPostgreSQL$' ./internal/jsonval

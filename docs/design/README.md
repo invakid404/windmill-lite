@@ -111,6 +111,15 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    observable. Until it is answered, windmill-lite pins QuickJS-ng's built-in
    default of 1 MiB and records it in the manifest
    ([0003](0003-semantics-placement.md)).
+4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
+   rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
+   number outside `numeric`'s range (more than 131072 digits before the
+   point or 16383 after it). Does Windmill fail a step whose result or
+   arguments hold one, as [FX-48](../semantics/execution.md#fx-48) and
+   [OR-27](../semantics/oracle.md#or-27) say it does for NUL, and with which
+   message? The reference covers only NUL. Until it is answered, `jsonval`
+   rejects both as PostgreSQL does, and the eager NUL flag of
+   [0005](0005-json-step-boundaries.md) covers NUL alone.
 
 ## Changing the design
 
