@@ -1,0 +1,13 @@
+# FX-33/e: [null] decodes with recover absent.
+spec: [FX-33/e]
+target: f/wl_fx33/recover
+args: {ret: [null]}
+expect:
+  status: failure
+  result: [null]
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: [null]}, result: [null]}

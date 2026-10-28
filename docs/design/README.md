@@ -17,9 +17,10 @@ C1 the harness protocol of [0004](0004-harness-protocol.md) in
 [internal/harness](../../internal/harness/README.md) with a skeleton Bun
 harness, and milestone E2 the oracle harness of
 [0011](0011-differential-testing.md) in
-[internal/oracle](../../internal/oracle/README.md), whose first recording
-batch, E3b, recorded the flow-execution core in
-[conformance](../../conformance/README.md); nothing runs flows yet.
+[internal/oracle](../../internal/oracle/README.md), on which recording batches
+E3c and E3b recorded the flow-execution error cases and core and settled
+contested rules of [0001](0001-equivalence-contract.md) §6; nothing runs
+flows yet.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -71,7 +72,7 @@ flowchart LR
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
 | [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12), with one shim generator and one define table for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
-| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 51 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest naming each case's gate. |
+| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 51 milestones, each one pull request, whose "needs merged" covers everything their exit gates need; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
 
 ## Measurements behind the decisions
 
@@ -101,8 +102,12 @@ Recording batches E3a to E3e record them on the oracle (E3e holds the
 contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
-keeps both readings. Batch E3b recorded Q-FX-16 and the half of Q-FX-15 that
-needs no failure module; both recordings agreed with the defaults.
+keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
+and FX-33 (Q-FX-19), both for the stated default. It also found one
+confirmed finding contradicted, the id of a failure module copied into an
+inline body (FX-34, FX-32). E3b recorded Q-FX-16 (FX-42) and the half of
+Q-FX-15 that needs no failure module, also for the stated defaults. 0001 §6
+gives the results.
 
 ## Requests to the semantics team
 
@@ -139,6 +144,40 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
+5. **Fold in recording batch E3c.** E3c recorded the catalogue cases of
+   FX-12 to FX-15, FX-30 to FX-38 (FX-36's executor part), FX-V6/a and
+   FX-10/a on the CE oracle (`conformance/flows/execution`, oracle run
+   40685766017; FX-34/a's step-id run, run 40689442792). Every catalogue
+   expectation it recorded held but one. A failure module copied into an
+   inline body keeps its own id, `failure`, in its status and in
+   `WM_FLOW_STEP_ID`; FX-34 (`failure-0-0`) and FX-32 say it is suffixed
+   with the parent cursor and the iteration. Please correct both findings;
+   [0001](0001-equivalence-contract.md) §6 lists the recorded behaviour.
+   The reference still tags the recorded cases `source-derived` or
+   `disputed`. Two disputes are now settled for their corrections: Q-FX-15
+   (FX-V6) and Q-FX-19 (FX-33, SR-1). The recordings also show behaviour
+   the reference does not state:
+   - CE refuses a third workspace besides `admins`, so a fresh workspace per
+     fixture ([OR-6](../semantics/oracle.md#or-6)) means deleting each one
+     after its runs;
+   - an empty flow's status holds one `Success` entry with id `failure` and
+     a nil job ([FX-3](../semantics/execution.md#fx-3));
+   - a completed `branchall` entry has no `branchall` field. Failure-module
+     and preprocessor jobs are of kind `preview`, branch bodies
+     `flowpreview` and loop bodies `flownode`
+     ([OR-11](../semantics/oracle.md#or-11), [OR-28](../semantics/oracle.md#or-28));
+   - a failure module whose retry its `skip_if` skips runs an identity job
+     that is not marked skipped ([FX-17](../semantics/execution.md#fx-17),
+     [FX-32](../semantics/execution.md#fx-32));
+   - a preprocessor runs on a run-API start, and its job stores the args
+     `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}`
+     ([FX-35](../semantics/execution.md#fx-35));
+   - the exact error texts ([Q-FX-13](../semantics/execution.md#q-fx-13)).
+     An input-transform error continues `QuickJS evaluation error: Error: …`
+     with the engine's frames ([FX-14](../semantics/execution.md#fx-14)).
+     Chaining errors end in Rust location suffixes, and at a child flow's
+     pickup the message starts `Error: Error: ` and carries two suffixes
+     ([FX-15](../semantics/execution.md#fx-15)).
 
 ## Changing the design
 

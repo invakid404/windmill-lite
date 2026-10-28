@@ -1,0 +1,19 @@
+# FX-10/a: the exact preceding id reads memory (the EarlyStopError),
+# the simple subpath reads a's stored result, and Object.keys sees
+# the in-memory value.
+spec: [FX-10/a]
+target: f/wl_fxv6/three_ways
+expect:
+  status: failure
+  result: {p: {error: {name: EarlyStopError, message: E}}, x: 1, k: [error]}
+  steps:
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: {x: 1}
+      carried: {error: {name: EarlyStopError, message: E}}
+    "s:failure":
+      status: success
+      args: {p: {error: {name: EarlyStopError, message: E}}, x: 1, k: [error]}
+      result: {p: {error: {name: EarlyStopError, message: E}}, x: 1, k: [error]}

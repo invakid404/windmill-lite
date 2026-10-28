@@ -1,20 +1,20 @@
 # internal/oracle
 
 **Current state:** implemented (milestone E2 of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording
-batch E3b added the per-fixture workspace deletion, the first-site rule
-for repeated job ids and the batch test). This README
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md), extended by
+the recording batches E3c and E3b). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
 fixtures on an unmodified Windmill CE `v1.767.0`, which runs in public CI
 only, through the `wltest record` command ([cmd/wltest](../../cmd/wltest/README.md))
-and the [oracle workflow](../../.github/workflows/oracle.yml). The OR-20
-smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke))
-and the twelve fixtures of recording batch E3b
-([conformance/flows/execution](../../conformance/flows/execution)) are
-recorded by that workflow. Comparing windmill-lite against a recording
-(`wltest check`, milestone E1) and stub mode (E4a) do not exist yet.
+and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
+records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke))
+and the fixtures of the recording batches, E3c's and E3b's under
+[conformance/flows/execution](../../conformance/flows/execution). E3c also
+extended the session and the walker (below), and E3b the walker and the
+batch test. Comparing windmill-lite against a recording (`wltest check`,
+milestone E1) and stub mode (E4a) do not exist yet.
 
 ## A session
 
@@ -43,21 +43,19 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    session has, and a run whose committed recording names another oracle
    version, image or CLI than the pins (`recording_identity_mismatch`,
    [OR-V5](../../docs/semantics/oracle.md#or-v5)/b), before anything is
-   deployed; to re-record against a new pin, delete the recording. Create a fresh workspace `wl-<6 hex>-<n>`; optionally run
+   deployed; to re-record against a new pin, delete the recording. Create a
+   fresh workspace `wl-<6 hex>-<n>`, which is deleted again after the
+   fixture's runs (`DELETE /workspaces/delete/{id}`): CE refuses a third
+   workspace besides `admins` ("You have reached the maximum number of
+   workspaces (2 outside of default workspace 'admins') without an
+   enterprise license"), and a workspace that cannot be deleted ends the
+   session. Optionally run
    `folder add-missing` and `generate-metadata` in the fixture's sync tree
    (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)); push a
    copy of the tree with the CLI; apply `setup.yaml` after the push
    ([OR-31](../../docs/semantics/oracle.md#or-31)); pass the deployment gate
    ([OR-9](../../docs/semantics/oracle.md#or-9)) and check each deployed
-   flow's module ids against the tree (OR-8/b). After the fixture's runs,
-   delete its workspace with `DELETE /workspaces/delete/{ws}`: Community
-   Edition refuses a third workspace besides `admins` ("You have reached
-   the maximum number of workspaces (2 outside of default workspace
-   'admins') without an enterprise license", first met by recording batch
-   E3b), so a session of more than two fixtures needs each one gone before
-   the next is created. A failure to delete after a successful deployment
-   fails the session; after a failed deployment, when the workspace may not
-   exist, it is logged.
+   flow's module ids against the tree (OR-8/b).
 5. **Per run.** Pre-assign the root job id, open the sink for it, submit
    asynchronously and poll `get_result_maybe` until completion, never
    `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
@@ -115,17 +113,19 @@ The walker names every site with the typed site path of ADR 0011
 (`internal/conformance`). It reads each job's actual status, never the job
 kind ([OR-28](../../docs/semantics/oracle.md#or-28)), and the fixture's own
 flow definitions (decoded with `internal/openflow`) to tell user modules
-from generated ones and to name collapsed bodies.
+from generated ones, to name collapsed bodies, and to tell a `branchall`
+from a loop.
 
 | What ran | Its site, and what it records |
 |---|---|
 | a module with a job (a script, a subflow by path) | `m:<id>`: the job's status (canceled, else skipped, else success or failure; [OR-V2](../../docs/semantics/oracle.md#or-v2)), its stored args and result, the module's own status where it differs, its `skipped` flag. A subflow's modules are below it, `m:sub/m:x`. |
 | a module without a job | `m:<id>`, `not_run`, nothing fetched. |
 | a module with a nil job | its entry type, with `ran: false` (an empty `branchone` branch, a failed predicate). |
-| a loop or `branchall` (`flow_jobs`, even empty) | `m:<id>`: status from the entry type, the children's results in index order as its result, `ran: false` with no children. Child `n` is `i:<n>` (or `b:<n>`): a child flow's modules are below it; a collapsed iteration is the body module's own job at `i:<n>/m:<body>`, the path a non-collapsed iteration gives. |
+| a loop or `branchall` (`flow_jobs`, even empty) | `m:<id>`: status from the entry type, the children's results in index order as its result, `ran: false` with no children. Child `n` is `i:<n>`, or `b:<n>` for a branchall, which the fixture's definition identifies because a completed entry need not carry its `branchall` field. A child flow's modules are below it, and so is its copy of the enclosing flow's failure module, at `i:<n>/s:failure` or `b:<n>/s:failure` ([FX-5](../../docs/semantics/execution.md#fx-5), [FX-34](../../docs/semantics/execution.md#fx-34)); a collapsed iteration is the body module's own job at `i:<n>/m:<body>`, the path a non-collapsed iteration gives. |
 | a `branchone` | `m:<id>`: the chosen body's status and result and `branch_chosen`; the body's modules are under `b:<n>` or `b:default`. |
 | a failed attempt | `<module>/r:<k>`, in `failed_retries` order. A failure module that succeeds lists the flow's earlier failed attempts again ([FX-27](../../docs/semantics/execution.md#fx-27), [FX-29](../../docs/semantics/execution.md#fx-29)), so the same job is recorded at `s:failure/r:<k>` too, as OR-11 says; its placeholder names the site the walk reached first, the failed module's attempt. |
-| the failure or preprocessor module | `s:failure`, `s:preprocessor`, kept only when the flow defines one. |
+| the failure or preprocessor module | `s:failure`, `s:preprocessor`, kept only when the flow defines one; an inline body defines its enclosing flow's failure module, a subflow by path its own. |
+| an empty flow (the fixture defines no modules) | no step: its status's one `Success` entry with a nil job is not a module ([FX-3](../../docs/semantics/execution.md#fx-3)). |
 | a generated `<id>-v` | omitted ([OR-V7](../../docs/semantics/oracle.md#or-v7)); a user-authored one stays. |
 
 A container module records no args: its job's args are Windmill's
@@ -133,13 +133,15 @@ A container module records no args: its job's args are Windmill's
 body jobs get no record of their own, but their ids map to `i:<n>` and
 `b:<n>` for placeholders. A flow status that does not match the fixture's
 module list is an error, not an observation. These rules follow the shapes
-oracle run 1 recorded, as the reference describes them. Milestone E2
-recorded the sequential and failure shapes of the smoke fixture; recording
-batch E3b recorded skipped and identity modules, mocks, clean and error
-stops, retried modules, failure modules (ordinary, entered at the end of the
-flow, and after a retry) and a `branchone` body, and committed the raw
-captures of every run. Loops, `branchall`, subflows and parallel shapes
-await the other batches.
+oracle run 1 recorded, as the reference describes them. E2 recorded the
+sequential and failure shapes of the smoke fixture; E3c recorded the
+failure module (also inside loop bodies), its retries, subflows by path,
+`branchall`, empty flows and cancellation, and corrected the `branchall`
+and empty-flow rules above; E3b recorded skipped and identity modules,
+mocks, clean and error stops, retried modules, failure modules after a
+retry and at the end of the flow, and a `branchone` body, and added the
+first-site rule for a repeated attempt. The other recording batches confirm
+the rest.
 
 ## Normalisation and comparison
 
@@ -160,6 +162,23 @@ time, the workers, the oracle's non-default environment
 timings and foreign effects. It is never compared
 ([OR-V5](../../docs/semantics/oracle.md#or-v5)). Recordings hold neither
 carried values nor resolved arguments, which the oracle does not expose.
+
+## Recording batches
+
+A recording batch is one of milestones E3a to E3e of
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md).
+`testdata/batches/<batch>.json` holds one, and `TestRecordingBatches`
+checks it on every CI run:
+
+| Field | Meaning |
+|---|---|
+| `batch` | the milestone id; its row in ADR 0012 names finding ranges (`FX-6 to FX-10`) and cases (`FX-42/h`) the batch must cover |
+| `findings`, `cases` | the findings whose every catalogue case is in the batch, and further single cases |
+| `fixtures` | the batch's fixture directories, from the repository root; each run's own `spec` says which cases it records |
+| `deferred`, `parts` | cases, or halves of recorded cases, left to a later milestone, each with the milestone and a reason |
+| `prefixes` | the catalogue's prefix-only assertions, checked on a run's recorded text |
+| `contradictions` | catalogue claims the oracle contradicted, with the run, pointer and recorded value the run's `expect` holds instead |
+| `gates` | optional: for every run, `<fixture directory>/<run>`, the milestone whose exit gate runs it, which must need the batch merged; E3b's gates N1a, N1b, N2, NI, N3b, PF2 or F1 by the features each flow needs |
 
 ## Repository checks
 
@@ -192,15 +211,14 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | Test | What it checks | Cases |
 |---|---|---|
 | `TestWalkCases` | the walker and `Observe` on a fake job API, one case per shape above | `testdata/walk/cases.json` |
-| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
-| `TestSessionDeletesEachWorkspace`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | a session of three fixtures records all of them against a fake that, like Community Edition, refuses a third workspace, because each fixture's workspace is deleted before the next is created; a deletion that fails stops the session after the fixture's runs, and the stack is still torn down | three copies of the smoke fixture |
-| `TestRecordingBatches` | every recording batch manifest against ADR 0012, the catalogue, the fixtures and their recordings: the manifest's row is the batch's row, whose finding ranges and single cases are its scope; each case of the scope is listed with runs and a gate that needs the batch merged; each run cites its case in its own spec, and its committed recording meets its `expect` | `conformance/flows/batches/*.json` |
+| `TestSessionRecordsTheSmokeFixture`, `TestSessionUnstableObservation`, `TestSessionRefusals`, `TestSessionSubsetFixtureRecordsExactly`, `TestSessionCancelsATimedOutRun`, `TestSessionOutDirStaysInside`, `TestSessionRefusesARecordingOfAnotherOracle`, `TestSessionKillsAHungCLIAndTearsDown`, `TestSessionDeletesEachWorkspace`, `TestSessionFailsWhenAWorkspaceCannotBeDeleted` | whole sessions against a fake docker, a fake Windmill that runs the smoke flow and, like CE, refuses a third workspace, and this test binary as the CLI: recording, check mode, provenance never compared (OR-V5/a), a recording of another oracle refused before deployment (OR-V5/b), effects grouped by the outer root, instability, exact comparison of recordings under a subset fixture, cancellation of a timed-out run, a hung CLI killed and the stack torn down when the disk falls below the floor, `--out` kept inside its directory, three fixtures in one session with each workspace deleted, a deletion that fails ending the session after the fixture's runs with the stack torn down, and the refusals of OR-1/b, OR-1 image identity, OR-5/a, OR-30/a, OR-30/c, cached images below the floor, and a stale session | the smoke fixture |
 | `TestCLIVersionExact`, `TestCLICancelKillsTheGroup` | the exact version check, and that canceling a command or `--version` kills its children promptly | — |
 | `TestCommittedRecordingsNameThePinnedOracle` | every committed recording names the pinned oracle, image and CLI | `conformance/flows` |
-| `TestReplayRecordedCaptures` | the raw API captures of oracle runs in CI, replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/`: the smoke fixture's two runs and batch E3b's 37 |
+| `TestReplayRecordedCaptures` | raw API captures of CI recordings (the smoke fixture's, one run per walker shape that E3c recorded, and every run of E3b), replayed offline through the walker and normaliser, reproduce the committed recordings; the job kinds met follow OR-28. A capture may come from a later run than its recording: the observation does not depend on job ids | `testdata/captures/` |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |
 | `TestSinkGroupsByOuterRoot` | OR-16/c | — |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
+| `TestRecordingBatches` | each recording batch against its ADR 0012 row: the batch covers the finding ranges and cases its row names; every catalogue case of its findings is recorded by a run of its fixtures or deferred with a milestone and a reason; every run has an `expect` and a recording of the pinned oracle that meets it; the catalogue's prefix-only assertions (`<starts "…">`) hold on the recorded text; each catalogue claim the oracle contradicted is listed with the value it recorded; a batch with `gates` names for every run a milestone that needs the batch merged | `testdata/batches/` |

@@ -1,0 +1,14 @@
+# FX-15: chaining errors in their three contexts. A throwing skip_if at a
+# later transition fails the flow with an InternalError and no failure
+# module; a negative timeout at root pickup is an Anyhow failure of the
+# module that reaches the failure module; a throwing skip_if at a child
+# flow's pickup fails the child with an Anyhow error, bypassing the
+# child's failure module, and the parent's failure module runs. Cases
+# FX-15/a to FX-15/c of docs/semantics/conformance.md#fx-15. Synthetic,
+# written for this repository.
+id: execution/fx-15
+spec: [FX-15/a, FX-15/b, FX-15/c, FX-36]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -3,14 +3,14 @@
 **Current state:** six levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
-harness protocol cases in `protocol/`, and the flow fixtures in `flows/`:
-the oracle smoke fixture and the twelve fixtures of recording batch E3b (FX
-core), which `wltest record` records on the Windmill CE oracle, with the
-batch's manifest in `flows/batches/`. This README covers `conformance/`.
-Nothing runs the flow fixtures on windmill-lite yet (`wltest check`,
-milestone E1), and the step and expression levels that
-[0003](../docs/design/0003-semantics-placement.md) defines have no cases or
-runners yet.
+harness protocol cases in `protocol/`, and the flow fixtures in `flows/`,
+which `wltest record` records on the Windmill CE oracle: the oracle smoke
+fixture and the fixtures of recording batches E3c (flow execution errors)
+and E3b (flow execution core). This
+README covers `conformance/`. Nothing runs the flow fixtures on
+windmill-lite yet (`wltest check`, milestone E1), and the step and
+expression levels that [0003](../docs/design/0003-semantics-placement.md)
+defines have no cases or runners yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -27,7 +27,7 @@ repository to exercise one behaviour each.
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/`, `flows/batches/<batch>.json` | `flows/oracle/smoke` and batch E3b's `flows/execution/fx-*`; recorded on the oracle by `wltest record` |
+| flow | `flows/<area>/<case>/` | `flows/oracle/smoke` and `flows/execution/fx-*`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
 
@@ -55,37 +55,24 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/execution/fx-20` | [FX-20](../docs/semantics/execution.md#fx-20): a clean stop and an error-stop in a `branchone` body. |
 | `flows/execution/fx-21` | [FX-21](../docs/semantics/execution.md#fx-21): a throwing `stop_after_if`, with and without a failure module. |
 | `flows/execution/fx-42` | [FX-42](../docs/semantics/execution.md#fx-42)/h ([Q-FX-16](../docs/semantics/execution.md#q-fx-16)): the arguments file after `$jsonvar:` resolution, and what a JavaScript consumer sees of it. |
+| `flows/execution/fx-12` … `fx-38`, `fx-v6` | Recording batch E3c (ADR 0012): the catalogue cases of [FX-12](../docs/semantics/execution.md#fx-12) to [FX-15](../docs/semantics/execution.md#fx-15) and [FX-30](../docs/semantics/execution.md#fx-30) to [FX-38](../docs/semantics/execution.md#fx-38) (FX-36's executor part), FX-V6/a and FX-10/a. Covered: error values, chaining errors, `continue_on_error`, the failure module (what it sees, its retry, `recover`, inside loop bodies), the preprocessor, final-result selection, `early_return` and cancellation. One fixture per finding, `fx-12-deno` for the Deno case. Each run's `expect` states the catalogue's expectation. It holds the recorded value instead where the catalogue asserts only a prefix of a text, says nothing about a field, or is contradicted by the oracle: one case, FX-34/a's handler id, listed in the batch manifest and in [0001](../docs/design/0001-equivalence-contract.md) §6. The batch's coverage, deferrals and prefix checks are in `internal/oracle/testdata/batches/e3c.json` ([internal/oracle](../internal/oracle/README.md)). |
 
 The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
 ([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
 it on every recording and fails on any change.
 
-Each run's `expect` was written from the reference before the oracle first
-ran it. Where the oracle disagreed, the run's `note` says what was
+Each E3b run's `expect` was written from the reference before the oracle
+first ran it. Where the oracle disagreed, the run's `note` says what was
 predicted, what was recorded, and in which oracle runs.
 
 ### Recording batches
 
-A recording batch is one of milestones E3a to E3e of
-[0012](../docs/design/0012-layout-and-milestones.md).
-`flows/batches/<batch>.json` lists the batch's cases, the runs that record
-each, and the milestone whose exit gate runs it:
-
-| Field | Meaning |
-|---|---|
-| `batch`, `row` | the milestone id and its row in 0012 |
-| `scope.findings`, `scope.cases` | findings whose every catalogue case is in the batch, and single catalogue cases |
-| `cases[].case` | a catalogue case id, or a finding id with `variant` for a case that encodes the finding's rule beyond its catalogue cases |
-| `cases[].runs` | `<fixture id>/<run>` |
-| `cases[].gate` | the milestone that runs the case: the one that implements the last feature its flow needs |
-
-`TestRecordingBatches` in [internal/oracle](../internal/oracle/README.md)
-requires `row` to be the batch's row of 0012 and the scope to be the
-finding ranges and cases that row names, every case of the scope to be
-listed, every gate to need the batch merged, every run to exist, cite its
-case in its own `spec` and have a recording, the recording to meet the
-run's `expect`, and every run of a listed fixture to belong to a case.
+The E3b rows above are recording batch E3b of
+[0012](../docs/design/0012-layout-and-milestones.md), the flow-execution
+core. Its manifest, with each run's gate, is
+`internal/oracle/testdata/batches/e3b.json`, described in
+[internal/oracle](../internal/oracle/README.md#recording-batches).
 
 ## OpenFlow decode cases
 

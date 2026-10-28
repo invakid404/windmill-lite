@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -17,67 +17,84 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
-// batchManifest is a recording batch's manifest,
-// conformance/flows/batches/<batch>.json: the cases of one ADR 0012
-// recording milestone, the oracle runs that record them, and the milestone
-// whose exit gate runs each one.
-type batchManifest struct {
-	Batch string `json:"batch"`
-	Row   string `json:"row"`
+// A batch is a recording batch of ADR 0012 (E3a to E3e): the catalogue
+// cases it records on the oracle, the fixtures that record them, and what
+// it leaves to a later milestone. testdata/batches/<id>.json holds one.
+type batch struct {
 	About string `json:"about"`
-	Scope struct {
-		// Findings are findings whose every catalogue case is in the batch.
-		Findings []string `json:"findings"`
-		// Cases are single catalogue cases in the batch.
-		Cases []string `json:"cases"`
-	} `json:"scope"`
-	Cases []batchCase `json:"cases"`
+	Batch string `json:"batch"`
+	// Findings name the findings whose catalogue cases the batch records.
+	Findings []string `json:"findings"`
+	// Cases are further catalogue cases the batch records.
+	Cases []string `json:"cases"`
+	// Fixtures are the batch's fixture directories, from the repository
+	// root.
+	Fixtures []string `json:"fixtures"`
+	// Deferred cases are not recorded by the batch.
+	Deferred []struct {
+		Case      string `json:"case"`
+		Milestone string `json:"milestone"`
+		Reason    string `json:"reason"`
+	} `json:"deferred"`
+	// Parts are halves of recorded cases that the oracle cannot observe
+	// and a later milestone checks.
+	Parts []struct {
+		Case      string `json:"case"`
+		Part      string `json:"part"`
+		Milestone string `json:"milestone"`
+		Reason    string `json:"reason"`
+	} `json:"parts"`
+	// Prefixes are the catalogue's prefix-only assertions (<starts "…">),
+	// checked against the recorded observation of a run, named
+	// <fixture directory>/<run>.
+	Prefixes []struct {
+		Case    string `json:"case"`
+		Run     string `json:"run"`
+		Pointer string `json:"pointer"`
+		Prefix  string `json:"prefix"`
+	} `json:"prefixes"`
+	// Contradictions are catalogue claims that the oracle contradicts:
+	// the recorded value at a pointer of a run, which the run's
+	// expectation holds instead of the claim.
+	Contradictions []struct {
+		Case      string          `json:"case"`
+		Catalogue string          `json:"catalogue"`
+		Run       string          `json:"run"`
+		Pointer   string          `json:"pointer"`
+		Observed  json.RawMessage `json:"observed"`
+	} `json:"contradictions"`
+	// Gates, when the batch has them, name for every run of its fixtures
+	// (<fixture directory>/<run>) the milestone whose exit gate runs it:
+	// the one that implements the last feature the run's flow needs, which
+	// needs the batch merged (ADR 0012).
+	Gates map[string]string `json:"gates,omitempty"`
 }
 
-// batchCase is one case of a batch: a catalogue case, or a finding id with
-// a variant for a case that encodes the finding's rule beyond its
-// catalogue cases.
-type batchCase struct {
-	Case    string   `json:"case"`
-	Variant string   `json:"variant,omitempty"`
-	Runs    []string `json:"runs"`
-	Gate    string   `json:"gate"`
-}
-
-var (
-	findingID = regexp.MustCompile(`^[A-Z]+-V?[0-9]+$`)
-	caseID    = regexp.MustCompile(`^[A-Z]+-V?[0-9]+/[a-z]$`)
-)
-
-// TestRecordingBatches checks every recording batch manifest against
-// ADR 0012, the catalogue, the fixtures and their committed recordings:
-//
-//   - the manifest's row is the batch's row of ADR 0012, and the findings
-//     ("FX-6 to FX-10") and single cases ("FX-42/h") the row names are its
-//     scope;
-//   - every catalogue case of the scope's findings, and every single case,
-//     is a case of the manifest, and every manifest case is a catalogue case
-//     of the scope or a variant of one of its findings;
-//   - every case names its runs, and a gate: a milestone of ADR 0012 that
-//     needs the batch merged, directly or through other milestones;
-//   - every run exists, cites the case (or, for a variant, its finding) in
-//     its own spec, belongs to an oracle-observed fixture, has an expect
-//     and a committed recording, and the recording meets the expect under
-//     the fixture's compare options. The expect was written from the
-//     reference before the oracle ran, so this is the offline proof that
-//     the oracle agrees with it, or that it was corrected, as the run's
-//     note then says;
-//   - every run of a fixture the manifest uses belongs to some case.
+// TestRecordingBatches holds each recording batch to its row of ADR 0012:
+// every catalogue case of the batch is recorded by one of its fixtures or
+// deferred with a milestone and a reason; every run of its fixtures has an
+// expectation and a recording of the pinned oracle, and the recording
+// meets the expectation, so a recording that contradicts the expectation
+// derived from the catalogue fails the Go CI and not only the next oracle
+// run; the catalogue's prefix-only assertions hold on the recorded text;
+// and each catalogue claim the oracle contradicted is listed with the value
+// it recorded instead. The batch is a milestone of ADR 0012 and covers the
+// findings its row names as ranges ("FX-6 to FX-10") and the cases it
+// names ("FX-42/h"), and a batch with gates gives every run one that needs
+// the batch merged.
 func TestRecordingBatches(t *testing.T) {
+	// spec: OR-15, OR-19, OR-V5/b
 	root := repoRoot(t)
 	catalogue, err := os.ReadFile(filepath.Join(root, "docs/semantics/conformance.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	caseLine := regexp.MustCompile(`(?m)^- \*\*([A-Z]+-V?[0-9]+/[a-z])\*\*`)
 	inCatalogue := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^- \*\*([A-Z]+-V?[0-9]+/[a-z])\*\*`).FindAllSubmatch(catalogue, -1) {
+	for _, m := range caseLine.FindAllSubmatch(catalogue, -1) {
 		inCatalogue[string(m[1])] = true
 	}
+
 	design, err := os.ReadFile(filepath.Join(root, "docs/design/0012-layout-and-milestones.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -87,36 +104,240 @@ func TestRecordingBatches(t *testing.T) {
 		t.Fatalf("read %d milestones from ADR 0012", len(plan))
 	}
 
-	paths, err := filepath.Glob(filepath.Join(root, "conformance/flows/batches/*.json"))
+	paths, err := filepath.Glob("testdata/batches/*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(paths) == 0 {
-		t.Fatal("no batch manifests in conformance/flows/batches")
+		t.Fatal("no batches in testdata/batches")
 	}
 	for _, p := range paths {
 		t.Run(filepath.Base(p), func(t *testing.T) {
+			var b batch
 			data, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			var m batchManifest
 			dec := json.NewDecoder(bytes.NewReader(data))
 			dec.DisallowUnknownFields()
-			if err := dec.Decode(&m); err != nil {
+			if err := dec.Decode(&b); err != nil {
 				t.Fatal(err)
 			}
-			row := plan[m.Batch]
+			row := plan[b.Batch]
 			if row == nil {
-				t.Fatalf("batch %q is not a milestone of ADR 0012", m.Batch)
+				t.Fatalf("batch %q is not a milestone of ADR 0012", b.Batch)
 			}
-			if m.Row != row.title {
-				t.Errorf("row %q is not ADR 0012's row for %s, %q", m.Row, m.Batch, row.title)
-			}
-			checkBatchScope(t, m, row.title, inCatalogue)
-			checkBatch(t, root, m, inCatalogue, plan)
+			checkBatchRow(t, b, row.title, inCatalogue)
+			checkBatch(t, root, b, inCatalogue)
+			checkBatchGates(t, root, b, plan)
 		})
 	}
+}
+
+func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool) {
+	// The batch's cases: those of its findings, and the extra ones.
+	cases := map[string]bool{}
+	for c := range inCatalogue {
+		for _, f := range b.Findings {
+			if strings.HasPrefix(c, f+"/") {
+				cases[c] = true
+			}
+		}
+	}
+	for _, f := range b.Findings {
+		found := false
+		for c := range cases {
+			found = found || strings.HasPrefix(c, f+"/")
+		}
+		if !found {
+			t.Errorf("finding %s has no case in the catalogue", f)
+		}
+	}
+	for _, c := range b.Cases {
+		if !inCatalogue[c] {
+			t.Errorf("extra case %s is not in the catalogue", c)
+		}
+		cases[c] = true
+	}
+
+	// The fixtures, their runs and recordings.
+	recordedBy := map[string][]string{}
+	observations := map[string]conformance.Observation{}
+	for _, dir := range b.Fixtures {
+		f, err := conformance.LoadFixture(filepath.Join(root, filepath.FromSlash(dir)))
+		if err != nil {
+			t.Errorf("%s: %v", dir, err)
+			continue
+		}
+		if f.Provenance != "oracle-observed" {
+			t.Errorf("%s: provenance %q, want oracle-observed", dir, f.Provenance)
+		}
+		tree, err := LoadSyncTree(f.SyncTree())
+		if err != nil {
+			t.Errorf("%s: %v", dir, err)
+			continue
+		}
+		if len(f.Runs) == 0 {
+			t.Errorf("%s has no runs", dir)
+		}
+		for _, r := range f.Runs {
+			name := dir + "/" + r.Name
+			if !r.IsScript() && tree.flow(r.Target) == nil {
+				t.Errorf("%s: target %s is not a flow of the sync tree", name, r.Target)
+			}
+			for _, c := range r.Spec {
+				if strings.Contains(c, "/") && !inCatalogue[c] {
+					t.Errorf("%s cites %s, which the catalogue does not have", name, c)
+				}
+			}
+			if r.Expect == nil {
+				t.Errorf("%s has no expect", name)
+			}
+			if r.Recorded == nil {
+				t.Errorf("%s has no recording", name)
+				continue
+			}
+			if err := CheckRecordingIdentity(r.Recorded.Provenance); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			observations[name] = r.Recorded.Observation
+			if r.Expect != nil {
+				opts := f.Compare.Options()
+				opts.WithRecording = true
+				diffs, err := conformance.Compare(r.Recorded.Observation, *r.Expect, opts)
+				if err != nil {
+					t.Errorf("%s: %v", name, err)
+				}
+				for _, d := range diffs {
+					t.Errorf("%s: the recording does not meet the expectation: %s", name, d)
+				}
+			}
+			for _, c := range r.Spec {
+				recordedBy[c] = append(recordedBy[c], name)
+			}
+		}
+	}
+
+	deferred := map[string]bool{}
+	for _, d := range b.Deferred {
+		if !cases[d.Case] {
+			t.Errorf("deferred %s is not a case of the batch", d.Case)
+		}
+		if d.Milestone == "" || d.Reason == "" {
+			t.Errorf("deferred %s needs a milestone and a reason", d.Case)
+		}
+		if deferred[d.Case] {
+			t.Errorf("%s is deferred twice", d.Case)
+		}
+		deferred[d.Case] = true
+	}
+	var missing []string
+	for c := range cases {
+		switch rec := len(recordedBy[c]) > 0; {
+		case rec && deferred[c]:
+			t.Errorf("%s is recorded by %v but also deferred", c, recordedBy[c])
+		case !rec && !deferred[c]:
+			missing = append(missing, c)
+		}
+	}
+	sort.Strings(missing)
+	for _, c := range missing {
+		t.Errorf("%s is neither recorded by a run of the batch nor deferred", c)
+	}
+	for _, p := range b.Parts {
+		if len(recordedBy[p.Case]) == 0 {
+			t.Errorf("part %q of %s: the case's other part is not recorded", p.Part, p.Case)
+		}
+		if p.Part == "" || p.Milestone == "" || p.Reason == "" {
+			t.Errorf("part of %s needs a part, a milestone and a reason", p.Case)
+		}
+	}
+
+	for _, p := range b.Prefixes {
+		if !cases[p.Case] {
+			t.Errorf("prefix for %s, which is not a case of the batch", p.Case)
+		}
+		obs, ok := observations[p.Run]
+		if !ok {
+			t.Errorf("prefix for %s: run %s is not a recorded run of the batch", p.Case, p.Run)
+			continue
+		}
+		got, err := pointerString(obs, p.Pointer)
+		if err != nil {
+			t.Errorf("prefix for %s: %s %s: %v", p.Case, p.Run, p.Pointer, err)
+			continue
+		}
+		if !strings.HasPrefix(got, p.Prefix) {
+			t.Errorf("%s: %s at %s is %q, which does not start with %q", p.Case, p.Run, p.Pointer, got, p.Prefix)
+		}
+	}
+
+	for _, c := range b.Contradictions {
+		if !cases[c.Case] {
+			t.Errorf("contradiction of %s, which is not a case of the batch", c.Case)
+		}
+		if c.Catalogue == "" {
+			t.Errorf("contradiction of %s needs the catalogue's claim", c.Case)
+		}
+		obs, ok := observations[c.Run]
+		if !ok {
+			t.Errorf("contradiction of %s: run %s is not a recorded run of the batch", c.Case, c.Run)
+			continue
+		}
+		got, err := pointerValue(obs, c.Pointer)
+		if err != nil {
+			t.Errorf("contradiction of %s: %s %s: %v", c.Case, c.Run, c.Pointer, err)
+			continue
+		}
+		var want any
+		if err := json.Unmarshal(c.Observed, &want); err != nil {
+			t.Errorf("contradiction of %s: observed: %v", c.Case, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("contradiction of %s: %s at %s is %v, not the listed %s", c.Case, c.Run, c.Pointer, got, c.Observed)
+		}
+	}
+}
+
+// pointerValue resolves an RFC 6901 pointer in an observation's JSON form.
+func pointerValue(o conformance.Observation, pointer string) (any, error) {
+	data, err := json.Marshal(o)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, err
+	}
+	tokens, err := conformance.SplitPointer(pointer)
+	if err != nil {
+		return nil, err
+	}
+	for _, tok := range tokens {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%q is not under an object", tok)
+		}
+		if v, ok = m[tok]; !ok {
+			return nil, fmt.Errorf("no member %q", tok)
+		}
+	}
+	return v, nil
+}
+
+// pointerString resolves an RFC 6901 pointer in an observation's JSON form
+// to a string.
+func pointerString(o conformance.Observation, pointer string) (string, error) {
+	v, err := pointerValue(o, pointer)
+	if err != nil {
+		return "", err
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("not a string: %v", v)
+	}
+	return s, nil
 }
 
 // milestone is one row of ADR 0012's milestone table.
@@ -142,7 +363,10 @@ func readMilestones(design []byte) map[string]*milestone {
 		if id == "Id" || !idCell.MatchString(id) {
 			continue
 		}
-		plan[id] = &milestone{title: strings.ReplaceAll(strings.TrimSpace(cells[1]), "**", ""), needs: strings.Fields(strings.NewReplacer(",", " ", "*", " ").Replace(cells[2]))}
+		plan[id] = &milestone{
+			title: strings.ReplaceAll(strings.TrimSpace(cells[1]), "**", ""),
+			needs: strings.Fields(strings.NewReplacer(",", " ", "*", " ").Replace(cells[2])),
+		}
 	}
 	return plan
 }
@@ -167,12 +391,16 @@ func needsMerged(plan map[string]*milestone, id, batch string) bool {
 	return walk(id)
 }
 
-// checkBatchScope derives the batch's scope from its ADR 0012 row: each
-// "X-n to X-m" names the findings X-n to X-m that have catalogue cases, and
-// each "X-n/l" one case. When the row names any, the manifest's scope must
-// be exactly those.
-func checkBatchScope(t *testing.T, m batchManifest, title string, inCatalogue map[string]bool) {
+// checkBatchRow requires the batch to cover what its ADR 0012 row names:
+// each finding of an "X-n to X-m" range that has catalogue cases is one of
+// its findings, and each "X-n/l" case is one of its cases or a case of one
+// of its findings. A batch may cover more, as E3c does with FX-10/a.
+func checkBatchRow(t *testing.T, b batch, title string, inCatalogue map[string]bool) {
 	t.Helper()
+	findings := map[string]bool{}
+	for _, f := range b.Findings {
+		findings[f] = true
+	}
 	hasCases := func(f string) bool {
 		for c := range inCatalogue {
 			if strings.HasPrefix(c, f+"/") {
@@ -181,7 +409,6 @@ func checkBatchScope(t *testing.T, m batchManifest, title string, inCatalogue ma
 		}
 		return false
 	}
-	var findings, cases []string
 	for _, r := range regexp.MustCompile(`\b([A-Z]+)-([0-9]+) to ([A-Z]+)-([0-9]+)\b`).FindAllStringSubmatch(title, -1) {
 		lo, _ := strconv.Atoi(r[2])
 		hi, _ := strconv.Atoi(r[4])
@@ -190,164 +417,54 @@ func checkBatchScope(t *testing.T, m batchManifest, title string, inCatalogue ma
 			continue
 		}
 		for n := lo; n <= hi; n++ {
-			if f := fmt.Sprintf("%s-%d", r[1], n); hasCases(f) {
-				findings = append(findings, f)
+			if f := fmt.Sprintf("%s-%d", r[1], n); hasCases(f) && !findings[f] {
+				t.Errorf("the row of %s names %s (%s), which is not one of the batch's findings", b.Batch, f, r[0])
 			}
 		}
 	}
-	cases = regexp.MustCompile(`\b[A-Z]+-V?[0-9]+/[a-z]\b`).FindAllString(title, -1)
-	if len(findings) == 0 && len(cases) == 0 {
-		return
-	}
-	sorted := func(v []string) []string { v = slices.Clone(v); sort.Strings(v); return v }
-	if got, want := sorted(m.Scope.Findings), sorted(findings); !slices.Equal(got, want) {
-		t.Errorf("scope.findings %q, but the row names %q", got, want)
-	}
-	if got, want := sorted(m.Scope.Cases), sorted(cases); !slices.Equal(got, want) {
-		t.Errorf("scope.cases %q, but the row names %q", got, want)
+	for _, c := range regexp.MustCompile(`\b([A-Z]+-V?[0-9]+)/[a-z]\b`).FindAllStringSubmatch(title, -1) {
+		if !findings[c[1]] && !slices.Contains(b.Cases, c[0]) {
+			t.Errorf("the row of %s names %s, which is not one of the batch's cases", b.Batch, c[0])
+		}
 	}
 }
 
-func checkBatch(t *testing.T, root string, m batchManifest, inCatalogue map[string]bool, plan map[string]*milestone) {
+// checkBatchGates requires, of a batch with gates, a gate for every run of
+// its fixtures and none for anything else, each a milestone of ADR 0012
+// that needs the batch merged.
+func checkBatchGates(t *testing.T, root string, b batch, plan map[string]*milestone) {
 	t.Helper()
-	// The cases the batch must hold.
-	want := map[string]bool{}
-	scopeFinding := map[string]bool{}
-	for _, f := range m.Scope.Findings {
-		scopeFinding[f] = true
-		n := 0
-		for c := range inCatalogue {
-			if strings.HasPrefix(c, f+"/") {
-				want[c] = true
-				n++
-			}
-		}
-		if n == 0 {
-			t.Errorf("scope finding %s has no catalogue cases", f)
-		}
+	if len(b.Gates) == 0 {
+		return
 	}
-	for _, c := range m.Scope.Cases {
-		if !inCatalogue[c] {
-			t.Errorf("scope case %s is not in the catalogue", c)
-		}
-		want[c] = true
-	}
-
-	fixtures := map[string]*conformance.Fixture{}
-	load := func(id string) *conformance.Fixture {
-		if f, ok := fixtures[id]; ok {
-			return f
-		}
-		f, err := conformance.LoadFixture(filepath.Join(root, "conformance/flows", filepath.FromSlash(id)))
+	runs := map[string]bool{}
+	for _, dir := range b.Fixtures {
+		f, err := conformance.LoadFixture(filepath.Join(root, filepath.FromSlash(dir)))
 		if err != nil {
-			t.Errorf("fixture %s: %v", id, err)
-		}
-		fixtures[id] = f
-		return f
-	}
-	usedRuns := map[string]bool{}
-	have := map[string]bool{}
-	for _, c := range m.Cases {
-		cite := c.Case
-		switch {
-		case caseID.MatchString(c.Case):
-			if !want[c.Case] {
-				t.Errorf("%s is not a catalogue case in the batch's scope", c.Case)
-			}
-			if c.Variant != "" {
-				t.Errorf("%s: a catalogue case has no variant", c.Case)
-			}
-			if have[c.Case] {
-				t.Errorf("%s is listed twice", c.Case)
-			}
-			have[c.Case] = true
-		case findingID.MatchString(c.Case):
-			if !scopeFinding[c.Case] && !slices.ContainsFunc(m.Scope.Cases, func(s string) bool { return strings.HasPrefix(s, c.Case+"/") }) {
-				t.Errorf("%s is not a finding in the batch's scope", c.Case)
-			}
-			if c.Variant == "" {
-				t.Errorf("%s: a rule case needs a variant", c.Case)
-			}
-		default:
-			t.Errorf("%q is neither a case id nor a finding id", c.Case)
-			continue
-		}
-		if plan[c.Gate] == nil {
-			t.Errorf("%s: gate %q is not a milestone of ADR 0012", c.Case, c.Gate)
-		} else if !needsMerged(plan, c.Gate, m.Batch) {
-			t.Errorf("%s: gate %s does not need %s merged, so it cannot run the recording", c.Case, c.Gate, m.Batch)
-		}
-		if len(c.Runs) == 0 {
-			t.Errorf("%s names no runs", c.Case)
-		}
-		for _, ref := range c.Runs {
-			usedRuns[ref] = true
-			f := load(path.Dir(ref))
-			if f == nil {
-				continue
-			}
-			checkBatchRun(t, f, path.Base(ref), ref, cite)
-		}
-	}
-	var missing []string
-	for c := range want {
-		if !have[c] {
-			missing = append(missing, c)
-		}
-	}
-	sort.Strings(missing)
-	for _, c := range missing {
-		t.Errorf("%s is in the batch's scope but not in the manifest", c)
-	}
-	for id, f := range fixtures {
-		if f == nil {
-			continue
+			continue // checkBatch reports it
 		}
 		for _, r := range f.Runs {
-			if !usedRuns[id+"/"+r.Name] {
-				t.Errorf("run %s/%s belongs to no case of the batch", id, r.Name)
-			}
+			runs[dir+"/"+r.Name] = true
 		}
 	}
-}
-
-func checkBatchRun(t *testing.T, f *conformance.Fixture, name, ref, cite string) {
-	t.Helper()
-	var r *conformance.Run
-	for i := range f.Runs {
-		if f.Runs[i].Name == name {
-			r = &f.Runs[i]
+	var names []string
+	for name := range runs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if b.Gates[name] == "" {
+			t.Errorf("run %s has no gate", name)
 		}
 	}
-	if r == nil {
-		t.Errorf("%s: fixture %s has no run %s", ref, f.ID, name)
-		return
-	}
-	// The run's own spec, not its fixture's: a fixture cites all of its
-	// cases, so that would let any of its runs stand for any case.
-	if !slices.Contains(r.Spec, cite) {
-		t.Errorf("%s does not cite %s in its spec %q", ref, cite, r.Spec)
-	}
-	if f.Provenance != "oracle-observed" {
-		t.Errorf("%s: fixture provenance is %q, want oracle-observed", ref, f.Provenance)
-	}
-	if r.Expect == nil {
-		t.Errorf("%s has no expect", ref)
-	}
-	if r.Recorded == nil {
-		t.Errorf("%s has no committed recording", ref)
-		return
-	}
-	if r.Expect == nil {
-		return
-	}
-	opts := f.Compare.Options()
-	opts.WithRecording = true
-	diffs, err := conformance.Compare(r.Recorded.Observation, *r.Expect, opts)
-	if err != nil {
-		t.Errorf("%s: %v", ref, err)
-	}
-	for _, d := range diffs {
-		t.Errorf("%s: the recording does not meet the expect: %s", ref, d)
+	for name, gate := range b.Gates {
+		switch {
+		case !runs[name]:
+			t.Errorf("gate for %s, which is not a run of the batch", name)
+		case plan[gate] == nil:
+			t.Errorf("%s: gate %q is not a milestone of ADR 0012", name, gate)
+		case !needsMerged(plan, gate, b.Batch):
+			t.Errorf("%s: gate %s does not need %s merged, so it cannot run the recording", name, gate, b.Batch)
+		}
 	}
 }

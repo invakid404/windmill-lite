@@ -195,8 +195,9 @@ func (c *Client) CreateWorkspace(ctx context.Context, id string) error {
 	return err
 }
 
-// DeleteWorkspace deletes a workspace with DELETE /workspaces/delete/{ws},
-// which needs the superadmin (OR-6).
+// DeleteWorkspace deletes a workspace, DELETE /workspaces/delete/{id}, as
+// the superadmin. CE allows only two workspaces besides admins, so a
+// session frees each fixture's workspace after its runs.
 func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 	_, err := c.do(ctx, http.MethodDelete, "/workspaces/delete/"+url.PathEscape(id), nil, nil, http.StatusOK)
 	return err

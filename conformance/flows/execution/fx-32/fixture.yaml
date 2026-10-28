@@ -1,0 +1,13 @@
+# FX-32: what the failure module sees: previous_result and results.<failed
+# id> are the wrapped error, error is its inner object, and its own step
+# id is failure; a retry of the failure module reuses its failed args and
+# keeps its own failed value as previous_result, so a skip_if on it can
+# turn the retry into a passthrough of those args. Cases FX-32/a and
+# FX-32/b of docs/semantics/conformance.md#fx-32. Synthetic, written for
+# this repository.
+id: execution/fx-32
+spec: [FX-32/a, FX-32/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

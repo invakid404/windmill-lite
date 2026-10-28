@@ -1,0 +1,12 @@
+# FX-30: continue_on_error. A tolerated failure of the last module ends
+# the flow successfully with its wrapped error and no failure module run;
+# a tolerated failure in the middle hands the wrapped error to the next
+# module as previous_result and results.<id>. Case FX-30/a of
+# docs/semantics/conformance.md#fx-30, plus the finding's rule. Synthetic,
+# written for this repository.
+id: execution/fx-30
+spec: [FX-30/a, FX-30]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

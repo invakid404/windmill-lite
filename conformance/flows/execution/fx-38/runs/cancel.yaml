@@ -1,0 +1,13 @@
+# FX-38/a: canceled 5 s after submission, while a sleeps for 30 s.
+spec: [FX-38/a, FX-36]
+target: f/wl_fx38/cancel
+cancel_after_ms: 5000
+expect:
+  status: canceled
+  result: {error: {message: "Job canceled: wltest: cancel_after_ms by admin", name: Canceled, reason: "wltest: cancel_after_ms", canceler: admin}}
+  steps:
+    "m:a":
+      status: canceled
+      args: {}
+      result: {error: {message: "execution error:\njob process terminated due to cancelled by admin (reason: wltest: cancel_after_ms)", name: ExecutionErr, step_id: a}}
+    "s:failure": {status: not_run}
