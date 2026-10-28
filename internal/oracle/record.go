@@ -400,16 +400,29 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		}
 		ws := fmt.Sprintf("wl-%s-%d", short, i+1)
 		s.logf("fixture %s: workspace %s", name, ws)
-		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
-		rep.Session.Deployments[name] = dep
-		if err != nil {
+		failAll := func(err error) {
 			for _, r := range runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
 			}
+		}
+		if err := NewWorkspace(ctx, c, ws); err != nil {
+			failAll(err)
 			continue
 		}
-		for _, r := range runs {
-			rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
+		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
+		rep.Session.Deployments[name] = dep
+		if err != nil {
+			failAll(err)
+		} else {
+			for _, r := range runs {
+				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
+			}
+		}
+		// CE refuses a third workspace besides admins, so the next
+		// fixture needs this one gone; a workspace that cannot be deleted
+		// ends the session.
+		if err := c.DeleteWorkspace(ctx, ws); err != nil {
+			return fmt.Errorf("oracle: fixture %s: deleting workspace %s: %w", name, ws, err)
 		}
 	}
 	return nil
@@ -431,14 +444,11 @@ func (s *Session) rel(p string) string {
 	return filepath.ToSlash(p)
 }
 
-// deploy creates the fixture's workspace, optionally regenerates its
-// metadata, pushes a copy of its sync tree with the CLI, applies its setup
+// deploy optionally regenerates the fixture's metadata, pushes a copy of
+// its sync tree with the CLI into its new workspace ws, applies its setup
 // and passes the deployment gate.
 func (s *Session) deploy(ctx context.Context, c *Client, cli CLI, f *conformance.Fixture, ws, tmp string) (*SyncTree, Deployment, error) {
 	var dep Deployment
-	if err := NewWorkspace(ctx, c, ws); err != nil {
-		return nil, dep, err
-	}
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
 	if s.RegenerateMetadata {
 		if err := cli.AddMissingFolders(ctx, f.SyncTree(), t); err != nil {

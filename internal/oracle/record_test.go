@@ -163,11 +163,19 @@ type fakeOracle struct {
 	jobs    map[string]fakeJob
 	n       int
 	runs    int
+	// workspaces are the live workspaces besides admins; like CE, the
+	// fake refuses a third (deleted counts them).
+	workspaces map[string]bool
+	deleted    int
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
-	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}}
+	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}}
 }
+
+// ceWorkspaceLimit is CE v1.767.0's refusal of a third workspace besides
+// admins, as the oracle answered POST /workspaces/create in CI.
+const ceWorkspaceLimit = "Bad request: You have reached the maximum number of workspaces (2 outside of default workspace 'admins') without an enterprise license. Archive/delete another workspace to create a new one"
 
 func (o *fakeOracle) newID() string {
 	o.n++
@@ -193,11 +201,33 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(200, "session-token")
 		return
 	case p == "/workspaces/create":
+		var body struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+			write(400, "bad body")
+			return
+		}
+		if len(o.workspaces) >= 2 {
+			write(400, ceWorkspaceLimit)
+			return
+		}
+		o.workspaces[body.ID] = true
 		write(201, "created")
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer session-token" {
 		write(401, "unauthorized")
+		return
+	}
+	if ws, ok := strings.CutPrefix(p, "/workspaces/delete/"); ok && r.Method == http.MethodDelete {
+		if !o.workspaces[ws] {
+			write(404, "no workspace "+ws)
+			return
+		}
+		delete(o.workspaces, ws)
+		o.deleted++
+		write(200, "deleted")
 		return
 	}
 	rest := p[strings.Index(p[3:], "/")+4:] // after /w/{ws}/
@@ -474,6 +504,56 @@ func TestSessionRecordsTheSmokeFixture(t *testing.T) {
 	}
 	if after, err := os.ReadFile(filepath.Join(rig.fixture, "recorded", "effects.json")); err != nil || !bytes.Equal(after, before) {
 		t.Fatal("check mode must not touch the fixture's own recording")
+	}
+}
+
+// TestSessionDeletesEachWorkspace records three fixtures in one session on
+// an oracle that, like CE, refuses a third workspace besides admins: each
+// fixture's workspace is deleted after its runs, so all of them record and
+// none is left.
+func TestSessionDeletesEachWorkspace(t *testing.T) {
+	// spec: OR-6/a
+	rig := newRig(t)
+	var fixtures []*conformance.Fixture
+	for i := 0; i < 3; i++ {
+		dir := filepath.Join(t.TempDir(), "smoke")
+		if err := CopyTree(rig.fixture, dir); err != nil {
+			t.Fatal(err)
+		}
+		f, err := conformance.LoadFixture(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixtures = append(fixtures, f)
+	}
+	rep, err := rig.session(20*GiB).Run(context.Background(), fixtures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Runs) != 9 {
+		t.Fatalf("%d runs: %+v", len(rep.Runs), rep.Runs)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("%s %s: %s %s", r.Fixture, r.Run, r.Outcome, r.Error)
+		}
+	}
+	if rig.oracle.deleted != 3 || len(rig.oracle.workspaces) != 0 {
+		t.Fatalf("deleted %d workspaces, %d left", rig.oracle.deleted, len(rig.oracle.workspaces))
+	}
+
+	// At the limit a fixture fails with CE's refusal, which is what every
+	// fixture after the second met before the harness deleted workspaces.
+	rig.oracle.workspaces["wl-other-1"] = true
+	rig.oracle.workspaces["wl-other-2"] = true
+	rep, err = rig.session(20*GiB).Run(context.Background(), fixtures[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeFailed || !strings.Contains(r.Error, "maximum number of workspaces") {
+			t.Errorf("%s at the limit: %s %s", r.Run, r.Outcome, r.Error)
+		}
 	}
 }
 
