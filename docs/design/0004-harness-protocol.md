@@ -43,8 +43,11 @@ step without failing the others.
    UTF-8 JSON: one object with a `t` (type) field. Values that are JSON in
    the semantics (arguments, results, errors, platform bodies) are embedded
    as raw JSON text and never re-encoded by Go.
-3. The default maximum frame is 512 MiB, above Windmill's 500 MB default
-   result limit ([WR-15](../semantics/languages.md#wr-15)); hosts may lower it.
+3. A message larger than 1 MiB is sent as a sequence of `part` frames of at
+   most 1 MiB each, so `cancel`, `platform_reply` and other small frames are
+   not stuck behind a large result. The largest message accepted is 512 MiB,
+   above Windmill's 500 MB default result limit
+   ([WR-15](../semantics/languages.md#wr-15)); hosts may lower it.
 4. Every request carries an `id` unique per sender; replies echo it.
    Invocations, platform calls and host calls are multiplexed on one socket.
 
@@ -52,18 +55,45 @@ step without failing the others.
 
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
-| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`, `segments`), `bundle` (digest of what it loaded) | handshake |
+| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, facade origin, log limits) or `reject` with a reason | handshake result |
-| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (`main` or `preprocessor`), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
+| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` (the last log text for `escaped`) | step outcome |
+| `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body` | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
-| `run` / `run_done` | harness → engine / back | `id`, `target`, `args`, `options` / `id`, `status`, `result`, `trace` | host mode: a harness that is also the host submits runs |
-| `ping` / `pong` | either way | in-flight count, RSS | health |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)) | host mode: a harness that is also the host submits runs |
+| `ping` / `pong` | either way | in-flight count, abandoned count, process-level error count, event-loop lag, RSS | health |
+| `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
 | `drain` / `bye` | engine → harness / back | — | orderly shutdown |
+
+**Entrypoints.** `entry` is `main`, `preprocessor` (the flow preprocessor
+step), or the value of `_ENTRYPOINT_OVERRIDE` when the arguments carry one
+([WR-12](../semantics/languages.md#wr-12)). The two checks happen where
+Windmill makes them:
+
+1. **The name**, in the engine, before any invocation: a name that does not
+   match `^[A-Za-z_][A-Za-z0-9_]*$` fails the step with Windmill's
+   `Invalid entrypoint override …` text, before any wrapper runs.
+2. **The export**, in the harness, after the script's module has loaded, as
+   the wrapper does after its import: top-level code, import failures and
+   their logs come first; then an export that is missing or not a function
+   fails the step with `<name> function is missing` (`main function is
+   missing` for `main`, `preprocessor function is missing` for the
+   preprocessor), in the wrapper-catch shape.
+
+The harness binds arguments with the signature the manifest records for that
+export ([0002](0002-ir-and-loader.md)), hydrates its `Date` parameters, and
+applies the [WR-V1](../semantics/languages.md#wr-v1) fallback when an
+override is present and the parsed parameter list is empty, which includes
+arrow-function exports, since the parser does not recognise them. Cases: a
+script that is not workflow-as-code exports `alternate(when: Date)`, and a
+step whose arguments carry `_ENTRYPOINT_OVERRIDE: "alternate"` receives a
+hydrated `Date`; an arrow `preprocessor` receives the flow input's
+non-underscore values (WR-12/b).
 
 The engine maps a `result` to Windmill's stored value with the rules of
 [WR-21](../semantics/languages.md#wr-21) and [WR-V5](../semantics/languages.md#wr-v5)
@@ -74,14 +104,68 @@ The engine maps a `result` to Windmill's stored value with the rules of
 |---|---|---|
 | `ok` | the entrypoint returned | none; the result text is `body` |
 | `error` | the wrapper caught a throw | `body` is the [WR-18](../semantics/languages.md#wr-18) object (Bun), or the native boundary's error object (D5) |
-| `escaped` | `throw null`/`undefined`, a module evaluation or import failure, a failing error handler | [WR-20](../semantics/languages.md#wr-20): `ExecutionErr`, `exit code for "bun run": <code>, last log lines:\n<tail>`, with `exit_code` |
-| `empty` | the script called `process.exit(0)` or left no result | [WR-V2](../semantics/languages.md#wr-v2): `InternalErr` without `step_id` |
+| `escaped` | `throw null`/`undefined`, a module evaluation or import failure, a failing error handler, a non-zero `process.exit`, or an attributed process-level error (below) | [WR-20](../semantics/languages.md#wr-20): `ExecutionErr`, `exit code for "bun run": <code>, last log lines:\n<tail>`, with `exit_code` |
+| `empty` | `process.exit(0)`, or no result | [WR-V2](../semantics/languages.md#wr-v2): `InternalErr` without `step_id` |
 
 A harness process that dies fails its in-flight invocations as `escaped`
 with its real exit code, or as `process terminated by signal: …`
-([WR-4](../semantics/languages.md#wr-4)). The process does not exit for a
-step's `process.exit`: the harness intercepts it per invocation and reports
-`empty` (or `escaped` for a non-zero code), as Windmill's result file would.
+([WR-4](../semantics/languages.md#wr-4)). For the escaped cases the reference
+predicts exit code 1 but has not recorded Bun 1.3.10's exit status for
+`throw null`, top-level throws and unhandled rejections
+([Q-WR-2](../semantics/languages.md#q-wr-2)); the harness reports exit code 1
+until that is recorded.
+
+### The shared-process failure model
+
+A warm process runs many invocations at once, so anything that would end a
+Windmill job's process must instead end only that invocation. Measured on
+Bun 1.3.10 and 1.4.2 (prototype outside the repository): without handlers,
+one detached `Promise.reject` exits the process with code 1 and a concurrent
+200 ms timer never fires; with handlers the process survives. Inside the
+handlers, a throw from a timer sees the throwing invocation's
+`AsyncLocalStorage` store, but an unhandled rejection and a throw from a
+microtask see none.
+
+1. **Handlers.** Before any step module loads, the harness installs
+   `uncaughtException` and `unhandledRejection` handlers that never exit.
+2. **Attribution.** An error whose context names an invocation is
+   attributed to it. If that invocation is still in flight, it fails as
+   `escaped` with exit code 1 and its log tail, which is what the process
+   exit would have done to that job on Windmill. If it has already settled,
+   the error is reported as a `late` frame and recorded in the run trace;
+   the outcome stands (D9).
+3. **Unattributable errors** (rejections, microtask throws) fail no
+   invocation, because the harness cannot know whose they are and never
+   guesses. Each is counted in `pong`, logged with its text and stack, and
+   attached as a warning to every run that had an invocation in flight in
+   that process at that moment (D9).
+4. **Work after the result** (unawaited promises, timers, open handles)
+   keeps running; Windmill cuts it off at `process.exit`
+   ([WR-2](../semantics/languages.md#wr-2)). Its output and errors are
+   reported as `late` (D9).
+5. **Working directory.** Each harness process gets one private directory,
+   created at spawn, as its working directory for all invocations
+   ([WR-1](../semantics/languages.md#wr-1) gives each job its own; D10).
+   Codebase assets are extracted into it before the first invocation
+   ([0002](0002-ir-and-loader.md)).
+6. **`process.exit`** is replaced per invocation. The call fixes the
+   invocation's outcome (`empty` for code 0 with no result written,
+   `escaped` otherwise) and throws a sentinel. `finally` blocks run and a
+   `catch` can swallow the sentinel and keep going; whatever the code does
+   afterwards is reported as `late` (D11).
+7. **Child processes and other output paths.** The harness wraps
+   `child_process.spawn`, `exec`, `execFile` (and their sync forms) and
+   `Bun.spawn`/`Bun.spawnSync` so that a child started without an explicit
+   environment receives the invocation's view, not the process environment.
+   Output written through `Bun.stdout`, a raw file descriptor or a child's
+   inherited stdio is not attributed: it reaches the process log, not the
+   invocation's log tail.
+8. **`fresh` mode** restores Windmill's behaviour for all of the above: one
+   process per invocation, its own working directory, and the process ends
+   with the invocation ([0006](0006-module-state.md)).
+
+Each of D9, D10 and D11 has a case that runs in `warm` and in `fresh` and
+expects the two to differ as stated.
 
 ### Per-invocation identity, logs and environment
 
@@ -90,24 +174,37 @@ step's `process.exit`: the harness intercepts it per invocation and reports
 - `process.env` is replaced by a view that answers from the current
   invocation first; bundles rewrite `Bun.env` and `import.meta.env` to
   `process.env` at build time ([WA-31](../semantics/client-api.md#wa-31)).
-  This mechanism is gated: milestone C3 runs the 16-way isolation test of
-  [Q-WA-4](../semantics/client-api.md#q-wa-4) on the pinned Bun before
-  anything depends on it.
+  This mechanism is gated: the walking skeleton (milestone W1) runs the
+  16-way isolation test of [Q-WA-4](../semantics/client-api.md#q-wa-4) on the
+  pinned Bun before anything depends on it.
 - `console.*`, `process.stdout.write` and `process.stderr.write` are
   attributed to the current invocation. Lines are merged, empty lines
   dropped ([WR-23](../semantics/languages.md#wr-23)), batched into `log`
   frames, and the last 600 characters are kept for the WR-20 tail.
-- `globalThis.fetch` is wrapped: requests to the facade origin become
-  `platform` frames attributed to the invocation; all other requests pass
-  through unchanged.
+- `globalThis.fetch` is wrapped before any plugin or step module loads:
+  requests to the facade origin become `platform` frames attributed to the
+  invocation; all other requests pass through unchanged. Host plugins that
+  wrap `fetch` themselves wrap this one, so facade requests pass through the
+  plugin's wrapper first and must be passed on.
+- **Platform transports.** In `warm` and host-mode processes, `fetch` is the
+  only way to reach the platform. The facade origin in `BASE_URL` is a
+  loopback port that the engine binds but never listens on, so any other
+  transport (`node:http`, a raw socket) gets "connection refused" and the
+  trace records `platform_transport_unsupported` for the step. The stock
+  client cannot carry an invocation's identity over such a transport,
+  because it captures its token at import
+  ([WA-1](../semantics/client-api.md#wa-1), [WA-31](../semantics/client-api.md#wa-31)).
+  In `fresh` mode the port does listen, because the process is the
+  invocation ([0007](0007-platform-interface.md)).
 - The base environment of the process follows [WR-22](../semantics/languages.md#wr-22)
   and [WA-2](../semantics/client-api.md#wa-2): `PATH`, `HOME`, `TZ`,
   `FORCE_COLOR=1`, `DO_NOT_TRACK=1`, `BUN_INSTALL_CACHE_DIR`,
   `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`, `NODE_PATH` where Windmill would set
-  it, and `BASE_URL` pointing at the facade on `127.0.0.1` (Windmill's value
-  is its internal URL with `localhost` replaced by `127.0.0.1`).
-  `BASE_INTERNAL_URL` is not set for Bun, as in Windmill. Both are set before any step module loads, because the client
-  captures its base URL at import ([WA-1](../semantics/client-api.md#wa-1)).
+  it, and `BASE_URL` pointing at the facade origin on `127.0.0.1` (Windmill's
+  value is its internal URL with `localhost` replaced by `127.0.0.1`).
+  `BASE_INTERNAL_URL` is not set for Bun, as in Windmill. Both are set before
+  any step module loads, because the client captures its base URL at import
+  ([WA-1](../semantics/client-api.md#wa-1)).
 
 ### Lifecycle
 
@@ -132,13 +229,15 @@ sequenceDiagram
 2. **Loading.** In `warm` mode a script's module is evaluated on its first
    invocation, inside that invocation's context, so top-level code sees a job
    environment as it would in Windmill ([WR-2](../semantics/languages.md#wr-2)).
-   A host may ask for eager loading to move that cost off the first run.
-   [0006](0006-module-state.md) covers the modes.
-3. **Serving.** A process serves any number of concurrent invocations.
+   Host-provided modules are registered before that
+   ([0010](0010-packaging.md)). A host may ask for eager loading to move the
+   cost off the first run. [0006](0006-module-state.md) covers the modes.
+3. **Serving.** A process serves concurrent invocations up to its in-flight
+   cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
    ones, sends `drain`, and the harness exits after `bye`.
 
-### Pooling
+### Pooling (processes the engine spawns)
 
 A pool is keyed by **(harness class, runtime pin, dependency set,
 module-state mode)** ([0002](0002-ir-and-loader.md)). All bundled Bun scripts
@@ -147,11 +246,48 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Default size is one process per pool: Bun steps are mostly asynchronous
   I/O and run concurrently on one event loop. A host can set a minimum and a
   maximum.
+- Each process accepts at most 64 in-flight invocations by default (host
+  settable); further invocations wait in the engine in release order. This
+  changes timing only, which the contract leaves unspecified for parallel
+  work ([0001](0001-equivalence-contract.md) §1).
 - Routing prefers the run's process (affinity), then the least-loaded one.
   When the event loop of a process lags past a threshold (a CPU-bound step),
   the pool starts another process, up to the maximum.
-- In host mode the host's own process runs that host's runs, because the
-  host's scopes live there ([0008](0008-host-hooks.md)).
+
+### Host mode
+
+In host mode ([0009](0009-host-adapters.md)) the only process that can run a
+host's steps is the host itself, because the host's scopes live there
+([0008](0008-host-hooks.md) H11). The rules for spawned processes therefore
+change:
+
+1. **No taint, no recycle, no kill.** The engine never stops routing to the
+   host process and never ends it (D2). An abandoned invocation keeps
+   running until it settles.
+2. **Reporting.** Abandoned invocations are counted in `pong`, flagged
+   `abandoned` on their module in the run trace, and exposed to the host
+   through the SDK's `health()`, with the age of the oldest one.
+3. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
+   `onRunSettled` fires when the run's abandoned invocations have all
+   settled, which may be never. A host that holds per-run resources (leases,
+   connections) releases them at one or the other, by its own policy.
+4. **A step that blocks the event loop** (a CPU-bound loop) blocks the host.
+   The engine keeps time in Go: timeouts fire, modules and runs complete, and
+   the outcome is delivered when the event loop runs again. After three
+   missed pings one second apart the engine reports the process
+   `unresponsive` in health. Host mode gives no latency or cancellation bound
+   while the event loop is blocked; this is a listed limitation, and the
+   remedy is the host's supervisor restarting the host.
+5. **Losing the host.** If the host process exits, its in-flight runs are
+   lost with it: their callers are the host's own callers. The engine fails
+   them as `harness_lost` and does not try to move them, because their scopes
+   existed only in that process.
+
+Validation (milestones W1 and F3b): two concurrent host-mode runs, one of
+whose steps never settles: after that step's timeout, the other run's next
+step completes, a new run afterwards succeeds, and health reports one
+abandoned invocation. A step that spins for three seconds: the other run's
+step completes after it, health reports `unresponsive` and then clears.
 
 ### Parallel loops
 
@@ -159,8 +295,7 @@ The engine owns concurrency. A parallel `forloopflow` or `branchall` starts
 child runs as goroutines; `parallelism` releases eligibility in index order
 ([CF-7](../semantics/control-flow.md#cf-7)); results are collected in index
 order whatever the completion order ([CF-4](../semantics/control-flow.md#cf-4)).
-The harness has no limit of its own beyond a host-set cap on in-flight
-invocations per process.
+Beyond `parallelism`, the only limit is the per-process in-flight cap.
 
 ### Cancellation and deadlines
 
@@ -179,6 +314,7 @@ invocations per process.
    The "job-specific" wording appears only when the requested timeout is
    below the instance cap, which the host configures (default 604800 s).
    That text is the process-executor path, which is the one Bun steps take;
+   in a collapsed loop the loop module's timeout applies to each iteration;
    identity modules and child-flow containers have no deadline, and the
    in-process executors' different text (`later`) applies to the languages
    that use them ([FX-24](../semantics/execution.md#fx-24),
@@ -189,27 +325,31 @@ invocations per process.
    a flow that has a failure module, the continue decision still requests the
    failure module.
 4. **Abandonment (deviation D2).** The harness aborts the invocation's
-   signal, discards its late result and marks the process **tainted**. A
-   tainted process gets no new invocations. It returns to service when every
-   abandoned invocation has settled, and it is recycled once it has no other
-   in-flight work. No unrelated step is killed. Effects of an abandoned step
-   can therefore happen after its module has failed, which cannot happen on
-   Windmill; host plugins can tie outbound I/O to the invocation's signal to
-   narrow the window.
+   signal and later reports anything it produces as `late`. In a process the
+   engine spawned, the process is marked **tainted**: it gets no new
+   invocations, returns to service when every abandoned invocation has
+   settled, and is recycled once it has no other in-flight work, so no
+   unrelated step is killed. Host mode follows the section above instead.
+   Effects of an abandoned step can happen after its module has failed, which
+   cannot happen on Windmill; host plugins can tie outbound I/O to the
+   invocation's signal to narrow the window.
 
 ## Consequences
 
 - One socket per harness process carries everything; Go never decodes step
-  values to route them.
+  values to route them, and large messages cannot block small ones.
 - Concurrency and timing live in one place (the engine), so parallel-loop
   order, `parallelism` and deadlines are implemented once.
-- D2 is the one place where windmill-lite's process model shows. A host that
-  needs kill semantics runs the `fresh` mode ([0006](0006-module-state.md)),
-  which uses one process per invocation and can kill it.
+- A shared process changes what can happen after a step's result and where
+  its files go (D9 to D11); every such difference is reported, never silent,
+  and `fresh` mode removes them.
+- Host mode trades the ability to kill for the ability to keep the host's
+  scopes; its limits are stated and visible in health.
 - The protocol is language-neutral; a Python harness implements the same
   frames.
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-4, WR-13, WR-15, WR-18, WR-20 to WR-23, WR-37, WR-V2, WR-V5,
-WA-1, WA-31, Q-WA-4, FX-23, FX-24, FX-38, CF-4, CF-7, CF-28.
+WR-1, WR-2, WR-4, WR-12, WR-13, WR-15, WR-18, WR-20 to WR-23, WR-37, WR-V1,
+WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-23, FX-24, FX-25, FX-38,
+CF-4, CF-7, CF-28.

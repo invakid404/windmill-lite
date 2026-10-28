@@ -35,7 +35,7 @@ only engine API. In outline:
    per-run platform providers ([0007](0007-platform-interface.md)), deadlines,
    the clock, run data, and a module-state override.
 3. `runtime.BuildInfo()` reports the bundle digest, engine and harness
-   versions, the Bun version, readings and deviations in effect.
+   versions, the Bun version, the host contract and the deviations in effect.
 4. `runtime.Close()` drains the pools.
 
 Every adapter below is a transport over these calls.
@@ -59,6 +59,19 @@ Every adapter below is a transport over these calls.
    The steps of those runs execute in the host process, inside the scopes
    captured at submission (H11). This is the adapter for a host whose
    per-run state lives in `AsyncLocalStorage`.
+   - Its `run`, `run_done` and `run_cancel` frames are the JSON mapping of the
+     `Runner` messages, so the go-plugin service and host mode share one
+     schema.
+   - It registers the host's instances of the host-provided modules
+     ([0010](0010-packaging.md)) before any step loads.
+   - `health()` reports in-flight, abandoned and unattributed-error counts
+     and the `unresponsive` state, and `onRunSettled` complements `onRunEnd`
+     ([0004](0004-harness-protocol.md), host mode).
+   - **Consumption.** Nothing is published to a package registry. A host
+     takes the SDK from this repository at the engine release it runs (a git
+     dependency on the release tag, or a vendored copy of `harnesses/bun/host`
+     at that tag). The SDK version equals the engine version; the handshake
+     rejects any other pairing.
 3. **Plain gRPC.** The same `Runner` service on a Unix or TCP socket, without
    the go-plugin handshake, for hosts in other languages.
 4. **HTTP.** `POST /v1/run/{f|p}/{path}` with the arguments as the body,
@@ -88,7 +101,8 @@ flow and script, with an input type derived from its JSON schema (the flow's
   OF-18. A script that opts into validation with `schema_validation` is
   validated as Windmill does, once the reference covers that annotation's
   rules ([languages.md](../semantics/languages.md)); until then such a script
-  is a load error naming the annotation. Types are a compile-time aid only.
+  fails at load with `unsupported_feature` naming the annotation. Types are a
+  compile-time aid only.
 
 The wire stays generic, so a changed flow needs regenerated clients but never
 a new protocol.

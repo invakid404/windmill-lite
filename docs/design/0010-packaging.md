@@ -23,15 +23,18 @@ A bundle is a directory, or the same tree as one `.wlb` file (a tar archive):
 
 | Path | Content |
 |---|---|
-| `manifest.json` | format version; windmill-lite version; the digest of every other file; the source inventory (every input file of the sync folder with its digest, locks included); the Bun version; readings and deviations in effect ([0001](0001-equivalence-contract.md)); module-state mode; harness runtime digest; required engine version |
-| `ir.json` | the compiled program ([0002](0002-ir-and-loader.md)) |
-| `scripts/bun/<id>.mjs` | one bundled module per Bun script, plus `<id>.meta.json` (the bundler's metafile and the parsed signature) |
-| `scripts/bun/shared/` | the `shared` build, when that mode is selected ([0006](0006-module-state.md)) |
+| `manifest.json` | format version; the exact engine version that built it; the digest of every other file; the source inventory (every input file of the sync folder with its digest, locks included); the host contract (roots, provided sites, host-provided modules); the Bun and esbuild versions; deviations in effect ([0001](0001-equivalence-contract.md)); module-state mode; harness runtime digest |
+| `ir.json` | the compiled program ([0002](0002-ir-and-loader.md)), a cache for that exact engine version, not an exchange format |
+| `scripts/bun/<id>.mjs` | one bundled module per Bun script, plus `<id>.meta.json` (the bundler's metafile and the parsed signatures of every export) |
+| `scripts/bun/provided/<id>.mjs` | a bundled copy of each host-provided module, used when no host registers its own |
+| `assets/` | codebase assets, extracted into a harness process's working directory at start ([0002](0002-ir-and-loader.md)) |
 | `data/` | resources, resource types and non-secret variables from the folder |
 | `plugins/` | host plugins, when the host ships any ([0008](0008-host-hooks.md)) |
 
 Secrets are never written into a bundle unless the host passes them
-explicitly.
+explicitly. A runtime opens a bundle only if the manifest's engine version is
+its own; `ir.json` carries no compatibility promise across versions, so a
+host upgrades the engine and rebuilds the bundle together.
 
 ### The build
 
@@ -47,9 +50,9 @@ explicitly.
    `.ts` import rewrite as textual passes ([WR-26](../semantics/languages.md#wr-26),
    [WR-28](../semantics/languages.md#wr-28)); the inline import base
    ([WR-29](../semantics/languages.md#wr-29)); relative imports resolved from
-   the folder; codebase scripts with their `wmill.yaml` settings
-   ([SY-8](../semantics/openflow.md#sy-8)); `//nobundling` scripts bundled
-   too (deviation D7);
+   the folder; `//nobundling` scripts bundled too (deviation D7). Codebase
+   scripts are bundled with esbuild instead, through its Go API, with the
+   settings of [0002](0002-ir-and-loader.md) (WR-30, SY-8);
 4. parses each script's signature and annotations into its metafile
    ([WR-6](../semantics/languages.md#wr-6), [WR-8](../semantics/languages.md#wr-8),
    [WR-31](../semantics/languages.md#wr-31), [WR-32](../semantics/languages.md#wr-32),
@@ -57,7 +60,45 @@ explicitly.
    imports and globals the native runtime lacks (D5);
 5. rewrites `Bun.env` and `import.meta.env` to `process.env` for
    per-invocation environments ([WA-31](../semantics/client-api.md#wa-31));
-6. writes the manifest last.
+6. replaces imports of **host-provided modules** (below) with registry
+   references;
+7. writes the manifest last.
+
+### Host-provided modules
+
+The host contract can list module paths (source files of the folder or its
+codebase, or package specifiers) whose one instance the host and every
+script must share: typically modules holding an `AsyncLocalStorage` the host
+enters, or a registry the host fills. Without this, each step bundle inlines
+its own copy, and a scope the host enters is invisible to step code. Measured
+on Bun 1.3.10 and 1.4.2 (prototype outside the repository): a host and a
+step built separately from the same module, in one process, with the host
+entering the module's `AsyncLocalStorage` and re-entering a snapshot for the
+step, read `undefined` in the step; with the mechanism below they read the
+host's value in 16 of 16 concurrent invocations of two runs, including when
+the host was a compiled Bun executable.
+
+1. **Build.** The build helper resolves each import of a listed module to a
+   generated shim that takes every export from a process-wide registry
+   (`Symbol.for("windmill-lite.hostModules")`), by name. Export names come
+   from a static scan of the module. A module that exports a binding it
+   reassigns (`export let` that changes) is refused with
+   `host_module_live_binding`, because a shim cannot follow a live binding.
+2. **Host mode.** The Bun host SDK registers the host's own instances (the
+   modules the host's program imported) before any step module loads.
+3. **Elsewhere.** The harness loads the bundled copy from
+   `scripts/bun/provided/` once per process and registers it, so every
+   script in the process shares that one instance.
+4. **Missing.** A step that imports a host-provided module the registry
+   lacks fails at module load with `host-provided module not registered: <path>`.
+5. **Not listed** means per-script, as on Windmill. In particular a host
+   lists only modules that must be shared; a client library that must stay
+   per step (so that its import-time configuration is the facade's, not the
+   host's) is simply not listed.
+
+This departs from Windmill, which inlines every import into each script's
+bundle ([WR-27](../semantics/languages.md#wr-27)): it is deviation D12, and the
+manifest lists the modules it applies to.
 
 The same inputs and pins produce the same bundle digest; CI builds a fixture
 bundle twice and compares.
@@ -66,9 +107,9 @@ bundle twice and compares.
 
 The **bundle digest** is the SHA-256 of the canonical `manifest.json`. Since
 the manifest lists the digest of the IR, of every built script, of every
-source file and lock, and of the harness runtime, any change to a flow (one
-`stop_after_if`, say), a script, a lock, a pin or a reading changes the
-digest. It appears in:
+source file and lock, of the host contract and of the harness runtime, any
+change to a flow (one `stop_after_if`, say), a script, a lock, a pin or the
+host contract changes the digest. It appears in:
 
 - `GetBuildInfo` and `/healthz`, with engine, harness and Bun versions;
 - the harness handshake, which fails on a mismatch ([0004](0004-harness-protocol.md));
@@ -119,4 +160,4 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
 
 ## Spec IDs relied on
 
-WR-3, WR-6, WR-8, WR-26 to WR-29, WR-31, WR-32, WR-39, WA-31, SY-8, OR-3.
+WR-3, WR-6, WR-8, WR-26 to WR-32, WR-39, WA-31, SY-8, OR-3.

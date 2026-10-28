@@ -94,16 +94,48 @@ decrypts Windmill ciphertext; it hands that to the resolver
 - The Go router holds the routes above, written from the Apache
   `openapi.yaml` ([LIC-1](../semantics/licensing.md#lic-1)), with Windmill's
   status codes and `text/plain` error bodies.
-- It listens on loopback TCP for harnesses or code paths that do not use
-  `fetch`. `BASE_URL` (and, for languages other than Bun, `BASE_INTERNAL_URL`)
-  point at it before any module loads ([WA-2](../semantics/client-api.md#wa-2)).
-- The Bun harness intercepts `fetch` calls to that origin and sends them as
-  `platform` frames ([0004](0004-harness-protocol.md)), so they skip TCP.
-- **Attribution** comes from the invocation, never from the token: the token
-  is fixed at import and shared by every step in the process
-  ([WA-31](../semantics/client-api.md#wa-31)). Frames carry the invocation
-  id; TCP calls carry the invocation's own `WM_TOKEN`, a per-invocation
-  opaque value that the facade maps back to the invocation.
+- **Transports and attribution.** Every platform call must be attributed to
+  the invocation that made it, and never inferred from the token: the stock
+  client captures `WM_TOKEN` and its base URL at import, so in a warm process
+  every invocation of a script sends the token of that script's first
+  invocation, since each script bundle has its own copy of the client ([WA-1](../semantics/client-api.md#wa-1),
+  [WA-31](../semantics/client-api.md#wa-31)). Two transports exist:
+  1. **Intercepted `fetch`** (warm and host-mode Bun processes): the harness
+     turns each `fetch` to the facade origin into a `platform` frame carrying
+     the invocation id from its `AsyncLocalStorage` context
+     ([0004](0004-harness-protocol.md)). The token in the request is ignored.
+     This is the only supported transport in those processes: the facade
+     origin is a loopback port the engine binds without listening on, so any
+     other transport is refused (restriction, [0001](0001-equivalence-contract.md)
+     §5a).
+  2. **Loopback TCP** (`fresh` processes, and later harnesses that run one
+     invocation per process): the port listens, and each process gets a
+     token that names its one invocation. A call whose token is unknown, or
+     names an invocation that has ended, answers `401` with
+     `Not authorized: unknown windmill-lite invocation token` and is recorded
+     against the process; it is never guessed onto another invocation.
+
+  `BASE_URL` (and, for languages other than Bun, `BASE_INTERNAL_URL`) point at
+  the facade origin before any module loads ([WA-2](../semantics/client-api.md#wa-2)).
+  Test (milestone PF1): two runs at once, in one warm process, with the
+  client first imported during the first run's module load: every call of
+  each run is attributed to its own invocation on the intercepted path; a
+  `node:http` call from a warm step is refused and recorded; in `fresh`
+  mode each process's TCP calls carry its own token; a call replaying an
+  ended invocation's token gets the `401`.
+- **Calls made by host plugins** outside any step (an interceptor that calls
+  step code, [0008](0008-host-hooks.md) H1) are attributed to the site being
+  intercepted: they see the environment that site's invocation would have
+  had, and the 501 policy below applies to that site's outcome.
+- **Providers written in TypeScript** (a Bun host's per-run providers, H13)
+  stay behind the Go router: the router does interpolation, errors and the
+  501 policy, and asks the TypeScript provider only for the raw value over a
+  `host_call`. A provider-backed call therefore costs two round trips inside
+  one process, about 25–35 µs at the measured 12.5–18 µs each
+  ([0003](0003-semantics-placement.md)); a provider can mark answers
+  cacheable for the run to avoid repeating them. Answering `platform` frames
+  directly in TypeScript was rejected because it would copy the router's
+  rules into a second language.
 - **Unsupported routes** answer `501` with `text/plain` body
   `Not implemented in windmill-lite: <METHOD> <route template>`, never `404`,
   because stock clients read a 404 as "absent"
@@ -176,9 +208,12 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
 
 ## Consequences
 
-- Stock client code runs unchanged; nothing in a user's bundle is aliased.
+- Stock client code runs unchanged; nothing in a user's bundle is aliased
+  except the host-provided modules a host lists ([0010](0010-packaging.md), D12).
 - Every platform call is attributed to one step, even when steps run
-  concurrently in one process.
+  concurrently in one process, because attribution never depends on the
+  token. The price is a restriction: in warm processes the platform is
+  reachable only through `fetch`.
 - A step that hits an unsupported route fails loudly by default instead of
   continuing with a wrong value.
 - Hosts get one extension point per service and one secret layer, not a

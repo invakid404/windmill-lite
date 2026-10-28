@@ -105,15 +105,18 @@ The IR is a tree of plain Go values, serialisable to JSON for the bundle and
 for golden tests:
 
 - **`Program`**: the flows (by path) and scripts (by id) of the bundle, the
-  readings in effect ([0001](0001-equivalence-contract.md) §6), and the
-  deviations in effect.
+  host contract it was built against (below), and the deviations in effect.
 - **`Flow`**: its module list, failure module, preprocessor module and the
   flow-level fields that matter at run time (`skip_expr`, `flow_env`,
   `early_return`, `cache_ttl`, `same_worker`, the whole-flow `timeout`)
   ([OF-16](../semantics/openflow.md#of-16)).
-- **`Module`**: id, kind and the envelope, each field already decoded. Kinds:
+- **`Module`**: id, its occurrence number when the id repeats within its
+  module list (ids are not unique in Windmill, [OF-2](../semantics/openflow.md#of-2);
+  [0011](0011-differential-testing.md) uses the occurrence in identities),
+  kind and the envelope, each field already decoded. Kinds:
   `Script` (by path), `RawScript` (inline), `Identity`, `Subflow` (by path),
-  `ForLoop`, `WhileLoop`, `BranchOne`, `BranchAll`. Container bodies are
+  `ForLoop`, `WhileLoop`, `BranchOne`, `BranchAll`, and `Provided` for a
+  mandatory host-provided call site (below). Container bodies are
   nested module lists. Each container records whether it **collapses**
   under the deployed rules ([FX-46](../semantics/execution.md#fx-46),
   [CF-8](../semantics/control-flow.md#cf-8)), computed once, so the engine
@@ -130,7 +133,7 @@ for golden tests:
 - **`Leaf`** (for `Script` and `RawScript`): a reference into the script
   inventory, plus the step's **harness class**.
 
-### Language and segments
+### Language and harness class
 
 Each leaf's language is static ([OF-13](../semantics/openflow.md#of-13)):
 a rawscript's `language` field, or for a path script the file-name rules of
@@ -144,13 +147,11 @@ switch. The IR maps languages to harness classes:
 | `python3`, `deno`, `go`, `bash` (`later`) | one class each | per [WR-33](../semantics/languages.md#wr-33) to [WR-35](../semantics/languages.md#wr-35) |
 | anything else | none | load error `unsupported_language: <lang>` naming the step |
 
-A **segment** is a maximal subtree (a run of sibling steps, a container, or
-a subflow resolved within the bundle) whose leaves share one harness class.
-The IR records segments because they decide process placement and the host
-scope a run enters ([0004](0004-harness-protocol.md), [0008](0008-host-hooks.md)).
-`branchone` needs no prediction: every branch's class is known at compile
-time. Segments are not an execution unit in the harness
-([0003](0003-semantics-placement.md)).
+The harness class per leaf is all the engine needs: placement is decided per
+leaf by the pool key ([0004](0004-harness-protocol.md)), and host scopes are
+entered per run ([0008](0008-host-hooks.md)). The charter's *segments* (runs
+of same-language steps chained in one process) were weighed and are not
+recorded in the IR; [0003](0003-semantics-placement.md) explains why.
 
 ### Script inventory and dependency information
 
@@ -168,12 +169,54 @@ inlined), the codebase's id for codebase scripts. Harness pools are keyed by
 harness class, runtime pin and dependency set
 ([0004](0004-harness-protocol.md)).
 
-The signature of a TypeScript `main` is parsed by the Bun build helper, not by
-Go, because that parse is TypeScript-specific and the harness must agree with
-it ([WR-6](../semantics/languages.md#wr-6), [WR-8](../semantics/languages.md#wr-8),
-[WR-39](../semantics/languages.md#wr-39)). Its output (parameter names, which
-parameters hydrate to `Date`, entrypoints present) goes into the bundle
-manifest ([0010](0010-packaging.md)).
+Signatures are parsed by the Bun build helper, not by Go, because that parse
+is TypeScript-specific and the harness must agree with it
+([WR-6](../semantics/languages.md#wr-6), [WR-8](../semantics/languages.md#wr-8),
+[WR-39](../semantics/languages.md#wr-39)). The helper records **every export**,
+not only `main` and `preprocessor`, because `_ENTRYPOINT_OVERRIDE` can name
+any export at run time, from a flow input
+([WR-12](../semantics/languages.md#wr-12)). For each exported function
+declaration the manifest records the parameter names and which parameters
+hydrate to `Date`; an export the signature parser does not recognise (an
+arrow function, a `const` holding a function) is recorded with an empty
+parameter list, which is how Windmill's parser sees it (the
+[WR-V1](../semantics/languages.md#wr-v1) fallback) ([0010](0010-packaging.md)).
+Whether an export exists and is a function is checked by the harness after
+loading, not at build ([0004](0004-harness-protocol.md)).
+
+### Host contract and mandatory host-provided call sites
+
+Some hosts must replace call sites whose targets windmill-lite cannot run,
+for example a subflow that suspends. Runtime interception alone cannot help:
+the loader would reject the flow before any hook ran. So the build takes a
+**host contract** as a second input, next to the sync folder: a file that
+lists the bundle's **roots** (the flows and scripts the host will run) and
+its **provided sites**, each a selector ([0008](0008-host-hooks.md)) with
+the form of its provider (a static value, or a named provider the host
+registers at run time) and `mandatory: true`.
+
+1. The loader walks the dependency closure from the roots only. At a
+   provided site it stops: the site's target (a by-path subflow or script)
+   is **opaque**: it is not loaded, validated or bundled, and need not be in
+   the folder, unless another, non-provided path also reaches it.
+2. Validation then applies to everything still reachable. A `suspend`
+   reachable only through provided sites is therefore not an error; one
+   reachable any other way still is (`unsupported_feature`, naming the path).
+3. The IR replaces each provided site with a `Provided` module that keeps
+   the original envelope (transforms, `skip_if`, `stop_after_if`, retry,
+   `continue_on_error`), so the orchestration around the site is the real one.
+4. `wl.Open` fails with `missing_provider` (naming the site) when a named
+   provider is not registered, so a run can never reach an unprovided site.
+5. A mandatory provider cannot decline. If it returns *decline* anyway, the
+   run latches `provider_declined` (H5) and fails closed.
+
+Policy case: a synthetic root calls a by-path subflow that contains
+`suspend`, at a site the host contract provides. With the provider
+registered, the run succeeds with the provider's value and the root's
+orchestration around the site (its `stop_after_if`) applies to it; without
+the contract entry, load fails with `unsupported_feature`/`suspend` naming
+the path; with the entry but no registered provider, `wl.Open` fails with
+`missing_provider`.
 
 ### Validation
 
@@ -191,11 +234,44 @@ Load fails, naming the step and the rule, when:
 6. a `script.hash` pins a version other than the folder's script
    ([OF-14](../semantics/openflow.md#of-14)).
 
-Codebase scripts ([SY-8](../semantics/openflow.md#sy-8)) are built by
-windmill-lite from the `wmill.yaml` codebase settings. Windmill CE refuses
-them (`codebase is an EE feature`, [WR-30](../semantics/languages.md#wr-30)),
-so their behaviour cannot be recorded on the CE oracle; fixtures that need
-them are tagged `EE` and are checked against the bundling rules only.
+### Codebase scripts
+
+A codebase script is a Bun-family path script matched by a `codebases`
+entry of `wmill.yaml` ([SY-8](../semantics/openflow.md#sy-8)). Windmill's
+CLI bundles it with esbuild, platform `node`, packages inlined, format `cjs`
+(target `node20.15.1`) or `esm`, with the entry's `external`, `inject`,
+`define`, `loader` and `banner` ([WR-30](../semantics/languages.md#wr-30)) and
+its `assets` ([SY-8](../semantics/openflow.md#sy-8)). Windmill runs a CJS
+bundle under Node, and CE refuses codebase scripts (`codebase is an EE
+feature`, or on a standalone instance `(standalone bundle test mode) could
+not find codebase at <path>`, WR-30).
+Decisions:
+
+1. **Bundler.** esbuild through its Go API (MIT), pinned to the version the
+   pinned CLI uses, with the settings above. Until the reference states that
+   version and the default `format`, the build uses the CLI's documented
+   defaults and records the esbuild version in the manifest (semantics
+   request 2, README). A `customBundler` entry is refused at load
+   (`unsupported_feature`).
+2. **Runtime.** CJS and ESM codebase bundles run in the Bun harness;
+   running CJS on Bun's CommonJS loader instead of Node is deviation D13. A
+   Node harness class was weighed and rejected: host mode needs steps in the
+   host's Bun process, and CE cannot record codebase behaviour either way.
+   Cases for D13 run the same esbuild CJS bundle under Node and under the Bun
+   harness and compare results, error objects and module-load failures
+   (`__dirname`, `require` of JSON and of the bundle's own files, `module.exports`
+   shapes).
+3. **Assets.** `assets[{from,to}]` are extracted once per harness process
+   into its working directory (D10) before any invocation. Two scripts whose
+   assets map different content to the same relative path fail the build
+   with `asset_collision`.
+4. **Parity with the CLI.** Milestone C2b checks the bundles: the pinned
+   `wmill` CLI, run as a black box against a recording HTTP stub, produces
+   the codebase bundles it would upload, and windmill-lite's esbuild output
+   for the same fixture must match them after normalising paths. If the CLI
+   needs more of a server than a stub can answer, the check compares the
+   esbuild settings and the semantics request's answer instead, and says so
+   in the case.
 
 Proposed loader divergences from the CLI, each labelled in the loader's
 diagnostics: reject dotted logical paths and always use the `wmill.yaml`
@@ -227,6 +303,6 @@ how an accepted folder runs.
 ## Spec IDs relied on
 
 OF-1 to OF-18, OF-V1, OF-V2, OF-V4, SY-1 to SY-15, SY-V1 to SY-V4, PA-1 to
-PA-3, FX-4, FX-46, CF-6, CF-8, JE-5 to JE-15, JE-40, WR-6, WR-8, WR-13,
-WR-18, WR-27 to WR-31, WR-33 to WR-35, WR-39, WA-60, LIC-3, Q-OF-5, Q-OF-6,
-Q-OF-7, Q-CF-13.
+PA-3, FX-4, FX-39, FX-46, CF-6, CF-8, JE-5 to JE-15, JE-40, WR-6, WR-8,
+WR-12, WR-13, WR-18, WR-27 to WR-31, WR-33 to WR-35, WR-39, WR-V1, WA-60,
+LIC-3, Q-OF-5, Q-OF-6, Q-OF-7, Q-CF-13.

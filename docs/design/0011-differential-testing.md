@@ -53,9 +53,9 @@ The `oracle` package implements the reference's design as written:
    provenance; the NUL `InternalErr` location masked and nothing broader;
    provenance kept apart from the compared observation. These rules govern
    oracle-to-oracle comparisons unchanged. Comparing windmill-lite with the
-   oracle adds one rule: the Rust location suffix is stripped from every
-   message, because windmill-lite cannot reproduce it
-   ([0001](0001-equivalence-contract.md) §2).
+   oracle adds one narrow rule for Rust location suffixes on generated
+   messages only (§Location suffixes below,
+   [0001](0001-equivalence-contract.md) §2).
 6. **Effects** ([OR-16](../semantics/oracle.md#or-16), [OR-V6](../semantics/oracle.md#or-v6)):
    an HTTP sink on the runner, grouped by `WM_ROOT_JOB_ID` against the
    submitted root. windmill-lite injects the same sink variable.
@@ -70,19 +70,29 @@ segments with `/`. Each segment is `<kind>:<value>`:
 
 | Kind | Value | Example |
 |---|---|---|
-| `m` | a module id in a module list | `m:a` |
+| `m` | a module id in a module list, with `~<k>` appended when the id occurs more than once in that list (`k` counts those occurrences from 0, in list order) | `m:a`, `m:a~1` |
 | `i` | a loop iteration index | `i:2` |
 | `b` | a branch: `default` or an index for `branchone`, an index for `branchall` | `b:0` |
 | `s` | a special slot: `failure` or `preprocessor` | `s:failure` |
 | `r` | an attempt number of a retried module, from 0 | `r:1` |
 
-Values are percent-escaped for `%`, `/` and `:` (`%25`, `%2F`, `%3A`), so the
-escape character itself is escaped. Examples: `m:outer/i:1/m:inner/i:0/m:s`,
-`m:a/r:0` (the failed first attempt of `a`), `s:failure`, and `m:failure`
-for an ordinary module that happens to be named `failure`.
+Values are percent-escaped for `%`, `/`, `:` and `~` (`%25`, `%2F`, `%3A`,
+`%7E`), so the escape character itself is escaped. Examples:
+`m:outer/i:1/m:inner/i:0/m:s`, `m:a/r:0` (the failed first attempt of `a`),
+`s:failure`, `m:failure` for an ordinary module that happens to be named
+`failure`, and `m:a~0` and `m:a~1` for two modules both named `a` in one list
+(Windmill does not require unique ids, [OF-2](../semantics/openflow.md#of-2)).
+A unique id carries no suffix, so adding a module elsewhere in a flow does
+not change the identities of the others, which keeps replay tables and
+recorded fixtures stable across flow revisions.
 
 The encoding is injective: the kind separates ordinary modules from slots,
-and escaping covers the escape character. A collapsed loop's iterations
+the occurrence separates repeated ids, and escaping covers the escape
+character and the occurrence marker. Negative tests of the encoder: two
+modules with one id in one list; the same id in different container bodies
+(distinct paths, no suffix needed); an ordinary module named `failure` beside
+a real failure handler, and one named `preprocessor` beside a real
+preprocessor; ids containing `%`, `/`, `:` and `~`; and cases OR-V8/a–c. A collapsed loop's iterations
 appear as `m:<loop>/i:<n>/m:<body>`, the same path a non-collapsed loop gives,
 so the shape of Windmill's job tree never leaks into identities. The same
 encoding is used by job-id placeholders (`<job:m:a/i:1/m:s>`), host-hook
@@ -102,8 +112,21 @@ under `conformance/flows/` ([0003](0003-semantics-placement.md)). The
   (case OR-15/b);
 - `diff`: run both live and compare.
 
-Exact comparison is the gate. Step and expression cases are lifted into
-generated one-step flow fixtures for `record`.
+`check` takes `--mode fresh|warm|host`; host mode drives the cases through a
+small public Bun test host built on the SDK. Exact comparison is the gate.
+Step and expression cases are lifted into generated one-step flow fixtures
+for `record`.
+
+**Location suffixes.** Comparing windmill-lite with the oracle adds one rule
+to [OR-14](../semantics/oracle.md#or-14)'s normaliser: at a path where
+windmill-lite's value is an error it generated (its trace records provenance
+for every error), and the oracle's message matches a catalogue template that
+carries `<loc>`, the oracle's Rust location suffix is stripped
+([0001](0001-equivalence-contract.md) §2, D14). Nothing else is stripped.
+Positive test: a generated `Internal: …` error whose oracle text ends in a
+location compares equal to windmill-lite's. Negative test: a user error
+`Error("boom @a.rs:1:2")` against `Error("boom @b.rs:3:4")` still differs,
+because windmill-lite's value at that path has user provenance.
 
 ### Stub mode
 
@@ -114,12 +137,19 @@ outcome, keyed by the outer root (`WM_ROOT_JOB_ID`), the site path and the
 attempt. On the oracle, the service resolves the site by walking the job
 tree; on windmill-lite it reads the run trace. Orchestration of flows whose
 real steps need private systems can then be compared on the oracle without
-those systems; the flows and tables stay with whoever owns them.
+those systems; the flows and tables stay with whoever owns them. Outcomes
+are idempotent per raw job id, and the attempt number counts from 0, as the
+`r:` segment does: it is the number of distinct job ids already seen at that
+site in the run. Milestone E4 owns
+the stub generator and the replay service, with acceptance cases for a retry
+inside a loop, a collapsed body, nested loops, a named subflow and a parallel
+loop under one outer run, and two concurrent outer runs.
 
 ### CI
 
-1. **Every pull request** (no Docker): `wltest check` on all levels, with
-   JSON differential mode on ([0005](0005-json-step-boundaries.md)); the
+1. **Every pull request** (no Docker): `wltest check` on all levels, in
+   `fresh` and `warm`, with the expression level on both engine backends
+   ([0003](0003-semantics-placement.md)); host mode once milestone F3b lands; the
    **image lint** (no Dockerfile `FROM ghcr.io/windmill-labs/`, no
    `docker push`/`docker tag` of a Windmill image); the **manifest guard**,
    which rejects AGPL-derived Windmill packages (for example
@@ -130,15 +160,20 @@ those systems; the flows and tables stay with whoever owns them.
    `conformance/`): `wltest record` on `ubuntu-latest` amd64, failing when a
    recording differs from the committed one. A changed recording is
    committed by a pull request that also updates the case's provenance and,
-   where it settles a question, the reading defaults
-   ([0001](0001-equivalence-contract.md) §6).
+   where it settles a contested finding, the one engine function that
+   implements it ([0001](0001-equivalence-contract.md) §6).
 
 ### Performance
 
 1. **Micro-benchmarks** (milestone G1): the boundary costs of
-   [0005](0005-json-step-boundaries.md), the protocol round trip of
-   [0004](0004-harness-protocol.md), and the expression engine with and
-   without pre-warmed contexts ([0003](0003-semantics-placement.md)).
+   [0005](0005-json-step-boundaries.md) and the protocol round trip of
+   [0004](0004-harness-protocol.md). The expression engine has its own
+   **bounded-pool benchmark** in B2b, which gates that milestone
+   ([0003](0003-semantics-placement.md)): cold and warm bursts, sustained
+   concurrency below and above the pool size, replenishment under load,
+   inputs of 4, 64 and 256 KB, on both backends, reporting p50, p95 and p99
+   latency (including the wait for a prepared slot), CPU per evaluation and
+   memory per slot.
 2. **Run spans.** Every run trace carries durations per module, per
    invocation (queue, harness, serialisation), per expression evaluation and
    per platform call, plus every requested wait.
@@ -155,10 +190,10 @@ those systems; the flows and tables stay with whoever owns them.
 - Every comparison, placeholder, hook and trace uses one identity encoding.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
-- Disputed findings get settled by recordings, through a reviewed pull
-  request that changes one default.
+- Disputed findings get settled by recordings, early, through a reviewed
+  pull request that changes one function.
 
 ## Spec IDs relied on
 
-OR-1 to OR-31, OR-V1 to OR-V8, Q-OR-16, Q-OR-17, LIC-1, Q-OF-7, and the
-conformance catalogue.
+OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-16, Q-OR-17, LIC-1, Q-OF-7, and
+the conformance catalogue.

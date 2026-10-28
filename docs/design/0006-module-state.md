@@ -51,49 +51,66 @@ process took 46–54 ms to the first message.
    chunks, so dependencies are evaluated once for the whole process. Least
    memory; scripts share module state with each other, which Windmill never
    does.
-5. **Fresh per run.** Saves little, since each step of a run is usually a
+5. **Warm per script plus a short list of host-provided modules** shared
+   with the host. Chosen, with option 2 as the opt-out.
+6. **Fresh per run.** Saves little, since each step of a run is usually a
    different script.
 
 ## Decision
 
-Three modes, chosen by the host, recorded in the bundle manifest and in each
+Two modes, chosen by the host, recorded in the bundle manifest and in each
 run's trace:
 
 | Mode | Module identity | Lifetime | Use |
 |---|---|---|---|
-| `fresh` | per invocation | one harness process per invocation, killed afterwards | Windmill-equivalent; the conformance suite; scripts a host lists by path |
-| `warm` (default) | per script, as in Windmill | the harness process | production default (deviation D1) |
-| `shared` | per harness build | the harness process | memory-constrained hosts whose scripts were written for one shared process |
+| `fresh` | per invocation | one harness process per invocation, ended afterwards | Windmill-equivalent; the conformance suite; kill semantics on timeout and cancellation; scripts a host lists by path |
+| `warm` (default) | per script, as in Windmill | the harness process | production (deviation D1) |
 
 - **Default `warm`.** Module-scoped state stays per script, as in Windmill,
-  and only its lifetime changes. `globalThis` is the exception: one process
-  serves every script, so all scripts in it share one global object, which
-  case WR-1/b exposes. That is the smallest deviation that keeps per-step
-  cost in microseconds.
+  because each script's bundle carries its own copy of its imports
+  ([WR-27](../semantics/languages.md#wr-27)); only its lifetime changes.
+  `globalThis` is shared: one process serves every script, so all scripts in
+  it see one global object, which case WR-1/b exposes. That is the smallest
+  deviation that keeps per-step cost in microseconds.
+- **Host-provided modules** are the one deliberate exception to per-script
+  identity. A host lists module paths whose single instance the host and
+  every script must share (for example a module that holds an
+  `AsyncLocalStorage` the host enters); the build replaces their imports
+  with references to that one instance ([0010](0010-packaging.md), D12).
+  Everything else stays per script.
 - **Opt-out.** A host can run the whole bundle `fresh`, or list script paths
-  (glob patterns) that always run `fresh`. `fresh` also gives back kill
-  semantics on timeout and cancellation ([0004](0004-harness-protocol.md), D2).
-- **Opt-in `shared`.** It is a separate build output ([0010](0010-packaging.md))
-  because sharing chunks changes bundling. It suits a host that already ran
-  its scripts in one process.
-- **Conformance.** The suite runs every flow and step case in `fresh`, and
-  the step cases also in `warm`, where WR-1/a and WR-1/b are expected to read
-  `1` then `2`: the deviation is tested, not assumed.
-- **`globalThis`** survives in `warm` and `shared`, across invocations and
-  across scripts (deviation D1). Code that keeps resources
-  there on purpose, such as a connection cache registered on a global object,
-  keeps working, and that is the point of a warm harness.
+  (glob patterns) that always run `fresh`. `fresh` also removes D2, D9, D10
+  and D11 ([0001](0001-equivalence-contract.md) §5). It is not available in
+  host mode, where steps must run in the host's process: **host mode always
+  runs `warm`**.
+- **`shared` is not in the first edition.** A mode with one build and shared
+  chunks for all scripts was weighed: it saves memory but changes bundling
+  away from WR-27, shares state between scripts that Windmill keeps apart,
+  and doubles the configurations to test. Its main use case, a host whose
+  scripts must share a few singletons with it, is covered by host-provided
+  modules. It can come back through its own record, with a memory
+  measurement that shows `warm` does not fit.
+- **Conformance.** Flow cases run in `fresh`, in `warm` and in host mode;
+  step cases run in `fresh` and `warm` ([0003](0003-semantics-placement.md)).
+  Cases WR-1/a and WR-1/b expect `1` and `1` in `fresh`, and `1` then `2` in
+  `warm`: the deviation is tested, not assumed.
+- **`globalThis`** survives in `warm`, across invocations and across scripts.
+  Code that keeps resources there on purpose, such as a connection cache
+  registered on a global object, keeps working, and that is the point of a
+  warm harness.
 
 ## Consequences
 
 - A host turning on `warm` takes responsibility for module-level state in its
   scripts. The run trace records the mode, so an incident can be traced to
   it.
-- Production memory grows with the number of distinct scripts in `warm`
-  (each carries its dependencies); `shared` is the remedy.
+- Memory grows with the number of distinct scripts in `warm`, because each
+  carries its dependencies. A host measures it on its own bundle; a result
+  that does not fit is the trigger for a `shared` record, not a silent
+  change of mode.
 - First-invocation latency includes module evaluation; eager loading
   ([0004](0004-harness-protocol.md)) moves it to process start.
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-27, Q-WR-19.
+WR-1, WR-2, WR-27, Q-WR-19, and deviations D1, D2 and D9 to D12 of 0001.

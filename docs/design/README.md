@@ -20,7 +20,8 @@ in-repository benchmarks.
 A Go **engine** loads a **bundle** built from a `wmill sync` folder and is the
 only flow interpreter: it runs Windmill's decision list, containers, retries,
 waits, failure modules and cancellation, and evaluates every expression in
-QuickJS-ng (the engine Windmill uses), compiled to WASM and run in wazero.
+QuickJS-ng (the engine Windmill uses), embedded natively, with a pure-Go
+WASM build as the fallback.
 Steps run in warm **language harnesses** (Bun first), which are step runners:
 they bind arguments, hydrate, call the entrypoint, and serialise results and
 errors with the language's rules, one framed message per step over a
@@ -40,37 +41,43 @@ flowchart LR
 
 | Record | Decision |
 |---|---|
-| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path on one CE worker; reject out-of-scope features at load; list eight named deviations; implement each contested rule once with both readings selectable and a stated default. |
-| [0002 IR, loader and validation](0002-ir-and-loader.md) | Hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions, harness class per leaf and segments; a script inventory with dependency-set ids. |
-| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go, with QuickJS-ng `be664ca1` in wazero and pre-warmed fresh contexts; harnesses are step runners; segments place work but do not execute in the harness; a three-level conformance suite (flow, step, expression) run by both sides. |
-| [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair with values embedded raw; per-invocation env, logs and `fetch` through `AsyncLocalStorage`; pools keyed by harness class, runtime pin, dependency set and module-state mode; the engine owns concurrency and deadlines; timed-out steps are abandoned and their process recycled when idle. |
-| [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; the normalising walk is specified with a differential mode and kept for a gated residency optimisation. |
-| [0006 Module state](0006-module-state.md) | Three modes: `fresh` (a process per invocation, Windmill-equivalent), `warm` (default: one module instance per script for the process lifetime) and `shared` (one build for all scripts); conformance runs `fresh`. |
-| [0007 Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements; one interpolation walker with three modes and a host secret layer; a loopback facade plus in-process `fetch` interception; attribution by invocation; unsupported routes fail with `UnsupportedPlatformCall`; hybrid dispatch built behind interfaces, its remote adapter held for a licence decision. |
-| [0008 Host hooks](0008-host-hooks.md) | Thirteen hooks with call-site selectors, as Go callbacks or TypeScript host plugins: interception, argument rewrites, a first-write signal, cancellation with a pre-write budget, run-fatal latches, observers, fatal error names, halt points, traces, an injectable clock, host scopes, environment overrides and per-run providers. |
+| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fourteen named deviations (D1–D14), five of which `fresh` mode removes, and five restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
+| [0002 IR, loader and validation](0002-ir-and-loader.md) | Hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
+| [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` native by default and in wazero without cgo; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a three-level conformance suite compared once in Go, in `fresh`, `warm` and host mode. |
+| [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, large messages in parts; validated entrypoint names; a shared-process failure model (handlers that never exit, attribution without guessing, D9–D11); `fetch` as the only platform transport in warm processes; pools with an in-flight cap; host mode never tainted or killed, with reported abandonment and stated limits. |
+| [0005 JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
+| [0006 Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition. |
+| [0007 Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements; one interpolation walker with three modes and a host secret layer; a facade reached by intercepted `fetch` (warm) or per-invocation tokens (`fresh`), never by a shared token; unsupported routes fail with `UnsupportedPlatformCall`; hybrid dispatch built behind interfaces, its remote adapter held for a licence decision. |
+| [0008 Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins; mandatory host-provided call sites that fail closed; scopes reach steps through host-provided modules; seams defined in the first engine milestone. |
 | [0009 Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; adapters in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI; typed client methods generated from Windmill schemas over a generic wire, bound to the bundle digest. |
-| [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests; a Bun build helper on the pinned Bun `1.3.10`; a bundle digest in every handshake, trace and build-info call; a single executable per platform; an OCI image written without Docker; a `verify` command. |
-| [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding shared by every comparison; `record`, `check` and `diff`; a stub mode for comparing orchestration without private systems; benchmarks and run spans for performance. |
-| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 28 milestones, six of them startable at once. |
+| [0010 Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.3.10`; host-provided modules through a registry (D12); a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
+| [0011 Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; a stub mode with an owning milestone; benchmarks, a bounded-pool benchmark and run spans. |
+| [0012 Layout and milestones](0012-layout-and-milestones.md) | `wl/` as the only public package and components under `internal/`; 48 milestones, each one pull request, with merge dependencies and exit gates; a contracts milestone first, a walking skeleton on the pinned Bun in wave 2, oracle recordings before the engine merges. |
 
 ## Measurements behind the decisions
 
-Apple M4, macOS, Go 1.27.3, Bun 1.4.2 (details in each record):
+Apple M4, macOS, Go 1.27.3, Bun 1.4.2 unless a row names 1.3.10 (details in
+each record):
 
 | Question | Result | Used in |
 |---|---|---|
 | Go ↔ warm Bun round trip, one step | 12.5 µs p50 for 26 B, 18.4 µs for 3 KB, about 250 µs for 100 KB | 0003, 0004 |
-| One QuickJS-ng evaluation with a fresh runtime | 250 µs in Go/wazero (46 µs of it evaluation), 188 µs native through cgo, 110 µs in Bun's WASM | 0003 |
-| Normalising walk versus native JSON round trip in Bun | 2–3× faster; 0.08 µs versus 485 µs for a 1 MiB string | 0005 |
+| First QuickJS-ng evaluation on a never-used runtime (setup excluded), by bound input | wazero: 53 µs at 50 B, 79 µs at 4 KB, 427 µs at 64 KB; native: 87 µs, 91 µs, 162 µs | 0003 |
+| Fresh runtime setup | 221 µs in wazero, 84 µs native | 0003 |
+| Bounded pool, 8 slots, 8 callers with pauses, 4 KB | 120 µs p50, 260 µs p95 | 0003 |
+| Normalising walk versus native JSON round trip in Bun | faster, but not equivalent (top-level functions and symbols, own `__proto__` keys) | 0005 |
 | Fresh module state per invocation in one process | 0.6–2.1 ms for 0.3–1.3 MB bundles; re-importing leaks module records | 0006 |
-| Re-entering a run's async scopes per step | 16 of 16 concurrent invocations isolated | 0004, 0008 |
+| Step code reading a host scope through a separately bundled copy of the module, on Bun 1.3.10 | `undefined`; through a host-provided module, 16 of 16 isolated, compiled host included | 0010 |
+| One detached promise rejection in a shared Bun process, 1.3.10 and 1.4.2 | ends the process unless handlers are installed | 0004 |
 
 ## Unsettled findings
 
 Twenty-one findings of the reference are not settled. The design does not pick
 sides silently: [0001](0001-equivalence-contract.md) §6 lists each contested
 rule, its readings, the default and why, and the recording that settles it.
-Both readings are implemented behind one switch per rule.
+Milestone E3a records them on the oracle before the engine milestones that
+implement them merge; until then the engine implements the stated default in
+one function per rule, and no build switch keeps both readings.
 
 ## Requests to the semantics team
 
@@ -85,7 +92,14 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    and puts it in `later` scope, while the language values are `core` for
    loading ([OF-13](../semantics/openflow.md#of-13)). Until it is covered, the
    harness's native mode ([0004](0004-harness-protocol.md)) has no public
-   conformance cases.
+   conformance cases, and milestone C3n cannot merge (gate S1).
+2. **Codebase bundling details**: the default `format` of a codebase entry,
+   the esbuild version the pinned CLI uses, how `inject` and `customBundler`
+   are handled, where `assets` land at run time, and the Node version that
+   runs CJS bundles. [WR-30](../semantics/languages.md#wr-30) gives the
+   outline. Until it is answered, milestone C2b uses the CLI's documented
+   defaults and records the esbuild version in the manifest; an answer
+   refines those settings but does not hold C2b.
 
 ## Changing the design
 

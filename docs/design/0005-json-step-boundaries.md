@@ -2,7 +2,7 @@
 
 **Status:** proposed · **Topic:** reproducing Windmill's serialise, store and
 hydrate behaviour exactly while keeping the cost to what the semantics
-require; the normalising walk, its differential mode, and the benchmark plan.
+require; why the normalising walk was dropped; and the benchmark plan.
 
 ## Context
 
@@ -35,36 +35,35 @@ question is where windmill-lite keeps which form, and how cheaply.
 
 1. **Keep live JavaScript values in the harness and copy them with a
    normalising walk** that equals a JSON round trip without building the
-   string. This is the cheap path when a segment runs in the harness. With
+   string. It would be the cheap path if steps were chained inside the
+   harness. With
    the interpreter in Go ([0003](0003-semantics-placement.md)), Go must hold
    the text anyway: the producer text for memory routes, the stored text for
    storage routes, and text to feed QuickJS-ng.
 2. **Hold every value in Go as JSON text, in two forms, and never decode what
-   is only passed through.** Chosen for the critical path.
+   is only passed through.** Chosen.
 3. **Decode into Go maps.** Loses number spelling and key order, and costs
    allocations; rejected.
 
 ## Measurements
 
-The walk in Bun 1.4.2 on Apple M4 (prototype outside the repository; the
-differential check passed on every fixture and on edge cases: `undefined`,
-`-0`, `NaN`, functions and symbols in arrays and objects, `Date`, `Map`,
-boxed primitives, `toJSON`, integer-like keys, lone surrogates, shared
-references):
+A prototype walk in Bun 1.4.2 on Apple M4 (outside the repository) was two
+to three times faster than a native round trip (`JSON.parse(JSON.stringify(v))`)
+on objects of 26 B to 185 KB (for example 2.0 µs against 5.3 µs for a 3.8 KB
+object), and shared strings (0.08 µs against 485 µs for a 1 MiB string);
+jsonb key ordering roughly doubled either cost. It was also **not
+equivalent**. On Bun 1.3.10 and 1.4.2 alike:
 
-| Value | Bytes | Native round trip | Walk | Native + jsonb order | Walk, jsonb mode |
-|---|---|---|---|---|---|
-| small object | 26 | 0.25 µs | 0.09 µs | 0.42 µs | 0.26 µs |
-| message-like object | 3 849 | 5.3 µs | 2.0 µs | 10.3 µs | 7.1 µs |
-| 100 messages | 185 451 | 422 µs | 213 µs | 966 µs | 749 µs |
-| one 1 MiB string | 1 048 593 | 485 µs | 0.08 µs | 529 µs | 17.6 µs |
-| 2 000 small objects | 103 040 | 701 µs | 283 µs | 1 335 µs | 974 µs |
+| Input | Native round trip | Walk |
+|---|---|---|
+| a top-level function | throws `SyntaxError` (no text to parse) | `null` |
+| a top-level symbol | throws `SyntaxError` | `null` |
+| a parsed object with an own `__proto__` key | keeps the key | loses it |
 
-The walk is two to three times faster than a native round trip and shares
-strings, which is where the 6 000× on large strings comes from. jsonb
-ordering costs about as much again. Across the process boundary, a 3 KB step
-round trip costs 18.4 µs and a 100 KB one about 250 µs
-([0003](0003-semantics-placement.md)).
+and a differential mode that ran both evaluated getters and `toJSON` twice,
+so a stateful `toJSON` changed the value between the two runs. Across the
+process boundary, a 3 KB step round trip costs 18.4 µs and a 100 KB one about
+250 µs ([0003](0003-semantics-placement.md)).
 
 ## Decision
 
@@ -103,7 +102,8 @@ Which form each consumer gets:
    [FX-15](../semantics/execution.md#fx-15) says
    ([FX-48](../semantics/execution.md#fx-48) case 2): a module failure named
    `Anyhow` at root pickup, a failed child at child pickup, or `InternalError`
-   at a later transition. The routing is settled; only the exact message text
+   at a later transition. That routing is source-derived at medium
+   confidence; the exact message text
    is open ([Q-FX-8](../semantics/execution.md#q-fx-8)) and is pinned by a
    recording.
 4. **Resolution:** only arguments whose stored text contains `$var:`,
@@ -146,54 +146,46 @@ casts every canonicaliser fixture to `jsonb` and back
 ### Results and errors in the harness
 
 The harness serialises each result once with the boundary mode's rules
-(Bun: replacer plus `BigInt.prototype.toJSON`; native: plain
-`JSON.stringify`) and errors with [WR-18](../semantics/languages.md#wr-18)
-(plain `JSON.stringify`, no replacer). The producer text is that string; Go
-does not reparse it except where a route or the trace needs a field.
+(Bun: replacer plus `BigInt.prototype.toJSON`; native: the rules the
+semantics request will settle, D5) and errors with
+[WR-18](../semantics/languages.md#wr-18) (plain `JSON.stringify`, no
+replacer). The producer text is that string; Go does not reparse it except
+where a route or the trace needs a field. A value that the serialiser
+cannot turn into text (a top-level function or symbol) fails the step as an
+`error` outcome with the WR-18 shape and name `TypeError`, which is what the
+reference expects from the wrapper's result write
+([WR-13](../semantics/languages.md#wr-13) case d). The message is pinned when
+[Q-WR-12](../semantics/languages.md#q-wr-12) is recorded; until then that
+case compares the name only.
 
-### The normalising walk
+**Host-plugin results** ([0008](0008-host-hooks.md)) that stand in for a
+module's result are serialised the same way, with the module's boundary mode,
+by the same function. A plugin result is therefore indistinguishable from a
+step result by construction, not by a second implementation.
 
-The walk is specified and kept, but it is not on the critical path of the
-chosen architecture, because every value already crosses a frame as text.
-It is used where a JavaScript value would otherwise cross an in-process
-boundary without a frame:
+### No normalising walk in the first edition
 
-1. **Value residency (deferred optimisation).** For a large result whose
-   only consumers are later steps in the same harness process, reached
-   through verbatim routes, the harness could keep the live value and send Go
-   a handle plus the NUL flag and size, and the next invocation would receive
-   a walk-made copy (jsonb mode for argument delivery) instead of re-parsing
-   the text. The engine would fetch the text only when a route, an
-   expression or the trace needs it. This is enabled only if the benchmark
-   below shows at least a 2× cut in per-step boundary cost for values of
-   64 KiB and more, and the differential mode passes on the whole suite.
-2. **Host plugins** that return JavaScript values to be used as module
-   results in host mode ([0008](0008-host-hooks.md)) go through the walk in
-   the module's boundary mode, so a plugin result is indistinguishable from a
-   step result.
-
-The walk equals `JSON.parse(JSON.stringify(v ?? null, replacer))`: `toJSON`
-first, then the replacer; non-finite numbers and `-0` as JSON writes them;
-functions and symbols dropped in objects and `null` in arrays; boxed
-primitives unboxed; own enumerable string keys in their enumeration order; a
-cycle throws `TypeError`; every object and array fresh; strings shared. The
-jsonb mode additionally orders keys and rejects NUL.
-
-**Differential mode.** With `WL_JSON_DIFFERENTIAL=1`, every walk also runs
-the true round trip and the harness fails the invocation, naming the first
-differing JSON pointer, if the two differ in value or key order. The engine
-does the same for the canonicaliser against the test implementation. CI runs
-the whole conformance suite with differential mode on.
+The walk is dropped: every value crosses a frame as text anyway, the walk's
+only remaining uses were host-plugin results (above) and a speculative
+"value residency" optimisation, and it was not equivalent to the round trip
+it was meant to replace. Keeping it would also have meant a second jsonb
+canonicaliser in TypeScript beside `jsonval`, against the single-source rule.
+If benchmark G1 shows that large values crossing the boundary dominate a
+real workload, residency gets its own decision record, with a shared fixture
+set run by both canonicalisers and an equivalence contract written for the
+walk's result and errors.
 
 ### Benchmark plan (milestone G1)
 
-1. Bun: native round trip versus walk, plain and jsonb modes, on the fixture
-   shapes above plus generated deep and wide objects.
-2. Go: canonicaliser versus decode-sort-encode, and against PostgreSQL in
-   oracle CI for correctness only.
-3. End to end: the per-step boundary cost (engine → harness → engine) for
-   payloads from 26 B to 4 MiB, sequential and with 8 concurrent invocations.
-4. Residency prototype versus text transfer, for the gate in item 1 above.
+1. Go: the canonicaliser versus decode, sort and encode, and against
+   PostgreSQL in oracle CI for correctness only.
+2. End to end: the per-step boundary cost (engine → harness → engine) for
+   payloads from 26 B to 4 MiB, sequential and with 8 concurrent
+   invocations, split into transport, harness parse and serialise, and Go
+   handling.
+3. The share of a run's time spent at boundaries, from the run spans of
+   [0011](0011-differential-testing.md), on the conformance flows and on any
+   host workload a host provides.
 
 Results are recorded with the runtime versions and hardware; a regression of
 more than 20 % against the last recorded run fails the benchmark job, which
@@ -203,7 +195,8 @@ runs on demand and nightly, never on every pull request.
 
 - Exactness comes from where the text is produced (the harness and
   QuickJS-ng) and from one canonicaliser, not from re-implementing jsonb in
-  every language.
+  every language, and not from a JavaScript copy that only approximates a
+  round trip.
 - Go never decodes a value it only passes through.
 - Key-order provenance that the oracle has not yet confirmed
   ([Q-WR-4](../semantics/languages.md#q-wr-4), [Q-OR-11](../semantics/oracle.md#q-or-11),
@@ -213,6 +206,6 @@ runs on demand and nightly, never on every pull request.
 ## Spec IDs relied on
 
 FX-6, FX-10, FX-36, FX-42, FX-48, FX-V5, FX-V6, CF-20, JE-7 to JE-9, JE-15,
-JE-16, JE-18, JE-37, JE-44, JE-V3, WR-9, WR-10, WR-13, WR-14, WR-18, WR-V8,
+JE-16, JE-18, JE-37, JE-44, JE-V3, WR-9, WR-10, WR-13, WR-14, WR-18, WR-V8, Q-WR-12,
 WA-12, WA-V3, OR-13, OR-23, OR-24, OR-27, Q-FX-7, Q-FX-8, Q-JE-9, Q-WR-4,
 Q-OR-11, Q-OR-12.
