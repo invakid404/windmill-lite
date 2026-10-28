@@ -1,0 +1,9 @@
+# FX-31/a: an untolerated failure runs the failure module, and the module
+# after the failure never runs. Synthetic, written for this repository
+# from docs/semantics/conformance.md#fx-31.
+id: execution/fx-31
+spec: [FX-31/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

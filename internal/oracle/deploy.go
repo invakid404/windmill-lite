@@ -94,6 +94,8 @@ func Bootstrap(ctx context.Context, c *Client) error {
 // NewWorkspace creates a harness-owned workspace for one fixture run and
 // checks that its queue is empty (OR-6/a). Pushing only into such a
 // workspace keeps the destructive push away from anything else (OR-31).
+// When the check fails, the workspace is deleted again, so an error means
+// that the harness owns no new workspace.
 func NewWorkspace(ctx context.Context, c *Client, id string) error {
 	if len(id) > 50 {
 		return fmt.Errorf("oracle: workspace id %q is longer than 50 characters", id)
@@ -102,11 +104,14 @@ func NewWorkspace(ctx context.Context, c *Client, id string) error {
 		return err
 	}
 	n, err := c.QueueCount(ctx, id)
-	if err != nil {
-		return err
+	if err == nil && n != 0 {
+		err = fmt.Errorf("oracle: new workspace %s has %d queued jobs", id, n)
 	}
-	if n != 0 {
-		return fmt.Errorf("oracle: new workspace %s has %d queued jobs", id, n)
+	if err != nil {
+		if derr := c.DeleteWorkspace(ctx, id); derr != nil {
+			return errors.Join(err, derr)
+		}
+		return err
 	}
 	return nil
 }

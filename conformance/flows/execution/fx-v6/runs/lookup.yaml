@@ -1,0 +1,23 @@
+# FX-V6/a, the contested case of Q-FX-15. As drafted (the FX-10
+# amendment) computed indexing always reads storage, so carried
+# would be the stored 3 too; the correction (FX-V6) binds
+# previous_result because its name appears, so carried is the
+# in-memory EarlyStopError. This expectation is the correction's,
+# the default of ADR 0001 section 6. stored = 3 is not contested.
+spec: [FX-V6/a]
+target: f/wl_fxv6/lookup
+args: {target: a}
+expect:
+  status: failure
+  result: {stored: 3, carried: {error: {name: EarlyStopError, message: E}}}
+  steps:
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: 3
+      carried: {error: {name: EarlyStopError, message: E}}
+    "s:failure":
+      status: success
+      args: {stored: 3, carried: {error: {name: EarlyStopError, message: E}}}
+      result: {stored: 3, carried: {error: {name: EarlyStopError, message: E}}}

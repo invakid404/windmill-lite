@@ -1,0 +1,9 @@
+# FX-12/c (scope later): the Deno wrapper's failure value has message,
+# name, stack and step_id, and no extra. Synthetic, written for this
+# repository from docs/semantics/conformance.md#fx-12.
+id: execution/fx-12-deno
+spec: [FX-12/c]
+scope: later
+provenance: oracle-observed
+languages: [deno]
+oracle: {workers: 1}

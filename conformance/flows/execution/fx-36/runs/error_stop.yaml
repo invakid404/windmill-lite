@@ -1,0 +1,14 @@
+# FX-36: an error-stop without a failure module gives the
+# EarlyStopError; a's job succeeded and its module failed (FX-V2).
+spec: [FX-36]
+target: f/wl_fx36/error_stop
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError, message: E}}
+  steps:
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: 3
+      carried: {error: {name: EarlyStopError, message: E}}

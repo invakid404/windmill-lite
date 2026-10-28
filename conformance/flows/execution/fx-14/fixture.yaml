@@ -1,0 +1,12 @@
+# FX-14: an input transform that throws fails its step before the script
+# runs, with empty args and an ExecutionErr; a failure module still runs;
+# a retry re-launches the step with the failed attempt's empty args, so the
+# script runs with none. Cases FX-14/a and FX-14/b of
+# docs/semantics/conformance.md#fx-14. Synthetic, written for this
+# repository.
+id: execution/fx-14
+spec: [FX-14/a, FX-14/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,11 @@
+# FX-13/a: the result stays unwrapped, with a top-level error added.
+spec: [FX-13/a]
+target: f/wl_fx13/manual
+expect:
+  status: failure
+  result: {x: 1, error: {name: ManualFailure, message: nope}, wm_failure: nope}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {x: 1, error: {name: ManualFailure, message: nope}, wm_failure: nope}

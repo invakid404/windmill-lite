@@ -1,0 +1,16 @@
+# FX-31/a: the handler sees the error and its result is the flow's.
+spec: [FX-31/a, FX-36]
+target: f/wl_fx31/untolerated
+expect:
+  status: failure
+  result: {seen: x}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "m:b": {status: not_run}
+    "s:failure":
+      status: success
+      args: {e: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      result: {seen: x}

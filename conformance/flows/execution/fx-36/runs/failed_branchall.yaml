@@ -1,0 +1,15 @@
+# FX-36: a failed branchall gives the array of its branches' results.
+spec: [FX-36]
+target: f/wl_fx36/failed_branchall
+expect:
+  status: failure
+  result: [1, {error: {message: y, name: Error, stack: "<stack>", step_id: y}}]
+  steps:
+    "m:ba":
+      status: failure
+      result: [1, {error: {message: y, name: Error, stack: "<stack>", step_id: y}}]
+    "m:ba/b:0/m:x": {status: success, args: {}, result: 1}
+    "m:ba/b:1/m:y":
+      status: failure
+      args: {}
+      result: {error: {message: y, name: Error, stack: "<stack>", step_id: y}}
