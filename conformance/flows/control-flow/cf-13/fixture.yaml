@@ -1,0 +1,12 @@
+# Recording batch E3d (ADR 0012): CF-13, stop_after_all_iters_if.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-13. Every run is by path after the
+# deployment gate saw the flow's dependency job succeed (the reference
+# configuration of ADR 0001 section 1); the job kinds of the root and of every
+# child flow are in each recording's provenance (timings.jobs).
+id: control-flow/cf-13
+spec: [CF-13, CF-13/a, CF-13/b, CF-13/c, CF-V2/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

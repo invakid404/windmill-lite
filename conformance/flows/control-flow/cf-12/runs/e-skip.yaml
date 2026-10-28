@@ -1,0 +1,18 @@
+# CF-12/e (and CF-15/e): a stopped sequential branchall keeps the stopped
+# branch's skip_failure as its status; branch 1 and n do not run.
+spec: [CF-12/e, CF-15/e]
+target: f/cf12/branchall_stop_skip
+expect:
+  status: success
+  result: [{error: {name: EarlyStopError, message: halt}}]
+  steps:
+    "m:ba":
+      status: success
+      result: [{error: {name: EarlyStopError, message: halt}}]
+    "m:ba/b:0/m:b0":
+      status: success
+      module: failure
+      args: {}
+      result: 7
+      carried: {error: {name: EarlyStopError, message: halt}}
+    "m:n": {status: not_run, ran: false}

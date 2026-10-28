@@ -1,0 +1,21 @@
+# Recording batch E3d (ADR 0012): FX-40/d with a script body pinned by hash.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#fx-40, with the discriminators of
+# execution/fx-40: step n returns WM_ROOT_JOB_ID, a per-run nonce the cached
+# call takes as its argument, and the cached script returns its own
+# WM_JOB_ID, so a cache hit shows as a result naming another job's site.
+#
+# Deployed with oracle.deploy api: the harness creates the tree's items
+# through the REST API as written, so a field left out reaches the server
+# absent; each recording's provenance holds the target flow's submitted
+# value, the value the API answered after its dependency job, and what
+# generate-metadata writes for the same source (deployment).
+# A body module pins its script with the hash 0000000000000000, which the
+# harness replaces with the hash the deployment assigned the script's path.
+id: execution/fx-40-hash
+spec: [FX-40, FX-40/d, Q-FX-17]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
+note: "FX-40 is DISPUTED (Q-FX-17). The TTL matrix makes a hash-pinned script take the loop module's cache_ttl and drop its own: run d-hash has the loop TTL and a script without one; run d-hash-script-ttl a script with a TTL and no loop TTL."

@@ -1,0 +1,31 @@
+summary: 'FX-40/c: a loop-cached rawscript body, child called twice'
+value:
+  modules:
+    - id: n
+      value:
+        type: rawscript
+        content: '!inline n.ts'
+        input_transforms: {}
+        lock: '!inline n.lock'
+        language: bun
+    - id: s1
+      value:
+        type: flow
+        input_transforms:
+          v:
+            type: javascript
+            expr: results.n
+        path: f/fx40/loop_raw
+    - id: s2
+      value:
+        type: flow
+        input_transforms:
+          v:
+            type: javascript
+            expr: results.n
+        path: f/fx40/loop_raw
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,60 @@
+summary: 'CF-14/a: predicate order'
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: c1
+                value:
+                  type: rawscript
+                  content: '!inline c1.ts'
+                  input_transforms: {}
+                  lock: '!inline c1.lock'
+                  language: bun
+            expr: results.a.n > 10
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: c2
+                value:
+                  type: rawscript
+                  content: '!inline c2.ts'
+                  input_transforms: {}
+                  lock: '!inline c2.lock'
+                  language: bun
+            expr: results.a.n > 3
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: c3
+                value:
+                  type: rawscript
+                  content: '!inline c3.ts'
+                  input_transforms: {}
+                  lock: '!inline c3.lock'
+                  language: bun
+            expr: undefined.x
+            parallel: true
+            skip_failure: true
+        default:
+          - id: c4
+            value:
+              type: rawscript
+              content: '!inline c4.ts'
+              input_transforms: {}
+              lock: '!inline c4.lock'
+              language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

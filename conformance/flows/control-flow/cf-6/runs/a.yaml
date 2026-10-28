@@ -1,0 +1,34 @@
+# CF-6/a: a loop pushed without skip_failures behaves as skip_failures true
+# once the dependency job has succeeded. The provenance shows the value
+# submitted without the field and the value the API answers with it.
+spec: [CF-6/a]
+target: f/cf6/absent_skip
+expect:
+  status: success
+  result:
+    - error:
+        name: Error
+        stack: "<stack>"
+        message: one
+        step_id: l
+    - 2
+  steps:
+    "m:l":
+      status: success
+      result:
+        - error:
+            name: Error
+            stack: "<stack>"
+            message: one
+            step_id: l
+        - 2
+    "m:l/i:0/m:b":
+      status: failure
+      args: {x: 1}
+      result:
+        error:
+          name: Error
+          stack: "<stack>"
+          message: one
+          step_id: l
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}

@@ -1,0 +1,44 @@
+summary: 'CF-9/b: the first step of a branch'
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: c
+                value:
+                  type: rawscript
+                  content: '!inline c.ts'
+                  input_transforms: {}
+                  lock: '!inline c.lock'
+                  language: bun
+            expr: 'false'
+            parallel: true
+            skip_failure: true
+        default:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: previous_result
+              lock: '!inline b.lock'
+              language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    z:
+      type: number
+  required:
+    - z

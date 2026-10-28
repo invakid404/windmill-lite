@@ -1,0 +1,10 @@
+# CF-2/a: an empty iterator completes the loop with [] and creates no child.
+spec: [CF-2/a]
+target: f/cf2/empty_iterator
+expect:
+  status: success
+  result: 0
+  steps:
+    "m:a": {status: success, args: {}, result: []}
+    "m:l": {status: success, ran: false, result: []}
+    "m:s": {status: success, args: {x: []}, result: 0}
