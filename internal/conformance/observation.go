@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
 )
 
 // Observation is the normalised observation of one run (OR-15): what a
@@ -39,9 +38,14 @@ type Observation struct {
 //	module         the status ImpliedModule gives      walked from flow_status
 //	skipped        the module was not skipped          walked
 //	args           the site's job has no arguments     get_args (O2)
-//	resolved_args  equal to args                       not exposed
+//	resolved_args  the same text as args               not exposed
 //	result         the site's job has no result        get_result_maybe
-//	carried        equal to result                     not exposed
+//	carried        the same text as result             not exposed
+//
+// "The same text" means equal once whitespace is removed, so a value whose
+// keys come in another order, or whose numbers are spelt otherwise, is kept:
+// the codec cannot know the fixture's key-order policy. A comparator expands
+// the absences and then applies that policy (OR-13, OR-14 item 8).
 //
 // The oracle's API exposes neither resolved arguments nor carried values,
 // so a recording holds neither: a fixture that needs them asserts them in
@@ -69,14 +73,15 @@ type StepObservation struct {
 	// transforms and before $var:/$res: resolution (JE-V3 point O2).
 	Args json.RawMessage `json:"args,omitempty"`
 	// ResolvedArgs are the arguments the script received, after resolution
-	// (JE-V3 point O3). Absent means equal to Args.
+	// (JE-V3 point O3). Absent means the same text as Args.
 	ResolvedArgs json.RawMessage `json:"resolved_args,omitempty"`
 	// Result is the stored result of the site's own job.
 	Result json.RawMessage `json:"result,omitempty"`
 	// Carried is the value the module carries on to what follows it: the
 	// next module's previous_result, its failure module's input, the
-	// flow's result. Absent means equal to Result; after an error stop it is
-	// the EarlyStopError while Result keeps the script's value (FX-V2).
+	// flow's result. Absent means the same text as Result; after an error
+	// stop it is the EarlyStopError while Result keeps the script's value
+	// (FX-V2).
 	Carried json.RawMessage `json:"carried,omitempty"`
 	// BranchChosen is the branch a branchone module took.
 	BranchChosen *BranchChosen `json:"branch_chosen,omitempty"`
@@ -124,9 +129,9 @@ func (s *StepObservation) UnmarshalJSON(data []byte) error {
 }
 
 // canonicalise applies the canonical absences: ran false for StepNotRun, no
-// module equal to the implied one, no resolved_args equal to args, no
-// carried equal to result. It rejects a step whose fields contradict each
-// other.
+// module equal to the implied one, no resolved_args with the same text as
+// args, no carried with the same text as result. It rejects a step whose
+// fields contradict each other.
 func (s *StepObservation) canonicalise() error {
 	if !s.Status.Valid() {
 		return fmt.Errorf("conformance: step has no valid status (%q)", s.Status)
@@ -144,44 +149,36 @@ func (s *StepObservation) canonicalise() error {
 	if s.Module == s.Status.ImpliedModule() {
 		s.Module = ""
 	}
-	if s.ResolvedArgs != nil && jsonEqual(s.ResolvedArgs, s.Args) {
+	if s.ResolvedArgs != nil && sameText(s.ResolvedArgs, s.Args) {
 		s.ResolvedArgs = nil
 	}
-	if s.Carried != nil && jsonEqual(s.Carried, s.Result) {
+	if s.Carried != nil && sameText(s.Carried, s.Result) {
 		s.Carried = nil
 	}
 	return nil
 }
 
-// jsonEqual reports whether two JSON texts hold the same value, with
-// objects compared without regard to key order and numbers by their text.
-func jsonEqual(a, b json.RawMessage) bool {
+// sameText reports whether two JSON texts are the same text once whitespace
+// is removed: same key order, same number spelling. Values that differ only
+// in key order are kept apart on purpose, because a key_order: strict
+// comparison (OR-13, OR-14 item 8) and the producer and stored routes of
+// ADR 0005 can tell them apart.
+func sameText(a, b json.RawMessage) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	va, errA := decodeJSON(a)
-	vb, errB := decodeJSON(b)
-	if errA != nil || errB != nil {
+	var ca, cb bytes.Buffer
+	if json.Compact(&ca, a) != nil || json.Compact(&cb, b) != nil {
 		return bytes.Equal(a, b)
 	}
-	return reflect.DeepEqual(va, vb)
-}
-
-func decodeJSON(text []byte) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(text))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, err
-	}
-	return v, nil
+	return bytes.Equal(ca.Bytes(), cb.Bytes())
 }
 
 // observationJSON has Observation's fields without its methods.
 type observationJSON Observation
 
-// MarshalJSON writes the observation, rejecting a module status on a site
-// that is not a module.
+// MarshalJSON writes the observation, rejecting a module status other than
+// the implied one on a site that is not a module.
 func (o Observation) MarshalJSON() ([]byte, error) {
 	if err := o.checkSites(); err != nil {
 		return nil, err
@@ -189,8 +186,8 @@ func (o Observation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(observationJSON(o))
 }
 
-// UnmarshalJSON reads the observation, rejecting a module status on a site
-// that is not a module.
+// UnmarshalJSON reads the observation, rejecting a module status other than
+// the implied one on a site that is not a module.
 func (o *Observation) UnmarshalJSON(data []byte) error {
 	var v observationJSON
 	if err := json.Unmarshal(data, &v); err != nil {
@@ -205,7 +202,10 @@ func (o *Observation) UnmarshalJSON(data []byte) error {
 
 func (o Observation) checkSites() error {
 	for p, s := range o.Steps {
-		if s.Module == "" {
+		// An implied module status says nothing and is dropped when the
+		// step is encoded, so it is accepted on any site, whether the step
+		// was decoded or built in Go.
+		if s.Module == "" || s.Module == s.Status.ImpliedModule() {
 			continue
 		}
 		segs := p.Segments()

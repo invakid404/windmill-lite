@@ -25,6 +25,12 @@ func TestObservationDimensionCases(t *testing.T) {
 			caseMeta
 			Spellings []json.RawMessage `json:"spellings"`
 		} `json:"same"`
+		Kept []struct {
+			caseMeta
+			Observation json.RawMessage `json:"observation"`
+			Site        string          `json:"site"`
+			Field       string          `json:"field"`
+		} `json:"kept"`
 		Reject []struct {
 			caseMeta
 			Observation json.RawMessage `json:"observation"`
@@ -39,7 +45,7 @@ func TestObservationDimensionCases(t *testing.T) {
 	if err := dec.Decode(&file); err != nil {
 		t.Fatal(err)
 	}
-	if len(file.Distinct) == 0 || len(file.Same) == 0 || len(file.Reject) == 0 {
+	if len(file.Distinct) == 0 || len(file.Same) == 0 || len(file.Kept) == 0 || len(file.Reject) == 0 {
 		t.Fatal("a case group is empty")
 	}
 
@@ -104,6 +110,26 @@ func TestObservationDimensionCases(t *testing.T) {
 		})
 	}
 
+	for _, c := range file.Kept {
+		t.Run("kept/"+c.Name, func(t *testing.T) {
+			c.check(t, c.Name)
+			in := stepField(t, c.Observation, c.Site, c.Field)
+			if in == nil {
+				t.Fatalf("the case has no %s at %s", c.Field, c.Site)
+			}
+			// Decoding and encoding again keeps the explicit value, text
+			// for text.
+			out := stepField(t, mustMarshal(t, decodeObservation(t, c.Observation)), c.Site, c.Field)
+			if out == nil {
+				t.Fatalf("%s at %s was dropped", c.Field, c.Site)
+			}
+			var ci, co bytes.Buffer
+			if json.Compact(&ci, in) != nil || json.Compact(&co, out) != nil || !bytes.Equal(ci.Bytes(), co.Bytes()) {
+				t.Errorf("%s at %s came back as %s, want %s", c.Field, c.Site, out, in)
+			}
+		})
+	}
+
 	for _, c := range file.Reject {
 		t.Run("reject/"+c.Name, func(t *testing.T) {
 			c.check(t, c.Name)
@@ -112,6 +138,52 @@ func TestObservationDimensionCases(t *testing.T) {
 				t.Errorf("decoded %s", c.Observation)
 			}
 		})
+	}
+}
+
+// stepField returns the raw text of one field of one step of an encoded
+// observation, or nil when it is absent.
+func stepField(t *testing.T, observation []byte, site, field string) json.RawMessage {
+	t.Helper()
+	var doc struct {
+		Steps map[string]map[string]json.RawMessage `json:"steps"`
+	}
+	if err := json.Unmarshal(observation, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc.Steps[site][field]
+}
+
+func TestImpliedModuleStatusOnNonModuleSitesBuiltInGo(t *testing.T) {
+	// The same observation, built in Go and decoded from JSON, encodes
+	// alike: an implied module status is accepted on any site and dropped.
+	attempt := SitePath{}.Child(Module("a"), Attempt(0))
+	iteration := SitePath{}.Child(Module("l"), Iteration(0))
+	built := Observation{Status: RunSuccess, Result: json.RawMessage(`null`), Steps: map[SitePath]StepObservation{
+		attempt:   {Status: StepFailure, Module: ModuleFailure},
+		iteration: {Status: StepSuccess, Module: ModuleSuccess},
+	}}
+	fromGo, err := json.Marshal(built)
+	if err != nil {
+		t.Fatalf("marshalling the built observation: %v", err)
+	}
+	decoded := decodeObservation(t, []byte(`{"status":"success","result":null,"steps":{"m:a/r:0":{"status":"failure","module":"failure"},"m:l/i:0":{"status":"success","module":"success"}}}`))
+	if fromJSON := mustMarshal(t, decoded); !bytes.Equal(fromGo, fromJSON) {
+		t.Errorf("built in Go: %s\ndecoded:     %s", fromGo, fromJSON)
+	}
+	// The caller's steps are left as they were.
+	if built.Steps[attempt].Module != ModuleFailure {
+		t.Error("marshalling changed the caller's step")
+	}
+	// A module status other than the implied one is still rejected there,
+	// built or decoded.
+	for _, p := range []SitePath{attempt, iteration} {
+		bad := Observation{Status: RunSuccess, Result: json.RawMessage(`null`), Steps: map[SitePath]StepObservation{
+			p: {Status: StepSuccess, Module: ModuleFailure},
+		}}
+		if _, err := json.Marshal(bad); err == nil {
+			t.Errorf("marshalled a differing module status at %s", p)
+		}
 	}
 }
 
@@ -159,4 +231,28 @@ func TestModuleStatusIsImpliedByTheJobStatus(t *testing.T) {
 	if got := (StepObservation{Status: StepSuccess, Module: ModuleFailure}).ModuleStatus(); got != ModuleFailure {
 		t.Errorf("ModuleStatus() = %q, want failure", got)
 	}
+}
+
+// jsonEqual reports whether two JSON texts hold the same value, with
+// objects compared without regard to key order and numbers by their text.
+func jsonEqual(a, b json.RawMessage) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	va, errA := decodeJSON(a)
+	vb, errB := decodeJSON(b)
+	if errA != nil || errB != nil {
+		return bytes.Equal(a, b)
+	}
+	return reflect.DeepEqual(va, vb)
+}
+
+func decodeJSON(text []byte) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(text))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return v, nil
 }

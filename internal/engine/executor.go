@@ -32,9 +32,13 @@ import (
 // mode item 5):
 //
 //   - when Execute returns an outcome, or an error that is not ctx's cause,
-//     Settled has already been called, except for an outcome that an
-//     intercepted process.exit fixed while the entrypoint's code went on
-//     (D11), whose call settles later;
+//     Settled has already been called, except for an outcome fixed before
+//     the entrypoint call ended: an intercepted process.exit (D11), or an
+//     attributed process-level error that fails the invocation as escaped
+//     at once while its call may still be pending (ADR 0004, the
+//     shared-process failure model, item 2). Such a call settles later,
+//     when it ends (SettleCompleted, after its Final Late) or its process
+//     does (SettleProcessExited);
 //   - when Execute returns ctx's cause, Settled comes before or after the
 //     return: SettleNotStarted if the invocation never reached a harness,
 //     otherwise SettleCompleted when the harness reports that the call
@@ -112,13 +116,14 @@ const (
 //
 //  1. Late and Warning calls;
 //  2. at most one Late with Final set: how an entrypoint call that ended
-//     after its outcome was settled or abandoned came to an end;
+//     after its outcome was fixed, or after it was abandoned, came to an
+//     end;
 //  3. Settled, exactly once;
 //  4. only Late calls, without Final: output of work the call left running
 //     (D9), never the invocation's outcome.
 type Reporter interface {
 	// Late reports something an invocation produced after its outcome was
-	// settled or it was abandoned.
+	// fixed or it was abandoned.
 	Late(Late)
 	// Warning reports a process-level error that the harness could not
 	// attribute to any invocation, raised while this one was in flight.
@@ -133,9 +138,10 @@ type SettleKind string
 
 const (
 	// SettleCompleted: the entrypoint call ended, by returning or throwing.
-	// For an abandoned call, or one that went on after an intercepted
-	// process.exit (D11), the harness reports it later, after the Final
-	// Late that says how the call ended.
+	// For an abandoned call, or one whose outcome was fixed before it ended
+	// (an intercepted process.exit, D11, or an attributed process-level
+	// error), the harness reports it later, after the Final Late that says
+	// how the call ended.
 	SettleCompleted SettleKind = "completed"
 	// SettleNotStarted: the invocation never reached a harness: its context
 	// ended before dispatch, or it could not be dispatched.

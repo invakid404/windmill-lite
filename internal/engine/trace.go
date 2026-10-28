@@ -143,16 +143,17 @@ func (o Origin) Generated() bool {
 	return o == OriginEngine || o == OriginHarness || o == OriginFacade
 }
 
-// Late is something an invocation produced after its outcome was settled or
+// Late is something an invocation produced after its outcome was fixed or
 // it was abandoned: the late frame of ADR 0004.
 type Late struct {
 	Kind LateKind
 	Body jsonval.Value
 	// Final marks the late result or error that says how the entrypoint
 	// call ended, when it ended after the invocation was abandoned or after
-	// an intercepted process.exit fixed its outcome (D11). Settled follows
-	// it. Without Final, a LateError is an attributed error from work the
-	// call left running (D9) and says nothing about settlement.
+	// its outcome was fixed: by an intercepted process.exit (D11) or by an
+	// attributed process-level error that failed it as escaped. Settled
+	// follows it. Without Final, a LateError is an attributed error from
+	// work the call left running (D9) and says nothing about settlement.
 	Final bool
 }
 

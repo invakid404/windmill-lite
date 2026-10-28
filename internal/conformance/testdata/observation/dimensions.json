@@ -1,5 +1,5 @@
 {
-  "about": "Observation dimensions that the stored fields cannot recover (ADR 0001 §2, ADR 0011). distinct: each variant has the same root status and result and the same per-site job status, stored args and stored result as its base, and differs only in the module status, the carried value or the resolved arguments; it must still compare unequal. same: spellings of one observation that must compare equal, because each optional field has a canonical absence. reject: observations whose fields contradict each other. Provenance is policy: the cases test windmill-lite's observation format, with expectations taken from the cited catalogue cases.",
+  "about": "Observation dimensions that the stored fields cannot recover (ADR 0001 §2, ADR 0011). distinct: each variant has the same root status and result and the same per-site job status, stored args and stored result as its base, and differs only in the module status, the carried value or the resolved arguments; it must still compare unequal. same: spellings of one observation that must compare equal, because each optional field has a canonical absence. kept: explicit values that must survive a round trip, because they differ from the field they would default to in key order or number spelling, which a key_order: strict comparison can see. reject: observations whose fields contradict each other. Provenance is policy: the cases test windmill-lite's observation format, with expectations taken from the cited catalogue cases.",
   "distinct": [
     {
       "name": "FX-V2/a: the job succeeds, the module fails, the handler sees the EarlyStopError",
@@ -89,12 +89,12 @@
       ]
     },
     {
-      "name": "a carried value equal to the stored result, in another key order",
-      "spec": ["FX-V2", "OR-13"],
+      "name": "a carried value with the same text as the stored result, whitespace aside",
+      "spec": ["FX-V2"],
       "provenance": "policy",
       "spellings": [
         {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "result": {"a": 1, "b": 2}}}},
-        {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "result": {"a": 1, "b": 2}, "carried": {"b": 2, "a": 1}}}}
+        {"status": "success", "result": null, "steps": {"m:a": {"status": "success", "result": {"a": 1, "b": 2}, "carried": { "a" : 1 , "b" : 2 }}}}
       ]
     },
     {
@@ -114,6 +114,32 @@
         {"status": "success", "result": null, "steps": {"m:a/r:0": {"status": "failure"}}},
         {"status": "success", "result": null, "steps": {"m:a/r:0": {"status": "failure", "module": "failure"}}}
       ]
+    }
+  ],
+  "kept": [
+    {
+      "name": "a carried object with the stored result's keys in another order",
+      "spec": ["FX-42", "JE-8", "OR-13", "OR-14"],
+      "provenance": "policy",
+      "observation": {"status": "success", "result": null, "steps": {"m:p": {"status": "success", "result": {"a": 2, "b": 1}, "carried": {"b": 1, "a": 2}}}},
+      "site": "m:p",
+      "field": "carried"
+    },
+    {
+      "name": "resolved arguments whose nested object keys come in another order",
+      "spec": ["JE-V3", "WR-V8", "OR-13"],
+      "provenance": "policy",
+      "observation": {"status": "success", "result": null, "steps": {"m:b": {"status": "success", "args": {"x": {"a": 1, "b": 2}}, "resolved_args": {"x": {"b": 2, "a": 1}}}}},
+      "site": "m:b",
+      "field": "resolved_args"
+    },
+    {
+      "name": "a carried number spelt otherwise than the stored one",
+      "spec": ["FX-42", "JE-16", "OR-14"],
+      "provenance": "policy",
+      "observation": {"status": "success", "result": null, "steps": {"m:p": {"status": "success", "result": {"n": 1500}, "carried": {"n": 1.5e3}}}},
+      "site": "m:p",
+      "field": "carried"
     }
   ],
   "reject": [

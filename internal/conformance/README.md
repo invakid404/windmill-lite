@@ -36,17 +36,25 @@ Encoding and decoding put every step in canonical form:
 
 - a `not_run` step has `"ran":false` ([OR-V2/a](../../docs/semantics/conformance.md#or-v2));
 - `module` is dropped when it equals what the job status implies;
-- `carried` is dropped when it equals `result`, and `resolved_args` when it
-  equals `args`.
+- `carried` is dropped when it has the same text as `result`, and
+  `resolved_args` when it has the same text as `args`, whitespace aside. A
+  value with the same keys in another order, or a number spelt otherwise,
+  is kept: the codec cannot know whether a fixture compares with
+  `key_order: strict` ([OR-14](../../docs/semantics/oracle.md#or-14)), so a
+  comparator expands the absences and then applies the fixture's policy.
 
 Steps whose fields contradict each other are rejected, as is a module
 status on an attempt, iteration or branch site that differs from the one
-the job implies. `testdata/observation/dimensions.json` holds the cases,
-which `TestObservationDimensionCases` runs:
+the job implies; the implied one is accepted there and dropped, whether the
+observation was decoded or built in Go.
+`testdata/observation/dimensions.json` holds the cases, which
+`TestObservationDimensionCases` runs:
 
 - observations that differ only in one of the three fields must compare
   unequal, from FX-V2/a and JE-V3/a;
 - spellings that must compare equal;
+- explicit values that must survive a round trip, because they differ from
+  their default only in key order or number spelling;
 - observations that must be rejected.
 
 ## Site paths

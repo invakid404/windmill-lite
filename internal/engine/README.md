@@ -88,9 +88,9 @@ An invocation settles when its entrypoint call can run no more code, and
 
 | `SettleKind` | When | Relative to `Execute` returning |
 |---|---|---|
-| `completed` | the call returned or threw | before, normally; later for an abandoned call, or one that went on after an intercepted `process.exit` (D11) |
+| `completed` | the call returned or threw | before, normally; later for an abandoned call, or one whose outcome was fixed before it ended (an intercepted `process.exit`, D11, or an attributed process-level error that failed it as `escaped`) |
 | `not_started` | the invocation never reached a harness | before |
-| `process_exited` | the harness process ended before the call did | before when the invocation was in flight; later when it had been abandoned |
+| `process_exited` | the harness process ended before the call did | before when the invocation was in flight; later when it had been abandoned or its outcome was fixed early |
 
 - **Order.** One invocation's `Reporter` is never called from two goroutines
   at once. Its calls come in this order: `Late` and `Warning`; at most one

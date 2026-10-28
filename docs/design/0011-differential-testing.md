@@ -143,7 +143,13 @@ them, and the stored fields cannot recover them:
 
 Each is written only where it differs from what the other fields imply
 (`module` from the job status, `carried` from `result`, `resolved_args` from
-`args`), so most expectations read as OR-15 writes them. The oracle's API
+`args`), so most expectations read as OR-15 writes them. `carried` and
+`resolved_args` differ when their text does, whitespace aside: the same keys
+in another order still count as a difference, because a `key_order: strict`
+comparison ([OR-14](../semantics/oracle.md#or-14)) and the producer and
+stored routes of [0005](0005-json-step-boundaries.md) can tell them apart. A
+comparator expands these absences before it applies a fixture's key-order
+policy. The oracle's API
 exposes the module status but neither a carried value nor resolved
 arguments, so recordings hold neither. A comparison with a recording
 therefore leaves `carried` and `resolved_args` out, and a comparison with

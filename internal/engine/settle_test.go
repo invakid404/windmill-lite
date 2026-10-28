@@ -14,8 +14,9 @@ import (
 
 // fakeHarness is a StepExecutor that follows the settlement contract: a
 // call it completes settles before Execute returns, a call that never
-// reached it settles as not started, and an abandoned call keeps running
-// until the test reports how it ended or ends its process.
+// reached it settles as not started, and an abandoned call, or one whose
+// outcome it fixed early, keeps running until the test reports how it ended
+// or ends its process.
 type fakeHarness struct {
 	mu      sync.Mutex
 	running map[string]*fakeCall
@@ -25,6 +26,9 @@ type fakeHarness struct {
 type fakeCall struct {
 	inv    Invocation
 	result chan StepOutcome
+	// early fixes the outcome while the entrypoint call goes on, as an
+	// attributed process-level error does (ADR 0004 failure model item 2).
+	early chan StepOutcome
 }
 
 func newFakeHarness() *fakeHarness {
@@ -36,7 +40,7 @@ func (h *fakeHarness) Execute(ctx context.Context, inv Invocation) (StepOutcome,
 		inv.Report.Settled(SettleNotStarted)
 		return StepOutcome{}, context.Cause(ctx)
 	}
-	c := &fakeCall{inv: inv, result: make(chan StepOutcome)}
+	c := &fakeCall{inv: inv, result: make(chan StepOutcome), early: make(chan StepOutcome)}
 	h.mu.Lock()
 	h.running[inv.ID] = c
 	h.mu.Unlock()
@@ -45,6 +49,9 @@ func (h *fakeHarness) Execute(ctx context.Context, inv Invocation) (StepOutcome,
 	case out := <-c.result:
 		h.take(inv.ID)
 		inv.Report.Settled(SettleCompleted)
+		return out, nil
+	case out := <-c.early:
+		// The outcome is fixed, but the call is still pending: no Settled.
 		return out, nil
 	case <-ctx.Done():
 		// Abandoned (D2): the call goes on inside the harness.
@@ -205,6 +212,71 @@ func TestRunSettlesOnlyWhenEveryInvocationHasSettled(t *testing.T) {
 	}
 	if got, want := fmt.Sprint(recs["c"].get()), "[settled process_exited]"; got != want {
 		t.Errorf("c: %s, want %s", got, want)
+	}
+}
+
+func TestEscapedOutcomeBeforeTheCallEndsDoesNotSettle(t *testing.T) {
+	// A timer of the entrypoint throws while the call awaits other I/O: the
+	// attributed error fails the invocation as escaped at once, but the
+	// call can still resume and use what the run holds.
+	for name, tc := range map[string]struct {
+		terminal func(h *fakeHarness)
+		events   string
+	}{
+		"the call ends later": {
+			func(h *fakeHarness) { h.ends("e") },
+			"[late error final=false late error final=true settled completed]",
+		},
+		"its process exits first": {
+			func(h *fakeHarness) { h.exitProcess() },
+			"[late error final=false settled process_exited]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var fired atomic.Int32
+			run := NewRunSettlement(func() { fired.Add(1) })
+			h := newFakeHarness()
+			rec := &recorder{}
+			type result struct {
+				out StepOutcome
+				err error
+			}
+			done := make(chan result, 1)
+			go func() {
+				out, err := h.Execute(context.Background(), Invocation{ID: "e", Run: "r", Report: run.Track(rec)})
+				done <- result{out, err}
+			}()
+			<-h.started
+			h.peek("e").early <- StepOutcome{Kind: OutcomeEscaped, ExitCode: 1, Tail: "timer threw"}
+			r := <-done
+			if r.err != nil || r.out.Kind != OutcomeEscaped {
+				t.Fatalf("Execute = %+v, %v; want the escaped outcome at once", r.out, r.err)
+			}
+			if got := rec.get(); len(got) != 0 {
+				t.Fatalf("the escaped outcome settled the call: %v", got)
+			}
+
+			run.End()
+			if fired.Load() != 0 || run.Open() != 1 {
+				t.Fatalf("after End: fired %d, open %d; the pending call holds the run", fired.Load(), run.Open())
+			}
+			h.detached("e")
+			if fired.Load() != 0 {
+				t.Fatal("a non-final late error settled the run")
+			}
+
+			tc.terminal(h)
+			if fired.Load() != 1 || run.Open() != 0 {
+				t.Fatalf("after the call's end: fired %d, open %d", fired.Load(), run.Open())
+			}
+			h.exitProcess()
+			if fired.Load() != 1 {
+				t.Fatalf("a later process exit settled the run again: fired %d", fired.Load())
+			}
+			if got := fmt.Sprint(rec.get()); got != tc.events {
+				t.Errorf("reporter saw %s, want %s", got, tc.events)
+			}
+		})
 	}
 }
 
