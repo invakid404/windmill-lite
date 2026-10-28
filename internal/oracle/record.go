@@ -403,14 +403,13 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 		}
 		ws := fmt.Sprintf("wl-%s-%d", short, i+1)
 		s.logf("fixture %s: workspace %s", name, ws)
-		if err := NewWorkspace(ctx, c, ws); err != nil {
-			for _, r := range runs {
-				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
-			}
-			continue
+		created, err := NewWorkspace(ctx, c, ws)
+		var tree *SyncTree
+		if err == nil {
+			var dep Deployment
+			tree, dep, err = s.deploy(ctx, c, cli, f, ws, tmp)
+			rep.Session.Deployments[name] = dep
 		}
-		tree, dep, err := s.deploy(ctx, c, cli, f, ws, tmp)
-		rep.Session.Deployments[name] = dep
 		if err != nil {
 			for _, r := range runs {
 				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeFailed, Error: err.Error()})
@@ -420,11 +419,22 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 				rep.Runs = append(rep.Runs, s.record(ctx, c, ws, f, r, tree, sink, base))
 			}
 		}
+		if !created {
+			continue
+		}
 		// CE allows two workspaces besides admins, so the next fixture's
-		// fresh workspace needs this one gone. A workspace that cannot be
-		// deleted ends the session: every later fixture would fail.
-		if err := c.DeleteWorkspace(ctx, ws); err != nil {
+		// fresh workspace needs this one gone, whatever happened in it. A
+		// workspace that cannot be deleted ends the session: every later
+		// fixture would fail. The deletion has a context of its own, so a
+		// canceled session still cleans up and reports the cancellation.
+		del, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err = c.DeleteWorkspace(del, ws)
+		cancel()
+		if err != nil {
 			return fmt.Errorf("oracle: deleting workspace %s: %w", ws, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 	}
 	return nil

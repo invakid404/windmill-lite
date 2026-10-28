@@ -26,8 +26,9 @@ bin/wltest record [flags] <fixture or directory>...
 
 Each argument is a fixture directory (one holding `fixture.yaml`), an
 expression-case file, or a directory searched for both: a `.yaml` file in a
-directory named `exprs`, other than `deferred.yaml`, is an expression-case
-file. Flow fixtures are recorded first, then the expression files, with
+directory named `exprs`, other than `deferred.yaml` and outside any fixture,
+is an expression-case file. Arguments that overlap reach each fixture and
+file once, and an explicit file of any other kind is refused (exit 2). Flow fixtures are recorded first, then the expression files, with
 files marked `slow` last, so that what a slow case leaves running on the
 oracle (the spinning evaluation of [JE-2](../../docs/semantics/expressions.md#je-2))
 cannot slow the others. It needs Docker, which pulls the CE image

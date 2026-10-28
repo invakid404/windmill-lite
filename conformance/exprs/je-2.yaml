@@ -4,7 +4,10 @@
 # cancels a flow that hangs between two steps for 60 s, so the run ends
 # canceled by the monitor, with a reason that names times and workers
 # (masked). The engine does not stop the loop, so its thread keeps spinning
-# after the run (JE-2): slow files are recorded last.
+# after the run (JE-2): slow files are recorded last. The recording rests on
+# the monitor firing at about 60 s, before the third attempt ends at about
+# 70 s; three sessions of two repeats each agreed, the second repeat running
+# beside the first one's spinning thread.
 finding: JE-2
 scope: later
 slow: true

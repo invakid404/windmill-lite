@@ -166,6 +166,9 @@ type fakeOracle struct {
 	// workspaces holds the workspaces besides admins; CE refuses a third.
 	workspaces map[string]bool
 	created    int
+	// failQueue, failFlows and failDelete make the queue count, the flow
+	// listing of the deployment gate and workspace deletion answer 500.
+	failQueue, failFlows, failDelete bool
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
@@ -207,6 +210,10 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(201, "created")
 		return
 	case strings.HasPrefix(p, "/workspaces/delete/") && r.Method == http.MethodDelete:
+		if o.failDelete {
+			write(500, "cannot delete")
+			return
+		}
 		id := strings.TrimPrefix(p, "/workspaces/delete/")
 		if !o.workspaces[id] {
 			write(404, "not found")
@@ -222,8 +229,12 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := p[strings.Index(p[3:], "/")+4:] // after /w/{ws}/
 	switch {
+	case rest == "jobs/queue/count" && o.failQueue:
+		write(500, "queue unavailable")
 	case rest == "jobs/queue/count":
 		write(200, `{"database_length":0}`)
+	case rest == "flows/list" && o.failFlows:
+		write(500, "flows unavailable")
 	case rest == "scripts/list":
 		write(200, `[{"path":"f/wl_smoke/double","hash":"5a1f"}]`)
 	case rest == "scripts/deployment_status/h/5a1f":
@@ -530,6 +541,54 @@ func TestSessionDeletesEachWorkspace(t *testing.T) {
 	}
 	if rig.oracle.created != 3 || len(rig.oracle.workspaces) != 0 {
 		t.Fatalf("created %d workspaces, %d left", rig.oracle.created, len(rig.oracle.workspaces))
+	}
+}
+
+// TestSessionDeletesWorkspacesOnFailure: a workspace whose check after
+// creation or whose deployment failed is deleted too, so later fixtures
+// still get one; a workspace that cannot be deleted ends the session.
+func TestSessionDeletesWorkspacesOnFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		set     func(*fakeOracle)
+		failed  int // runs that fail
+		wantErr string
+	}{
+		{"the check after creating it fails", func(o *fakeOracle) { o.failQueue = true }, 9, ""},
+		{"the deployment gate fails", func(o *fakeOracle) { o.failFlows = true }, 9, ""},
+		{"the workspace cannot be deleted", func(o *fakeOracle) { o.failDelete = true }, 0, "deleting workspace"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := newRig(t)
+			tc.set(rig.oracle)
+			s := rig.session(20 * GiB)
+			s.Repeat = 1
+			rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t), rig.load(t), rig.load(t)})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("session error %v, want %q", err, tc.wantErr)
+				}
+				if rig.oracle.created != 1 {
+					t.Fatalf("created %d workspaces after a failed deletion, want 1", rig.oracle.created)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			failed := 0
+			for _, r := range rep.Runs {
+				if r.Outcome == OutcomeFailed {
+					failed++
+				}
+				if strings.Contains(r.Error, "maximum number of workspaces") {
+					t.Errorf("%s: %s", r.Run, r.Error)
+				}
+			}
+			if failed != tc.failed || rig.oracle.created != 3 || len(rig.oracle.workspaces) != 0 {
+				t.Fatalf("%d failed runs, %d workspaces created, %d left", failed, rig.oracle.created, len(rig.oracle.workspaces))
+			}
+		})
 	}
 }
 

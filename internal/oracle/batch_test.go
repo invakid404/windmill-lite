@@ -315,6 +315,12 @@ func checkUnit(tree *SyncTree, r conformance.Run, u conformance.UnitCase) error 
 	if err != nil {
 		return err
 	}
+	segs := site.Segments()
+	if last := segs[len(segs)-1]; last.Kind() != conformance.KindModule {
+		// A failure module's previous id is the failed module's (JE-35),
+		// which a site path alone does not give.
+		return fmt.Errorf("unit cases at %s are not supported: the context of a slot is not checked", site)
+	}
 	list, idx, err := moduleAt(flow.Value, site)
 	if err != nil {
 		return err
@@ -338,13 +344,26 @@ func checkUnit(tree *SyncTree, r conformance.Run, u conformance.UnitCase) error 
 		return errors.New("no recording")
 	}
 	obs := r.Recorded.Observation
-	parent := site.Segments()
-	parent = parent[:len(parent)-1]
+	parent := segs[:len(segs)-1]
+	args, err := jsonval.FromProducer(r.ArgsOrEmpty()).Stored()
+	if err != nil {
+		return err
+	}
 	sibling := func(id string) string {
 		return conformance.SitePath{}.Child(parent...).Child(conformance.Module(id)).String()
 	}
+	if t := u.Context.FlowInput; t != nil {
+		if len(parent) > 0 {
+			return errors.New("flow_input inside a body is the body's input, which a recording does not hold")
+		}
+		if err := sameStored(*t, args); err != nil {
+			return fmt.Errorf("flow_input: %v", err)
+		}
+	}
 	if p := u.Context.PreviousResult; p != nil {
-		want := []byte(r.ArgsOrEmpty())
+		// At a flow's first module previous_result is its input, which the
+		// job API stored as jsonb before any expression read it (JE-44).
+		want := []byte(args)
 		if prev != "" {
 			step, ok := obs.Steps[mustSite(sibling(prev))]
 			if !ok {

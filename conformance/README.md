@@ -31,7 +31,7 @@ repository to exercise one behaviour each.
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | flow | `flows/<area>/<case>/` | in use; recorded on the oracle by `wltest record`; their recordings are held to their claims by `go test ./internal/oracle` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
-| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
+| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle` |
 
 ## Flow fixtures
 
@@ -75,7 +75,8 @@ first step, whose only bound values are `flow_input` and `flow_env`. At
 module 0, `previous_result` is the flow input
 ([JE-36](../docs/semantics/expressions.md#je-36)) and the previous id is
 `""` ([JE-8](../docs/semantics/expressions.md#je-8)), so a case may use them
-too. Each `exprs/<finding>.yaml` holds the cases of one finding:
+too. Each `exprs/<finding>.yaml` holds the cases of one finding, and is
+named after it in lower case (`je-7.yaml`), as its recordings are:
 
 ```yaml
 finding: JE-7
@@ -90,12 +91,15 @@ cases:
 ```
 
 File fields: `finding`, `scope`, the defaults `flow_input` and `flow_env`
-(JSON object texts), `slow` (the recorder records slow files last), `note`,
-`cases`. Case fields:
+(JSON object texts), `slow` (the recorder records slow files last), `mask`
+(JSON Pointers into every case's observation whose values are replaced by
+`<masked>`, for text with times or host names), `note`, `cases`. Case
+fields:
 
 | Field | Meaning |
 |---|---|
 | `spec`, `variant` | the catalogue case, or the finding with a `variant` for a case beyond the catalogue |
+| `title`, `note` | what the case shows (required), and why it reads as it does |
 | `provenance`, `scope` | as for the other levels; a recorded case is `oracle-observed` |
 | `site` | `transform` (the default, a `javascript` input transform `x`), `static` (a `static` transform) or `skip_if` |
 | `expr`, `static` | the expression text, or the static value's JSON text |
@@ -105,6 +109,11 @@ File fields: `finding`, `scope`, the defaults `flow_input` and `flow_env`
 | `expect.error` | the step's error object, when the expression fails the step: `name`, and `message` exactly or `prefix` with `contains` and `not_contains` |
 | `expect.flow_error` | the run's error object, when a predicate fails the flow at its first pickup ([JE-35](../docs/semantics/expressions.md#je-35) route (b)) |
 | `expect.skipped` | whether `skip_if` skipped the step |
+| `expect.status` | the run's status where it is not the one the expectation implies (`success` for a value or a skip, `failure` for an error), for example `canceled` |
+
+A `skip_if` case expects `skipped` or `flow_error`; a transform or static
+case expects `value` or `error`, or `flow_error` with `status: canceled`
+when the oracle cancels the run before the step exists (JE-2/a).
 
 A case that names a predecessor, a handler or a container (a key such as
 `previous_result`, `results` or `failure_module`, or another site) is
@@ -118,7 +127,7 @@ with `x` static `null`), and one run with the case's flow input. The sink
 returns `null`, so the observation shows what the expression produced, not
 what Bun made of it. The generated tree is never committed; the recorder
 writes its metadata with the CLI before each push. The recordings are
-`exprs/recorded/<finding>/<case>.json`.
+`exprs/recorded/<finding>/<case>.json`, with the finding in lower case.
 
 `exprs/deferred.yaml` lists the JE, CF-19 and CF-V6 catalogue cases that
 recording batch E3a encodes neither here nor as a flow fixture, and those

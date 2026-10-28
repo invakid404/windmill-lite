@@ -85,10 +85,27 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
-	dirs, err := conformance.FindFixtures(fs.Args()...)
+	// An explicit file must be an expression file: anything else would be
+	// silently skipped.
+	for _, a := range fs.Args() {
+		if info, err := os.Stat(a); err == nil && !info.IsDir() && !conformance.IsExprFile(a) {
+			fmt.Fprintf(stderr, "wltest: %s is neither a fixture directory nor an expression file (exprs/<finding>.yaml)\n", a)
+			return 2
+		}
+	}
+	found, err := conformance.FindFixtures(fs.Args()...)
 	if err != nil {
 		fmt.Fprintln(stderr, "wltest:", err)
 		return 1
+	}
+	// Overlapping arguments reach a fixture once.
+	var dirs []string
+	seen := map[string]bool{}
+	for _, d := range found {
+		if !seen[filepath.Clean(d)] {
+			seen[filepath.Clean(d)] = true
+			dirs = append(dirs, d)
+		}
 	}
 	exprFiles, err := conformance.FindExprFiles(fs.Args()...)
 	if err != nil {

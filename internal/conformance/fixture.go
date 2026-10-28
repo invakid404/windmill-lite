@@ -26,7 +26,8 @@ const (
 // in windmill/, an optional setup.yaml, one runs/<name>.yaml per run and,
 // once recorded, recorded/<name>.json (OR-15, ADR 0003).
 type Fixture struct {
-	// Dir is the fixture directory.
+	// Dir is the fixture directory, or, for a fixture lifted from an
+	// expression file (LiftExprFile), that file.
 	Dir string `json:"-"`
 	// ID names the fixture, conventionally its path under
 	// conformance/flows.

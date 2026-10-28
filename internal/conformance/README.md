@@ -169,7 +169,10 @@ sets `Tree`, `RecordedIn` and `Generated` instead of using `windmill/` and
 refuses a case that names a predecessor, a handler or a container with
 `contextual_case_needs_flow_fixture` (`ExprCaseError`): a case key such as
 `previous_result`, `results` or `failure_module`, or a site other than
-`transform`, `static` and `skip_if`. The format is described in
+`transform`, `static` and `skip_if`. It also refuses a file not named after
+its finding, and an expectation its site cannot produce. `FindExprFiles`
+finds the files below its roots once each, skipping flow fixtures, and
+`IsExprFile` tells one by its path. The format is described in
 [conformance](../../conformance/README.md#expression-cases).
 
 `LiftExprFile` writes a file's generated sync tree into a new directory and

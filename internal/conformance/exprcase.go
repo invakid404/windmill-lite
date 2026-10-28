@@ -209,6 +209,11 @@ func LoadExprFile(path string) (*ExprFile, error) {
 	if err := f.check(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	// The recordings are named after the file, so the file is named after
+	// the finding.
+	if stem := strings.TrimSuffix(filepath.Base(path), ".yaml"); stem != strings.ToLower(f.Finding) {
+		return nil, fmt.Errorf("%s: a file of finding %s is named %s.yaml", path, f.Finding, strings.ToLower(f.Finding))
+	}
 	return f, nil
 }
 
@@ -316,8 +321,16 @@ func (c *ExprCase) check() error {
 	default:
 		return fmt.Errorf("case %s: expect.status %q is not a run status", c.Spec, e.Status)
 	}
-	if e.Skipped != nil && c.SiteOrDefault() != SiteSkipIf {
-		return fmt.Errorf("case %s: expect.skipped needs a skip_if site", c.Spec)
+	// A skip_if case's argument x is always static null, and an error of
+	// a predicate at module 0 fails the flow, not the step (JE-35 route
+	// (b)); a transform's error fails the step, unless the run is canceled
+	// before the step exists.
+	if c.SiteOrDefault() == SiteSkipIf {
+		if e.Value != nil || e.Error != nil {
+			return fmt.Errorf("case %s: a skip_if case expects skipped or flow_error", c.Spec)
+		}
+	} else if e.Skipped != nil || (e.FlowError != nil && e.Status != string(RunCanceled)) {
+		return fmt.Errorf("case %s: skipped and flow_error need a skip_if site, or flow_error a canceled run", c.Spec)
 	}
 	for _, m := range []*MessageMatch{e.Error, e.FlowError} {
 		if m != nil {
@@ -387,19 +400,26 @@ func (c *ExprCase) Claims() []Claim {
 }
 
 // FindExprFiles returns every expression-case file at or below the given
-// roots, sorted: a .yaml file in a directory named exprs, other than its
-// deferred.yaml. A root may also be such a file.
+// roots, sorted and without repeats: a .yaml file in a directory named
+// exprs, other than its deferred.yaml. A root may also be such a file. Flow
+// fixtures are not searched, so a Windmill folder named exprs in a sync
+// tree is not taken for the expression level.
 func FindExprFiles(roots ...string) ([]string, error) {
+	seen := map[string]bool{}
 	var files []string
-	is := func(p string) bool {
-		return filepath.Base(filepath.Dir(p)) == ExprDirName && strings.HasSuffix(p, ".yaml") && filepath.Base(p) != ExprDeferredFile
-	}
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if !d.IsDir() && is(p) {
+			if d.IsDir() {
+				if _, err := os.Stat(filepath.Join(p, FixtureFile)); err == nil {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if IsExprFile(p) && !seen[filepath.Clean(p)] {
+				seen[filepath.Clean(p)] = true
 				files = append(files, p)
 			}
 			return nil
@@ -410,6 +430,12 @@ func FindExprFiles(roots ...string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// IsExprFile reports whether path names an expression-case file: a .yaml
+// file in a directory named exprs, other than deferred.yaml.
+func IsExprFile(path string) bool {
+	return filepath.Base(filepath.Dir(path)) == ExprDirName && strings.HasSuffix(path, ".yaml") && filepath.Base(path) != ExprDeferredFile
 }
 
 // LiftExprFile writes the generated sync tree of f's cases into dir, which
@@ -428,11 +454,18 @@ func LiftExprFile(f *ExprFile, dir string) (*Fixture, error) {
 		return nil, fmt.Errorf("conformance: %s exists", dir)
 	}
 	stem := strings.TrimSuffix(filepath.Base(f.Path), ".yaml")
+	// The fixture's provenance is its cases' when they agree.
+	prov := f.Cases[0].Provenance
+	for _, c := range f.Cases {
+		if c.Provenance != prov {
+			prov = "source-derived"
+		}
+	}
 	fx := &Fixture{
 		Dir:        f.Path,
 		ID:         ExprDirName + "/" + stem,
 		Scope:      f.Scope,
-		Provenance: "source-derived",
+		Provenance: prov,
 		Languages:  []string{"bun"},
 		Tree:       filepath.Join(dir, SyncTreeDir),
 		RecordedIn: filepath.Join(filepath.Dir(f.Path), RecordedDir, stem),

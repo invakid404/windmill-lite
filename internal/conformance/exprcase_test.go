@@ -17,6 +17,9 @@ func writeExprFile(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, "je-x.yaml")
+	if strings.Contains(body, "finding: JE-Y") {
+		p = filepath.Join(dir, "je-x-misnamed.yaml")
+	}
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -59,12 +62,24 @@ func TestExprCaseChecks(t *testing.T) {
 		"case given twice":        "  - {spec: JE-X/a, provenance: policy, title: t, expr: '1', expect: {value: '1'}}\n  - {spec: JE-X/a, provenance: policy, title: u, expr: '2', expect: {value: '2'}}\n",
 		"bad status":              "  - {spec: JE-X/a, provenance: policy, title: t, expr: '1', expect: {status: latched, value: '1'}}\n",
 		"unknown key":             "  - {spec: JE-X/a, provenance: policy, title: t, expr: '1', expect: {value: '1'}, extra: 1}\n",
+		"value on skip_if":        "  - {spec: JE-X/a, provenance: policy, title: t, site: skip_if, expr: 'true', expect: {value: 'null'}}\n",
+		"error on skip_if":        "  - {spec: JE-X/a, provenance: policy, title: t, site: skip_if, expr: nope, expect: {error: {name: E}}}\n",
+		"flow_error on transform": "  - {spec: JE-X/a, provenance: policy, title: t, expr: nope, expect: {flow_error: {name: E}}}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := LoadExprFile(writeExprFile(t, head+c)); err == nil {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+// TestExprFileNamedAfterFinding: recordings are named after the file, so
+// the file must be named after its finding.
+func TestExprFileNamedAfterFinding(t *testing.T) {
+	p := writeExprFile(t, "finding: JE-Y\nscope: core\ncases:\n  - {spec: JE-Y/a, provenance: policy, title: t, expr: '1', expect: {value: '1'}}\n")
+	if _, err := LoadExprFile(p); err == nil || !strings.Contains(err.Error(), "je-y.yaml") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -162,11 +177,13 @@ cases:
 	}
 }
 
-// TestFindExprFiles finds .yaml files in exprs directories, not
-// deferred.yaml and not files elsewhere.
+// TestFindExprFiles finds .yaml files in exprs directories once, however
+// many roots reach them, and not deferred.yaml, files elsewhere, or a
+// folder named exprs inside a fixture's sync tree.
 func TestFindExprFiles(t *testing.T) {
 	root := t.TempDir()
-	for _, p := range []string{"exprs/je-1.yaml", "exprs/deferred.yaml", "exprs/recorded/je-1/je-1-a.json", "flows/x/runs/a.yaml", "exprs/notes.md"} {
+	for _, p := range []string{"exprs/je-1.yaml", "exprs/deferred.yaml", "exprs/recorded/je-1/je-1-a.json", "flows/x/runs/a.yaml", "exprs/notes.md",
+		"flows/y/fixture.yaml", "flows/y/windmill/f/exprs/x.script.yaml"} {
 		full := filepath.Join(root, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -175,7 +192,7 @@ func TestFindExprFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := FindExprFiles(root)
+	got, err := FindExprFiles(root, filepath.Join(root, "exprs"), filepath.Join(root, "exprs", "je-1.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

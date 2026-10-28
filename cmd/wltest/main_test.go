@@ -22,6 +22,7 @@ func TestUsage(t *testing.T) {
 		{[]string{"record", "--workers", "3", "x"}, 2, "usage: wltest record"},
 		{[]string{"record", "--no-such-flag", "x"}, 2, "flag provided but not defined"},
 		{[]string{"record", t.TempDir()}, 1, "no fixtures"},
+		{[]string{"record", "main.go"}, 2, "neither a fixture directory nor an expression file"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := run(context.Background(), c.args, &stdout, &stderr)
