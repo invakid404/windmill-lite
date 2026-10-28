@@ -1,0 +1,501 @@
+{
+  "finding": "D12",
+  "note": "Host-provided modules (ADR 0010, deviation D12): imports of a listed module resolve to its generated shim, which takes the exports from the process-wide registry, so every script in a process shares one instance. Each run registers the bundled copies from scripts/bun/provided/, as a harness does when no host registers its own.",
+  "cases": [
+    {
+      "spec": "D12",
+      "variant": "shared-instance",
+      "provenance": "policy",
+      "deviation": "D12",
+      "title": "two scripts importing one listed module share its instance",
+      "given": {
+        "entries": [
+          {
+            "id": "set",
+            "path": "f/a/set",
+            "source": "import { store } from \"../shared/ctx\";\nexport function main(v: string) { store.value = v; return \"set\"; }"
+          },
+          {
+            "id": "get",
+            "path": "f/b/get",
+            "source": "import { store, label } from \"/f/shared/ctx\";\nexport function main() { return [store.value, label]; }"
+          }
+        ],
+        "files": {
+          "f/shared/ctx.ts": "export const store = { value: \"initial\" };\nexport const label = \"ctx\";\n"
+        },
+        "host_modules": [
+          {
+            "id": "ctx",
+            "key": "f/shared/ctx.ts",
+            "file": "f/shared/ctx.ts"
+          }
+        ]
+      },
+      "expect": {
+        "entries": {
+          "set": {
+            "host_modules": [
+              "f/shared/ctx.ts"
+            ],
+            "imports": []
+          },
+          "get": {
+            "host_modules": [
+              "f/shared/ctx.ts"
+            ],
+            "bundle_not_contains": [
+              "\"initial\""
+            ]
+          }
+        },
+        "provided": {
+          "ctx": {
+            "exports": [
+              "label",
+              "store"
+            ],
+            "host_modules": []
+          }
+        },
+        "host_module_order": [
+          "ctx"
+        ],
+        "run": {
+          "register": [
+            "ctx"
+          ],
+          "calls": [
+            {
+              "entry": "set",
+              "args": [
+                "changed"
+              ],
+              "result": "set"
+            },
+            {
+              "entry": "get",
+              "result": [
+                "changed",
+                "ctx"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "not-registered",
+      "provenance": "policy",
+      "deviation": "D12",
+      "title": "a script whose process has no such module fails at module load",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { label } from \"../shared/ctx\";\nexport function main() { return label; }",
+        "files": {
+          "f/shared/ctx.ts": "export const label = \"ctx\";\n"
+        },
+        "host_modules": [
+          {
+            "id": "ctx",
+            "key": "f/shared/ctx.ts",
+            "file": "f/shared/ctx.ts"
+          }
+        ]
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "error": "Error: host-provided module not registered: f/shared/ctx.ts"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "package",
+      "provenance": "policy",
+      "deviation": "D12",
+      "title": "a listed package resolves to its shim in scripts and in their dependencies",
+      "given": {
+        "entries": [
+          {
+            "id": "a",
+            "path": "f/a/a",
+            "source": "import { counter } from \"fixture-ctx\";\nimport { bump } from \"fixture-user\";\nexport function main() { bump(); counter.n++; return counter.n; }",
+            "dependencies": {
+              "fixture-ctx": "1.0.0",
+              "fixture-user": "1.0.0"
+            }
+          },
+          {
+            "id": "b",
+            "path": "f/a/b",
+            "source": "import def, { counter } from \"fixture-ctx\";\nexport function main() { return [counter.n, def]; }",
+            "dependencies": {
+              "fixture-ctx": "1.0.0"
+            }
+          }
+        ],
+        "packages": {
+          "fixture-ctx@1.0.0": {
+            "index.js": "export const counter = { n: 0 };\nexport default \"ctx-default\";\n"
+          },
+          "fixture-user@1.0.0": {
+            "index.js": "import { counter } from \"fixture-ctx\";\nexport const bump = () => { counter.n += 10; };\n",
+            "package.json": "{\"name\":\"fixture-user\",\"version\":\"1.0.0\",\"type\":\"module\",\"main\":\"index.js\",\"dependencies\":{\"fixture-ctx\":\"1.0.0\"}}"
+          }
+        },
+        "host_modules": [
+          {
+            "id": "ctx",
+            "key": "fixture-ctx",
+            "package": "fixture-ctx",
+            "dependencies": {
+              "fixture-ctx": "1.0.0"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "entries": {
+          "a": {
+            "host_modules": [
+              "fixture-ctx"
+            ]
+          },
+          "b": {
+            "host_modules": [
+              "fixture-ctx"
+            ]
+          }
+        },
+        "provided": {
+          "ctx": {
+            "exports": [
+              "counter",
+              "default"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "ctx"
+          ],
+          "calls": [
+            {
+              "entry": "a",
+              "result": 11
+            },
+            {
+              "entry": "b",
+              "result": [
+                11,
+                "ctx-default"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "live-binding",
+      "provenance": "policy",
+      "title": "a listed module that declares export let is refused with host_module_live_binding",
+      "note": "ADR 0001 §5a restriction.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { count } from \"../shared/state\";\nexport function main() { return count; }",
+        "files": {
+          "f/shared/state.ts": "export let count = 0;\nexport function bump() { count++; }\n"
+        },
+        "host_modules": [
+          {
+            "id": "state",
+            "key": "f/shared/state.ts",
+            "file": "f/shared/state.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "state": {
+            "problem": {
+              "kind": "host_module_live_binding",
+              "contains": [
+                "f/shared/state.ts",
+                "count"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "live-binding-var",
+      "provenance": "policy",
+      "title": "export var and destructured export let are refused too, naming every binding",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "files": {
+          "f/shared/state.ts": "export var mode = \"a\";\nexport let { x, y: [z] } = { x: 1, y: [2] };\nexport const fixed = 1;\n"
+        },
+        "host_modules": [
+          {
+            "id": "state",
+            "key": "f/shared/state.ts",
+            "file": "f/shared/state.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "state": {
+            "problem": {
+              "kind": "host_module_live_binding",
+              "contains": [
+                "mode, x, z"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "undetected-reassignment",
+      "provenance": "policy",
+      "title": "a binding exported by name and reassigned later is not detected; the shim holds its value at load",
+      "note": "ADR 0010: other ways of exporting a binding that is later reassigned are not detected.",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { count, bump } from \"../shared/state\";\nexport function main() { bump(); return count; }",
+        "files": {
+          "f/shared/state.ts": "let count = 0;\nfunction bump() { count++; }\nexport { count, bump };\n"
+        },
+        "host_modules": [
+          {
+            "id": "state",
+            "key": "f/shared/state.ts",
+            "file": "f/shared/state.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "state": {
+            "exports": [
+              "bump",
+              "count"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "state"
+          ],
+          "calls": [
+            {
+              "result": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "order",
+      "provenance": "policy",
+      "deviation": "D12",
+      "title": "a listed module that imports another comes after it, and its copy uses the other's shim",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { describe } from \"../shared/api\";\nimport { store } from \"../shared/ctx\";\nexport function main() { store.who = \"main\"; return describe(); }",
+        "files": {
+          "f/shared/api.ts": "import { store } from \"./ctx\";\nexport const describe = () => \"api sees \" + store.who;\n",
+          "f/shared/ctx.ts": "export const store = { who: \"nobody\" };\n"
+        },
+        "host_modules": [
+          {
+            "id": "api",
+            "key": "f/shared/api.ts",
+            "file": "f/shared/api.ts"
+          },
+          {
+            "id": "ctx",
+            "key": "f/shared/ctx.ts",
+            "file": "f/shared/ctx.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "api": {
+            "exports": [
+              "describe"
+            ],
+            "host_modules": [
+              "f/shared/ctx.ts"
+            ]
+          },
+          "ctx": {
+            "exports": [
+              "store"
+            ],
+            "host_modules": []
+          }
+        },
+        "host_module_order": [
+          "ctx",
+          "api"
+        ],
+        "run": {
+          "register": [
+            "ctx",
+            "api"
+          ],
+          "calls": [
+            {
+              "result": "api sees main"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "cycle",
+      "provenance": "policy",
+      "title": "listed modules that import each other cannot be ordered",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "files": {
+          "f/shared/p.ts": "import { q } from \"./q\";\nexport const p = () => q;\n",
+          "f/shared/q.ts": "import { p } from \"./p\";\nexport const q = () => p;\n"
+        },
+        "host_modules": [
+          {
+            "id": "p",
+            "key": "f/shared/p.ts",
+            "file": "f/shared/p.ts"
+          },
+          {
+            "id": "q",
+            "key": "f/shared/q.ts",
+            "file": "f/shared/q.ts"
+          }
+        ]
+      },
+      "expect": {
+        "order_problem": {
+          "kind": "host_module_cycle",
+          "contains": [
+            "p → q → p"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "star-reexport",
+      "provenance": "policy",
+      "title": "a listed module that re-exports another with export * is refused, since its scan cannot list those names",
+      "given": {
+        "path": "f/a/main",
+        "source": "export function main() { return 1; }",
+        "files": {
+          "f/shared/all.ts": "export * from \"./ctx\";\nexport const extra = 1;\n",
+          "f/shared/ctx.ts": "export const store = {};\n"
+        },
+        "host_modules": [
+          {
+            "id": "ctx",
+            "key": "f/shared/ctx.ts",
+            "file": "f/shared/ctx.ts"
+          },
+          {
+            "id": "all",
+            "key": "f/shared/all.ts",
+            "file": "f/shared/all.ts"
+          }
+        ]
+      },
+      "expect": {
+        "provided": {
+          "all": {
+            "problem": {
+              "kind": "host_module_exports_differ",
+              "contains": [
+                "store"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "shared-dependency",
+      "provenance": "policy",
+      "deviation": "D12",
+      "title": "a script that imports directly a package a listed module it uses imports is warned about",
+      "given": {
+        "path": "f/a/main",
+        "source": "import { lib } from \"fixture-lib\";\nimport { viaCtx } from \"../shared/ctx\";\nexport function main() { return [lib.id === viaCtx().id, typeof lib.id]; }",
+        "dependencies": {
+          "fixture-lib": "1.0.0"
+        },
+        "files": {
+          "f/shared/ctx.ts": "import { lib } from \"fixture-lib\";\nexport const viaCtx = () => lib;\n"
+        },
+        "packages": {
+          "fixture-lib@1.0.0": {
+            "index.js": "export const lib = { id: Math.random() };\n"
+          }
+        },
+        "host_modules": [
+          {
+            "id": "ctx",
+            "key": "f/shared/ctx.ts",
+            "file": "f/shared/ctx.ts",
+            "dependencies": {
+              "fixture-lib": "1.0.0"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "warnings": [
+          "host_module_shared_dependency"
+        ],
+        "provided": {
+          "ctx": {
+            "exports": [
+              "viaCtx"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "ctx"
+          ],
+          "calls": [
+            {
+              "result": [
+                false,
+                "number"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

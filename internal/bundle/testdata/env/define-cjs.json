@@ -1,0 +1,7 @@
+{
+  "Bun": "__windmill_lite_Bun",
+  "Bun.env": "process.env",
+  "global.Bun": "__windmill_lite_Bun",
+  "globalThis.Bun": "__windmill_lite_Bun",
+  "self.Bun": "__windmill_lite_Bun"
+}

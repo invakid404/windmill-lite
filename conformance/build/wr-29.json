@@ -1,0 +1,41 @@
+{
+  "finding": "WR-29",
+  "note": "An inline script's import base is ImportBase(flow path, module id, explicit path).",
+  "cases": [
+    {
+      "spec": "WR-29/a",
+      "provenance": "source-derived",
+      "title": "the default import base of an inline step",
+      "note": "windmill-lite's import base does not depend on nesting: a step inside a for-loop has the same one (TestImportBase).",
+      "given": {
+        "flow": {"path": "f/a/fl", "module": "s"},
+        "source": "import { a } from \"../shared_lib\";\nimport { b } from \"./x\";\nexport function main() { return [a, b]; }",
+        "files": {"f/a/shared_lib.ts": "export const a = \"shared\";\n", "f/a/fl/x.ts": "export const b = \"x\";\n"}
+      },
+      "expect": {"imports": ["f/a/fl/x", "f/a/shared_lib"], "run": {"calls": [{"result": ["shared", "x"]}]}}
+    },
+    {
+      "spec": "WR-29/b",
+      "provenance": "source-derived",
+      "title": "an explicit path overrides the import base",
+      "given": {
+        "flow": {"path": "f/a/fl", "module": "s", "explicit_path": "f/elsewhere/entry"},
+        "source": "import { b } from \"./x\";\nexport function main() { return b; }",
+        "files": {"f/elsewhere/x.ts": "export const b = \"elsewhere\";\n", "f/a/fl/x.ts": "export const b = \"flow\";\n"}
+      },
+      "expect": {"imports": ["f/elsewhere/x"], "run": {"calls": [{"result": "elsewhere"}]}}
+    },
+    {
+      "spec": "WR-29",
+      "variant": "preprocessor",
+      "provenance": "source-derived",
+      "title": "the preprocessor step's base is <flow path>/preprocessor",
+      "given": {
+        "flow": {"path": "f/a/fl", "module": "preprocessor"},
+        "source": "import { b } from \"./x\";\nexport function preprocessor() { return b; }",
+        "files": {"f/a/fl/x.ts": "export const b = \"x\";\n"}
+      },
+      "expect": {"imports": ["f/a/fl/x"], "run": {"calls": [{"export": "preprocessor", "result": "x"}]}}
+    }
+  ]
+}

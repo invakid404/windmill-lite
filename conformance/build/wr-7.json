@@ -1,0 +1,295 @@
+{
+  "finding": "WR-7",
+  "note": "Which declarations give an export its parameters, and the parser's edge cases. A declaration gives the parameters of the export of its name; anything else has an empty list (ADR 0002).",
+  "cases": [
+    {
+      "spec": "WR-7/a",
+      "provenance": "source-derived",
+      "title": "an arrow main gets an empty parameter list",
+      "part": "build",
+      "rest_in": "C3a calls it with no arguments",
+      "given": {
+        "source": "export const main = (a: number) => a ?? \"undef\";"
+      },
+      "expect": {
+        "exports": [
+          "main"
+        ],
+        "signatures": {
+          "main": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7/b",
+      "provenance": "source-derived",
+      "title": "a script without a main export records only what it exports",
+      "part": "build",
+      "rest_in": "C3a fails the step with main function is missing",
+      "given": {
+        "source": "export function notMain() {}"
+      },
+      "expect": {
+        "exports": [
+          "notMain"
+        ],
+        "signatures": {
+          "notMain": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7/c",
+      "provenance": "source-derived",
+      "title": "a destructured parameter is named anon1",
+      "part": "build",
+      "rest_in": "C3a binds it from the args key anon1 (WR-7/c and WR-7/d)",
+      "given": {
+        "source": "export function main({ a }: { a: number }) { return a; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "anon1",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "anon-numbering",
+      "provenance": "policy",
+      "title": "destructured parameters are numbered in order, a destructured default included",
+      "given": {
+        "source": "export function main(a, { b }: { b: number }, { c } = { c: 1 }) { return [a, b, c]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              },
+              {
+                "name": "anon1",
+                "date": false
+              },
+              {
+                "name": "anon2",
+                "date": false
+              }
+            ]
+          }
+        }
+      },
+      "note": "The reference numbers destructured parameters in order; that a named parameter does not take a number and that a destructured parameter with a default is one too are this build's reading (open question in the PR)."
+    },
+    {
+      "spec": "WR-7",
+      "variant": "rest",
+      "provenance": "source-derived",
+      "title": "a rest parameter of a declaration makes the parse fail for that export",
+      "note": "The text after the colon is free text (…) in the reference.",
+      "given": {
+        "source": "export function main(...xs: number[]) { return xs.length; }\nexport function other(a: number) { return a; }"
+      },
+      "expect": {
+        "exports": [
+          "main",
+          "other"
+        ],
+        "signatures": {
+          "main": {
+            "error_contains": "parameter syntax unsupported: "
+          },
+          "other": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "array-pattern",
+      "provenance": "policy",
+      "title": "an array-destructuring parameter is one of the other unsupported patterns",
+      "note": "The reference names object destructuring (anonN) and the rest parameter; this build reads array destructuring as another unsupported pattern. Open question in the PR.",
+      "given": {
+        "source": "export function main([a, b]: number[]) { return a + b; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "error_contains": "parameter syntax unsupported: "
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "non-exported-declaration",
+      "provenance": "source-derived",
+      "title": "a declaration exported later by name gives the export its parameters",
+      "given": {
+        "source": "function main(a: number, b: string) { return [a, b]; }\nexport { main };"
+      },
+      "expect": {
+        "exports": [
+          "main"
+        ],
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              },
+              {
+                "name": "b",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "renamed-export",
+      "provenance": "source-derived",
+      "title": "an export renamed from another declaration has no declaration of its own name",
+      "given": {
+        "source": "function helper(a: number) { return a; }\nexport { helper as main };"
+      },
+      "expect": {
+        "exports": [
+          "main"
+        ],
+        "signatures": {
+          "main": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "default-export",
+      "provenance": "source-derived",
+      "title": "export default function main is exported as default, which no declaration names",
+      "given": {
+        "source": "export default function main(a: number) { return a; }"
+      },
+      "expect": {
+        "exports": [
+          "default"
+        ],
+        "signatures": {
+          "default": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "const-function",
+      "provenance": "source-derived",
+      "title": "a const holding a function expression is not a declaration",
+      "given": {
+        "source": "export const main = async function (a: number) { return a; };"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": []
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "async-and-defaults",
+      "provenance": "source-derived",
+      "title": "an async declaration, defaults skipped",
+      "given": {
+        "source": "export async function main(a: number = 1, b?: string) { return [a, b]; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              },
+              {
+                "name": "b",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "this-parameter",
+      "provenance": "policy",
+      "title": "a TypeScript this parameter is not a parameter at run time",
+      "note": "TypeScript erases a this parameter; the reference does not cover it. Open question in the PR.",
+      "given": {
+        "source": "export function main(this: unknown, a: number) { return a; }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-7",
+      "variant": "overloads",
+      "provenance": "policy",
+      "title": "of an overloaded declaration, the first signature counts",
+      "note": "The reference does not cover overloads. Open question in the PR.",
+      "given": {
+        "source": "export function main(a: Date): string;\nexport function main(b: any) { return String(b); }"
+      },
+      "expect": {
+        "signatures": {
+          "main": {
+            "params": [
+              {
+                "name": "a",
+                "date": true
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

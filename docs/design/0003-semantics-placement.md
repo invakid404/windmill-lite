@@ -288,8 +288,8 @@ Every Windmill rule is single-sourced in one implementation, so the suite's
 job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
 as hand-written YAML and JSON, at three run levels, three levels that
-observe no run (decode, jsonb and load) and one protocol level (whose golden
-payloads the Go run writes):
+observe no run (decode, jsonb and load), one protocol level (whose golden
+payloads the Go run writes) and one build level:
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
@@ -300,6 +300,7 @@ payloads the Go run writes):
 | jsonb | `conformance/jsonb/<finding>.yaml` | a producer text and its stored text or the rejection jsonb gives it ([FX-42](../semantics/execution.md#fx-42), [JE-44](../semantics/expressions.md#je-44), [FX-48](../semantics/execution.md#fx-48)); for a catalogue case, also the form its consumer reads and the top-level key order expected there | Go `internal/jsonval` tests; PostgreSQL in the oracle's pinned image ([0005](0005-json-step-boundaries.md)) |
 | load | `conformance/syncfolder/<finding>.json` | a sync folder as a map of files and what the loader makes of it: whether it opens, the items it lists or filters out, and parts of the records it reads or their errors ([SY-1](../semantics/openflow.md#sy-1) to [SY-15](../semantics/openflow.md#sy-15)) | Go `internal/syncfolder` tests |
 | protocol | `conformance/protocol/frames.json`, `conformance/protocol/exchanges/<case>.json` | the harness protocol of [0004](0004-harness-protocol.md), which is windmill-lite's own (provenance `policy`): golden frames of the codec (a message and its canonical payload, a part split, a byte stream and the protocol error it raises), and exchange transcripts (the frames the engine sends and those the harness must answer with) over a synthetic fixture bundle | Go `internal/harness` tests, the exchanges against the real harness on the pinned runtime; each harness's own developer tests run the codec cases |
+| build | `conformance/build/<finding>.json` | a sync folder and Bun scripts, and what the Bun build records for each (the signature of every export, annotations, the bundler target, workflow-as-code markers, the workspace scripts inlined) or refuses; optionally a run of the built modules' exports, with `process.env` replaced and host-provided modules registered ([WR-6](../semantics/languages.md#wr-6) to [WR-8](../semantics/languages.md#wr-8), [WR-26](../semantics/languages.md#wr-26) to [WR-32](../semantics/languages.md#wr-32), [WR-38](../semantics/languages.md#wr-38), [WR-39](../semantics/languages.md#wr-39), [WA-31](../semantics/client-api.md#wa-31), D12) | Go `internal/bundle` tests, running the Bun build helper and the modules on the pinned Bun; the helper's own developer tests run its scans |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
 reproduce an expression whose meaning depends on what ran before it: a
@@ -375,6 +376,13 @@ validation with `contextual_case_needs_flow_fixture`.
   other levels. The golden frames are the ones "the Go run writes" (above):
   `go test ./internal/harness -run TestFrameCases -args -update` rewrites
   them, and the Bun harness's `bun test` checks its codec against them.
+- The build level was added with milestone C2a. The signature parse,
+  annotations, workflow-as-code detection and import rewrites are rules of
+  the build, which runs before any step; the catalogue cases that cover them
+  are step cases, so each build case checks a case's build half and names
+  where its run is checked (the step suite, C3a), and a case can run the
+  built modules directly to show that the transforms behave as Windmill's.
+  The parse lives in the Bun build helper, but Go is the one comparator.
 
 ## Spec IDs relied on
 

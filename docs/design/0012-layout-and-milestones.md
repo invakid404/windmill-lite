@@ -44,7 +44,7 @@ internal/oracle/            the oracle harness (0011)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
-conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, protocol/: the shared cases (0003)
+conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, protocol/, build/: the shared cases (0003)
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
@@ -158,6 +158,11 @@ waits on an external gate except R1.
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against
   the Bun harness on Bun 1.3.10.
+- `conformance/build/` holds the Bun build cases, a level that
+  [0003](0003-semantics-placement.md) added with milestone C2a. C2a placed
+  the shared build transforms (the define table, its prelude and the shim
+  generator) in `internal/bundle`, which F4 extends with the bundle format,
+  and the Bun build helper in `harnesses/bun/build`.
 
 ## Spec IDs relied on
 

@@ -1,0 +1,148 @@
+{
+  "finding": "WR-27",
+  "note": "windmill-lite copies the bundled mode, for //nobundling scripts too (D7).",
+  "cases": [
+    {
+      "spec": "WR-27/a",
+      "provenance": "source-derived",
+      "title": "a path-independent script, bundled",
+      "deviation": "D7",
+      "given": {
+        "source": "export function main(a: number, b: string[]) { return { s: a * 2, j: b.join(\"-\") }; }"
+      },
+      "expect": {
+        "run": {
+          "calls": [
+            {
+              "args": [
+                2,
+                [
+                  "x",
+                  "y"
+                ]
+              ],
+              "result": {
+                "s": 4,
+                "j": "x-y"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27/a",
+      "variant": "nobundling",
+      "provenance": "source-derived",
+      "title": "the same script with //nobundling is bundled the same way and gives the same result",
+      "deviation": "D7",
+      "given": {
+        "source": "//nobundling\nexport function main(a: number, b: string[]) { return { s: a * 2, j: b.join(\"-\") }; }"
+      },
+      "expect": {
+        "annotations": [
+          "nobundling"
+        ],
+        "run": {
+          "calls": [
+            {
+              "args": [
+                2,
+                [
+                  "x",
+                  "y"
+                ]
+              ],
+              "result": {
+                "s": 4,
+                "j": "x-y"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27",
+      "variant": "settings",
+      "provenance": "source-derived",
+      "title": "target bun, ESM, syntax-only minification (identifiers and whitespace kept, constants folded), only electron external",
+      "given": {
+        "source": "import { app } from \"electron\";\nimport { join } from \"node:path\";\nfunction helperWithLongName(x: number) {\n  return x * 2;\n}\nexport function main() {\n  const folded = 1 + 2;\n  return [helperWithLongName(folded), helperWithLongName(4), join(\"a\", \"b\"), typeof app];\n}\n"
+      },
+      "expect": {
+        "first_line": "// @bun",
+        "bundle_contains": [
+          "function helperWithLongName(x) {\n  return x * 2;\n}",
+          "helperWithLongName(3)",
+          "from \"electron\"",
+          "from \"path\"",
+          "\nexport {\n  main\n};"
+        ]
+      },
+      "note": "Bun's target bun writes the node: built-ins without their prefix."
+    },
+    {
+      "spec": "WR-27",
+      "variant": "inlines-dependencies",
+      "provenance": "source-derived",
+      "title": "npm dependencies and workspace imports are inlined",
+      "given": {
+        "source": "import { tag } from \"fixture-pkg\";\nimport { h } from \"./helper\";\nexport function main() { return [tag, h]; }",
+        "files": {
+          "f/case/helper.ts": "export const h = \"helper\";\n"
+        },
+        "dependencies": {
+          "fixture-pkg": "1.2.3"
+        },
+        "packages": {
+          "fixture-pkg@1.2.3": {
+            "index.js": "export const tag = \"inlined\";\n"
+          }
+        }
+      },
+      "expect": {
+        "bundle_not_contains": [
+          "from \"fixture-pkg\"",
+          "./helper"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": [
+                "inlined",
+                "helper"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-27",
+      "variant": "single-module",
+      "provenance": "policy",
+      "title": "a bundle that emits another file besides the module is refused",
+      "note": "Bun's file loader emits an asset beside the module; a bundle holds one module per script (ADR 0010), so the build refuses it rather than lose the file.",
+      "given": {
+        "source": "import logo from \"fixture-assets/logo.png\";\nexport function main() { return typeof logo; }",
+        "dependencies": {
+          "fixture-assets": "1.0.0"
+        },
+        "packages": {
+          "fixture-assets@1.0.0": {
+            "logo.png": "not really a png"
+          }
+        }
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "2 output files"
+          ]
+        }
+      }
+    }
+  ]
+}

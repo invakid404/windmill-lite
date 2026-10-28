@@ -1,0 +1,24 @@
+{
+  "finding": "WR-V1",
+  "note": "The build half: a zero-parameter export records an empty list, which is what selects the fallback at run time.",
+  "cases": [
+    {
+      "spec": "WR-V1/a",
+      "provenance": "source-derived",
+      "title": "a zero-parameter export reached by an override",
+      "part": "build",
+      "rest_in": "C3a passes it the non-underscore values",
+      "given": {"source": "export function other() { return [...arguments]; }\nexport function main() { return 0; }"},
+      "expect": {"signatures": {"other": {"params": []}}}
+    },
+    {
+      "spec": "WR-V1/b",
+      "provenance": "source-derived",
+      "title": "the same zero-parameter function as main",
+      "part": "build",
+      "rest_in": "C3a calls it with no arguments",
+      "given": {"source": "export function main() { return [...arguments]; }"},
+      "expect": {"signatures": {"main": {"params": []}}}
+    }
+  ]
+}

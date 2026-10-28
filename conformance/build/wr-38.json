@@ -1,0 +1,76 @@
+{
+  "finding": "WR-38",
+  "scope": "later",
+  "note": "windmill-lite reproduces the .ts rewrite collisions (ADR 0001 §7, Q-WR-17). A script Windmill fails to bundle at every run fails windmill-lite's build (bundle_failed, ADR 0001 §5a). Bun 1.3.10's scanner lists imports in source order without deduplication.",
+  "cases": [
+    {
+      "spec": "WR-38/a",
+      "provenance": "source-derived",
+      "title": "overlapping extensionless specifiers corrupt the longer one",
+      "given": {
+        "path": "f/t/main",
+        "source": "import { a } from \"./util\";\nimport { b } from \"./util_db\";\nexport function main() { return a + b; }",
+        "files": {
+          "f/t/util.ts": "export const a = \"a\";\n",
+          "f/t/util_db.ts": "export const b = \"b\";\n"
+        }
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "./util.ts_db"
+          ]
+        }
+      },
+      "note": "./util.ts_db no longer ends in .ts, so it is not intercepted, and nothing at it exists."
+    },
+    {
+      "spec": "WR-38/b",
+      "provenance": "source-derived",
+      "title": "explicit .ts avoids the rewrite",
+      "given": {
+        "path": "f/t/main",
+        "source": "import { a } from \"./util.ts\";\nimport { b } from \"./util_db.ts\";\nexport function main() { return a + b; }",
+        "files": {
+          "f/t/util.ts": "export const a = \"a\";\n",
+          "f/t/util_db.ts": "export const b = \"b\";\n"
+        }
+      },
+      "expect": {
+        "imports": [
+          "f/t/util",
+          "f/t/util_db"
+        ],
+        "run": {
+          "calls": [
+            {
+              "result": "ab"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-38",
+      "variant": "repeated",
+      "provenance": "source-derived",
+      "title": "the same extensionless specifier imported twice becomes ./x.ts.ts",
+      "given": {
+        "path": "f/t/main",
+        "source": "import { a } from \"./x\";\nimport { b } from \"./x\";\nexport function main() { return a + b; }",
+        "files": {
+          "f/t/x.ts": "export const a = 1, b = 2;\n"
+        }
+      },
+      "expect": {
+        "problem": {
+          "kind": "bundle_failed",
+          "contains": [
+            "./x.ts.ts"
+          ]
+        }
+      }
+    }
+  ]
+}
