@@ -83,3 +83,38 @@ func TestDefaultLimitsAreWindmills(t *testing.T) {
 		}
 	}
 }
+
+// TestExprJSON checks the compiled expression's JSON form, which the IR
+// carries (ADR 0002): field names, the mode's name, and the omitted parts
+// of an expression the pipeline has not compiled yet.
+func TestExprJSON(t *testing.T) {
+	bare := Expr{Site: SiteSkipIf, Text: "x"}
+	data, err := json.Marshal(bare)
+	if err != nil || string(data) != `{"site":"skip_if","text":"x"}` {
+		t.Fatalf("Marshal(bare) = %s, %v", data, err)
+	}
+	id := "a"
+	full := Expr{
+		Site: SiteInputTransform, Text: " results.a ", Trimmed: "results.a",
+		Shortcut: Shortcut{PreviousID: &id, ResultsPath: &ResultsPath{Step: "a"}},
+		Mode:     ModeExpression, Binds: []string{"results"}, Source: "s",
+	}
+	data, err = json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Expr
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := json.Marshal(back)
+	if string(again) != string(data) || !strings.Contains(string(data), `"mode":"expression"`) {
+		t.Errorf("round trip: %s then %s", data, again)
+	}
+	if _, err := json.Marshal(Expr{Site: SiteSkipIf, Mode: Mode(9)}); err == nil {
+		t.Error("marshalled an unknown mode")
+	}
+	if err := json.Unmarshal([]byte(`{"site":"skip_if","text":"","mode":"other"}`), &back); err == nil {
+		t.Error("accepted an unknown mode")
+	}
+}

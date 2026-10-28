@@ -1,0 +1,91 @@
+{
+  "finding": "SY-8",
+  "cases": [
+    {
+      "spec": "SY-8",
+      "variant": "cjs",
+      "provenance": "source-derived",
+      "deviation": "D13",
+      "note": "An absent format means cjs (WR-47), which windmill-lite runs on Bun's CommonJS loader (D13).",
+      "title": "a codebase script defaults to CommonJS",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "codebase",
+              "/codebase": {
+                "index": 0,
+                "relative_path": ".",
+                "format": "cjs"
+              },
+              "/dependency_set": "codebase:0"
+            }
+          }
+        },
+        "at": {
+          "/deviations": [
+            "D13"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "variant": "esm",
+      "provenance": "source-derived",
+      "title": "format esm",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    format: esm\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/codebase/format": "esm"
+            }
+          }
+        },
+        "at": {
+          "/deviations": []
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "variant": "custom-bundler",
+      "provenance": "policy",
+      "policy": "0001 §5a",
+      "title": "a customBundler entry is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: ./bundle.sh\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "script f/x/s",
+              "unsupported: customBundler"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Codebase scripts in the inventory; the selection is A4's (conformance/syncfolder/sy-8.json) and the bundling C2b's."
+}

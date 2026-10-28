@@ -1,0 +1,29 @@
+{
+  "finding": "OF-8",
+  "cases": [
+    {
+      "spec": "OF-8",
+      "variant": "dropped",
+      "provenance": "source-derived",
+      "scope": "later",
+      "title": "a while loop has no parallel fields",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: w\n      value:\n        type: whileloopflow\n        parallel: true\n        parallelism: 2\n        modules: []\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:w": {
+            "absent": [
+              "/whileloop/parallel",
+              "/whileloop/parallelism"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "The while-loop parallel fields are dropped (OF-8); the decode case is in conformance/openflow."
+}
