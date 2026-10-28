@@ -186,11 +186,19 @@ microtask see none.
      fired and was re-armed with `refresh()` is pending again, and still
      the invocation's.
    - Its requests in flight through the `fetch` view are aborted with an
-     `AbortError`. A request is in flight until its response's body has
-     been read to the end, canceled or failed, since the body may still be
-     arriving after the headers; one whose body the step never reads is in
-     flight until settlement. A response with no body (a 204, 205 or 304,
-     or the answer to `HEAD`) ends it at once.
+     `AbortError`. A request is in flight until its body's transfer has
+     ended, since the body may still be arriving after the headers. The
+     transfer ends when a consumer has read the body to its end or failed,
+     or when every branch of it (the response, its clones, the branches of
+     a `tee`) has been canceled; a read that fails without reading, because
+     the body is already used or locked, ends nothing. The step gets Bun's
+     own response, observed through own properties of it, of its body
+     stream and of that stream's readers, so its locking, `bodyUsed`,
+     `clone` and `tee` semantics are unchanged. A body the step never
+     reads, or reads only through Bun's internals
+     (`Bun.readableStreamToText`, a new `Response` of it), is in flight
+     until settlement. A response with no body (a 204, 205 or 304, or the
+     answer to `HEAD`) ends it at once.
    - Its later log writes are dropped, and its later platform calls are
      refused with a `TypeError`.
    - A handle that its queued code creates after settlement is cleared at

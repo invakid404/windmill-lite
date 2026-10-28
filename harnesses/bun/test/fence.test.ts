@@ -22,6 +22,8 @@ import {
 } from "../runtime/context.ts";
 
 const require = createRequire(import.meta.url);
+// Bun's fetch, before the fetch view wraps it.
+const nativeFetch = globalThis.fetch;
 
 installEnvView();
 installTimers();
@@ -240,4 +242,168 @@ test("a refresh() that re-arms a fired timeout registers it again, with the invo
   m.refresh();
   await Bun.sleep(10);
   expect([moduleFired, module.resources.pending()]).toEqual([2, {}]);
+});
+
+/** A server whose /gate/<n> responses send "first" and hold "last" until
+ * release(n), and whose other paths answer "whole" at once. */
+function gatedServer() {
+  const gates = new Map<string, () => void>();
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    idleTimeout: 30,
+    fetch(req) {
+      const path = new URL(req.url).pathname;
+      if (!path.startsWith("/gate/")) return new Response("whole", { headers: { "content-type": "text/plain;charset=utf-8" } });
+      return new Response(
+        new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode("first"));
+            gates.set(path, () => {
+              try {
+                c.enqueue(new TextEncoder().encode("last"));
+                c.close();
+              } catch {
+                // The request was aborted.
+              }
+            });
+          },
+        }),
+      );
+    },
+  });
+  return { server, release: (path: string) => gates.get(path)?.() };
+}
+
+test("a read that fails without reading, or a branch canceled while another reads, leaves the request in flight, and settlement aborts the active read (c3b review 2, R2-1)", async () => {
+  const { server, release } = gatedServer();
+  // act starts the read that stays active, and returns it in a box: an
+  // async function would otherwise wait for it.
+  const settled = async (path: string, act: (res: Response) => Promise<{ active: Promise<unknown> }>) => {
+    const c = context();
+    const res = await invocations.run(c, () => fetch(new URL(path, server.url)));
+    const { active } = await invocations.run(c, () => act(res));
+    await Bun.sleep(5);
+    const left = c.resources.settle();
+    release(path);
+    return [left, await active.then((v) => v, (e) => `${e.name}`)];
+  };
+  try {
+    // A second text() fails with a TypeError, without reading.
+    expect(
+      await settled("/gate/second-read", async (res) => {
+        const first = res.text();
+        expect(await res.text().then(() => "read", (e) => e.name)).toBe("TypeError");
+        return { active: first };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // One clone's body is canceled while the other reads.
+    expect(
+      await settled("/gate/clone-cancel", async (res) => {
+        const reading = res.clone().text();
+        void res.body!.cancel();
+        return { active: reading };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // One tee branch is canceled while the other reads.
+    expect(
+      await settled("/gate/tee-cancel", async (res) => {
+        const [x, y] = res.body!.tee();
+        void x.cancel();
+        const reader = y.getReader();
+        const reading = (async () => {
+          let s = "";
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) return s;
+            s += new TextDecoder().decode(chunk.value);
+          }
+        })();
+        return { active: reading };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // Controls: a body read to its end, piped, or canceled on every branch
+    // ends the request.
+    for (const consume of [
+      (res: Response) => res.text(),
+      (res: Response) => res.body!.pipeTo(new WritableStream()),
+      async (res: Response) => {
+        for await (const _ of res.body!.pipeThrough(new TextDecoderStream())) {
+        }
+      },
+      (res: Response) => Promise.all([res.clone().text(), res.text()]),
+      (res: Response) => {
+        const c = res.clone();
+        return Promise.all([res.body!.cancel(), c.body!.cancel()]);
+      },
+    ]) {
+      const c = context();
+      const res = await invocations.run(c, () => fetch(new URL("/whole", server.url)));
+      await invocations.run(c, () => consume(res));
+      await Bun.sleep(1);
+      expect(c.resources.pending()).toEqual({});
+    }
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("the response of the fetch view is Bun's own: locking, disturbance, bodyUsed, clone and tee behave as without the fence (c3b review 2, R2-2)", async () => {
+  const { server } = gatedServer();
+  const settle = (p: Promise<unknown>) => p.then((v) => (v instanceof Blob ? `blob ${v.type} ${v.size}` : JSON.stringify(v)), (e) => `rejects ${e.name}`);
+  const call = (f: () => unknown) => {
+    try {
+      const v = f();
+      return v instanceof Response ? "a response" : String(v);
+    } catch (e) {
+      return `throws ${(e as Error).name}`;
+    }
+  };
+  const scenarios: Record<string, (res: Response) => Promise<string[]>> = {
+    "a reader locks the body, then text": async (res) => (res.body!.getReader(), [await settle(res.text())]),
+    "a reader locks the body, then clone": async (res) => (res.body!.getReader(), [call(() => res.clone())]),
+    "a reader is taken and released, then text": async (res) => (res.body!.getReader().releaseLock(), [await settle(res.text()), String(res.bodyUsed)]),
+    "a chunk is read, the lock released, then text": async (res) => {
+      const reader = res.body!.getReader();
+      await reader.read();
+      reader.releaseLock();
+      return [await settle(res.text()), String(res.bodyUsed)];
+    },
+    "text twice": async (res) => {
+      const first = res.text();
+      const second = await settle(res.text());
+      return [await settle(first), second];
+    },
+    "clone, then both read": async (res) => {
+      const c = res.clone();
+      return [await settle(res.text()), await settle(c.text())];
+    },
+    "text, then clone": async (res) => (await res.text(), [call(() => res.clone())]),
+    "clone, lock the original, read the clone": async (res) => {
+      const c = res.clone();
+      res.body!.getReader();
+      return [await settle(c.text())];
+    },
+    "tee, then text": async (res) => (res.body!.tee(), [await settle(res.text())]),
+    "body looked at": async (res) => {
+      const body = res.body;
+      return [String(res.bodyUsed), String(body === res.body), String(body!.locked)];
+    },
+    blob: async (res) => [await settle(res.blob())],
+    "json of text": async (res) => [await settle(res.json())],
+    "pipeThrough while locked": async (res) => (res.body!.getReader(), [call(() => res.body!.pipeThrough(new TransformStream()))]),
+    "pipeThrough of no pair": async (res) => [call(() => res.body!.pipeThrough({} as TransformStream))],
+    "pipeTo while locked": async (res) => (res.body!.getReader(), [await settle(res.body!.pipeTo(new WritableStream()))]),
+    "Bun.readableStreamToText": async (res) => [await settle(Bun.readableStreamToText(res.body!))],
+    "metadata": async (res) => [res.url === server.url.href + "whole" ? "url" : res.url, res.type, String(res.redirected), String(res.status), String(res instanceof Response)],
+  };
+  try {
+    for (const [name, scenario] of Object.entries(scenarios)) {
+      const native = await scenario(await nativeFetch(new URL("/whole", server.url)));
+      const fenced = await scenario(await invocations.run(context(), () => fetch(new URL("/whole", server.url))));
+      expect([name, fenced]).toEqual([name, native]);
+    }
+  } finally {
+    server.stop(true);
+  }
 });

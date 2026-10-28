@@ -125,13 +125,21 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   refused with a `TypeError`, and one whose signal has already aborted is
   not sent. One still waiting when its invocation settles is aborted, and
   the reply that comes later is dropped. Any other request stays
-  registered until its response's body has been read to the end, canceled
-  or failed: the reading methods (`text`, `json` and the rest) are the
-  response's own, and `body` is one stream that passes the native body's
-  chunks through, so the `Response` API is unchanged. A response with no
-  body (a 204, 205 or 304, or the answer to `HEAD`) ends the request at
-  once; one whose body the step never reads stays registered until
-  settlement, which aborts it.
+  registered until its body's transfer has ended (`observeTransfer`). The
+  step gets Bun's own response, so its locking, `bodyUsed`, `clone` and
+  `tee` semantics are unchanged; the observers are own properties of it,
+  of its body stream and of that stream's readers, each calling the native
+  one. The transfer ends when a consumer reads the body to its end or
+  fails: a reading method that was the call that consumed it (Bun marks a
+  body used once a read starts or a reader is taken, so a call on a used
+  or locked body, which fails without reading, ends nothing), a reader's
+  `read`, `pipeTo` or `pipeThrough`. It ends too when every branch (the
+  response, each clone, each `tee` branch) has been canceled; canceling
+  one while another reads ends nothing. A body the step never reads, or
+  reads only through Bun's internals (`Bun.readableStreamToText`, a new
+  `Response` of it), stays registered until settlement, which aborts what
+  is still arriving. A response with no body (a 204, 205 or 304, or the
+  answer to `HEAD`) ends the request at once.
 - **The timer fence.** `setTimeout`, `setInterval` and `setImmediate`, on
   `globalThis` and on `node:timers`, register each handle a step creates
   in its invocation's registry; the clear functions, and a timeout or
@@ -378,8 +386,10 @@ priority, the order per invocation, partial writes and `whenFlushed`.
 `test/context.test.ts` checks the environment view's rules in one process
 (a first write of a process variable included), the registry, the process
 scope and the exit status; `test/fence.test.ts` the settle-time fence (the
-timers, the fetch view and a refused platform call), the log view, the
-`Bun.env` write trap and the environment of child processes;
+timers and `refresh()`, the fetch view and a body's transfer, with a
+native-versus-fenced comparison of the response's semantics, and a
+refused platform call), the log view, the `Bun.env` write trap and the
+environment of child processes;
 and `test/host.test.ts` the SDK's refusals: the working directory and an
 engine that cannot start. `test/build.test.ts` checks the build helper's
 scans and parse. All are developer checks, run by CI's non-required

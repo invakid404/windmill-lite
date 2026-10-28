@@ -397,3 +397,44 @@ cases:
         by_mode:
           warm: {expect: {status: success, result: [2, 1, 1]}}
           fresh: {expect: {status: success, result: [0, 0, 0]}}
+  - spec: D9
+    variant: fence-fetch-branches
+    provenance: policy
+    title: a read that fails without reading, or one clone canceled while the other reads, leaves the request in flight, so settlement reports and aborts it
+    note: >-
+      The module's server sends a first chunk and holds the rest. One
+      response is read while a second text() fails with a TypeError; another
+      is cloned, the clone read and the original's body canceled. Both
+      requests are still arriving when the step settles (c3b review 2, R2-1).
+    deviation: D9
+    script: |
+      const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("first")); } })),
+      });
+      const outcome = (p) => p.then(() => "read", (e) => e.name);
+      export async function main(wait: boolean) {
+        const g = globalThis;
+        if (wait) {
+          for (let i = 0; i < 100 && g.wlStarted && !(g.wlFirst && g.wlCloned); i++) await Bun.sleep(10);
+          return [g.wlSecond ?? null, g.wlFirst ?? null, g.wlCloned ?? null];
+        }
+        g.wlStarted = true;
+        const one = await fetch(server.url);
+        outcome(one.text()).then((r) => { g.wlFirst = r; });
+        g.wlSecond = await outcome(one.text());
+        const two = await fetch(server.url);
+        outcome(two.clone().text()).then((r) => { g.wlCloned = r; });
+        void two.body.cancel();
+        return "reading";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: reading}
+        warnings: [left_behind]
+        left: {fetch: 2}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: [TypeError, AbortError, AbortError]}}
+          fresh: {expect: {status: success, result: [null, null, null]}}

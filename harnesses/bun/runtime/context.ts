@@ -457,11 +457,11 @@ function settledAbort(): DOMException {
  *   with a TypeError (the D9 fence), as is one outside every invocation.
  * - Any other request passes through, with a signal of the fence's added
  *   to its own when an invocation starts it: it is registered as "fetch"
- *   until it fails or its response's body has been read to the end,
- *   canceled or failed (holdUntilRead), and aborted with an AbortError if
- *   the invocation settles first, which also fails a body still being
- *   read. A response with no body ends it at once; one whose body the
- *   step never reads stays registered until settlement.
+ *   until it fails or its response body's transfer has ended
+ *   (observeTransfer), and aborted with an AbortError if the invocation
+ *   settles first, which also fails a body still being read. The
+ *   response is Bun's own. A response with no body ends it at once; one
+ *   whose body the step never reads stays registered until settlement.
  *
  * origin() is read per call, because the welcome names the facade after
  * this is installed. */
@@ -491,7 +491,7 @@ export function installFetch(
         throw e;
       }
       const method = init?.method ?? (input instanceof Request ? input.method : "GET");
-      return holdUntilRead(res, method, done);
+      return observeTransfer(res, method, done);
     }
     if (inv === undefined) throw new TypeError("windmill-lite: a platform call outside any invocation cannot be attributed");
     if (inv.resources.settled) throw new TypeError("windmill-lite: the invocation has settled, so its platform calls are refused");
@@ -512,74 +512,146 @@ export function installFetch(
   globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
 }
 
+/** Statuses whose responses have no body, whatever Bun gives them. */
+const NO_BODY = new Set([204, 205, 304]);
 const BODY_METHODS = ["arrayBuffer", "blob", "bytes", "formData", "json", "text"] as const;
 const nativeBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!;
 
-/** Statuses whose responses have no body, whatever Bun gives them. */
-const NO_BODY = new Set([204, 205, 304]);
+/** A request whose response body may still be arriving: its branches are
+ * the response and each clone or tee branch of its body, open until
+ * canceled. The transfer ends, and done unregisters the request, when a
+ * branch has read the body to its end or failed (the source is then done,
+ * whatever the other branches still hold), or when every branch has been
+ * canceled. */
+type Transfer = { done: () => void; open: number; ended: boolean };
+type Branch = { t: Transfer; closed: boolean };
 
-/** res, with done called once its body has been read to the end, canceled
- * or failed: the request is in flight until then, since the body may still
- * be arriving. A response with no body (none at all, a 204, 205 or 304,
- * or the answer to a HEAD request) is done at once. The Response API
- * is unchanged: the reading methods are res's own, which end the request
- * when they settle, and res.body is one stream that passes the native
- * body's chunks through as they are pulled and ends the request when it
- * ends; it reads the native body only once a reader pulls, so a reading
- * method still works after body was merely looked at. */
-function holdUntilRead(res: Response, method: string, done: () => void): Response {
+function endTransfer(t: Transfer) {
+  if (t.ended) return;
+  t.ended = true;
+  t.done();
+}
+
+function closeBranch(b: Branch) {
+  if (b.closed) return;
+  b.closed = true;
+  if (--b.t.open === 0) endTransfer(b.t);
+}
+
+/** Gives o an own method k, which the caller builds over o's own. */
+function own(o: object, k: string, value: unknown) {
+  Object.defineProperty(o, k, { configurable: true, writable: true, value });
+}
+
+/** res, the native response, with its body's transfer observed: done is
+ * called once the transfer has ended (Transfer). Nothing of the response
+ * is replaced, so its locking, disturbance, bodyUsed, clone and tee
+ * semantics stay Bun's own: the observers are own properties of the
+ * response, of its body stream and of that stream's readers, each calling
+ * the native one. A response with no body, a 204, 205 or 304, or the
+ * answer to a HEAD request ends the transfer at once.
+ *
+ * A reading method (text, json and the rest) ends the transfer when it
+ * settles, if it was the call that consumed the body: Bun marks a body
+ * used as soon as a read starts or a reader is taken, so a call on a body
+ * already used or locked, which fails without reading, ends nothing. A
+ * reader's read that reports the end or fails ends it; pipeTo and
+ * pipeThrough end it when their pipe settles. A consumer that reads the
+ * body through Bun's internals only (Bun.readableStreamToText, a new
+ * Response of it, a tee branch read so) is not seen: the request then
+ * stays registered until settlement, which counts it and aborts what, if
+ * anything, is still arriving. */
+function observeTransfer(res: Response, method: string, done: () => void): Response {
   if (nativeBody.call(res) === null || NO_BODY.has(res.status) || method.toUpperCase() === "HEAD") {
     done();
     return res;
   }
+  return observeResponse(res, { t: { done, open: 1, ended: false }, closed: false });
+}
+
+function observeResponse(res: Response, b: Branch): Response {
   const r = res as unknown as Record<string, TimerFn>;
   for (const m of BODY_METHODS) {
     const real = r[m];
     if (typeof real !== "function") continue;
-    Object.defineProperty(res, m, {
-      configurable: true,
-      writable: true,
-      value: function (this: Response, ...args: unknown[]) {
-        const p = real.apply(this, args) as Promise<unknown>;
-        p.then(done, done);
-        return p;
-      },
+    own(res, m, function (this: Response, ...args: unknown[]) {
+      const consuming = !b.t.ended && !this.bodyUsed;
+      const p = real.apply(this, args) as Promise<unknown>;
+      if (consuming) p.then(() => endTransfer(b.t), () => endTransfer(b.t));
+      return p;
     });
   }
-  let stream: ReadableStream<Uint8Array> | undefined;
+  const clone = r.clone;
+  own(res, "clone", function (this: Response) {
+    const c = clone.call(this) as Response;
+    if (!b.t.ended) {
+      b.t.open++;
+      observeResponse(c, { t: b.t, closed: false });
+    }
+    return c;
+  });
   Object.defineProperty(res, "body", {
     configurable: true,
+    enumerable: true,
     get(this: Response) {
-      const native = nativeBody.call(this) as ReadableStream<Uint8Array> | null;
-      if (native === null) return null;
-      if (stream) return stream;
-      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-      stream = new ReadableStream<Uint8Array>(
-        {
-          async pull(c) {
-            reader ??= native.getReader();
-            try {
-              const chunk = await reader.read();
-              if (chunk.done) {
-                c.close();
-                done();
-              } else c.enqueue(chunk.value);
-            } catch (e) {
-              done();
-              c.error(e);
-            }
-          },
-          cancel(reason) {
-            done();
-            return (reader ?? native).cancel(reason);
-          },
-        },
-        { highWaterMark: 0 },
-      );
+      const stream = nativeBody.call(this) as ReadableStream | null;
+      if (stream) observeStream(stream, b);
       return stream;
     },
   });
   return res;
+}
+
+function observeStream(s: ReadableStream, b: Branch) {
+  if (Object.hasOwn(s, "getReader")) return;
+  const { getReader, cancel, tee, pipeTo, pipeThrough } = s;
+  own(s, "getReader", function (this: ReadableStream, ...args: unknown[]) {
+    const reader = (getReader as TimerFn).apply(this, args);
+    observeReader(reader, b);
+    return reader;
+  });
+  own(s, "cancel", function (this: ReadableStream, ...args: unknown[]) {
+    const p = (cancel as TimerFn).apply(this, args);
+    closeBranch(b);
+    return p;
+  });
+  own(s, "pipeTo", function (this: ReadableStream, ...args: unknown[]) {
+    const locked = this.locked;
+    const p = (pipeTo as TimerFn).apply(this, args) as Promise<unknown>;
+    if (!locked) p.then(() => endTransfer(b.t), () => endTransfer(b.t));
+    return p;
+  });
+  // pipeThrough is pipeTo into the pair's writable, its readable returned,
+  // its promise handled; whatever native throws for, it throws.
+  own(s, "pipeThrough", function (this: ReadableStream, pair: any, options?: StreamPipeOptions) {
+    if (this.locked || !(pair?.writable instanceof WritableStream) || !(pair?.readable instanceof ReadableStream) || pair.writable.locked) {
+      return (pipeThrough as TimerFn).call(this, pair, options);
+    }
+    (this.pipeTo(pair.writable, options) as Promise<void>).catch(() => {});
+    return pair.readable;
+  });
+  own(s, "tee", function (this: ReadableStream) {
+    const [x, y] = (tee as TimerFn).call(this) as [ReadableStream, ReadableStream];
+    b.t.open++;
+    observeStream(x, b);
+    observeStream(y, { t: b.t, closed: false });
+    return [x, y];
+  });
+}
+
+function observeReader(reader: { read?: unknown; cancel?: unknown }, b: Branch) {
+  const { read, cancel } = reader;
+  if (typeof read !== "function" || typeof cancel !== "function") return;
+  own(reader, "read", function (this: unknown, ...args: unknown[]) {
+    const p = (read as TimerFn).apply(this, args) as Promise<{ done: boolean }>;
+    p.then((chunk) => chunk.done && endTransfer(b.t), () => endTransfer(b.t));
+    return p;
+  });
+  own(reader, "cancel", function (this: unknown, ...args: unknown[]) {
+    const p = (cancel as TimerFn).apply(this, args);
+    closeBranch(b);
+    return p;
+  });
 }
 
 function originOf(input: RequestInfo | URL): string | undefined {
