@@ -1,0 +1,14 @@
+# FX-12/a: message, name and stack from the Error, then step_id, then
+# extra with its own property code. The run-and-wait HTTP status
+# (422) is FX-36's HTTP part, which the oracle does not use (OR-10);
+# it is deferred to E3e.
+spec: [FX-12/a, FX-36]
+target: f/wl_fx12/error_extra
+expect:
+  status: failure
+  result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a, extra: {code: 7}}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: boom, name: Error, stack: "<stack>", step_id: a, extra: {code: 7}}}

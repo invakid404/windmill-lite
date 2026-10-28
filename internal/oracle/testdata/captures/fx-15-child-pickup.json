@@ -1,0 +1,66 @@
+{
+  "fixture": "conformance/flows/execution/fx-15",
+  "run": "child_pickup",
+  "repeat": 0,
+  "workspace": "wl-0f2ff7-5",
+  "root": "61f70e4c-f9b5-43a3-bf76-baf4a019fc1c",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/get/61f70e4c-f9b5-43a3-bf76-baf4a019fc1c?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-0f2ff7-5\",\"id\":\"61f70e4c-f9b5-43a3-bf76-baf4a019fc1c\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:13:13.484852Z\",\"started_at\":\"2026-10-28T12:13:13.490050Z\",\"completed_at\":\"2026-10-28T12:13:13.573857Z\",\"duration_ms\":84,\"success\":false,\"script_hash\":\"0000000000000009\",\"script_path\":\"f/wl_fx15/child_parent\",\"args\":{},\"result\":\"P\",\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 2, \"modules\": [{\"id\": \"s\", \"job\": \"01a1826d-c196-3cce-a6aa-0ffed3a3b05d\", \"type\": \"Failure\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"job\": \"01a1826d-c1a2-fec3-a290-b5c3586705bf\", \"type\": \"Success\", \"skipped\": false, \"parent_module\": \"s\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"s\",\"value\":{\"type\":\"flow\",\"input_transforms\":{},\"path\":\"f/wl_fx15/child\"}}],\"failure_module\":{\"id\":\"failure\",\"value\":{\"lock\": \"{\\n  \\\"dependencies\\\": {}\\n}\\n//bun.lock\\n\u003cempty\u003e\", \"type\": \"rawscript\", \"content\": \"export async function main() {\\n  return \\\"P\\\";\\n}\\n\", \"language\": \"bun\", \"input_transforms\": {}}}},\"worker\":\"wk-default-a278d678ef83-cEpBZ\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/completed/get_result_maybe/61f70e4c-f9b5-43a3-bf76-baf4a019fc1c?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":\"P\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/get/01a1826d-c196-3cce-a6aa-0ffed3a3b05d?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-0f2ff7-5\",\"id\":\"01a1826d-c196-3cce-a6aa-0ffed3a3b05d\",\"parent_job\":\"61f70e4c-f9b5-43a3-bf76-baf4a019fc1c\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:13:13.492567Z\",\"started_at\":\"2026-10-28T12:13:13.496850Z\",\"completed_at\":\"2026-10-28T12:13:13.501850Z\",\"duration_ms\":5,\"success\":false,\"script_hash\":\"000000000000000a\",\"script_path\":\"f/wl_fx15/child\",\"args\":{},\"result\":{\"error\": {\"name\": \"Anyhow\", \"message\": \"Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\\n    at \u003canonymous\u003e (eval_script:1:35)\\n    at \u003ceval\u003e (eval_script:1:44)\\n @worker_flow.rs:2451:11 @worker.rs:3822:13\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"c\", \"type\": \"WaitingForPriorSteps\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":true,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"priority\":0,\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"c\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"skip_if\":{\"expr\":\"null.x\"}}],\"failure_module\":{\"id\":\"failure\",\"value\":{\"lock\": \"{\\n  \\\"dependencies\\\": {}\\n}\\n//bun.lock\\n\u003cempty\u003e\", \"type\": \"rawscript\", \"content\": \"export async function main() {\\n  return \\\"C\\\";\\n}\\n\", \"language\": \"bun\", \"input_transforms\": {}}}},\"worker\":\"wk-default-a278d678ef83-cEpBZ\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/get_args/01a1826d-c196-3cce-a6aa-0ffed3a3b05d",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/completed/get_result_maybe/01a1826d-c196-3cce-a6aa-0ffed3a3b05d?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Anyhow\", \"message\": \"Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\\n    at \u003canonymous\u003e (eval_script:1:35)\\n    at \u003ceval\u003e (eval_script:1:44)\\n @worker_flow.rs:2451:11 @worker.rs:3822:13\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/get/01a1826d-c1a2-fec3-a290-b5c3586705bf?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-0f2ff7-5\",\"id\":\"01a1826d-c1a2-fec3-a290-b5c3586705bf\",\"parent_job\":\"61f70e4c-f9b5-43a3-bf76-baf4a019fc1c\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:13:13.506008Z\",\"started_at\":\"2026-10-28T12:13:13.510407Z\",\"completed_at\":\"2026-10-28T12:13:13.568967Z\",\"duration_ms\":47,\"success\":true,\"script_path\":\"f/wl_fx15/child_parent/failure\",\"args\":{},\"result\":\"P\",\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"preview\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":18084,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-a278d678ef83-cEpBZ\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/get_args/01a1826d-c1a2-fec3-a290-b5c3586705bf",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-5/jobs_u/completed/get_result_maybe/01a1826d-c1a2-fec3-a290-b5c3586705bf?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":\"P\"}"
+    }
+  ]
+}

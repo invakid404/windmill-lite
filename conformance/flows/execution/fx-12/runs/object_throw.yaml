@@ -1,0 +1,12 @@
+# FX-12/b: a thrown plain object has no name and no stack, so both
+# keys are omitted; code goes to extra.
+spec: [FX-12/b, FX-36]
+target: f/wl_fx12/object_throw
+expect:
+  status: failure
+  result: {error: {message: boom, step_id: a, extra: {code: 7}}}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: boom, step_id: a, extra: {code: 7}}}

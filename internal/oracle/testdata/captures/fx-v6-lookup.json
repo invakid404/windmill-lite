@@ -1,0 +1,66 @@
+{
+  "fixture": "conformance/flows/execution/fx-v6",
+  "run": "lookup",
+  "repeat": 0,
+  "workspace": "wl-0f2ff7-15",
+  "root": "2b2abd5a-c22a-4599-bad9-2eaf6629f6ac",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/get/2b2abd5a-c22a-4599-bad9-2eaf6629f6ac?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-0f2ff7-15\",\"id\":\"2b2abd5a-c22a-4599-bad9-2eaf6629f6ac\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:14:07.036195Z\",\"started_at\":\"2026-10-28T12:14:07.044064Z\",\"completed_at\":\"2026-10-28T12:14:07.183760Z\",\"duration_ms\":140,\"success\":false,\"script_hash\":\"000000000000001d\",\"script_path\":\"f/wl_fxv6/lookup\",\"args\":{\"target\":\"a\"},\"result\":{\"stored\": 3, \"carried\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 2, \"modules\": [{\"id\": \"a\", \"job\": \"01a1826e-92c7-0b59-68c0-5655d1f96462\", \"type\": \"Failure\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"job\": \"01a1826e-92f6-d14e-df5b-7296ddc8f5b6\", \"type\": \"Success\", \"skipped\": false, \"parent_module\": \"a\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"},\"stop_after_if\":{\"expr\":\"true\",\"skip_if_stopped\":false,\"error_message\":\"E\"}}],\"failure_module\":{\"id\":\"failure\",\"value\":{\"lock\": \"{\\n  \\\"dependencies\\\": {}\\n}\\n//bun.lock\\n\u003cempty\u003e\", \"type\": \"rawscript\", \"content\": \"export async function main(stored: any, carried: any) {\\n  return { stored, carried };\\n}\\n\", \"language\": \"bun\", \"input_transforms\": {\"stored\": {\"expr\": \"results[flow_input.target]\", \"type\": \"javascript\"}, \"carried\": {\"expr\": \"previous_result \u0026\u0026 results[flow_input.target]\", \"type\": \"javascript\"}}}}},\"worker\":\"wk-default-a278d678ef83-cEpBZ\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/completed/get_result_maybe/2b2abd5a-c22a-4599-bad9-2eaf6629f6ac?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"stored\": 3, \"carried\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/get/01a1826e-92c7-0b59-68c0-5655d1f96462?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-0f2ff7-15\",\"id\":\"01a1826e-92c7-0b59-68c0-5655d1f96462\",\"parent_job\":\"2b2abd5a-c22a-4599-bad9-2eaf6629f6ac\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:14:07.046622Z\",\"started_at\":\"2026-10-28T12:14:07.049478Z\",\"completed_at\":\"2026-10-28T12:14:07.076320Z\",\"duration_ms\":23,\"success\":true,\"script_hash\":\"0000000000000023\",\"script_path\":\"f/wl_fxv6/lookup/a\",\"args\":{},\"result\":3,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":10352,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-a278d678ef83-cEpBZ\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/get_args/01a1826e-92c7-0b59-68c0-5655d1f96462",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/completed/get_result_maybe/01a1826e-92c7-0b59-68c0-5655d1f96462?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":3}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/get/01a1826e-92f6-d14e-df5b-7296ddc8f5b6?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-0f2ff7-15\",\"id\":\"01a1826e-92f6-d14e-df5b-7296ddc8f5b6\",\"parent_job\":\"2b2abd5a-c22a-4599-bad9-2eaf6629f6ac\",\"created_by\":\"admin\",\"created_at\":\"2026-10-28T12:14:07.093537Z\",\"started_at\":\"2026-10-28T12:14:07.130318Z\",\"completed_at\":\"2026-10-28T12:14:07.179718Z\",\"duration_ms\":47,\"success\":true,\"script_path\":\"f/wl_fxv6/lookup/failure\",\"args\":{\"stored\":3,\"carried\":{\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}},\"result\":{\"stored\": 3, \"carried\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"preview\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":21084,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-a278d678ef83-cEpBZ\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/get_args/01a1826e-92f6-d14e-df5b-7296ddc8f5b6",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"stored\": 3, \"carried\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-0f2ff7-15/jobs_u/completed/get_result_maybe/01a1826e-92f6-d14e-df5b-7296ddc8f5b6?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"stored\": 3, \"carried\": {\"error\": {\"name\": \"EarlyStopError\", \"message\": \"E\"}}}}"
+    }
+  ]
+}

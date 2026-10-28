@@ -1,0 +1,10 @@
+# FX-36: a clean stop gives the stopping module's result; b never
+# runs.
+spec: [FX-36]
+target: f/wl_fx36/clean_stop
+expect:
+  status: success
+  result: 3
+  steps:
+    "m:a": {status: success, args: {}, result: 3}
+    "m:b": {status: not_run}

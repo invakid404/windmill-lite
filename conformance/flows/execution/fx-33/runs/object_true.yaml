@@ -1,0 +1,13 @@
+# FX-33/a: an object with boolean recover: true makes the flow succeed with it.
+spec: [FX-33/a]
+target: f/wl_fx33/recover
+args: {ret: {recover: true, v: 1}}
+expect:
+  status: success
+  result: {recover: true, v: 1}
+  steps:
+    "m:a":
+      status: failure
+      args: {}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+    "s:failure": {status: success, args: {v: {recover: true, v: 1}}, result: {recover: true, v: 1}}

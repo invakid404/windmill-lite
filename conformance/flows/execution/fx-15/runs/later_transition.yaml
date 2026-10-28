@@ -1,0 +1,13 @@
+# FX-15/a: context 1. The flow fails at once with InternalError; the
+# failure module does not run. The message is the error's display
+# text, which starts "Error: " and ends with the Rust location suffix
+# (FX-36: a chaining error is the final result).
+spec: [FX-15/a, FX-36]
+target: f/wl_fx15/later_transition
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}}
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: not_run}
+    "s:failure": {status: not_run}
