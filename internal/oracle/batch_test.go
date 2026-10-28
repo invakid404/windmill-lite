@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -50,6 +51,16 @@ type batch struct {
 		Pointer string `json:"pointer"`
 		Prefix  string `json:"prefix"`
 	} `json:"prefixes"`
+	// Contradictions are catalogue claims that the oracle contradicts:
+	// the recorded value at a pointer of a run, which the run's
+	// expectation holds instead of the claim.
+	Contradictions []struct {
+		Case      string          `json:"case"`
+		Catalogue string          `json:"catalogue"`
+		Run       string          `json:"run"`
+		Pointer   string          `json:"pointer"`
+		Observed  json.RawMessage `json:"observed"`
+	} `json:"contradictions"`
 }
 
 // TestRecordingBatches holds each recording batch to its row of ADR 0012:
@@ -58,8 +69,9 @@ type batch struct {
 // expectation and a recording of the pinned oracle, and the recording
 // meets the expectation, so a recording that contradicts the expectation
 // derived from the catalogue fails the Go CI and not only the next oracle
-// run; and the catalogue's prefix-only assertions hold on the recorded
-// text.
+// run; the catalogue's prefix-only assertions hold on the recorded text;
+// and each catalogue claim the oracle contradicted is listed with the value
+// it recorded instead.
 func TestRecordingBatches(t *testing.T) {
 	// spec: OR-15, OR-19, OR-V5/b
 	root := repoRoot(t)
@@ -234,31 +246,67 @@ func checkBatch(t *testing.T, root string, b batch, inCatalogue map[string]bool)
 			t.Errorf("%s: %s at %s is %q, which does not start with %q", p.Case, p.Run, p.Pointer, got, p.Prefix)
 		}
 	}
+
+	for _, c := range b.Contradictions {
+		if !cases[c.Case] {
+			t.Errorf("contradiction of %s, which is not a case of the batch", c.Case)
+		}
+		if c.Catalogue == "" {
+			t.Errorf("contradiction of %s needs the catalogue's claim", c.Case)
+		}
+		obs, ok := observations[c.Run]
+		if !ok {
+			t.Errorf("contradiction of %s: run %s is not a recorded run of the batch", c.Case, c.Run)
+			continue
+		}
+		got, err := pointerValue(obs, c.Pointer)
+		if err != nil {
+			t.Errorf("contradiction of %s: %s %s: %v", c.Case, c.Run, c.Pointer, err)
+			continue
+		}
+		var want any
+		if err := json.Unmarshal(c.Observed, &want); err != nil {
+			t.Errorf("contradiction of %s: observed: %v", c.Case, err)
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("contradiction of %s: %s at %s is %v, not the listed %s", c.Case, c.Run, c.Pointer, got, c.Observed)
+		}
+	}
+}
+
+// pointerValue resolves an RFC 6901 pointer in an observation's JSON form.
+func pointerValue(o conformance.Observation, pointer string) (any, error) {
+	data, err := json.Marshal(o)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, err
+	}
+	tokens, err := conformance.SplitPointer(pointer)
+	if err != nil {
+		return nil, err
+	}
+	for _, tok := range tokens {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%q is not under an object", tok)
+		}
+		if v, ok = m[tok]; !ok {
+			return nil, fmt.Errorf("no member %q", tok)
+		}
+	}
+	return v, nil
 }
 
 // pointerString resolves an RFC 6901 pointer in an observation's JSON form
 // to a string.
 func pointerString(o conformance.Observation, pointer string) (string, error) {
-	data, err := json.Marshal(o)
+	v, err := pointerValue(o, pointer)
 	if err != nil {
 		return "", err
-	}
-	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
-		return "", err
-	}
-	tokens, err := conformance.SplitPointer(pointer)
-	if err != nil {
-		return "", err
-	}
-	for _, tok := range tokens {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return "", fmt.Errorf("%q is not under an object", tok)
-		}
-		if v, ok = m[tok]; !ok {
-			return "", fmt.Errorf("no member %q", tok)
-		}
 	}
 	s, ok := v.(string)
 	if !ok {

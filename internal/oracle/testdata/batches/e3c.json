@@ -40,5 +40,8 @@
     {"case": "FX-15/a", "run": "conformance/flows/execution/fx-15/later_transition", "pointer": "/result/error/message", "prefix": "Error: "},
     {"case": "FX-15/b", "run": "conformance/flows/execution/fx-15/root_pickup", "pointer": "/result/m", "prefix": "Error: Timeout value cannot be negative"},
     {"case": "FX-15/c", "run": "conformance/flows/execution/fx-15/child_pickup", "pointer": "/steps/m:s/result/error/message", "prefix": "Error: "}
+  ],
+  "contradictions": [
+    {"case": "FX-34/a", "catalogue": "the copied failure module runs as failure-0-0: its id gains the parent cursor and the iteration (FX-34), and so does its WM_FLOW_STEP_ID (FX-32)", "run": "conformance/flows/execution/fx-34/step_id", "pointer": "/result", "observed": ["failure", "failure"]}
   ]
 }

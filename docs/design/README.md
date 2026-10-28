@@ -101,7 +101,9 @@ contested `later` cases), each before the milestone that implements its
 rules merges; until then the implementation
 follows the stated default in one function per rule, and no build switch
 keeps both readings. E3c has recorded two of them, FX-10/FX-V6 (Q-FX-15)
-and FX-33 (Q-FX-19), both for the stated default; 0001 §6 gives the results.
+and FX-33 (Q-FX-19), both for the stated default. It also found one
+confirmed finding contradicted, the id of a failure module copied into an
+inline body (FX-34, FX-32). 0001 §6 gives the results.
 
 ## Requests to the semantics team
 
@@ -141,11 +143,16 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
 5. **Fold in recording batch E3c.** E3c recorded the catalogue cases of
    FX-12 to FX-15, FX-30 to FX-38 (FX-36's executor part), FX-V6/a and
    FX-10/a on the CE oracle (`conformance/flows/execution`, oracle run
-   40685766017), and every catalogue expectation it recorded held. The
-   reference still tags those cases `source-derived` or `disputed`. Two
-   disputes are now settled for their corrections: Q-FX-15 (FX-V6) and
-   Q-FX-19 (FX-33, SR-1). The recordings also show behaviour the reference
-   does not state:
+   40685766017; FX-34/a's step-id run, run 40689442792). Every catalogue
+   expectation it recorded held but one. A failure module copied into an
+   inline body keeps its own id, `failure`, in its status and in
+   `WM_FLOW_STEP_ID`; FX-34 (`failure-0-0`) and FX-32 say it is suffixed
+   with the parent cursor and the iteration. Please correct both findings;
+   [0001](0001-equivalence-contract.md) §6 lists the recorded behaviour.
+   The reference still tags the recorded cases `source-derived` or
+   `disputed`. Two disputes are now settled for their corrections: Q-FX-15
+   (FX-V6) and Q-FX-19 (FX-33, SR-1). The recordings also show behaviour
+   the reference does not state:
    - CE refuses a third workspace besides `admins`, so a fresh workspace per
      fixture ([OR-6](../semantics/oracle.md#or-6)) means deleting each one
      after its runs;

@@ -1,7 +1,26 @@
 # FX-34/a, the handler's id: the loop is the second module (cursor 1) and
 # both iterations fail, so each iteration's copy of the failure module
-# runs and returns its WM_FLOW_STEP_ID (FX-32), which the catalogue gives
-# as the failure module's id suffixed with the parent cursor and the
-# iteration: failure-1-0 and failure-1-1.
+# runs and returns its WM_FLOW_STEP_ID (FX-32). The catalogue gives that
+# id as the failure module's suffixed with the parent cursor and the
+# iteration, failure-1-0 and failure-1-1 here. The oracle contradicts it:
+# both copies report failure, and each body flow's status and stored flow
+# also name the copy failure. This expectation holds the recorded value.
 spec: [FX-34/a, FX-32]
 target: f/wl_fx34/loop_step_id
+expect:
+  status: success
+  result: [failure, failure]
+  steps:
+    "m:a": {status: success, args: {}, result: 0}
+    "m:l": {status: success, result: [failure, failure]}
+    "m:l/i:0/m:x":
+      status: failure
+      args: {v: 1}
+      result: {error: {message: v1, name: Error, stack: "<stack>", step_id: x}}
+    "m:l/i:0/s:failure": {status: success, args: {}, result: failure}
+    "m:l/i:1/m:x":
+      status: failure
+      args: {v: 2}
+      result: {error: {message: v2, name: Error, stack: "<stack>", step_id: x}}
+    "m:l/i:1/s:failure": {status: success, args: {}, result: failure}
+    "s:failure": {status: not_run}

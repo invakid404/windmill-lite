@@ -6,6 +6,7 @@ value:
         type: rawscript
         content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
         language: bun
     - id: l
       value:
@@ -19,6 +20,7 @@ value:
                 v:
                   type: javascript
                   expr: flow_input.iter.value
+              lock: '!inline x.lock'
               language: bun
         iterator:
           type: javascript
@@ -31,6 +33,7 @@ value:
       type: rawscript
       content: '!inline failure.ts'
       input_transforms: {}
+      lock: '!inline failure.lock'
       language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema

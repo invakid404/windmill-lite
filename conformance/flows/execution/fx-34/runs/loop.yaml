@@ -1,6 +1,8 @@
 # FX-34/a: iteration 0 fails and its copy of the failure module runs
-# there (as failure-0-0), giving "F"; iteration 1 returns 2. The loop
-# tolerates the failed iteration, so the flow succeeds with ["F", 2].
+# there, giving "F"; iteration 1 returns 2. The loop tolerates the failed
+# iteration, so the flow succeeds with ["F", 2]. The catalogue's handler
+# id failure-0-0 is not what the oracle shows: run step_id records the
+# copy's id as failure.
 spec: [FX-34/a]
 target: f/wl_fx34/loop
 expect:
