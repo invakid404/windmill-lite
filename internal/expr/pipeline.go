@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -17,8 +18,8 @@ var ErrNotCompiled = errors.New("expr: expression is not compiled")
 
 // The host functions an evaluation binds (Engine, Input). Each answers with
 // JSON text, which the program parses: the results lookup of JE-18 and the
-// helpers of JE-20. The program gives the user's code its own names for
-// them (B2b).
+// helpers of JE-20. The preludes give the user's code its own names for
+// them and remove these (program.go).
 const (
 	hostResults       = "__wl_results"
 	hostVariable      = "__wl_variable"
@@ -29,15 +30,17 @@ const (
 var jsonNull = []byte("null")
 
 // Pipeline is the Evaluator: it answers an expression with the shortcuts of
-// JE-6 to JE-9 when one fires, and otherwise evaluates its source on the
+// JE-6 to JE-9 when one fires, and otherwise evaluates its program on the
 // Engine, with the scope's values bound as JE-10 says (ADR 0003). It is
 // safe for concurrent use.
-//
-// The engine's result text is returned as is, and its errors are returned
-// unwrapped: the program around the source (the binding prelude and the
-// serialisation of JE-15) and Windmill's error texts are milestone B2b's.
 type Pipeline struct {
 	engine Engine
+	limits Limits
+	// attempts and retryPause are JE-2's retries: an evaluation whose error
+	// text contains "took too long" is tried attempts times in all, with
+	// retryPause between attempts.
+	attempts   int
+	retryPause time.Duration
 
 	mu       sync.Mutex
 	programs map[string]compiled
@@ -52,18 +55,22 @@ type compiled struct {
 
 // NewPipeline returns a Pipeline that evaluates on engine.
 func NewPipeline(engine Engine) *Pipeline {
-	return &Pipeline{engine: engine, programs: map[string]compiled{}}
+	return &Pipeline{engine: engine, limits: engine.Limits(), attempts: 3, retryPause: 5 * time.Second, programs: map[string]compiled{}}
 }
 
-// Prepare compiles the sources of exprs on the engine, as a bundle opens
-// (ADR 0003). A source that does not compile is recorded, and Eval raises
-// its error each time the expression reaches the engine, as Windmill
-// reports it; Prepare itself never fails. Programs are kept by source text
-// for the Pipeline's life, so a Pipeline serves one bundle's expressions.
+// Prepare compiles the programs of exprs on the engine, and the preludes,
+// as a bundle opens (ADR 0003). A program that does not compile is
+// recorded, and Eval raises its error each time the expression reaches the
+// engine, as Windmill reports it; Prepare itself never fails. Programs are
+// kept by source text for the Pipeline's life, so a Pipeline serves one
+// bundle's expressions.
 func (p *Pipeline) Prepare(exprs ...*Expr) {
+	for _, src := range []string{preludeContext, preludeResults, preludeError} {
+		p.program(src)
+	}
 	for _, e := range exprs {
 		if e != nil && e.Mode != 0 {
-			p.program(e.Source)
+			p.program(programSource(e))
 		}
 	}
 }
@@ -91,7 +98,8 @@ func (p *Pipeline) program(source string) (Program, error) {
 }
 
 // Eval evaluates a compiled expression in a scope. It returns the producer
-// text of the value: a shortcut's text, or the engine's.
+// text of the value: a shortcut's text, or the engine's JSON.stringify
+// output (JE-15).
 //
 // The shortcuts are tried in the order JE-6, JE-7, JE-8, JE-9, and the
 // first that fires answers without the engine:
@@ -111,6 +119,10 @@ func (p *Pipeline) program(source string) (Program, error) {
 //
 // A context that ends while a shortcut reads the results context (JE-9) is
 // reported as its cause, not as the lookup's null.
+//
+// Otherwise the expression's program runs on the engine (see evaluate). A
+// failure is an *EvalError with Windmill's text; a context that ends during
+// the evaluation gives its cause instead.
 func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, error) {
 	if err := context.Cause(ctx); err != nil {
 		return jsonval.Value{}, err
@@ -127,15 +139,69 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 		}
 		return v, nil
 	}
-	prog, err := p.program(e.Source)
-	if err != nil {
-		return jsonval.Value{}, err
-	}
-	out, err := p.engine.Eval(ctx, prog, bind(e, s))
+	out, err := p.evaluate(ctx, e, bind(e, s))
 	if err != nil {
 		return jsonval.Value{}, err
 	}
 	return jsonval.FromProducer(out), nil
+}
+
+// evaluate runs e's program on the engine with the bindings in (ADR 0003):
+//
+//   - a bound context value nested deeper than 127 levels fails before
+//     any JavaScript runs (JE-49);
+//   - the preludes run first: the context values' parse and the helpers,
+//     then the results proxy when the lookup is bound, then error when the
+//     text mentions it (program.go);
+//   - a program that did not compile raises its SyntaxError (ADR 0003);
+//   - an error whose text contains "took too long" is tried again after a
+//     pause, up to three attempts in all (JE-2);
+//   - the engine's errors become Windmill's texts (JE-2, JE-3, JE-21), and
+//     a completion that is not JSON text, which only the user's code can
+//     cause, fails with windmill-lite's own.
+func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, error) {
+	if err := checkDepth(in); err != nil {
+		return nil, err
+	}
+	srcs := []string{preludeContext}
+	if slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
+		srcs = append(srcs, preludeResults)
+	}
+	if slices.Contains(e.Binds, "error") {
+		srcs = append(srcs, preludeError)
+	}
+	for _, src := range srcs {
+		prelude, err := p.program(src)
+		if err != nil {
+			return nil, fmt.Errorf("expr: compiling a prelude: %w", err)
+		}
+		in.Preludes = append(in.Preludes, prelude)
+	}
+	prog, err := p.program(programSource(e))
+	if err != nil {
+		return nil, windmillError(e, p.limits, err)
+	}
+	for attempt := 1; ; attempt++ {
+		out, err := p.engine.Eval(ctx, prog, in)
+		// Only the user's code can make the text something other than one
+		// JSON value; the check is syntax only, jsonb's rejections are the
+		// storage boundary's.
+		if err == nil && !validJSON(out) {
+			err = ErrNotJSON
+		}
+		if err == nil {
+			return out, nil
+		}
+		err = windmillError(e, p.limits, err)
+		if attempt >= p.attempts || !retryable(err) {
+			return nil, err
+		}
+		select {
+		case <-time.After(p.retryPause):
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		}
+	}
 }
 
 // route is what answered an evaluation: one of the shortcuts, named as its
@@ -226,8 +292,8 @@ func (s *Scope) context(name string) (jsonval.Value, bool) {
 //     a results context;
 //   - the helpers, always.
 //
-// The error helper's value is derived from previous_result by the program
-// (B2b), so error binds no host value of its own.
+// The error helper's value is derived from previous_result by a prelude
+// (program.go), so error binds no host value of its own.
 func bind(e *Expr, s *Scope) Input {
 	names := e.Binds
 	if !slices.Contains(names, "previous_result") && spellsPrevious(e.Trimmed, s.PreviousID) {

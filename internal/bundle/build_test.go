@@ -134,7 +134,7 @@ func TestBuildFixture(t *testing.T) {
 	if m.ModuleState != engine.ModuleStateWarm {
 		t.Errorf("module state %q", m.ModuleState)
 	}
-	if want := []string{"D1", "D2", "D3", "D8", "D9", "D10", "D11", "D12", "D13", "D14"}; !slices.Equal(m.Deviations, want) {
+	if want := []string{"D1", "D2", "D3", "D8", "D9", "D10", "D11", "D12", "D13", "D14", "D16", "D17"}; !slices.Equal(m.Deviations, want) {
 		t.Errorf("deviations %q, want %q", m.Deviations, want)
 	}
 	if want := []HostModuleEntry{{Key: "f/shared/ctx.ts", ID: "f/shared/ctx"}}; !slices.Equal(m.HostModules, want) {
