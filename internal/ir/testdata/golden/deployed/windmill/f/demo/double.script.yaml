@@ -1,0 +1,11 @@
+summary: Doubles x
+description: ''
+schema:
+  type: object
+  properties:
+    x: {type: number}
+  required: [x]
+lock: ''
+kind: script
+timeout: 30
+envs: [MODE=test]

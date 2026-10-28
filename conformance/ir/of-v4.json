@@ -1,0 +1,33 @@
+{
+  "finding": "OF-V4",
+  "cases": [
+    {
+      "spec": "OF-V4",
+      "variant": "location",
+      "provenance": "source-derived",
+      "title": "only the envelope's pass_flow_input_directly counts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: script, path: f/x/s, pass_flow_input_directly: true}\n    - id: b\n      pass_flow_input_directly: true\n      value: {type: script, path: f/x/s}\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main m:a": {
+            "absent": [
+              "/pass_flow_input_directly"
+            ]
+          },
+          "f/x/main m:b": {
+            "at": {
+              "/pass_flow_input_directly": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "note": "The run-time halves, OF-V4/a and OF-V4/b, are N1a's (conformance/openflow/deferred.json)."
+}

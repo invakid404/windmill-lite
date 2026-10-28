@@ -1,8 +1,9 @@
 # internal/syncfolder
 
 **Current state:** implemented (milestone A4 of
-[0012](../../docs/design/0012-layout-and-milestones.md)); no other package
-calls it yet. This README covers `internal/syncfolder/` and its `testdata/`.
+[0012](../../docs/design/0012-layout-and-milestones.md)); the compiler,
+[internal/ir](../ir/README.md), reads folders through it. This README covers
+`internal/syncfolder/` and its `testdata/`.
 The package reads a `wmill sync` folder the way the `wmill` CLI pushes it:
 step 1 of the loader pipeline of
 [0002](../../docs/design/0002-ir-and-loader.md). It finds the root, reads
@@ -17,8 +18,8 @@ It parses YAML with [internal/yamlx](../yamlx/README.md) and decodes
 `flow.yaml` with [internal/openflow](../openflow/README.md). It does not
 compile flows, apply what a deploy adds, check a step's script `hash`,
 bundle codebase scripts, resolve or decrypt secrets, or decide which items a
-bundle needs. The compiler (`internal/ir`, milestone A5) does those, and does
-not exist yet.
+bundle needs. The compiler ([internal/ir](../ir/README.md)) does all but the
+bundling, which is the build's, and the secrets, which are the platform's.
 
 ## Two stages
 
@@ -52,6 +53,7 @@ errors, which refuses what `wmill sync push` refuses.
 | `(*Folder).FS()` | The folder's file system, for builders that read further files. |
 | `Folder.Config`, `Skipped`, `Warnings` | `wmill.yaml` as read, the files recognised and not loaded, and diagnostics. |
 | `HasNativeAnnotation(src)` | The `native` header annotation of TypeScript source (SY-V3), which the compiler also applies to rawscripts. |
+| `HasAnnotation(src, key)` | Any header annotation by the same rule (WR-31): the compiler reads `nobundling`, the other flags and `schema_validation` with it. |
 | `*Error` | Every failure: `Kind`, the item, the step, the file and position, a message, and the wrapped `*yamlx.Error`, `*openflow.Error` or I/O error. |
 
 Reads go to the files each time, and may run concurrently. The record types
@@ -125,7 +127,8 @@ Characters are UTF-16 code units, as in minimatch's JavaScript regular
 expressions. A character outside the Basic Multilingual Plane, such as `😀`,
 is two units: `?` matches half of it, so `f/?.ts` does not match `f/😀.ts`
 and `f/??.ts` does, and the class `[😀]` holds its two halves, so it matches
-neither half alone nor the whole. Matching takes time polynomial in the
+either half as one unit but not the whole two-unit character by itself.
+Matching takes time polynomial in the
 pattern and the path: a mismatch lets only the last `*` take one more unit,
 and `**` states are memoized.
 
@@ -286,7 +289,8 @@ pull request lists them as open questions.
   matching never panic, that a negated pattern matches exactly what the
   pattern does not, and that on short inputs the matcher agrees with a plain
   backtracking one.
-- `native_test.go` covers the annotation's spelling and position rules.
+- `native_test.go` covers the annotation's spelling and position rules, for
+  `native` and for other keys.
 - `syncfolder_test.go` covers root discovery, symbolic links, configuration
   errors, error text, `Check`, duplicate and JSON-mode data files,
   concurrent reads, lock-reference white space, and names that are not

@@ -18,8 +18,8 @@ import (
 //     with `!` or `^` negation and ranges, and `\` escapes;
 //   - characters are UTF-16 code units, as in minimatch's JavaScript
 //     regular expressions: `?` matches half of `😀`, which takes `??`, and
-//     the class `[😀]` holds its two halves, so it matches neither half
-//     alone nor the whole;
+//     the class `[😀]` holds its two halves, so it matches either half as
+//     one unit but not the whole two-unit character by itself;
 //   - `**` as a whole segment: any number of segments;
 //   - brace expansion: `{a,b}` lists, nested, and `{x..y}` sequences;
 //   - a leading `!` negates the pattern, and a leading `#` makes it match
