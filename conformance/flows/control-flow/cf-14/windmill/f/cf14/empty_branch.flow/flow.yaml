@@ -1,0 +1,33 @@
+summary: "CF-14/b: an empty chosen branch"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        input_transforms: {}
+        language: bun
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: "false"
+            modules:
+              - id: c1
+                value:
+                  type: rawscript
+                  content: "!inline c1.ts"
+                  input_transforms: {}
+                  language: bun
+        default: []
+    - id: s
+      value:
+        type: rawscript
+        content: "!inline s.ts"
+        input_transforms: {x: {type: javascript, expr: previous_result}}
+        language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

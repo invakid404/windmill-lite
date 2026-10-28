@@ -1,0 +1,6 @@
+# CF-4/b: a skipped failed iteration keeps its error object in the result.
+spec: [CF-4/b]
+target: f/cf4/parallel_skip
+expect:
+  status: success
+  result: [30, {error: {name: Error, message: boom}}, 20]

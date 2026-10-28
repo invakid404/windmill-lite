@@ -1,0 +1,21 @@
+summary: "CF-14/c: an empty chosen branch at step 0"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: "false"
+            modules:
+              - id: c1
+                value:
+                  type: rawscript
+                  content: "!inline c1.ts"
+                  input_transforms: {}
+                  language: bun
+        default: []
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

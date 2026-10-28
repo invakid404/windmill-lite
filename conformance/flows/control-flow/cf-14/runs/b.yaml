@@ -1,0 +1,7 @@
+# CF-14/b: an empty chosen branch passes previous_result through.
+spec: [CF-14/b]
+target: f/cf14/empty_branch
+expect:
+  status: success
+  result: {"n": 5}
+  steps: {"m:s": {status: success, args: {x: {"n": 5}}}}

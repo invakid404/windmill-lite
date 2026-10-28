@@ -1,0 +1,9 @@
+# CF-15/b: a non-skippable failure fails the step with the full array.
+spec: [CF-15/b]
+target: f/cf15/parallel_fail
+expect:
+  status: failure
+  result:
+    - [1, 2]
+    - {error: {name: Error, message: b}}
+    - [1, 3]

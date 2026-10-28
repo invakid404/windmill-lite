@@ -1,0 +1,29 @@
+summary: "CF-13/a: a truthy predicate"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1, 2]}
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              input_transforms:
+                x: {type: javascript, expr: flow_input.iter.value}
+              language: bun
+      stop_after_all_iters_if: {expr: "result.length == 2", skip_if_stopped: true}
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        input_transforms: {}
+        language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

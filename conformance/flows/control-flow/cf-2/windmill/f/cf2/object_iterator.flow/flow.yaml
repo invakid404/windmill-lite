@@ -1,0 +1,21 @@
+summary: "CF-2/b: an object iterator at step 0"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: flow_input.o}
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              input_transforms: {}
+              language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {o: {type: object}}
+  required: [o]

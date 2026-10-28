@@ -1,0 +1,7 @@
+# CF-6/a: after the dependency job succeeded, an absent skip_failures
+# behaves as true.
+spec: [CF-6/a]
+target: f/cf6/absent_skip
+expect:
+  status: success
+  result: [{error: {name: Error, message: one}}, 2]

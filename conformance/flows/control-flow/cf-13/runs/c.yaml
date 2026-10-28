@@ -1,0 +1,5 @@
+# CF-13/c, given as CF-V2/a: the predicate is not evaluated for an empty
+# iterator, so the flow continues.
+spec: [CF-13/c, CF-V2/a]
+target: f/cf13/all_iters_empty
+expect: {status: success, result: after}

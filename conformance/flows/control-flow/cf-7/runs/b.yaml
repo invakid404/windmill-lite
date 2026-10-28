@@ -1,0 +1,8 @@
+# CF-7/b: parallelism 1 releases the iterations in index order. The start
+# times are in the recording's provenance; TestCF7bReleaseOrder checks them.
+spec: [CF-7/b]
+target: f/cf7/parallelism_one
+note: "With the one worker of the reference session, iterations cannot overlap whatever the release order, so only the order of the start times discriminates."
+expect:
+  status: failure
+  result: [1, {error: {name: Error, message: two}}, 3, 4]

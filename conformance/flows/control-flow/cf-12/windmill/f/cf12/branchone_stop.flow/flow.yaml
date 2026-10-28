@@ -1,0 +1,26 @@
+summary: "CF-12/d: a clean stop inside branchone"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              input_transforms: {x: {type: static, value: 2}}
+              language: bun
+            stop_after_if: {expr: "result == 2", skip_if_stopped: false}
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        input_transforms: {}
+        language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

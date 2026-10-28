@@ -1,0 +1,25 @@
+summary: "FX-40/b: a flow-cached failing child called twice"
+value:
+  modules:
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        input_transforms: {}
+        language: bun
+    - id: s1
+      value:
+        type: flow
+        path: f/fx40/flow_cached_fail
+        input_transforms: {v: {type: javascript, expr: results.n}}
+      continue_on_error: true
+    - id: s2
+      value:
+        type: flow
+        path: f/fx40/flow_cached_fail
+        input_transforms: {v: {type: javascript, expr: results.n}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

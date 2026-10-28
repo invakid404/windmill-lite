@@ -1,0 +1,7 @@
+# CF-5/a: a non-skippable failure stops the loop; the flow fails with the
+# array so far as its result.
+spec: [CF-5/a]
+target: f/cf5/stop_at_failure
+expect:
+  status: failure
+  result: [0, 1, {error: {name: Error, message: two}}]

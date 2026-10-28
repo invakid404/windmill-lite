@@ -1,0 +1,9 @@
+# FX-40/a: the second call's cached step returns the first call's stored
+# result, so it names the first call's job.
+spec: [FX-40/a]
+target: f/fx40/a_twice
+expect:
+  status: success
+  steps:
+    "m:s1/m:r": {status: success, result: "<job:m:s1/m:r>"}
+    "m:s2/m:r": {status: success, result: "<job:m:s1/m:r>"}

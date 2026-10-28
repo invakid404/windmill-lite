@@ -1,0 +1,38 @@
+summary: "CF-12/e: an error stop in a sequential branchall, skip_failure false"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: false
+        branches:
+          - skip_failure: false
+            modules:
+              - id: b0
+                value:
+                  type: rawscript
+                  content: "!inline b0.ts"
+                  input_transforms: {}
+                  language: bun
+                stop_after_if:
+                  expr: "true"
+                  skip_if_stopped: false
+                  error_message: halt
+          - modules:
+              - id: b1
+                value:
+                  type: rawscript
+                  content: "!inline b1.ts"
+                  input_transforms: {}
+                  language: bun
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        input_transforms: {}
+        language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

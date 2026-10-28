@@ -802,6 +802,190 @@
    }
   },
   {
+   "name": "CF-1 and CF-12/b: a loop body carries the flow's failure module; its handler is the body's s:failure, the root's unused one is not_run",
+   "spec": [
+    "CF-1",
+    "CF-12/b",
+    "OR-11",
+    "FX-V2"
+   ],
+   "provenance": "policy",
+   "target": "f/t/flow",
+   "root": "${r}",
+   "flow": {
+    "modules": [
+     {
+      "id": "l",
+      "value": {
+       "type": "forloopflow",
+       "iterator": {
+        "type": "static",
+        "value": [
+         1
+        ]
+       },
+       "skip_failures": true,
+       "modules": [
+        {
+         "id": "b",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         },
+         "stop_after_if": {
+          "expr": "true",
+          "skip_if_stopped": false,
+          "error_message": "halt"
+         }
+        },
+        {
+         "id": "c",
+         "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export function main() {}"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "failure_module": {
+     "id": "failure",
+     "value": {
+      "type": "rawscript",
+      "language": "bun",
+      "content": "export function main() {}"
+     }
+    }
+   },
+   "jobs": {
+    "r": {
+     "kind": "flow",
+     "success": true,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Success",
+        "id": "l",
+        "job": "00000000-0000-0000-0000-000000000000",
+        "flow_jobs": [
+         "${i0}"
+        ],
+        "flow_jobs_success": [
+         false
+        ],
+        "iterator": {
+         "index": 0,
+         "itered": [
+          1
+         ]
+        }
+       }
+      ],
+      "failure_module": {
+       "type": "WaitingForPriorSteps",
+       "id": "failure"
+      }
+     },
+     "args": {},
+     "result": [
+      "handled"
+     ]
+    },
+    "i0": {
+     "kind": "flownode",
+     "success": false,
+     "flow_status": {
+      "step": 1,
+      "modules": [
+       {
+        "type": "Failure",
+        "id": "b",
+        "job": "${b}"
+       },
+       {
+        "type": "WaitingForPriorSteps",
+        "id": "c"
+       }
+      ],
+      "failure_module": {
+       "type": "Success",
+       "id": "failure",
+       "job": "${h}",
+       "parent_module": "b"
+      }
+     },
+     "args": {
+      "iter": {
+       "index": 0,
+       "value": 1
+      }
+     },
+     "result": "handled"
+    },
+    "b": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "x": 1
+     },
+     "result": 1
+    },
+    "h": {
+     "kind": "flowscript",
+     "success": true,
+     "args": {
+      "error": {
+       "name": "EarlyStopError",
+       "message": "halt"
+      }
+     },
+     "result": "handled"
+    }
+   },
+   "expect": {
+    "status": "success",
+    "result": [
+     "handled"
+    ],
+    "steps": {
+     "m:l": {
+      "status": "success",
+      "result": [
+       "handled"
+      ]
+     },
+     "m:l/i:0/m:b": {
+      "status": "success",
+      "module": "failure",
+      "args": {
+       "x": 1
+      },
+      "result": 1
+     },
+     "m:l/i:0/m:c": {
+      "status": "not_run"
+     },
+     "m:l/i:0/s:failure": {
+      "status": "success",
+      "args": {
+       "error": {
+        "name": "EarlyStopError",
+        "message": "halt"
+       }
+      },
+      "result": "handled"
+     },
+     "s:failure": {
+      "status": "not_run"
+     }
+    }
+   }
+  },
+  {
    "name": "ADR 0011: a collapsed loop's leaf iterations take the same paths as child-flow iterations",
    "spec": [
     "OR-11",

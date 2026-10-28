@@ -1,0 +1,5 @@
+# CF-8/a, by path: the loop collapses, so each iteration's previous_result
+# is the previous iteration's result.
+spec: [CF-8/a]
+target: f/cf8/top_level
+expect: {status: success, result: [101, 103, 106]}

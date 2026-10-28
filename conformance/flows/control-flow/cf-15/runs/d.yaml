@@ -1,0 +1,8 @@
+# CF-15/d: a zero-branch branchall evaluates its own stop_after_if, which
+# stops the flow.
+spec: [CF-15/d]
+target: f/cf15/zero_branches
+expect:
+  status: success
+  result: []
+  steps: {"m:n": {status: not_run}}

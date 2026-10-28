@@ -1,0 +1,13 @@
+# CF-10/a: the loop module's stop_after_if breaks after the iteration that
+# made it true, which the loop result keeps; the flow continues.
+spec: [CF-10/a]
+target: f/cf10/while_break
+expect:
+  status: success
+  result: [0, 1, 2]
+  steps:
+    "m:w": {status: success, result: [0, 1, 2]}
+    "m:n":
+      status: success
+      args: {x: [0, 1, 2]}
+      result: [0, 1, 2]

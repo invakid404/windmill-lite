@@ -1,0 +1,7 @@
+# CF-7/a: no fail-fast; every iteration runs and the full array is the
+# failed result.
+spec: [CF-7/a]
+target: f/cf7/parallelism_two
+expect:
+  status: failure
+  result: [1, {error: {name: Error, message: two}}, 3, 4]

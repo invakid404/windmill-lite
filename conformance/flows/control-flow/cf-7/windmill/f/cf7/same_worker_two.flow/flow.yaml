@@ -1,0 +1,23 @@
+summary: "CF-7/d: two parallel children in a same_worker flow"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [5, 6]}
+        skip_failures: false
+        parallel: true
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              input_transforms:
+                x: {type: javascript, expr: flow_input.iter.value}
+              language: bun
+  same_worker: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

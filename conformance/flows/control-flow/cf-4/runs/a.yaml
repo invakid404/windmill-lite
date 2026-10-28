@@ -1,0 +1,4 @@
+# CF-4/a: a parallel loop gives its results in index order.
+spec: [CF-4/a]
+target: f/cf4/parallel_order
+expect: {status: success, result: [30, 10, 20]}

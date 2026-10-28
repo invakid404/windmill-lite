@@ -1,0 +1,10 @@
+# CF-15/a: parallel by default; a skippable failed branch keeps its error
+# entry.
+spec: [CF-15/a]
+target: f/cf15/parallel_skip
+expect:
+  status: success
+  result:
+    - [1, 2]
+    - {error: {name: Error, message: b}}
+    - [1, 3]

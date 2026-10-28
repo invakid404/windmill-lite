@@ -1,0 +1,22 @@
+summary: "FX-40/c child: a collapsed loop with a loop cache_ttl, rawscript body"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1]}
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              input_transforms: {v: {type: javascript, expr: flow_input.v}}
+              language: bun
+      cache_ttl: 60
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}}
+  required: [v]

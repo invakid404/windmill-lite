@@ -1,0 +1,27 @@
+summary: "CF-10/a: a while loop that breaks"
+value:
+  modules:
+    - id: w
+      value:
+        type: whileloopflow
+        skip_failures: false
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              input_transforms:
+                x: {type: javascript, expr: flow_input.iter.index}
+              language: bun
+      stop_after_if: {expr: "result >= 2", skip_if_stopped: false}
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        input_transforms: {x: {type: javascript, expr: previous_result}}
+        language: bun
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

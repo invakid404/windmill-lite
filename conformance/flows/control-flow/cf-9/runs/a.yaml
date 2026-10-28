@@ -1,0 +1,8 @@
+# CF-9/a: the first body step gets the child flow's input, not the result
+# of the step before the loop.
+spec: [CF-9/a]
+target: f/cf9/loop_first_step
+args: {z: 1}
+expect:
+  status: success
+  result: [{z: 1, iter: {index: 0, value: 5}}]

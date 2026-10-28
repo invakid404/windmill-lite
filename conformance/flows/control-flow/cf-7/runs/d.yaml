@@ -1,0 +1,5 @@
+# CF-7/d (later): several children in a same_worker flow fail to start.
+spec: [CF-7/d]
+target: f/cf7/same_worker_two
+note: "The catalogue expects the error \"Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker\"; the recording holds the exact error object."
+expect: {status: failure}

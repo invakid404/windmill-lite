@@ -1,0 +1,8 @@
+# CF-8/c: a collapsed loop at step 0 gives every iteration the flow input
+# without iter.
+spec: [CF-8/c]
+target: f/cf8/step_zero
+args: {z: 1}
+expect:
+  status: success
+  result: [{z: 1}, {z: 1}, {z: 1}]

@@ -1,0 +1,7 @@
+# CF-2/b: the same iterator after a first step, so the error is raised while
+# chaining (CF-23 route 3).
+spec: [CF-2/b]
+target: f/cf2/object_iterator_later
+args: {o: {p: 1}}
+note: "The catalogue asserts only the message substring; the error name depends on the route (CF-2, CF-23)."
+expect: {status: failure}

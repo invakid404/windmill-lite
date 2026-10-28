@@ -1,0 +1,5 @@
+# CF-8/b, by path after a successful dependency job: the outer body is a
+# stored node (job kind flownode in the provenance), so the inner loop collapses.
+spec: [CF-8/b]
+target: f/cf8/nested
+expect: {status: success, result: [[101, 103, 106]]}

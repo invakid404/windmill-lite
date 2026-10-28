@@ -1,0 +1,12 @@
+# CF-14/a: predicates are evaluated in order; the first truthy one wins and
+# the third, which would throw, is never evaluated.
+spec: [CF-14/a]
+target: f/cf14/order
+expect:
+  status: success
+  result: mid
+  steps:
+    "m:br":
+      status: success
+      result: mid
+      branch_chosen: {type: branch, branch: 1}

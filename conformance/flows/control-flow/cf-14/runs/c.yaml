@@ -1,0 +1,6 @@
+# CF-14/c (later, Q-CF-4): an empty chosen branch as step 0. The reference
+# predicts the JSON string "{}" as the branchone result.
+spec: [CF-14/c, Q-CF-4]
+target: f/cf14/empty_step_zero
+note: "Only the status is asserted before recording; the recording settles the predicted \"{}\"."
+expect: {status: success}

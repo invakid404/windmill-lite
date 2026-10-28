@@ -1,0 +1,7 @@
+# CF-13/b: an evaluation error becomes an EarlyStopError.
+spec: [CF-13/b]
+target: f/cf13/all_iters_error
+note: "The catalogue asserts that the message contains stop_after_all_iters_if; the recording holds the exact message."
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError}}

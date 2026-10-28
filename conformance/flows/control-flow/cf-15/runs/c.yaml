@@ -1,0 +1,7 @@
+# CF-15/c: a sequential branchall stops at the first non-skippable failure;
+# branch 2 never runs.
+spec: [CF-15/c]
+target: f/cf15/sequential_fail
+expect:
+  status: failure
+  result: [[1, 2], {error: {name: Error, message: b}}]

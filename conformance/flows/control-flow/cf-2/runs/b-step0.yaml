@@ -1,0 +1,7 @@
+# CF-2/b: a non-array iterator fails the loop. The loop is the first step,
+# so the error is raised when the root flow is picked up (CF-23 route 1).
+spec: [CF-2/b]
+target: f/cf2/object_iterator
+args: {o: {p: 1}}
+note: "The catalogue asserts only that error.message contains \"Expected an array value in the iterator expression, found: invalid type: map, expected a sequence\"; the recording holds the exact error."
+expect: {status: failure}

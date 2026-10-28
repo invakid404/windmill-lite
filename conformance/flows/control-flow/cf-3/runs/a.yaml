@@ -1,0 +1,6 @@
+# CF-3/a: the outer iter moves to iter_parent in the inner loop.
+spec: [CF-3/a]
+target: f/cf3/nested
+expect:
+  status: success
+  result: [[[a, 0], [a, 1]], [[b, 0], [b, 1]]]

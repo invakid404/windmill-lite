@@ -1,0 +1,13 @@
+# Recording batch E3d (ADR 0012): CF-10, whileloopflow.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-10. Every run is by path after the
+# deployment gate saw the flow's dependency job succeed (the reference
+# configuration of ADR 0001 section 1); the job kinds of the root and of every
+# child flow are in each recording's provenance (timings.jobs).
+id: control-flow/cf-10
+spec: [CF-10, CF-10/a]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}
+compare: {mode: subset}

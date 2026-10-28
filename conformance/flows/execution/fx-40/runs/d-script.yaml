@@ -1,0 +1,9 @@
+# FX-40/d (contested, Q-FX-17): an unhashed by-path body whose script has its
+# own cache_ttl. Reading (b): the key has the script's path, not
+# /loop-<index>, so the iterations share an entry.
+spec: [FX-40/d, Q-FX-17]
+target: f/fx40/d_script_ttl
+expect:
+  status: success
+  steps:
+    "m:l/i:1/m:b": {status: success, result: "<job:m:l/i:0/m:b>"}

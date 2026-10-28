@@ -1,0 +1,6 @@
+# CF-15/f (Q-CF-4): an empty branch still runs a child flow, whose result
+# is its input, the enclosing flow input.
+spec: [CF-15/f, Q-CF-4]
+target: f/cf15/empty_branch
+args: {k: 1}
+expect: {status: success, result: [{k: 1}, 1]}

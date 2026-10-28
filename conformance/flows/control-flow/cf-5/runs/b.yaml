@@ -1,0 +1,6 @@
+# CF-5/b: with skip_failures every iteration runs and the loop succeeds.
+spec: [CF-5/b]
+target: f/cf5/skip_all
+expect:
+  status: success
+  result: [0, 1, {error: {name: Error, message: two}}, 3]

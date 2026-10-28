@@ -1,0 +1,9 @@
+# FX-40/d (contested, Q-FX-17): a rawscript body with an explicit common
+# path. Reading (b), the default of ADR 0001 section 6: the iterations share
+# an entry, so iteration 1 returns iteration 0's result.
+spec: [FX-40/d, Q-FX-17]
+target: f/fx40/d_raw_path
+expect:
+  status: success
+  steps:
+    "m:l/i:1/m:b": {status: success, result: "<job:m:l/i:0/m:b>"}

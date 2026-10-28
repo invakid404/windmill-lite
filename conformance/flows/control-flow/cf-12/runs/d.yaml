@@ -1,0 +1,8 @@
+# CF-12/d: a clean stop propagates through branchone: the flow stops right
+# after it with its result, and n does not run.
+spec: [CF-12/d]
+target: f/cf12/branchone_stop
+expect:
+  status: success
+  result: 2
+  steps: {"m:n": {status: not_run}}

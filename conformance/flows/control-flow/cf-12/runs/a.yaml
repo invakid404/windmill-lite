@@ -1,0 +1,8 @@
+# CF-12/a: a clean stop in the body breaks a sequential loop; the loop
+# result keeps the stopped iteration and the flow continues.
+spec: [CF-12/a]
+target: f/cf12/clean_break
+expect:
+  status: success
+  result: after
+  steps: {"m:l": {status: success, result: [10, 2]}}

@@ -1,0 +1,15 @@
+summary: "FX-40/a child: a rawscript with a step cache_ttl"
+value:
+  modules:
+    - id: r
+      value:
+        type: rawscript
+        content: "!inline r.ts"
+        input_transforms: {v: {type: javascript, expr: flow_input.v}}
+        language: bun
+      cache_ttl: 60
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {v: {type: string}}
+  required: [v]

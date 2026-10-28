@@ -1,0 +1,8 @@
+# CF-13/a: a truthy predicate with skip_if_stopped stops the enclosing flow,
+# which is marked skipped, not just the loop.
+spec: [CF-13/a]
+target: f/cf13/all_iters_skip
+expect:
+  status: skipped
+  result: [1, 2]
+  steps: {"m:n": {status: not_run}}

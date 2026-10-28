@@ -1,0 +1,12 @@
+# CF-12/c, skip_failures true: the error stop breaks the loop, which
+# succeeds, and the next step runs (agreed).
+spec: [CF-12/c]
+target: f/cf12/no_handler_skip
+expect:
+  status: success
+  result: after
+  steps:
+    "m:l":
+      status: success
+      result: [{error: {name: EarlyStopError, message: halt}}]
+    "m:n": {status: success, result: after}

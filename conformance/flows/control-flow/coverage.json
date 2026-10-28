@@ -1,0 +1,33 @@
+{
+  "about": "The catalogue cases of the control-flow findings that recording batches have taken on (ADR 0012: E3d records CF-2 to CF-15; E3e records the rest). Each is cited by a recorded run of a control-flow fixture, or deferred with the milestone that takes it and why. TestRecordingBatchCoverage in internal/oracle enforces it.",
+  "findings": ["CF-2", "CF-3", "CF-4", "CF-5", "CF-6", "CF-7", "CF-8", "CF-9", "CF-10", "CF-11", "CF-12", "CF-13", "CF-14", "CF-15"],
+  "deferred": [
+    {
+      "case": "CF-6/b",
+      "milestone": "E3e",
+      "reason": "it reads the deployed flow back with wmill sync pull; the harness pushes and runs but has no pull read-back yet (OR-8 covers the push)"
+    },
+    {
+      "case": "CF-6/c",
+      "milestone": "none",
+      "reason": "a raw submission or a version whose dependency job failed: outside the reference configuration, where windmill-lite applies the deployed defaults (ADR 0001 sections 1 and 7, Q-CF-13); the harness runs deployed flows by path only"
+    },
+    {
+      "case": "CF-8/d",
+      "milestone": "none",
+      "reason": "a raw parent submission (Q-CF-15): windmill-lite never runs raw submissions, so ADR 0001 section 6 needs no recording; the harness runs deployed flows by path only"
+    }
+  ],
+  "partial": [
+    {
+      "case": "CF-8/a",
+      "missing": "the raw-submission comparison run ([-999,-998,-997]); only the by-path half, the reference configuration, is recorded",
+      "milestone": "none"
+    },
+    {
+      "case": "CF-8/b",
+      "missing": "the pending-dependency and raw-submission comparison runs; only the by-path run after a successful dependency job is recorded, with the outer body's job kind in the provenance",
+      "milestone": "none"
+    }
+  ]
+}

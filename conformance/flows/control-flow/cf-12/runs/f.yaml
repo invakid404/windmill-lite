@@ -1,0 +1,13 @@
+# CF-12/f (contested, Q-CF-14): no handler, no retry, no continue_on_error,
+# explicit skip_failures false. The expectation is reading (b), the default
+# of ADR 0001 section 6: the flow fails at the loop and n does not run.
+spec: [CF-12/f, Q-CF-14]
+target: f/cf12/loop_error_stop
+expect:
+  status: failure
+  result: [{error: {name: EarlyStopError, message: halt}}]
+  steps:
+    "m:l":
+      status: failure
+      result: [{error: {name: EarlyStopError, message: halt}}]
+    "m:n": {status: not_run}

@@ -1,0 +1,26 @@
+summary: "FX-40/d: collapsed iterations, by-path body with a script cache_ttl"
+value:
+  modules:
+    - id: "n"
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        input_transforms: {}
+        language: bun
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: [1, 2]}
+        skip_failures: false
+        parallel: false
+        modules:
+          - id: b
+            value:
+              type: script
+              path: f/fx40/job_id_ttl
+              input_transforms: {v: {type: javascript, expr: results.n}}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

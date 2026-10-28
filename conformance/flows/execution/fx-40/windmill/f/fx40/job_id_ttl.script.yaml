@@ -1,0 +1,4 @@
+summary: "returns its job id; cached for 60 s"
+description: ""
+kind: script
+cache_ttl: 60

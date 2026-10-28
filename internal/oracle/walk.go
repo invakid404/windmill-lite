@@ -111,6 +111,15 @@ type flowDef struct {
 
 func bodyDef(modules []openflow.Module) flowDef { return flowDef{modules: modules, known: true} }
 
+// containerBody is the definition of a container body inside the flow d:
+// the body runs as a child flow that carries a copy of d's failure module
+// (CF-1 rule 3), so its failure slot is defined exactly when d's is. A body
+// has no preprocessor of its own (CF-1 rule 4). A by-path subflow is not a
+// container body: it has its own definition.
+func (d flowDef) containerBody(modules []openflow.Module) flowDef {
+	return flowDef{modules: modules, failure: d.failure, known: true}
+}
+
 // Walker walks completed runs through the API.
 type Walker struct {
 	Client    *Client
@@ -138,7 +147,9 @@ type walkState struct {
 //   - a fetched job with a flow_status is a flow and is walked in turn,
 //     otherwise it is a leaf, decided per job, never by kind (OR-28);
 //   - a generated <id>-v module is omitted (OR-V7);
-//   - the failure_module entry is kept only when the flow defines one.
+//   - the failure_module entry is kept only when the flow defines one; a
+//     container body defines the enclosing flow's, whose copy it carries
+//     (CF-1).
 //
 // Full arguments and results come from get_args and get_result_maybe for
 // every job, never from the generic job endpoint (OR-V1).
@@ -214,7 +225,7 @@ func (s *walkState) flow(base conformance.SitePath, fs *FlowStatus, def flowDef)
 		if !def.known && !hasJob {
 			continue
 		}
-		if err := s.module(base.Child(slot.seg), *slot.entry, slot.defined); err != nil {
+		if err := s.module(base.Child(slot.seg), *slot.entry, slot.defined, def); err != nil {
 			return err
 		}
 	}
@@ -257,7 +268,7 @@ func (s *walkState) list(base conformance.SitePath, entries []FlowStatusModule, 
 		if def.known {
 			d = &def.modules[i]
 		}
-		if err := s.module(base.Child(segs[i]), e, d); err != nil {
+		if err := s.module(base.Child(segs[i]), e, d, def); err != nil {
 			return err
 		}
 	}
@@ -332,7 +343,9 @@ func containerStatus(m conformance.ModuleStatus) conformance.StepStatus {
 	return conformance.StepCanceled
 }
 
-func (s *walkState) module(site conformance.SitePath, e FlowStatusModule, def *openflow.Module) error {
+// module walks one module entry; encl is the definition of the flow whose
+// list or slot holds it.
+func (s *walkState) module(site conformance.SitePath, e FlowStatusModule, def *openflow.Module, encl flowDef) error {
 	ms, err := moduleStatus(e.Type)
 	if err != nil {
 		return err
@@ -348,7 +361,7 @@ func (s *walkState) module(site conformance.SitePath, e FlowStatusModule, def *o
 	}
 	switch {
 	case e.HasFlowJobs:
-		if err := s.container(site, e, def, &rec); err != nil {
+		if err := s.container(site, e, def, encl, &rec); err != nil {
 			return err
 		}
 	case e.Job == nil:
@@ -361,7 +374,7 @@ func (s *walkState) module(site conformance.SitePath, e FlowStatusModule, def *o
 		rec.Ran = boolPtr(false)
 		rec.BranchChosen = branchChosen(e.BranchChosen)
 	case e.BranchChosen != nil:
-		if err := s.branchOne(site, *e.Job, e.BranchChosen, def, &rec); err != nil {
+		if err := s.branchOne(site, *e.Job, e.BranchChosen, def, encl, &rec); err != nil {
 			return err
 		}
 	default:
@@ -417,7 +430,7 @@ func (s *walkState) leafOrFlow(site conformance.SitePath, id string, def *openfl
 // branchOne walks a branchone module whose job is the chosen branch's body
 // flow. The module's record holds the body's status and result and the
 // branch chosen; the body's modules are under b:<n> or b:default.
-func (s *walkState) branchOne(site conformance.SitePath, id string, bc *BranchChosen, def *openflow.Module, rec *conformance.StepObservation) error {
+func (s *walkState) branchOne(site conformance.SitePath, id string, bc *BranchChosen, def *openflow.Module, encl flowDef, rec *conformance.StepObservation) error {
 	seg := conformance.DefaultBranch()
 	if bc.Type == "branch" {
 		if bc.Branch == nil {
@@ -444,9 +457,9 @@ func (s *walkState) branchOne(site conformance.SitePath, id string, bc *BranchCh
 	if def != nil {
 		if b, ok := def.Value.(*openflow.BranchOne); ok {
 			if bc.Type == "default" {
-				bd = bodyDef(b.Default)
+				bd = encl.containerBody(b.Default)
 			} else if *bc.Branch < len(b.Branches) {
-				bd = bodyDef(b.Branches[*bc.Branch].Modules)
+				bd = encl.containerBody(b.Branches[*bc.Branch].Modules)
 			}
 		}
 	}
@@ -459,7 +472,7 @@ func (s *walkState) branchOne(site conformance.SitePath, id string, bc *BranchCh
 // i:<n>/m:<body id> as a non-collapsed iteration would be (ADR 0011). The
 // module's result is the aggregate of the children's results in index
 // order; with no children it did not run one (OR-26, OR-V2).
-func (s *walkState) container(site conformance.SitePath, e FlowStatusModule, def *openflow.Module, rec *conformance.StepObservation) error {
+func (s *walkState) container(site conformance.SitePath, e FlowStatusModule, def *openflow.Module, encl flowDef, rec *conformance.StepObservation) error {
 	branchAll := e.BranchAll != nil
 	var bodies [][]openflow.Module
 	if def != nil {
@@ -477,9 +490,9 @@ func (s *walkState) container(site conformance.SitePath, e FlowStatusModule, def
 	body := func(i int) flowDef {
 		switch {
 		case branchAll && i < len(bodies):
-			return bodyDef(bodies[i])
+			return encl.containerBody(bodies[i])
 		case !branchAll && len(bodies) == 1:
-			return bodyDef(bodies[0])
+			return encl.containerBody(bodies[0])
 		}
 		return flowDef{}
 	}

@@ -1,0 +1,4 @@
+# CF-7/c (later): one child in a same_worker flow does not error.
+spec: [CF-7/c]
+target: f/cf7/same_worker_one
+expect: {status: success, result: [5]}
