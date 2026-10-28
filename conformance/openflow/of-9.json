@@ -1,0 +1,19 @@
+{
+  "finding": "OF-9",
+  "cases": [
+    {
+      "spec": "OF-9/a",
+      "provenance": "source-derived",
+      "title": "unknown kind rejects",
+      "given": {"modules": [{"id": "a", "value": {"type": "foo"}}]},
+      "expect": {"reject": {"contains": ["unknown variant `foo`, expected one of `script`, `flow`, `forloopflow`, `whileloopflow`, `branchone`, `branchall`, `rawscript`, `identity`, `aiagent`"]}}
+    },
+    {
+      "spec": "OF-9/b",
+      "provenance": "source-derived",
+      "title": "rawscript without input_transforms",
+      "given": {"modules": [{"id": "a", "value": {"type": "rawscript", "content": "export function main(){}", "language": "bun"}}]},
+      "expect": {"accept": {"at": {"/modules/0/value/input_transforms": {}}}}
+    }
+  ]
+}

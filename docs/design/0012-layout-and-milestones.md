@@ -44,7 +44,7 @@ internal/oracle/            the oracle harness (0011)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK), test/ (developer checks against golden frames)
 proto/windmill_lite/v1/     runner.proto (0009)
-conformance/                flows/, steps/, exprs/: the shared cases (0003)
+conformance/                flows/, steps/, exprs/, openflow/: the shared cases (0003)
 ```
 
 Everything except `wl/` and `wl/plugin/` is internal, so the engine can change
@@ -149,6 +149,8 @@ waits on an external gate except R1.
   documentation gate and the suite grow together.
 - The hybrid adapter is the only milestone held by a human decision; native
   steps are the only ones held by a semantics request.
+- `conformance/openflow/` holds the OpenFlow decode cases, a level that
+  [0003](0003-semantics-placement.md) added with milestone A3.
 
 ## Spec IDs relied on
 
