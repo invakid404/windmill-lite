@@ -5,14 +5,16 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
     - id: b
       value:
         type: rawscript
         content: '!inline b.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun
       skip_if:
         expr: 'true'
       stop_after_if:

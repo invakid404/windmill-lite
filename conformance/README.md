@@ -3,12 +3,14 @@
 **Current state:** five levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the harness protocol cases in
-`protocol/`, and the first flow fixture in `flows/`, the oracle smoke
-fixture, which `wltest record` records on the Windmill CE oracle. This
-README covers `conformance/`. Nothing runs the flow fixtures on
-windmill-lite yet (`wltest check`, milestone E1), and the step and
-expression levels that [0003](../docs/design/0003-semantics-placement.md)
-defines have no cases or runners yet.
+`protocol/`, and the flow fixtures in `flows/`: the oracle smoke fixture
+and the twelve fixtures of recording batch E3b (FX core), which
+`wltest record` records on the Windmill CE oracle, with the batch's
+manifest in `flows/batches/`. This README covers `conformance/`. Nothing
+runs the flow fixtures on windmill-lite yet (`wltest check`, milestone
+E1), and the step and expression levels that
+[0003](../docs/design/0003-semantics-placement.md) defines have no cases or
+runners yet.
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -24,7 +26,7 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | one fixture, `flows/oracle/smoke`; recorded on the oracle by `wltest record` |
+| flow | `flows/<area>/<case>/`, `flows/batches/<batch>.json` | `flows/oracle/smoke` and batch E3b's `flows/execution/fx-*`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
 
@@ -40,11 +42,47 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/execution/fx-6` | [FX-6](../docs/semantics/execution.md#fx-6): step 0 sees the flow input; the step after a tolerated failure sees the wrapped error; a retry re-derives `previous_result` as the string `"{}"`. |
+| `flows/execution/fx-7` | [FX-7](../docs/semantics/execution.md#fx-7): JavaScript and static transforms, `params`, `undefined`, an unbound `result`. |
+| `flows/execution/fx-8` | [FX-8](../docs/semantics/execution.md#fx-8): `result` and `previous_result` in `stop_after_if`; no `results` in `sleep`. |
+| `flows/execution/fx-9` | [FX-9](../docs/semantics/execution.md#fx-9): one `skip_if` per value the rule lists. |
+| `flows/execution/fx-10` | [FX-10](../docs/semantics/execution.md#fx-10): a failure module reads an error-stopped step three ways; unknown and not-yet-run ids; which engine reads of the preceding id use memory, without a failure module ([Q-FX-15](../docs/semantics/execution.md#q-fx-15)). |
+| `flows/execution/fx-16` | [FX-16](../docs/semantics/execution.md#fx-16): identity with direct input, and as a passthrough. |
+| `flows/execution/fx-17` | [FX-17](../docs/semantics/execution.md#fx-17): a skipped step's passthrough; a step skipped only on its retry; no `stop_after_if` on a skipped step. |
+| `flows/execution/fx-18` | [FX-18](../docs/semantics/execution.md#fx-18) (`later`): a mocked step; `stop_after_if` on the mock value; a false `skip_if` beside a mock. |
+| `flows/execution/fx-19` | [FX-19](../docs/semantics/execution.md#fx-19): the clean stops, the error-stop's value, and its matrix of retry, `continue_on_error` and the failure module. |
+| `flows/execution/fx-20` | [FX-20](../docs/semantics/execution.md#fx-20): a clean stop and an error-stop in a `branchone` body. |
+| `flows/execution/fx-21` | [FX-21](../docs/semantics/execution.md#fx-21): a throwing `stop_after_if`, with and without a failure module. |
+| `flows/execution/fx-42` | [FX-42](../docs/semantics/execution.md#fx-42)/h ([Q-FX-16](../docs/semantics/execution.md#q-fx-16)): the arguments file after `$jsonvar:` resolution, and what a JavaScript consumer sees of it. |
 
 The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
 ([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
 it on every recording and fails on any change.
+
+Each run's `expect` was written from the reference before the oracle first
+ran it. Where the oracle disagreed, the run's comments say what the
+reference predicted, what was recorded, and in which oracle run.
+
+### Recording batches
+
+A recording batch is one of milestones E3a to E3e of
+[0012](../docs/design/0012-layout-and-milestones.md).
+`flows/batches/<batch>.json` lists the batch's cases, the runs that record
+each, and the milestone whose exit gate runs it:
+
+| Field | Meaning |
+|---|---|
+| `batch`, `row` | the milestone id and its row in 0012 |
+| `scope.findings`, `scope.cases` | findings whose every catalogue case is in the batch, and single catalogue cases |
+| `cases[].case` | a catalogue case id, or a finding id with `variant` for a case that encodes the finding's rule beyond its catalogue cases |
+| `cases[].runs` | `<fixture id>/<run>` |
+| `cases[].gate` | the milestone that runs the case: the one that implements the last feature its flow needs |
+
+`TestRecordingBatches` in [internal/oracle](../internal/oracle/README.md)
+requires every case of the scope to be listed, every run to exist, cite its
+case and have a recording, the recording to meet the run's `expect`, and
+every run of a listed fixture to belong to a case.
 
 ## OpenFlow decode cases
 

@@ -1,16 +1,19 @@
 # FX-42/h, Q-FX-16: the stored argument is the reference string; the
-# arguments file holds the resolved value. The expectation is reading (b),
-# the ADR 0001 section 6 default: insertion order kept, numbers and strings
-# re-serialised from parsed values (1e3 as 1000.0, 1e21 as 1e21, the 64-bit
-# integer exact, the larger one as a double, 1.50e3 as 1500.0, the escapes
-# decoded, no spaces). Reading (a) would keep the variable's text.
+# arguments file holds the resolved value. Reading (b), the ADR 0001
+# section 6 default, predicted insertion order kept and numbers and strings
+# re-serialised from parsed values; reading (a) would keep the variable's
+# text. Oracle run 40685013818 recorded reading (b): the keys keep the
+# variable's order, 1e3 and 1.50e3 become 1000.0 and 1500.0, the integer
+# that fits in 64 bits stays exact, 1e21 and the larger integer become
+# doubles written with "e+", the escapes are decoded and the spaces gone.
+# The prediction had written the exponents without "+".
 spec: [FX-42/h, WR-5]
 target: f/wl_fx42/args_file
 expect:
   status: success
-  result: '{"v":{"zz":1000.0,"b":1e21,"aaa":12345678901234567891,"big":1.2345678901234568e29,"n":1500.0,"s":"A/"}}'
+  result: "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"
   steps:
     "m:a":
       status: success
       args: {v: "$jsonvar:f/wl_fx42/numbers"}
-      result: '{"v":{"zz":1000.0,"b":1e21,"aaa":12345678901234567891,"big":1.2345678901234568e29,"n":1500.0,"s":"A/"}}'
+      result: "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"

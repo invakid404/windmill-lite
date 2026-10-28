@@ -5,22 +5,25 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
     - id: b
       value:
         type: rawscript
         content: '!inline b.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun
       skip_if:
         expr: previous_result === 1
     - id: c
       value:
         type: rawscript
         content: '!inline c.ts'
-        language: bun
         input_transforms:
           x:
             type: javascript
             expr: previous_result
+        lock: '!inline c.lock'
+        language: bun

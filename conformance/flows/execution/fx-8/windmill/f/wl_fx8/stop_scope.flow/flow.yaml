@@ -5,8 +5,9 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
       stop_after_if:
         expr: result === 5 && previous_result === 5
         skip_if_stopped: false
@@ -14,5 +15,6 @@ value:
       value:
         type: rawscript
         content: '!inline b.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun

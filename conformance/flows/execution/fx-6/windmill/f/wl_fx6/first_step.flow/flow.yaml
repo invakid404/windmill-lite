@@ -5,11 +5,12 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms:
           x:
             type: javascript
             expr: previous_result
+        lock: '!inline a.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

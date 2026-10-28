@@ -5,8 +5,9 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms:
           v:
             type: static
-            value: '$jsonvar:f/wl_fx42/numbers'
+            value: $jsonvar:f/wl_fx42/numbers
+        lock: '!inline a.lock'
+        language: bun

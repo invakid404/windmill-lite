@@ -4,13 +4,13 @@ value:
     - id: a
       value:
         type: script
-        path: f/wl_fx19/three
         input_transforms: {}
-      stop_after_if:
-        expr: 'true'
-        skip_if_stopped: false
-        error_message: E
+        path: f/wl_fx19/three
       retry:
         constant:
           attempts: 1
           seconds: 0
+      stop_after_if:
+        error_message: E
+        expr: 'true'
+        skip_if_stopped: false

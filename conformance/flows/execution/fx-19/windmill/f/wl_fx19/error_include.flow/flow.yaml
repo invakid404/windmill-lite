@@ -4,10 +4,10 @@ value:
     - id: a
       value:
         type: script
-        path: f/wl_fx19/three
         input_transforms: {}
+        path: f/wl_fx19/three
       stop_after_if:
+        error_include_result: true
+        error_message: too big
         expr: result > 2
         skip_if_stopped: false
-        error_message: too big
-        error_include_result: true

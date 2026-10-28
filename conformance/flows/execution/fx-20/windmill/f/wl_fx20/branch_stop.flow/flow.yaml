@@ -10,8 +10,9 @@ value:
             value:
               type: rawscript
               content: '!inline x.ts'
-              language: bun
               input_transforms: {}
+              lock: '!inline x.lock'
+              language: bun
             stop_after_if:
               expr: 'true'
               skip_if_stopped: true
@@ -19,5 +20,6 @@ value:
       value:
         type: rawscript
         content: '!inline y.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline y.lock'
+        language: bun

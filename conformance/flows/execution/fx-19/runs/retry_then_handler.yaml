@@ -1,7 +1,13 @@
 # FX-19/d: with a failure module, the error-stop re-enters a, and re-entry
 # evaluates retry first: a runs twice (its first attempt at r:0), stops
 # again, and only then does the handler run. The flow fails with "H".
-spec: [FX-19/d]
+# The failure module's Success status lists a's first attempt again as its
+# own failed_retries (the flow-wide retry state of FX-27 and FX-29, never
+# cleared because a never succeeded), so the walker records that job at
+# s:failure/r:0 as well (OR-11); its placeholder keeps the site m:a/r:0.
+# The reference did not predict that site; oracle run 40685013818 recorded
+# it.
+spec: [FX-19/d, FX-27, FX-29]
 target: f/wl_fx19/retry_then_handler
 expect:
   status: failure
@@ -9,4 +15,5 @@ expect:
   steps:
     "m:a/r:0": {status: success, args: {}, result: 3}
     "m:a": {status: success, module: failure, args: {}, result: 3}
+    "s:failure/r:0": {status: success, args: {}, result: 3}
     "s:failure": {status: success, args: {}, result: H}

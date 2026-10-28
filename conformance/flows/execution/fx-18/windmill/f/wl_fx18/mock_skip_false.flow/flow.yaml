@@ -5,8 +5,9 @@ value:
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
       mock:
         enabled: true
         return_value: 5
@@ -19,5 +20,6 @@ value:
       value:
         type: rawscript
         content: '!inline b.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun

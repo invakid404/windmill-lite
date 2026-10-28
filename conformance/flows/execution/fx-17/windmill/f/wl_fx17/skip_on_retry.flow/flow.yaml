@@ -5,20 +5,22 @@ value:
       value:
         type: rawscript
         content: '!inline reset.ts'
-        language: bun
         input_transforms: {}
+        lock: '!inline reset.lock'
+        language: bun
     - id: a
       value:
         type: rawscript
         content: '!inline a.ts'
-        language: bun
         input_transforms:
           x:
             type: static
             value: 1
-      skip_if:
-        expr: variable('f/wl_fx17/flag') === 'skip'
+        lock: '!inline a.lock'
+        language: bun
       retry:
         constant:
           attempts: 1
           seconds: 0
+      skip_if:
+        expr: variable('f/wl_fx17/flag') === 'skip'
