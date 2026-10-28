@@ -3,8 +3,9 @@
 **Current state:** five levels of the shared conformance suite exist: the
 OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
 sync-folder load cases in `syncfolder/`, the harness protocol cases in
-`protocol/`, and the first flow fixture in `flows/`, the oracle smoke
-fixture, which `wltest record` records on the Windmill CE oracle. This
+`protocol/`, and the flow fixtures in `flows/`: the oracle smoke fixture
+and the stub-mode acceptance cases, which `wltest record` records on the
+Windmill CE oracle. This
 README covers `conformance/`. Nothing runs the flow fixtures on
 windmill-lite yet (`wltest check`, milestone E1), and the step and
 expression levels that [0003](../docs/design/0003-semantics-placement.md)
@@ -24,7 +25,7 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
-| flow | `flows/<area>/<case>/` | one fixture, `flows/oracle/smoke`; recorded on the oracle by `wltest record` |
+| flow | `flows/<area>/<case>/` | `flows/oracle/smoke` and the stub-mode cases under `flows/stub/`; recorded on the oracle by `wltest record` |
 | step | `steps/<lang>/<case>.yaml` | not yet |
 | expr | `exprs/<case>.yaml` | not yet |
 
@@ -40,11 +41,21 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | Fixture | Encodes |
 |---|---|
 | `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
+| `flows/stub/retry_loop` | Stub mode: a retry inside a loop. The body step has two retries; run `ok` fails iteration 1 once and iteration 2 twice before they succeed, run `exhausted` fails iteration 1 on all three attempts, so the loop and the flow fail ([FX-26](../docs/semantics/execution.md#fx-26), [CF-5](../docs/semantics/control-flow.md#cf-5)). |
+| `flows/stub/collapsed` | Stub mode: a collapsed body ([CF-8](../docs/semantics/control-flow.md#cf-8)), each iteration at `i:<n>/m:book`, then a path script. The body takes a `Date` through a local alias, which the stub keeps ([WR-V3](../docs/semantics/languages.md#wr-v3)). |
+| `flows/stub/nested` | Stub mode: nested loops whose bodies do not collapse, the inner one reading the outer iteration as `iter_parent` ([CF-3](../docs/semantics/control-flow.md#cf-3)). |
+| `flows/stub/scopes` | Stub mode: a named subflow and a parallel loop under one outer run (run `alone`), and two concurrent outer runs (`r` and `t`, group `rt`), with every call's `WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID` and `WM_JOB_ID` ([OR-V6](../docs/semantics/oracle.md#or-v6)/a, [Q-OR-10](../docs/semantics/oracle.md#q-or-10)). |
 
 The sync tree holds what `wmill folder add-missing` and `generate-metadata`
 write, generated against the oracle and committed as written
 ([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
 it on every recording and fails on any change.
+
+A stub fixture (`stub: true`) commits its original tree; each run's
+`replay` table gives the stubs' outcomes. The scripts call hosts under
+`.invalid`, which nothing resolves, so a script that kept its body would
+fail. The stubbed tree is written and its metadata regenerated in a
+temporary copy on every recording ([internal/oracle](../internal/oracle/README.md#stub-mode)).
 
 ## OpenFlow decode cases
 

@@ -1,0 +1,41 @@
+summary: wl stub named subflow and parallel loop
+value:
+  modules:
+    - id: who
+      value:
+        type: flow
+        input_transforms:
+          team:
+            type: javascript
+            expr: flow_input.team
+        path: f/wl_stub/members
+    - id: send
+      value:
+        type: forloopflow
+        modules:
+          - id: post
+            value:
+              type: rawscript
+              content: '!inline post.ts'
+              input_transforms:
+                team:
+                  type: javascript
+                  expr: flow_input.team
+                to:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline post.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: results.who
+        skip_failures: false
+        parallel: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    team:
+      type: string
+  required:
+    - team

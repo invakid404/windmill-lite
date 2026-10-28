@@ -211,6 +211,49 @@ outer run, and two concurrent outer runs. Milestone E4b runs the same cases
 on windmill-lite, once the container and retry milestones they exercise have
 merged.
 
+**The stub (chosen by E4a).** A stub keeps what Windmill's signature parser
+reads and nothing that runs: `main`'s parameter list verbatim, since
+arguments bind by the names found there ([WR-6](../semantics/languages.md#wr-6),
+[WR-7](../semantics/languages.md#wr-7)), and every top-level type alias and
+interface verbatim, since local aliases decide `Date` hydration
+([WR-8](../semantics/languages.md#wr-8), [WR-V3](../semantics/languages.md#wr-v3))
+and types are erased before code runs. Imports, top-level code and the body
+are dropped. Only Bun scripts and `!inline` Bun rawscripts are stubbed; the
+generator refuses a tree in which some executed script would keep its body
+(another language, the `native` annotation, content written in
+`flow.yaml`, a hub or out-of-tree target, an AI-agent step) and a script
+whose signature it cannot keep (no exported `function main` declaration, a
+default-exported, generic, generator or overloaded `main`, a
+`preprocessor`, a parameter default naming a dropped binding). `wltest
+stub` writes the stubbed copy to a new directory, never in place. Because
+the copy's metadata still describes the originals, `record` runs the CLI's
+`generate-metadata` in it and requires every script's generated schema to
+equal the original's: the CLI derives the schema from the signature, so this
+checks on the oracle that the stub kept it.
+
+**The replay service (chosen by E4a).** It is served by the effect sink's
+server at `$WL_EFFECT_SINK/replay`, so the stub needs no new whitelisted
+variable. A stub POSTs `{root, root_flow, flow, job, step, args}`
+(`WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_JOB_ID`,
+`WM_FLOW_STEP_ID`, and the arguments it received in parameter order). The
+service routes by `root`, refusing a root that is no open run; resolves the
+job's module site (on the oracle by walking the job tree while the run is
+in progress: a module's job and its `failed_retries` are at the module's
+site, a leaf in `flow_jobs` is a collapsed iteration at `i:<n>/m:<body>`);
+counts the attempt as defined above; and answers the run's table, which a
+fixture gives per run as `replay:` (site to outcomes by attempt, each
+`{result: …}` or `{error: {message, name?, …}}`, the error's other members
+becoming the thrown error's own properties). A site or attempt the table
+lacks is refused (`replay_miss`), which fails the run. Every answered call
+is recorded as one of the run's effects, `{site, attempt, step, job, flow,
+root_flow, root, args}`, normalised like any value, so a recording shows
+where each call resolved and which scopes Windmill reported. After the run,
+each call must agree with the walk (a failed attempt `k` at
+`<site>/r:<k>`, the module's last job at `<site>`) and every walked job that
+executed a script must have called, or the run fails. A fixture opts in
+with `stub: true`; runs that share a `group` are submitted together as
+concurrent outer runs.
+
 ### CI
 
 1. **Every pull request** (no Docker): `wltest check` on all levels, in
@@ -224,7 +267,8 @@ merged.
 2. **Oracle workflow** (nightly, on a `oracle` label, and on changes under
    `conformance/` or to the harness itself, `internal/oracle/`,
    `internal/conformance/`, `cmd/wltest/`, the decoders it reads fixtures
-   with (`internal/openflow/`, `internal/yamlx/`) and the workflow): `wltest record`
+   with (`internal/openflow/`, `internal/yamlx/`), the sync-folder reader
+   the stub generator uses (`internal/syncfolder/`) and the workflow): `wltest record`
    on `ubuntu-latest` amd64, failing when a recording differs from the
    committed one, when a run has no recording, or when the sync trees'
    generated metadata drifts ([OR-8](../semantics/oracle.md#or-8)). A changed recording is
@@ -269,6 +313,11 @@ merged.
 - Milestone E2 chose that escape and the container sites above. It also
   runs the oracle workflow when the harness changes, not only the fixtures,
   because a harness change can change every recording.
+- Milestone E4a chose the stub's shape and the replay protocol above, and
+  answers [Q-OR-10](../semantics/oracle.md#q-or-10) with its recordings:
+  every call records the `WM_ROOT_JOB_ID` and `WM_ROOT_FLOW_JOB_ID` it saw
+  inside a named subflow and parallel iterations, beside a concurrent outer
+  run.
 - The oracle runs in public CI as a black box and only there, never inside a
   windmill-lite artefact.
 - Disputed findings get settled by recordings, early, through a reviewed
@@ -276,5 +325,5 @@ merged.
 
 ## Spec IDs relied on
 
-OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-16, Q-OR-17, LIC-1, Q-OF-7, and
-the conformance catalogue.
+OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-10, Q-OR-16, Q-OR-17, LIC-1,
+Q-OF-7, WR-6 to WR-8, WR-18, WR-V3, and the conformance catalogue.

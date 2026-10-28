@@ -1,9 +1,10 @@
 # cmd/wltest
 
-**Current state:** one verb, `record` (milestone E2 of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
-covers the `wltest` command in this directory. `check` (E1), `diff` and
-`stub` (E4a) print that they are not implemented and exit 2.
+**Current state:** two verbs, `record` (milestone E2 of
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md)) and `stub`
+(milestone E4a). This README covers the `wltest` command in this
+directory. `check` and `diff` (E1) print that they are not implemented and
+exit 2.
 
 `wltest` is windmill-lite's conformance and oracle runner
 ([ADR 0011](../../docs/design/0011-differential-testing.md)). `record` runs
@@ -51,6 +52,33 @@ recording is new or changed. A run whose committed recording names another
 oracle, image or CLI is `refused` (`recording_identity_mismatch`) before
 anything runs; delete the recording to re-record it. A refusal of the whole session (for example
 `{"error":"insufficient_disk",…}`) is printed as JSON on standard output.
+
+Fixtures in stub mode (`stub: true`) are pushed stubbed: `record` writes
+the stubbed copy of the sync tree, runs the CLI's `generate-metadata` in
+it, requires every script's schema to equal the original's, and answers
+each run's stubs from its `replay` table through the replay service at
+`$WL_EFFECT_SINK/replay`. A run also fails when a stub's call has no
+outcome in the table, when a call disagrees with the walk, or when a
+script job never called ([internal/oracle](../../internal/oracle/README.md#stub-mode)).
+Runs that share a `group` are submitted together, as concurrent outer runs.
+
+## stub
+
+```sh
+bin/wltest stub --out <dir> <sync tree>
+```
+
+Copies the sync tree (the directory of its `wmill.yaml`) to `<dir>`, which
+must not exist, with the source of every Bun script and every `!inline`
+Bun rawscript replaced by a stub that keeps `main`'s parameter list and the
+type declarations, and asks the replay service for its outcome
+([ADR 0011](../../docs/design/0011-differential-testing.md) stub mode). It
+prints one `stubbed <file>` line per replaced source. The copy's metadata
+still describes the originals, so run `npx -y windmill-cli@1.767.0
+generate-metadata` in it before pushing it. A tree in which some executed
+script would keep its body is refused, with
+`{"error":"stub_unsupported","file":…,"reason":…}` on standard output and
+exit 1.
 
 ## Version
 

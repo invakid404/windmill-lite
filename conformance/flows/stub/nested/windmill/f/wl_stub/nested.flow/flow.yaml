@@ -1,0 +1,52 @@
+summary: wl stub nested loops
+value:
+  modules:
+    - id: outer
+      value:
+        type: forloopflow
+        modules:
+          - id: inner
+            value:
+              type: forloopflow
+              modules:
+                - id: read
+                  value:
+                    type: rawscript
+                    content: '!inline read.ts'
+                    input_transforms:
+                      cell:
+                        type: javascript
+                        expr: flow_input.iter.value
+                    lock: '!inline read.lock'
+                    language: bun
+                - id: write
+                  value:
+                    type: rawscript
+                    content: '!inline write.ts'
+                    input_transforms:
+                      row:
+                        type: javascript
+                        expr: flow_input.iter_parent.index
+                      value:
+                        type: javascript
+                        expr: results.read
+                    lock: '!inline write.lock'
+                    language: bun
+              iterator:
+                type: javascript
+                expr: flow_input.iter.value
+              skip_failures: false
+              parallel: false
+        iterator:
+          type: javascript
+          expr: flow_input.rows
+        skip_failures: false
+        parallel: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    rows:
+      type: array
+  required:
+    - rows
