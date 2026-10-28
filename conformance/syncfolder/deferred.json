@@ -67,6 +67,11 @@
       "expected_in": "a follow-up of A4"
     },
     {
+      "spec": "SY-17/b",
+      "reason": "a new lock file selects nothing; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
+      "expected_in": "a follow-up of A4"
+    },
+    {
       "spec": "SY-18/a",
       "reason": "unclassified files are ignored; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
       "expected_in": "a follow-up of A4"
@@ -84,6 +89,11 @@
     {
       "spec": "SY-19/b",
       "reason": "a UTF-16 byte order mark is refused; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
+      "expected_in": "a follow-up of A4"
+    },
+    {
+      "spec": "SY-19/c",
+      "reason": "a refused lock reached only as a reference resolves to an empty lock with a warning; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
       "expected_in": "a follow-up of A4"
     },
     {
