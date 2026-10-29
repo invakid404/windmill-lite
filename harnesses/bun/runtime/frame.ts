@@ -50,7 +50,7 @@ const FIELDS: Record<string, readonly string[]> = {
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
   log: ["id", "lines"],
-  warning: ["id", "code", "message"],
+  warning: ["id", "code", "message", "left"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
@@ -249,6 +249,13 @@ export function decode(payload: Uint8Array): Message {
       if (m.kind === "result" || m.kind === "log") checkField(m.t, m, "body", "raw");
       else if (m.kind !== "error") throw new ProtocolError("bad_field", `late kind ${JSON.stringify(m.kind)}`);
       if (m.kind === "log" && m.settled) throw new ProtocolError("bad_field", "a late log cannot settle an invocation");
+      break;
+    case "warning":
+      // left counts what an invocation left behind, by kind.
+      if (m.left != null) {
+        checkField(m.t, m, "left", "object");
+        if (!Object.values(m.left).every(isInt)) throw new ProtocolError("bad_field", 'field "left" has the wrong type');
+      }
       break;
     case "cancel":
       if (!["timeout", "canceled", "run_ended"].includes(m.reason)) throw new ProtocolError("bad_field", `cancel reason ${JSON.stringify(m.reason)}`);
@@ -481,6 +488,19 @@ export class Sender {
     const cbs = this.flushed;
     this.flushed = [];
     for (const cb of cbs) cb();
+  }
+
+  /** Writes everything still queued, in the order flush would, with
+   * write, which writes all of its bytes before it returns or throws: for
+   * a process that ends now and cannot wait for its socket. */
+  drainSync(write: (b: Uint8Array) => void) {
+    while (!this.closed) {
+      if (!this.current) this.current = this.next();
+      if (!this.current) break;
+      const b = this.current;
+      this.current = null;
+      write(b);
+    }
   }
 
   /** Calls cb once everything queued so far is written. */

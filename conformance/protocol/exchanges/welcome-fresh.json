@@ -1,8 +1,11 @@
 {
   "case": "welcome-fresh",
-  "title": "this harness refuses a fresh-mode welcome: it offers no fresh capability",
+  "title": "a harness welcomed in fresh mode serves one invocation and exits once its result has gone out, as the job's process does",
   "provenance": "policy",
-  "relies_on": [],
+  "relies_on": [
+    "WR-1",
+    "WR-2"
+  ],
   "design": "docs/design/0006-module-state.md",
   "steps": [
     {
@@ -17,7 +20,7 @@
         "caps": {
           "fetch": true,
           "native": false,
-          "fresh": false,
+          "fresh": true,
           "host": false
         },
         "bundle": "<bundle>",
@@ -38,7 +41,37 @@
       }
     },
     {
-      "exit": 2
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {
+          "value": {
+            "a": 1
+          }
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "ok",
+        "body": {
+          "a": 1
+        },
+        "settled": true
+      }
+    },
+    {
+      "exit": 0
     }
   ]
 }

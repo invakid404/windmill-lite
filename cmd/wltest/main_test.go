@@ -22,7 +22,7 @@ func TestUsage(t *testing.T) {
 		{[]string{"check", "main.go"}, 2, "is not a step file"},
 		{[]string{"check", "../../conformance/exprs/je-7.yaml"}, 2, "expression cases are checked by go test ./internal/expr"},
 		{[]string{"check"}, 2, "usage: wltest check"},
-		{[]string{"check", "--mode", "fresh", "x"}, 2, "fresh is C3b"},
+		{[]string{"check", "--mode", "host", "x"}, 2, `mode "host" is not warm or fresh (host mode is milestone F3b)`},
 		{[]string{"diff", "x"}, 2, "wltest diff is not implemented yet"},
 		{[]string{"stub", "x"}, 2, "usage: wltest record"},
 		{[]string{"stub", "--out", t.TempDir() + "/o"}, 2, "usage: wltest record"},

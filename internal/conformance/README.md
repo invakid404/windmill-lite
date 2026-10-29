@@ -200,7 +200,8 @@ read from and written to `conformance/exprs/recorded/<finding>/`.
 strictly: unknown keys are refused, as is a file not named after its
 finding, a case whose spec cites a finding without a variant, a run that
 checks nothing, a `by_mode` without both `warm` and `fresh` or without the
-case's `deviation`, a `codebase` that is not a mapping, `files` without
+case's `deviation`, a `left` without `left_behind` among its `warnings` or
+with a count below 1, a `codebase` that is not a mapping, `files` without
 `codebase` or with a path that leaves the sync root, a `node` check on a
 case that is not a CommonJS codebase script or that gives more than
 `expect` and `claims`, and two cases of one file that give one path two
@@ -215,8 +216,8 @@ the case's own `stack` and `mask` pointers on both sides, and
 `/result/error/stack` (`DefaultStepStack`) on a side whose status is
 `failure`, since a successful result is data, compares with `Compare` and the case's
 `unordered` and `strict_key_order`, and checks the claims. A run's `late`,
-`settled` and `warnings` are the runner's to check, since only it sees the
-invocation's Reporter. `CommonJS` tells a codebase case built as CommonJS
+`settled`, `warnings` and `left` are the runner's to check, since only it
+sees the invocation's Reporter. `CommonJS` tells a codebase case built as CommonJS
 (its entry's `format` is not `esm`, WR-47), which also runs on Node (D13);
 `CompareStepNode` compares what Node showed with the run's `node` check,
 or with its own `expect` and `claims` when the two runtimes agree, as

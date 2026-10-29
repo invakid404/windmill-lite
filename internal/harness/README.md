@@ -10,7 +10,9 @@ invocations through settlement, health, the watchdog, and pools. W1 added
 the platform frames, with a pluggable handler, and host mode, where the
 engine is the child of a Bun host that is also its harness (`AttachHost`).
 Milestone C3a added the `warning` frame, which hands an unattributed
-process-level error to every invocation in flight.
+process-level error to every invocation in flight. Milestone C3b added
+`fresh` mode and the `left_behind` warning, whose `Left` counts what an
+invocation still had when it settled (the D9 fence).
 `Pool` and `Process` implement `engine.StepExecutor`; their users are the
 walking skeleton's interpreter in
 [internal/engine](../engine/README.md) and its `windmill-lite host` command
@@ -18,7 +20,6 @@ in [cmd/windmill-lite](../../cmd/windmill-lite/README.md).
 
 Not here yet:
 
-- `fresh` module state: `Spawn`, `NewPool` and `Execute` refuse it (C3b).
 - The facade behind the platform frames: its router, policies and job
   identity (PF1). A process without a handler answers each call with a
   501.
@@ -116,7 +117,8 @@ WR-22's base set that needs no later milestone.
 
 **The handshake.** The harness's `hello` must match `Kind`, `Runtime`
 (`PinnedBun`, 1.3.10, for Bun), `Bundle` and the protocol version, and its
-`pid` must be the process `Spawn` started. Otherwise the welcome carries a
+`pid` must be the process `Spawn` started, and a process spawned in `fresh`
+mode must offer the `fresh` capability. Otherwise the welcome carries a
 `reject` (`proto_mismatch`, `harness_mismatch`, `runtime_mismatch`,
 `bundle_mismatch`, `pid_mismatch`) and `Spawn` returns a `*HandshakeError`.
 The pid check refuses a wrapper that forks the harness, which the
@@ -131,10 +133,12 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 
 | What happens | `Execute` returns | Reporter |
 |---|---|---|
-| refused before dispatch (a bad entry name, the native boundary, fresh mode, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
+| refused before dispatch (a bad entry name, the native boundary, a module-state mode other than the process's, a second invocation of a fresh process, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
 | `result` with `settled` true | the outcome | `Settled(completed)` first |
 | `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
+| fresh mode: ctx ends first | `context.Cause(ctx)`, after killing the process | later: `Settled(process_exited)`, nothing late |
+| fresh mode: the process exits 0 before a result (`process.exit(0)`), over a connection that never failed | `empty` ([WR-V2](../../docs/semantics/languages.md#wr-v2)) | `Settled(process_exited)` first |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
 | host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
 
@@ -158,7 +162,9 @@ them, so a child that inherited them cannot keep the engine's descriptors
 or goroutines; `Done` closes after that. The watchdog kills a process
 from which no frame has arrived for `KillAfter` (`DefaultKillAfter`, 30 s;
 `WatchdogOff` disables it), writes a diagnostics line naming the
-invocations in flight, and the pool replaces the process. It measures
+invocations in flight, and the pool replaces the process. A `fresh`
+process has no watchdog: it is its invocation, which only the step's own
+timeout ends (case `watchdog/finite-cpu`). It measures
 silence from received frames only, and the harness pings on its own every
 heartbeat (one second, or a quarter of `KillAfter` when shorter), so the
 engine's own blocked writes never make a live harness look silent. The
@@ -200,6 +206,16 @@ goes to.
 
 A `Pool` serves one `Key`: harness class, runtime pin, dependency set and
 module-state mode.
+
+A **fresh** pool (`engine.ModuleStateFresh`,
+[ADR 0006](../../docs/design/0006-module-state.md)) starts one process for
+each `Execute`, which serves that invocation in a working directory of its
+own and exits once it has reported the outcome; one that outlives its
+outcome by 5 s is killed. When the engine stops waiting first, the process
+is killed and the invocation settles with it. `Close` waits for the fresh
+processes until its context ends and kills the rest; one that finishes
+starting after `Close` is killed before it runs anything. None of the rules
+below apply to it. The rest of this section is about warm pools.
 
 - **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes;
   otherwise the first `Execute` does.
@@ -259,7 +275,12 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   signature the build helper would record; C3a added the transcripts of
   an intercepted `process.exit` (`exit-caught`, `exit-zero`,
   `exit-from-timer`), an attributed error, the unattributed warning and a
-  signature that did not parse.
+  signature that did not parse. C3b added the transcripts of `log`
+  frames (ahead of the result; what a step prints never reaches the frame
+  channel), of the `left_behind` warning (`left-behind`, and
+  `platform-left-behind`, whose late reply is dropped), of a platform
+  call refused after settlement, and of `fresh` mode (`welcome-fresh`,
+  `fresh-one-invocation`, `fresh-exit`).
 - `bun_test.go` runs `Process` and `Pool` against the real Bun harness:
   handshake rejections and the pid check, outcomes, process death (through
   `process.reallyExit`, which the harness does not intercept), a
@@ -270,7 +291,16 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   nothing (a timer's throw and its `process.exit`), a detached rejection
   that ends nothing, cancel and late settlement, limits,
   the working directory, the watchdog case `watchdog/finite-cpu` in warm
-  mode, and the pool rules above. A step that must still run when the test
+  and fresh mode, fresh pools (a process and a directory per invocation,
+  a kill on cancel, results of 200 KB and 3 MB and a long log before an
+  exit, all written before the process ends, an exit with the step's
+  code, Close), a fresh `process.exit` after which no `catch` or
+  `finally` block runs, with a short log and with one the socket cannot
+  take at once (`TestBunFreshExitRunsNoMoreCode`, whose warm control runs
+  both), output of a module's own work after its loading
+  invocation settled, and the pool rules above. The late work of `TestBunWorkAfterTheResultIsLate` comes
+  from continuations of a `Bun.sleep`, which the fence cannot stop, since
+  it clears the timers a step leaves behind. A step that must still run when the test
   acts is a `gate` fixture step, which reports that it has started and ends
   when the test opens it, or `spin-gate`, which blocks its process's event
   loop the same way. The cancel, taint, recycle and affinity tests hold
