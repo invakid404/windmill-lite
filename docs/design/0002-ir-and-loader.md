@@ -408,7 +408,10 @@ only hand-written files.
   refused every hash pin, since rule 6 cannot be decided from a folder; and
   fixed the host contract's provided sites to mandatory call sites that
   match one module everywhere. Its expressions hold their site and text;
-  the textual pipeline of milestone B2a fills in the rest.
+  the textual pipeline of milestone B2a fills in the rest. Milestone N1a
+  made the compiler call it: every `Expr` of a program is compiled
+  (`ir.Version` 2), and the engine compiles each one's bytecode when it
+  opens the program.
 - Milestone F4's build applies rule 5 (`missing_lock`, for a script whose
   own source imports a package and that has no lock or a blank one) and the
   workflow-as-code refusal, from the Bun helper's scans; the relative-import

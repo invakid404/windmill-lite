@@ -450,12 +450,14 @@ func collapses(forLoop, parallel bool, body []openflow.Module, sc scope) bool {
 		(b.Mock == nil || !b.Mock.Enabled)
 }
 
-// compileExpr is the compiled expression at a site. The textual pipeline
-// (trimming, shortcuts, rewrites, mode, bound names and the engine source,
-// JE-5 to JE-15) is milestone B2a's; until then an expression holds its
-// site and its text as written.
+// compileExpr is the compiled expression at a site: the expression
+// pipeline's textual stages (trimming, shortcuts, rewrites, mode, bound
+// names and the engine source, JE-5 to JE-15), which depend on the site and
+// the text alone, so the program carries them and nothing recomputes them
+// per run (ADR 0003). The engine compiles each Source to bytecode when it
+// opens the program.
 func compileExpr(site expr.SiteKind, text string) *expr.Expr {
-	return &expr.Expr{Site: site, Text: text}
+	return expr.Compile(site, text)
 }
 
 func transform(t openflow.InputTransform, site expr.SiteKind) Transform {

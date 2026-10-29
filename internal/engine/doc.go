@@ -2,8 +2,15 @@
 // implementation of Windmill's decision list, containers, retries, waits,
 // failure modules and cancellation.
 //
-// The interpreter itself is not implemented yet (milestone N1a onwards).
-// This package holds the contracts it is built against (milestone K1):
+// Engine runs the flows of a compiled program (ir.Program): milestone N1a's
+// engine core runs a flow's top-level modules in sequence, with input
+// transforms, the results routes of expressions, skip_if, mock, identity,
+// stop_after_if and a static step timeout. Later milestones add the
+// failure machinery (N1b), waits and retries (N2), containers (N3) and
+// subflows (N3c); until then New refuses what they implement, with
+// ErrUnsupported.
+//
+// The contracts it is built against (milestone K1):
 //
 //   - StepExecutor, Invocation and StepOutcome: how the interpreter runs a
 //     leaf step in a language harness (ADR 0004);

@@ -43,11 +43,16 @@ E4a its stub mode. Milestone F4 implements the bundle of
 expression engine's heap on mimalloc. Milestone W1 is the walking skeleton:
 one sequential flow at a time, in a spawned harness and in host mode,
 scaffolding that tested the process model on the pinned Bun before the
-engine milestones build on it; only it runs flows yet. Milestone E1 runs
-the flow level of [0003](0003-semantics-placement.md)'s conformance suite
-on it: `wltest check` ([cmd/wltest](../../cmd/wltest/README.md)) compares
-each flow fixture's run with its expectation or the oracle's recording, in
-`warm`.
+engine milestones build on it. Milestone E1 runs the flow level of
+[0003](0003-semantics-placement.md)'s conformance suite: `wltest check`
+([cmd/wltest](../../cmd/wltest/README.md)) compares each flow fixture's run
+with its expectation or the oracle's recording, in `warm`. Milestone N1a
+is the engine core in [internal/engine](../../internal/engine/README.md),
+which replaced the skeleton's interpreter: it runs a compiled program's
+flows in sequence, with input transforms, the `results` routes, `skip_if`,
+`mock`, identity steps, `stop_after_if` and the hook seams of
+[0008](0008-host-hooks.md), and `wltest check` runs the flow fixtures and
+the expression cases on it.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

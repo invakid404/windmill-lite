@@ -217,3 +217,19 @@ func (RealClock) Wait(ctx context.Context, d time.Duration) error {
 		return context.Cause(ctx)
 	}
 }
+
+// StaticIntercepts is H1's no-code form (ADR 0008): a fixed result per
+// module id of the run's flow, which stands in for that module's run.
+type StaticIntercepts struct {
+	NoHooks
+	Results map[string]jsonval.Value
+}
+
+// Intercept answers for the modules listed in Results.
+func (h StaticIntercepts) Intercept(_ context.Context, _ Run, s Site, _ jsonval.Value) (StepOutcome, bool, error) {
+	v, ok := h.Results[s.Module]
+	if !ok {
+		return StepOutcome{}, false, nil
+	}
+	return StepOutcome{Kind: OutcomeOK, Body: v}, true, nil
+}
