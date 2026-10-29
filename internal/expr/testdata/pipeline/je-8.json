@@ -167,6 +167,17 @@
     },
     {
       "spec": "JE-8",
+      "variant": "after-loop-recorded",
+      "provenance": "oracle-observed",
+      "title": "right after a loop, results.<loop id> answers the worker's compact array, keys in jsonb order",
+      "note": "batch E3e recorded it (request 8, Q-JE-13): the iteration returned {b: 1, a: 2}, and the timeout's parse error quotes [{\"a\":2,\"b\":1}]; TestUnitCasesMatchRecordings ties the text to that quote",
+      "recorded": {"fixture": "je/shortcut-texts", "run": "loop_prev", "at": "m:q", "input": "timeout"},
+      "site": "timeout",
+      "text": "results.l",
+      "expect": {"shortcut": {"previous_id": "l", "results_path": {"step": "l"}}, "route": "previous_id", "text": "[{\"a\":2,\"b\":1}]"}
+    },
+    {
+      "spec": "JE-8",
       "variant": "reread",
       "provenance": "source-derived",
       "title": "a previous_result read back from storage is jsonb's printed text",

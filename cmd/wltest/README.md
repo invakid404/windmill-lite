@@ -331,7 +331,8 @@ Windmill v1.767.0's image).
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there; recording batch E3e listed the runs of its fixtures
-  that windmill-lite already passes. A required run stays required. The test runs every
+  that windmill-lite already passes, and FU5 the `oracle/nul` runs that
+  N1b's engine passes. A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

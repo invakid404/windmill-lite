@@ -9,3 +9,14 @@ expect:
   steps:
     "m:p": {"status": "success", "args": {}, "result": 0}
     "m:q": {"status": "not_run", "ran": false}
+unit:
+  - spec: JE-7
+    site: m:q
+    input: timeout
+    expr: flow_input.o
+    context:
+      previous_id: p
+      previous_result: "0"
+    expect:
+      text: "{\"a\": 2, \"b\": 1}"
+    note: "the same spaced member text after a step: the flow input does not depend on the position"

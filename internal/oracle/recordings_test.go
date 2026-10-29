@@ -386,6 +386,9 @@ func checkUnit(tree *SyncTree, r conformance.Run, u conformance.UnitCase) error 
 			return fmt.Errorf("results.%s: %v", id, err)
 		}
 	}
+	if u.Input == "timeout" && u.Expect.Text != nil {
+		return checkQuoted(obs, site, *u.Expect.Text)
+	}
 	if !transform {
 		return nil
 	}
@@ -419,6 +422,44 @@ func mustSite(s string) conformance.SitePath {
 		panic(err)
 	}
 	return p
+}
+
+// recordedLoc is a Rust location suffix at the end of a recorded message.
+var recordedLoc = regexp.MustCompile(` @[^ @]+:[0-9]+:[0-9]+$`)
+
+// checkQuoted holds a timeout's expected text to its recording. A timeout
+// that does not parse as an i32 fails with a message that quotes the
+// evaluator's output text as it is, `Value was: <text>` (JE-29): the
+// step's failure, or the run's when the step never ran, here before a
+// location suffix. So the text a shortcut answered is observed exactly,
+// spacing and key order included. A recording without that error quotes
+// nothing.
+func checkQuoted(obs conformance.Observation, site conformance.SitePath, text string) error {
+	const parse, quote = "Error parsing result as i32: ", ". Value was: "
+	results := []json.RawMessage{obs.Result}
+	if st, ok := obs.Steps[site]; ok {
+		results = append([]json.RawMessage{st.Result}, results...)
+	}
+	for _, res := range results {
+		var r struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(res, &r) != nil || !strings.Contains(r.Error.Message, parse) {
+			continue
+		}
+		m := recordedLoc.ReplaceAllString(r.Error.Message, "")
+		i := strings.LastIndex(m, quote)
+		if i < 0 {
+			return fmt.Errorf("the recorded parse error quotes no value: %q", r.Error.Message)
+		}
+		if got := m[i+len(quote):]; got != text {
+			return fmt.Errorf("the recorded parse error quotes %s, the case's text is %s", got, text)
+		}
+		return nil
+	}
+	return nil
 }
 
 // moduleAt finds the module a site path names in a flow value, and returns
