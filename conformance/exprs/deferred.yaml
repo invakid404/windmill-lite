@@ -6,35 +6,35 @@
 # listed here.
 deferred:
   - case: JE-10/e
-    reason: in the evaluation, `results` is a constant and `error` is not; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: a follow-up of B2b
+    reason: in the evaluation, `results` is a constant and `error` is not; the semantics reference added the case on 2026-10-28 and no recording holds it yet
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-10.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-15/j
-    reason: a replaced `JSON.stringify` supplies the result text unchecked (Q-JE-14); the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: a follow-up of B2b
+    reason: a replaced `JSON.stringify` supplies the result text unchecked (Q-JE-14); the semantics reference added the case on 2026-10-28 and no recording holds it yet
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-15.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-16/c
     reason: an evaluator-level case (point O1) whose previous_result holds the raw token -0, which no flow input reaches (the job API stores the input as jsonb, which has no negative zero); JE-16/e and JE-16/f record the oracle side
-    checked_in: B2b
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-16.json, TestPipelineCasesOnEngine; B2b's TestBindings checks the same token)
   - case: JE-16/g
-    reason: a `__proto__` key sets the prototype, not an own property; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: a follow-up of B2b
+    reason: a `__proto__` key sets the prototype, not an own property; the semantics reference added the case on 2026-10-28 and no recording holds it yet
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-16.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-17/d
-    reason: the entry fallbacks are falsy tests; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: a follow-up of B2b
+    reason: the entry fallbacks are falsy tests; the semantics reference added the case on 2026-10-28 and no recording holds it yet
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-17.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-19/e
     reason: needs a restarted run (restart from a step), which the oracle harness does not drive yet (Q-JE-8)
     checked_in: E3e
   - case: JE-21/b
-    reason: a thrown non-Error value shows its debug form (Q-JE-1); the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: a follow-up of B2b
+    reason: a thrown non-Error value shows its debug form (Q-JE-1); the semantics reference added the case on 2026-10-28 and no recording holds it yet
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-21.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-50/a
-    reason: in a plain function call, `this` is `undefined` (a strict-mode global script); the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: B2b
+    reason: in a plain function call, `this` is `undefined` (a strict-mode global script); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-50.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-51/a
-    reason: a queued job that throws does not fail the evaluation; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: B2b
+    reason: a queued job that throws does not fail the evaluation; the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-51.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-52/a
-    reason: an error message with an unpaired surrogate is dropped (O5); the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
-    checked_in: B2b
+    reason: an error message with an unpaired surrogate is dropped (O5); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-52.json, TestPipelineCasesOnEngine); recorded in E3e
   - case: JE-V5/a
     reason: the transforms are taken in a hash map's random order, so on the oracle which one fails first changes between runs and a recording cannot be stable; it is a host- or evaluator-level case, with a variable service that records its calls
     checked_in: B2b, PF2

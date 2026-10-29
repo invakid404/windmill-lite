@@ -10,7 +10,7 @@ value:
             value:
               - $WM_WORKSPACE
               - $var:f/wl_je_providers/s
-        path: f/wl_je_providers/echo
+        path: f/wl_je_providers/workspace_echo
     - id: z
       value:
         type: script

@@ -1,0 +1,35 @@
+{
+  "finding": "JE-51",
+  "cases": [
+    {
+      "spec": "JE-51/a",
+      "provenance": "source-derived",
+      "title": "a queued job that throws does not fail the evaluation",
+      "note": "expression mode (no ;); no message mentions job",
+      "site": "input_transform",
+      "text": "((q) => (q(() => { throw new Error(\"job\") }), 1))(queueMicrotask)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "1"}}
+    },
+    {
+      "spec": "JE-51",
+      "variant": "fifo",
+      "provenance": "source-derived",
+      "title": "the jobs queued before the serialising reaction run first, in order",
+      "site": "input_transform",
+      "text": "((q, a) => (q(() => a.push(1)), Promise.resolve().then(() => a.push(2)), a))(queueMicrotask, [])",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "[1,2]"}}
+    },
+    {
+      "spec": "JE-51",
+      "variant": "no-rejection-tracking",
+      "provenance": "source-derived",
+      "title": "a rejected promise that is not the result fails nothing",
+      "site": "input_transform",
+      "text": "(Promise.reject(new Error(\"x\")), 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "1"}}
+    }
+  ]
+}

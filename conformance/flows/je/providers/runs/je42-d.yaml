@@ -1,4 +1,7 @@
-# JE-42/d: the workspace id is the session's own, so it is masked (compare.mask).
+# JE-42/d: the workspace id is the session's own, so it is masked
+# (compare.mask); the observer's last element compares it with the job's
+# own WM_WORKSPACE, so that the resolution itself is compared unmasked
+# (E3a review R1-1). JE-42/c is the control without a marker.
 spec: [JE-42/d]
 target: f/wl_je_providers/je42_d
 claims:
@@ -8,3 +11,5 @@ claims:
     equals: s
   - at: /steps/m:d/result/0
     equals: "<masked>"
+  - at: /steps/m:d/result/2
+    equals: true

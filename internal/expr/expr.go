@@ -186,6 +186,12 @@ type Expr struct {
 	// compiles is Source followed by the serialisation of JE-15, and the
 	// preludes that bind the scope run before it (program.go).
 	Source string `json:"source,omitempty"`
+	// RewritePanic is the byte offset at which the rewrite of JE-11 would
+	// insert a call's closing parenthesis inside a multi-byte character,
+	// where Windmill's evaluator panics, and 0 when it does not. Source is
+	// then empty, and an evaluation that no shortcut answers fails with
+	// ErrRewritePanic.
+	RewritePanic int `json:"rewrite_panic,omitempty"`
 }
 
 // Shortcut holds the fast paths of JE-6 to JE-9 that the text alone allows.

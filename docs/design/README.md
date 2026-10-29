@@ -96,7 +96,7 @@ flowchart LR
 
 | Record | Decision |
 |---|---|
-| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; fifteen named deviations (D1–D15), five of which `fresh` mode removes, and nine restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
+| [0001 Equivalence contract](0001-equivalence-contract.md) | Match every `core` finding for a successfully deployed flow run by path as a root on CE; reject out-of-scope features at load; seventeen named deviations (D1–D17), five of which `fresh` mode removes, and ten restrictions; contested findings recorded on the oracle early, with a stated default until then and no permanent switches; Rust location suffixes stripped only from generated messages. |
 | [0002 IR, loader and validation](0002-ir-and-loader.md) | The CLI's YAML dialect over a YAML 1.1 parser, with named refusals; a sync-folder loader that reads each item on demand; hand-written OpenFlow types with Windmill's effective decoder and a schema-coverage test; normalise once to the deployed form; a typed IR with precomputed collapse, compiled expressions and a harness class per leaf; signatures of every export; a host contract whose mandatory provided sites make their targets opaque; codebase scripts bundled with esbuild and run on Bun (D13). |
 | [0003 Where semantics live](0003-semantics-placement.md) | One interpreter and one expression pipeline, in Go; QuickJS-ng `be664ca1` embedded natively (a wazero backend deferred), built static with `zig cc` and a stack pinned at 1 MiB on threads the engine creates, its heap on mimalloc; a fresh runtime per evaluation from a bounded pool, bytecode cached, values bound as host strings; a budget gate before the engine merges; harnesses are step runners; no segments; a conformance suite of flow, step and expression cases plus OpenFlow decode cases, jsonb stored-form cases, sync-folder load cases, compile cases, harness protocol cases and Bun build cases, compared once in Go, in `fresh`, `warm` and host mode, with contextual expression cases written as flow fixtures. |
 | [0004 Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and large messages in base64 part streams; validated entrypoint names; a shared-process failure model (handlers that never exit, attribution through the invocation's async context without guessing, a `warning` frame for errors no invocation owned, `process.exit` intercepted per invocation, a settle-time fence that clears an invocation's timers, aborts its requests and drops its later output when it settles and reports what it left behind, D9–D11); `fetch` as the only platform transport in warm processes (other transports refused, unrecorded); no in-flight cap unless a host sets one (D15); host mode never tainted, drained by the host, and killed by the engine's watchdog when its event loop stops answering. |
@@ -336,7 +336,6 @@ do (FU4).
      before the timeout error surfaces;
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
      where JE-33 says it completes successfully.
-
    **Answered.** Q-CF-16 is closed: [CF-19](../semantics/control-flow.md#cf-19)
    and CF-V6 are confirmed. [JE-48](../semantics/expressions.md#je-48) keeps
    the recorded depths (request 3);
@@ -397,7 +396,12 @@ do (FU4).
    `flow_input` member is `jsonb`'s spaced text, and a `previous_result`
    after a loop or `branchall` is compact text printed again.
    [Q-JE-13](../semantics/expressions.md#q-je-13) asks for the two oracle
-   runs.
+   runs. Milestone FU3 follows the answers: the pipeline cases restate the
+   E3a cases with the texts the worker holds, `expr.Scope` and
+   [0005](0005-json-step-boundaries.md)'s routing table give those texts,
+   and JE-11's rewrite places its parenthesis at a character count applied
+   as a byte offset, failing the evaluation where Windmill's evaluator
+   panics ([0001](0001-equivalence-contract.md) §6).
 9. **The expression program's unstated details** (milestone B2b). Each is
    decided by the reading named here and pinned by a test in
    `internal/expr`; [internal/expr](../../internal/expr/README.md) says
@@ -448,6 +452,31 @@ do (FU4).
    ([Q-JE-14](../semantics/expressions.md#q-je-14)). JE-48 and JE-1 state
    what the source fixes about the CE image's build; D16 and D17 stand
    until [Q-JE-16](../semantics/expressions.md#q-je-16) is recorded.
+   Milestone FU3 follows the answers in `internal/expr`
+   ([internal/expr](../../internal/expr/README.md) says where), and
+   implements [JE-50](../semantics/expressions.md#je-50) (strict mode),
+   [JE-51](../semantics/expressions.md#je-51) (the job queue) and
+   [JE-52](../semantics/expressions.md#je-52) (unpaired surrogates), which
+   the same revision added.
+10. **The readings FU3 left open** (milestone FU3), open. Each is decided
+    by the reading named here and pinned by a test in `internal/expr`:
+    - [JE-11](../semantics/expressions.md#je-11): whether the character
+      count starts at the start of the text or at the call (read as the
+      start of the text, as "ASCII up to the insertion point" says), and
+      whether it also places the `)` of a call that never closes (read as
+      yes). Q-JE-13's runs, calls at the start of the text, cannot tell.
+      Where Windmill panics, windmill-lite fails the evaluation with its
+      own text; what the panic does to Windmill's job is Q-JE-13's.
+    - [JE-16](../semantics/expressions.md#je-16): whether the values of
+      `results` reads and of the helpers are rebuilt by assignment like the
+      context values. Read as no, as `JSON.parse` gives them.
+    - [FX-42](../semantics/execution.md#fx-42) rule 2 and
+      [JE-44](../semantics/expressions.md#je-44): the notation in which the
+      backend's JSON library writes a double, which a `previous_result`
+      after a loop or `branchall` shows. FX-42 gives examples (`1000.0`,
+      `1e+21`, `1.2345678901234568e+29`) but not where the notation turns
+      from decimal to exponent, nor how small numbers are written. The loop
+      milestones need it.
 
 ## Changing the design
 
