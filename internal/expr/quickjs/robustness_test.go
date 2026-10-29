@@ -216,13 +216,22 @@ func TestAttemptEndWinsOverALateCompletion(t *testing.T) {
 	}
 }
 
+// A cancellation that lands while the evaluation runs wins over the result
+// the evaluation completes with afterwards, and counts as a canceled
+// attempt. The cancel comes from a host call the expression makes, so it
+// always lands during the evaluation: a timer could fire while the job
+// still waited for its slot to be prepared, which counts no canceled
+// attempt (FU7: a loaded runner prepared the slot in more than 2 ms).
 func TestCancellationWinsOverALateCompletion(t *testing.T) {
 	e := newEngine(t, Options{Slots: 1})
-	p := compile(t, e, `String("x".repeat(100 << 20).length)`)
+	p := compile(t, e, `(async () => { await stop(); return String("x".repeat(100 << 20).length); })()`)
 	cause := errors.New("run canceled")
 	ctx, cancel := context.WithCancelCause(context.Background())
-	time.AfterFunc(2*time.Millisecond, func() { cancel(cause) })
-	if out, err := e.Eval(ctx, p, expr.Input{}); !errors.Is(err, cause) {
+	in := expr.Input{Funcs: []expr.HostFunc{hostFunc("stop", func(context.Context, string) ([]byte, error) {
+		cancel(cause)
+		return []byte("null"), nil
+	})}}
+	if out, err := e.Eval(ctx, p, in); !errors.Is(err, cause) {
 		t.Fatalf("got %s, %v; want the cancellation cause", out, err)
 	}
 	if s := e.Stats(); s.Canceled != 1 || s.Timeouts != 0 {
