@@ -1996,9 +1996,10 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   parallel `branchall`, which aborts the flow with an `InternalError`
   instead ([CF-7](control-flow.md#cf-7), drafted); or to a container failure
   that carries a stop forwarded from a child flow
-  ([CF-12](control-flow.md#cf-12) point 4, drafted). A failure that a child
-  flow's copy of the failure module handled is tolerated like any other
-  ([CF-16](control-flow.md#cf-16) point 8).
+  ([CF-12](control-flow.md#cf-12) point 4, drafted). A sequential
+  container's failure that a child flow's copy of the failure module
+  handled is tolerated like any other ([CF-16](control-flow.md#cf-16)
+  point 8); a parallel one is not, as just said.
 
   **The failure module does not run for a tolerated failure**, with exactly
   two exceptions, both error-stops:
@@ -2610,8 +2611,9 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     ([WR-5](languages.md#wr-5)): the literal reference string is hashed,
     never the value it names.
   - **Where the lookup sits.** At pickup, after the cancellation check (a
-    job canceled before it starts completes as canceled, never from the
-    cache; [FX-38](#fx-38)) and after a pre-run error (a step whose input
+    job whose cancel flag is set when it is picked up fails at once with
+    the `Canceled` value, stored as `failure`, never from the cache;
+    [FX-38](#fx-38)) and after a pre-run error (a step whose input
     transforms threw fails as [FX-14](#fx-14) says, never from the cache),
     and before anything else: before argument resolution, and for a flow
     before any step is evaluated. Jobs without `cache_ttl` skip it.
@@ -2678,9 +2680,15 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
       replaced the arguments, and the flow job, queued again after it, looks
       the cache up a second time with them (medium).
     - **Expiry.** An entry expires at its store time in whole Unix seconds
-      plus the TTL, and it is valid while the current second is earlier. A
-      `cache_ttl` of `0` stores an entry that has already expired, so it
-      never hits.
+      plus the TTL of the job that stored it, and it is valid while the
+      current second is earlier. The lookup runs for any job that has a
+      `cache_ttl`, `0` included, and tests only the stored entry's own
+      expiry, not the looking-up job's TTL, which is not part of the key.
+      So a `cache_ttl` of `0` stores an entry that has already expired, and
+      a job with `0` never hits **its own** entries, but it does hit a
+      valid entry another job with a positive TTL stored under the same key
+      (two steps pinned to the same script hash with equal arguments, for
+      example, [FX-40/m](conformance.md#fx-40)).
     - **A failed store** is logged by the worker, not in the job's logs, and
       changes nothing for the job; the worker's in-memory copy (below) is
       still written.
@@ -2814,7 +2822,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     `backend/migrations/20240216100535_improve_policies.up.sql:137-139`
     (group rows); `backend/src/monitor.rs:1313-1326` (cleanup);
     `backend/windmill-api/src/workspaces_export.rs:794` (export)
-- **Conformance:** [FX-40/a–FX-40/l](conformance.md#fx-40)
+- **Conformance:** [FX-40/a–FX-40/m](conformance.md#fx-40)
 - **Revision 2026-10-28 (oracle, batch E3d):** the finding was `DISPUTED`
   ([Q-FX-17](#q-fx-17)). As drafted, iterations within one run never shared
   entries, because each collapsed iteration's path ends in `/loop-<index>`;
@@ -2849,6 +2857,17 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   workspace object storage it hashes S3 objects as plain JSON and
   `cache_ignore_s3_path` has no effect. New source-derived cases FX-40/e to
   FX-40/l, tracked by the new [Q-FX-21](#q-fx-21).
+- **Revision 2026-10-29 (SC4 validation round 1, finding 4):** the Expiry
+  bullet said that a `cache_ttl` of `0` never hits. A zero TTL only makes
+  the entry its job stores expire at once: the lookup runs whenever a TTL
+  is present (`backend/windmill-worker/src/worker.rs:3753-3810`) and tests
+  the stored entry's expiry, not the requester's TTL, which the key leaves
+  out (`backend/windmill-worker/src/common.rs:1544-1575`, `:1706-1740`), so
+  a zero-TTL job hits a valid entry another job stored under the same key.
+  New source-derived case FX-40/m. The lookup bullet's "a job canceled
+  before it starts completes as canceled" now matches FX-38: a job whose
+  cancel flag is set at pickup fails with the `Canceled` value and is
+  stored as `failure`.
 
 <a id="fx-41"></a>
 ### FX-41 · `priority`, `same_worker`, deletion, squash and scheduling settings
@@ -3079,33 +3098,60 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
         status stays in progress. The worker tries the same transition once
         more as an unrecoverable failure of the child, and that read fails
         the same way. The child that completed keeps its own stored result.
-     2. The flow job that runs the container is then completed **failed,
-        directly**, with
-        `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: <library text> @<loc>"}}`.
-        `<library text>` is `number out of range at line <l> column <c>`
-        or `recursion limit exceeded at line <l> column <c>`, positioned in
-        PostgreSQL's printed form of that child's stored result (spaces
-        after `:` and `,`, keys in `jsonb` order): for the number, the
-        column of its last digit; for the nesting, the column of the
-        bracket that opens depth 128. `<loc>` is the backend's location
-        (`worker_flow.rs:<line>:<col>`). The name is `InternalErr`, not
-        the chaining `InternalError` of [FX-15](#fx-15); the message has no
-        `Error: ` prefix and one location suffix. The flow's log gains
-        `Unexpected error during flow job error handling:` and the same
-        text.
-     3. No retry, no `continue_on_error`, no failure module and no later
-        step runs.
-     4. **When the container runs in a child flow** (a loop body, a
-        branch, a subflow), that child flow is completed failed the same
-        way, but this route skips the transition that would tell its
-        parent, so the parent keeps waiting. Windmill's zombie-flow monitor
-        then cancels a running flow that has made no progress for
+     2. **Which job then fails depends on where the chain of transitions
+        started.** The error returns to the completion of the leaf job
+        whose completion started it (a script, identity or other non-flow
+        job), and Windmill's error handler then targets **that job's
+        parent flow**, not the flow whose read failed. So:
+        - **The children are the flow's own leaf jobs:** a sequential
+          `forloopflow` or a `whileloopflow` whose body collapses
+          ([CF-8](control-flow.md#cf-8)), whose iterations are script jobs
+          of the flow running the loop. That flow is the leaf's parent and
+          is completed **failed, directly**, with
+          `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: <library text> @<loc>"}}`.
+          `<library text>` is `number out of range at line <l> column <c>`
+          or `recursion limit exceeded at line <l> column <c>`, positioned
+          in PostgreSQL's printed form of that child's stored result
+          (spaces after `:` and `,`, keys in `jsonb` order): for the
+          number, the column of its last digit; for the nesting, the
+          column of the bracket that opens depth 128. `<loc>` is the
+          backend's location (`worker_flow.rs:<line>:<col>`). The name is
+          `InternalErr`, not the chaining `InternalError` of
+          [FX-15](#fx-15); the message has no `Error: ` prefix and one
+          location suffix. The flow's log gains
+          `Unexpected error during flow job error handling:` and the same
+          text. No retry, no `continue_on_error`, no failure module and no
+          later step runs. When that flow is itself a child flow (a branch,
+          a loop body, a subflow), this completion skips the transition
+          that would tell its parent, so the parent keeps waiting
+          (point 3).
+        - **The children are child flows:** any loop whose body does not
+          collapse (a parallel loop, a body that is not simple, any body in
+          a flow with a failure module) and every `branchall`. The leaf ran
+          inside a child flow, and that child flow's own completion was
+          committed before the transition of the flow running the
+          container read the children. The error handler's target is that
+          already-completed child flow: its completion cannot be written
+          again (a completion is inserted from the job's queue row, which
+          is gone) and its status can no longer advance anything. So **no
+          job is completed with the error text**: the flow running the
+          container stays running with the container in progress, and none
+          of its retry, `continue_on_error`, failure module or later steps
+          runs (point 3). The child flow's log may gain the
+          `Unexpected error during flow job error handling:` line (medium).
+     3. **A flow left waiting** (the flow running the container in the
+        second case, the parent of the failed child flow in the first) is
+        ended by Windmill's zombie-flow monitor, which cancels a running
+        flow job whose last progress is older than
         `FLOW_ZOMBIE_TRANSITION_TIMEOUT` seconds (60 by default), with a
         force cancel ([CF-28](control-flow.md#cf-28) point 5) whose reason
         starts `Flow <id> (<url>) was cancelled because it was hanging in between 2 steps.`
         (`Flow was cancelled because subflow <id> (<url>) was hanging …`
-        when the waiting flow is itself a flow step). This part is medium:
-        read, not traced end to end.
+        when the waiting flow is itself a flow step). The monitor restarts
+        instead of canceling only a flow whose first module has not
+        started, which cannot be the case here. This point is medium: read,
+        not traced end to end, and the time until the monitor runs is not
+        fixed.
 - **Open:** [Q-FX-7](#q-fx-7) (the cases not yet recorded: nested key order
   of a stored producer value, numbers for non-JavaScript consumers, scale).
 - **Evidence:**
@@ -3186,21 +3232,27 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     skipped without either check, which is why the result could be
     stored and passed on). The wrapper: `backend/windmill-common/src/error.rs:51-52`,
     `:153-158` (`SqlErr: <error> @<location>`). The retried transition
-    `worker_flow.rs:197-251`; the error reaches
-    `backend/windmill-worker/src/result_processor.rs:1520-1543`,
-    `:1622-1648`, `:720-736`, and `handle_job_error` `:1910-2016`, which
-    tries the transition again and then completes the flow job with name
+    `worker_flow.rs:197-251`; a child flow's completion is committed
+    before its parent's transition (`:1508`, `:2135-2153`); the error
+    reaches `backend/windmill-worker/src/result_processor.rs:1520-1543`,
+    `:1622-1648`, and `:686-736`, which keeps the leaf job it started
+    with and hands that job to `handle_job_error` `:1910-2016`; the
+    handler's target is that job's parent (`:1941-1952`), whose
+    transition it tries again before completing it with name
     `InternalErr` (`:1980-2005`); `backend/windmill-queue/src/jobs.rs:883-914`,
-    `:1094-1153` (a completed child is not overwritten),
+    `:1094-1153` (a completion is inserted from the job's queue row, so a
+    completed job is not overwritten),
     `:1239-1258` (a completion only refreshes the parent's progress
-    time). The monitor: `backend/src/monitor.rs:174-177`, `:4867-4893`,
+    time). The monitor: `backend/src/monitor.rs:174-177`, `:4867-4893`
+    (running flow jobs whose progress time is older than the timeout),
+    `:4900-4943` (restart only when the first module is still waiting),
     `:5118-5136`, `:5174-5197`. Checked with the pinned crates: the
     stored `{"n": 1e400, "iter": {"index": 0, "value": 1}}`, printed
     with 400 zeros, fails at column 407; an object holding 127 nested
     arrays fails at column 133.
   - PostgreSQL: https://www.postgresql.org/docs/current/datatype-json.html,
     https://www.postgresql.org/docs/current/datatype-numeric.html
-- **Conformance:** [FX-42/a–FX-42/n](conformance.md#fx-42); also
+- **Conformance:** [FX-42/a–FX-42/o](conformance.md#fx-42); also
   [FX-V2/a](conformance.md#fx-v2), [FX-V5/a](conformance.md#fx-v5).
 - **Design note (not Windmill behaviour):** an earlier proposal that a
   key-sorting walk is enough for parity is withdrawn. Exact parity needs
@@ -3276,6 +3328,17 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   (FU6 asked how two equally near candidates are broken): the even last
   digit, as in Go and JavaScript. New source-derived cases
   [FX-42/m](conformance.md#fx-42) and [FX-42/n](conformance.md#fx-42).
+- **Revision 2026-10-29 (SC4 validation round 1, finding 1):** the
+  revision just above said that the flow job running the container is
+  always completed with `InternalErr`. Windmill's error handler targets
+  the parent of the leaf job whose completion started the transitions, so
+  that holds only when the container's children are that flow's own leaf
+  jobs (a collapsed loop body). When the children are child flows, the
+  target is a child flow that already completed, nothing is completed with
+  the error, and the flow running the container waits until the zombie-flow
+  monitor cancels it (medium). Rule 9 now separates the two, FX-42/m and
+  FX-42/n are re-expected for child flows, and new case
+  [FX-42/o](conformance.md#fx-42) gives the collapsed route.
 
 <a id="fx-43"></a>
 ### FX-43 · Result size limits

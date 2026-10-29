@@ -70,14 +70,14 @@ and [licensing.md](licensing.md) maps which parts do.
 | Area | Findings | `core` | `later` | `out` | `EE` | Not settled | Question entries | Conformance cases |
 |---|---|---|---|---|---|---|---|---|
 | [openflow.md](openflow.md) | 51 | 42 | 8 | 1 | 0 | 0 | 13 | 149 |
-| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 21 | 159 |
-| [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 122 |
+| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 21 | 161 |
+| [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 123 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 193 |
-| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 205 |
+| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 206 |
 | [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 108 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 4 | 18 | 88 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **350** | **271** | **67** | **7** | **5** | **4** | **130** | **1027** |
+| **Total** | **350** | **271** | **67** | **7** | **5** | **4** | **130** | **1031** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose

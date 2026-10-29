@@ -1120,18 +1120,26 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      handler:
      - its own `retry` is evaluated first and re-runs it
        ([CF-22](#cf-22));
-     - its `continue_on_error` tolerates the failure at **any** position:
-       at a middle step the flow continues with the container's result as
-       `previous_result`; at the last step the flow succeeds with that
-       result ([FX-30](execution.md#fx-30));
+     - for a **sequential** container (a sequential loop, a while loop, a
+       `branchone`, a sequential `branchall`), its `continue_on_error`
+       tolerates the failure at **any** position: at a middle step the flow
+       continues with the container's result as `previous_result`; at the
+       last step the flow succeeds with that result
+       ([FX-30](execution.md#fx-30)). A failed **parallel** loop or
+       parallel `branchall` is not tolerated: it completes through the
+       parallel path, which leaves the cursor on the container, so
+       `continue_on_error` re-enters it and the flow aborts with
+       [CF-7](#cf-7)'s `InternalError`, handled mark or not
+       ([CF-7/f](conformance.md#cf-7), its handler variant);
      - without either, the flow fails with the container's result, does not
        run its own handler again (point 4), and reports the failure as
        handled to its own parent, so no outer level runs it either.
 
      The mark covers only that completion: a later step of the same flow
      that fails runs the flow's handler normally. A parallel loop or
-     parallel `branchall` that fails is always treated as handled when the
-     flow has a handler, since each failed child ran its copy. A `flow` step
+     parallel `branchall` that fails is always marked handled when the
+     flow has a handler, since each failed child ran its copy; the mark
+     only keeps the flow's own handler out, and adds no tolerance (above). A `flow` step
      by path clears the mark, so the caller's handler runs
      ([CF-17](#cf-17)). A container as the handler itself is
      [CF-31](#cf-31).
@@ -1163,7 +1171,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `continue_on_error` tolerates only at the last module. In Windmill it is
   not a stop: it is an ordinary failure marked as handled, so the
   container's `retry` and `continue_on_error` apply as for any failed step,
-  at a middle step as at the last, and only the flow's handler is skipped.
+  at a middle step as at the last (for a sequential container; corrected in
+  validation round 1, below), and only the flow's handler is skipped.
   A forwarded error stop proper (a child without a handler) is
   [CF-12](#cf-12) point 4, corrected the same day. New source-derived cases
   CF-16/e and CF-16/f.
@@ -1174,6 +1183,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   none at the root. CF-16/c and the stored-node half of CF-16/d follow from
   the recorded CF-V1/a to CF-V1/c and CF-V4/a; the inline half (CF-V4/b)
   needs an inline child payload and is not recorded.
+- **Revision 2026-10-29 (SC4 validation round 1, finding 3):** point 8
+  said that the container's `continue_on_error` tolerates a handled
+  failure at any position, for every container. That holds only for
+  sequential containers. A failed parallel loop or parallel `branchall`
+  completes through the parallel path, which never advances the cursor
+  past the container (`worker_flow.rs:1037-1061`, `:1087-1093`,
+  `:1369-1397`), so `continue_on_error` re-enters it and the flow aborts
+  as [CF-7](#cf-7) says, even when every failed child ran its handler
+  ([CF-7/f](conformance.md#cf-7)); the handled mark then only keeps the
+  flow's own handler out.
 
 <a id="cf-17"></a>
 ### CF-17 · Subflows (`type: flow`, by path)
@@ -1524,8 +1543,13 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   - **Per child pushed:** `timeout`, evaluated in the scope of the
     container step itself and assigned to each child job (iteration flow,
     collapsed body job, branch flow or subflow); its `flow_input` is the
-    flow's input, which holds no `iter`, also when it is evaluated again
-    for each body job of a collapsed loop. `parallelism` is re-evaluated
+    arguments of the flow job running the container, not those of the
+    child being created, so it never sees the iteration being created, also
+    when it is evaluated again for each body job of a collapsed loop. Those
+    arguments hold an `iter` only when the enclosing flow's own input has
+    one: inside the body of an outer loop that runs as a child flow, the
+    outer iteration's `iter`; at the top level, an `iter` member the caller
+    passed. `parallelism` is re-evaluated
     per child. Where the assigned `timeout` is actually enforced is
     [CF-27](#cf-27).
   - **Order within a child** (drafted). For each child, `timeout` is
@@ -1553,7 +1577,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   the last child); the next `previous_result`: `:1134-1166` (a completed
   iteration that continues the loop leaves the module in progress),
   `:1478-1489`, `:2086-2091` (its result is what the next push receives).
-- **Conformance:** [CF-21/a to CF-21/e](conformance.md#cf-21)
+- **Conformance:** [CF-21/a to CF-21/f](conformance.md#cf-21)
 - **Note:** run the fixture by path with the loop at top level (root kind
   `flow`), where the loop collapses ([CF-8](#cf-8)).
 - **Revision 2026-10-29 (SC4, source re-check, milestone NI):** milestone
@@ -1580,6 +1604,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   above, is recorded (run `skip_mid_flows`), as are a while loop's (run
   `skip_mid_while`) and a parallel loop's single evaluation at its start
   (run `skip_parallel`). [Q-CF-6](#q-cf-6) is answered.
+- **Revision 2026-10-29 (SC4 validation round 1, finding 6):** the rule
+  said that the `timeout`'s `flow_input` holds no `iter`. It is the
+  arguments of the flow job running the container
+  (`worker_flow.rs:4379-4389`), and the new iteration's `iter` is inserted
+  only into the child's arguments (`:4158-4170`), so the timeout never
+  sees the iteration being created; but it does see an `iter` the
+  enclosing flow's input already has, an outer iteration's or one the
+  caller passed. The two recorded failures hold for their top-level
+  inputs. New source-derived case CF-21/f.
 
 <a id="cf-22"></a>
 ### CF-22 · `retry` on a container module
@@ -2951,3 +2984,10 @@ These are proposals made while studying the behaviour. They bind nothing.
   `dedicated worker bun:` there), and a control whose body is a Bash step
   `echo $v` (EE runners do not serve Bash, so its iterations would run
   ordinarily even when the Bun ones are squashed). Still open.
+  *2026-10-29 (SC4 validation round 1):* [WR-55](languages.md#wr-55)
+  points here for what the CE image's runners do with a child an
+  iteration leaves behind: add a squashed one-step loop over `[1, 2]`
+  whose body starts a background child sleeping 5 s and returns at once,
+  next to the same loop without `squash`, and record each iteration job's
+  start and completion times (unsquashed, each iteration should complete
+  only after its child, WR-55/a).

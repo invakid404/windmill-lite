@@ -48,14 +48,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 1 | 0 | 0 |
-| [Flow execution](#execution) | 159 | 106 | 52 | 1 | 0 | 102 | 0 | 1 |
-| [Loops, branches and subflows](#control-flow) | 122 | 84 | 34 | 0 | 4 | 94 | 0 | 0 |
+| [Flow execution](#execution) | 161 | 106 | 54 | 1 | 0 | 102 | 0 | 1 |
+| [Loops, branches and subflows](#control-flow) | 123 | 84 | 35 | 0 | 4 | 94 | 0 | 0 |
 | [Expressions](#expressions) | 193 | 130 | 63 | 0 | 0 | 167 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 205 | 127 | 78 | 0 | 0 | 31 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 206 | 127 | 79 | 0 | 0 | 31 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 108 | 57 | 46 | 5 | 0 | 20 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 53 | 11 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 1027 | 713 | 299 | 8 | 7 | 468 | 11 | 7 |
+| **Total** | 1031 | 713 | 303 | 8 | 7 | 468 | 11 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -2189,6 +2189,18 @@ each `:` and `,`, keys shorter first, then by bytes.
     run twice with `{"n": 1}`.
   - **Expect:** both runs complete with result `1` and `b` never runs; in
     run 2, `a`'s job (a new job id) logs the cache line instead of running.
+- **FX-40/m** · source-derived · A `cache_ttl` of `0` hits an entry a positive TTL stored.
+  - **Given:** a deployed script `f/demo/rnd` (`main(n)` returns
+    `Math.random()`), and a flow `[a: script f/demo/rnd pinned to its hash
+    (cache_ttl: 60), b: script f/demo/rnd pinned to the same hash
+    (cache_ttl: 0)]` with `n = 1` on both, run once, on one worker; then a
+    flow `[c: the same step with cache_ttl: 0, d: the same with
+    cache_ttl: 0]`, run on its own.
+  - **Expect:** in the first flow, `b`'s job hits `a`'s entry (same kind,
+    hash and arguments; the step paths are not in the key): `b` returns
+    `a`'s value and logs the cache line. In the second flow (run when no
+    positive-TTL entry for that key is valid) both `c` and `d` run, since
+    an entry stored with TTL `0` has already expired.
 
 <a id="fx-41"></a>
 ### FX-41 · `priority`, `same_worker`, deletion, squash and scheduling settings
@@ -2312,28 +2324,53 @@ contested and now carry their own provenance.
     `{"error": {"name": "ExecutionErr", "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 5<loc>", "step_id": "a"}}`
     ([FX-42](execution.md#fx-42) rule 9; the envelope as in
     [FX-51/c](#fx-51), which gives the same error for `{"n": 1e400}`).
-- **FX-42/m** · source-derived · later · A loop child whose stored result
-  holds a number beyond a double fails the flow job directly.
+- **FX-42/m** · source-derived · later · A child flow whose stored result
+  holds a number beyond a double leaves the flow waiting.
   - **Given:** deployed `[l: forloopflow(iterator: {type: javascript, expr:
     "[1]"}, modules: [x: identity]), b: bun: return 1]` with a failure
-    module returning `"H"`, run by path with the input `{"n": 1e400}`.
-    The iteration's child flow returns its own input (CF-9), stored as
+    module returning `"H"` (so the body does not collapse), run by path
+    with the input `{"n": 1e400}`. The iteration's child flow returns its
+    own input (CF-9), stored as
     `{"n": 1e400, "iter": {"index": 0, "value": 1}}`.
-  - **Expect:** the flow fails with
-    `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: number out of range at line 1 column 407 @<loc>"}}`;
-    neither `b` nor the failure module runs; `l`'s status entry stays in
-    progress with its one child, whose own result is unchanged. The same
-    holds with `parallel: true` and for a `branchall` whose one branch is
-    `[x: identity]` (its child's stored result is the flow input,
-    `{"n": 1e400}`, column 407 as well).
+  - **Expect:** the iteration's child flow completes successfully with
+    that value; the read of `l`'s children then fails
+    (`number out of range at line 1 column 407`), but no job is completed
+    with that text: the flow stays running with `l` in progress, and
+    neither `b` nor the failure module runs. It ends when the zombie-flow
+    monitor cancels it, some 60 s or more later: status `canceled`, a
+    `Canceled` result whose reason starts
+    `Flow <id> (<url>) was cancelled because it was hanging in between 2 steps.`
+    (medium). The same holds with `parallel: true` and for a `branchall`
+    whose one branch is `[x: identity]` (its child's stored result is the
+    flow input, `{"n": 1e400}`).
+  - **Correction 2026-10-29 (SC4 validation round 1):** expected the flow
+    to fail at once with `InternalErr`; that route needs the children to
+    be the flow's own leaf jobs ([FX-42/o](#fx-42)).
 - **FX-42/n** · source-derived · later · Nesting past the library's limit
-  fails the same way.
+  in a child flow's result leaves the flow waiting the same way.
   - **Given:** the flow of FX-42/m, run with the input `{"k": <127 nested
     arrays>}` (`[[…[]…]]`).
-  - **Expect:** the flow fails with
-    `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column 133 @<loc>"}}`
-    (the 127th `[` opens depth 128 inside the stored object); with 126
-    nested arrays the loop succeeds.
+  - **Expect:** as FX-42/m: the read fails with
+    `recursion limit exceeded at line 1 column 133` (the 127th `[` opens
+    depth 128 inside the stored object), no job carries that text, and the
+    monitor eventually cancels the flow (medium); with 126 nested arrays
+    the loop succeeds.
+  - **Correction 2026-10-29 (SC4 validation round 1):** as FX-42/m.
+- **FX-42/o** · source-derived · later · A collapsed body's result fails
+  the flow job directly.
+  - **Given:** deployed `[l: forloopflow(iterator: {type: javascript, expr:
+    "[1]"}, modules: [x: rawscript bun: let v = 1; for (let i = 0; i <
+    128; i++) v = [v]; return v;]), b: bun: return 1]` with no failure
+    module, so the body collapses and the iteration is a script job of
+    the flow ([CF-8](control-flow.md#cf-8)); run by path.
+  - **Expect:** the flow fails at once with
+    `{"error": {"name": "InternalErr", "message": "SqlErr: error occurred while decoding column 0: recursion limit exceeded at line 1 column 128 @<loc>"}}`
+    (the 128th `[` of the stored `[[…[1]…]]` opens depth 128); `b` does
+    not run; `l`'s status entry stays in progress; `x`'s job keeps its own
+    result. With 127 wrappings the loop succeeds. The same loop as the
+    `default` branch of a `branchone` at step 0: the branch's child flow
+    is completed failed with that error, and the root stays running until
+    the monitor cancels it, as in FX-42/m (medium).
 
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
@@ -3137,7 +3174,7 @@ Findings: [control-flow.md](control-flow.md).
 - **CF-16/d** · oracle-observed · Handler id per representation.
   - **Given / Expect:** as [CF-V4/a and CF-V4/b](#cf-v4).
   - **Recorded:** the stored-node half, as CF-V4/a ([`flows/control-flow/cf-v4`](../../conformance/flows/control-flow/cf-v4) run `a`, oracle run 40858228112). The inline half, CF-V4/b, needs an inline child payload, which is outside the reference configuration, and is not recorded.
-- **CF-16/e** · source-derived · `continue_on_error` tolerates a handled failure at any position.
+- **CF-16/e** · source-derived · A sequential container's `continue_on_error` tolerates a handled failure at any position.
   - **Given:** flow `failure_module` = `ret("H")`; `[l: forloop over [1],
     skip_failures: false, body [x: fail("e")] (continue_on_error: true),
     n: ret(p) p = previous_result]`. Then the same without `n`. Then with
@@ -3362,7 +3399,7 @@ results.a`, run with input `{"v": 7}`. "Lists" refers to a status entry's
     iterations' first jobs start at least 2 s after `a` ended. Branchone:
     the branch's first job starts at least 2 s after `a` ended.
   - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `sleep_before_collapsed`, `sleep_before_seq` and `sleep_before_par`, oracle run 40852609901; [`flows/control-flow/waits`](../../conformance/flows/control-flow/waits) run `sleep_before_branch`, oracle run 40857510216; the delays are read from the jobs' start and end times in the provenance.
-- **CF-21/e** · oracle-observed · A container's `timeout` is evaluated in the container step's own scope, without `iter`.
+- **CF-21/e** · oracle-observed · A container's `timeout` is evaluated in the container step's own scope, without the iteration being created.
   - **Given:** `a: ret(0)`, then a sequential forloop over `[1]` with
     `timeout: {type: javascript, expr: "flow_input.iter.index + 10"}` and the
     one-step body `[b: ret(x) x = flow_input.iter.value]` (collapsed); and
@@ -3378,6 +3415,18 @@ results.a`, run with input `{"v": 7}`. "Lists" refers to a status entry's
     no iteration job is created and `l` stays not run. A collapsed loop's
     timeout, evaluated again for each body job, sees the same scope.
   - **Recorded:** [`flows/control-flow/cf-21`](../../conformance/flows/control-flow/cf-21) runs `timeout_scope_collapsed` and `timeout_scope_flows`, oracle run 40857510216.
+- **CF-21/f** · source-derived · A container's `timeout` sees an `iter` the enclosing flow's input has.
+  - **Given:** (1) CF-21/e's first flow, run with the input `{"iter":
+    {"index": 3}}`. (2) A deployed flow `[o: forloopflow(iterator: [5],
+    modules: [i: forloopflow(iterator: [1], timeout: {type: javascript,
+    expr: "flow_input.iter.index + 10"}, modules: [b: ret(x) x =
+    flow_input.iter.value]), c: ret(2)])]`, whose two-step outer body
+    runs as a child flow.
+  - **Expect:** (1) the timeout is `13` and the flow succeeds with `[1]`
+    (the body's transform sees the iteration's own `iter`). (2) The inner
+    timeout reads the outer iteration's `iter` (`index` `0`), so it is
+    `10`, and the flow succeeds with `[2]`. Neither run fails with
+    CF-21/e's error.
 
 <a id="cf-22"></a>
 ### CF-22 · `retry` on a container module
@@ -3456,16 +3505,23 @@ afterwards (a file in the worker's `/tmp` counts the runs), and the retry is
   - **Recorded:** [`flows/control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry) run `branchone_retry`, oracle run 40915682847.
 - **CF-22/h** · source-derived · A retried parallel loop re-enters from the
   last child to complete, even one that succeeded.
-  - **Given:** on one worker, `[l: forloopflow(iterator: [10, 20],
-    parallel: true, modules: [b: bun(i, p)])]` with the retry on `l`, `i =
+  - **Given:** `[l: forloopflow(iterator: [10, 20], parallel: true,
+    parallelism: 1, modules: [b: bun(i, p)])]` with the retry on `l`, `i =
     flow_input.iter.index`, `p = flow_input.iter_parent ?? null`. On its
-    first run in the outer run `b` throws at once for `i = 0` and, for `i =
-    1`, sleeps 3 s and returns `p`; on later runs it returns `p`.
+    first run in the outer run `b` throws for `i = 0` and returns `p` for
+    `i = 1`; on later runs it returns `p`. With `parallelism: 1`,
+    iteration 1 is held until iteration 0 has completed ([CF-7](control-flow.md#cf-7)),
+    so in the first attempt iteration 0 fails first and the successful
+    iteration 1 completes last, whatever the number of workers.
   - **Expect:** success with result `[{"index": 1, "value": 20}, {"index":
     1, "value": 20}]`: both re-run iterations see the `iter` of iteration
     1's child flow, which completed last although it succeeded. `l`'s entry
     lists no failed attempt. (A reading in which the base is the last
     child to fail predicts `{"index": 0, "value": 10}` in both.)
+  - **Correction 2026-10-29 (SC4 validation round 1):** the first attempt's
+    order relied on iteration 1 sleeping on one worker, which the
+    scheduler does not promise (the start order of eligible iterations is
+    open, [CF-7](control-flow.md#cf-7)); `parallelism: 1` fixes it.
 
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container
@@ -5759,6 +5815,9 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
     ```
     and a variant `b` that uses a global `Buffer` without importing it: `//native` then `export async function main() { return Buffer.from("hi").length; }`.
   - **Expect:** the bundle builds for both. `a` returns `["aGk=","undefined","string"]`: `node:buffer` is inlined as a browser polyfill, `node:fs` is an empty object, and `__dirname` was replaced by the build directory's path. `b` fails with [WR-43](languages.md#wr-43)'s exception shape, `name` `ReferenceError`, `message` `Buffer is not defined`. The bundling half was checked on Bun `1.3.10` outside Windmill with Windmill's build options; that the polyfill runs in the native runtime is not traced.
+- **WR-40/i** · source-derived · later · A Node built-in whose spelling decides the build (medium)
+  - **Given:** on a worker that serves the `nativets` tag, three inline `//native` steps: `c` with `import { spawn } from "node:child_process"; export async function main() { return typeof spawn; }`; `d`, the same with `"child_process"`; `e` with `import { test } from "node:test"; export async function main() { return typeof test; }`.
+  - **Expect:** `c` builds and returns `"undefined"` (an empty object). `d` and `e` fail before running with [WR-20](languages.md#wr-20)'s `ExecutionErr` for the program `bun build`: a message starting `exit code for "bun build": 1, last log lines:` whose tail contains `Browser build cannot import Node.js builtin: "child_process"` (for `e`: `"node:test"`) and `Failed to build node bundle`. The build outcomes were checked on Bun `1.3.10` outside Windmill with Windmill's build options; the step's error text is read from the source, not run.
 
 <a id="wr-41"></a>
 ### WR-41 · A fresh isolate per job; how arguments bind
@@ -6167,9 +6226,10 @@ Both cases run on the reference configuration, where the worker is PID 1 of its 
 - **WR-55/b** · source-derived · a timeout kills the job's whole process group, even after the script returned
   - **Given:** the WR-55/a script with `sleep 30`, and the step's `timeout: {"type":"static","value":2}`.
   - **Expect:** `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}` after about 2 s, although `main` had returned, and the `sleep` process is gone ([WR-37](languages.md#wr-37)).
-- **WR-55/c** · source-derived · no process serves two jobs on CE
-  - **Given:** a deployed Bun script `f/demo/counter` that keeps a counter at module scope and returns `{"pid": process.pid, "n": <the counter after adding 1>}`; a flow `[a: script f/demo/counter, b: script f/demo/counter]`, run twice by path on the default worker tags.
-  - **Expect:** all four step results have `n: 1`, and no `pid` repeats across steps or runs (each job has its own process; the CE image starts no dedicated worker). The `pid` values themselves are not compared.
+- **WR-55/c** · source-derived · no process serves two ordinary script jobs on CE
+  - **Given:** a deployed Bun script `f/demo/counter` that keeps a counter at module scope and returns `{"pid": process.pid, "n": <the counter after adding 1>}`; a flow `[a: script f/demo/counter, b: script f/demo/counter]` with no loop, run twice by path on the default worker tags.
+  - **Expect:** all four step results have `n: 1`, and no `pid` repeats across steps or runs (each ordinary job has its own process; the CE image starts no dedicated worker). The `pid` values themselves are not compared. A squashed loop is not covered: its runners are closed source ([Q-CF-19](control-flow.md#q-cf-19)).
+  - **Correction 2026-10-29 (SC4 validation round 1):** the title said that no process serves two jobs on CE at all; the `squash` runners are an open CE route.
 
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values
