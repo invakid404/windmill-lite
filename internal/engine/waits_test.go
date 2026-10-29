@@ -93,6 +93,7 @@ func TestTimeoutResult(t *testing.T) {
 		{`{"a": 2, "b": 1}`, 0, p + `invalid type: map, expected i32 at line 1 column 0. Value was: {"a": 2, "b": 1}`},
 		{"", 0, p + "EOF while parsing a value at line 1 column 0. Value was: "},
 		{"1 2", 0, p + "trailing characters at line 1 column 3. Value was: 1 2"},
+		{"1e400", 0, p + "number out of range at line 1 column 5. Value was: 1e400"},
 	} {
 		got, err := timeoutResult([]byte(c.text))
 		switch {

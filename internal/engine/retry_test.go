@@ -584,8 +584,20 @@ type writes struct {
 
 func (w writes) WriteCapable(s Site) bool { return w.at[s.Module] }
 
+// slowApproval is a host whose BeforeFirstWrite takes its time.
+type slowApproval struct {
+	writes
+	wait time.Duration
+}
+
+func (h slowApproval) BeforeFirstWrite(context.Context, Run, Site) error {
+	time.Sleep(h.wait)
+	return nil
+}
+
 // H4: a pre-write deadline that passes before the run's first
-// write-capable launch ends the run canceled, here during a sleep; once
+// write-capable launch ends the run canceled, here during a sleep, or
+// while the host decides on that write, which then never launches; once
 // the first write launched it no longer applies.
 func TestEnginePreWriteDeadline(t *testing.T) {
 	flow := flowOf(mod("a", "value", inputs("v", static("1")), `"sleep":`+static("0.5")), mod("b", "value", inputs("v", static("2")), `"sleep":`+static("0.5")), mod("c", "value", inputs("v", static("3")), ""))
@@ -599,5 +611,40 @@ func TestEnginePreWriteDeadline(t *testing.T) {
 	wantStatus(t, tr, conformance.RunSuccess, "3")
 	if !tr.MayHaveMutated {
 		t.Fatal("the write is not reported")
+	}
+
+	s := &scripts{}
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", ""))}, s)
+	tr = runReq(t, e, RunRequest{Hooks: slowApproval{writes{at: map[string]bool{"a": true}}, 200 * time.Millisecond}, PreWriteDeadline: time.Now().Add(50 * time.Millisecond)})
+	wantStatus(t, tr, conformance.RunCanceled, "")
+	wantCalls(t, s)
+	if a := step(t, tr, "a"); tr.MayHaveMutated || a.Ran {
+		t.Fatalf("the write launched after the deadline: %+v, mutated %t", a, tr.MayHaveMutated)
+	}
+}
+
+// JE-2: the monitor's budget is wall time, so a recording clock that
+// moves on with another run's waits does not use it up.
+func TestEngineMonitorIgnoresTheRunsClock(t *testing.T) {
+	two := inputs("v", js("1 + 1"), "w", js("2 + 2"))
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", two, ""), mod("b", "value", two, ""))}, &scripts{})
+	clock := &RecordClock{}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = clock.Wait(context.Background(), time.Hour)
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+	for range 5 {
+		wantStatus(t, runReq(t, e, RunRequest{Clock: clock}), conformance.RunSuccess, "")
 	}
 }

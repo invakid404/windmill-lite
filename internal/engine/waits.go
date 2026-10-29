@@ -363,6 +363,9 @@ func parseI32(text []byte) (int32, error) {
 			n = int32(s)
 		case k == numberSigned:
 			err = at(end, fmt.Sprintf("invalid value: integer `%d`, expected i32", s))
+		case math.IsInf(f, 0):
+			// serde_json refuses a number beyond f64's range as it reads it.
+			err = at(end, "number out of range")
 		default:
 			err = invalid(end, "floating point `"+floatDisplay(f)+"`")
 		}

@@ -972,9 +972,13 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 				if r.latch.Err() != nil {
 					return notLaunched()
 				}
-				// H4: the pre-write deadline applies until the first write.
+				// H4: the pre-write deadline applies until the first write,
+				// so one that passed while the host decided stops it.
 				if r.preWrite != nil {
 					r.preWrite.Stop()
+				}
+				if ctx.Err() != nil {
+					return notLaunched()
 				}
 			}
 			r.mu.Lock()
@@ -1292,7 +1296,10 @@ func (r *run) stopScope(x *expr.Expr, own jsonval.Value) *expr.Scope {
 // evaluations count, not hooks or waits, which Windmill does not have or
 // runs as scheduled jobs.
 func (r *run) evaluate(ctx context.Context, x *expr.Expr, site conformance.SitePath, s *expr.Scope) (jsonval.Value, error) {
-	start := r.clock.Now()
+	// The monitor's budget is wall time, where its timer runs, whatever
+	// the run's clock (a recording clock shared by several runs moves on
+	// with their waits).
+	start, wall := r.clock.Now(), time.Now()
 	var monitor *time.Timer
 	if limit := r.e.transition; limit > 0 {
 		hung := &Cancellation{Canceler: "monitor", Reason: fmt.Sprintf("Flow %s was cancelled because it was hanging in between 2 steps. Last ping: %s", r.id, rfc3339(r.pinged))}
@@ -1302,7 +1309,7 @@ func (r *run) evaluate(ctx context.Context, x *expr.Expr, site conformance.SiteP
 	if monitor != nil {
 		monitor.Stop()
 	}
-	r.spent += r.since(start)
+	r.spent += time.Since(wall)
 	r.span(site, SpanExpression, start)
 	return v, err
 }

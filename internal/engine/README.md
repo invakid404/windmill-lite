@@ -539,13 +539,16 @@ run's seed, so a fixed seed fixes them.
 `RunRequest.PreWriteDeadline` ends the run canceled, with
 `ErrPreWriteDeadline` as its context's cause and Windmill's default
 reason and canceler, when it passes before the first write-capable
-module launched (H3); after that launch it no longer applies. A flow's
+module launched (H3), also while the host's `BeforeFirstWrite` decides,
+and that module then does not launch; after that launch it no longer
+applies. A flow's
 own `timeout` is accepted and not enforced (FX-24, path 4).
 
 **The monitor of flows that hang between steps** (JE-2). Windmill's
 server cancels a flow job whose transition, the work between two jobs,
 outlives `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s). The engine counts the
-time each transition spends evaluating expressions, against
+wall time each transition spends evaluating expressions, whatever the
+run's clock, against
 `Config.TransitionTimeout` (zero means 60 s, negative disables it), and
 past it cancels the run with canceler `monitor` and a reason that begins
 as Windmill's (`Flow <id> was cancelled because it was hanging in between
@@ -597,7 +600,9 @@ and contexts (every module evaluates its own, the root's Anyhow and its
 retry, a failed transform with a negative timeout, the evaluated value
 timing the leaf), the monitor (a runaway expression, one transition at a
 time, two evaluations in one transition, disabled) and the pre-write
-deadline.
+deadline (one that passes while the host approves the first write
+included), and that the monitor's budget ignores a recording clock other
+runs move on.
 
 ## The walking skeleton
 
