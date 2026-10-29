@@ -15,7 +15,11 @@ import (
 // frame too, of its one body module, but its job runs in the flow of its
 // loop, the frame's parent, whose results context it uses.
 type frame struct {
+	// modules are the flow's module list, and failure its failure module,
+	// at cursor len(modules) (FX-1): the root's own, since no child flow
+	// runs one before N3c. sites has one more entry, the failure slot's.
 	modules []*ir.Module
+	failure *ir.Module
 	sites   []conformance.SitePath
 	// input is the flow's input, flow_input (JE-37); prev is its first
 	// module's previous_result, which is the input except in a collapsed
@@ -45,8 +49,8 @@ type frame struct {
 	parent    *frame
 	// nodes is the frame's scope of the result-by-node-id map (JE-19).
 	nodes *nodeScope
-	// jobs holds, per module, the stored result of its job when it has one
-	// (JE-18 step 2); guarded by run.mu.
+	// jobs holds, per module (the failure module last), the stored result
+	// of its job when it has one (JE-18 step 2); guarded by run.mu.
 	jobs []jsonval.Value
 	// rng shuffles the frame's unspecified orders (ADR 0001 §2). A parallel
 	// iteration has its own, seeded from its loop's frame, since it runs on
@@ -68,9 +72,10 @@ func newNodeScope(parent *nodeScope) *nodeScope {
 }
 
 // newFrame is a frame of the module list ms at site prefix: its module
-// sites carry each module's occurrence when an id repeats (OF-2, ADR 0011).
+// sites carry each module's occurrence when an id repeats (OF-2, ADR 0011),
+// and the failure slot's site, s:failure, comes after them.
 func newFrame(ms []*ir.Module, prefix conformance.SitePath) *frame {
-	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms))}
+	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1)}
 	ids := make([]string, len(ms))
 	for i, m := range ms {
 		ids[i] = m.ID
@@ -78,8 +83,21 @@ func newFrame(ms []*ir.Module, prefix conformance.SitePath) *frame {
 	for _, seg := range conformance.ModuleSegments(ids) {
 		fr.sites = append(fr.sites, prefix.Child(seg))
 	}
+	fr.sites = append(fr.sites, prefix.Child(conformance.FailureSlot()))
 	return fr
 }
+
+// moduleAt is the module at cursor i: one of the list, or the failure
+// module at len(modules) (FX-1).
+func (fr *frame) moduleAt(i int) *ir.Module {
+	if i == len(fr.modules) {
+		return fr.failure
+	}
+	return fr.modules[i]
+}
+
+// isFailure reports whether cursor i is the failure module's.
+func (fr *frame) isFailure(i int) bool { return i == len(fr.modules) }
 
 // continues reports whether the run would start something once module i
 // of the frame has completed: the next module, or what follows the frame.
@@ -112,7 +130,7 @@ func (fr *frame) stepID(i int) string {
 	if fr.collapsed != nil {
 		return fr.collapsed.ID
 	}
-	return fr.modules[i].ID
+	return fr.moduleAt(i).ID
 }
 
 // jobPath is the Windmill path of module i's job (WR-29, CF-24 item 2,
@@ -121,14 +139,14 @@ func (fr *frame) stepID(i int) string {
 // runs the lite form, where an inline script has no path of its own
 // (ADR 0001 §1).
 func (r *run) jobPath(fr *frame, i int) string {
-	l := fr.modules[i].Leaf
-	if s := r.e.prog.Scripts[l.Script]; s != nil && s.Kind != ir.InlineScript {
+	m := fr.moduleAt(i)
+	if s := r.e.prog.Scripts[m.Leaf.Script]; s != nil && s.Kind != ir.InlineScript {
 		return s.Path
 	}
 	if fr.collapsed != nil {
 		return fr.parent.path + "/loop-" + strconv.Itoa(fr.iter)
 	}
-	return fr.path + "/" + fr.modules[i].ID
+	return fr.path + "/" + m.ID
 }
 
 // recordJob records the stored result of module i's job, which results
@@ -139,7 +157,7 @@ func (r *run) recordJob(fr *frame, i int, v jsonval.Value) {
 	defer r.mu.Unlock()
 	fr.jobs[i] = v
 	if fr.collapsed == nil {
-		fr.nodes.m[fr.modules[i].ID] = v
+		fr.nodes.m[fr.moduleAt(i).ID] = v
 	}
 }
 

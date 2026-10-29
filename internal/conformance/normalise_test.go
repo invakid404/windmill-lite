@@ -207,4 +207,36 @@ func TestStripLocations(t *testing.T) {
 			t.Fatalf("an escaped literal was stripped: %v", d)
 		}
 	})
+	t.Run("chaining errors and the stop string", func(t *testing.T) {
+		// spec: FX-15/a, FX-15/b, FX-21/a, JE-35/b, FX-50
+		const eval = `QuickJS evaluation error: Error: nope is not defined\n    at <anonymous> (eval_script:1:35)\n`
+		object := func(name, msg string) string { return `{"error":{"name":"` + name + `","message":"` + msg + `"}}` }
+		str := func(msg string) string { return `{"error":"` + msg + `"}` }
+		for _, c := range []struct {
+			name, wl, oracle string
+			equal            bool
+		}{
+			{"later transition, one suffix", object("InternalError", "Error: "+eval), object("InternalError", "Error: "+eval+" @worker_flow.rs:2451:11"), true},
+			{"pickup, two prefixes and two suffixes", object("Anyhow", "Error: Error: "+eval), object("Anyhow", "Error: Error: "+eval+" @worker_flow.rs:2451:11 @worker.rs:3822:13"), true},
+			{"pickup, a typed error", object("Anyhow", "Error: Timeout value cannot be negative"), object("Anyhow", "Error: Timeout value cannot be negative @worker.rs:3822:13"), true},
+			{"the parenthesised form", object("Anyhow", "Error: not found"), object("Anyhow", "Error: not found (jobs.rs:9074)"), true},
+			{"a throwing stop_after_if", str("Error: " + eval), str("Error: " + eval + " @worker_flow.rs:2451:11"), true},
+			// One suffix per prefix, no more: a user's own text that ends
+			// like a location stays.
+			{"only as many as the prefixes", object("Anyhow", "Error: x @u.rs:1:2"), object("Anyhow", "Error: x @u.rs:1:2 @worker.rs:3822:13"), true},
+			{"fewer suffixes than prefixes", object("Anyhow", "Error: Error: x"), object("Anyhow", "Error: Error: x @worker.rs:3822:13"), false},
+			{"a typed message has no prefix", object("InternalError", "Expected an integer, found: -1"), object("InternalError", "Expected an integer, found: -1 @worker.rs:1:2"), false},
+			{"another error name", object("Error", "Error: x"), object("Error", "Error: x @worker.rs:3822:13"), false},
+		} {
+			got, oracle := observe(t, c.wl), observe(t, c.oracle)
+			d := differences(t, got, oracle, generated)
+			if (len(d) == 0) != c.equal {
+				t.Errorf("%s: differences %v", c.name, d)
+			}
+			// Only where windmill-lite generated the value.
+			if d := differences(t, got, oracle, nil); c.wl != c.oracle && len(d) == 0 {
+				t.Errorf("%s: compared equal without the rule", c.name)
+			}
+		}
+	})
 }

@@ -14,10 +14,11 @@ import (
 // here from a run's trace (ADR 0011), then normalised by the same rules
 // (OR-14) and masked by the fixture's stack and mask pointers.
 //
-//   - modules are the ids of the run's flow, in order, and the trace's
-//     child flows name theirs (a loop iteration's body, CF-1): each is a
-//     site, and a module the trace has no record of never got a job, so it
-//     is not_run, as the walker reads a flow_status entry without one;
+//   - modules are the ids of the run's flow, in order, and failure says
+//     that it has a failure module, at s:failure, and the trace's child
+//     flows name theirs (a loop iteration's body, CF-1): each is a site,
+//     and a module the trace has no record of never got a job, so it is
+//     not_run, as the walker reads a flow_status entry without one;
 //   - jobs maps the id of every invocation the run made, which steps see as
 //     WM_JOB_ID, to its site; the run's own id, WM_FLOW_JOB_ID and
 //     WM_ROOT_JOB_ID, is the root, and a child flow's id is its iteration's
@@ -27,20 +28,20 @@ import (
 //     carried and resolved_args keep the texts the trace holds: the value
 //     carried on in memory, and the arguments as the script received them.
 //     A site with no result shows no carried either: a module that failed
-//     with no job (FX-15 context 2) carries its error to the flow's result,
+//     with no job (FX-15 context 2) carries its error to what follows it,
 //     where the observation shows it;
 //   - a failed site whose job ran is a runtime error for stack masking
 //     (OR-V3 clause a), as a failed leaf that executed a script is.
 //
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's
-// result, its carried value when the trace records its origin as generated
-// or it is the same value as a generated result, and the root's result;
-// and, inside a value that aggregates others (a loop's array), the
-// generated errors the trace points to (StepRecord.ResultNested). There a
-// comparison with the oracle strips a location suffix
-// (conformance.StripLocations), and nowhere else.
-func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
+// result, its carried value when that is the same value or the engine set
+// it apart (an error stop's, a throwing stop_after_if's, a chaining error
+// at the root's first pickup), and the root's result; and, inside a value
+// that aggregates others (a loop's array), the generated errors the trace
+// points to (StepRecord.ResultNested). There a comparison with the oracle
+// strips a location suffix (conformance.StripLocations), and nowhere else.
+func observeTrace(t *engine.Trace, modules []string, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	for _, c := range t.Children {
 		ids[c.ID] = c.Site
@@ -85,45 +86,48 @@ func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance
 		if rec.Status == conformance.StepFailure && rec.Ran && st.Result != nil {
 			n.RuntimeErrors = append(n.RuntimeErrors, st.Result)
 		}
+		result := conformance.JoinPointer([]string{"steps", rec.Site.String(), "result"})
 		carried := conformance.JoinPointer([]string{"steps", rec.Site.String(), "carried"})
 		if rec.ResultOrigin.Generated() {
-			generated = append(generated, conformance.JoinPointer([]string{"steps", rec.Site.String(), "result"}))
-			// A carried value that is the same value, in whatever member
-			// order, has the result's provenance.
-			if !rec.Carried.IsZero() && !rec.CarriedOrigin.Generated() {
-				if same, err := conformance.SameJSON(rec.Carried.Producer(), rec.Result.Producer(), false); err == nil && same {
-					generated = append(generated, carried)
-				}
-			}
+			generated = append(generated, result)
 		}
-		// One that differs has its own, such as an error stop's
-		// EarlyStopError carried over a user's result; with none recorded
-		// it is never stripped.
-		if st.Carried != nil && rec.CarriedOrigin.Generated() {
-			generated = append(generated, carried)
-		}
-		result := conformance.JoinPointer([]string{"steps", rec.Site.String(), "result"})
 		for _, p := range rec.ResultNested {
 			generated = append(generated, result+p)
 		}
+		// A carried value has its own provenance when the engine set it
+		// apart from the job's result (CarriedOrigin); otherwise one that
+		// is the result, in whatever member order, has the result's. One
+		// that differs with none recorded is never stripped.
 		if st.Carried != nil {
+			gen := rec.CarriedOrigin.Generated()
+			if !gen && rec.ResultOrigin.Generated() {
+				same, err := conformance.SameJSON(rec.Carried.Producer(), rec.Result.Producer(), false)
+				gen = err == nil && same
+			}
+			if gen {
+				generated = append(generated, carried)
+			}
 			for _, p := range rec.CarriedNested {
 				generated = append(generated, carried+p)
 			}
 		}
 		steps[rec.Site] = st
 	}
-	notRun := func(prefix conformance.SitePath, modules []string) {
-		for _, seg := range conformance.ModuleSegments(modules) {
+	notRun := func(prefix conformance.SitePath, segs []conformance.Segment) {
+		for _, seg := range segs {
 			site := prefix.Child(seg)
 			if _, ok := steps[site]; !ok {
 				steps[site] = conformance.StepObservation{Status: conformance.StepNotRun}
 			}
 		}
 	}
-	notRun(conformance.SitePath{}, modules)
+	segs := conformance.ModuleSegments(modules)
+	if failure {
+		segs = append(segs, conformance.FailureSlot())
+	}
+	notRun(conformance.SitePath{}, segs)
 	for _, c := range t.Children {
-		notRun(c.Site, c.Modules)
+		notRun(c.Site, conformance.ModuleSegments(c.Modules))
 	}
 	if t.ResultOrigin.Generated() {
 		generated = append(generated, "/result")

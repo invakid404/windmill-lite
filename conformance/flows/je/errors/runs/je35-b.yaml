@@ -1,7 +1,10 @@
 # JE-35/b: recorded, the message is wrapped twice and carries two location
 # suffixes ("Error: Error: QuickJS evaluation error: … @worker_flow.rs:…
-# @worker.rs:…"), where the catalogue expects one "Error: " and one suffix
-# (reported to the semantics team).
+# @worker.rs:…"), as the corrected catalogue case says ("…<loc><loc>").
+# The recording holds both suffixes, which wltest record --check compares;
+# the claims state the prefix only, because windmill-lite writes no Rust
+# location (D14) and ADR 0011's rule strips the oracle's where
+# windmill-lite generated the value.
 spec: [JE-35/b]
 target: f/wl_je_errors/je35_b
 claims:
@@ -11,4 +14,3 @@ claims:
     equals: Anyhow
   - at: /result/error/message
     prefix: "Error: Error: QuickJS evaluation error: Error: nope is not defined"
-    contains: [" @worker_flow.rs:", " @worker.rs:"]

@@ -56,7 +56,7 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 		o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, jsonEmpty, jsonEmpty
 		o.carried = jsonEmpty
 		r.recordJob(fr, i, jsonEmpty)
-		return r.stop(ctx, fr, m, site, o)
+		return r.stop(ctx, fr, i, site, o)
 	}
 	if l.Parallel {
 		return r.parallelLoop(ctx, fr, i, prev, prevID, items, o)
@@ -384,7 +384,7 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 	default:
 		o = applyStop(s, o, arr)
 	}
-	if o.end == endFailed {
+	if o.end.failed() {
 		o.rec.Status = conformance.StepFailure
 	}
 	return o

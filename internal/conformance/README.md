@@ -6,8 +6,8 @@ E2, the expression-case format, its lifting into generated flows, and the
 claims and unit cases of recording batch E3a, and the replay table and
 replay service of stub mode, milestone E4a, the step-case format and
 its comparison, milestone C3a, and the location rule of comparisons with
-the oracle, milestone E1, which N3a extended to the flow engine's
-templates
+the oracle, milestone E1, which milestones N1b and N3a extended to the
+flow engine's templates
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
@@ -351,29 +351,33 @@ Comparing windmill-lite with the oracle adds one rule
 ([ADR 0011](../../docs/design/0011-differential-testing.md), Location
 suffixes): windmill-lite generates Windmill's messages without a Rust
 location (D14), so where windmill-lite's value is an error it generated,
-the oracle's location suffix is stripped. `StripLocations(o, at)` applies
-it to the oracle's normalised observation (an expect or a recording): at
-each pointer, a value windmill-lite's trace says it generated, an error
-of a catalogue template with a location loses it. The templates are:
+the oracle's location suffix is stripped, but only from a message that
+matches a catalogue template carrying `<loc>`. `StripLocations(o, at)`
+applies it to the oracle's normalised observation (an expect or a
+recording): at each pointer, a value windmill-lite's trace says it
+generated, these templates lose their suffixes:
 
-| Error | Message | Locations | Findings |
-|---|---|---|---|
-| `InternalErr` | `Internal: Could not add completed job …`, whose location the normaliser masked as `<loc>` (item 3) | the marker and the space before it | OR-27 |
-| `Anyhow` | `Error: …`, a pickup error | one or two trailing ` @<file>:<line>:<col>` | FX-15 contexts 2 and 3, CF-23, JE-35 (b) and (c) |
-| `InternalError` | any, a chaining error at a later transition | one trailing, when it wraps an evaluation error | FX-15 context 1, JE-35 (a) |
-| `EarlyStopError` | ``Error evaluating stop_after_all_iters_if expression `…` `` | one trailing | CF-13, JE-27 |
+| Template | Suffixes removed |
+|---|---|
+| the recognised internal error of item 3, `InternalErr` | its `<loc>` marker and the space before it |
+| a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup), whose message is Windmill's generic display ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | one ` @<file>.rs:<line>:<col>` or ` (<file>.rs:<line>)` per leading `Error: `, when the message ends in that many |
+| the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)), the same display | the same |
+| the error stop of a `stop_after_all_iters_if` that fails to evaluate ([CF-13](../../docs/semantics/control-flow.md#cf-13), milestone N3a), an `EarlyStopError` whose message quotes the expression and then gives its cause in that display | the cause's, the same way |
 
-A pointer may name the error object or a failure value `{"error":…}`.
-Nothing else changes: the pointers are the values windmill-lite
-generated, so a user's error is never stripped, nor an error stop's
-`error_message` (no template), nor a location inside a message; and user
-text never carries the marker, since the normaliser masks no location in
+So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
+`Error: <typed message><loc>` one, while a typed message with no prefix
+(the sleep messages, `Expected an integer, …`) and a message with fewer
+suffixes than prefixes keep their text, and the comparison shows it. A
+pointer may name the error object or a failure value `{"error":…}`.
+Nothing else changes: user text is never stripped, since a pointer names
+only a value windmill-lite generated (a whole value, or an entry the trace
+points to inside a loop's array, milestone N3a), and an error stop's own
+`error_message` matches no template; the normaliser masks no location in
 it and escapes a literal `<loc>` (`<<loc>`). `TestStripLocations` holds
 ADR 0011's positive case (a generated `Internal:` error compares equal to
 the oracle's with its location) and its negative one (two user errors
-that differ only in such a suffix still differ), each template's positive
-case and the negative ones above, and that an escaped literal is never
-stripped.
+that differ only in such a suffix still differ), that an escaped literal
+is never stripped, and each template's positive and negative cases.
 
 ## Comparison
 

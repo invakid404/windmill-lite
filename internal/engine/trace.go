@@ -113,10 +113,11 @@ type StepRecord struct {
 	Carried jsonval.Value
 	// ResultOrigin is who produced Result when it is an error, which decides
 	// what a comparison may normalise in it (ADR 0001 §2, OR-V3).
-	// CarriedOrigin is who produced Carried when it is an error: the same
-	// as ResultOrigin for a failed job, the engine for the EarlyStopError
-	// of an error stop carried over a step's result (FX-V2), and for the
-	// error of a module that failed with no job (FX-15 context 2).
+	// CarriedOrigin is who produced Carried when the engine set it apart
+	// from the job's result: an error stop's EarlyStopError, a throwing
+	// stop_after_if's string error (FX-V2), a chaining error at the root's
+	// first pickup, which has no job (FX-15). When Carried is the job's
+	// result, ResultOrigin is its origin.
 	ResultOrigin  Origin
 	CarriedOrigin Origin
 	// ResultNested and CarriedNested list, for a value that aggregates

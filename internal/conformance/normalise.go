@@ -34,6 +34,15 @@ const internalErrPrefix = "Internal: Could not add completed job "
 // locSuffix is a trailing Rust source location, " @<file>:<line>:<col>".
 var locSuffix = regexp.MustCompile(` @[^ @]+:[0-9]+:[0-9]+$`)
 
+// trailingLoc is one location suffix of FX-50 at the end of a message, the
+// catalogue's <loc>: " @<file>.rs:<line>:<col>", or the parenthesised form
+// " (<file>.rs:<line>)" that some not-found messages end in.
+var trailingLoc = regexp.MustCompile(`(?: @[^ @]+\.rs:[0-9]+:[0-9]+| \([^ ()]+\.rs:[0-9]+\))$`)
+
+// anyhowPrefix is the prefix each conversion into Windmill's Anyhow error
+// kind puts before a message, with a location suffix after it (FX-50).
+const anyhowPrefix = "Error: "
+
 // Value normalises one raw JSON value.
 func (n *Normaliser) Value(raw json.RawMessage) (json.RawMessage, error) {
 	if raw == nil {
@@ -188,39 +197,35 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 	return out, nil
 }
 
-// locTemplates are the catalogue's errors that the flow engine generates
-// and whose oracle messages end in Rust locations, which the normaliser
-// leaves alone (ADR 0011, Location suffixes): by error name, the prefix of
-// the message. A pickup error, named Anyhow, ends in one location or two
-// (FX-15 contexts 2 and 3, CF-23 routes 1 and 2, JE-35 (b) and (c)); a
-// chaining error at a later transition, named InternalError, in one when
-// it wraps an evaluation error (FX-15 context 1, JE-35 (a)); the error
-// stop of a stop_after_all_iters_if that fails to evaluate in one (CF-13,
-// JE-27).
-var locTemplates = map[string]string{
-	"Anyhow":         "Error: ",
-	"InternalError":  "",
-	"EarlyStopError": "Error evaluating stop_after_all_iters_if expression `",
-}
-
-// locSuffixes are the trailing Rust locations of a message, " @<file>:
-// <line>:<col>" once or more.
-var locSuffixes = regexp.MustCompile(`( @[^ @\n]+:[0-9]+:[0-9]+)+$`)
-
 // StripLocations applies the one rule that comparing windmill-lite with
 // the oracle adds to OR-14 (ADR 0011, Location suffixes; ADR 0001 §2, D14).
 // Each pointer names a value of windmill-lite's observation that
 // windmill-lite generated (an engine, harness or facade error, never a
 // user's). Where the oracle's normalised observation o holds there an
-// error of a catalogue template with a location, the location goes,
-// leaving the message windmill-lite writes without one: the marker and the
-// space before it for the recognised internal error of OR-27, whose
-// location the normaliser masked, and the trailing locations of a
-// template of locTemplates. The value at a pointer is the error object,
-// or an object whose error member is it, as a stored failure value is.
-// Nothing else is stripped: the normaliser never masks a location in a
-// user's message, and a pointer that does not resolve, or names another
-// value, is skipped.
+// error whose message matches a catalogue template that carries <loc>,
+// the location suffixes are removed, leaving the message windmill-lite
+// writes without a Rust location. The templates are:
+//
+//   - the recognised internal error of OR-27 (InternalErr, "Internal:
+//     Could not add completed job …"), whose location the normaliser
+//     masked: the marker and the space before it go;
+//   - a chaining error of FX-15 and FX-50, named InternalError (a later
+//     transition) or Anyhow (a pickup), whose message is Windmill's
+//     generic error display: one "Error: " prefix per conversion, and one
+//     location suffix per conversion at the end;
+//   - the string error of a throwing stop_after_if (FX-21), the same
+//     display;
+//   - the error stop of a stop_after_all_iters_if that fails to evaluate
+//     (CF-13, JE-27), an EarlyStopError whose message quotes the
+//     expression and then gives its cause in the same display.
+//
+// For the last three, a message (or the cause) that begins with n
+// "Error: " prefixes loses its last n suffixes, and only when it ends in n
+// of them. The value at a
+// pointer is the error object, or an object whose error member is it (or,
+// for FX-21, is the string), as a stored failure value is. Nothing else is
+// stripped: the normaliser never masks a location in a user's message, and
+// a pointer that does not resolve, or names another value, is skipped.
 func StripLocations(o Observation, at []string) (Observation, error) {
 	if len(at) == 0 {
 		return o, nil
@@ -243,26 +248,38 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 		}
 		v := tree.at(toks)
 		if v != nil && v.kind == kindObject {
-			if e := v.member("error"); e != nil && e.kind == kindObject {
+			if e := v.member("error"); e != nil && (e.kind == kindObject || e.kind == kindString) {
 				v = e
 			}
+		}
+		if v != nil && v.kind == kindString && !v.marker {
+			// FX-21: the untyped error's display, as a string.
+			stripDisplay(v)
+			continue
 		}
 		if v == nil || v.kind != kindObject {
 			continue
 		}
 		name, msg := v.member("name"), v.member("message")
-		if name == nil || name.kind != kindString || msg == nil || msg.kind != kindString {
+		if name == nil || name.kind != kindString || msg == nil || msg.kind != kindString || msg.marker {
 			continue
 		}
-		s := msg.str()
-		if prefix, ok := locTemplates[name.str()]; ok && strings.HasPrefix(s, prefix) {
-			if loc := locSuffixes.FindStringIndex(s); loc != nil {
-				*msg = jnode{kind: kindString, text: quote(s[:loc[0]])}
+		switch name.str() {
+		case "InternalErr":
+			if s := msg.str(); strings.HasPrefix(s, internalErrPrefix) && strings.HasSuffix(s, suffix) {
+				*msg = jnode{kind: kindString, text: quote(strings.TrimSuffix(s, suffix))}
 			}
-			continue
-		}
-		if name.str() == "InternalErr" && strings.HasPrefix(s, internalErrPrefix) && strings.HasSuffix(s, suffix) {
-			*msg = jnode{kind: kindString, text: quote(strings.TrimSuffix(s, suffix))}
+		case "InternalError", "Anyhow":
+			stripDisplay(msg)
+		case "EarlyStopError":
+			if s := msg.str(); strings.HasPrefix(s, allItersPrefix) {
+				if end := strings.Index(s[len(allItersPrefix):], "`: "); end >= 0 {
+					head := len(allItersPrefix) + end + len("`: ")
+					if cause, ok := strippedDisplay(s[head:]); ok {
+						*msg = jnode{kind: kindString, text: quote(s[:head] + cause)}
+					}
+				}
+			}
 		}
 	}
 	var out Observation
@@ -270,6 +287,42 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 		return o, err
 	}
 	return out, nil
+}
+
+// allItersPrefix begins the message of a stop_after_all_iters_if that
+// fails to evaluate (CF-13).
+const allItersPrefix = "Error evaluating stop_after_all_iters_if expression `"
+
+// stripDisplay removes, from a string node holding Windmill's generic error
+// display (FX-50), one trailing location suffix per leading "Error: "
+// prefix, when the text ends in that many; otherwise it leaves the node,
+// which then shows its difference.
+func stripDisplay(t *jnode) {
+	if out, ok := strippedDisplay(t.str()); ok {
+		*t = jnode{kind: kindString, text: quote(out)}
+	}
+}
+
+// strippedDisplay is s, Windmill's generic error display, without one
+// trailing location suffix per leading "Error: " prefix, and true; or
+// false when s has no such prefix or does not end in that many suffixes.
+func strippedDisplay(s string) (string, bool) {
+	n := 0
+	for rest := s; strings.HasPrefix(rest, anyhowPrefix); rest = rest[len(anyhowPrefix):] {
+		n++
+	}
+	if n == 0 {
+		return "", false
+	}
+	out := s
+	for range n {
+		loc := trailingLoc.FindStringIndex(out)
+		if loc == nil {
+			return "", false
+		}
+		out = out[:loc[0]]
+	}
+	return out, true
 }
 
 // at resolves reference tokens below t, or returns nil.
