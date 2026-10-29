@@ -1,0 +1,4 @@
+# CF-22: a while loop's first iteration fails once; the loop's retry runs
+# it again from scratch.
+target: f/cfsr/while_retry
+args: {}

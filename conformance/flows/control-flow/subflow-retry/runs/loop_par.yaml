@@ -1,0 +1,3 @@
+# CF-17, CF-7: as loop_seq, in a parallel loop.
+target: f/cfsr/loop_par
+args: {items: [p, q]}

@@ -1,0 +1,5 @@
+# CF-17, FX-27: a's child retries its own step x once and fails, so a's
+# retry runs the child again, whose x then succeeds; each flow keeps its
+# own retry state.
+target: f/cfsr/nested
+args: {v: 7}

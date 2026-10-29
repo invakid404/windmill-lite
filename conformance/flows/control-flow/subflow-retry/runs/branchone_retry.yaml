@@ -1,0 +1,4 @@
+# CF-22: a branchone's chosen branch fails once; the branchone's retry
+# runs it again.
+target: f/cfsr/branchone_retry
+args: {}

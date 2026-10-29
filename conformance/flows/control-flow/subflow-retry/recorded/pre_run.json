@@ -1,0 +1,148 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "v": null,
+      "tag": null,
+      "flow": "<job:m:a>",
+      "attempt": 0,
+      "root_flow": "<job:m:a>"
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "v": null,
+          "tag": null,
+          "flow": "<job:m:a>",
+          "attempt": 0,
+          "root_flow": "<job:m:a>"
+        }
+      },
+      "m:a/m:x": {
+        "status": "success",
+        "args": {
+          "v": null,
+          "tag": null,
+          "fails": null
+        },
+        "result": {
+          "v": null,
+          "tag": null,
+          "flow": "<job:m:a>",
+          "attempt": 0,
+          "root_flow": "<job:m:a>"
+        }
+      },
+      "m:a/r:0": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "ExecutionErr",
+            "message": "Error during isolated evaluation of expression `flow_input.missing.x`:\nQuickJS evaluation error: Error: cannot read property 'x' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:49)\n"
+          }
+        }
+      },
+      "m:a/r:0/m:x": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:b": {
+        "status": "success",
+        "args": {
+          "x": {
+            "v": null,
+            "tag": null,
+            "flow": "<job:m:a>",
+            "attempt": 0,
+            "root_flow": "<job:m:a>"
+          }
+        },
+        "result": {
+          "v": null,
+          "tag": null,
+          "flow": "<job:m:a>",
+          "attempt": 0,
+          "root_flow": "<job:m:a>"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.1 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029175657-b0d3043ae76a",
+      "revision": "b0d3043ae76a9b8a05850fa517add569350c2124",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40926159329"
+    },
+    "recorded_at": "2026-10-29T18:03:39Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:34619"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T18:03:38.927807Z",
+          "started_at": "2026-10-29T18:03:38.973022Z",
+          "completed_at": "2026-10-29T18:03:39.107375Z",
+          "duration_ms": 134
+        },
+        "m:a": {
+          "kind": "flow",
+          "created_at": "2026-10-29T18:03:38.986439Z",
+          "started_at": "2026-10-29T18:03:38.989510Z",
+          "completed_at": "2026-10-29T18:03:39.031307Z",
+          "duration_ms": 42
+        },
+        "m:a/m:x": {
+          "kind": "script",
+          "created_at": "2026-10-29T18:03:38.995405Z",
+          "started_at": "2026-10-29T18:03:38.998248Z",
+          "completed_at": "2026-10-29T18:03:39.028035Z",
+          "duration_ms": 26
+        },
+        "m:a/r:0": {
+          "kind": "flow",
+          "created_at": "2026-10-29T18:03:38.976677Z",
+          "started_at": "2026-10-29T18:03:38.979699Z",
+          "completed_at": "2026-10-29T18:03:38.982581Z",
+          "duration_ms": 3
+        },
+        "m:b": {
+          "kind": "script",
+          "created_at": "2026-10-29T18:03:39.035925Z",
+          "started_at": "2026-10-29T18:03:39.081653Z",
+          "completed_at": "2026-10-29T18:03:39.104321Z",
+          "duration_ms": 19
+        }
+      }
+    }
+  }
+}

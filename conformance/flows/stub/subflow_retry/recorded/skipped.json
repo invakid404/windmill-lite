@@ -1,0 +1,263 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "order": "o-4",
+      "ready": true
+    },
+    "steps": {
+      "m:prepare": {
+        "status": "success",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "order": "o-4",
+          "ready": true
+        }
+      },
+      "m:prepare/m:prep": {
+        "status": "success",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "skip": false
+        }
+      },
+      "m:prepare/m:tail": {
+        "status": "success",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "order": "o-4",
+          "ready": true
+        }
+      },
+      "m:prepare/m:x": {
+        "status": "success",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "extra": "done"
+        }
+      },
+      "m:prepare/r:0": {
+        "status": "failure",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "not ready",
+            "step_id": "tail"
+          }
+        }
+      },
+      "m:prepare/r:0/m:prep": {
+        "status": "success",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "skip": true
+        }
+      },
+      "m:prepare/r:0/m:tail": {
+        "status": "failure",
+        "args": {
+          "order": "o-4"
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "not ready",
+            "step_id": "tail"
+          }
+        }
+      },
+      "m:prepare/r:0/m:x": {
+        "status": "success",
+        "skipped": true,
+        "args": {
+          "previous_result": {
+            "skip": true
+          }
+        },
+        "result": {
+          "skip": true
+        }
+      }
+    },
+    "effects": [
+      {
+        "site": "m:prepare/m:prep",
+        "attempt": 0,
+        "step": "prep",
+        "job": "<job:m:prepare/r:0/m:prep>",
+        "flow": "<job:m:prepare/r:0>",
+        "root_flow": "<job:m:prepare/r:0>",
+        "root": "<job:>",
+        "args": [
+          "o-4"
+        ]
+      },
+      {
+        "site": "m:prepare/m:tail",
+        "attempt": 0,
+        "step": "tail",
+        "job": "<job:m:prepare/r:0/m:tail>",
+        "flow": "<job:m:prepare/r:0>",
+        "root_flow": "<job:m:prepare/r:0>",
+        "root": "<job:>",
+        "args": [
+          "o-4"
+        ]
+      },
+      {
+        "site": "m:prepare/m:prep",
+        "attempt": 1,
+        "step": "prep",
+        "job": "<job:m:prepare/m:prep>",
+        "flow": "<job:m:prepare>",
+        "root_flow": "<job:m:prepare>",
+        "root": "<job:>",
+        "args": [
+          "o-4"
+        ]
+      },
+      {
+        "site": "m:prepare/m:x",
+        "attempt": 0,
+        "step": "x",
+        "job": "<job:m:prepare/m:x>",
+        "flow": "<job:m:prepare>",
+        "root_flow": "<job:m:prepare>",
+        "root": "<job:>",
+        "args": [
+          "o-4"
+        ]
+      },
+      {
+        "site": "m:prepare/m:tail",
+        "attempt": 1,
+        "step": "tail",
+        "job": "<job:m:prepare/m:tail>",
+        "flow": "<job:m:prepare>",
+        "root_flow": "<job:m:prepare>",
+        "root": "<job:>",
+        "args": [
+          "o-4"
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.1 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029190942-af323df4ef1f",
+      "revision": "af323df4ef1f5593f1ebe771ff0382869ac87d6f",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40937539113"
+    },
+    "recorded_at": "2026-10-29T19:28:46Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:44661"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 608,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T19:28:45.689762Z",
+          "started_at": "2026-10-29T19:28:45.740136Z",
+          "completed_at": "2026-10-29T19:28:46.220490Z",
+          "duration_ms": 480
+        },
+        "m:prepare": {
+          "kind": "flow",
+          "created_at": "2026-10-29T19:28:45.946837Z",
+          "started_at": "2026-10-29T19:28:45.990843Z",
+          "completed_at": "2026-10-29T19:28:46.216007Z",
+          "duration_ms": 225
+        },
+        "m:prepare/m:prep": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T19:28:45.995557Z",
+          "started_at": "2026-10-29T19:28:45.998261Z",
+          "completed_at": "2026-10-29T19:28:46.031894Z",
+          "duration_ms": 30
+        },
+        "m:prepare/m:tail": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T19:28:46.124420Z",
+          "started_at": "2026-10-29T19:28:46.172341Z",
+          "completed_at": "2026-10-29T19:28:46.212637Z",
+          "duration_ms": 38
+        },
+        "m:prepare/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T19:28:46.037080Z",
+          "started_at": "2026-10-29T19:28:46.086399Z",
+          "completed_at": "2026-10-29T19:28:46.120004Z",
+          "duration_ms": 31
+        },
+        "m:prepare/r:0": {
+          "kind": "flow",
+          "created_at": "2026-10-29T19:28:45.743995Z",
+          "started_at": "2026-10-29T19:28:45.747641Z",
+          "completed_at": "2026-10-29T19:28:45.942716Z",
+          "duration_ms": 195
+        },
+        "m:prepare/r:0/m:prep": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T19:28:45.750657Z",
+          "started_at": "2026-10-29T19:28:45.753847Z",
+          "completed_at": "2026-10-29T19:28:45.790399Z",
+          "duration_ms": 33
+        },
+        "m:prepare/r:0/m:tail": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T19:28:45.854427Z",
+          "started_at": "2026-10-29T19:28:45.903879Z",
+          "completed_at": "2026-10-29T19:28:45.939480Z",
+          "duration_ms": 36
+        },
+        "m:prepare/r:0/m:x": {
+          "kind": "identity",
+          "created_at": "2026-10-29T19:28:45.795648Z",
+          "started_at": "2026-10-29T19:28:45.845630Z",
+          "completed_at": "2026-10-29T19:28:45.849838Z",
+          "duration_ms": 0
+        }
+      }
+    }
+  }
+}
