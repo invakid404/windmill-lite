@@ -95,9 +95,8 @@ and refuses any other target (the restriction of
 [0001](0001-equivalence-contract.md) §5a). Milestone NI integrates N2's
 waits and retries, the cancellation and failures with the containers of
 N3a and N3b, with its fixtures `cf-21` to `cf-28` and `waits` recorded on
-the oracle, and extends the location rule of
-[0011](0011-differential-testing.md) to values a step derives from a
-generated error.
+the oracle, and observations of a container's failed attempts as the
+walker of [0011](0011-differential-testing.md) meets them.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

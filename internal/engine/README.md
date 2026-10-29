@@ -783,7 +783,8 @@ the child's id as its job.
   context 3).
 - **Refused.** A retry with attempts or `retry_if` on a subflow step,
   whose attempts' subflows belong under the attempt's site
-  ([ADR 0011](../../docs/design/0011-differential-testing.md)), is NI's.
+  ([ADR 0011](../../docs/design/0011-differential-testing.md)): N3c left
+  it to NI, whose cases do not cover it, so it is `later`.
 
 **Failure modules in bodies (N3c).** In a flow with a failure module,
 every loop iteration and branch runs as a child flow carrying a copy of
@@ -987,7 +988,7 @@ the helpers and a helper's failure, and an engine with no platform.
 `waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
 below. The flow fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
-milestones N1a, N1b, N3a, N3b, PF2, N2, PF3 and NI).
+milestones N1a, N1b, N3a, N3b, N3c, PF2, N2, PF3 and NI).
 
 ## Waits and time
 

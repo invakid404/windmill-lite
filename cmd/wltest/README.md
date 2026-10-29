@@ -472,10 +472,7 @@ Windmill v1.767.0's image).
   checks a retried loop's failed attempt, its child flow's modules below
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
-  the copy of a body module's carried-over attempt inside that subtree;
-  `TestCompareRunDerived` checks that a
-  run's `derived` pointers strip a generated template's suffix and never
-  a user's.
+  the copy of a body module's carried-over attempt inside that subtree.
 
 ## Version
 
