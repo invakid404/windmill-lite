@@ -1,4 +1,4 @@
-# CF-25: a squashed while loop runs as an ordinary while loop; its
+# CF-25: a squashed while loop succeeds with its unsquashed result; its
 # stop_after_if breaks it after the first iteration.
 spec: [CF-25/d]
 target: f/cf25/while
