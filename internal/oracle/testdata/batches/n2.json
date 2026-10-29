@@ -1,0 +1,26 @@
+{
+  "about": "Milestone N2 of ADR 0012, engine waits and time: the catalogue cases of FX-23 to FX-29, recorded on the CE oracle by the fixtures below, which N2 wrote and whose runs its exit gate runs on windmill-lite; each case is recorded by a run or deferred with a milestone and a reason. FX-24/d and /e need a loop and gate NI; FX-24/g's in-process executor is later; the delays of FX-26/c to /e are hours long, beyond what a recording waits for, and the walker does not capture a queued job's scheduled time, so N2's unit tests check them on the recording clock (internal/engine, TestRetryDelay and TestEngineRetryDelays). TestRecordingBatches enforces it.",
+  "batch": "N2",
+  "findings": ["FX-23", "FX-24", "FX-25", "FX-26", "FX-27", "FX-28", "FX-29"],
+  "cases": [],
+  "fixtures": [
+    "conformance/flows/execution/fx-23",
+    "conformance/flows/execution/fx-24",
+    "conformance/flows/execution/fx-25",
+    "conformance/flows/execution/fx-26",
+    "conformance/flows/execution/fx-27",
+    "conformance/flows/execution/fx-28",
+    "conformance/flows/execution/fx-29"
+  ],
+  "deferred": [
+    {"case": "FX-24/d", "milestone": "NI", "reason": "a collapsed loop's timeout needs a for loop (N3a) and N2's timeout; NI is the first milestone with both"},
+    {"case": "FX-24/e", "milestone": "NI", "reason": "a parallel loop's timeout needs a for loop (N3a) and N2's timeout; NI is the first milestone with both"},
+    {"case": "FX-24/g", "milestone": "later", "reason": "an in-process executor's timeout (later); the native boundary's text is C3n's (WR-44)"},
+    {"case": "FX-26/c", "milestone": "N2", "reason": "a first delay of 9464 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"},
+    {"case": "FX-26/d", "milestone": "N2", "reason": "a delay of 21600 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"},
+    {"case": "FX-26/e", "milestone": "N2", "reason": "a second delay of 21600 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"}
+  ],
+  "parts": [],
+  "prefixes": [],
+  "contradictions": []
+}
