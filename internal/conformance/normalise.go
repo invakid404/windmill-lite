@@ -44,6 +44,10 @@ var trailingLoc = regexp.MustCompile(`(?: @[^ @]+\.rs:[0-9]+:[0-9]+| \([^ ()]+\.
 // kind puts before a message, with a location suffix after it (FX-50).
 const anyhowPrefix = "Error: "
 
+// executionErrPrefix begins the message of the worker's execution error
+// (WR-37, WR-43).
+const executionErrPrefix = "execution error:\n"
+
 // Value normalises one raw JSON value.
 func (n *Normaliser) Value(raw json.RawMessage) (json.RawMessage, error) {
 	if raw == nil {
@@ -368,12 +372,16 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 //     generic error display: one "Error: " prefix per conversion, and one
 //     location suffix per conversion at the end;
 //   - the string error of a throwing stop_after_if (FX-21), the same
-//     display.
+//     display;
+//   - the worker's execution error (ExecutionErr, "execution error:\n…"),
+//     whose internal errors (WR-37) and native transpile and load failures
+//     (WR-43) end in one location suffix: one trailing suffix goes.
 //
-// For the last two, a message that begins with n "Error: " prefixes loses
-// its last n suffixes, and only when it ends in n of them. The value at a
-// pointer is the error object, or an object whose error member is it (or,
-// for FX-21, is the string), as a stored failure value is. Nothing else is
+// For the chaining errors and the stop string, a message that begins with
+// n "Error: " prefixes loses its last n suffixes, and only when it ends in
+// n of them. The value at a pointer is the error object, or an object
+// whose error member is it (or, for FX-21, is the string), as a stored
+// failure value is. Nothing else is
 // stripped: the normaliser never masks a location in a user's message, and
 // a pointer that does not resolve, or names another value, is skipped.
 func StripLocations(o Observation, at []string) (Observation, error) {
@@ -421,6 +429,12 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 			}
 		case "InternalError", "Anyhow":
 			stripDisplay(msg)
+		case "ExecutionErr":
+			if s := msg.str(); strings.HasPrefix(s, executionErrPrefix) {
+				if loc := trailingLoc.FindStringIndex(s); loc != nil {
+					*msg = jnode{kind: kindString, text: quote(s[:loc[0]])}
+				}
+			}
 		}
 	}
 	var out Observation

@@ -156,10 +156,13 @@ export type HostHealth = Health & { oldest_abandoned_ms: number };
 
 /** How an invocation ended. An escaped one's tail is the invocation's log
  * when its frame is sent (WR-20), after print, the error the process would
- * have printed on its way out, has been added to the log. */
+ * have printed on its way out, has been added to the log. An error's
+ * origin is "harness" when the harness generated it in place of the
+ * worker's (WR-37, WR-43), so the engine records it as generated (ADR 0001
+ * §2, D14). */
 type Outcome =
   | { outcome: "ok"; body: string }
-  | { outcome: "error"; body: string }
+  | { outcome: "error"; body: string; origin?: "harness" }
   | { outcome: "escaped"; exit_code: number; print?: string }
   | { outcome: "empty" };
 
@@ -417,7 +420,7 @@ export class Runtime {
     // Windmill's worker fails the job before its process starts when the
     // entrypoint's signature does not parse (WR-7, WR-37), so the module
     // never loads.
-    if (sig?.error !== undefined) return { outcome: "error", body: signatureErrorText(sig.error, stepId()) };
+    if (sig?.error !== undefined) return { outcome: "error", body: signatureErrorText(sig.error, stepId()), origin: "harness" };
     let mod: Record<string, unknown>;
     try {
       mod = await this.load(m.script, meta);
@@ -475,7 +478,8 @@ export class Runtime {
     if (!isNative(meta)) return escaped(`windmill-lite: script ${JSON.stringify(m.script)} is not built for the native boundary`);
     const inv = { id: m.id, script: m.script, entry: m.entry, args: m.args as Record<string, unknown>, env: m.env, resources: c.resources };
     const r = await this.native.run(inv, meta, c, stepId());
-    return "ok" in r ? { outcome: "ok", body: r.ok } : { outcome: "error", body: r.error };
+    if ("ok" in r) return { outcome: "ok", body: r.ok };
+    return r.generated ? { outcome: "error", body: r.error, origin: "harness" } : { outcome: "error", body: r.error };
   }
 
   /** Loads a script's bundled module once per process (warm module state,
@@ -1011,6 +1015,9 @@ function rawBody(o: Outcome, tail: string): Record<string, unknown> {
       return { outcome: o.outcome, tail, exit_code: o.exit_code };
     case "empty":
       return { outcome: o.outcome };
+    case "error":
+      // An origin left undefined is not written.
+      return { outcome: o.outcome, body: new Raw(o.body), origin: o.origin };
     default:
       return { outcome: o.outcome, body: new Raw(o.body) };
   }

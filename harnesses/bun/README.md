@@ -340,7 +340,8 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    parse fails the step before its module loads, as Windmill's worker
    fails the job before its process starts, with
    [WR-37](../../docs/semantics/languages.md#wr-37)'s object, as an
-   `error` outcome. Metadata that cannot be read is `escaped`.
+   `error` outcome whose `origin` is `harness`. Metadata that cannot be
+   read is `escaped`.
 2. **The module** loads; a failure to load or evaluate it is `escaped`
    ([WR-19](../../docs/semantics/languages.md#wr-19)), on every invocation
    of the script, and an intercepted `process.exit` during its evaluation
@@ -513,7 +514,9 @@ this mode cannot reproduce is deviation D5 of
   the script; three `null`s for anything else. A transpile error, a
   signature that did not parse, a `//proxy` header (an EE feature) and a
   load or link failure are the worker's `execution error:` object. Both
-  are `error` outcomes.
+  are `error` outcomes; the second kind's `result` frame says `origin`
+  `harness`, as a Bun step's unparsable signature does (WR-37), so that the
+  engine records the message as generated (ADR 0004, FU5).
 - **Process-level errors** of a native invocation are its own: by its
   async context (a timer), by the realm of the promise (a rejection nobody
   handles, which has no context) or directly (a throw from a microtask it
@@ -537,7 +540,10 @@ against a local endpoint, settlement, the error shapes, and the boundary:
 every WR-45 class realm-facing, what each way of handing an object over
 gives, and what it counts as untracked), and
 `test/fit.test.ts` how a warning's message
-is cut to fit `max_message`. `test/sender.test.ts`
+is cut to fit `max_message`, and `test/describe.test.ts` the text the
+harness's own messages give an error: Bun 1.3.10 builds the stack of an
+error that a garbage collection formats before anything read it without
+the message, which `describe` puts back. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation, partial writes and `whenFlushed`.
 `test/context.test.ts` checks the environment view's rules in one process

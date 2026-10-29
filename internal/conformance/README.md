@@ -397,6 +397,7 @@ generated, these templates lose their suffixes:
 | the recognised internal error of item 3, `InternalErr` | its `<loc>` marker and the space before it |
 | a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup), whose message is Windmill's generic display ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | one ` @<file>.rs:<line>:<col>` or ` (<file>.rs:<line>)` per leading `Error: `, when the message ends in that many |
 | the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)), the same display | the same |
+| the worker's execution error, `ExecutionErr` with a message that begins `execution error:\n`, whose internal errors ([WR-37](../../docs/semantics/languages.md#wr-37)) and native transpile and load failures ([WR-43](../../docs/semantics/languages.md#wr-43)) end in a location (milestone FU5) | one trailing suffix |
 
 So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
 `Error: <typed message><loc>` one, while a typed message with no prefix

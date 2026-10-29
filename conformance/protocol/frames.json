@@ -156,6 +156,29 @@
       "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"error\",\"body\":{\"message\":\"boom\",\"name\":\"Error\",\"stack\":\"Error: boom\"},\"settled\":true}"
     },
     {
+      "case": "result-error-generated",
+      "title": "an error the harness generated in place of the worker's names its origin (WR-37, WR-43; D14)",
+      "message": {
+        "t": "result",
+        "id": "i1",
+        "outcome": "error",
+        "body": {
+          "message": "execution error:\nProxy is an EE feature",
+          "name": "ExecutionErr",
+          "step_id": "a"
+        },
+        "origin": "harness",
+        "settled": true
+      },
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"error\",\"body\":{\"message\":\"execution error:\\nProxy is an EE feature\",\"name\":\"ExecutionErr\",\"step_id\":\"a\"},\"origin\":\"harness\",\"settled\":true}"
+    },
+    {
+      "case": "result-ok-origin-dropped",
+      "title": "only an error outcome carries an origin: an ok result's is dropped",
+      "message_text": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"origin\":\"harness\",\"settled\":true}",
+      "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"settled\":true}"
+    },
+    {
       "case": "result-escaped",
       "title": "an escaped failure carries its tail and exit code",
       "message": {
@@ -815,6 +838,14 @@
       "title": "a result outcome outside the enumeration",
       "frames": [
         "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"done\",\"settled\":true}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "bad-origin",
+      "title": "a result origin other than harness",
+      "frames": [
+        "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"error\",\"body\":{},\"origin\":\"user\",\"settled\":true}"
       ],
       "error": "bad_field"
     },

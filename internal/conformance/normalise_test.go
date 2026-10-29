@@ -206,6 +206,35 @@ func TestStripLocations(t *testing.T) {
 			}
 		}
 	})
+	t.Run("execution errors", func(t *testing.T) {
+		// spec: WR-37, WR-43, D14
+		object := func(name, msg string) string {
+			return `{"error":{"message":"` + msg + `","name":"` + name + `","step_id":"a"}}`
+		}
+		const load = `execution error:\nError: failed to load module: SyntaxError: Cannot declare a const variable twice: 'BASE_URL'.`
+		const internal = `execution error:\nInternal: Failed to parse $jsonvar value as JSON: unexpected end of hex escape at line 1 column 9`
+		for _, c := range []struct {
+			name, wl, oracle string
+			equal            bool
+		}{
+			{"a native load failure", object("ExecutionErr", load), object("ExecutionErr", load+" @windmill-runtime-nativets/src/lib.rs:890:21"), true},
+			{"a native transpile failure", object("ExecutionErr", `execution error:\nError: Expected ',', got '{'`), object("ExecutionErr", `execution error:\nError: Expected ',', got '{' @lib.rs:399:9`), true},
+			{"an internal error", object("ExecutionErr", internal), object("ExecutionErr", internal+" @variables.rs:300:5"), true},
+			{"no suffix to strip", object("ExecutionErr", `execution error:\nProxy is an EE feature`), object("ExecutionErr", `execution error:\nProxy is an EE feature`), true},
+			// One suffix, no more.
+			{"two suffixes", object("ExecutionErr", load), object("ExecutionErr", load+" @a.rs:1:2 @b.rs:3:4"), false},
+			{"not an execution error's message", object("ExecutionErr", "Error: x"), object("ExecutionErr", "Error: x @worker.rs:1:2"), false},
+			{"another error name", object("Error", load), object("Error", load+" @lib.rs:890:21"), false},
+		} {
+			got, oracle := observe(t, c.wl), observe(t, c.oracle)
+			if d := differences(t, got, oracle, generated); (len(d) == 0) != c.equal {
+				t.Errorf("%s: differences %v", c.name, d)
+			}
+			if d := differences(t, got, oracle, nil); c.wl != c.oracle && len(d) == 0 {
+				t.Errorf("%s: compared equal without the rule", c.name)
+			}
+		}
+	})
 }
 
 // TestNormaliseText normalises response bodies as text: the spelling is

@@ -85,7 +85,7 @@ step without failing the others.
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`; facade origin and log limits with the milestones that use them) or `reject` (`code`, `message`) | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
-| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
+| `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
@@ -138,7 +138,7 @@ The engine maps a `result` to Windmill's stored value with the rules of
 | `outcome` | Harness saw | Stored error |
 |---|---|---|
 | `ok` | the entrypoint returned | none; the result text is `body` |
-| `error` | the wrapper caught a throw | `body` is the [WR-18](../semantics/languages.md#wr-18) object (Bun), or the native boundary's error object (D5) |
+| `error` | the wrapper caught a throw, or the harness failed the step as the worker would before running it | `body` is the [WR-18](../semantics/languages.md#wr-18) object (Bun), or the native boundary's error object (D5); with `origin` `harness` it is an error the harness generated: [WR-37](../semantics/languages.md#wr-37)'s signature error, or a native job's worker-side `execution error:` of [WR-43](../semantics/languages.md#wr-43) |
 | `escaped` | `throw null`/`undefined`, a module evaluation or import failure, a failing error handler, a non-zero `process.exit`, or an attributed process-level error (below) | [WR-20](../semantics/languages.md#wr-20): `ExecutionErr`, `exit code for "bun run": <code>, last log lines:\n<tail>`, with `exit_code` |
 | `empty` | `process.exit(0)`, or no result | [WR-V2](../semantics/languages.md#wr-v2): `InternalErr` without `step_id` |
 
@@ -762,6 +762,18 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     fresh process whose invocation it stops waiting for. Case
     `watchdog/finite-cpu` holds in `fresh` and `warm`
     (`TestBunWatchdogFiniteCPU`).
+- Milestone FU5 added `origin` to the `result` frame. An `error` outcome's
+  object is the step code's, except where the harness fails the step as
+  Windmill's worker does before or around running it: WR-37's signature
+  error, and a native job's transpile error, load failure and `//proxy`
+  refusal (WR-43's second form). Those are messages windmill-lite
+  generates in place of the worker's, so the engine must record them as
+  generated for [0001](0001-equivalence-contract.md) §2 to strip the
+  oracle's Rust location from them (D14). The harness knows which errors
+  it wrote, so it says so; the engine cannot tell a Bun step's generated
+  object from a user's throw of the same shape. The field is optional and
+  only an `error` outcome carries it, so a decoder that ignores it reads
+  the frame as before.
 
 ## Spec IDs relied on
 
