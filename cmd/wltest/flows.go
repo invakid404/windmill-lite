@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -253,35 +254,65 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		byName[r.Name] = i
 	}
 	for _, batch := range conformance.RunBatches(f.Runs) {
-		var wg sync.WaitGroup
+		var live []conformance.Run
 		for _, r := range batch {
 			res := &results[byName[r.Name]]
 			t := b.targets[r.Target]
 			switch {
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
-				continue
 			case r.RunsAndWaits():
 				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
-				continue
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
-				continue
 			case t.unsupported != "":
 				res.unsupported = t.unsupported
-				continue
 			case t.problem != "":
 				res.problems = []string{t.problem}
-				continue
+			default:
+				live = append(live, r)
 			}
-			// Runs of one group are concurrent outer runs (OR-15).
+		}
+		// Runs of one group are concurrent outer runs (OR-15), and one test
+		// of them (ADR 0011): a group runs whole or not at all.
+		group := batch[0].Group
+		if group != "" && len(live) < len(batch) {
+			why := groupUnrunnable(group, batch, results, byName)
+			for _, r := range live {
+				results[byName[r.Name]].unsupported, results[byName[r.Name]].problems = why.unsupported, why.problems
+			}
+			continue
+		}
+		var g *runGroup
+		if group != "" {
+			g = newRunGroup(group, len(live))
+		}
+		var wg sync.WaitGroup
+		for _, r := range live {
+			res := &results[byName[r.Name]]
+			var gm *groupMember
+			if g != nil {
+				gm = g.member(r.Name)
+			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t, effects)
+				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), b.targets[r.Target], effects, gm)
 			}()
 		}
 		wg.Wait()
+		if g != nil {
+			names := make([]string, len(live))
+			for i, r := range live {
+				names[i] = r.Name
+			}
+			err := g.conclude(names, func(run string) bool { return len(results[byName[run]].problems) > 0 })
+			for _, r := range live {
+				if res := &results[byName[r.Name]]; err != nil && len(res.problems) == 0 {
+					res.problems = []string{err.Error()}
+				}
+			}
+		}
 	}
 	if d := diag.String(); d != "" {
 		for i := range results {
@@ -291,6 +322,33 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 	}
 	return results
+}
+
+// groupUnrunnable is what becomes of the runs of group that could start
+// when another run of it could not (batch is the group's runs): the group
+// is unsupported when a run of it is, and fails as a whole when a run of
+// it failed before it started (group_member_failed).
+func groupUnrunnable(group string, batch []conformance.Run, results []runResult, byName map[string]int) runResult {
+	for _, r := range batch {
+		if res := results[byName[r.Name]]; res.unsupported != "" {
+			return runResult{unsupported: "run " + r.Name + " of group " + group + " is unsupported: " + res.unsupported}
+		}
+	}
+	for _, r := range batch {
+		if len(results[byName[r.Name]].problems) > 0 {
+			return runResult{problems: []string{`{"error":"group_member_failed","group":` + jsonText(group) + `,"run":` + jsonText(r.Name) + `}`}}
+		}
+	}
+	return runResult{}
+}
+
+// jsonText is s as a JSON string, as refusals quote their members.
+func jsonText(s string) string {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s) // a string always encodes
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func failRuns(rs []runResult, problem string) []runResult {
@@ -607,8 +665,11 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 // when the fixture has neither effects nor stub mode), the run's effects
 // are observed as the oracle's are: the sink's, then, in stub mode, each
 // answered stub call, once the calls agree with the trace
-// (conformance.CheckReplay).
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target, es *effectServer) []string {
+// (conformance.CheckReplay). A run of a group (gm, nil for a run of no
+// group) is held at its first module until the group's other runs are in
+// flight, and its span, from submission to end, is recorded for the
+// group's check.
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target, es *effectServer, gm *groupMember) []string {
 	cctx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)
@@ -621,12 +682,15 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	}
 	id := newUUID()
 	var hooks engine.Hooks
-	var fx *runEffects
-	if es != nil {
-		fx = es.openRun(id, f.Stub, r.Replay)
-		hooks = fx
+	if es != nil || gm != nil {
+		h := &runHooks{grp: gm}
+		if es != nil {
+			h.fx = es.openRun(id, f.Stub, r.Replay)
+		}
+		hooks = h
 	}
 	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
+	submitted := time.Now()
 	tr, err := e.Run(rctx, engine.RunRequest{
 		ID:    id,
 		Path:  r.Target,
@@ -634,6 +698,9 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 		Exec:  exec,
 		Hooks: hooks,
 	})
+	if gm != nil {
+		gm.ended(submitted, time.Now())
+	}
 	var effects []json.RawMessage
 	var calls []conformance.ReplayCall
 	if es != nil {
@@ -649,7 +716,7 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	// is still compared, so that what made its steps fail is shown too.
 	var problems []string
 	if f.Stub {
-		if err := checkStub(tr, fx.leafSites(), calls); err != nil {
+		if err := checkStub(tr, t.prog, r.Target, calls); err != nil {
 			problems = append(problems, "stub: "+err.Error())
 		}
 		for _, c := range calls {

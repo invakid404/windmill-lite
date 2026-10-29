@@ -476,9 +476,14 @@ their root jobs were not in flight together.
   locator. The check after a run (`conformance.CheckReplay`) is one
   function that both sides apply: to the oracle's walk, and to
   windmill-lite's trace. On the trace, a leaf's job is any record's job
-  that is no child flow's, and a script leaf's job that launched but
-  never reached an invocation (FX-14) is walked too, as it is on the
-  oracle; the module-start hook (H6) says which modules run a script. A
+  that is no child flow's. A script job that launched and failed before
+  its invocation (FX-14, WR-12, FX-38) is walked too, as it is on the
+  oracle. An identity job is not: one of a mocked or skipped script
+  module, told apart by the module the site names in the compiled
+  program and by the record. The runs of a group are held at their first
+  module, through the module-start hook (H6), until all of them are in
+  flight, and fail together as on the oracle (`group_member_failed`,
+  `group_not_concurrent`, by each run's span). A
   fixture with `roots` and effects stays unsupported, because the
   default dispatcher's runs get no run hooks. The effect sink also made
   the probe catalogue's effect runs (OR-16/a) checkable on

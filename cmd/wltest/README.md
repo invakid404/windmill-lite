@@ -271,7 +271,17 @@ a few at a time (`flows.go`):
    to the same pool and its calls are attributed; without `roots` no
    dispatch target is in the bundle. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
-   (`conformance.RunBatches`); `cancel_after_ms` cancels a run with the
+   (`conformance.RunBatches`, `groups.go`). A group is one test of
+   concurrent outer runs (ADR 0011), so it runs whole or not at all: when
+   one of its runs is unsupported, so are the others, and when one fails
+   before it starts, the others fail with `group_member_failed`. Each run
+   of a group waits at its first module, through the module-start hook
+   (H6), until every run of the group is in flight, or for 10 s at most.
+   So the runs are in flight together by construction, not by the
+   scheduler's chance. After the runs, as `record` does on the oracle, the
+   group fails as a whole when one of its runs failed (`group_member_failed`)
+   or when one started after another ended (`group_not_concurrent`), by
+   each run's span from submission to end. `cancel_after_ms` cancels a run with the
    reason and the canceler the oracle's cancellation names
    (`oracle.CancelAfterReason`, `wltest: cancel_after_ms`, by
    `oracle.CancelAfterCanceler`, `admin`), which the engine's `Canceled`
@@ -376,9 +386,8 @@ own: the oracle's effect sink (`oracle.Sink`,
 them, on a free loopback port. Every invocation of a run gets the
 server's URL as `WL_EFFECT_SINK` through the engine's
 invocation-environment hook (H12), which also records the site each job
-(`WM_JOB_ID`) launches at. The module-start hook (H6) records which
-modules run a script. Host hooks expose both seams (milestone F2a), so a
-run made through `wl` can use the same wiring. The sink keeps
+(`WM_JOB_ID`) launches at. Host hooks expose that seam (milestone F2a),
+so a run made through `wl` can use the same wiring. The sink keeps
 the effects whose `root` is the run's id (`WM_ROOT_JOB_ID`), so the runs
 of a group stay apart, and refuses any other root with 409 (OR-16/c).
 In stub mode the runs run the stubbed copy of the sync tree that `record`
@@ -393,10 +402,17 @@ call must have been answered, with no `replay_miss` or
 (`StepRecord.Job`): a failed attempt `k` at `<site>/r:<k>`, the last
 attempt at `<site>`. Every leaf job of the trace must have called;
 `stub_not_called` names the sites that did not. A subflow step's job is
-its child flow's, and a superseded record is not walked. A script leaf's
-job that launched but never reached an invocation (an input transform
-that failed, FX-14) has no id, but is walked as the oracle walks it: at
-its attempt site, a job that never called. When this check fails, the
+its child flow's, and a superseded record is not walked. A record that
+ran with no job is an identity job, which runs no script, or a script job
+that launched and failed before its invocation (an input transform's
+failure, FX-14; no entrypoint, WR-12; a canceled scheduled job, FX-38).
+The oracle walks the latter as a script job that never called, so this
+does too, at its attempt site. It tells them apart with the module the
+site names in the compiled program: a script module that is not mocked
+(FX-18), whose record is not flagged skipped (FX-16, FX-17) and whose job
+failed. A job that launched with no invocation and did not fail is an
+identity job, such as a skipped failure module's, which the trace does
+not flag skipped (FX-32). When this check fails, the
 run's observation is still compared, so the failing steps are shown too.
 The run's
 effects are then the sink's in arrival order, followed by each answered
@@ -529,16 +545,33 @@ Windmill v1.767.0's image).
   a loop on codebase scripts (`stub/codebase`), on windmill-lite. Each run
   must match its `expect` and, with the `expect` dropped, the oracle's
   recording, effects included, in `fresh` and in `warm`. A run without a
-  recording fails the test without stopping it. `TestStubModeAndEffects` checks the
-  failures: a table without an attempt the run makes fails it with
-  `replay_miss`, an effect that differs is shown, and a tree the generator
-  refuses fails with `stub_unsupported`. It also checks that a plain sink
-  fixture observes its own effect while a foreign root gets 409 and is not
-  observed. `TestRunEffectsLocates`, `TestEffectServerKeepsRunsApart` and
-  `TestCheckStub` need no Bun. They check the hooks, the per-run routing
-  of effects and stub calls, and the trace side of the replay check:
-  attempt sites, a subflow step's job, an identity job, a superseded job,
-  and a script leaf's attempt that launched with no invocation.
+  recording fails the test without stopping it. Its group, `scopes` runs
+  `r` and `t`, must be in flight together. `TestStubModeAndEffects` checks
+  the failures and the identity jobs:
+  - a table without an attempt the run makes fails the run with `replay_miss`;
+  - an effect that differs is shown;
+  - a mocked and a skipped script module need no call;
+  - a script job whose input transform failed (FX-14) fails the run as
+    never having called;
+  - a group whose other run failed fails with `group_member_failed`;
+  - a tree the generator refuses fails with `stub_unsupported`;
+  - a plain sink fixture observes its own effect while a foreign root gets
+    409 and is not observed.
+
+  `TestRunEffectsLocates`, `TestEffectServerKeepsRunsApart`,
+  `TestCheckStub`, `TestModuleAt` and `TestRunGroup` need no Bun. They check:
+  - the hook;
+  - the per-run routing of effects and stub calls;
+  - the trace side of the replay check: attempt sites, a subflow step's job,
+    identity jobs (an identity module, a mocked one with a failed
+    `stop_after_if`, a skipped one, a skipped failure module), a superseded
+    job, and a script leaf's attempt that launched with no invocation;
+  - the module a site names, through bodies, branches, subflows, repeated
+    ids and slots;
+  - the group: a run held until the other is in flight, runs one after the
+    other failing with `group_not_concurrent`, a failed run with
+    `group_member_failed`, and a run that starts no module holding up no
+    other.
 
 ## Version
 
