@@ -61,6 +61,11 @@ type RunOptions struct {
 	// Seed fixes the run's shuffles of the orders Windmill leaves
 	// unspecified (ADR 0001 §2) and its retry jitter; zero draws one.
 	Seed uint64
+	// Hooks are the flow run's host hooks (ADR 0008); nil means none. They
+	// are the engine's hook interface, which only this module's own tools
+	// (wltest check's effect sink, stub replay and run groups) implement
+	// until milestone F2a gives hosts Go callbacks for them.
+	Hooks engine.Hooks
 }
 
 // Result is how a run ended.
@@ -125,7 +130,7 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 	}
 	calls := rt.exec.begin(id)
 	defer rt.exec.end(id)
-	tr, err := rt.eng.Run(ctx, engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed})
+	tr, err := rt.eng.Run(ctx, engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Hooks: opts.Hooks})
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,5 @@
+version: v2
+locks:
+  f/wl_stub_cb/cjs/reserve: 612f20cfc8f35bbf9b7336c158af9c33e42809df55172f0dc897f557bd1e5f18
+  f/wl_stub_cb/esm/confirm: 7e9aa4d278099734ea8e41879a3d0e9eff0da78f9ea18e1d5c660b8c38af9f56
+  f/wl_stub_cb/order.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a

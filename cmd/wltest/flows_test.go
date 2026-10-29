@@ -328,7 +328,7 @@ func TestObserveTrace(t *testing.T) {
 			},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, nil, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{}, nil)
+	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, nil, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func TestObserveTrace(t *testing.T) {
 		{Site: site("a"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, ResultOrigin: engine.OriginHarness,
 			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`{"error":{"name":"InternalErr","message":"m"}}`), Carried: v(`{"error":{"name":"InternalErr","message":"m"}}`)},
 	}}
-	got, generated, err = observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, generated, err = observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestObserveTraceRetries(t *testing.T) {
 	// The executor saw every invocation at its module's site; the records
 	// name the attempt's job by its own.
 	jobs := map[string]conformance.SitePath{jobA0: site("a"), jobA: site("a"), jobB: site("b")}
-	got, _, err := observeTrace(tr, []string{"a", "b", "b-v"}, []bool{false, false, true}, false, jobs, conformance.CompareSpec{}, nil)
+	got, _, err := observeTrace(tr, []string{"a", "b", "b-v"}, []bool{false, false, true}, false, jobs, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestObserveTraceRetries(t *testing.T) {
 
 	// A listed attempt with no record is the engine's fault, reported.
 	tr.Steps = tr.Steps[:1]
-	if _, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil); err == nil {
+	if _, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil, nil); err == nil {
 		t.Fatal("a listed attempt with no record was observed")
 	}
 }
@@ -568,7 +568,7 @@ func TestObserveContainerAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +618,7 @@ func TestObserveNestedAttemptCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,7 +661,7 @@ func TestObserveChildFlows(t *testing.T) {
 			{Site: p("m:p"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Carried: v(`{"error":{"name":"Anyhow","message":"Error: x"}}`), CarriedOrigin: engine.OriginEngine},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestObserveNestedGenerated(t *testing.T) {
 		{[]string{"/1"}, []string{"/result/0/error/message", "/steps/m:l/result/0/error/message"}},
 		{nil, []string{"/result/0/error/message", "/result/1/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/result/1/error/message"}},
 	} {
-		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, false, nil, conformance.CompareSpec{}, nil)
+		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -758,7 +758,7 @@ func TestObserveIncludedResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, generated, err := observeTrace(tr, []string{"l"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, generated, err := observeTrace(tr, []string{"l"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -858,7 +858,7 @@ func TestCarriedLocation(t *testing.T) {
 		{"carried is another value", trace(engine.OriginEngine, other), expect(withLoc(msg + " here")), false, []string{"/steps/m:a/carried/error/message"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil)
+			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -895,7 +895,7 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 		Site: conformance.SitePath{}.Child(conformance.Module("a")), Status: conformance.StepSuccess, Module: conformance.ModuleFailure, Ran: true,
 		RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`1`), Carried: v(str), CarriedOrigin: engine.OriginEngine,
 	}}}
-	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, true, nil, conformance.CompareSpec{}, nil)
+	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, true, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +914,7 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 		t.Fatalf("problems %q", p)
 	}
 	// Without a failure module there is no s:failure site.
-	got, _, err = observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, _, err = observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if _, ok := got.Steps[conformance.SitePath{}.Child(conformance.FailureSlot())]; err != nil || ok {
 		t.Fatalf("s:failure without a failure module (%v)", err)
 	}
@@ -946,7 +946,7 @@ func TestObserveDeclaredCopies(t *testing.T) {
 		// that differs from the site's error: neither counts.
 		{At: "/steps/s:failure/result/undeclared", Of: "s:failure"}, {At: "/result/own", Of: "m:p"},
 	}
-	got, generated, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{}, copies)
+	got, generated, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{}, copies, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -954,7 +954,7 @@ func TestObserveDeclaredCopies(t *testing.T) {
 	if !slices.Equal(generated, want) {
 		t.Fatalf("generated %q, want %q", generated, want)
 	}
-	if _, undeclared, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{}, nil); err != nil || len(undeclared) != 0 {
+	if _, undeclared, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{}, nil, nil); err != nil || len(undeclared) != 0 {
 		t.Fatalf("generated with no declaration %q (%v)", undeclared, err)
 	}
 	reference := func(text string) conformance.Run {
@@ -993,7 +993,7 @@ func TestObserveUserValueEqualToAGeneratedError(t *testing.T) {
 			{Site: conformance.SitePath{}.Child(conformance.Module("b")), Status: conformance.StepFailure, Module: conformance.ModuleFailure,
 				Carried: v(`{"error":{"name":"Anyhow","message":"` + msg + `"}}`), CarriedOrigin: engine.OriginEngine},
 		}}
-	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -135,16 +136,12 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	for i, r := range f.Runs {
 		results[i] = runResult{fixture: f.Dir, run: r.Name}
 	}
-	whole := ""
-	switch {
-	case f.Stub:
-		whole = "stub mode on windmill-lite is milestone E4b's"
-	case f.Oracle.Effects:
-		whole = "the effect sink is not injected on windmill-lite yet (ADR 0011, Effects)"
-	}
-	if whole != "" {
+	if len(f.Roots) > 0 && (f.Stub || f.Oracle.Effects) {
+		// The default dispatcher's runs (milestone PF3) run without a
+		// run's hooks, so their jobs would get no WL_EFFECT_SINK, while on
+		// the oracle every job gets it.
 		for i := range results {
-			results[i].unsupported = whole
+			results[i].unsupported = "a fixture with roots gets no effect sink in its dispatched runs yet (ADR 0011, Effects)"
 		}
 		return results
 	}
@@ -154,9 +151,31 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	defer os.RemoveAll(work)
 
-	b, err := fc.build(ctx, f, work)
+	tree := f.SyncTree()
+	if f.Stub {
+		// Stub mode (ADR 0011, milestone E4b): the runs run the stubbed
+		// copy of the tree that wltest record pushes to the oracle, every
+		// script body replaced by a stub that asks the replay service.
+		root, err := syncfolder.Find(tree)
+		if err != nil {
+			return failRuns(results, "stub: "+err.Error())
+		}
+		tree = filepath.Join(work, "stubbed")
+		if _, err := oracle.StubTree(root, tree); err != nil {
+			return failRuns(results, "stub: "+err.Error())
+		}
+	}
+	b, err := fc.build(ctx, f, tree, work)
 	if err != nil {
 		return failRuns(results, "build: "+err.Error())
+	}
+	var effects *effectServer
+	if f.Stub || f.Oracle.Effects {
+		// The fixture's effect sink and replay service (ADR 0011).
+		if effects, err = newEffectServer(); err != nil {
+			return failRuns(results, "effect sink: "+err.Error())
+		}
+		defer effects.Close()
 	}
 	var diag syncBuffer
 	var rt *wl.Runtime
@@ -181,35 +200,65 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		byName[r.Name] = i
 	}
 	for _, batch := range conformance.RunBatches(f.Runs) {
-		var wg sync.WaitGroup
+		var live []conformance.Run
 		for _, r := range batch {
 			res := &results[byName[r.Name]]
 			t := b.targets[r.Target]
 			switch {
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
-				continue
 			case r.RunsAndWaits():
 				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
-				continue
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
-				continue
 			case t.unsupported != "":
 				res.unsupported = t.unsupported
-				continue
 			case t.problem != "":
 				res.problems = []string{t.problem}
-				continue
+			default:
+				live = append(live, r)
 			}
-			// Runs of one group are concurrent outer runs (OR-15).
+		}
+		// Runs of one group are concurrent outer runs (OR-15), and one test
+		// of them (ADR 0011): a group runs whole or not at all.
+		group := batch[0].Group
+		if group != "" && len(live) < len(batch) {
+			why := groupUnrunnable(group, batch, results, byName)
+			for _, r := range live {
+				results[byName[r.Name]].unsupported, results[byName[r.Name]].problems = why.unsupported, why.problems
+			}
+			continue
+		}
+		var g *runGroup
+		if group != "" {
+			g = newRunGroup(group, len(live))
+		}
+		var wg sync.WaitGroup
+		for _, r := range live {
+			res := &results[byName[r.Name]]
+			var gm *groupMember
+			if g != nil {
+				gm = g.member(r.Name)
+			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, rt, t)
+				res.problems = fc.runOne(ctx, f, r, rt, b.targets[r.Target], effects, gm)
 			}()
 		}
 		wg.Wait()
+		if g != nil {
+			names := make([]string, len(live))
+			for i, r := range live {
+				names[i] = r.Name
+			}
+			err := g.conclude(names, func(run string) bool { return len(results[byName[run]].problems) > 0 })
+			for _, r := range live {
+				if res := &results[byName[r.Name]]; err != nil && len(res.problems) == 0 {
+					res.problems = []string{err.Error()}
+				}
+			}
+		}
 	}
 	if d := diag.String(); d != "" {
 		for i := range results {
@@ -225,6 +274,33 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 // run on.
 func (fc *flowChecker) harnessRuntime() string {
 	return filepath.Join(fc.repo, "harnesses", "bun", "runtime")
+}
+
+// groupUnrunnable is what becomes of the runs of group that could start
+// when another run of it could not (batch is the group's runs): the group
+// is unsupported when a run of it is, and fails as a whole when a run of
+// it failed before it started (group_member_failed).
+func groupUnrunnable(group string, batch []conformance.Run, results []runResult, byName map[string]int) runResult {
+	for _, r := range batch {
+		if res := results[byName[r.Name]]; res.unsupported != "" {
+			return runResult{unsupported: "run " + r.Name + " of group " + group + " is unsupported: " + res.unsupported}
+		}
+	}
+	for _, r := range batch {
+		if len(results[byName[r.Name]].problems) > 0 {
+			return runResult{problems: []string{`{"error":"group_member_failed","group":` + jsonText(group) + `,"run":` + jsonText(r.Name) + `}`}}
+		}
+	}
+	return runResult{}
+}
+
+// jsonText is s as a JSON string, as refusals quote their members.
+func jsonText(s string) string {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s) // a string always encodes
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func failRuns(rs []runResult, problem string) []runResult {
@@ -264,8 +340,9 @@ type target struct {
 // failed.
 var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLanguage: true, ir.ErrPinnedHash: true}
 
-// build compiles each run's target flow alone, and opens its program on
-// the engine, to sort the targets it can run from those it cannot; then it
+// build compiles each run's target flow alone from the sync tree at tree
+// (the fixture's, or its stubbed copy in stub mode), and opens its program
+// on the engine, to sort the targets it can run from those it cannot; then it
 // builds one bundle below work with bundle.Build (ADR 0010), whose
 // contract's roots are the targets it can run and the fixture's other
 // roots, and the engine version wl's.
@@ -274,8 +351,8 @@ var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLang
 // build problem of a script it reaches) is that target's: the bundle is
 // built again without it. Only a folder that does not load, or a build
 // that fails as a whole, fails the fixture.
-func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work string) (*fixtureBundle, error) {
-	root, err := syncfolder.Find(f.SyncTree())
+func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, work string) (*fixtureBundle, error) {
+	root, err := syncfolder.Find(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -495,8 +572,15 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 
 // runOne runs one run on the runtime and compares its observation. A run's
 // cancel_after_ms cancels it with the reason and the canceler the oracle's
-// cancellation names (FX-38).
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, rt *wl.Runtime, t *target) []string {
+// cancellation names (FX-38). With the fixture's effect server (es, nil
+// when the fixture has neither effects nor stub mode), the run's effects
+// are observed as the oracle's are: the sink's, then, in stub mode, each
+// answered stub call, once the calls agree with the trace
+// (conformance.CheckReplay). A run of a group (gm, nil for a run of no
+// group) is held at its first module until the group's other runs are in
+// flight, and its span, from submission to end, is recorded for the
+// group's check. Both go through the run's hooks (wl.RunOptions.Hooks).
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, rt *wl.Runtime, t *target, es *effectServer, gm *groupMember) []string {
 	cctx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)
@@ -507,7 +591,25 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 		})
 		defer stop.Stop()
 	}
-	res, err := rt.Run(rctx, r.Target, r.ArgsOrEmpty(), wl.RunOptions{ID: newUUID()})
+	id := newUUID()
+	opts := wl.RunOptions{ID: id}
+	if es != nil || gm != nil {
+		h := &runHooks{grp: gm}
+		if es != nil {
+			h.fx = es.openRun(id, f.Stub, r.Replay)
+		}
+		opts.Hooks = h
+	}
+	submitted := time.Now()
+	res, err := rt.Run(rctx, r.Target, r.ArgsOrEmpty(), opts)
+	if gm != nil {
+		gm.ended(submitted, time.Now())
+	}
+	var effects []json.RawMessage
+	var calls []conformance.ReplayCall
+	if es != nil {
+		effects, calls = es.closeRun(id)
+	}
 	if err != nil {
 		return []string{"run: " + err.Error()}
 	}
@@ -515,6 +617,19 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
 	tr := res.Trace
+	// A run whose calls disagree with its trace fails, and its observation
+	// is still compared, so that what made its steps fail is shown too.
+	var problems []string
+	if f.Stub {
+		if err := checkStub(tr, t.prog, r.Target, calls); err != nil {
+			problems = append(problems, "stub: "+err.Error())
+		}
+		for _, c := range calls {
+			if c.Effect != nil {
+				effects = append(effects, c.Effect)
+			}
+		}
+	}
 	// Every job the run's steps ran, superseded attempts' included, which
 	// the normaliser replaces with its site's placeholder (OR-14).
 	jobs := map[string]conformance.SitePath{}
@@ -523,11 +638,12 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 			jobs[rec.Job] = rec.Site
 		}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, jobs, f.Compare, r.Copies)
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, jobs, f.Compare, r.Copies, effects)
 	if err != nil {
-		return []string{"observe: " + err.Error()}
+		return append(problems, "observe: "+err.Error())
 	}
-	return append(compareRun(f, r, got, generated), checkDelays(tr, r.Delays)...)
+	problems = append(problems, compareRun(f, r, got, generated)...)
+	return append(problems, checkDelays(tr, r.Delays)...)
 }
 
 // checkDelays checks a run's delays on windmill-lite's side (JE-28, FX-23,

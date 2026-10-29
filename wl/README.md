@@ -82,7 +82,11 @@ compiling.
 `Kind: KindScript` the root script, as a script job (WA-4), with `args`, a
 JSON object (empty means `{}`). `RunOptions.ID` is the run's job id (a new
 UUID by default) and `Seed` fixes the shuffles of the orders Windmill leaves
-unspecified and the retry jitter. An error means the run could not start:
+unspecified and the retry jitter. `Hooks` are a flow run's host hooks
+([ADR 0008](../docs/design/0008-host-hooks.md)): the engine's hook
+interface, which only this module's own tools implement (`wltest check`'s
+effect sink, stub replay and run groups) until milestone F2a gives hosts
+Go callbacks for them. An error means the run could not start:
 no such target, or arguments that are not an object or cannot be stored.
 
 The context bounds the run: when it ends, the run ends canceled, with the

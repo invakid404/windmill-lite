@@ -10,7 +10,8 @@ end to end (milestone N1a), with the for loops of milestone N3a, the
 while loops and branches of N3b, the platform providers of milestone PF2
 (`providers.go`), the job registry, flow user state, object store and
 dispatcher of milestone PF3, the containers' waits, retries and
-cancellation of milestone NI, and, since milestone F1, through the public
+cancellation of milestone NI, the effect sink and stub mode of milestone
+E4b (`effects.go`), and, since milestone F1, through the public
 [wl](../../wl/README.md) library in `warm` and `fresh`. This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
@@ -224,7 +225,8 @@ For each fixture (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
 loaded by [internal/conformance](../../internal/conformance/README.md#fixtures)),
 a few at a time (`flows.go`):
 
-1. **Build.** It reads the sync tree with
+1. **Build.** It reads the sync tree (in stub mode its stubbed copy, see
+   Effects and stub mode below) with
    [internal/syncfolder](../../internal/syncfolder/README.md) and compiles
    each run's target flow with [internal/ir](../../internal/ir/README.md),
    the target as the only root, and opens its program on the engine, to
@@ -273,9 +275,21 @@ a few at a time (`flows.go`):
    a process of its own. The engine invokes each step with its boundary, a
    native one included (C3n). Runs go in name
    order, a `group` at its first run's place with its runs concurrent
-   (`conformance.RunBatches`), each with `Runtime.Run`; `cancel_after_ms`
-   cancels a run's context with a `wl.Cancellation` naming the reason and
-   the canceler the oracle's cancellation names
+   (`conformance.RunBatches`, `groups.go`), each with `Runtime.Run`. A
+   group is one test of
+   concurrent outer runs (ADR 0011), so it runs whole or not at all: when
+   one of its runs is unsupported, so are the others, and when one fails
+   before it starts, the others fail with `group_member_failed`. Each run
+   of a group waits at its first module, through the module-start hook
+   (H6, passed as `wl.RunOptions.Hooks`), until every run of the group is
+   in flight, or for 10 s at most.
+   So the runs are in flight together by construction, not by the
+   scheduler's chance. After the runs, as `record` does on the oracle, the
+   group fails as a whole when one of its runs failed (`group_member_failed`)
+   or when one started after another ended (`group_not_concurrent`), by
+   each run's span from submission to end. `cancel_after_ms` cancels a
+   run's context with a `wl.Cancellation` naming the reason and the
+   canceler the oracle's cancellation names
    (`oracle.CancelAfterReason`, `wltest: cancel_after_ms`, by
    `oracle.CancelAfterCanceler`, `admin`), which the engine's `Canceled`
    result quotes ([FX-38](../../docs/semantics/execution.md#fx-38)), and a
@@ -371,8 +385,53 @@ a few at a time (`flows.go`):
    side reads the recording's provenance. A run
    with nothing to compare fails.
 
-A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
-(milestone E4b), a fixture with effects (the effect sink), a script run
+**Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
+`oracle: {effects: true}` or `stub: true` gets an effect server of its
+own: the oracle's effect sink (`oracle.Sink`,
+[OR-16](../../docs/semantics/oracle.md#or-16)) with the replay service
+(`conformance.ReplayService`) at `/replay` below it, as `record` serves
+them, on a free loopback port. Every invocation of a run gets the
+server's URL as `WL_EFFECT_SINK` through the engine's
+invocation-environment hook (H12), which also records the site each job
+(`WM_JOB_ID`) launches at. The hooks go to the run as
+`wl.RunOptions.Hooks` (the engine's hook interface, until milestone F2a
+gives hosts Go callbacks for that seam). The sink keeps
+the effects whose `root` is the run's id (`WM_ROOT_JOB_ID`), so the runs
+of a group stay apart, and refuses any other root with 409 (OR-16/c).
+In stub mode the runs run the stubbed copy of the sync tree that `record`
+pushes (`oracle.StubTree`, written to the fixture's work directory and
+built instead of the tree), and each run's `replay` table answers its
+stubs. The service locates a stub's job at the site the hook recorded:
+the module's site, never an attempt, since the service counts attempts
+itself (ADR 0011). After the run, `conformance.CheckReplay`, the check
+`record` applies to its walk, holds the calls against the trace. Each
+call must have been answered, with no `replay_miss` or
+`replay_unresolved`. Each must have resolved where the trace put its job
+(`StepRecord.Job`): a failed attempt `k` at `<site>/r:<k>`, the last
+attempt at `<site>`. Every leaf job of the trace must have called;
+`stub_not_called` names the sites that did not. A subflow step's job is
+its child flow's, and a superseded record is not walked. A record that
+ran with no job is an identity job, which runs no script, or a script job
+that launched and failed before its invocation (an input transform's
+failure, FX-14; no entrypoint, WR-12; a canceled scheduled job, FX-38).
+The oracle walks the latter as a script job that never called, so this
+does too, at its attempt site. It tells them apart with the module the
+site names in the compiled program: a script module that is not mocked
+(FX-18), whose record is not flagged skipped (FX-16, FX-17) and whose job
+failed. A job that launched with no invocation and did not fail is an
+identity job, such as a skipped failure module's, which the trace does
+not flag skipped (FX-32). When this check fails, the
+run's observation is still compared, so the failing steps are shown too.
+The run's
+effects are then the sink's in arrival order, followed by each answered
+call (`{site, attempt, step, job, flow, root_flow, root, args}`), as the
+oracle lists them. They are normalised with the observation's job ids
+and compared like the rest of it. A tree the stub generator refuses
+(`stub_unsupported`) fails the fixture's runs.
+
+A run is `unsupported` when windmill-lite cannot run it yet: a run of a
+fixture that has `roots` and effects or stub mode, because the default
+dispatcher's runs get no run hooks and so no `WL_EFFECT_SINK`; a script run
 (`kind: script`), a run-and-wait run (`submit: run_wait_result`, whose
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
@@ -429,7 +488,7 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI and F1:
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b and F1:
   every run the flow suite requires passes in `warm` and in `fresh`,
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API). `testdata/flowsuite.json` lists them in
@@ -438,8 +497,10 @@ Windmill v1.767.0's image).
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there; recording batch E3e listed the runs of its fixtures
-  that windmill-lite already passes, and FU5 the `oracle/nul` runs that
-  N1b's engine passes. A required run stays required. The test runs every
+  that windmill-lite already passes, FU5 the `oracle/nul` runs that
+  N1b's engine passes, and E4b the stub runs and the runs of the probe
+  catalogue (`oracle/probes`, a fixture with effects) that the effect sink
+  made checkable. A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log
@@ -487,6 +548,40 @@ Windmill v1.767.0's image).
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
   the copy of a body module's carried-over attempt inside that subtree.
+- `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
+  ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
+  inside a loop, a collapsed body, nested loops, a named subflow and a
+  parallel loop, and two concurrent outer runs), plus E4b's retry inside
+  a loop on codebase scripts (`stub/codebase`), on windmill-lite. Each run
+  must match its `expect` and, with the `expect` dropped, the oracle's
+  recording, effects included, in `fresh` and in `warm`. A run without a
+  recording fails the test without stopping it. Its group, `scopes` runs
+  `r` and `t`, must be in flight together. `TestStubModeAndEffects` checks
+  the failures and the identity jobs:
+  - a table without an attempt the run makes fails the run with `replay_miss`;
+  - an effect that differs is shown;
+  - a mocked and a skipped script module need no call;
+  - a script job whose input transform failed (FX-14) fails the run as
+    never having called;
+  - a group whose other run failed fails with `group_member_failed`;
+  - a tree the generator refuses fails with `stub_unsupported`;
+  - a plain sink fixture observes its own effect while a foreign root gets
+    409 and is not observed.
+
+  `TestRunEffectsLocates`, `TestEffectServerKeepsRunsApart`,
+  `TestCheckStub`, `TestModuleAt` and `TestRunGroup` need no Bun. They check:
+  - the hook;
+  - the per-run routing of effects and stub calls;
+  - the trace side of the replay check: attempt sites, a subflow step's job,
+    identity jobs (an identity module, a mocked one with a failed
+    `stop_after_if`, a skipped one, a skipped failure module), a superseded
+    job, and a script leaf's attempt that launched with no invocation;
+  - the module a site names, through bodies, branches, subflows, repeated
+    ids and slots;
+  - the group: a run held until the other is in flight, runs one after the
+    other failing with `group_not_concurrent`, a failed run with
+    `group_member_failed`, and a run that starts no module holding up no
+    other.
 
 ## Version
 
