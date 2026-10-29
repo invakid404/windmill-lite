@@ -10,18 +10,18 @@ directory. `Compile` runs the textual stages of an expression, and
 expression's program on an `Engine`, the QuickJS-ng backend of milestone
 B1a in [internal/expr/quickjs](quickjs/README.md): Windmill's preludes,
 the expression in its wrapper, the serialisation of its value, and
-Windmill's error texts. Nothing outside this package calls it yet.
-[internal/ir](../ir/README.md) still writes each expression with only its
-site and text; the engine milestone N1a decides whether the IR or the
-engine, when a bundle opens, calls `Compile`, and gives the evaluator its
-scopes.
+Windmill's error texts. Milestone N1a wired both in:
+[internal/ir](../ir/README.md) calls `Compile` for every expression of a
+program, so `ir.json` carries the textual stages, and the engine
+([internal/engine](../engine/README.md)) prepares a `Pipeline` for each
+program it opens and gives the evaluator each site's scope.
 
 ## Contracts
 
 | Name | What it is | Implemented by |
 |---|---|---|
 | `SiteKind` | the expression sites of [JE-22](../../docs/semantics/expressions.md#je-22) (the suspend site is left out, because `suspend` is rejected at load); `Predicate` marks the boolean sites of [JE-24](../../docs/semantics/expressions.md#je-24) | this package |
-| `Expr`, `Shortcut`, `Mode` | a compiled expression as the IR carries it ([ADR 0002](../../docs/design/0002-ir-and-loader.md)): the text as written, the trimmed text, the shortcuts its text allows ([JE-6](../../docs/semantics/expressions.md#je-6) to [JE-9](../../docs/semantics/expressions.md#je-9)), the mode ([JE-13](../../docs/semantics/expressions.md#je-13)), the bound names ([JE-10](../../docs/semantics/expressions.md#je-10)) and the engine source; its JSON form (snake-case names, the site and mode by name, empty parts omitted) is the one the IR's `ir.json` holds | `Compile` (B2a), from the site and the text that [internal/ir](../ir/README.md) sets |
+| `Expr`, `Shortcut`, `Mode` | a compiled expression as the IR carries it ([ADR 0002](../../docs/design/0002-ir-and-loader.md)): the text as written, the trimmed text, the shortcuts its text allows ([JE-6](../../docs/semantics/expressions.md#je-6) to [JE-9](../../docs/semantics/expressions.md#je-9)), the mode ([JE-13](../../docs/semantics/expressions.md#je-13)), the bound names ([JE-10](../../docs/semantics/expressions.md#je-10)) and the engine source; its JSON form (snake-case names, the site and mode by name, empty parts omitted) is the one the IR's `ir.json` holds | `Compile` (B2a), which [internal/ir](../ir/README.md) calls for each expression site |
 | `Engine`, `Program`, `Input`, `Exception`, `Limits` | the JavaScript engine behind a Go interface ([ADR 0003](../../docs/design/0003-semantics-placement.md)): compile once, evaluate on a fresh runtime with host strings, host functions and preludes (global scripts that run first, B2b), one attempt's limits | B1a: [internal/expr/quickjs](quickjs/README.md) |
 | `Evaluator`, `Scope`, `Results`, `Helpers` | what the flow interpreter calls at an expression site: the scope of [JE-22](../../docs/semantics/expressions.md#je-22), the results lookups of [JE-18](../../docs/semantics/expressions.md#je-18) and [JE-19](../../docs/semantics/expressions.md#je-19), and the `variable`, `resource` and `flow_user_state` helpers of [JE-20](../../docs/semantics/expressions.md#je-20) | `Pipeline` (B2a, B2b); the engine provides `Scope` and `Results`, and the platform milestones `Helpers` |
 | `EvalError`, `ErrOutOfMemory`, `ErrTooDeep`, `ErrRewritePanic` | a failed evaluation with Windmill's text, and its cause | `Pipeline` (B2b, FU3) |
@@ -122,8 +122,8 @@ JE-6 to JE-8 answer the scope's texts as they are, so the form the engine
 puts there for a value read from the database is observable too:
 [JE-44](../../docs/semantics/expressions.md#je-44)'s table of texts gives
 it, and `Scope`'s documentation lists it. The flow input's members are in
-jsonb's printed form, and `previous_result` after a loop is a compact array
-with re-printed numbers.
+jsonb's printed form, which the engine writes with `DatabaseText`, and
+`previous_result` after a loop is a compact array with re-printed numbers.
 
 When no shortcut fires, the expression's program runs on the engine with
 these bindings (JE-10):

@@ -5,7 +5,7 @@
       "spec": "OF-10",
       "variant": "kinds",
       "provenance": "source-derived",
-      "note": "An ai input is kept for the engine, which leaves it out of the arguments (FX-7). Expressions keep their text as written; the textual pipeline is B2a's (JE-5 to JE-15).",
+      "note": "An ai input is kept for the engine, which leaves it out of the arguments (FX-7). Each expression carries its text as written and the expression pipeline's textual stages, compiled once by the compiler (JE-5 to JE-15; milestone N1a).",
       "title": "transform kinds and their sites",
       "given": {
         "files": {
@@ -26,7 +26,10 @@
                 "type": "javascript",
                 "expr": {
                   "site": "sleep",
-                  "text": "1"
+                  "text": "1",
+                  "trimmed": "1",
+                  "mode": "expression",
+                  "source": "(async function() { return 1; })()"
                 }
               },
               "/leaf/inputs": [
@@ -48,7 +51,19 @@
                     "type": "javascript",
                     "expr": {
                       "site": "input_transform",
-                      "text": " flow_input.x "
+                      "text": " flow_input.x ",
+                      "trimmed": "flow_input.x",
+                      "shortcut": {
+                        "flow_key": {
+                          "env": false,
+                          "key": "x"
+                        }
+                      },
+                      "mode": "expression",
+                      "binds": [
+                        "flow_input"
+                      ],
+                      "source": "(async function() { return flow_input.x; })()"
                     }
                   }
                 },
@@ -66,7 +81,10 @@
               "/forloop/iterator/expr/site": "iterator",
               "/forloop/parallelism/expr": {
                 "site": "parallelism",
-                "text": "2"
+                "text": "2",
+                "trimmed": "2",
+                "mode": "expression",
+                "source": "(async function() { return 2; })()"
               }
             }
           }

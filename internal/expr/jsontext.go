@@ -123,6 +123,11 @@ func walk(text []byte, path []string) ([]byte, bool) {
 	return cur, true
 }
 
+// DatabaseText returns jsonb's printed form of a stored text, with a space
+// after every : and , outside strings: the text a value read from the
+// database has (JE-44). The engine writes the flow input's members in it.
+func DatabaseText(stored []byte) []byte { return databaseText(stored) }
+
 // databaseText returns jsonb's text output for stored text: the stored
 // text with a space after every : and , outside strings. The JE-9 lookup
 // returns this text (JE-44), and a site that quotes its value shows the
