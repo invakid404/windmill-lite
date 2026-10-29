@@ -174,7 +174,9 @@ its entry's settings and the shims the scan wrote; its runs go to the
 harness as any other's. With `--node` (default `WL_NODE`; empty skips
 it), each run of a **CommonJS** codebase case also runs on Node, as
 Windmill runs such a bundle (deviation D13,
-[WR-50](../../docs/semantics/languages.md#wr-50)): in a fresh job
+[WR-50](../../docs/semantics/languages.md#wr-50)), unless its header makes
+it native, which Windmill gives to the native runtime whatever its
+bundle's format (WR-50/c, `onNode`): in a fresh job
 directory laid out in Windmill's order: a placeholder `package.json` of
 `{}`, then the bundle as `main.js` and the entry's assets at their paths,
 so an asset named `package.json` replaces the placeholder and its `type`

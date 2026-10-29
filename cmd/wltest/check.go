@@ -270,7 +270,7 @@ func (sc *stepChecker) runFile(ctx context.Context, f *conformance.StepFile) []c
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			results[i].problems, results[i].diag = sc.runCase(ctx, c, out, digest, caseID(f, c))
-			if wrapper != "" && c.CommonJS() {
+			if wrapper != "" && onNode(c) {
 				results[i].problems = append(results[i].problems, sc.runNodeCase(ctx, c, out, caseID(f, c), wrapper, work)...)
 			}
 		}()
@@ -581,14 +581,24 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 	return problems, rec
 }
 
-// hasCommonJS reports whether a step file has a CommonJS codebase case.
+// hasCommonJS reports whether a step file has a case that also runs on
+// Node (onNode).
 func hasCommonJS(f *conformance.StepFile) bool {
 	for i := range f.Cases {
-		if f.Cases[i].CommonJS() {
+		if onNode(&f.Cases[i]) {
 			return true
 		}
 	}
 	return false
+}
+
+// onNode reports whether a case also runs on Node, where Windmill runs it
+// (D13): a CommonJS codebase script, unless its boundary is native, which
+// Windmill gives to the native runtime whatever its bundle's format
+// (WR-50/c).
+func onNode(c *conformance.StepCase) bool {
+	_, b := language(c)
+	return c.CommonJS() && b == engine.BoundaryBun
 }
 
 // nodeDriver runs one invocation of a CommonJS codebase bundle on Node,

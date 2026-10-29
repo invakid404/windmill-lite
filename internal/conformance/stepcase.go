@@ -111,7 +111,9 @@ type StepCase struct {
 
 // CommonJS reports whether the case is a codebase script built as
 // CommonJS: a codebases entry whose format is not esm (WR-47), which
-// Windmill runs on Node and windmill-lite on Bun (D13).
+// Windmill runs on Node and windmill-lite on Bun (D13), unless its header
+// makes it native (WR-50/c), which the runner tells by the compiler's
+// rule.
 func (c *StepCase) CommonJS() bool {
 	if c.Codebase == nil {
 		return false
