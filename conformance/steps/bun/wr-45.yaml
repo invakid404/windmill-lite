@@ -32,17 +32,21 @@ cases:
     variant: base-url-and-names
     provenance: policy
     title: both base URLs are the facade's origin, and process.env holds nothing but the job's variables
-    note: The facade origin is the one wltest check gives the harness; on Windmill it is the worker's internal base URL.
+    note: >-
+      The facade origin is the loopback one wltest check gives the harness,
+      whose port the facade picks (milestone PF1); on Windmill it is the
+      worker's internal base URL. The job's variables are those of PF1's job
+      identity.
     language: nativets
     script: |
-      export function main() { return [process.env.BASE_URL, Object.keys(process.env).sort()]; }
+      export function main() { return [/^http:\/\/127\.0\.0\.1:[0-9]+$/.test(process.env.BASE_URL), Object.keys(process.env).sort()]; }
     runs:
       - args: '{}'
         expect:
           status: success
           result:
-            - "http://127.0.0.1:9"
-            - [BASE_INTERNAL_URL, BASE_URL, WM_FLOW_JOB_ID, WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_ID, WM_JOB_PATH, WM_ROOT_FLOW_JOB_ID, WM_ROOT_JOB_ID, WM_WORKSPACE]
+            - true
+            - [BASE_INTERNAL_URL, BASE_URL, WM_BASE_URL, WM_EMAIL, WM_FLOW_JOB_ID, WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_ID, WM_JOB_PATH, WM_PERMISSIONED_AS, WM_ROOT_FLOW_JOB_ID, WM_ROOT_JOB_ID, WM_STATE_PATH, WM_TOKEN, WM_USERNAME, WM_WORKSPACE]
   - spec: WR-45
     variant: own-copy
     provenance: source-derived

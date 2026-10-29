@@ -61,7 +61,12 @@ the expression cases on it. Milestone N1b adds the engine's errors:
 `continue_on_error`, the failure module and recovery, chaining errors, the
 error shapes, the final result and the cancellation outcome, with the
 location rule of [0011](0011-differential-testing.md) extended to the
-chaining errors' suffixes.
+chaining errors' suffixes. Milestone PF1 is the platform facade of
+[0007](0007-platform-interface.md) in
+[internal/platform/facade](../../internal/platform/facade/README.md): the
+router behind the stock client, attribution over the intercepted `fetch`
+and loopback TCP, the 501 policy, and job identity in
+[internal/platform](../../internal/platform/README.md).
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

@@ -136,6 +136,32 @@ func TestFramesAboutOneInvocationKeepOrder(t *testing.T) {
 	}
 }
 
+// Milestone PF1: a platform call is about the invocation its inv names, so
+// a result queued behind its large platform call waits for it, and the
+// facade has accepted the call when the result arrives; another
+// invocation's result is not held back.
+func TestResultWaitsForItsPlatformCall(t *testing.T) {
+	c, peer := connPair(t)
+	for _, m := range []Message{
+		PlatformRequest{ID: "p1", Inv: "i1", Method: "POST", URL: "http://127.0.0.1:1/api/x", Headers: map[string]string{}, Body: []byte(strings.Repeat("z", 3*PartChunk))},
+		Result{ID: "i1", Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true},
+		Result{ID: "i2", Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`2`)), Settled: true},
+	} {
+		if err := c.send(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &frameStream{r: peer, asm: newAssembler(DefaultMaxMessage)}
+	var got []string
+	for range 3 {
+		m := r.next(t)
+		got = append(got, m.Type()+":"+invocationOf(m))
+	}
+	if strings.Join(got, " ") != "result:i2 platform:i1 result:i1" {
+		t.Fatalf("order %v", got)
+	}
+}
+
 type frameStream struct {
 	r   io.Reader
 	asm *assembler

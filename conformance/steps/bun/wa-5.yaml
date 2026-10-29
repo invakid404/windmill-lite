@@ -1,0 +1,31 @@
+finding: WA-5
+scope: core
+note: >-
+  Milestone PF1: WM_STATE_PATH, part of the job identity of ADR 0007. A step
+  case runs as step a of the flow f/wl_step/flow, or, with step_id "", as a
+  script job at its own path; the catalogue's paths (f/t/state, u/bob/s)
+  become the step level's. No schedule triggers a windmill-lite run
+  (ADR 0001 §3), so the trigger part is always "user".
+cases:
+  - spec: WA-5/a
+    provenance: source-derived
+    title: a flow step, run manually, has <flow path>/<step id>_user
+    script: |
+      export function main() {
+        return process.env.WM_STATE_PATH;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: f/wl_step/flow/a_user}
+  - spec: WA-5/c
+    provenance: source-derived
+    title: a standalone script, run manually, has <script path>/user
+    path: f/wl_step/s
+    step_id: ""
+    script: |
+      export function main() {
+        return process.env.WM_STATE_PATH;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: f/wl_step/s/user}
