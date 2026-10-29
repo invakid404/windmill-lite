@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,6 +52,7 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 	if err := unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0); err != nil {
 		t.Skipf("prctl(PR_SET_CHILD_SUBREAPER): %v", err)
 	}
+	traceOps(t)
 	noZombies := func(t *testing.T) {
 		t.Helper()
 		waitFor(t, "no zombie child of the engine's", func() bool { return len(zombieChildren()) == 0 })
@@ -165,6 +168,63 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 			t.Fatalf("the outcome came after %s: the orphan was not reaped when it exited", took)
 		}
 		noZombies(t)
+	})
+}
+
+// opsTrace records the engine's process operations in this subprocess, so
+// that a failure shows what the engine saw and did.
+var opsTrace struct {
+	sync.Mutex
+	lines []string
+	start time.Time
+}
+
+func tracef(format string, args ...any) {
+	opsTrace.Lock()
+	defer opsTrace.Unlock()
+	opsTrace.lines = append(opsTrace.lines, fmt.Sprintf("%6dms ", time.Since(opsTrace.start).Milliseconds())+fmt.Sprintf(format, args...))
+}
+
+// traceOps wraps the process operations with tracef, for the rest of this
+// subprocess, which runs this test alone, before any process starts.
+func traceOps(t *testing.T) {
+	opsTrace.start = time.Now()
+	gm, ig, au, sg, rp := groupMembers, isGuard, argsUnread, signalGroup, reapPID
+	groupMembers = func(pgids []int) map[int][]groupMember {
+		out := gm(pgids)
+		tracef("members %v: %v", pgids, out)
+		return out
+	}
+	isGuard = func(pid int, token string, script bool) bool {
+		ok := ig(pid, token, script)
+		b, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+		tracef("isGuard %d %s script=%v: %v (%q)", pid, token, script, ok, b)
+		return ok
+	}
+	argsUnread = func(pid int) bool {
+		ok := au(pid)
+		tracef("argsUnread %d: %v", pid, ok)
+		return ok
+	}
+	signalGroup = func(pgid int) {
+		tracef("signal %d", pgid)
+		sg(pgid)
+	}
+	reapPID = func(pid int) bool {
+		ok := rp(pid)
+		tracef("reap %d: %v", pid, ok)
+		return ok
+	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			opsTrace.Lock()
+			defer opsTrace.Unlock()
+			lines := opsTrace.lines
+			if len(lines) > 400 {
+				lines = lines[:400]
+			}
+			t.Logf("engine operations:\n%s", strings.Join(lines, "\n"))
+		}
 	})
 }
 

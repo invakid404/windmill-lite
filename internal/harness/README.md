@@ -184,7 +184,12 @@ a member other than the leader runs and reads no arguments
 (`processArgsUnread`: as in the middle of an exec, when
 `/proc/<pid>/cmdline` reads empty), is `undecided`: the watcher keeps the
 group as it was, and `end` looks again, `endRetry` apart, up to
-`endTries` times (200 ms), before it gives the group up.
+`endTries` times (200 ms), before it gives the group up. A listing is not
+taken at one instant (it lists the processes that exist as it starts and
+reads each in turn), so the prologue can run its course during the one
+`newChildGroup` takes, the leader gone before it is read and the guardian
+forked after the listing started; an empty listing is taken again, and
+the second shows the guardian.
 `continues` takes the group for the original while the guardian is among
 its members, or, without one, while a member seen before is still there;
 otherwise the group is given up for good and never signalled. A group

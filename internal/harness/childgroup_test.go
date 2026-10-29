@@ -327,6 +327,23 @@ func TestChildGroupGuardian(t *testing.T) {
 			t.Fatalf("signalled %v, held %d", got, len(inv.children))
 		}
 	})
+	// The first listing started before the prologue forked anything and
+	// read the leader after it exited, so it shows no member; the second
+	// shows the guardian and what the command left (review round 5's CI).
+	t.Run("a listing that missed the prologue", func(t *testing.T) {
+		f.set(4242)
+		f.mu.Lock()
+		f.hold = func() { f.set(4242, m(6000, 2), m(5000, 3)) }
+		f.mu.Unlock()
+		g, ok := newChildGroup(4242, "tk")
+		if !ok {
+			t.Fatal("the group was dropped")
+		}
+		killChildGroups([]*childGroup{g})
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+	})
 	// The engine first finds the prologue's subshell, which carries the
 	// token; it exits, and so does the step's command, at once, before the
 	// engine saw the guardian: the guardian, which carries the token from

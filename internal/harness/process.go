@@ -895,9 +895,20 @@ var (
 // right after the child started, with the members it has then and the
 // guardian's token, if any. ok is false when it has no member: there is
 // nothing to own.
+//
+// A listing is not taken at one instant: it lists the processes that exist
+// as it starts and reads each in turn, and the prologue can run its course
+// meanwhile, the leader exiting before it is read and the guardian forked
+// after the listing started, so that it shows neither. An empty listing is
+// taken again: once the first has ended without the leader, the step's
+// command has run, so the guardian, forked before it, is in the second
+// (review round 5's CI).
 func newChildGroup(pid int, token string) (g *childGroup, ok bool) {
 	g = &childGroup{pgid: pid, token: token, since: time.Now()}
 	now := groupMembers([]int{pid})[pid]
+	if len(now) == 0 {
+		now = groupMembers([]int{pid})[pid]
+	}
 	if len(now) == 0 {
 		return nil, false
 	}
