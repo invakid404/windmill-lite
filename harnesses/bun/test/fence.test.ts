@@ -4,8 +4,11 @@
 // suite (cmd/wltest) and the protocol exchanges (internal/harness), which
 // run them in the real harness; these pin the rules in one process.
 
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   installChildProcesses,
@@ -17,11 +20,30 @@ import {
   InvocationLog,
   InvocationResources,
   invocations,
+  setChildAnnouncer,
+  setChildGroups,
   shadow,
   TAIL_LENGTH,
 } from "../runtime/context.ts";
 
 const require = createRequire(import.meta.url);
+
+// Every child group announced in a test, killed after it with its guardian:
+// no engine runs here to end the groups (WR-55).
+const spawned: number[] = [];
+const record = (_id: string, pid: number) => {
+  spawned.push(pid);
+};
+beforeEach(() => setChildAnnouncer(record));
+afterEach(() => {
+  for (const pid of spawned.splice(0)) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+});
 // Bun's fetch, before the fetch view wraps it.
 const nativeFetch = globalThis.fetch;
 
@@ -147,6 +169,218 @@ test("a child started without an environment gets the invocation's; one given an
   // promisify(exec) keeps Node's {stdout, stderr} form (c3b review).
   expect(got).toEqual(["inv", "inv", "inv", "", "inv", "inv", '{"child":1}', "{}"]);
   expect(process.env.WL_FENCE_TEST_CHILD).toBeUndefined();
+});
+
+/** The process group of pid, or undefined once no process has pid. */
+function pgidOf(pid: number): number | undefined {
+  const out = require("node:child_process").spawnSync("ps", ["-o", "pgid=", "-p", String(pid)]).stdout;
+  const n = Number(String(out).trim());
+  return String(out).trim() === "" ? undefined : n;
+}
+
+/** Whether a process is left in the process group pgid. */
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Waits until cond holds, or fails after a second. */
+async function until(what: string, cond: () => boolean) {
+  for (let i = 0; i < 100; i++) {
+    if (cond()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+test("a resource with a liveness check counts while it runs; revoke releases a kind now and at once afterwards", () => {
+  const r = new InvocationResources();
+  let alive = true;
+  const released: string[] = [];
+  r.track("child", () => released.push("child"), () => alive);
+  r.track("timeout", () => released.push("timeout"));
+  expect(r.pending()).toEqual({ child: 1, timeout: 1 });
+  alive = false;
+  expect(r.pending()).toEqual({ timeout: 1 });
+  alive = true;
+  // A dead entry was dropped: it neither counts again nor is released.
+  expect(r.pending()).toEqual({ timeout: 1 });
+  r.track("child", () => released.push("child 2"), () => true);
+  r.revoke("child");
+  expect(released).toEqual(["child 2"]);
+  expect(r.pending()).toEqual({ timeout: 1 });
+  r.track("child", () => released.push("child 3"));
+  expect(released).toEqual(["child 2", "child 3"]);
+  expect(r.settle()).toEqual({ timeout: 1 });
+  expect(released).toEqual(["child 2", "child 3", "timeout"]);
+});
+
+test("in a warm process a child leads a process group of its own, counted while its own process runs; what it left in the group stays there; settlement reports it and leaves the kill to the engine (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const stay = join(mkdtempSync(join(tmpdir(), "wl-fence-")), "stay.mjs");
+  writeFileSync(stay, "setInterval(() => {}, 1000);\n");
+  const c = context();
+  try {
+    const pids = invocations.run(c, () => {
+      const a = cp.spawn("sleep", ["30"], { stdio: "ignore" });
+      // The shell exits at once and leaves its sleep in the group.
+      const b = cp.spawn("sh", ["-c", "sleep 30 &"], { stdio: "ignore" });
+      const d = Bun.spawn(["sleep", "30"], { stdio: ["ignore", "ignore", "ignore"] });
+      const e = cp.fork(stay, [], { stdio: "ignore" });
+      return [a.pid, b.pid, d.pid, e.pid] as number[];
+    });
+    for (const pid of pids) expect(pgidOf(pid) ?? pid).toBe(pid);
+    await until("the shell to exit", () => pgidOf(pids[1]) === undefined);
+    // Its sleep, and every child's guardian, are left in the groups, which
+    // the engine kills; the shell that exited is no longer counted.
+    expect(groupAlive(pids[1])).toBe(true);
+    expect(c.resources.pending()).toEqual({ child: 3 });
+    expect(c.resources.settle()).toEqual({ child: 3 });
+    // The engine, which holds each group with its members, kills them
+    // (internal/harness); the harness never signals a group.
+    await Bun.sleep(50);
+    expect(pids.every((pid) => groupAlive(pid))).toBe(true);
+    for (const pid of pids) process.kill(-pid, "SIGKILL");
+  } finally {
+    c.resources.settle();
+  }
+});
+
+test("a synchronous call's child stays in the caller's group and registers nothing; it cannot be announced before it has exited (WR-55, review round 1)", () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const own = String(pgidOf(process.pid));
+  const c = context();
+  const groups = invocations.run(c, () => [
+    new TextDecoder().decode(Bun.spawnSync(["sh", "-c", "ps -o pgid= -p $$"]).stdout).trim(),
+    String(cp.execSync("ps -o pgid= -p $$")).trim(),
+    String(cp.spawnSync("sh", ["-c", "ps -o pgid= -p $$"]).stdout).trim(),
+  ]);
+  expect(groups).toEqual([own, own, own]);
+  expect(c.resources.pending()).toEqual({});
+});
+
+test("exec and execFile, where Bun ignores the step's detached, start a child in a group of its own, announced to the engine with its invocation (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const announced: [string, number][] = [];
+  setChildAnnouncer((id, pid) => {
+    record(id, pid);
+    announced.push([id, pid]);
+  });
+  const c = context();
+  try {
+    const pids = await invocations.run(c, async () => {
+      const a = cp.exec("sleep 30", { detached: true });
+      const b = cp.execFile("sleep", ["30"], { detached: true });
+      const d = cp.spawn("sleep", ["30"], { stdio: "ignore", detached: true });
+      return [a.pid, b.pid, d.pid] as number[];
+    });
+    try {
+      for (const pid of pids) expect(pgidOf(pid) ?? pid).toBe(pid);
+      expect(c.resources.pending()).toEqual({ child: 2, detached: 1 });
+      // The step's own detached child is not the engine's to kill.
+      expect(announced).toEqual([
+        [c.id, pids[0]],
+        [c.id, pids[1]],
+      ]);
+    } finally {
+      c.resources.settle();
+      for (const pid of pids) process.kill(-pid, "SIGKILL");
+    }
+    await until("every group to end", () => pids.every((pid) => !groupAlive(pid)));
+  } finally {
+    setChildAnnouncer(record);
+  }
+});
+
+test("the harness never signals a child's group: a revoked invocation's children, one it starts afterwards, and a registration its group outlived are left to the engine (WR-55, WR-37; review round 3)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const announced: number[] = [];
+  setChildAnnouncer((id, pid) => {
+    record(id, pid);
+    announced.push(pid);
+  });
+  // Every signal the harness sends, but the liveness probes (signal 0).
+  const sent: string[] = [];
+  const kill = process.kill;
+  process.kill = ((pid: number, sig?: string | number) => {
+    if (sig !== 0) sent.push(`${pid}:${sig}`);
+    return kill.call(process, pid, sig as never);
+  }) as typeof process.kill;
+  const pids: number[] = [];
+  try {
+    const c = context();
+    pids.push(invocations.run(c, () => cp.spawn("sleep", ["30"], { stdio: "ignore" }).pid as number));
+    // A child that has exited: its registration ends with it, and its
+    // group, which its guardian keeps, is the engine's to end.
+    pids.push(invocations.run(c, () => cp.spawn("true", [], { stdio: "ignore" }).pid as number));
+    await until("the short child to exit", () => pgidOf(pids[1]) === undefined);
+    c.resources.revoke("child");
+    pids.push(invocations.run(c, () => cp.spawn("sleep", ["30"], { stdio: "ignore" }).pid as number));
+    expect(c.resources.pending()).toEqual({});
+    c.resources.settle();
+    await Bun.sleep(20);
+    expect(sent).toEqual([]);
+    expect(groupAlive(pids[0]) && groupAlive(pids[2])).toBe(true);
+    // Each group was announced, the one started after the revoke included:
+    // the engine kills it at once.
+    expect(announced).toEqual(pids);
+  } finally {
+    process.kill = kill;
+    setChildAnnouncer(record);
+    for (const pid of pids) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  }
+});
+
+test("a child the step starts detached is its own and left running; in a fresh process a child stays in the process's group, which the engine kills (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  const kept: number[] = [];
+  try {
+    setChildGroups(true);
+    const warm = context();
+    const detached = invocations.run(warm, () => cp.spawn("sleep", ["30"], { stdio: "ignore", detached: true }).pid as number);
+    kept.push(detached);
+    expect(pgidOf(detached)).toBe(detached);
+    expect(warm.resources.settle()).toEqual({ detached: 1 });
+    await Bun.sleep(50);
+    expect(groupAlive(detached)).toBe(true);
+
+    setChildGroups(false);
+    const fresh = context();
+    const inGroup = invocations.run(fresh, () => cp.spawn("sleep", ["30"], { stdio: "ignore" }).pid as number);
+    kept.push(inGroup);
+    expect(pgidOf(inGroup)).toBe(pgidOf(process.pid));
+    expect(fresh.resources.settle()).toEqual({ child: 1 });
+    await Bun.sleep(50);
+    expect(pgidOf(inGroup)).toBe(pgidOf(process.pid));
+  } finally {
+    setChildGroups(true);
+    for (const pid of kept) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // gone
+      }
+    }
+  }
 });
 
 test("a request the invocation leaves in flight is aborted at settlement, and a platform call after it is refused", async () => {
@@ -527,5 +761,69 @@ test("the response of the fetch view is Bun's own: locking, disturbance, bodyUse
     }
   } finally {
     server.stop(true);
+  }
+});
+
+test("a grouped child starts with its group's guardian, which holds none of its pipes and is no child of the command; child.pid, its output and its exit are the command's; an unrunnable command fails as Bun fails it (WR-55, review rounds 3 and 4)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const tokens: (string | undefined)[] = [];
+  setChildAnnouncer((id, pid, token) => {
+    record(id, pid);
+    tokens.push(token);
+  });
+  const c = context();
+  const pids: number[] = [];
+  try {
+    // The parent of each process in the command's group, read while the
+    // command runs: by then the guardian is in the group.
+    let parents: string[][] | undefined;
+    const out = await invocations.run(c, async () => {
+      const child = cp.spawn("sh", ["-c", "echo $$; sleep 0.3; exit 3"], { stdio: ["ignore", "pipe", "ignore"] });
+      pids.push(child.pid);
+      let text = "";
+      child.stdout.on("data", (d: Buffer) => {
+        text += d;
+        parents ??= String(cp.execFileSync("ps", ["-o", "pid=,ppid=,pgid=,command=", "-A"]))
+          .split("\n")
+          .map((l: string) => l.trim().split(/\s+/))
+          .filter((f: string[]) => f[2] === String(child.pid))
+          .map((f: string[]) => [f[1], f.slice(3).join(" ")]);
+      });
+      // The pipe closes when the command exits: the guardian holds none of it.
+      const code = await new Promise((resolve) => child.on("close", (code: number) => resolve(code)));
+      return { text: text.trim(), code };
+    });
+    expect(out).toEqual({ text: String(pids[0]), code: 3 });
+    expect(tokens.length).toBe(1);
+    // The guardian is no child of the command, so a command that waits for
+    // all its children does not wait for it (review round 4, finding 2).
+    const guardian = parents!.filter(([, cmd]) => cmd === `sleep 999999999.${tokens[0]}`);
+    expect(guardian.length).toBe(1);
+    expect(guardian[0][0]).not.toBe(String(pids[0]));
+    expect(tokens[0]).toMatch(/^[0-9]{15}$/);
+    // The guardian is left in the group, with the token in its environment.
+    const members = String(cp.execFileSync("ps", ["-o", "pid=,pgid=,command=", "-A"]))
+      .split("\n")
+      .map((l: string) => l.trim().split(/\s+/))
+      .filter((f: string[]) => f[1] === String(pids[0]));
+    // The engine finds the token in its arguments (internal/harness,
+    // TestGuardianToken).
+    expect(members.map((f: string[]) => f.slice(2).join(" "))).toEqual([`sleep 999999999.${tokens[0]}`]);
+    // A command that cannot run fails as Bun fails it, unguarded.
+    const err = await invocations.run(c, () => new Promise((resolve) => cp.spawn("wl-no-such-command-xyz").on("error", (e: Error & { code?: string }) => resolve(e.code))));
+    expect(err).toBe("ENOENT");
+    expect(tokens.length).toBe(1);
+  } finally {
+    setChildAnnouncer(record);
+    c.resources.settle();
+    for (const pid of pids) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
   }
 });

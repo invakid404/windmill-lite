@@ -29,7 +29,7 @@
         "binds": ["result", "results"],
         "code": "((await results.a))",
         "route": "engine",
-        "bound": {"previous_result": "{\"n\": 12345678901234567890}"},
+        "bound": {"previous_result": "{\"n\": 12345678901234567890}", "__wl_previous_id": "a"},
         "results_lookup": true
       }
     },

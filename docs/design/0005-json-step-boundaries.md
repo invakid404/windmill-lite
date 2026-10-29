@@ -251,8 +251,12 @@ runs on demand and nightly, never on every pull request.
   ([Q-JE-13](../semantics/expressions.md#q-je-13)). The re-printed form
   needs the backend library's number notation, which FX-42 gives by
   example (`1000.0`, `1e+21`, `1.2345678901234568e+29`); where it changes
-  from decimal to exponent notation is asked of the semantics team before
-  the loop milestones use it (request 10).
+  from decimal to exponent notation was asked of the semantics team
+  (request 10), and FX-42 rule 9 now gives it: plain decimal for a
+  leading-digit exponent from −5 to 15, the shortest digits, `-0` as
+  `-0.0`. Since milestone FU6 the engine writes a loop's result with the
+  platform's writer of that rule (`platform.Reprint`), the one the
+  argument resolution uses.
 
 ## Spec IDs relied on
 

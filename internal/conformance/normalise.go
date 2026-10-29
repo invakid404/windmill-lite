@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -35,14 +36,17 @@ const internalErrPrefix = "Internal: Could not add completed job "
 // locSuffix is a trailing Rust source location, " @<file>:<line>:<col>".
 var locSuffix = regexp.MustCompile(` @[^ @]+:[0-9]+:[0-9]+$`)
 
-// trailingLoc is one location suffix of FX-50 at the end of a message, the
-// catalogue's <loc>: " @<file>.rs:<line>:<col>", or the parenthesised form
-// " (<file>.rs:<line>)" that some not-found messages end in.
-var trailingLoc = regexp.MustCompile(`(?: @[^ @]+\.rs:[0-9]+:[0-9]+| \([^ ()]+\.rs:[0-9]+\))$`)
+// trailingLoc is one location suffix of an error layer at the end of a
+// message (FX-50): " @<file>.rs:<line>:<col>", or the marker " <loc>" where
+// the expected text writes the catalogue's <loc> for one. The parenthesised
+// " (<file>.rs:<line>)" of a not-found message is not a layer's suffix and
+// is never matched by its text (see StripLocations).
+var trailingLoc = regexp.MustCompile(`(?: @[^ @]+\.rs:[0-9]+:[0-9]+| ` + MarkerLoc + `)$`)
 
-// anyhowPrefix is the prefix each conversion into Windmill's Anyhow error
-// kind puts before a message, with a location suffix after it (FX-50).
-const anyhowPrefix = "Error: "
+// layerPrefixes are the prefixes of FX-50's error layers whose display
+// ends in a location suffix: Anyhow's "Error: ", the located internal
+// error's "Internal: ", and the wrapped library errors'.
+var layerPrefixes = []string{"Error: ", "Internal: ", "SqlErr: ", "IoErr: ", "Utf8Err: ", "UuidErr: ", "SerdeJson: ", "HexErr: "}
 
 // executionErrPrefix begins the message of the worker's execution error
 // (WR-37, WR-43).
@@ -359,35 +363,42 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 // the oracle adds to OR-14 (ADR 0011, Location suffixes; ADR 0001 §2, D14).
 // Each pointer names a value of windmill-lite's observation that
 // windmill-lite generated (an engine, harness or facade error, never a
-// user's). Where the oracle's normalised observation o holds there an
-// error whose message matches a catalogue template that carries <loc>,
-// the location suffixes are removed, leaving the message windmill-lite
-// writes without a Rust location. The templates are:
+// user's). Where the oracle's normalised observation o (an expect or a
+// recording) holds there an error whose message matches a catalogue
+// template that carries <loc>, the generated location suffixes are
+// removed, leaving the message windmill-lite writes without a Rust
+// location. The rule is FX-50's:
 //
-//   - the recognised internal error of OR-27 (InternalErr, "Internal:
-//     Could not add completed job …"), whose location the normaliser
-//     masked: the marker and the space before it go;
+//  1. A message that is Windmill's error display begins with k layer
+//     prefixes, one after another (layerPrefixes: "Error: ", "Internal: ",
+//     "SqlErr: " and the other located kinds); it loses at most k trailing
+//     " @<file>.rs:<line>:<col>" suffixes from the end, or <loc> markers
+//     the expected text writes for them. A message with no layer prefix
+//     loses none, and a suffix beyond the k-th is the message's own.
+//  2. A parenthesised " (<file>.rs:<line>)", which a not-found message
+//     ends in, is not searched for: no text tells a generated one from a
+//     user's (FX-50/d). It goes only where the expected text writes <loc>
+//     for it (CF-19/c): every <loc> marker left in a generated value's
+//     message after step 1 is removed, wherever it stands.
+//
+// The displays step 1 reads, each the error at a pointer:
+//
+//   - the storage failure of OR-27 (InternalErr, "Internal: Could not add
+//     completed job …"), whose location the normaliser masked as <loc>;
 //   - a chaining error of FX-15 and FX-50, named InternalError (a later
-//     transition) or Anyhow (a pickup), whose message is Windmill's
-//     generic error display: one "Error: " prefix per conversion, and one
-//     location suffix per conversion at the end;
-//   - the string error of a throwing stop_after_if (FX-21), the same
-//     display;
-//   - the error stop of a stop_after_all_iters_if that fails to evaluate
-//     (CF-13, JE-27), an EarlyStopError whose message quotes the
-//     expression and then gives its cause in the same display;
-//   - the worker's execution error (ExecutionErr) of a native transpile or
-//     load failure (WR-43, "execution error:\nError: …") or of an internal
-//     error (WR-37, "execution error:\nInternal: …"), which ends in one
-//     location suffix: one trailing suffix goes.
+//     transition) or Anyhow (a pickup);
+//   - the string error of a throwing stop_after_if (FX-21);
+//   - the cause of the error stop of a stop_after_all_iters_if that fails
+//     to evaluate (CF-13, JE-27), an EarlyStopError whose message quotes
+//     the expression first;
+//   - the worker's execution error (ExecutionErr), after its
+//     "execution error:\n" lead-in (WR-37, WR-43, FX-51 rule 5).
 //
-// For the chaining errors, the stop string and the error stop, a message
-// (or the cause) that begins with n "Error: " prefixes loses its last n
-// suffixes, and only when it ends in n of them. The value at a pointer is
-// the error object, or an object whose error member is it (or, for FX-21,
-// is the string), as a stored failure value is. Nothing else is
-// stripped: the normaliser never masks a location in a user's message, and
-// a pointer that does not resolve, or names another value, is skipped.
+// The value at a pointer is the error object, or an object whose error
+// member is it (or, for FX-21, is the string), as a stored failure value
+// is. Nothing else is stripped: the normaliser never masks a location in a
+// user's message and escapes a user's literal "<loc>" ("<<loc>"), and a
+// pointer that does not resolve, or names another value, is skipped.
 func StripLocations(o Observation, at []string) (Observation, error) {
 	if len(at) == 0 {
 		return o, nil
@@ -400,9 +411,6 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 	if err != nil {
 		return o, err
 	}
-	// In normalised text, " <loc>" can only end in the marker: a user's
-	// literal "<loc>" is written "<<loc>".
-	const suffix = " " + MarkerLoc
 	for _, p := range at {
 		toks, err := SplitPointer(p)
 		if err != nil {
@@ -416,7 +424,7 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 		}
 		if v != nil && v.kind == kindString && !v.marker {
 			// FX-21: the untyped error's display, as a string.
-			stripDisplay(v)
+			setString(v, unmarked(strippedDisplay(v.str())))
 			continue
 		}
 		if v == nil || v.kind != kindObject {
@@ -426,29 +434,23 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 		if name == nil || name.kind != kindString || msg == nil || msg.kind != kindString || msg.marker {
 			continue
 		}
+		s := msg.str()
 		switch name.str() {
-		case "InternalErr":
-			if s := msg.str(); strings.HasPrefix(s, internalErrPrefix) && strings.HasSuffix(s, suffix) {
-				*msg = jnode{kind: kindString, text: quote(strings.TrimSuffix(s, suffix))}
-			}
-		case "InternalError", "Anyhow":
-			stripDisplay(msg)
+		case "InternalErr", "InternalError", "Anyhow":
+			s = strippedDisplay(s)
 		case "EarlyStopError":
-			if s := msg.str(); strings.HasPrefix(s, allItersPrefix) {
+			if strings.HasPrefix(s, allItersPrefix) {
 				if end := strings.Index(s[len(allItersPrefix):], "`: "); end >= 0 {
 					head := len(allItersPrefix) + end + len("`: ")
-					if cause, ok := strippedDisplay(s[head:]); ok {
-						*msg = jnode{kind: kindString, text: quote(s[:head] + cause)}
-					}
+					s = s[:head] + strippedDisplay(s[head:])
 				}
 			}
 		case "ExecutionErr":
-			if s := msg.str(); strings.HasPrefix(s, executionErrPrefix+"Error: ") || strings.HasPrefix(s, executionErrPrefix+"Internal: ") {
-				if loc := trailingLoc.FindStringIndex(s); loc != nil {
-					*msg = jnode{kind: kindString, text: quote(s[:loc[0]])}
-				}
+			if rest, ok := strings.CutPrefix(s, executionErrPrefix); ok {
+				s = executionErrPrefix + strippedDisplay(rest)
 			}
 		}
+		setString(msg, unmarked(s))
 	}
 	var out Observation
 	if err := json.Unmarshal(tree.raw(), &out); err != nil {
@@ -517,37 +519,41 @@ func StripNotFoundLocations(o Observation, at []string) (Observation, error) {
 // fails to evaluate (CF-13).
 const allItersPrefix = "Error evaluating stop_after_all_iters_if expression `"
 
-// stripDisplay removes, from a string node holding Windmill's generic error
-// display (FX-50), one trailing location suffix per leading "Error: "
-// prefix, when the text ends in that many; otherwise it leaves the node,
-// which then shows its difference.
-func stripDisplay(t *jnode) {
-	if out, ok := strippedDisplay(t.str()); ok {
-		*t = jnode{kind: kindString, text: quote(out)}
+// setString replaces a string node's value with s, when it differs.
+func setString(t *jnode, s string) {
+	if s != t.str() {
+		*t = jnode{kind: kindString, text: quote(s)}
 	}
 }
 
-// strippedDisplay is s, Windmill's generic error display, without one
-// trailing location suffix per leading "Error: " prefix, and true; or
-// false when s has no such prefix or does not end in that many suffixes.
-func strippedDisplay(s string) (string, bool) {
-	n := 0
-	for rest := s; strings.HasPrefix(rest, anyhowPrefix); rest = rest[len(anyhowPrefix):] {
-		n++
-	}
-	if n == 0 {
-		return "", false
-	}
-	out := s
-	for range n {
-		loc := trailingLoc.FindStringIndex(out)
-		if loc == nil {
-			return "", false
+// strippedDisplay is s, a message that may be Windmill's error display
+// (FX-50), without its generated trailing suffixes: one that begins with k
+// layer prefixes loses at most k trailing suffixes (trailingLoc), from the
+// end; any other is returned as it is.
+func strippedDisplay(s string) string {
+	k := 0
+	for rest := s; ; k++ {
+		i := slices.IndexFunc(layerPrefixes, func(p string) bool { return strings.HasPrefix(rest, p) })
+		if i < 0 {
+			break
 		}
-		out = out[:loc[0]]
+		rest = rest[len(layerPrefixes[i]):]
 	}
-	return out, true
+	for range k {
+		loc := trailingLoc.FindStringIndex(s)
+		if loc == nil {
+			break
+		}
+		s = s[:loc[0]]
+	}
+	return s
 }
+
+// unmarked is s without the <loc> markers left in it, each with the space
+// before it: the parenthesised locations the expected text writes as <loc>
+// (FX-50, masking step 3). In normalised text " <loc>" is always a marker:
+// a user's literal "<loc>" reads "<<loc>".
+func unmarked(s string) string { return strings.ReplaceAll(s, " "+MarkerLoc, "") }
 
 // at resolves reference tokens below t, or returns nil.
 func (t *jnode) at(toks []string) *jnode {

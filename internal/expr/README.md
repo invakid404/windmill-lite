@@ -62,18 +62,23 @@ it depends on a run.
    `error` that the text holds as substrings, and `previous_result` when it
    holds `error`.
 5. **Rewrites and wrapper.** Every `variable(`, `resource(` and
-   `flow_user_state(` call is awaited, its end found by counting
-   parentheses, strings included; a call that never closes is awaited to
-   the end of the text
-   ([JE-11](../../docs/semantics/expressions.md#je-11)). The inserted `)`
-   goes where Windmill puts it: before the call's closing parenthesis, at a
-   position counted in characters from the start of the text and applied as
-   a byte offset. Text that is ASCII up to there is rewritten exactly;
-   otherwise the `)` lands early by the extra bytes before it
-   (`variable("é")` becomes `(await variable("é)")`, which does not
-   compile), and where it would land inside a character Windmill's
-   evaluator panics: `Compile` then gives no `Source` and records the byte
-   offset as `RewritePanic`. Then every match
+   `flow_user_state(` call is awaited
+   ([JE-11](../../docs/semantics/expressions.md#je-11)). The helpers are
+   rewritten in that order, each over the text the one before produced:
+   the text is cut at every occurrence of the call text, and each part
+   after one, up to the next or the end of the text, becomes
+   `(await <call><part>` with one `)` inserted. Parentheses are counted
+   from the part's start, strings included, and the `)` goes before the
+   one that closes the call, or at the end of the part when none does, so
+   a call nested in a call of the same helper cuts the outer one short.
+   The position is counted in characters from the call and applied as a
+   byte offset: a part that is ASCII up to there is rewritten exactly, and
+   text before the call moves nothing; otherwise the `)` lands early by
+   the extra bytes before it (`variable("é")` becomes
+   `(await variable("é)")`, which does not compile), and where it would
+   land inside a character Windmill's evaluator panics: `Compile` then
+   gives no `Source` and records the byte offset, in the text that
+   helper's pass rewrites, as `RewritePanic`. Then every match
    of `results`, an optional `?`, and `.<name>` or `["…"]` on one line is
    awaited ([JE-12](../../docs/semantics/expressions.md#je-12)). Neither
    knows words, strings or comments. `Source` is the result in the mode's
@@ -89,7 +94,8 @@ it depends on a run.
 [Request 8](../../docs/design/README.md) asked the semantics team about
 the details these stages decided where the reference was silent. The
 answers confirm them all except JE-11 for text that is not ASCII, which
-FU3 follows as above.
+FU3 followed; request 10's answers settled where the count starts and
+what the panic does, which FU6 follows as above.
 
 ## Evaluation
 
@@ -136,14 +142,16 @@ these bindings (JE-10):
 | `__wl_results` | host function | the text names `results` and the scope has a results context |
 | `__wl_variable`, `__wl_resource`, `__wl_flow_user_state` | host functions | always |
 | `__wl_rebuild` | host string: a JSON array naming the bound values the context prelude rebuilds by assignment (JE-16) | a bound value's text holds `__proto` or a `\u` escape |
+| `__wl_previous_id` | host string: the previous id, which the results prelude answers from memory (JE-18 step 1) | `__wl_results` and `previous_result` are both bound |
 
 Every host function answers JSON text:
 
-- **The results lookup.** It answers the previous id with
-  `previous_result`'s text from memory when `previous_result` is bound
-  (JE-18 step 1, the reading [0001](../../docs/design/0001-equivalence-contract.md)
-  §6 records for FX-V6). Any other id is a `Results.Lookup` database read,
-  in stored text. A failed read rejects with the read's message.
+- **The results lookup.** Every id it is asked is a `Results.Lookup`
+  database read, in stored text. A failed read rejects with the read's
+  message. The previous id, when `previous_result` is bound (JE-18 step
+  1, the reading [0001](../../docs/design/0001-equivalence-contract.md)
+  §6 records for FX-V6), never reaches it: the results prelude answers it
+  from memory.
 - **The helpers.** They answer from `Helpers`. Without them they reject
   with JE-20's `… is not available without an authenticated client`, and
   `flow_user_state` without a results context with `flow_user_state() is
@@ -157,10 +165,11 @@ expression replaced `JSON.stringify`, and anything else, a value that is
 not a string or a string with an unpaired surrogate, as `null`. A failure
 is an `*EvalError` whose message is Windmill's text (below); a context that
 ends during the evaluation gives its cause. A text whose call rewrite
-panics on Windmill fails, when no shortcut answers it, with
-windmill-lite's own text, cause `ErrRewritePanic`; what the panic does to
-Windmill's job is not recorded
-([Q-JE-13](../../docs/semantics/expressions.md#q-je-13)).
+panics on Windmill fails, when no shortcut answers it, with the runtime's
+report of the panicked task, cause `ErrRewritePanic`: the runtime catches
+the panic, and the site handles the failure as any failed evaluation
+(JE-11; not recorded,
+[Q-JE-13](../../docs/semantics/expressions.md#q-je-13)).
 
 ## The program on the engine
 
@@ -190,8 +199,15 @@ context:
    that `JSON.stringify(results)` is `{}`
    ([JE-12](../../docs/semantics/expressions.md#je-12)), whose symbol keys
    give `undefined` and whose string keys give a Promise of the step's
-   value (JE-18). A failed read throws the read's text from
-   `__throwOrParse`, called from `__getResult`.
+   value (JE-18). The previous id named by `__wl_previous_id` gives the
+   `previous_result` global itself, the value the context prelude rebuilt
+   (JE-18 step 1); any other key is read through the host lookup and
+   parsed with `JSON.parse` as it is when the read runs, so a `__proto__`
+   key is an own property and a replacement the user's code made gives
+   the read its value (JE-16). A failed read throws the read's text from
+   `__throwOrParse`, called from `__getResult`. The `resource` and
+   `flow_user_state` helpers parse the same way; `variable` answers a
+   string, which Windmill does not parse.
 3. **The error prelude**, when the text mentions `error`. It declares the
    lexical `error` with `let`, so the expression may assign it (JE-10),
    derived from `previous_result` by
@@ -237,7 +253,7 @@ each site then wraps
 | another thrown value | `QuickJS evaluation error: Exception generated by quickjs: <debug form>` and a newline (JE-21) | the `*Exception` |
 | a `null` or `undefined` throw, or `InternalError: out of memory` | ``The expression evaluation exceeded the memory limit of <N> MB. …`` ([JE-3](../../docs/semantics/expressions.md#je-3)) | `ErrOutOfMemory` |
 | the attempt's time limit, three times | ``The expression evaluation `<trimmed text>` took too long to execute (>20000ms)`` ([JE-2](../../docs/semantics/expressions.md#je-2)) | `ErrAttemptTimeout` |
-| a call rewrite that Windmill's evaluator panics on (JE-11) | ``Expression evaluation failed: the rewrite of its helper calls inserts a parenthesis at byte <n> of `<trimmed text>`, inside a character, where Windmill's evaluator panics``, windmill-lite's own | `ErrRewritePanic` |
+| a call rewrite that Windmill's evaluator panics on (JE-11) | `task <n> panicked with message "assertion failed: self.is_char_boundary(idx)"`, the runtime's report of the panicked task; Windmill's `<n>` differs from run to run, and windmill-lite numbers its panicked rewrites from 1 | `ErrRewritePanic` |
 
 An Error's message and stack are read as Windmill's embedding (rquickjs
 0.11.0) reads them, in that order: converted to strings, and absent when
@@ -270,16 +286,18 @@ Milestone B2b's readings where the reference was silent were answered by
 the semantics team (design request 9) and FU3 follows the answers: the
 debug form above (JE-21), the falsy fallbacks of JE-17, JE-49's order and
 positions, `error` as a `let` binding (JE-10), the rebuild by assignment
-(JE-16), and the unchecked completion (JE-15). Readings where the
-reference is still silent, each pinned by a test:
+(JE-16), and the unchecked completion (JE-15). FU3's own open readings
+(design request 10) were answered too, and FU6 follows the answers: JE-11
+counts from the call and a panicked rewrite fails with the runtime's
+report; a fetched `results` read and the helpers' values are parsed with
+`JSON.parse`, not rebuilt, and the previous step's read is the rebuilt
+`previous_result` (JE-16/h). Readings where the reference is still
+silent, each pinned by a test:
 
-- **JE-11's count** starts at the start of the text, and also places the
-  `)` of a call that never closes; Q-JE-13's recordings settle calls at
-  the start of the text only. Where Windmill panics, windmill-lite fails
-  the evaluation with its own text.
-- **The values of `results` reads and of the helpers** are parsed with
-  `JSON.parse`, not rebuilt by assignment: JE-16 says how context values
-  are rebuilt, not those.
+- **The previous step's read** gives the `previous_result` global as it
+  is when the read runs, so a value the expression assigned to it first is
+  what the read gives; the reference says the read returns the global, not
+  when it is read.
 - **The scope's order** stands for Windmill's hash maps where JE-49 reports
   the first of several values nested too deeply.
 - **Rust's notation** in a debug form uses Go's Unicode tables to decide
@@ -344,7 +362,7 @@ engine.
 | `recorded` | the E3a case restated: `exprs` and `case` (a file of [conformance/exprs](../../conformance/README.md) and its case's name), or `fixture`, `run`, `at` and `input` (a unit case of a flow fixture) |
 | `site`, `text` | the site and the expression as written; for a restated case, its own |
 | `context` | for a case of its own: `previous_id`, `previous_result`, `flow_input`, `flow_env` and `results` (stored texts by id) |
-| `expect` | any of `trimmed`, `shortcut`, `mode`, `binds`, `code` (the rewritten code inside the wrapper), `rewrite_panic` (the byte offset where JE-11's rewrite panics, for a text with no code), `route` (`engine` or a shortcut's name: `context_name`, `flow_key`, `previous_id`, `results_path`), `text` (a shortcut's exact answer), `bound` (the engine's host strings), `results_lookup`, and `engine`: what the real engine gives, the evaluator's exact `text`, its exact `error` or an `error_prefix` |
+| `expect` | any of `trimmed`, `shortcut`, `mode`, `binds`, `code` (the rewritten code inside the wrapper), `rewrite_panic` (the byte offset where JE-11's rewrite panics, for a text with no code), `route` (`engine` or a shortcut's name: `context_name`, `flow_key`, `previous_id`, `results_path`), `text` (a shortcut's exact answer), `bound` (the engine's host strings), `results_lookup`, and `engine`: what the real engine gives, the evaluator's exact `text`, its exact `error` (where `<n>` stands for a number that differs between runs) or an `error_prefix` |
 
 A restated case's scope is rebuilt from the recorded case's context. A
 context-free case is at module 0: its previous id is `""`, and
@@ -368,9 +386,11 @@ context-free case's recorded argument as its stored form.
   presentation rules on named values.
 - `TestPipelineCasesOnEngine` runs on the real engine every case that
   gives `expect.engine`, in its own context: among them the catalogue
-  cases that no recording holds yet (JE-10/e, JE-15/j, JE-16/c, JE-16/g,
-  JE-17/d, JE-21/b, JE-50/a, JE-51/a, JE-52/a; `conformance/exprs/deferred.yaml`
-  names them), each held to its exact text or message.
+  cases that no recording holds yet (JE-10/e, JE-11/b–e, JE-15/j,
+  JE-16/c, JE-16/g, JE-16/h, JE-17/d, JE-21/b, JE-50/a, JE-51/a, JE-52/a;
+  `conformance/exprs/deferred.yaml` names them), each held to its exact
+  text or message, a `<n>` in a message standing for a number that
+  differs between runs.
 - `TestRecordedCasesThroughPipeline` runs every context-free case and
   every unit case that E3a recorded, of every finding, on the fake engine.
   Wherever a shortcut answers, the answer must be what the oracle recorded.

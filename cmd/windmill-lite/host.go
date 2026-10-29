@@ -68,7 +68,7 @@ func serveHost(bundle string, killAfter time.Duration, stderr io.Writer) error {
 	if killAfter == 0 {
 		killAfter = harness.WatchdogOff
 	}
-	p, err := harness.AttachHost(context.Background(), harness.HostConfig{
+	cfg := harness.HostConfig{
 		Conn:          conn,
 		Kind:          "bun",
 		Runtime:       harness.PinnedBun,
@@ -79,7 +79,15 @@ func serveHost(bundle string, killAfter time.Duration, stderr io.Writer) error {
 		Run: func(ctx context.Context, p *harness.Process, r harness.RunRequest) harness.RunDone {
 			return hostRun(ctx, skel, p, r)
 		},
-	})
+	}
+	// The host SDK passes the side channel of its steps' child groups as
+	// file descriptor 4 (WR-55); a host that passes none announces them on
+	// its socket.
+	if c := harness.HostChildren(); c != nil {
+		defer c.Close()
+		cfg.Children = c
+	}
+	p, err := harness.AttachHost(context.Background(), cfg)
 	if err != nil {
 		return err
 	}
