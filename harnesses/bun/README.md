@@ -318,9 +318,19 @@ this mode cannot reproduce is deviation D5 of
     code handles (Bun's stream iteration, a stream's `closed`) stays
     handled. It is a promise of the harness realm, so not an `instanceof`
     the realm's `Promise`;
-  - an instance of such a class takes its subclass's prototype, an async
-    iterator gets a forwarder whose results are passed on alike, and a
-    promise's value is passed on when a continuation receives it.
+  - an instance of such a class takes its subclass's prototype (a harness
+    `File`, which shares `Blob`'s prototype in Bun, the realm's `File`,
+    which is a realm `Blob`), and a promise's value is passed on when a
+    continuation receives it;
+  - so is what the APIs hand over by other ways: the values of the
+    iterators they return, sync and async (`FormData`'s `values()` and
+    spread, a stream's `for await`); a stream reader's `{value, done}`; the
+    arguments of the callbacks their methods call (`FormData.forEach`);
+    `structuredClone`'s result, through its plain objects, arrays, maps and
+    sets; and a `MessagePort` message event's `data` and `ports`, whose
+    listener runs in the async context that registered it (identity kept
+    for `removeEventListener`, and `onmessage` reads back what it was
+    given).
 
   `crypto` and `crypto.subtle` are objects of those subclasses that
   forward to the shared ones. A fetched response's `url`, `redirected` and

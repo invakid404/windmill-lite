@@ -33,16 +33,27 @@ func TestBunHandshake(t *testing.T) {
 	}
 }
 
-// The engine refuses a native invocation to a harness whose hello does not
-// offer the native boundary, before it is dispatched.
+// The engine refuses a native invocation, before it is dispatched, to a
+// harness whose hello does not offer the native boundary, and to a process
+// with no facade origin, which a native step must read as BASE_URL and
+// BASE_INTERNAL_URL (WR-45; c3n review r3, finding 6). A Bun invocation
+// needs neither.
 func TestCheckInvocationNeedsTheNativeCap(t *testing.T) {
 	inv := newInvocation("echo", `{}`, newRecorder())
 	inv.Boundary = engine.BoundaryNative
-	if err := checkInvocation(inv, Caps{Fetch: true}); err == nil || !strings.Contains(err.Error(), "no native boundary") {
+	const facade = "http://127.0.0.1:9"
+	if err := checkInvocation(inv, Caps{Fetch: true}, facade); err == nil || !strings.Contains(err.Error(), "no native boundary") {
 		t.Fatalf("without the cap: %v, want a refusal", err)
 	}
-	if err := checkInvocation(inv, Caps{Fetch: true, Native: true}); err != nil {
-		t.Fatalf("with the cap: %v", err)
+	if err := checkInvocation(inv, Caps{Fetch: true, Native: true}, ""); err == nil || !strings.Contains(err.Error(), "facade") {
+		t.Fatalf("without a facade: %v, want a refusal", err)
+	}
+	if err := checkInvocation(inv, Caps{Fetch: true, Native: true}, facade); err != nil {
+		t.Fatalf("with the cap and a facade: %v", err)
+	}
+	inv.Boundary = engine.BoundaryBun
+	if err := checkInvocation(inv, Caps{Fetch: true}, ""); err != nil {
+		t.Fatalf("a Bun invocation: %v", err)
 	}
 }
 
@@ -50,6 +61,8 @@ func TestCheckInvocationNeedsTheNativeCap(t *testing.T) {
 // naming the mismatch, instead of running.
 func TestBunBoundaryMismatch(t *testing.T) {
 	cfg, _ := bunConfig(t)
+	// A native invocation needs a facade origin (WR-45).
+	cfg.Facade = "http://127.0.0.1:9"
 	p := spawn(t, cfg)
 	inv := newInvocation("echo", `{}`, newRecorder())
 	inv.Boundary = engine.BoundaryNative

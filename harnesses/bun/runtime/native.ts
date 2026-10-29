@@ -25,6 +25,7 @@
 // context, so an unhandled rejection fails it (WR-43); runtime.ts routes
 // them here.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import vm from "node:vm";
 import { current, type InvocationResources } from "./context.ts";
@@ -100,17 +101,28 @@ const WEB_GLOBALS = [
  *   own code does with it (marking it handled, as a stream's closed and
  *   Bun's own iteration do) is unchanged;
  * - an instance of one of these classes takes its subclass's prototype, so
- *   what it returns in turn is handled alike, and an async iterator is
- *   given a forwarder whose results are;
- * - `crypto` and `crypto.subtle`, which every caller shares, become objects
- *   of their subclasses that forward to them. */
+ *   what it returns in turn is handled alike.
+ *
+ * Every other way these APIs hand an object to the script is covered too:
+ * the values of the iterators they return, sync and async; the arguments
+ * of the callbacks their methods call (FormData.forEach); the value of a
+ * promise, when a continuation receives it; structuredClone's result, all
+ * through; and a MessagePort's message events (their data and ports).
+ * `crypto` and `crypto.subtle`, which every caller shares, become objects
+ * of their subclasses that forward to them. */
 const REALM_CLASSES = [
   "Request", "Response", "Blob", "File", "FormData",
   "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamBYOBReader",
   "WritableStream", "WritableStreamDefaultWriter", "TransformStream",
   "TextEncoderStream", "TextDecoderStream", "CompressionStream", "DecompressionStream",
-  "Crypto", "SubtleCrypto",
+  "Crypto", "SubtleCrypto", "MessageChannel", "MessagePort",
 ];
+
+/** The EventTarget methods that take a listener whose identity matters
+ * (removeEventListener finds it by identity), so a method wrapper leaves
+ * their callbacks as they are; MessagePort's message listeners are handled
+ * apart (Native.portClass). */
+const LISTENER_METHODS = new Set(["addEventListener", "removeEventListener"]);
 
 /** Statuses whose response has no body. */
 const NULL_BODY = new Set([101, 103, 204, 205, 304]);
@@ -161,6 +173,14 @@ export class Native {
    * them, with the job they belong to. */
   private tracked = new WeakMap<object, NativeJob>();
   private trackedProto: object | undefined;
+  /** The promises an async iterator's next, return or throw gave, whose
+   * value is an iterator result. */
+  private iteratorResults = new WeakSet<object>();
+  /** The realm-facing File's prototype: Bun 1.3.10's File shares Blob's
+   * prototype, so a File the harness made is told apart by instanceof. */
+  private fileProto: object | undefined;
+  /** Message events whose data and ports were passed on already. */
+  private messages = new WeakSet<object>();
   /** A fetched response's own url, redirected and type, which a response
    * the harness constructs around its body cannot carry; kept through
    * every clone. */
@@ -197,6 +217,15 @@ export class Native {
       if (typeof C === "function") this.web[name] = this.realmClass(name, C as new (...a: unknown[]) => object);
     }
     this.responseClass(this.web.Response as { prototype: object });
+    // A File is a Blob, as in V8, though Bun's File has no Blob parent of
+    // its own.
+    this.fileProto = (this.web.File as { prototype: object }).prototype;
+    Object.setPrototypeOf(this.fileProto, (this.web.Blob as { prototype: object }).prototype);
+    this.portClass(this.web.MessagePort as { prototype: object });
+    const clone = this.web.structuredClone as typeof structuredClone;
+    this.web.structuredClone = {
+      structuredClone: (v: unknown, o?: StructuredSerializeOptions) => this.deep(clone(v, o)),
+    }.structuredClone;
     const crypto = globalThis.crypto;
     this.shared.add(crypto);
     this.shared.add(crypto.subtle);
@@ -214,7 +243,8 @@ export class Native {
     return class TrackedPromise<T> extends Promise<T> {
       then<A = T, B = never>(onFulfilled?: ((v: T) => A | PromiseLike<A>) | null, onRejected?: ((e: unknown) => B | PromiseLike<B>) | null): Promise<A | B> {
         const job = native.tracked.get(this) ?? native.currentJob();
-        const ok = typeof onFulfilled === "function" ? (v: T) => onFulfilled(native.toRealm(v) as T) : onFulfilled;
+        const pass = native.iteratorResults.has(this) ? (v: T) => native.iteratorResult(v) as T : (v: T) => native.toRealm(v) as T;
+        const ok = typeof onFulfilled === "function" ? (v: T) => onFulfilled(pass(v)) : onFulfilled;
         const p = super.then(ok, onRejected);
         if (job !== undefined) native.tracked.set(p, job);
         return p;
@@ -232,9 +262,12 @@ export class Native {
     const define = (target: object, k: PropertyKey, d: PropertyDescriptor, self?: object) => {
       if (typeof d.value === "function") {
         const m = d.value as (...a: unknown[]) => unknown;
+        const listener = typeof k === "string" && LISTENER_METHODS.has(k);
         const value = {
           [k](this: unknown, ...a: unknown[]) {
-            return native.toRealm(Reflect.apply(m, self ?? this, a));
+            // A callback the method calls gets its arguments passed on.
+            const args = listener ? a : a.map((x) => (typeof x === "function" ? native.callback(x as (...b: unknown[]) => unknown) : x));
+            return native.toRealm(Reflect.apply(m, self ?? this, args));
           },
         }[k as string];
         // The subclass's own property, so it may be layered on (Response's
@@ -335,25 +368,156 @@ export class Native {
     if (v === null || typeof v !== "object" || this.shared.has(v)) return v;
     const proto = this.realmProtos.get(Object.getPrototypeOf(v));
     if (proto !== undefined) {
-      Object.setPrototypeOf(v, proto);
+      Object.setPrototypeOf(v, v instanceof File ? this.fileProto! : proto);
       return v;
     }
-    const it = v as AsyncIterator<unknown> & { [Symbol.asyncIterator]?: unknown };
+    const it = v as AsyncIterator<unknown> & Iterator<unknown> & { [Symbol.asyncIterator]?: unknown; [Symbol.iterator]?: unknown };
     if (typeof it.next === "function" && typeof it[Symbol.asyncIterator] === "function") return this.iterator(it);
+    if (typeof it.next === "function" && typeof it[Symbol.iterator] === "function") return this.syncIterator(it);
+    // A stream reader's read() gives an iterator result too.
+    const keys = Object.getPrototypeOf(v) === Object.prototype ? Object.keys(v) : [];
+    if (keys.length === 2 && keys.includes("value") && keys.includes("done")) return this.iteratorResult(v);
     return v;
+  }
+
+  /** An iterator result with its value passed on with toRealm. */
+  iteratorResult(r: unknown): unknown {
+    if (r !== null && typeof r === "object" && "value" in r) (r as { value: unknown }).value = this.toRealm((r as { value: unknown }).value);
+    return r;
+  }
+
+  /** A callback a web API method calls: its arguments passed on with
+   * toRealm. */
+  private callback(fn: (...a: unknown[]) => unknown) {
+    const native = this;
+    return function (this: unknown, ...a: unknown[]) {
+      return Reflect.apply(fn, this, a.map((x) => native.toRealm(x)));
+    };
+  }
+
+  /** A value with every object of a realm-facing class in it passed on, all
+   * through its plain objects, arrays, maps and sets: what structuredClone
+   * and a message's data give. */
+  private deep(v: unknown, seen = new Set<object>()): unknown {
+    if (v === null || typeof v !== "object" || seen.has(v)) return v;
+    seen.add(v);
+    const proto = Object.getPrototypeOf(v);
+    if (this.realmProtos.has(proto)) return this.toRealm(v);
+    if (Array.isArray(v)) {
+      for (let i = 0; i < v.length; i++) v[i] = this.deep(v[i], seen);
+    } else if (v instanceof Map) {
+      const entries = [...v].map(([k, x]) => [this.deep(k, seen), this.deep(x, seen)] as const);
+      v.clear();
+      for (const [k, x] of entries) v.set(k, x);
+    } else if (v instanceof Set) {
+      const values = [...v].map((x) => this.deep(x, seen));
+      v.clear();
+      for (const x of values) v.add(x);
+    } else if (proto === Object.prototype || proto === null) {
+      for (const k of Object.keys(v)) (v as Record<string, unknown>)[k] = this.deep((v as Record<string, unknown>)[k], seen);
+    }
+    return v;
+  }
+
+  /** The realm-facing MessagePort: a message event its listeners receive
+   * has its data and ports passed on (deep), once per event, and each
+   * listener runs in the async context that registered it, so what it does
+   * is the registering invocation's. A listener keeps its identity for
+   * removeEventListener, and onmessage reads back the handler it was given. */
+  private portClass(R: { prototype: object }) {
+    const native = this;
+    const types = new Set(["message", "messageerror"]);
+    const wrappers = new WeakMap<object, WeakMap<object, (e: Event) => unknown>>();
+    const wrap = (port: object, fn: (e: Event) => unknown) => {
+      let byPort = wrappers.get(port);
+      if (byPort === undefined) wrappers.set(port, (byPort = new WeakMap()));
+      let w = byPort.get(fn);
+      if (w === undefined) {
+        const run = AsyncLocalStorage.snapshot();
+        w = function (this: unknown, e: Event) {
+          return run(() => {
+            native.messageEvent(e);
+            return Reflect.apply(fn, this, [e]);
+          });
+        };
+        byPort.set(fn, w);
+      }
+      return w;
+    };
+    for (const k of ["addEventListener", "removeEventListener"] as const) {
+      const d = Object.getOwnPropertyDescriptor(R.prototype, k)!;
+      const m = d.value as (...a: unknown[]) => unknown;
+      Object.defineProperty(R.prototype, k, {
+        ...d,
+        value: {
+          [k](this: object, type: unknown, listener: unknown, ...rest: unknown[]) {
+            const l = types.has(String(type)) && typeof listener === "function" ? wrap(this, listener as (e: Event) => unknown) : listener;
+            return Reflect.apply(m, this, [type, l, ...rest]);
+          },
+        }[k],
+      });
+    }
+    const handlers = new WeakMap<object, Map<string, unknown>>();
+    for (const k of ["onmessage", "onmessageerror"]) {
+      const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(R.prototype), k) ?? Object.getOwnPropertyDescriptor(R.prototype, k);
+      if (d?.set === undefined) continue;
+      const set = d.set;
+      Object.defineProperty(R.prototype, k, {
+        configurable: true,
+        enumerable: d.enumerable,
+        get(this: object) {
+          return handlers.get(this)?.get(k) ?? null;
+        },
+        set(this: object, h: unknown) {
+          let own = handlers.get(this);
+          if (own === undefined) handlers.set(this, (own = new Map()));
+          own.set(k, typeof h === "function" ? h : null);
+          set.call(this, typeof h === "function" ? wrap(this, h as (e: Event) => unknown) : h);
+        },
+      });
+    }
+  }
+
+  /** A message event's data and ports passed on (deep), once. */
+  private messageEvent(e: Event) {
+    if (this.messages.has(e)) return;
+    this.messages.add(e);
+    const m = e as MessageEvent;
+    Object.defineProperty(e, "data", { value: this.deep(m.data), configurable: true, enumerable: true });
+    Object.defineProperty(e, "ports", { value: this.deep([...m.ports]), configurable: true, enumerable: true });
+  }
+
+  /** A sync iterator whose results have their values passed on. */
+  private syncIterator(it: Iterator<unknown>): IterableIterator<unknown> {
+    const out: IterableIterator<unknown> = {
+      next: (...a: [] | [unknown]) => this.iteratorResult(it.next(...a)) as IteratorResult<unknown>,
+      [Symbol.iterator]() {
+        return out;
+      },
+    };
+    if (typeof it.return === "function") out.return = (x?: unknown) => this.iteratorResult(it.return!(x)) as IteratorResult<unknown>;
+    if (typeof it.throw === "function") out.throw = (e?: unknown) => this.iteratorResult(it.throw!(e)) as IteratorResult<unknown>;
+    return out;
   }
 
   /** An async iterator whose next, return and throw call the original's
    * and pass on their promises with toRealm. */
   private iterator(it: AsyncIterator<unknown>): AsyncIterableIterator<unknown> {
+    // The promise is tracked as itself, and marked so that a continuation
+    // gets the result's value passed on.
+    const result = (p: unknown) => {
+      const q = this.toRealm(p);
+      if (q !== null && typeof q === "object") this.iteratorResults.add(q);
+      return q as Promise<IteratorResult<unknown>>;
+    };
     const out: AsyncIterableIterator<unknown> = {
-      next: (...a: [] | [unknown]) => this.toRealm(it.next(...a)) as Promise<IteratorResult<unknown>>,
+      next: (...a: [] | [unknown]) => result(it.next(...a)),
       [Symbol.asyncIterator]() {
         return out;
       },
     };
-    if (typeof it.return === "function") out.return = (x?: unknown) => this.toRealm(it.return!(x)) as Promise<IteratorResult<unknown>>;
-    if (typeof it.throw === "function") out.throw = (e?: unknown) => this.toRealm(it.throw!(e)) as Promise<IteratorResult<unknown>>;
+    if (typeof it.return === "function") out.return = (x?: unknown) => result(it.return!(x));
+    if (typeof it.throw === "function") out.throw = (e?: unknown) => result(it.throw!(e));
     return out;
   }
 

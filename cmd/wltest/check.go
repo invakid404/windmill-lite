@@ -196,9 +196,10 @@ const (
 	pendingWindow = 500 * time.Millisecond
 )
 
-// stepFacade is the platform facade's origin the harness is given, which
-// a native step reads as BASE_URL and BASE_INTERNAL_URL (WR-45). Nothing
-// listens there, and the checker answers no platform call (a 501).
+// stepFacade is the platform facade's origin the harness is given, for step
+// cases and flow fixtures alike, which a native step reads as BASE_URL and
+// BASE_INTERNAL_URL (WR-45). Nothing listens there, and the checker answers
+// no platform call (a 501).
 const stepFacade = "http://127.0.0.1:9"
 
 // language returns the language a deploy records for a case's script, and

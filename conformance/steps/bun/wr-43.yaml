@@ -252,6 +252,80 @@ cases:
       - args: '{"how":"caught"}'
         expect: {status: success, result: success}
   - spec: WR-43
+    variant: web-api-channels-nativets
+    provenance: source-derived
+    title: a rejection of a continuation of an object a web API handed over by an iterator, a callback, structuredClone or a message fails the job (nativets)
+    note: >-
+      c3n review round 3, finding 1: FormData's iterators (next().value,
+      spread) and forEach callback, structuredClone's result, and a
+      MessagePort message's data.
+    language: nativets
+    script: |
+      export async function main(how: string) {
+        const fail = (b: Blob) => b.text().then(() => { throw new Error(how); });
+        const form = new FormData();
+        form.append("file", new Blob(["abc"]), "a.txt");
+        const mc = new MessageChannel();
+        if (how === "values") fail(form.values().next().value as Blob);
+        if (how === "entries") fail([...form][0][1] as Blob);
+        if (how === "forEach") form.forEach((v) => { fail(v as Blob); });
+        if (how === "structuredClone") fail(structuredClone({ b: [new Blob(["c"])] }).b[0]);
+        if (how === "message") {
+          mc.port2.onmessage = (e) => { fail(e.data.b); };
+          mc.port1.postMessage({ b: new Blob(["m"]) });
+        }
+        await new Promise(r => setTimeout(r, 100));
+        mc.port1.close();
+        mc.port2.close();
+        return "success";
+      }
+    runs:
+      - args: '{"how":"values"}'
+        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error}}}
+      - args: '{"how":"entries"}'
+        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error}}}
+      - args: '{"how":"forEach"}'
+        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error}}}
+      - args: '{"how":"structuredClone"}'
+        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error}}}
+      - args: '{"how":"message"}'
+        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-channels-bunnative
+    provenance: source-derived
+    title: a rejection of a continuation of an object a web API handed over by an iterator, a callback, structuredClone or a message fails the job (bunnative)
+    script: |
+      //native
+      export async function main(how: string) {
+        const fail = (b: Blob) => b.text().then(() => { throw new Error(how); });
+        const form = new FormData();
+        form.append("file", new Blob(["abc"]), "a.txt");
+        const mc = new MessageChannel();
+        if (how === "values") fail(form.values().next().value as Blob);
+        if (how === "entries") fail([...form][0][1] as Blob);
+        if (how === "forEach") form.forEach((v) => { fail(v as Blob); });
+        if (how === "structuredClone") fail(structuredClone({ b: [new Blob(["c"])] }).b[0]);
+        if (how === "message") {
+          mc.port2.onmessage = (e) => { fail(e.data.b); };
+          mc.port1.postMessage({ b: new Blob(["m"]) });
+        }
+        await new Promise(r => setTimeout(r, 100));
+        mc.port1.close();
+        mc.port2.close();
+        return "success";
+      }
+    runs:
+      - args: '{"how":"values"}'
+        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error}}}
+      - args: '{"how":"entries"}'
+        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error}}}
+      - args: '{"how":"forEach"}'
+        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error}}}
+      - args: '{"how":"structuredClone"}'
+        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error}}}
+      - args: '{"how":"message"}'
+        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error}}}
+  - spec: WR-43
     variant: web-api-rejection-handled
     provenance: source-derived
     title: a web API's rejection the script handles fails nothing

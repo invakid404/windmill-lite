@@ -201,7 +201,9 @@ cannot keep:
 - separate web API objects: the realm gets the harness realm's classes,
   as subclasses made once per process whose methods (inherited and
   symbol-named ones included) hand it the objects they return as its own
-  and track the promises they return for the calling invocation, and
+  and track the promises they return for the calling invocation, as they
+  do for what iterators, callbacks, `structuredClone` and message events
+  hand over, and
   `crypto` as an object that forwards to the shared one; a script that
   changes one of them (a prototype, `crypto`) changes it for the other
   native invocations of the process, as D1 says of Bun's `globalThis`;

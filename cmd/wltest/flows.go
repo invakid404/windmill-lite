@@ -141,6 +141,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
 			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
+			// The same facade origin as the step cases', so a native step
+			// reads the same BASE_URL and BASE_INTERNAL_URL in both (WR-45).
+			Facade: stepFacade,
 		},
 	})
 	if err != nil {

@@ -306,6 +306,73 @@ describe("a native realm", () => {
     await outside;
   });
 
+  test("objects a web API hands over by iterators, callbacks, structuredClone and messages are the invocation's too (c3n review r3, finding 1)", async () => {
+    const { native, j, ctx } = registered();
+    const g = j.g;
+    await invocations.run(ctx, async () => {
+      const owned = (p: unknown) => native.jobOfPromise(p) === j;
+      const form = new g.FormData();
+      form.append("file", new g.Blob(["abc"]), "a.txt");
+      let viaForEach: unknown;
+      form.forEach((v: unknown) => {
+        viaForEach = v;
+      });
+      const handed: Record<string, Blob> = {
+        "FormData.get": form.get("file") as Blob,
+        "FormData.values().next().value": form.values().next().value as Blob,
+        "[...FormData][0][1]": [...form][0][1] as Blob,
+        "FormData.entries() for-of": (() => {
+          for (const [, v] of form.entries()) return v as Blob;
+          throw new Error("empty");
+        })(),
+        "FormData.forEach callback": viaForEach as Blob,
+        "structuredClone, nested": g.structuredClone({ nested: [new g.Blob(["n"])], map: new Map([["k", new g.Blob(["m"])]]) }).nested[0],
+        "structuredClone, in a Map": g.structuredClone({ map: new Map([["k", new g.Blob(["m"])]]) }).map.get("k"),
+      };
+      for (const [what, b] of Object.entries(handed)) {
+        expect([what, b instanceof g.Blob]).toEqual([what, true]);
+        const p = b.text();
+        const q = p.then(() => "continued");
+        expect([what, owned(p), owned(q)]).toEqual([what, true, true]);
+        await q;
+      }
+      // A stream reader's read() result has its value passed on too.
+      const chunk = (await new g.Response(new g.Blob(["s"])).body.getReader().read()) as { value: unknown };
+      expect(chunk.value instanceof Uint8Array).toBe(true);
+      // A FormData file is the realm's File, as V8's is a File.
+      expect([handed["FormData.get"] instanceof g.File, handed["[...FormData][0][1]"] instanceof g.File]).toEqual([true, true]);
+
+      // A message's data, in the listener, which runs as the invocation
+      // that registered it.
+      const mc = new g.MessageChannel();
+      const inListener = await new Promise<{ blob: boolean; owned: boolean; port: boolean }>((res) => {
+        const h = (e: MessageEvent) => {
+          const p = e.data.b.text();
+          res({ blob: e.data.b instanceof g.Blob, owned: owned(p), port: e.ports.length === 1 && e.ports[0] instanceof g.MessagePort });
+        };
+        mc.port2.onmessage = h;
+        expect(mc.port2.onmessage).toBe(h);
+        const extra = new g.MessageChannel();
+        mc.port1.postMessage({ b: new g.Blob(["m"]) }, [extra.port1]);
+        extra.port2.close();
+      });
+      expect(inListener).toEqual({ blob: true, owned: true, port: true });
+      // A listener removed by identity is removed.
+      let calls = 0;
+      const listener = () => {
+        calls++;
+      };
+      mc.port2.onmessage = null;
+      mc.port2.addEventListener("message", listener);
+      mc.port2.removeEventListener("message", listener);
+      mc.port1.postMessage("ignored");
+      await Bun.sleep(20);
+      expect(calls).toBe(0);
+      mc.port1.close();
+      mc.port2.close();
+    });
+  });
+
   test("a stream error the script catches is no unhandled rejection, as with Bun's own stream (c3n review r2, finding 4)", async () => {
     const { native, j, ctx } = registered();
     const seen: unknown[] = [];

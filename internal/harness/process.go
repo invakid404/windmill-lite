@@ -862,7 +862,7 @@ func platformAnswer(ctx context.Context, h PlatformHandler, req PlatformRequest)
 // for the invocation (see invocation.fixed), but never for one that was
 // not dispatched.
 func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func()) (engine.StepOutcome, dispatch, error) {
-	if err := checkInvocation(inv, p.Hello().Caps); err != nil {
+	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.Facade); err != nil {
 		return engine.StepOutcome{}, notDispatched, err
 	}
 	payload, err := Encode(Invoke{
@@ -937,8 +937,10 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 var entryName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // checkInvocation refuses invocations this harness cannot run. They never
-// reach it.
-func checkInvocation(inv engine.Invocation, caps Caps) error {
+// reach it. A native one needs a harness that offers the native boundary
+// and a facade origin, which a native step reads as BASE_URL and
+// BASE_INTERNAL_URL (WR-45).
+func checkInvocation(inv engine.Invocation, caps Caps, facade string) error {
 	switch {
 	case inv.ID == "":
 		return errors.New("harness: invocation without an id")
@@ -954,6 +956,9 @@ func checkInvocation(inv engine.Invocation, caps Caps) error {
 	case engine.BoundaryNative:
 		if !caps.Native {
 			return fmt.Errorf("harness: invocation %q: the harness has no native boundary (milestone C3n)", inv.ID)
+		}
+		if facade == "" {
+			return fmt.Errorf("harness: invocation %q: the native boundary needs the platform facade's origin, its BASE_URL and BASE_INTERNAL_URL (WR-45), and the process has none", inv.ID)
 		}
 	default:
 		return fmt.Errorf("harness: invocation %q: unknown boundary %q", inv.ID, inv.Boundary)

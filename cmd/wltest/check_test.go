@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -234,7 +235,8 @@ func TestStepCatalogue(t *testing.T) {
 
 // A native invocation's rejection that nobody handles, from a promise a web
 // API returned (a method of its own or inherited, a continuation, a stream
-// iterator's next), fails that invocation (WR-43/d) and no other, and an
+// iterator's next, an object an iterator handed over), fails that
+// invocation (WR-43/d) and no other, and an
 // iteration error the script catches fails none: native and Bun
 // invocations in flight beside them in the same process succeed with no
 // warning (c3n review, finding 1; round 2, findings 1 and 4).
@@ -297,6 +299,24 @@ cases:
         claims:
           - {at: /status, equals: failure}
           - {at: /result/error/message, equals: iterator rejection}
+  - spec: WR-43
+    variant: channel-rejects
+    provenance: source-derived
+    title: a rejection of a continuation of a file FormData's iterator handed over
+    language: nativets
+    script: |
+      export async function main() {
+        const form = new FormData();
+        form.append("file", new Blob(["abc"]), "a.txt");
+        (form.values().next().value as Blob).text().then(() => { throw new Error("channel rejection"); });
+        await new Promise(r => setTimeout(r, 300));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, equals: channel rejection}
   - spec: WR-43
     variant: iterator-caught
     provenance: source-derived
@@ -372,4 +392,64 @@ cases:
 	if t.Failed() {
 		t.Logf("harness diagnostics:\n%s", diag.String())
 	}
+}
+
+// A flow's native steps run through the real build and harness with their
+// boundary and the native environment: a nativets step without a //native
+// line, one with it, and a bun step with it are each native (no Bun) and
+// read BASE_URL and BASE_INTERNAL_URL as the facade origin the step cases
+// get, and only the nativets ones declare the job variables as bare names
+// (WR-40's note, SC1; WR-45/a; c3n review r3, finding 6).
+func TestNativeFlowSteps(t *testing.T) {
+	bun := bunOrSkip(t)
+	dir := filepath.Join(t.TempDir(), "flows", "languages", "native-steps")
+	script := func(lang, header string) map[string]any {
+		return map[string]any{
+			"type":             "rawscript",
+			"language":         lang,
+			"content":          header + "export function main() { return [typeof Bun, process.env.BASE_URL, process.env.BASE_URL === process.env.BASE_INTERNAL_URL, typeof BASE_URL, typeof WM_WORKSPACE]; }",
+			"input_transforms": map[string]any{},
+		}
+	}
+	flow := map[string]any{"summary": "native steps", "value": map[string]any{"modules": []any{
+		map[string]any{"id": "nativets", "value": script("nativets", "")},
+		map[string]any{"id": "nativetsheader", "value": script("nativets", "//native\n")},
+		map[string]any{"id": "bunheader", "value": script("bun", "//native\n")},
+	}}}
+	nativets := []any{"undefined", stepFacade, true, "string", "string"}
+	bunnative := []any{"undefined", stepFacade, true, "string", "undefined"}
+	step := func(result []any) map[string]any {
+		return map[string]any{"status": "success", "args": map[string]any{}, "result": result}
+	}
+	files := map[string]any{
+		"fixture.yaml": map[string]any{"id": "languages/native-steps", "spec": []string{"WR-40", "WR-45"}, "scope": "core",
+			"provenance": "source-derived", "languages": []string{"nativets", "bun"}, "oracle": map[string]any{"workers": 1}},
+		"runs/run.yaml": map[string]any{"spec": []string{"WR-40", "WR-45"}, "target": "f/wl_native/steps", "expect": map[string]any{
+			"status": "success", "result": bunnative,
+			"steps": map[string]any{"m:nativets": step(nativets), "m:nativetsheader": step(nativets), "m:bunheader": step(bunnative)},
+		}},
+		"windmill/f/wl_native/steps.flow/flow.yaml": flow,
+	}
+	for name, v := range files {
+		b, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "windmill", "wmill.yaml"), []byte("defaultTs: bun\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), "-v", dir}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "1 passed, 0 failed, 0 unsupported") {
+		t.Fatalf("exit %d\n%s%s", code, stdout.String(), stderr.String())
+	}
+	t.Log(strings.TrimSpace(stdout.String()))
 }

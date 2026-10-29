@@ -180,8 +180,11 @@ a few at a time (`flows.go`):
    does not build) fails or skips only the runs of that target; a folder
    that does not load, or a build that fails as a whole, fails them all.
 2. **Run.** Each target flow gets a walking skeleton of its own
-   (`engine.Skeleton`, milestone W1), and every run goes to one pool of Bun
-   harness processes per fixture, the `warm` configuration. Runs go in name
+   (`engine.Skeleton`, milestone W1), which invokes each step with its
+   boundary, a native one included (C3n), and every run goes to one pool
+   of Bun harness processes per fixture, the `warm` configuration, given
+   the step cases' facade origin, so a native step reads the same
+   `BASE_URL` and `BASE_INTERNAL_URL` in both. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run, and a run
    that has not ended after 60 s fails. Each run has its own id, which its
@@ -235,6 +238,10 @@ without it they skip, unless `WL_REQUIRE_BUN` is set, as CI sets it.
   `TestNativeRejectionIsItsInvocationsOwn` checks that a native
   invocation's unhandled rejection of a web API's promise fails it and no
   invocation beside it in the same process.
+  `TestNativeFlowSteps` runs a flow's three kinds of native step (nativets
+  with and without `//native`, bun with it) through the real build and
+  harness, checking each one's boundary and its `BASE_URL` and
+  `BASE_INTERNAL_URL`.
 - `TestFlowSuite` is milestone E1's exit gate: every run the flow suite
   requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;

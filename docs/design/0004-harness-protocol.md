@@ -614,7 +614,17 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     `File.text()`, a stream's iterator or `crypto.subtle` returned, or of a
     continuation of it, is attributed to that invocation and warns no
     other. The promise stays the same object, so a rejection the web API's
-    own code handles (a stream's iteration, `closed`) stays handled. A fetch is the invocation's until
+    own code handles (a stream's iteration, `closed`) stays handled. What
+    the APIs hand over by other ways is the realm's alike: iterator values,
+    the arguments of their callbacks (`FormData.forEach`), a reader's
+    results, `structuredClone`'s result all through, and a `MessagePort`
+    message's data and ports, whose listener runs as the invocation that
+    registered it.
+  - **The facade origin is required.** The engine refuses a native
+    invocation to a process with no facade origin, which a native step
+    reads as `BASE_URL` and `BASE_INTERNAL_URL`
+    ([WR-45](../semantics/languages.md#wr-45)), so the preamble always has
+    both. A fetch is the invocation's until
     its response's body ends, and is aborted when the invocation settles
     first. Such a rejection, a throw from
     one of its timers and a throw from a microtask it queued fail a running
