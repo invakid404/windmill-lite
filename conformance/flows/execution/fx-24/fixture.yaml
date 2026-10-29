@@ -1,0 +1,16 @@
+# FX-24: the per-step timeout (and JE-29's values). A process timeout,
+# static or javascript, and a zero one; a negative timeout at the
+# root's first pickup and at a later transition (FX-15); javascript
+# values that do not deserialise as an i32, and one whose evaluation
+# fails; an identity job is never timed; a flow's own timeout is not
+# enforced (path 4). The collapsed and parallel loops of FX-24/d and
+# /e are NI's, and FX-24/g's in-process executor is later. Steps run
+# the path scripts f/wl_fx24/echo (returns x) and slow (waits ms, then
+# returns ms). Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-24.
+id: execution/fx-24
+spec: [FX-24, FX-24/a, FX-24/b, FX-24/c, FX-24/f, FX-25, JE-29, FX-15]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

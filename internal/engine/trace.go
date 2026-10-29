@@ -29,10 +29,10 @@ type Trace struct {
 	// (FX-36, FX-42); zero for a latched or halted run.
 	Result jsonval.Value
 	// ResultOrigin is who produced Result when it is an error.
-	// ResultNested lists, when Result aggregates other values (a loop's
-	// array), the JSON pointers relative to it of the errors inside it that
-	// windmill-lite generated, such as "/0" for an iteration's (see
-	// StepRecord.ResultNested).
+	// ResultNested lists, when Result aggregates other values (a loop's or
+	// a branchall's array), the JSON pointers relative to it of the errors
+	// inside it that windmill-lite generated, such as "/0" for an
+	// iteration's (see StepRecord.ResultNested).
 	ResultOrigin Origin
 	ResultNested []string
 	// Latched is the error the run latched (H5) when Status is
@@ -71,10 +71,24 @@ func (t *Trace) Step(p conformance.SitePath) (StepRecord, bool) {
 }
 
 // StepRecord is the trace of one site: one module, or one failed attempt of
-// a retried module at <module>/r:<k>.
+// a retried module at <module>/r:<k>, where k is the attempt's place in
+// the flow-wide list of failed attempts (FX-27), which counts an earlier
+// module's attempts after a tolerated failure (FX-29).
 type StepRecord struct {
-	Site    conformance.SitePath
+	Site conformance.SitePath
+	// Attempt is the module's attempt the record is of: 0 for its first
+	// run, n for its nth retry.
 	Attempt int
+	// FailedRetries are, on a module's record, the sites of the failed
+	// attempts its Success or Failure status lists: the flow-wide list
+	// that Windmill copies into the status of every module that completes,
+	// its own retried attempts and, after a tolerated failure, an earlier
+	// module's (FX-27, FX-29). Each names the record of that attempt.
+	FailedRetries []conformance.SitePath
+	// Job is the id of the site's leaf job, the invocation's WM_JOB_ID,
+	// once it launched; empty for identity jobs, which have no
+	// invocation, and for sites with no job.
+	Job string
 
 	// Status is the status of the site's job (OR-V2), or StepNotRun when it
 	// has none. Module is the module's own status (FX-1), for a site that is
@@ -106,7 +120,8 @@ type StepRecord struct {
 
 	// Result is the stored result of the site's own job; Carried is the
 	// value the module carries on to what follows it, which differs from
-	// Result after an error stop (FX-V2). Together with Module and
+	// Result after an error stop (FX-V2), and is zero for a failed attempt,
+	// which carries nothing on. Together with Module and
 	// ResolvedArgs they are the dimensions ADR 0001 §2 compares beyond
 	// OR-15's step record (conformance.StepObservation).
 	Result  jsonval.Value
@@ -121,17 +136,21 @@ type StepRecord struct {
 	ResultOrigin  Origin
 	CarriedOrigin Origin
 	// ResultNested and CarriedNested list, for a value that aggregates
-	// others (a loop's array of its iterations' results), the JSON pointers
-	// relative to it of the errors windmill-lite generated inside it: "/0"
-	// for the first iteration's, "/1/0" inside a nested loop's array. An
-	// origin says who produced a value as a whole; these say it of the
-	// parts, so that a comparison applies ADR 0011's location rule there
-	// and nowhere else.
+	// others (a loop's or a branchall's array of its children's results),
+	// the JSON pointers relative to it of the errors windmill-lite generated
+	// inside it: "/0" for the first child's, "/1/0" inside a nested loop's
+	// array. An origin says who produced a value as a whole; these say it
+	// of the parts, so that a comparison applies ADR 0011's location rule
+	// there and nowhere else.
 	ResultNested  []string
 	CarriedNested []string
 	// BranchChosen is the branch a branchone took.
 	BranchChosen *conformance.BranchChosen
 
+	// Start and Duration time the site's job, from its launch, after any
+	// sleep or retry delay, to its outcome; for a site with no job, the
+	// time its module took to reach that point. The module's own span,
+	// waits included, is a SpanModule span.
 	Start    time.Time
 	Duration time.Duration
 	// Late holds what the invocation produced after it settled or was
@@ -139,10 +158,12 @@ type StepRecord struct {
 	Late []Late
 }
 
-// ChildFlow is a child flow a run created: the body of a for-loop
-// iteration that ran as a flow of its own, not collapsed (CF-1, CF-8).
+// ChildFlow is a child flow a run created: the body of a loop iteration
+// that ran as a flow of its own, not collapsed, or of a branch (CF-1,
+// CF-8).
 type ChildFlow struct {
-	// Site is the iteration's site, <loop>/i:<n> (ADR 0011), under which
+	// Site is the iteration's site, <loop>/i:<n>, or the branch's,
+	// <container>/b:<n> or <container>/b:default (ADR 0011), under which
 	// the child's modules have theirs.
 	Site conformance.SitePath
 	// ID is the child flow's job id, which its steps see as

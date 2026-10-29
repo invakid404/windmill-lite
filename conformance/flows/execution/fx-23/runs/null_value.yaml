@@ -1,0 +1,10 @@
+# FX-23: null is not a number either: the debug form of serde_json's
+# Value, Null (JE-28).
+spec: [FX-23, JE-28, FX-15]
+target: f/wl_fx23/null_value
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Expected an integer, found: Null"}}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:b": {status: not_run}

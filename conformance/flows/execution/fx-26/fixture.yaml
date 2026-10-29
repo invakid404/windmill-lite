@@ -1,0 +1,12 @@
+# FX-26: the retry schedule. The constant phase, then the exponential
+# phase whose exponent counts every failure; a multiplier. The delays
+# of FX-26/c to /e (16-bit wrap, the 6-hour cap, saturation) are hours
+# long and are checked at unit level, with the record clock. The step
+# runs the path script f/wl_fx26/fail (throws msg). Synthetic, written
+# for this repository from docs/semantics/execution.md#fx-26.
+id: execution/fx-26
+spec: [FX-26, FX-26/a, FX-26/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"strconv"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -11,9 +13,9 @@ import (
 )
 
 // frame is one flow the run executes (CF-1): the root flow, or the child
-// flow that a loop iteration runs as. A collapsed iteration (CF-8) is a
-// frame too, of its one body module, but its job runs in the flow of its
-// loop, the frame's parent, whose results context it uses.
+// flow that a loop iteration or a branch runs as. A collapsed iteration
+// (CF-8) is a frame too, of its one body module, but its job runs in the
+// flow of its loop, the frame's parent, whose results context it uses.
 type frame struct {
 	// modules are the flow's module list, and failure its failure module,
 	// at cursor len(modules) (FX-1): the root's own, since no child flow
@@ -25,25 +27,19 @@ type frame struct {
 	// module's previous_result, which is the input except in a collapsed
 	// iteration (CF-8, JE-36).
 	input, prev jsonval.Value
-	// path is the flow's runnable path (WA-6): the root flow's path,
-	// <path>/loop-<i> for a sequential iteration, <path>/forloop-<i> for a
-	// parallel one. id is the flow's job id (WM_FLOW_JOB_ID) and scope the
-	// id of its innermost flow scope (WM_ROOT_FLOW_JOB_ID, WA-V1).
+	// path is the flow's runnable path (WA-6, CF-24): the root flow's path,
+	// <path>/loop-<i> for a sequential or while iteration, <path>/forloop-<i>
+	// for a parallel one, <path>/branchone-<n> or <path>/branchall-<n> for a
+	// branch. id is the flow's job id (WM_FLOW_JOB_ID) and scope the id of
+	// its innermost flow scope (WM_ROOT_FLOW_JOB_ID, WA-V1).
 	path, id, scope string
-	// site is a child flow's site, its iteration's (<loop>/i:<n>).
+	// site is a child flow's site: its iteration's (<loop>/i:<n>) or its
+	// branch's (<container>/b:<n>, <container>/b:default).
 	site conformance.SitePath
 	// child marks a child flow: a chaining error at its first module fails
 	// it at its pickup (FX-15 context 3), where the root's fails that
 	// module (context 2).
 	child bool
-	// after reports whether the run would start something once the frame's
-	// flow has ended as e, which haltAfter needs (AfterContinue): a further
-	// iteration of its loop, which the loop starts only after a success or a
-	// failure skip_failures tolerates, an iteration its parallel loop still
-	// holds, or what follows the loop, given how the loop then ends, asked of
-	// the frames that contain it when it is asked; nil for the root, after
-	// which nothing starts.
-	after func(e flowEnd) bool
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
 	collapsed *ir.Module
@@ -52,12 +48,30 @@ type frame struct {
 	// nodes is the frame's scope of the result-by-node-id map (JE-19).
 	nodes *nodeScope
 	// jobs holds, per module (the failure module last), the stored result
-	// of its job when it has one (JE-18 step 2); guarded by run.mu.
-	jobs []jsonval.Value
+	// of its job when it has one (JE-18 step 2); nilJob marks a module that
+	// completed with a nil job, a branchone that ran no branch (CF-14,
+	// OR-25) or whose predicate threw (OR-11). Both are guarded by run.mu.
+	jobs   []jsonval.Value
+	nilJob []bool
 	// rng shuffles the frame's unspecified orders (ADR 0001 §2). A parallel
 	// iteration has its own, seeded from its loop's frame, since it runs on
 	// a goroutine of its own.
 	rng *rand.Rand
+	// failCount and failed are the flow's retry state (FX-27, FX-29): the
+	// failures of the current retry sequence, and the sites of the failed
+	// attempts its retries recorded, which every module of the flow that
+	// completes lists as its own; a success clears both. succeeded holds,
+	// per module, that its last status is Success, which a retry's
+	// restored previous_result depends on (FX-6, JE-36). spent is what the
+	// flow's current transition, since its last job ended (pinged), has
+	// spent evaluating expressions, against JE-2's monitor. The goroutine
+	// that runs the frame owns them all; a collapsed iteration's monitor
+	// state is its loop's flow's (owner).
+	failCount uint32
+	failed    []conformance.SitePath
+	succeeded []bool
+	spent     time.Duration
+	pinged    time.Time
 	// env is flow_env as the transition that started the frame's current
 	// module resolved it, and envCached the last resolution that succeeded,
 	// which the predicates after a child completes read (JE-38); zero
@@ -83,7 +97,7 @@ func newNodeScope(parent *nodeScope) *nodeScope {
 // sites carry each module's occurrence when an id repeats (OF-2, ADR 0011),
 // and the failure slot's site, s:failure, comes after them.
 func newFrame(ms []*ir.Module, prefix conformance.SitePath) *frame {
-	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1)}
+	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1), nilJob: make([]bool, len(ms)+1), succeeded: make([]bool, len(ms)+1)}
 	ids := make([]string, len(ms))
 	for i, m := range ms {
 		ids[i] = m.ID
@@ -106,29 +120,6 @@ func (fr *frame) moduleAt(i int) *ir.Module {
 
 // isFailure reports whether cursor i is the failure module's.
 func (fr *frame) isFailure(i int) bool { return i == len(fr.modules) }
-
-// afterModule reports whether the run would start something once module i
-// of the frame, a loop, has completed, as a failure or not: the next module,
-// or what follows the frame; a failure goes on only under the module's
-// continue_on_error (FX-30), and a failure module is not something a halt
-// waits for (AfterContinue).
-func (fr *frame) afterModule(i int, failed bool) bool {
-	m := fr.modules[i]
-	switch {
-	case failed && m.ContinueOnError && fr.collapsed == nil:
-		failed = false
-	case failed && fr.failure != nil:
-		return false
-	}
-	if !failed && i < len(fr.modules)-1 {
-		return true
-	}
-	status := conformance.RunSuccess
-	if failed {
-		status = conformance.RunFailure
-	}
-	return fr.after != nil && fr.after(flowEnd{status: status})
-}
 
 // ids returns the ids of the frame's modules, in order.
 func (fr *frame) ids() []string {
@@ -186,6 +177,17 @@ func (r *run) recordJob(fr *frame, i int, v jsonval.Value) {
 	}
 }
 
+// recordNilJob records that module i completed with a nil job (CF-19): an
+// engine read of it from its own flow fails to fetch the job, and the
+// result-by-node-id map holds it, so that a direct read answers null
+// (JE-9) and does not fall through to an outer scope.
+func (r *run) recordNilJob(fr *frame, i int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fr.nilJob[i] = true
+	fr.nodes.m[fr.moduleAt(i).ID] = jsonNull
+}
+
 // results is the results context of the expressions of fr's modules.
 func (r *run) results(fr *frame) *frameResults { return &frameResults{r: r, fr: fr} }
 
@@ -197,19 +199,25 @@ type frameResults struct {
 
 // Lookup is a results read on the engine path (JE-18 steps 2 and 3): the
 // last module of the current flow with that id that has a job gives its
-// job's result (a loop's is the array of its iterations' results), since
-// Windmill collects the step map from the flow's status entries in list
-// order, a later entry of an id replacing an earlier one, and keeps only
-// entries with a job (JE-18/e, OF-2); a later module of the id that has
-// not started is skipped. Otherwise the result-by-node-id map does, from
-// the frame's scope up to the root's (JE-19); anything else is null. The
-// value is read from storage, so the evaluator binds its stored text.
+// job's result (a loop's or a branchall's is the array of its children's
+// results, a branchone's its branch's), and a nil job fails the read with
+// the server's not-found text (CF-19 route 5), since Windmill collects the
+// step map from the flow's status entries in list order, a later entry of
+// an id replacing an earlier one, and keeps only entries with a job
+// (JE-18/e, OF-2); a later module of the id that has not started is
+// skipped. Otherwise the result-by-node-id map does, from the frame's
+// scope up to the root's (JE-19); anything else is null. The value is read
+// from storage, so the evaluator binds its stored text. The server's text
+// ends in its source location, which windmill-lite does not write (D14).
 func (x *frameResults) Lookup(_ context.Context, id string) (jsonval.Value, error) {
 	x.r.mu.Lock()
 	defer x.r.mu.Unlock()
 	own := x.fr.owner()
 	for i := len(own.modules) - 1; i >= 0; i-- {
 		if own.modules[i].ID == id {
+			if own.nilJob[i] {
+				return jsonval.Value{}, errors.New("Failed to fetch result for step '" + id + "': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000")
+			}
 			if v := own.jobs[i]; !v.IsZero() {
 				return v, nil
 			}

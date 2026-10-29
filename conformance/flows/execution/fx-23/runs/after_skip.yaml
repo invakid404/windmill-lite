@@ -1,0 +1,12 @@
+# FX-23: the sleep still applies after a skipped module, whose identity
+# job passes the flow input on (FX-17).
+spec: [FX-23, FX-17]
+target: f/wl_fx23/after_skip
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, skipped: true, args: {previous_result: {}}, result: {}}
+    "m:b": {status: success, args: {x: 2}, result: 2}
+delays:
+  - {from: "m:a", to: "m:b", at_least_ms: 1000}

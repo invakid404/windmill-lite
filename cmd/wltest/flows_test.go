@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -199,16 +200,17 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		return "    - id: " + id + "\n      value:\n        type: rawscript\n        content: '!inline " + id + ".ts'\n        input_transforms: {}\n        language: bun\n"
 	}
 	writeTree(t, dir, map[string]string{
-		"fixture.yaml":                       "id: e1/checker\nspec: [OR-15]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
-		"windmill/wmill.yaml":                "defaultTs: bun\nincludes: [\"f/**\"]\n",
-		"windmill/f/t/one.flow/flow.yaml":    flow(inline("a")),
-		"windmill/f/t/one.flow/a.ts":         "export async function main() { return 1; }\n",
-		"windmill/f/t/job.flow/flow.yaml":    flow(inline("a")),
-		"windmill/f/t/job.flow/a.ts":         "export async function main() { return process.env.WM_JOB_ID; }\n",
-		"windmill/f/t/two.flow/flow.yaml":    flow(inline("a") + inline("b")),
-		"windmill/f/t/two.flow/a.ts":         "export async function main() { throw new Error(\"no\"); }\n",
-		"windmill/f/t/two.flow/b.ts":         "export async function main() { return 2; }\n",
-		"windmill/f/t/branch.flow/flow.yaml": flow("    - id: o\n      value:\n        type: branchone\n        branches: []\n        default: []\n"),
+		"fixture.yaml":                      "id: e1/checker\nspec: [OR-15]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
+		"windmill/wmill.yaml":               "defaultTs: bun\nincludes: [\"f/**\"]\n",
+		"windmill/f/t/one.flow/flow.yaml":   flow(inline("a")),
+		"windmill/f/t/one.flow/a.ts":        "export async function main() { return 1; }\n",
+		"windmill/f/t/job.flow/flow.yaml":   flow(inline("a")),
+		"windmill/f/t/job.flow/a.ts":        "export async function main() { return process.env.WM_JOB_ID; }\n",
+		"windmill/f/t/two.flow/flow.yaml":   flow(inline("a") + inline("b")),
+		"windmill/f/t/two.flow/a.ts":        "export async function main() { throw new Error(\"no\"); }\n",
+		"windmill/f/t/two.flow/b.ts":        "export async function main() { return 2; }\n",
+		"windmill/f/t/cache.flow/flow.yaml": flow(inline("a") + "      cache_ttl: 60\n"),
+		"windmill/f/t/cache.flow/a.ts":      "export async function main() { return 1; }\n",
 		// Inline step a of f/t/same has the job path f/t/same/a, which is
 		// also the path of the script that step b runs (WR-29): two scripts,
 		// one job path.
@@ -222,7 +224,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"runs/b_wrong_job.yaml":              "target: f/t/job\nexpect:\n  status: success\n  result: \"<job:m:b>\"\n  steps:\n    \"m:a\": {status: success, args: {}, result: \"<job:m:b>\"}\n",
 		"runs/c_wrong_recording.yaml":        "target: f/t/two\n",
 		"runs/d_wrong_claim.yaml":            "target: f/t/two\nclaims:\n  - {at: /steps/m:b/status, equals: success}\n",
-		"runs/e_unsupported.yaml":            "target: f/t/branch\nexpect: {status: success, result: {}}\n",
+		"runs/e_unsupported.yaml":            "target: f/t/cache\nexpect: {status: success, result: 1}\n",
 		"runs/g_same_job_path.yaml":          "target: f/t/same\nexpect:\n  status: success\n  result: [2, f/t/same/a]\n  steps:\n    \"m:a\": {status: success, args: {}, result: [1, f/t/same/a]}\n    \"m:b\": {status: success, args: {}, result: [2, f/t/same/a]}\n",
 		"runs/h_build_problem.yaml":          "target: f/t/broken\nexpect: {status: success, result: 1}\n",
 		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}}\n    \"m:b\": {status: not_run}\n",
@@ -241,7 +243,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"fail " + dir + " c_wrong_recording\n  /steps/m:b/args: (absent) != {}\n  /steps/m:b/ran: false != true\n  /steps/m:b/result: (absent) != 2\n  /steps/m:b/status: \"not_run\" != \"success\"\n",
 		"fail " + dir + " d_wrong_claim\n  /steps/m:b/status: \"not_run\" (want \"success\")\n",
 		`observed {"status":"success","result":"<job:m:a>",`,
-		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/branch: module \"o\": a branchone (N3b)",
+		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/cache: module \"a\": cache_ttl (N4)",
 		"pass " + dir + " f_holds\n",
 		"pass " + dir + " g_same_job_path\n",
 		// A script that does not build fails only the runs of the flows
@@ -284,7 +286,7 @@ func TestObserveTrace(t *testing.T) {
 			},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, nil, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,12 +342,92 @@ func TestObserveTrace(t *testing.T) {
 		{Site: site("a"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, ResultOrigin: engine.OriginHarness,
 			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`{"error":{"name":"InternalErr","message":"m"}}`), Carried: v(`{"error":{"name":"InternalErr","message":"m"}}`)},
 	}}
-	got, generated, err = observeTrace(tr, []string{"a"}, false, nil, conformance.CompareSpec{})
+	got, generated, err = observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(generated, []string{"/steps/m:a/result", "/steps/m:a/carried", "/result"}) || string(got.Result) != "null" {
 		t.Fatalf("generated %v, result %s", generated, got.Result)
+	}
+}
+
+// The walker's sites of retries (FX-27, FX-29, OR-11): a failed attempt
+// at <module>/r:<k>, met again at <module>/r:<k> of every module whose
+// status lists it, with the placeholder of its own site; the virtual
+// <id>-v step of a final sleep left out (OF-17, OR-V7).
+func TestObserveTraceRetries(t *testing.T) {
+	const (
+		runID = "11111111-1111-4111-8111-111111111111"
+		jobA0 = "22222222-2222-4222-8222-222222222222"
+		jobA  = "33333333-3333-4333-8333-333333333333"
+		jobB  = "44444444-4444-4444-8444-444444444444"
+	)
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	site := func(id string) conformance.SitePath { return conformance.SitePath{}.Child(conformance.Module(id)) }
+	a0 := site("a").Child(conformance.Attempt(0))
+	fail := func(job string) jsonval.Value {
+		return v(`{"error":{"name":"E","message":"` + job + `","step_id":"a"}}`)
+	}
+	tr := &engine.Trace{
+		RunID: runID, Status: conformance.RunFailure, Result: fail(jobB), ResultOrigin: engine.OriginUser,
+		Steps: []engine.StepRecord{
+			{Site: site("a"), Attempt: 1, Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, Job: jobA,
+				RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: fail(jobA), Carried: fail(jobA), ResultOrigin: engine.OriginUser,
+				FailedRetries: []conformance.SitePath{a0}},
+			{Site: a0, Status: conformance.StepFailure, Ran: true, Job: jobA0,
+				RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: fail(jobA0), ResultOrigin: engine.OriginUser},
+			{Site: site("b"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, Job: jobB,
+				RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: fail(jobB), Carried: fail(jobB), ResultOrigin: engine.OriginUser,
+				FailedRetries: []conformance.SitePath{a0}},
+			{Site: site("b-v"), Status: conformance.StepSuccess, Module: conformance.ModuleSuccess, Ran: true,
+				RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`{}`), Carried: v(`{}`)},
+		},
+	}
+	// The executor saw every invocation at its module's site; the records
+	// name the attempt's job by its own.
+	jobs := map[string]conformance.SitePath{jobA0: site("a"), jobA: site("a"), jobB: site("b")}
+	got, _, err := observeTrace(tr, []string{"a", "b", "b-v"}, []bool{false, false, true}, false, jobs, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"failure","result":{"error":{"name":"E","message":"<job:m:b>","step_id":"a"}},"steps":{`+
+		`"m:a/r:0":{"status":"failure","args":{},"result":{"error":{"name":"E","message":"<job:m:a/r:0>","step_id":"a"}}},`+
+		`"m:a":{"status":"failure","args":{},"result":{"error":{"name":"E","message":"<job:m:a>","step_id":"a"}}},`+
+		`"m:b/r:0":{"status":"failure","args":{},"result":{"error":{"name":"E","message":"<job:m:a/r:0>","step_id":"a"}}},`+
+		`"m:b":{"status":"failure","args":{},"result":{"error":{"name":"E","message":"<job:m:b>","step_id":"a"}}}}}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := conformance.Compare(got, want, conformance.CompareOptions{}); err != nil || len(d) != 0 {
+		t.Fatalf("%v %v\nobserved %s", d, err, compactJSON(got))
+	}
+
+	// A listed attempt with no record is the engine's fault, reported.
+	tr.Steps = tr.Steps[:1]
+	if _, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}); err == nil {
+		t.Fatal("a listed attempt with no record was observed")
+	}
+}
+
+// checkDelays reads the trace's job times: the To site's job starts at
+// least the delay after the From site's job ended, and a site with no job
+// is reported.
+func TestCheckDelays(t *testing.T) {
+	at := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	site := func(id string) conformance.SitePath { return conformance.SitePath{}.Child(conformance.Module(id)) }
+	tr := &engine.Trace{Steps: []engine.StepRecord{
+		{Site: site("a"), Ran: true, Start: at, Duration: 100 * time.Millisecond},
+		{Site: site("b"), Ran: true, Start: at.Add(1600 * time.Millisecond), Duration: time.Millisecond},
+		{Site: site("c")},
+	}}
+	if p := checkDelays(tr, []conformance.Delay{{From: "m:a", To: "m:b", AtLeastMS: 1500}}); len(p) != 0 {
+		t.Fatalf("1.5 s: %v", p)
+	}
+	if p := checkDelays(tr, []conformance.Delay{{From: "m:a", To: "m:b", AtLeastMS: 1501}}); len(p) != 1 || !strings.Contains(p[0], "want at least 1501 ms") {
+		t.Fatalf("1.501 s: %v", p)
+	}
+	if p := checkDelays(tr, []conformance.Delay{{From: "m:a", To: "m:c", AtLeastMS: 1}, {From: "m:z", To: "m:b", AtLeastMS: 1}}); len(p) != 2 {
+		t.Fatalf("no job: %v", p)
 	}
 }
 
@@ -430,7 +512,7 @@ func TestObserveChildFlows(t *testing.T) {
 			{Site: p("m:p"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Carried: v(`{"error":{"name":"Anyhow","message":"Error: x"}}`), CarriedOrigin: engine.OriginEngine},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, false, nil, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, false, nil, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +560,7 @@ func TestObserveNestedGenerated(t *testing.T) {
 		{[]string{"/1"}, []string{"/result/0/error/message", "/steps/m:l/result/0/error/message"}},
 		{nil, []string{"/result/0/error/message", "/result/1/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/result/1/error/message"}},
 	} {
-		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, false, nil, conformance.CompareSpec{})
+		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, false, nil, conformance.CompareSpec{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -527,7 +609,7 @@ func TestObserveIncludedResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, generated, err := observeTrace(tr, []string{"l"}, false, nil, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"l"}, nil, false, nil, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +709,7 @@ func TestCarriedLocation(t *testing.T) {
 		{"carried is another value", trace(engine.OriginEngine, other), expect(withLoc(msg + " here")), false, []string{"/steps/m:a/carried/error/message"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, generated, err := observeTrace(c.trace, []string{"a"}, false, nil, conformance.CompareSpec{})
+			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, false, nil, conformance.CompareSpec{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -664,7 +746,7 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 		Site: conformance.SitePath{}.Child(conformance.Module("a")), Status: conformance.StepSuccess, Module: conformance.ModuleFailure, Ran: true,
 		RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`1`), Carried: v(str), CarriedOrigin: engine.OriginEngine,
 	}}}
-	got, generated, err := observeTrace(tr, []string{"a", "b"}, true, nil, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, true, nil, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,7 +765,7 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 		t.Fatalf("problems %q", p)
 	}
 	// Without a failure module there is no s:failure site.
-	got, _, err = observeTrace(tr, []string{"a", "b"}, false, nil, conformance.CompareSpec{})
+	got, _, err = observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{})
 	if _, ok := got.Steps[conformance.SitePath{}.Child(conformance.FailureSlot())]; err != nil || ok {
 		t.Fatalf("s:failure without a failure module (%v)", err)
 	}

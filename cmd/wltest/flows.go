@@ -63,8 +63,10 @@ type runResult struct {
 }
 
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
-// fails.
-const flowRunTimeout = 60 * time.Second
+// fails. The slowest runs wait for real: a transition the monitor of
+// flows that hang between steps cancels at 60 s (JE-2/a), and retry delays
+// that add up to 26 s (FX-26/a).
+const flowRunTimeout = 150 * time.Second
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
 // its runs' results.
@@ -228,11 +230,6 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			case r.RunsAndWaits():
 				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
 				continue
-			case r.Expect == nil && r.Recorded != nil && r.Recorded.Observation.Status == conformance.RunCanceled && r.CancelAfterMS == nil:
-				// JE-2/a: the oracle's own monitor of flows that hang
-				// between steps canceled the run, not the rule under test.
-				res.unsupported = "the oracle canceled the run itself (its monitor of flows that hang between steps), which windmill-lite has no counterpart of"
-				continue
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
 				continue
@@ -283,6 +280,7 @@ type target struct {
 	// prog is the flow's program, compiled with the flow as its only root.
 	prog    *ir.Program
 	modules []string // the module ids of the flow, in order
+	virtual []bool   // which modules are the generated `<id>-v` step (OF-17)
 	failure bool     // the flow has a failure module
 	// reached are the scripts the flow reaches, and names how a problem
 	// names each, by inventory id.
@@ -463,6 +461,7 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 	t.prog = prog
 	for _, m := range fl.Modules {
 		t.modules = append(t.modules, m.ID)
+		t.virtual = append(t.virtual, m.Virtual)
 	}
 	t.failure = fl.FailureModule != nil
 	t.names = map[string]string{}
@@ -572,11 +571,42 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.failure, exec.ids(), f.Compare)
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}
-	return compareRun(f, r, got, generated)
+	return append(compareRun(f, r, got, generated), checkDelays(tr, r.Delays)...)
+}
+
+// checkDelays checks a run's delays on windmill-lite's side (JE-28, FX-23,
+// FX-26): each To site's job starts at least AtLeastMS after the From
+// site's job ended, by the trace's job times (StepRecord.Start and
+// Duration), where the oracle's side reads them from the recording's
+// provenance.
+func checkDelays(t *engine.Trace, delays []conformance.Delay) []string {
+	var problems []string
+	for _, d := range delays {
+		from, ok1 := siteRecord(t, d.From)
+		to, ok2 := siteRecord(t, d.To)
+		if !ok1 || !ok2 {
+			problems = append(problems, fmt.Sprintf("delay %s to %s: the trace has no job at both sites", d.From, d.To))
+			continue
+		}
+		if gap := to.Start.Sub(from.Start.Add(from.Duration)); gap < time.Duration(d.AtLeastMS)*time.Millisecond {
+			problems = append(problems, fmt.Sprintf("delay %s to %s: %v, want at least %d ms", d.From, d.To, gap, d.AtLeastMS))
+		}
+	}
+	return problems
+}
+
+// siteRecord is the trace's record of the job at site, a site path's text.
+func siteRecord(t *engine.Trace, site string) (engine.StepRecord, bool) {
+	p, err := conformance.ParseSitePath(site)
+	if err != nil {
+		return engine.StepRecord{}, false
+	}
+	rec, ok := t.Step(p)
+	return rec, ok && rec.Ran
 }
 
 // compareRun compares a run's observation with its expect, or with its

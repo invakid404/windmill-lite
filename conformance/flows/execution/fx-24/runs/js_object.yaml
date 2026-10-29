@@ -1,0 +1,9 @@
+# JE-29: an object is refused before it is read, at column 0.
+spec: [JE-29, FX-15]
+target: f/wl_fx24/js_object
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: 'Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {"a":1}'}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}
