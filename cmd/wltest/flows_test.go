@@ -521,7 +521,7 @@ func TestObserveContainerAttempts(t *testing.T) {
 	for site, status := range map[string]conformance.StepStatus{
 		"m:l": conformance.StepFailure, "m:l/i:0/m:inner": conformance.StepNotRun, "m:l/i:0/m:x": conformance.StepNotRun,
 		"m:l/r:0": conformance.StepFailure, "m:l/r:0/m:inner": conformance.StepNotRun, "m:l/r:0/m:x": conformance.StepNotRun,
-		"m:d": conformance.StepSuccess,
+		"m:d":     conformance.StepSuccess,
 		"m:d/r:0": conformance.StepFailure, "m:d/r:0/m:inner": conformance.StepNotRun, "m:d/r:0/m:x": conformance.StepNotRun,
 	} {
 		p, _ := conformance.ParseSitePath(site)
