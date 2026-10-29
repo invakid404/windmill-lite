@@ -19,6 +19,12 @@ deferred:
   - spec: FX-42/j
     reason: a loop's result text writes its children's stored numbers again in the backend's notation (FX-42 rule 9; ADR 0005, the routing table), which is not jsonb's stored text; the semantics reference added the case on 2026-10-29
     expected_in: N3a, with N2's javascript timeout, which quotes the text
+  - spec: FX-42/k
+    reason: 'later; the backend parses a $jsonvar: variable''s text as written, so the token -0 is negative zero, written -0.0, and a number too small for a double is a zero with its sign (FX-42 rule 9); jsonb, which has no negative zero, is not involved; the semantics reference added the case on 2026-10-29'
+    expected_in: PF2, which resolves $jsonvar references (FX-42/h)
+  - spec: FX-42/l
+    reason: 'later; a $jsonvar: variable holding a number too large for a double fails the step with the backend''s parse error (FX-42 rule 9, FX-51), so no text is stored; the semantics reference added the case on 2026-10-29'
+    expected_in: PF2, which resolves $jsonvar references (FX-42/h)
   - spec: FX-48/c
     reason: its text is FX-48/b's; that the push failure is an InternalError at a later transition is the engine's routing (FX-15)
     expected_in: N1b

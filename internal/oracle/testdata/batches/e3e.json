@@ -85,6 +85,16 @@
       "reason": "its script, whose only import of ./helper is dynamic, cannot be deployed on the oracle: the dependency job takes the specifier for an npm package named \".\" and fails (bun install: Package \".\" with tag \"latest\" not found; oracle run 40798097155), so there is no deployed script to run; the later milestone that reproduces dynamic imports belongs to L1"
     },
     {
+      "case": "WR-28/f",
+      "milestone": "C2a",
+      "reason": "source-derived; no E3e run records it: a dynamic import of a .ts workspace path, which the resolver plugin claims with no static rewrite trigger, so the deploy succeeds and the run fetches the script from the workspace; windmill-lite's build resolves workspace imports from the sync folder (C2a)"
+    },
+    {
+      "case": "WR-28/g",
+      "milestone": "none",
+      "reason": "source-derived; no E3e run records it: dynamic builtin and package imports, the package locked at latest by the deploy's dependency job; windmill-lite consumes the folder's locks and generates none (ADR 0002, validation 5), and the later milestone that adds lock generation belongs to L1"
+    },
+    {
       "case": "WR-50/c",
       "milestone": "C3n",
       "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no observation exists; windmill-lite follows the reference: C3n's step case (conformance/steps/bun/wr-50.yaml, WR-50/c and its control) and FU5's flow-level check (cmd/wltest TestNativeCodebaseFlowStep) run the //native ESM codebase script in the native runtime"

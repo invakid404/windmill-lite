@@ -57,7 +57,7 @@ deferred:
     reason: an error message with an unpaired surrogate is dropped (O5); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
     checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-52.json, TestPipelineCasesOnEngine); batch E3e did not record it
   - case: JE-V5/a
-    reason: the transforms are taken in a hash map's random order, so on the oracle which one fails first changes between runs and a recording cannot be stable; it is a host- or evaluator-level case, with a variable service that records its calls
+    reason: the transforms are taken in a hash map's order, which is not fixed and may change between runs, so on the oracle which one fails first is not stable and neither is a recording; it is a host- or evaluator-level case, with a variable service that records its calls
     checked_in: B2b, PF2
 partial:
   - case: JE-36/d

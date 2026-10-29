@@ -92,7 +92,7 @@
       "spec": "WR-28/d",
       "provenance": "source-derived",
       "scope": "later",
-      "title": "a dynamic import with no static rewrite trigger is not fetched",
+      "title": "a dynamic import of an extensionless relative path, with no static rewrite trigger, is not fetched",
       "note": "On Windmill the script cannot be deployed: the specifier stays in the build output, the dependency scan reads it as a package named '.', and bun install fails (WR-26), so the script gets a lock error and no version a run by path can select. Here the bundle fails on the unresolved ./helper.",
       "given": {
         "path": "f/a/main",
