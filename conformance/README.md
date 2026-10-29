@@ -233,7 +233,11 @@ The cases the semantics reference added on 2026-10-28 are checked at
 evaluator level in the meantime, by the pipeline cases of
 [internal/expr](../internal/expr/README.md) that run on the engine; those
 it added on 2026-10-29 that no recording holds (JE-11/b–e, JE-16/h,
-JE-18/e and JE-44/f) are not encoded yet.
+JE-18/e and JE-44/f, and from revision SC3 JE-15/k, JE-20/c–d, JE-42/i–j
+and JE-49/d–e, whose recordings
+[docs/design/README.md](../docs/design/README.md#recording-requests-for-batch-e3f)
+requests from batch E3f) are not encoded yet; JE-19/f, like JE-19/e, needs
+a restarted run and is outside the contract.
 
 ## Claims and unit cases
 

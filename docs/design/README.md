@@ -177,8 +177,10 @@ each record):
 ## Unsettled findings
 
 Twenty-one findings of the reference were not settled when the design was
-written; the reference's revision of 2026-10-28 settled nine of them, and
-[twelve remain](../semantics/README.md#not-settled). The design does not pick
+written; the reference's revision of 2026-10-28 settled nine of them, its
+revisions of 2026-10-29 eight more (six by batch E3e, and OF-3 and OF-V5
+from the source in SC3), and
+[four remain](../semantics/README.md#not-settled). The design does not pick
 sides silently: [0001](0001-equivalence-contract.md) §6 lists each contested
 rule, its readings, the default and why, and the recording that settles it.
 Recording batches E3a to E3e record them on the oracle (E3e holds the
@@ -197,16 +199,19 @@ line-anchored, the stated default (request 7 below). 0001 §6 gives the
 results, and the reference now records them (requests 5 to 7 below). E3e
 recorded the contested `later` rows, FX-49 (Q-FX-11), FX-36's array result
 (Q-FX-12) and WR-16 and WR-28 (Q-WR-15, Q-WR-16), each for its stated
-default, and rebuilt the probe catalogue (Q-OR-16); the reference has yet
-to record those (request 10 below).
+default, and rebuilt the probe catalogue (Q-OR-16); the reference has
+recorded them (request 10 below): FX-36, FX-49, WR-16, WR-28, OR-15 and
+OR-V9 are confirmed from E3e.
 
 ## Requests to the semantics team
 
 Questions reach the semantics team as requests for the reference to cover a
 behaviour ([AGENTS.md](../../AGENTS.md)). The design depended on these, and
-all nine are answered: 1 to 3 by the semantics requests S1 to S3 (pull
+all eleven are answered: 1 to 3 by the semantics requests S1 to S3 (pull
 request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1, pull
-request #36). Each item names the findings that answer it. Where an answer
+request #36), and the two numbered 10 by its revision of 2026-10-29 (SC2),
+which answered FU3's readings and folded in batch E3e. Each item names the
+findings that answer it. Where an answer
 differs from a reading a milestone took, that milestone's code follows the
 answer in a follow-up; the sync-folder loader and the import base already
 do (FU4).
@@ -498,8 +503,10 @@ do (FU4).
    [JE-51](../semantics/expressions.md#je-51) (the job queue) and
    [JE-52](../semantics/expressions.md#je-52) (unpaired surrogates), which
    the same revision added.
-10. **The readings FU3 left open** (milestone FU3), open. Each is decided
-    by the reading named here and pinned by a test in `internal/expr`:
+10. **The readings FU3 left open** (milestone FU3), answered by the
+    reference's revision of 2026-10-29 (SC2) in JE-11, JE-16 and FX-42.
+    Each is decided by the reading named here and pinned by a test in
+    `internal/expr`:
     - [JE-11](../semantics/expressions.md#je-11): whether the character
       count starts at the start of the text or at the call (read as the
       start of the text, as "ASCII up to the insertion point" says), and
