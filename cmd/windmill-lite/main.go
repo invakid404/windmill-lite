@@ -3,8 +3,9 @@
 // It reports its version, builds a bundle from a Windmill sync folder,
 // verifies a bundle against its manifest or a release manifest, checks that
 // its expression engine starts, and serves host mode for the Bun host SDK
-// with the walking skeleton (`windmill-lite host`, milestone W1). The
-// commands that run a bundle do not exist yet.
+// with the walking skeleton (`windmill-lite host`, milestone W1). It runs
+// a bundle's flow or script with package wl and prints the outcome as JSON
+// (`windmill-lite run`, ADR 0009).
 package main
 
 import (
@@ -26,6 +27,7 @@ func main() {
 const usage = `usage: windmill-lite [version]
        windmill-lite build <folder> -o <bundle> [flags]
        windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
+       windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
        windmill-lite selfcheck
        windmill-lite host --bundle <dir> [--kill-after <duration>]`
 
@@ -41,6 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runBuild(args[1:], stdout, stderr)
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
+	case "run":
+		return runRun(args[1:], stdout, stderr)
 	case "selfcheck":
 		return runSelfcheck(args[1:], stdout, stderr)
 	case "host":

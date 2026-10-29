@@ -86,6 +86,34 @@ func TestInterceptedAttribution(t *testing.T) {
 	}
 }
 
+// Answered receives each call of a registered invocation once its answer
+// is decided, a served call's and an unsupported one's, before and without
+// the invocation's release; a stray call has no invocation and is not
+// answered there.
+func TestAnswered(t *testing.T) {
+	var mu sync.Mutex
+	var got []Record
+	f := newFacade(t, Config{Answered: func(inv string, r Record) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Inv != inv {
+			t.Errorf("answered %s for %s", r.Inv, inv)
+		}
+		got = append(got, r)
+	}})
+	f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
+	origin := f.WarmOrigin()
+	intercept(f, "inv-a", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/job-a", nil, nil)
+	intercept(f, "inv-a", "POST", origin+"/api/w/ws/jobs/run/preview", nil, nil)
+	intercept(f, "inv-unknown", "GET", origin+"/api/w/ws/jobs_u/get_root_job_id/job-a", nil, nil)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 || got[0].Inv != "inv-a" || got[0].Status != 200 || got[0].Route != "GET /w/{ws}/jobs_u/get_root_job_id/{id}" ||
+		got[1].Status != 501 || !got[1].Unsupported || got[1].Route != "POST /w/{ws}/jobs/run/preview" {
+		t.Fatalf("answered %+v", got)
+	}
+}
+
 // Over TCP a call is attributed by its token; an unknown token, or the
 // token of an invocation that has ended, answers 401 and is recorded as a
 // stray, never guessed onto another invocation (ADR 0007).
