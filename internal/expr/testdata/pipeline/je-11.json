@@ -61,7 +61,7 @@
       "variant": "unbalanced",
       "provenance": "source-derived",
       "title": "a call whose parentheses never close is awaited to the end",
-      "note": "the reference rewrites every occurrence and does not say where an unclosed call ends; this reading closes it at the end of the text (docs/design/README.md request 8)",
+      "note": "an unclosed call ends at the end of its part, here the end of the text (JE-11, confirmed for request 8 of docs/design/README.md)",
       "site": "input_transform",
       "text": "\"x\" + \"variable(\"",
       "expect": {"code": "\"x\" + \"(await variable(\")"}
@@ -80,7 +80,7 @@
       "variant": "non-ascii-early",
       "provenance": "source-derived",
       "title": "past a two-byte character the inserted ) lands a byte early, inside the string",
-      "note": "the position is counted in characters and applied as a byte offset (JE-11, corrected 2026-10-28, request 8); the code leaves a parenthesis open, so the source does not compile; not yet recorded (Q-JE-13)",
+      "note": "the position is counted in characters from the call and applied as a byte offset (JE-11, corrected 2026-10-28, request 8); the code leaves a parenthesis open, so the source does not compile; not yet recorded (Q-JE-13)",
       "site": "input_transform",
       "text": "variable(\"é\")",
       "expect": {"code": "(await variable(\"é)\")"}
@@ -90,7 +90,7 @@
       "variant": "non-ascii-panic",
       "provenance": "source-derived",
       "title": "where the ) would land inside a character, Windmill's evaluator panics",
-      "note": "variable(\"éé\") is 15 bytes and 13 characters; byte 13 is inside the second é (JE-11); what the panic does to Windmill's job is not traced (Q-JE-13), and windmill-lite fails the evaluation with its own text",
+      "note": "the part after the call, \"éé\"), is 7 bytes and 5 characters; its ) is the fifth character, so the insertion goes at byte 4 of the part, byte 13 of the text, inside the second é (JE-11)",
       "site": "input_transform",
       "text": "variable(\"éé\")",
       "expect": {"rewrite_panic": 13}
@@ -99,11 +99,80 @@
       "spec": "JE-11",
       "variant": "non-ascii-before-call",
       "provenance": "source-derived",
-      "title": "a character before the call moves the ) too",
-      "note": "reading: the count runs from the start of the text, which the reference's \"ASCII up to the insertion point\" says; a count from the call's start would give the exact position here (Q-JE-13 records only calls at the start)",
+      "title": "a character before the call moves nothing",
+      "note": "the count starts at the call, just after its opening parenthesis, so text before it shifts nothing (JE-11, corrected 2026-10-29 for design request 10; FU3 had counted from the start of the text)",
       "site": "input_transform",
       "text": "\"é\" + variable(\"x\")",
-      "expect": {"code": "\"é\" + (await variable(\"x)\")"}
+      "expect": {"code": "\"é\" + (await variable(\"x\"))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "non-ascii-before-later-helper",
+      "provenance": "source-derived",
+      "title": "a later helper's pass counts from its own call too",
+      "note": "each helper's pass cuts the text the previous one produced at its own call text (JE-11)",
+      "site": "input_transform",
+      "text": "variable(\"é\") + resource(\"x\")",
+      "expect": {"code": "(await variable(\"é)\") + (await resource(\"x\"))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "same-helper-nested",
+      "provenance": "source-derived",
+      "title": "a call nested in a call of the same helper cuts the outer one short",
+      "note": "the text is cut at every occurrence of the call text, and each part gets its own ), so the outer call's part ends where the inner call starts and never balances (JE-11); a call of another helper nests (variant nested)",
+      "site": "input_transform",
+      "text": "variable(variable('a'))",
+      "expect": {"code": "(await variable()(await variable('a')))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "unbalanced-before-next",
+      "provenance": "source-derived",
+      "title": "an unclosed call's ) goes before the next call of the same helper",
+      "site": "input_transform",
+      "text": "variable(1, variable(2))",
+      "expect": {"code": "(await variable(1, )(await variable(2)))"}
+    },
+    {
+      "spec": "JE-11/b",
+      "provenance": "source-derived",
+      "title": "the count starts at the call, so non-ASCII text before it shifts nothing",
+      "note": "a count from the start of the text would put the ) one byte early",
+      "site": "input_transform",
+      "text": "\"é variable(1)\"",
+      "context": {"previous_id": ""},
+      "expect": {"code": "\"é (await variable(1))\"", "route": "engine", "engine": {"text": "\"é (await variable(1))\""}}
+    },
+    {
+      "spec": "JE-11/c",
+      "provenance": "source-derived",
+      "title": "non-ASCII text inside the call moves the ) early by its extra bytes",
+      "note": "two characters are counted before the call's ), and the ) is inserted at byte 2 of the part, just after the two-byte é",
+      "site": "input_transform",
+      "text": "\"variable(éa)\"",
+      "context": {"previous_id": ""},
+      "expect": {"code": "\"(await variable(é)a)\"", "route": "engine", "engine": {"text": "\"(await variable(é)a)\""}}
+    },
+    {
+      "spec": "JE-11/d",
+      "provenance": "source-derived",
+      "title": "a call that never closes gets its ) at the end of its part",
+      "note": "the ) is inserted at the end of the text, where it closes the expression's own (",
+      "site": "input_transform",
+      "text": "(\"variable(ab\"",
+      "context": {"previous_id": ""},
+      "expect": {"code": "(\"(await variable(ab\")", "route": "engine", "engine": {"text": "\"(await variable(ab\""}}
+    },
+    {
+      "spec": "JE-11/e",
+      "provenance": "source-derived",
+      "title": "an insertion inside a multi-byte character fails the evaluation with the runtime's panic report",
+      "note": "the ) would go at byte 1 of the part, inside the two-byte é, which is byte 11 of the text; <n> is the task number, which differs between runs; an input transform wraps the message in its own text (JE-23), which internal/engine checks",
+      "site": "input_transform",
+      "text": "\"variable(é)\"",
+      "context": {"previous_id": ""},
+      "expect": {"rewrite_panic": 11, "engine": {"error": "task <n> panicked with message \"assertion failed: self.is_char_boundary(idx)\""}}
     },
     {
       "spec": "JE-11",
@@ -119,7 +188,7 @@
       "variant": "non-ascii-unbalanced",
       "provenance": "source-derived",
       "title": "an unclosed call's ) at the end of the text is counted in characters too",
-      "note": "reading: the rule's character count applies to the end of the text as well (Q-JE-13)",
+      "note": "the character count places an unclosed call's ) too, at the end of its part (JE-11, confirmed 2026-10-29 for design request 10)",
       "site": "input_transform",
       "text": "\"variable(é\"",
       "expect": {"code": "\"(await variable(é)\""}

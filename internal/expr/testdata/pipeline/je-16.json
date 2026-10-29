@@ -22,6 +22,50 @@
       "expect": {"route": "engine", "engine": {"text": "[[],1,false]"}}
     },
     {
+      "spec": "JE-16/h",
+      "variant": "from-memory",
+      "provenance": "source-derived",
+      "title": "a results read of the previous step served from memory is the rebuilt previous_result",
+      "note": "a returned JSON.parse('{\"__proto__\":{\"x\":1}}'), an object with an own __proto__ key; b directly after a reads it from memory (JE-18 rule 1), the previous_result global itself, so the key set the prototype",
+      "site": "input_transform",
+      "text": "[Object.keys(results.a), results.a.x]",
+      "context": {"previous_id": "a", "previous_result": "{\"__proto__\":{\"x\":1}}"},
+      "expect": {"route": "engine", "engine": {"text": "[[],1]"}}
+    },
+    {
+      "spec": "JE-16/h",
+      "variant": "fetched",
+      "provenance": "source-derived",
+      "title": "a fetched results read is built by JSON.parse, so a __proto__ key is an own property",
+      "note": "a step m between a and b: the read fetches a's stored result and parses it with JSON.parse, so nothing is inherited",
+      "site": "input_transform",
+      "text": "[Object.keys(results.a), results.a.x]",
+      "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"__proto__\": {\"x\": 1}}"}},
+      "expect": {"route": "engine", "engine": {"text": "[[\"__proto__\"],null]"}}
+    },
+    {
+      "spec": "JE-16",
+      "variant": "from-memory-identity",
+      "provenance": "source-derived",
+      "title": "the previous step's results read is the previous_result object itself",
+      "note": "rule 1 of JE-18 returns the previous_result global, not a copy",
+      "site": "input_transform",
+      "text": "results.a === previous_result",
+      "context": {"previous_id": "a", "previous_result": "{\"v\":1}"},
+      "expect": {"route": "engine", "engine": {"text": "true"}}
+    },
+    {
+      "spec": "JE-16",
+      "variant": "fetched-replaced-parse",
+      "provenance": "source-derived",
+      "title": "a fetched read uses JSON.parse as it is when the read runs",
+      "note": "JSON.parse is looked up when the read runs, so a replacement made before it gives the read its return value (JE-16); the helpers resource and flow_user_state read the same way",
+      "site": "input_transform",
+      "text": "(JSON.parse = () => \"replaced\", results.a)",
+      "context": {"previous_id": "m", "previous_result": "2", "results": {"a": "{\"v\": 1}"}},
+      "expect": {"route": "engine", "engine": {"text": "\"replaced\""}}
+    },
+    {
       "spec": "JE-16",
       "variant": "proto-null-or-dropped",
       "provenance": "source-derived",

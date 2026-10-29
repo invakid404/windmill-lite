@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -439,8 +440,7 @@ func TestEngineArgumentFailures(t *testing.T) {
 // FX-3: a flow with no modules returns its input. OF-2: a module id that
 // occurs twice gets two sites. JE-9's direct lookup reads the node-id map,
 // where the module that finished last wins (JE-19); the engine path reads
-// the first module with that id that has a job (JE-18 step 2), a reading:
-// the reference does not say which of two status entries it finds.
+// the last module with that id that has a job (JE-18 step 2).
 func TestEngineEmptyFlowAndRepeatedIDs(t *testing.T) {
 	e := mustOpen(t, map[string]string{
 		"f/t/main": `{"modules":[]}`,
@@ -451,13 +451,64 @@ func TestEngineEmptyFlowAndRepeatedIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantStatus(t, tr, conformance.RunSuccess, `{"direct":2,"engine":1,"prev":0}`)
+	wantStatus(t, tr, conformance.RunSuccess, `{"direct":2,"engine":2,"prev":0}`)
 	var sites []string
 	for _, st := range tr.Steps {
 		sites = append(sites, st.Site.String())
 	}
 	if !slices.Equal(sites, []string{"m:a~0", "m:a~1", "m:m", "m:c"}) {
 		t.Fatalf("sites %v", sites)
+	}
+}
+
+// TestRepeatedIDLookups is JE-18/e: of two modules with one id (OF-2), the
+// engine path reads the last that has a job, so a later one that has not
+// started is skipped and, once it has, it is the one read; the direct
+// lookup reads the one that completed most recently (JE-19).
+func TestRepeatedIDLookups(t *testing.T) {
+	// spec: JE-18/e, OF-2
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{
+		"f/t/main": flowOf(
+			mod("a", "value", inputs("v", static("1")), ""),
+			mod("m", "value", inputs("v", static("2")), ""),
+			mod("n", "value", inputs("v", js("results.a + 0")), ""),
+			mod("a", "value", inputs("v", static("3")), ""),
+			mod("d", "value", inputs("v", static("4")), ""),
+			mod("e", "value", inputs("v", js("results.a + 0")), ""),
+			mod("f", "value", inputs("v", js("results.a")), ""),
+		),
+	}, s)
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, `3`)
+	for id, want := range map[string]string{"n": `{"v":1}`, "e": `{"v":3}`, "f": `{"v":3}`} {
+		if got := string(step(t, tr, id).RecordedArgs.Producer()); got != want {
+			t.Errorf("%s received %s, want %s", id, got, want)
+		}
+	}
+}
+
+// TestJE11PanicFailsTheStep is JE-11/e at an input transform: where the
+// call rewrite panics, the evaluation fails with the runtime's report of
+// the panicked task, and the transform's step fails before it runs, with
+// that report in the transform's error (JE-23).
+func TestJE11PanicFailsTheStep(t *testing.T) {
+	// spec: JE-11/e, JE-23
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("b", "echo", inputs("x", js(`"variable(é)"`)), ""))}, s)
+	tr := runIt(t, e, `{}`, nil)
+	if tr.Status != conformance.RunFailure || len(s.calls()) != 0 {
+		t.Fatalf("status %s, calls %v", tr.Status, s.calls())
+	}
+	var got struct {
+		Error struct{ Name, Message string }
+	}
+	if err := json.Unmarshal(tr.Result.Producer(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := regexp.MustCompile("^Error during isolated evaluation of expression `\"variable\\(é\\)\"`:\ntask [0-9]+ panicked with message \"assertion failed: self\\.is_char_boundary\\(idx\\)\"$")
+	if got.Error.Name != "ExecutionErr" || !want.MatchString(got.Error.Message) {
+		t.Errorf("result %s", tr.Result.Producer())
 	}
 }
 

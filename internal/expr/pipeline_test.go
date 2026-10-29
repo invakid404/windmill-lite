@@ -272,13 +272,14 @@ func TestTimeoutRetried(t *testing.T) {
 	}
 }
 
-// TestResultsLookupFromMemory covers the host side of JE-18's proxy: the
-// previous id answers previous_result's text from memory when
-// previous_result is bound (by its name, a spelling of the previous id or
-// error: the reading 0001 §6 records for FX-V6, Q-FX-15), and otherwise,
-// like any other id, the results context's database read, in stored text.
+// TestResultsLookupFromMemory covers what JE-18's proxy needs from the
+// host: when previous_result is bound (by its name, a spelling of the
+// previous id or error: the reading 0001 §6 records for FX-V6, Q-FX-15),
+// the previous id as a host string, whose read the results prelude answers
+// from memory with the previous_result global; and for any id the lookup
+// is asked, the results context's database read, in stored text. The
+// memory read itself is checked on the engine (JE-16/h).
 func TestResultsLookupFromMemory(t *testing.T) {
-	producer := `{"b":1,"a":2}`
 	for _, tc := range []struct {
 		text   string
 		memory bool
@@ -292,10 +293,13 @@ func TestResultsLookupFromMemory(t *testing.T) {
 		{"(results.ab)", true},                  // spec: JE-10, a substring is a spelling of a
 	} {
 		results := &fakeResults{stored: map[string]string{"a": `{"b": 1, "a": 2}`}}
-		s := &Scope{PreviousID: "a", Context: []Named{{"previous_result", value(producer)}}, Results: results}
-		var got string
+		s := &Scope{PreviousID: "a", Context: []Named{{"previous_result", value(`{"b":1,"a":2}`)}}, Results: results}
+		var got, previousID string
+		var bound bool
 		eng := &fakeEngine{eval: func(ctx context.Context, _ string, in Input) ([]byte, error) {
-			lookup := fakeCall{in: in}.fn(hostResults)
+			call := fakeCall{in: in}
+			previousID, bound = call.strings()[hostPreviousID]
+			lookup := call.fn(hostResults)
 			if lookup == nil {
 				return nil, errors.New("no results lookup bound")
 			}
@@ -306,12 +310,11 @@ func TestResultsLookupFromMemory(t *testing.T) {
 		if _, err := NewPipeline(eng).Eval(context.Background(), Compile(SiteInputTransform, tc.text), s); err != nil {
 			t.Fatalf("%q: %v", tc.text, err)
 		}
-		want, asked := producer, 0
-		if !tc.memory {
-			want, asked = `{"a":2,"b":1}`, 1
+		if bound != tc.memory || bound && previousID != "a" {
+			t.Errorf("%q: the previous id bound %v as %q; want bound %v", tc.text, bound, previousID, tc.memory)
 		}
-		if got != want || len(results.asked) != asked {
-			t.Errorf("%q: the lookup of the previous id answered %s after %d reads; want %s after %d", tc.text, got, len(results.asked), want, asked)
+		if got != `{"a":2,"b":1}` || len(results.asked) != 1 {
+			t.Errorf("%q: the lookup answered %s after %d reads; want the stored text after 1", tc.text, got, len(results.asked))
 		}
 	}
 }

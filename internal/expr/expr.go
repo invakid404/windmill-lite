@@ -188,9 +188,11 @@ type Expr struct {
 	Source string `json:"source,omitempty"`
 	// RewritePanic is the byte offset at which the rewrite of JE-11 would
 	// insert a call's closing parenthesis inside a multi-byte character,
-	// where Windmill's evaluator panics, and 0 when it does not. Source is
-	// then empty, and an evaluation that no shortcut answers fails with
-	// ErrRewritePanic.
+	// where Windmill's evaluator panics, and 0 when it does not. The offset
+	// is in the text that the panicking helper's pass rewrites: the trimmed
+	// text for variable(, and what the earlier passes made of it for the
+	// later helpers. Source is then empty, and an evaluation that no
+	// shortcut answers fails with ErrRewritePanic.
 	RewritePanic int `json:"rewrite_panic,omitempty"`
 }
 

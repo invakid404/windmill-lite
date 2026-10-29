@@ -18,7 +18,8 @@
 // per-invocation logs, child-process wrapping, the settle-time fence (D9)
 // with its report of the work an invocation leaves behind, and fresh mode:
 // one invocation per process, which ends with it as Windmill's job process
-// does.
+// does. Milestone FU6 gave each invocation's children a process group,
+// which a timeout, a cancellation and settlement kill (WR-55).
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
@@ -29,6 +30,7 @@ import {
   decodeAssembled,
   decodeFrame,
   encode,
+  frame,
   FrameReader,
   type Health,
   type Message,
@@ -57,6 +59,8 @@ import {
   ProcessExit,
   realStderr,
   realTimers,
+  setChildAnnouncer,
+  setChildGroups,
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
@@ -74,7 +78,8 @@ export const HARNESS_VERSION = "0.0.0-c1";
 export const UNATTRIBUTED = "unattributed_error";
 /** The code of the warning that reports what an invocation left behind at
  * its settlement, which the D9 fence then revoked: its left field counts
- * the handles and requests by kind. */
+ * the handles, requests and children by kind, a "detached" child being
+ * the one kind left running (WR-55). */
 export const LEFT_BEHIND = "left_behind";
 /** The code of the warning that reports what the native boundary handed a
  * native invocation but does not track (ADR 0001, D5), sent when the
@@ -120,6 +125,12 @@ export type Options = {
   diag?: (line: string) => void;
   /** Host mode: this process is the host, and submits runs (ADR 0009). */
   host?: boolean;
+  /** Writes one frame, all of it, before it returns or throws: the side
+   * channel on which a host announces its steps' child groups (child
+   * frames, WR-55), whose transport cannot write synchronously in order
+   * with what its socket already holds. Without it, child frames go on
+   * the socket. */
+  children?: (b: Uint8Array) => void;
   /** Called once the engine's welcome has been accepted. */
   onWelcome?: () => void;
 };
@@ -330,6 +341,11 @@ export class Runtime {
     }
     this.welcomed = true;
     this.mode = c.module_state;
+    // A fresh process leads its job's process group; a warm one gives each
+    // invocation's children groups of their own, which it announces to the
+    // engine (WR-55).
+    setChildGroups(this.mode !== "fresh");
+    setChildAnnouncer((id, pid, token) => this.announceChild(id, pid, token));
     this.facade = c.facade;
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
@@ -764,13 +780,44 @@ export class Runtime {
     }
   }
 
+  /** Announces a child group of invocation id to the engine (a child
+   * frame) and writes it at once, on the host's child channel (children)
+   * or through the synchronous transport (the spawned harness's), so it
+   * reaches the engine whatever the step's code does next, a blocked event
+   * loop or a backed-up socket included; the engine then kills the group
+   * on the invocation's timeout or cancellation, at its settlement and when
+   * the process ends (WR-55). A failure is written to the
+   * diagnostics, and the spawn goes on. */
+  private announceChild(id: string, pid: number, token?: string) {
+    if (this.closing()) return;
+    try {
+      // A host's socket may hold bytes it has not written yet, which a
+      // synchronous write would overtake: its own channel takes the frame.
+      if (this.opts.children) {
+        this.opts.children(frame(encode({ t: "child", id, pid, token })));
+        return;
+      }
+      this.sender.send({ t: "child", id, pid, token });
+      const writeSync = this.opts.transport.writeSync;
+      if (writeSync) this.sender.flushFramesSync((b) => writeSync(b));
+    } catch (e) {
+      this.diag(`windmill-lite harness: a child frame was not written: ${describe(e)}`);
+    }
+  }
+
   /** Abandons a running invocation. A cancel that crossed the result of an
-   * invocation whose outcome is already fixed changes nothing. */
+   * invocation whose outcome is already fixed changes nothing. The cancel
+   * is the engine's timeout or cancellation, which kills the job's process
+   * group on Windmill (WR-55, WR-37): the engine kills the invocation's
+   * announced children, and any it announces later at once, so the
+   * harness stops counting them; the call itself goes on (D9).
+   * windmill-lite has no log limit, WR-37's third trigger. */
   private cancel(m: Message) {
     const inv = this.invocations.get(m.id);
     if (inv?.state !== "running") return;
     inv.state = "abandoned";
     inv.abandonedAt = performance.now();
+    inv.resources.revoke("child");
     inv.controller.abort(m.reason);
   }
 

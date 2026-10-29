@@ -284,7 +284,9 @@ parallelism, whose error the reference does not give; a preprocessor,
    below). A Bun step of a path script also gets the script's own `envs`
    entries (`KEY=VALUE`) under them: a name the worker sets later (a
    reserved variable, or a common Bun variable such as `PATH` or
-   `BASE_URL`) or one already set is skipped, and a later entry wins
+   `BASE_URL`, and `NODE_PATH` when the engine's environment has one,
+   which the harness then copies, WR-22/b) or one already set is skipped,
+   and a later entry wins
    ([WR-22](../../docs/semantics/languages.md#wr-22),
    [WA-2](../../docs/semantics/client-api.md#wa-2); `env.go`). A native
    step gets no `envs` ([WR-45](../../docs/semantics/languages.md#wr-45)),
@@ -435,13 +437,16 @@ resolved map once one exists. Every site has the helpers of
 [JE-19](../../docs/semantics/expressions.md#je-19)) from the jobs it has
 run, per flow (a frame, `frame.go`: the root, or a loop iteration's or a
 branch's child flow): `Lookup` (the engine path) gives the job result of
-the first module of the current flow with that id that has a job (a
+the last module of the current flow with that id that has a job (a
 loop's or a `branchall`'s is the array of its children's results, a
-`branchone`'s its branch's), else the node-id map's; `Stored` (JE-9's
-direct path) gives the node-id map's, where the module that finished last
-wins. A `branchone` that ran no branch has a nil job: `Lookup` fails to
-fetch it with the server's not-found text, ``Failed to fetch result for
-step '<id>': Not found: Completed Job not found at name
+`branchone`'s its branch's), so a later module of a repeated id that has
+not started is skipped
+([JE-18/e](../../docs/semantics/conformance.md#je-18),
+[OF-2](../../docs/semantics/openflow.md#of-2)), else the node-id map's;
+`Stored` (JE-9's direct path) gives the node-id map's, where the module
+that finished last wins. A `branchone` that ran no branch has a nil job:
+`Lookup` fails to fetch it with the server's not-found text, ``Failed to
+fetch result for step '<id>': Not found: Completed Job not found at name
 00000000-0000-0000-0000-000000000000``, without its source location (D14),
 and the map holds it as `null`
 ([CF-19](../../docs/semantics/control-flow.md#cf-19) route 5). The map has
@@ -510,9 +515,6 @@ its branch's result with its origin and pointers.
   or identity module carries on, is its `previous_result` in jsonb's
   printed form, as JE-44's table gives a flow input's member (N1b; N1a
   read it as the compact stored text).
-- A module that occurs twice in one list (OF-2): `Lookup` finds the first
-  in the flow. The reference does not say which status entry JE-18 step 2
-  finds; FX-1's statuses are kept in definition order.
 - An H1 intercept runs no job (`Ran` false), and H3 asks only before a
   leaf's launch that H1 declined: an intercepted module or an identity job
   writes nothing.
@@ -536,9 +538,22 @@ its branch's result with its origin and pointers.
   `parallelism` is no limit, as a static null timeout is none; a collapsed
   body takes its loop's `pass_flow_input_directly` instead of its own
   (CF-8 item 5) and then receives its iteration's flow input; the
-  text of P after a loop is the compact array with numbers re-printed
-  ([JE-44](../../docs/semantics/expressions.md#je-44)), written with
-  FX-42's exponent spellings (`1e+21`); an iterator or `parallelism` whose
+  text of P after a loop is the compact array with every number written
+  again in the backend's notation
+  ([JE-44](../../docs/semantics/expressions.md#je-44),
+  [FX-42](../../docs/semantics/execution.md#fx-42) rule 9: `1e+21`,
+  `1e-6`, `1000.0`, `-0.0`), by `platform.Reprint`, the writer the
+  platform's argument resolution uses (`aggregate`); a child result the
+  backend's library cannot read back (a number beyond a double, nesting
+  deeper than 128, which only an identity child can carry) fails that
+  read at the container's completion, as Windmill's fails: the flow fails
+  at once with a chaining error named `InternalError` (FX-15 context 1),
+  whose message is the library's error text, a reading, since the
+  reference does not give Windmill's (design README, request 13), and the
+  container fails with no result, for a loop, a while loop and a
+  `branchall` alike; the sites that show the iterations so far without
+  reading them back (a running loop's job list, `all_iters`, an
+  interrupted loop's result) keep such a result as stored; an iterator or `parallelism` whose
   text is not JSON (a replaced `JSON.stringify`,
   [JE-15](../../docs/semantics/expressions.md#je-15)) fails with serde_json's
   syntax error for an empty text, a character no value starts with, a
@@ -1369,8 +1384,11 @@ it has none. `windmill-lite host` serves it until F3a moves host mode onto
 modules written by hand, each with the `.meta.json` signature the build
 helper would record (the harness binds arguments by it), among them
 `scope_shim.mjs`, which reads the host-provided module `f/w1/scopes.ts`
-through a hand-written shim, and `scope_copy.mjs`, which bundles its own
-copy of it.
+through a hand-written shim, `scope_copy.mjs`, which bundles its own
+copy of it, and `stall.mjs` (flow `f/w1/stall`), which backs up a host's
+socket with a large log, starts a child and blocks the event loop, for
+the host-mode test of WR-55's child groups in `cmd/windmill-lite`
+(milestone FU6).
 
 `skeleton_test.go` checks the loader and the interpreter through it with a
 fake executor and the real QuickJS-ng engine: transforms (JE-6's verbatim

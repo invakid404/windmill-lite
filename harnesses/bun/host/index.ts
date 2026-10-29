@@ -12,7 +12,7 @@
 // A step's bundle reaches them through a shim that takes each export from
 // the registry.
 
-import { accessSync, constants, realpathSync } from "node:fs";
+import { accessSync, constants, realpathSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join } from "node:path";
@@ -131,8 +131,12 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // its ESM bindings for every later importer, so a step's named import of
   // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
   const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
+  // The second one, the child's fd 4, carries only the child frames that
+  // announce the steps' child groups (WR-55), written synchronously: the
+  // socket may hold bytes it has not written yet, which such a write would
+  // overtake, and the step may block the event loop right after.
   const child = spawn(o.engine, [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--kill-after", `${killAfter}ms`], {
-    stdio: ["ignore", "inherit", "inherit", "pipe"],
+    stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
   });
   let settle: { resolve: () => void; reject: (e: Error) => void };
   const ready = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
@@ -146,6 +150,29 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     throw new HostError("engine_start", `${o.engine}: ${failed?.message ?? "no socket for file descriptor 3"}`);
   }
   child.on("error", (e) => diag(`windmill-lite: engine process: ${e.message}`));
+  // The child channel's own descriptor, which Bun 1.3.10's socket keeps in
+  // its handle; the socket itself is never read or written, and holds the
+  // host's event loop open no more than the engine's socket does.
+  const chan = child.stdio[4] as (Socket & { _handle?: { fd?: unknown } }) | null;
+  chan?.unref();
+  const chanFd = chan?._handle?.fd;
+  if (typeof chanFd !== "number") diag("windmill-lite: no child channel to the engine; child groups are announced on its socket");
+  const children =
+    typeof chanFd === "number"
+      ? (b: Uint8Array) => {
+          // Waits for a full channel, as a spawned harness waits for its
+          // socket; the engine reads it on a goroutine of its own.
+          const deadline = Date.now() + 30_000;
+          for (let off = 0; off < b.length; ) {
+            try {
+              off += writeSync(chanFd, b, off, b.length - off);
+            } catch (e) {
+              if ((e as { code?: string }).code !== "EAGAIN" || Date.now() > deadline) throw e;
+              Bun.sleepSync(1);
+            }
+          }
+        }
+      : undefined;
   let inflight = 0;
   let draining = false;
   let closing = false;
@@ -157,6 +184,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     bundleDir: o.bundle,
     bundleDigest: digest,
     host: true,
+    children,
     diag,
     transport: {
       // Accepting nothing while the socket's buffer is full keeps the

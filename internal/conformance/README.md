@@ -425,30 +425,59 @@ the oracle's location suffix is stripped, but only from a message that
 matches a catalogue template carrying `<loc>`. `StripLocations(o, at)`
 applies it to the oracle's normalised observation (an expect or a
 recording): at each pointer, a value windmill-lite's trace says it
-generated, these templates lose their suffixes:
+generated, it follows [FX-50](../../docs/semantics/execution.md#fx-50)'s
+masking rule:
 
-| Template | Suffixes removed |
+1. **Trailing suffixes, by layer.** A message that is Windmill's error
+   display begins with k layer prefixes, one after another: `Error: `,
+   `Internal: `, `SqlErr: `, `IoErr: `, `Utf8Err: `, `UuidErr: `,
+   `SerdeJson: ` and `HexErr: ` (`Error parsing …` and `Error during …`
+   are not prefixes). It loses at most k trailing
+   ` @<file>.rs:<line>:<col>` suffixes from the end, or `<loc>` markers
+   the expected text writes for them. A message with no layer prefix
+   loses none, and a suffix beyond the k-th is the message's own.
+2. **Parenthesised locations, only where written.** The
+   ` (<file>.rs:<line>)` that ends a not-found message is not a layer's
+   suffix, and no text tells a generated one from a user's
+   ([FX-50/d](../../docs/semantics/conformance.md#fx-50)), so it is never
+   searched for. It goes only where the expected text writes `<loc>` for
+   it, as a case whose step reads a result the lookup cannot find does
+   ([CF-19](../../docs/semantics/control-flow.md#cf-19)/c): every `<loc>`
+   marker step 1 left in a generated value's message is removed, wherever
+   it stands. A recording, whose normaliser masks no such location, keeps
+   it, and the comparison shows it.
+
+Step 1 reads these displays:
+
+| Template | Where the display starts |
 |---|---|
-| the recognised internal error of item 3, `InternalErr` | its `<loc>` marker and the space before it |
-| a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup), whose message is Windmill's generic display ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | one ` @<file>.rs:<line>:<col>` or ` (<file>.rs:<line>)` per leading `Error: `, when the message ends in that many |
-| the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)), the same display | the same |
-| the error stop of a `stop_after_all_iters_if` that fails to evaluate ([CF-13](../../docs/semantics/control-flow.md#cf-13), milestone N3a), an `EarlyStopError` whose message quotes the expression and then gives its cause in that display | the cause's, the same way |
-| the worker's execution error, `ExecutionErr`, of a native transpile or load failure ([WR-43](../../docs/semantics/languages.md#wr-43), a message that begins `execution error:\nError: `) or of an internal error ([WR-37](../../docs/semantics/languages.md#wr-37), `execution error:\nInternal: `), which ends in a location (milestone FU5), an argument resolution's among them ([JE-42](../../docs/semantics/expressions.md#je-42), [WR-5](../../docs/semantics/languages.md#wr-5)/b, PF2); the execution errors the catalogue writes without one, such as `Proxy is an EE feature` and the timeouts, are not this template | one trailing suffix |
+| the recognised internal error of item 3, `InternalErr`, whose location the normaliser masked as `<loc>` | the message |
+| a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup) ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | the message |
+| the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)) | the string |
+| the error stop of a `stop_after_all_iters_if` that fails to evaluate ([CF-13](../../docs/semantics/control-flow.md#cf-13), milestone N3a), an `EarlyStopError` whose message quotes the expression and then gives its cause | after the quoted expression |
+| the worker's execution error, `ExecutionErr` ([WR-37](../../docs/semantics/languages.md#wr-37), [WR-43](../../docs/semantics/languages.md#wr-43), [FX-51](../../docs/semantics/execution.md#fx-51) rule 5), an argument resolution's among them ([JE-42](../../docs/semantics/expressions.md#je-42), [WR-5](../../docs/semantics/languages.md#wr-5)/b, PF2) | after its `execution error:\n` lead-in |
 
-So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
-`Error: <typed message><loc>` one, while a typed message with no prefix
-(the sleep messages, `Expected an integer, …`) and a message with fewer
-suffixes than prefixes keep their text, and the comparison shows it. A
+So `Error: Error: <evaluator text><loc><loc>` loses both suffixes,
+`Error: <typed message><loc>` and `Error: Internal: <text><loc>` one, and
+`Error: SqlErr: <detail><loc><loc>` both, while a typed message with no
+prefix (the sleep messages, `Expected an integer, …`) and the execution
+errors the catalogue writes without a location (`Proxy is an EE feature`,
+the timeouts) keep their text, and the comparison shows any suffix. A
 pointer may name the error object or a failure value `{"error":…}`.
 Nothing else changes: user text is never stripped, since a pointer names
 only a value windmill-lite generated (a whole value, or an entry the trace
-points to inside a loop's array, milestone N3a), and an error stop's own
-`error_message` matches no template; the normaliser masks no location in
-it and escapes a literal `<loc>` (`<<loc>`). `TestStripLocations` holds
-ADR 0011's positive case (a generated `Internal:` error compares equal to
-the oracle's with its location) and its negative one (two user errors
-that differ only in such a suffix still differ), that an escaped literal
-is never stripped, and each template's positive and negative cases.
+points to inside a loop's array, milestone N3a), a user's suffix inside a
+generated message stands before the engine's stack, not at the end
+([FX-50/c](../../docs/semantics/conformance.md#fx-50)), and an error stop's
+own `error_message` matches no template; the normaliser masks no location
+in user text and escapes a literal `<loc>` (`<<loc>`).
+`TestStripLocations` holds ADR 0011's positive case (a generated
+`Internal:` error compares equal to the oracle's with its location) and
+its negative one (two user errors that differ only in such a suffix still
+differ), that an escaped literal is never stripped, each template's
+positive and negative cases, FX-50/a to FX-50/d, and a parenthesised
+location masked where the expected text writes `<loc>` and kept where it
+writes the location out (milestone FU6).
 
 The parenthesised not-found location ` (<file>.rs:<line>)` that ends the
 lookup helper's text, `<kind> not found at name <name>`, can stand inside

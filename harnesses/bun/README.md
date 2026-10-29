@@ -12,7 +12,9 @@ mode; the native boundary mode of milestone C3n, which runs `nativets`
 and `//native` steps with the native runtime's rules (deviation D5); and
 milestone PF1, which gave intercepted replies their reason phrase, kept a
 result behind its own platform call, and fixed the borrowed reading
-methods of the fetch view (below). This
+methods of the fetch view (below); and milestone FU6, which gave each
+invocation's children a process group of their own
+([WR-55](../../docs/semantics/languages.md#wr-55), below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md) in W1's
@@ -205,8 +207,61 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   view, a plain copy of `process.env`; on Bun 1.3.10 `spawnSync`,
   `execSync` and `Bun.spawn` would otherwise pass the process's own
   environment. `util.promisify(exec)` and `util.promisify(execFile)` keep
-  their `{stdout, stderr}` form. A child still running is registered as
-  `child`, and left running.
+  their `{stdout, stderr}` form.
+
+  **Process groups** ([WR-55](../../docs/semantics/languages.md#wr-55),
+  milestone FU6). A Windmill job leads its own process group, which its
+  children join unless they start a session of their own; a timeout or a
+  cancellation kills the group, and a normal exit kills nothing. On Bun
+  1.3.10 every `node:child_process` function starts its child through
+  `Bun.spawn` or `Bun.spawnSync`, once, with `detached` set only from
+  `spawn` and `fork`, where Bun honours a step's own (it ignores it for
+  `exec`, `execFile` and the sync forms). So the wrappers of the two Bun
+  functions alone register children (a child is counted once) and:
+  - **in a warm or host process** (`setChildGroups(true)`, from the
+    welcome), start each child an invocation starts detached, so it leads
+    a group of its own that stands for the job's, and register it as
+    `child`: alive while a process is left in the group, released by
+    killing the group with `SIGKILL`, so what the child started is reached
+    after it exited. Before the step's code goes on, the group is
+    announced to the engine in a `child` frame (`setChildAnnouncer`, which
+    the runtime sets): `Sender.flushFramesSync` writes it, after the frame
+    in progress, straight to the socket's file descriptor, so it reaches
+    the engine even if the step then blocks the event loop, and the engine
+    kills the group on the invocation's timeout or cancellation and when
+    the process ends (a host, whose transport has no synchronous write,
+    writes it on its own channel instead, described under host mode). The
+    engine alone signals the group, at the invocation's abandonment, its
+    settlement and the process's end, and only while it is still the
+    child's; the harness never signals a child's group, since it cannot
+    tell the group from a later one given the same id. A `cancel` revokes
+    `child` (`InvocationResources.revoke`), so those children, and any the
+    call starts afterwards, are no longer counted. Each grouped child is
+    started through `guardedCommand`'s `/bin/sh -c` prologue, whose
+    subshell starts the group's guardian (`sleep 999999999.<token>`, with
+    descriptors 0 to 9 closed) and exits before the shell execs the
+    step's command, so `child.pid`, its streams and its exit status are
+    the command's, and the guardian is no child of the command, which
+    does not wait for it when it waits for all its children; the token
+    goes in the `child` frame. A command that cannot be run as given, or an `argv0`
+    other than the command, is spawned without a guardian, as Bun spawns
+    it. A guarded child counts as `child` while its own process runs: its
+    guardian keeps the group, so what it left there after it exited is
+    killed with the group but not counted.
+    A synchronous call (`Bun.spawnSync`, and so `spawnSync`, `execSync`
+    and `execFileSync`) gets no group: its child's pid is known only once
+    it has exited, too late to announce, so it stays in the harness's
+    group, which the engine kills when the process ends; what it left
+    running is not attributed or reported;
+  - **in a fresh process**, which the engine spawned as the leader of the
+    job's group, leave each child in that group, which the engine waits
+    for or kills: `child` is registered, with a release that does nothing;
+  - in either, register a child the step started detached (where Bun
+    honours it) as `detached`, alive while its group has a process, never
+    killed: it is outside the job's group on Windmill too.
+
+  `Bun.$` starts its processes by neither Bun function and is not wrapped.
+  windmill-lite has no log limit, WR-55's third kill trigger.
 - **Process-level error handlers.** `uncaughtException` and
   `unhandledRejection` handlers that never exit
   ([ADR 0004](../../docs/design/0004-harness-protocol.md), the
@@ -247,16 +302,24 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   the real one, since their own code may run in an invocation's context.
   `process.reallyExit`, `process.abort` and signals still end the process.
 - **The registry and the settle-time fence (D9).** Each context holds an
-  `InvocationResources`: `track(kind, release)` registers something the
-  invocation started, and returns the function that unregisters it once
-  it ended by itself. When the runtime queues the frame that settles the
+  `InvocationResources`: `track(kind, release, alive?)` registers something
+  the invocation started, and returns the function that unregisters it
+  once it ended by itself; `alive`, for a resource whose end no event
+  reports (a child's process group), says whether it still runs, and
+  `pending()` drops one that has ended. When the runtime queues the frame that settles the
   invocation, it first sends a `warning` with code `left_behind` whose
   `left` counts what is still registered by kind (`pending()`), if
   anything is. Then it calls `settle()`, which runs every release still
   pending, once, and closes the invocation's log. So the invocation's
   pending timers are cleared, its requests aborted, its later log writes
-  dropped and its later platform calls refused; a child is left running.
-  Anything registered after settlement is released at once. The
+  dropped and its later platform calls refused, and in a warm process its
+  children's groups are killed; a `detached` child is left running.
+  Killing a `child` there is windmill-lite's reading: Windmill holds the
+  job open until such a process exits (WR-55), which a warm process cannot
+  do without letting the step's code run after it settles (an open
+  question in the [design README](../../docs/design/README.md)); a fresh
+  process does what Windmill does. Anything registered after settlement,
+  or after `revoke(kind)` for its kind, is released at once. The
   connection's end settles every invocation too. Nothing global is keyed
   by invocation, and the counts are the only leak report:
   `process._getActiveHandles()` lists nothing on Bun 1.3.10. The fence
@@ -313,7 +376,15 @@ calls on its current connection.
    stdio, which Bun 1.3.10 makes a socket), or fails with `engine_start`, and
    runs the runtime in this process in host mode. The socket's backpressure
    reaches the runtime's send queue, so a small frame still waits behind at
-   most one part frame.
+   most one part frame. A second socketpair, the engine's fd 4, carries only
+   the `child` frames that announce the steps' child groups (WR-55): the
+   runtime's `children` option writes each, synchronously, to the host's
+   end of it (its descriptor from the socket's handle, `_handle.fd` on Bun
+   1.3.10), waiting for a full channel. The socket may hold bytes it has
+   not written yet, which a synchronous write to it would overtake, and a
+   step can back it up and then block the event loop, so the
+   announcement cannot wait in its queue. Without a descriptor the
+   announcements fall back to the socket, with a diagnostic.
 
 It returns a `Host`:
 
@@ -570,8 +641,11 @@ timers and `refresh()`, the fetch view and the evidence that ends a
 body's transfer, with a native-versus-fenced comparison of the
 response's semantics, a reading method or clone borrowed for another
 response, an intercepted reply without a body for `HEAD` or a null-body
-status, and a refused platform call), the log view, the `Bun.env` write trap and the
-environment of child processes;
+status, and a refused platform call), the log view, the `Bun.env` write trap,
+the environment of child processes, and their process groups (the
+liveness check and `revoke`, a group that outlives its first process, the
+sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
+child left running, and a fresh process's children left in its group);
 and `test/host.test.ts` the SDK's refusals: the working directory and an
 engine that cannot start. `test/build.test.ts` checks the build helper's
 scans and parse. All are developer checks, run by CI's non-required

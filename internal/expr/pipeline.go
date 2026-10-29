@@ -30,6 +30,10 @@ const (
 	// of the bound context values that the context prelude rebuilds by
 	// assignment (JE-16).
 	hostRebuild = "__wl_rebuild"
+	// hostPreviousID is a host string, bound with the results lookup when
+	// the evaluation binds previous_result: the previous id, whose read the
+	// results prelude answers from memory (JE-18 rule 1).
+	hostPreviousID = "__wl_previous_id"
 )
 
 var jsonNull = []byte("null")
@@ -147,7 +151,7 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 		return v, nil
 	}
 	if e.RewritePanic != 0 {
-		return jsonval.Value{}, &EvalError{Message: rewritePanicMessage(e), Err: ErrRewritePanic}
+		return jsonval.Value{}, &EvalError{Message: rewritePanicMessage(), Err: ErrRewritePanic}
 	}
 	in := bind(e, s)
 	if err := checkDepth(e, s, in); err != nil {
@@ -302,7 +306,9 @@ func (s *Scope) context(name string) (jsonval.Value, bool) {
 //     a results context;
 //   - the helpers, always;
 //   - hostRebuild, naming the bound values that can hold a __proto__ key,
-//     when there is one (JE-16).
+//     when there is one (JE-16);
+//   - hostPreviousID, the previous id, when the results lookup and
+//     previous_result are both bound (JE-18 rule 1).
 //
 // The error helper's value is derived from previous_result by a prelude
 // (program.go), so error binds no host value of its own.
@@ -314,6 +320,7 @@ func bind(e *Expr, s *Scope) Input {
 	}
 	b := &binding{scope: s}
 	var in Input
+	lookup, memory := false, false
 	for _, n := range names {
 		switch n {
 		case "flow_input":
@@ -323,14 +330,13 @@ func bind(e *Expr, s *Scope) Input {
 		case "results":
 			if s.Results != nil {
 				in.Funcs = append(in.Funcs, HostFunc{hostResults, b.results})
+				lookup = true
 			}
 		case "error":
 		default:
 			if v, ok := s.context(n); ok {
 				in.Strings = append(in.Strings, HostString{n, v.Producer()})
-				if n == "previous_result" {
-					b.previous, b.memory = v, true
-				}
+				memory = memory || n == "previous_result"
 			}
 		}
 	}
@@ -342,6 +348,9 @@ func bind(e *Expr, s *Scope) Input {
 	}
 	if rebuild != nil {
 		in.Strings = append(in.Strings, HostString{hostRebuild, []byte(mustJSON(rebuild))})
+	}
+	if lookup && memory {
+		in.Strings = append(in.Strings, HostString{hostPreviousID, []byte(s.PreviousID)})
 	}
 	in.Funcs = append(in.Funcs,
 		HostFunc{hostVariable, b.variable},
@@ -361,21 +370,15 @@ func textOr(v jsonval.Value, def []byte) []byte {
 // binding answers the host functions of one evaluation.
 type binding struct {
 	scope *Scope
-	// previous is previous_result, and memory is whether the evaluation
-	// binds it.
-	previous jsonval.Value
-	memory   bool
 }
 
-// results answers results.<id> on the engine path (JE-18): the previous
-// id from memory when previous_result is bound (step 1, the reading 0001
-// §6 records for FX-V6), and otherwise the results context's lookup, a
-// database read, in stored text (steps 2 and 3). The lookup's error is the
-// read's failure, with its message.
+// results answers results.<id> on the engine path (JE-18) with the results
+// context's lookup, a database read, in stored text (steps 2 and 3). The
+// previous id, when previous_result is bound (step 1, the reading 0001 §6
+// records for FX-V6), never reaches it: the results prelude answers it
+// from memory (hostPreviousID). The lookup's error is the read's failure,
+// with its message.
 func (b *binding) results(ctx context.Context, id string) ([]byte, error) {
-	if b.memory && id == b.scope.PreviousID {
-		return b.previous.Producer(), nil
-	}
 	v, err := b.scope.Results.Lookup(ctx, id)
 	if err != nil {
 		return nil, err
