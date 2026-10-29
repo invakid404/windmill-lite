@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
@@ -496,44 +497,64 @@ func TestBranchConcurrentRuns(t *testing.T) {
 }
 
 // CF-13, FX-2 completion rules 7.1 and 8: a clean stop_after_all_iters_if
-// stop of a failed branchall or while loop keeps the failure and still
-// stops the flow, so continue_on_error does not start what follows; at the
-// last module, a failure continue_on_error tolerates ends the flow
-// successful. A child flow ended so forwards the stop to its container,
-// as an error stop does (CF-12 item 4).
+// stop of a failed container (a branchall, a while loop or a for loop)
+// keeps the failure and still stops the flow, so continue_on_error does
+// not start what follows, whatever skip_if_stopped says; at the last
+// module, a failure continue_on_error tolerates ends the flow successful,
+// and a predicate that does not hold leaves the failure to
+// continue_on_error. A child flow ended so forwards the stop to its
+// container, as an error stop does (CF-12 item 4).
 func TestContainerCleanStopAfterFailure(t *testing.T) {
 	failing := []string{branch(skipFailure(false), mod("b", "fail", "", "")), branch(skipFailure(true), value("c", "2", ""))}
-	const boom = `{"error":{"message":"boom","name":"Error","step_id":"b"}}`
+	boom := func(stepID string) string {
+		return `{"error":{"message":"boom","name":"Error","step_id":"` + stepID + `"}}`
+	}
 	tail := value("tail", `"SHOULD_NOT_RUN"`, "")
-	clean := func(skip bool) string {
-		return fmt.Sprintf(`"continue_on_error":true,"stop_after_all_iters_if":{"expr":"true","skip_if_stopped":%v}`, skip)
+	stopIf := func(expr string, skip bool) string {
+		return fmt.Sprintf(`"continue_on_error":true,"stop_after_all_iters_if":{"expr":%q,"skip_if_stopped":%v}`, expr, skip)
 	}
-	for _, c := range []struct {
-		name   string
-		flow   string
-		status conformance.RunStatus
-		result string
-		tail   bool
+	forLoop := func(parallel bool, envelope string) string {
+		return loopOf("ba", []string{mod("b", "fail", "", "")}, fmt.Sprintf(`"iterator":{"type":"static","value":[0]},"parallel":%v,"skip_failures":false`, parallel), envelope)
+	}
+	// Each container fails, with the array it fails with; a collapsed
+	// iteration's error carries the loop's id (CF-8).
+	for _, ct := range []struct {
+		name string
+		of   func(envelope string) string
+		arr  string
 	}{
-		{"sequential", flowOf(branchAllOf("ba", failing, false, clean(false)), tail), conformance.RunFailure, "[" + boom + "]", false},
-		{"parallel", flowOf(branchAllOf("ba", failing, true, clean(false)), tail), conformance.RunFailure, "[" + boom + ",2]", false},
-		{"skip_if_stopped", flowOf(branchAllOf("ba", failing, true, clean(true)), tail), conformance.RunFailure, "[" + boom + ",2]", false},
-		{"the last module", flowOf(branchAllOf("ba", failing, true, clean(false))), conformance.RunSuccess, "[" + boom + ",2]", false},
-		{"no stop", flowOf(branchAllOf("ba", failing, true, `"continue_on_error":true,"stop_after_all_iters_if":{"expr":"false","skip_if_stopped":false}`), tail), conformance.RunSuccess, `"SHOULD_NOT_RUN"`, true},
-		{"while loop", flowOf(whileOf("ba", []string{mod("b", "fail", "", "")}, false, clean(false)), tail), conformance.RunFailure, `[{"error":{"message":"boom","name":"Error","step_id":"ba"}}]`, false},
+		{"sequential branchall", func(env string) string { return branchAllOf("ba", failing, false, env) }, "[" + boom("b") + "]"},
+		{"parallel branchall", func(env string) string { return branchAllOf("ba", failing, true, env) }, "[" + boom("b") + ",2]"},
+		{"while loop", func(env string) string { return whileOf("ba", []string{mod("b", "fail", "", "")}, false, env) }, "[" + boom("ba") + "]"},
+		{"sequential for loop", func(env string) string { return forLoop(false, env) }, "[" + boom("ba") + "]"},
+		{"parallel for loop", func(env string) string { return forLoop(true, env) }, "[" + boom("b") + "]"},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &loopSteps{})
-			tr := runIt(t, e, `{}`, nil)
-			wantStatus(t, tr, c.status, c.result)
-			if _, ran := tr.Step(conformance.SitePath{}.Child(conformance.Module("tail"))); ran != c.tail {
-				t.Fatalf("tail ran: %v, result %s", ran, tr.Result)
-			}
-			if ba := at(t, tr, "m:ba"); ba.Module != conformance.ModuleFailure || ba.Skipped {
-				t.Fatalf("the container %+v", ba)
-			}
-		})
+		for _, c := range []struct {
+			name   string
+			flow   string
+			status conformance.RunStatus
+			result string
+			tail   bool
+		}{
+			{"clean stop", flowOf(ct.of(stopIf("true", false)), tail), conformance.RunFailure, ct.arr, false},
+			{"skip_if_stopped", flowOf(ct.of(stopIf("true", true)), tail), conformance.RunFailure, ct.arr, false},
+			{"the last module", flowOf(ct.of(stopIf("true", false))), conformance.RunSuccess, ct.arr, false},
+			{"no stop", flowOf(ct.of(stopIf("false", false)), tail), conformance.RunSuccess, `"SHOULD_NOT_RUN"`, true},
+		} {
+			t.Run(ct.name+", "+c.name, func(t *testing.T) {
+				e := mustOpen(t, map[string]string{"f/t/main": c.flow}, &loopSteps{})
+				tr := runIt(t, e, `{}`, nil)
+				wantStatus(t, tr, c.status, c.result)
+				if _, ran := tr.Step(conformance.SitePath{}.Child(conformance.Module("tail"))); ran != c.tail {
+					t.Fatalf("tail ran: %v, result %s", ran, tr.Result)
+				}
+				if ba := at(t, tr, "m:ba"); ba.Module != conformance.ModuleFailure || ba.Skipped {
+					t.Fatalf("the container %+v", ba)
+				}
+			})
+		}
 	}
+	clean := func(skip bool) string { return stopIf("true", skip) }
 	// One level up: a sequential loop's body that ends so breaks the loop,
 	// which skip_failures then lets succeed, and the flow goes on.
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(
@@ -595,6 +616,91 @@ func TestHaltAfterWaitsForContainerStops(t *testing.T) {
 			if marked != (c.status == conformance.RunHalted) {
 				t.Fatalf("H8 on %s: %v (%v)", c.at, marked, at(t, tr, c.at).Hooks)
 			}
+		})
+	}
+}
+
+// haltSignal halts after the module at site after (H8) and closes selected
+// when haltAfter has matched it.
+type haltSignal struct {
+	NoHooks
+	after    string
+	selected chan struct{}
+	once     sync.Once
+}
+
+func (h *haltSignal) HaltAfter(s Site) bool {
+	if s.Path.String() != h.after {
+		return false
+	}
+	h.once.Do(func() { close(h.selected) })
+	return true
+}
+
+// ADR 0008 H8 in parallel containers: a halt-after that ends one child's
+// flow is pending for the whole run at once (pendingHalt), so another
+// child, whose step was already running, finishes that step but starts no
+// next module, and the run ends halted, with H8 on the module that decided
+// it; the module after the container never starts.
+func TestPendingHaltStopsSiblingNextModule(t *testing.T) {
+	for _, c := range []struct {
+		name, flow, hold, after, first, inFlight, next string
+	}{
+		{
+			name: "parallel branchall",
+			flow: flowOf(branchAllOf("ba", []string{
+				branch(skipFailure(false), value("a", "1", "")),
+				branch(skipFailure(false), value("slow", "2", ""), value("write", "3", "")),
+			}, true, ""), value("tail", "4", "")),
+			hold: "/b:", after: "m:ba/b:0/m:a", first: "m:ba/b:0/m:a", inFlight: "m:ba/b:1/m:slow", next: "m:ba/b:1/m:write",
+		},
+		{
+			name: "parallel loop",
+			flow: flowOf(loopOf("l", []string{value("s", "1", ""), value("t", "2", "")}, `"iterator":{"type":"static","value":[0,1]},"parallel":true,"skip_failures":false`, ""), value("tail", "4", "")),
+			hold: "/i:", after: "m:l/i:0/m:t", first: "m:l/i:0/m:s", inFlight: "m:l/i:1/m:s", next: "m:l/i:1/m:t",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := newGated()
+			g.hold = c.hold
+			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, g)
+			h := &haltSignal{after: c.after, selected: make(chan struct{})}
+			out := runAsync(context.Background(), e, `{}`, h)
+			started, want := []string{g.next(t), g.next(t)}, []string{c.first, c.inFlight}
+			slices.Sort(started)
+			slices.Sort(want)
+			if !slices.Equal(started, want) {
+				t.Fatalf("started %v", started)
+			}
+			g.done(c.first)
+			if c.first != c.after {
+				if s := g.next(t); s != c.after {
+					t.Fatalf("started %s, want %s", s, c.after)
+				}
+				g.done(c.after)
+			}
+			<-h.selected
+			// The engine records the pending halt right after haltAfter
+			// answers, as its child flow ends.
+			time.Sleep(20 * time.Millisecond)
+			g.done(c.inFlight)
+			var tr *Trace
+			select {
+			case tr = <-out:
+			case s := <-g.starting:
+				// Released, so that the run ends and the test fails at once.
+				g.done(s)
+				tr = <-out
+				t.Fatalf("%s started after the halt-after; status %s", s, tr.Status)
+			}
+			if tr.Status != conformance.RunHalted || !slices.Equal(at(t, tr, c.after).Hooks, []string{"H8"}) {
+				t.Fatalf("status %s, H8 %v", tr.Status, at(t, tr, c.after).Hooks)
+			}
+			if at(t, tr, c.inFlight).Status != conformance.StepSuccess {
+				t.Fatalf("the step in flight %+v", at(t, tr, c.inFlight))
+			}
+			noRecord(t, tr, c.next)
+			noRecord(t, tr, "m:tail")
 		})
 	}
 }

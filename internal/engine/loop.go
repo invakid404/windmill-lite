@@ -187,16 +187,8 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	var it iterations
 	failed, ran := false, false
 	var stopErr error
-	// halt is a halt-after the last iteration ended with: it applies when
-	// the loop starts another iteration, and goes with the loop's outcome
-	// otherwise (pendingHalt).
-	var halt *pendingHalt
 	r.progress(fr, i, nil)
 	for k := 0; n < 0 || k < n; k++ {
-		if halt != nil {
-			r.applyHalt(halt)
-			return r.loopInterrupted(o, &it, ran, conformance.RunHalted)
-		}
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, ran, st)
 		}
@@ -226,7 +218,6 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		if ended(e.status) {
 			return r.loopInterrupted(o, &it, ran, r.endedStatus(ctx, e.status))
 		}
-		halt = e.halt
 		it.add(e)
 		r.progress(fr, i, it.values)
 		if e.status == conformance.RunFailure {
@@ -259,9 +250,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	o = r.loopDone(ctx, fr, i, o, &it, failed, stopErr)
-	o.halt = halt
-	return o
+	return r.loopDone(ctx, fr, i, o, &it, failed, stopErr)
 }
 
 // parallelLoop runs a parallel loop's iterations at once, each a child
@@ -355,11 +344,6 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 	}
 	release()
-	// halt is a halt-after an iteration ended with (pendingHalt): it applies
-	// at once while iterations are still held, which the run would start
-	// whatever that iteration was (continue-all), and goes with the loop's
-	// outcome otherwise; iterations already running are not starts.
-	var halt *pendingHalt
 	for running > 0 || (stopped == "" && nStarted < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
@@ -373,16 +357,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			stopped = r.endedStatus(ctx, conformance.RunCanceled)
 			continue
 		}
-		k := <-done
+		<-done
 		running--
 		completed++
-		if halt == nil {
-			halt = ends[k].halt
-		}
-		if halt != nil && stopped == "" && q < len(queue) {
-			r.applyHalt(halt)
-			halt, stopped = nil, conformance.RunHalted
-		}
 		release()
 	}
 	var it iterations
@@ -405,9 +382,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	if stopped != "" || nStarted < n {
 		return r.loopInterrupted(o, &it, nStarted > 0, r.endedStatus(ctx, stopped))
 	}
-	o = r.loopDone(ctx, fr, i, o, &it, failed, nil)
-	o.halt = halt
-	return o
+	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
 }
 
 // loopDone completes an active loop or branchall: its result is the array
@@ -415,12 +390,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 // and a loop whose stop_after_if threw fails as such a step does (FX-21).
 // Then its stop_after_all_iters_if, evaluated once with that array, stops
 // the flow it is in like an ordinary stop_after_if; an evaluation error is
-// an error stop (CF-13, JE-27). On a while loop or a branchall that failed,
-// a clean stop keeps the failure and still stops the flow, even under
-// continue_on_error (endFailedStop, FX-2 completion rule 7.1); a for loop
-// keeps milestone N3a's reading, in which with no failure module a clean
-// stop and the failure both end the flow with the array and
-// continue_on_error takes the failure.
+// an error stop (CF-13, JE-27). On one that failed, a clean stop keeps the
+// failure and still stops the flow, even under continue_on_error
+// (endFailedStop, FX-2 completion rule 7.1).
 func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *iterations, failed bool, stopErr error) outcome {
 	m := fr.modules[i]
 	arr := arrayOf(it.values)
@@ -449,9 +421,7 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 	case !v:
 		return o
 	case failed && (s.SkipIfStopped || s.ErrorMessage == nil):
-		if m.Kind != ir.KindForLoop {
-			o.end = endFailedStop
-		}
+		o.end = endFailedStop
 		return o
 	default:
 		o = applyStop(s, o, arr)
@@ -476,13 +446,14 @@ func (r *run) loopInterrupted(o outcome, it *iterations, ran bool, status confor
 }
 
 // iterationEnded reports whether a host signal ends the run before an
-// iteration starts, in ADR 0008's order: the latch, the cancellation (both
-// Start's), then a halt that a module elsewhere in the run decided.
+// iteration or a branch starts, in ADR 0008's order: the latch, the
+// cancellation (both Start's), then a halt that a module elsewhere in the
+// run decided, or a pending one, which this start applies (pendingHalt).
 func (r *run) iterationEnded(ctx context.Context) (conformance.RunStatus, bool) {
 	if st, end := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
 		return st, true
 	}
-	if r.halted.Load() {
+	if r.halted.Load() || r.pendingApplies() {
 		return conformance.RunHalted, true
 	}
 	return "", false

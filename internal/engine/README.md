@@ -294,7 +294,7 @@ completion steps 3, 7 and 8, in a flow with no retry, which is N2's).
 | failed, not tolerated | the failure module, else the flow fails with the failure value ([FX-31](../../docs/semantics/execution.md#fx-31), [FX-36](../../docs/semantics/execution.md#fx-36)) |
 | an error stop, with a failure module | tolerated: the next module, or past the last one the failure module, entered at cursor `len` with an empty preceding id ([FX-V4](../../docs/semantics/execution.md#fx-v4)); not tolerated: the failure module ([FX-19](../../docs/semantics/execution.md#fx-19)) |
 | an error stop, no failure module | tolerated at the last module: the flow succeeds with the `EarlyStopError`; otherwise it fails with it |
-| a failed while loop or `branchall` whose `stop_after_all_iters_if` stops cleanly (N3b) | a stop never continues, not even into the failure module (rule 7.1): tolerated at the last module, the flow succeeds with the array; otherwise it fails with it ([CF-13](../../docs/semantics/control-flow.md#cf-13)) |
+| a failed loop or `branchall` whose `stop_after_all_iters_if` stops cleanly (N3b) | a stop never continues, not even into the failure module (rule 7.1): tolerated at the last module, the flow succeeds with the array; otherwise it fails with it ([CF-13](../../docs/semantics/control-flow.md#cf-13)) |
 | a throwing `stop_after_if` | the failure module, else the flow fails with the string error; `continue_on_error` never applies ([FX-21](../../docs/semantics/execution.md#fx-21)) |
 
 **The failure module** sits at the slot `s:failure`, the cursor `len`
@@ -482,10 +482,10 @@ its branch's result with its origin and pointers.
   same reason and canceler, Windmill's defaults included.
 - For loops (N3a): an empty body does not evaluate the iterator; a
   collapsed iteration's previous id is empty, and a read of its own loop
-  sees the iterations so far, `[]` at first; on a loop that failed only an
-  error stop of `stop_after_all_iters_if` changes its outcome (with no
-  failure module, a clean stop and the failure both end the flow with the
-  array); a loop whose `stop_after_if` throws fails as a step's does
+  sees the iterations so far, `[]` at first; on a loop that failed, a
+  clean stop of `stop_after_all_iters_if` keeps the failure and the array
+  and still stops the flow, and an error stop replaces the carried value
+  (N3b, below); a loop whose `stop_after_if` throws fails as a step's does
   (FX-21), with no `stop_after_all_iters_if` after it; a static null
   `parallelism` is no limit, as a static null timeout is none; a collapsed
   body takes its loop's `pass_flow_input_directly` instead of its own
@@ -523,11 +523,10 @@ its branch's result with its origin and pointers.
   [FX-19](../../docs/semantics/execution.md#fx-19)); a clean stop with
   `skip_if_stopped` in a sequential `branchall` flags the `branchall`
   skipped, as FX-20's "the same skipped flag" says of a `branchone`; a
-  clean `stop_after_all_iters_if` stop of a failed while loop or
-  `branchall` leaves the module failed, with no skipped flag
-  (`skip_if_stopped` included), carrying its array, and its child flow, if
-  any, forwards it as the stop of a failure; for loops keep N3a's reading
-  of that case (the failure goes on under `continue_on_error`).
+  clean `stop_after_all_iters_if` stop of a failed loop or `branchall`
+  leaves the module failed, with no skipped flag (`skip_if_stopped`
+  included), carrying its array, and its child flow, if any, forwards it
+  as the stop of a failure.
 
 **For loops (N3a, `loop.go`).** A loop module that runs is a container: no
 arguments, no H1 or H2, a record whose status is the loop's own and whose
@@ -609,16 +608,18 @@ iterations it started. A halt decided in one parallel iteration stops the
 others at their next module, and wakes a loop whose iterations are all
 held; the run's status ranks the latch, then the cancellation, then the
 halt (ADR 0008), whichever iteration met its signal first. A body
-module's halt-after that ends its child flow is pending (N3b): the loop
-completes the iteration, its `stop_after_if` included, and the halt
-applies when the run starts something more, the next iteration, an
-iteration a parallel loop still holds, or, once the loop has completed
-(its `stop_after_all_iters_if` included) and every enclosing container
-too, the next module; a run that ends first keeps the status Windmill
-gives it, and the pending halt is dropped, with no `H8`. So a halt never
-hides a failure or a stop that ends the run; iterations a parallel loop
-has already started are not starts. A loop so interrupted records the
-array so far.
+module's halt-after that ends its child flow is pending for the whole run
+(N3b): the loop completes the iteration, its `stop_after_if` included,
+and the halt applies at the run's next start anywhere, the next
+iteration, an iteration a parallel loop still holds, the next module of
+another iteration already running, or, once the loop has completed (its
+`stop_after_all_iters_if` included) and every enclosing container too,
+the next module; a run that ends first keeps the status Windmill gives
+it, and the pending halt is dropped, with no `H8`. So a halt never hides
+a failure or a stop that ends the run. A step already running finishes,
+and a flow that has started (an iteration or a branch launched) runs its
+first module, so a parallel loop's iterations already started are not
+starts. A loop so interrupted records the array so far.
 
 **While loops (N3b, `loop.go`).** A while loop is a sequential loop with
 no iterator ([CF-10](../../docs/semantics/control-flow.md#cf-10)): its
@@ -688,10 +689,10 @@ i) or `<flow path>/branchall-<i>`
 
 The host checks run before every branch, as before every iteration, and
 a body module's halt-after that ends a branch is pending as in a loop:
-it applies at the next branch of a sequential `branchall`, or at what
-the run starts once the container has completed, its `stop_after_if` or
-`stop_after_all_iters_if` included; the other branches of a parallel
-`branchall` already run.
+it applies at the next branch of a sequential `branchall`, at the next
+module of another branch of a parallel `branchall`, or at what the run
+starts once the container has completed, its `stop_after_if` or
+`stop_after_all_iters_if` included.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -729,9 +730,10 @@ job's results reads, every stop through a `branchone` and a sequential
 their skip rules, empty branches and no branches, its
 `stop_after_all_iters_if`, the `same_worker` error, the hooks, halt-after,
 a latch and a cancellation in branches, provenance and concurrent runs;
-also a clean `stop_after_all_iters_if` stop of a failed `branchall` or
-while loop under `continue_on_error`, and a halt-after that waits for its
-containers' own stops, for loops' included.
+also a clean `stop_after_all_iters_if` stop of a failed `branchall`, while
+loop or for loop under `continue_on_error`, a halt-after that waits for
+its containers' own stops, for loops' included, and one that stops the
+other children of a parallel container at their next module.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or
