@@ -209,8 +209,12 @@ func TestTransportsAgree(t *testing.T) {
 	if results["warm"] != results["fresh"] {
 		t.Errorf("results differ:\nwarm:  %s\nfresh: %s", results["warm"], results["fresh"])
 	}
-	if !slices.Equal(calls["warm"], calls["fresh"]) || len(calls["warm"]) != 4 {
+	if !slices.Equal(calls["warm"], calls["fresh"]) || len(calls["warm"]) != 6 {
 		t.Errorf("recorded calls differ:\nwarm:  %q\nfresh: %q", calls["warm"], calls["fresh"])
+	}
+	// HEAD has no body on either transport (pf1 review 1, P2-2).
+	if !strings.Contains(results["warm"], `"head":[{"status":501,"body":""},{"status":501,"body":""}]`) {
+		t.Errorf("HEAD answers: %s", results["warm"])
 	}
 	t.Logf("WA-30/a: result %s; calls %q", results["warm"], calls["warm"])
 }
@@ -259,6 +263,37 @@ func TestUnawaitedUnsupportedCall(t *testing.T) {
 		if err != nil || out.Kind != engine.OutcomeError || !strings.Contains(string(out.Body.Producer()), `"UnsupportedPlatformCall"`) {
 			t.Fatalf("run %d: %+v %s %v\n%s", i+1, out, out.Body.Producer(), err, r.diag)
 		}
+	}
+}
+
+// A handler that panics while a step awaits its answer: the step gets the
+// 502 and ends, and its invocation's outcome is returned at once, not when
+// its context ends, through the intercepted fetch (warm) and over TCP
+// (fresh); the record keeps the 502 (pf1 review 1, P2-1).
+func TestHandlerPanicReleasesTheStep(t *testing.T) {
+	r := newBunRig(t)
+	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newFacade(t, Config{})
+			f.Handle("getRootJobId", func(context.Context, *Call) Reply { panic("a provider failed") })
+			x := f.Executor(r.pool(t, f, mode))
+			id := r.identity("f/t/panic", "a")
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			start := time.Now()
+			out, err := x.Execute(ctx, r.invocation(id, "attr/client", `{"runs":1}`, mode))
+			elapsed := time.Since(start)
+			if err != nil || out.Kind != engine.OutcomeError || !strings.Contains(string(out.Body.Producer()), "Bad Gateway") {
+				t.Fatalf("%+v %s %v\n%s", out, out.Body.Producer(), err, r.diag)
+			}
+			if elapsed > 3*time.Second {
+				t.Errorf("the outcome took %s: the failed call held it", elapsed)
+			}
+			calls := r.recorded(id.JobID)
+			if len(calls) != 1 || calls[0].Status != 502 {
+				t.Errorf("recorded %+v, want one call with status 502", calls)
+			}
+		})
 	}
 }
 
@@ -383,7 +418,14 @@ export async function main() {
   } catch (err) {
     thrown = String(err.message ?? err);
   }
-  return { root, posted, again, thrown };
+  // HEAD of an unsupported route, and of a served GET route, which the
+  // API has no HEAD operation for.
+  const head = [];
+  for (const path of ["jobs_u/get/j1", "jobs_u/get_root_job_id/" + e.WM_JOB_ID]) {
+    const res = await fetch(e.BASE_URL + "/api/w/" + e.WM_WORKSPACE + "/" + path, { method: "HEAD", headers: { authorization: "Bearer " + e.WM_TOKEN } });
+    head.push({ status: res.status, body: await res.text() });
+  }
+  return { root, posted, again, thrown, head };
 }
 `,
 	// An unsupported call the step never awaits, with a body large enough

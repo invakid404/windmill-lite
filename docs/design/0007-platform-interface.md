@@ -278,6 +278,15 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     placeholders where the host sets none; the `later` variables are not
     set. No schedule triggers a run, so the state path's trigger part is
     always `user` (WA-5).
+  - **Fix round 1 of PF1's review.** A handler that panics, or answers a
+    status outside 200 to 599, gets a `502` on both transports, which the
+    record keeps, and its call stops counting as in flight however it
+    ended, so the 501 policy never waits on a failed call. The answer to
+    `HEAD`, and one with a null-body status (204, 205, 304), has no body on
+    either transport. A token two registrations carried names none until
+    both have ended. The API has no `HEAD` operation, so a `HEAD` request
+    answers 501; whether Windmill answers `HEAD` on its `GET` routes is not
+    in the reference.
   - **Not yet:** recorded calls are the facade's (`Record`), not part of the
     run trace; host mode stays on the walking skeleton without a facade
     until F3a, whose SDK must set `BASE_URL` from the welcome before any

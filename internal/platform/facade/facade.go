@@ -8,6 +8,7 @@ package facade
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"slices"
 	"strings"
@@ -130,8 +131,16 @@ type Facade struct {
 
 	mu     sync.Mutex
 	invs   map[string]*entry
-	tokens map[string]*entry
+	tokens map[string]*tokenUse
 	stray  []*Record
+}
+
+// tokenUse is who a token names: the one live registration that carries
+// it, or none (e nil) once a second has carried it while the first was
+// live, until every registration that carried it has ended.
+type tokenUse struct {
+	e    *entry
+	live int
 }
 
 // entry is one registered invocation.
@@ -158,7 +167,7 @@ func New(cfg Config) (*Facade, error) {
 		routes:   defaultRoutes,
 		handlers: map[string]Handler{},
 		invs:     map[string]*entry{},
-		tokens:   map[string]*entry{},
+		tokens:   map[string]*tokenUse{},
 	}
 	if f.policy == "" {
 		f.policy = PolicyFail
@@ -217,17 +226,19 @@ type Session struct {
 // Register makes an invocation known to the facade before it runs, so
 // that its calls are attributed to it: by its id on the intercepted path,
 // and by its token (WM_TOKEN in env) over TCP. A token that two live
-// invocations carry names neither. Executor registers each invocation it
-// runs.
+// invocations carry names neither, and goes on naming none until every
+// registration that carried it has ended; a later one is then its sole
+// owner. Executor registers each invocation it runs.
 func (f *Facade) Register(id, run string, env map[string]string) *Session {
 	e := &entry{caller: Caller{ID: id, Run: run, Env: env}, token: env["WM_TOKEN"], idle: make(chan struct{})}
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {
-		if _, dup := f.tokens[e.token]; dup {
-			f.tokens[e.token] = nil
+		if u := f.tokens[e.token]; u != nil {
+			u.e = nil
+			u.live++
 		} else {
-			f.tokens[e.token] = e
+			f.tokens[e.token] = &tokenUse{e: e, live: 1}
 		}
 	}
 	f.mu.Unlock()
@@ -245,8 +256,12 @@ func (s *Session) End() {
 		return
 	}
 	s.e.ended = true
-	if s.e.token != "" && f.tokens[s.e.token] == s.e {
-		delete(f.tokens, s.e.token)
+	if u := f.tokens[s.e.token]; s.e.token != "" && u != nil {
+		if u.live--; u.live == 0 {
+			delete(f.tokens, s.e.token)
+		} else if u.e == s.e {
+			u.e = nil
+		}
 	}
 }
 
@@ -347,8 +362,29 @@ type request struct {
 // attributed an intercepted call to; otherwise the call is attributed by
 // its bearer token. The decision that a call is unsupported is made here,
 // in the transport's order, so that the 501 policy sees every call that
-// arrived before its invocation's outcome.
+// arrived before its invocation's outcome. Both transports answer through
+// it, so they give a client the same reply: without a body where the
+// request's method or the reply's status forbids one (bodyless).
 func (f *Facade) accept(req request, byID string, intercepted bool) func(context.Context) Reply {
+	serve := f.route(req, byID, intercepted)
+	return func(ctx context.Context) Reply {
+		rep := serve(ctx)
+		if bodyless(req.method, rep.Status) {
+			rep.Body = nil
+		}
+		return rep
+	}
+}
+
+// bodyless reports whether a reply to method with status carries no body:
+// the answer to HEAD, and a null-body status of the Fetch standard (204,
+// 205, 304), which a Response cannot be built with a body for.
+func bodyless(method string, status int) bool {
+	return method == "HEAD" || status == 204 || status == 205 || status == 304
+}
+
+// route is accept without the body rule.
+func (f *Facade) route(req request, byID string, intercepted bool) func(context.Context) Reply {
 	u, err := url.Parse(req.url)
 	if err != nil {
 		u = &url.URL{Path: req.url}
@@ -358,8 +394,8 @@ func (f *Facade) accept(req request, byID string, intercepted bool) func(context
 	var e *entry
 	if intercepted {
 		e = f.invs[byID]
-	} else if tok, ok := bearer(req.headers["authorization"]); ok {
-		e = f.tokens[tok]
+	} else if tok, ok := bearer(req.headers["authorization"]); ok && f.tokens[tok] != nil {
+		e = f.tokens[tok].e
 	}
 	if e == nil || e.ended {
 		rec.Status = 401
@@ -387,17 +423,29 @@ func (f *Facade) accept(req request, byID string, intercepted bool) func(context
 	}
 	e.inflight++
 	f.mu.Unlock()
-	return func(ctx context.Context) Reply {
-		rep := h(ctx, call)
-		f.mu.Lock()
-		rec.Status = rep.Status
-		rec.Unsupported = rep.Status == 501
-		if e.inflight--; e.inflight == 0 {
-			close(e.idle)
-			e.idle = make(chan struct{})
-		}
-		f.mu.Unlock()
-		return rep
+	return func(ctx context.Context) (rep Reply) {
+		// However the handler ends, its answer is the reply both transports
+		// send and the record keeps, and the call stops counting as in
+		// flight: a handler that panics or answers a status no response can
+		// carry gets a 502 in its place, so one bad handler neither fails
+		// the harness nor holds its invocation's outcome until the step's
+		// context ends.
+		defer func() {
+			if p := recover(); p != nil {
+				rep = Error{Variant: "BadGateway", Message: fmt.Sprintf("windmill-lite: the handler of %s failed: %v", call.Route.Name(), p)}.Reply()
+			} else if rep.Status < 200 || rep.Status > 599 {
+				rep = Error{Variant: "BadGateway", Message: fmt.Sprintf("windmill-lite: the handler of %s answered status %d", call.Route.Name(), rep.Status)}.Reply()
+			}
+			f.mu.Lock()
+			rec.Status = rep.Status
+			rec.Unsupported = rep.Status == 501
+			if e.inflight--; e.inflight == 0 {
+				close(e.idle)
+				e.idle = make(chan struct{})
+			}
+			f.mu.Unlock()
+		}()
+		return h(ctx, call)
 	}
 }
 

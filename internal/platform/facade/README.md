@@ -48,7 +48,12 @@ operation the API does not have panics. A handler gets the `Call`: its
 `Route`, its parameters, query, headers and body. It answers a `Reply`;
 `Error` renders [WA-42](../../../docs/semantics/client-api.md#wa-42)'s
 variants with their statuses, `text/plain`, without the Rust location some
-of them carry on Windmill (D14).
+of them carry on Windmill (D14). A handler that panics, or answers a
+status outside 200 to 599, gets a `502` in its place (`Bad gateway:
+windmill-lite: the handler of <route> failed: <panic>`), on both
+transports alike; the record keeps that status, and the call stops
+counting as in flight however the handler ended, so the 501 policy never
+waits on a call that has failed.
 
 PF1's one handler answers `getRootJobId`, `GET
 /w/{ws}/jobs_u/get_root_job_id/{id}`, with the effective root of the job as
@@ -86,7 +91,14 @@ environment, and its registration ends when it settles (`Session.End`).
   an invocation that has settled, a token two live invocations carry, an
   unregistered invocation id) answers `401` with `Not authorized: unknown
   windmill-lite invocation token`. It is recorded as a stray call
-  (`Stray`, the latest 256), never against an invocation.
+  (`Stray`, the latest 256), never against an invocation. A token two
+  registrations carried names none until both have ended; a later
+  registration is then its sole owner.
+- **One reply for both transports.** The answer to `HEAD`, and one with a
+  null-body status (204, 205, 304), has no body, whichever transport
+  carries it, as Go's HTTP server sends it over TCP and as a `Response`
+  must be built; its status and record are kept. The API has no `HEAD`
+  operation, so a `HEAD` request answers 501, named by its path.
 - **The decision is made in order.** The harness hands the facade each
   `platform` frame on the connection's reader, in frame order, and the
   facade attributes and records it there, deciding at once whether the
@@ -135,10 +147,14 @@ comparison. An abandoned invocation has no outcome to replace.
   (trailing parameters, literals over parameters, unescaping, misses).
 - `facade_test.go`, without Bun: attribution on the intercepted path (two
   invocations sending one token), over TCP (own token, another live
-  invocation's, none, an unknown one, an ended one, a shared one), the warm
-  origin refusing a connection at once, the 501 bodies and names, the
-  policy in both modes and on an error outcome, the wait for a call still
-  being answered, WA-42/a's rows, and handler registration.
+  invocation's, none, an unknown one, an ended one, a shared one, and its
+  sole owner once the sharers have ended), the warm origin refusing a
+  connection at once, the 501 bodies and names, the policy in both modes
+  and on an error outcome, the wait for a call still being answered, a
+  handler's panic and invalid status on both transports
+  (`TestHandlerFailuresBothTransports`), bodyless replies to `HEAD` and
+  204 on both (`TestBodylessReplies`), WA-42/a's rows, and handler
+  registration.
 - `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's
@@ -151,7 +167,11 @@ comparison. An abandoned invocation has no outcome to replace.
     ended gets the 401;
   - `TestTransportsAgree`, [WA-30/a](../../../docs/semantics/conformance.md#wa-30):
     one step through the intercepted fetch and over TCP gives the same
-    result and the same recorded calls (method, path, query, body);
+    result and the same recorded calls (method, path, query, body), its
+    `HEAD` requests included;
+  - `TestHandlerPanicReleasesTheStep`: a step whose call's handler panics
+    gets the 502 and ends, and its outcome comes at once, in warm and in
+    fresh, with the 502 recorded;
   - `TestUnsupportedPolicyOnTheClient`, WA-41/a, WA-41/b and WA-V5/a–c on
     the stock client, in both modes and both policies;
   - `TestUnawaitedUnsupportedCall`: a warm step's unsupported call that it

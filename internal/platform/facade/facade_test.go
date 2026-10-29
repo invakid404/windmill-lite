@@ -117,11 +117,119 @@ func TestTCPAttribution(t *testing.T) {
 	if s := f.Stray(); len(s) != 3 {
 		t.Errorf("%d strays, want 3: %+v", len(s), s)
 	}
-	// A token two live invocations carry names neither.
-	f.Register("inv-c", "run-c", env("job-c", "root-c", "shared"))
-	f.Register("inv-d", "run-d", env("job-d", "root-d", "shared"))
+	// A token two live invocations carry names neither, and goes on naming
+	// none while either is live; once both have ended, a later invocation
+	// is its sole owner (pf1 review 1, P3-3).
+	c := f.Register("inv-c", "run-c", env("job-c", "root-c", "shared"))
+	d := f.Register("inv-d", "run-d", env("job-d", "root-d", "shared"))
 	if code, _ := get(t, url, "shared"); code != 401 {
 		t.Errorf("shared token: %d", code)
+	}
+	c.Release()
+	if code, _ := get(t, url, "shared"); code != 401 {
+		t.Errorf("shared token, one owner left: %d, want 401 while ownership is ambiguous", code)
+	}
+	d.Release()
+	e := f.Register("inv-e", "run-e", env("job-e", "root-e", "shared"))
+	defer e.Release()
+	if code, body := get(t, f.FreshOrigin()+"/api/w/ws/jobs_u/get_root_job_id/job-e", "shared"); code != 200 || body != `"root-e"` {
+		t.Errorf("the token's sole owner after the collision: %d %q", code, body)
+	}
+	if calls := e.Calls(); len(calls) != 1 || calls[0].Inv != "inv-e" {
+		t.Errorf("e's calls: %+v", calls)
+	}
+	f.mu.Lock()
+	u := f.tokens["shared"]
+	f.mu.Unlock()
+	if u == nil || u.live != 1 || u.e == nil || u.e.caller.ID != "inv-e" {
+		t.Errorf("the shared token's entry: %+v, want e's alone", u)
+	}
+}
+
+// A handler that panics, or answers a status no response can carry, gets
+// a 502 in its place on both transports, the record keeps that status, and
+// the call stops counting as in flight, so the 501 policy does not wait
+// for it (pf1 review 1, P2-1).
+func TestHandlerFailuresBothTransports(t *testing.T) {
+	f := newFacade(t, Config{})
+	f.Handle("getJob", func(context.Context, *Call) Reply { panic("boom") })
+	f.Handle("getVariableValue", func(context.Context, *Call) Reply { return Reply{Status: 0} })
+	s := f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
+	const panicked = "Bad gateway: windmill-lite: the handler of GET /w/{ws}/jobs_u/get/{id} failed: boom"
+	const zero = "Bad gateway: windmill-lite: the handler of GET /w/{ws}/variables/get_value/{path} answered status 0"
+	for _, c := range []struct{ path, body string }{{"/api/w/ws/jobs_u/get/j1", panicked}, {"/api/w/ws/variables/get_value/u/x/v", zero}} {
+		rep := intercept(f, "inv-a", "GET", f.WarmOrigin()+c.path, nil, nil)
+		if rep.Status != 502 || string(rep.Body) != c.body || rep.Headers["content-type"] != "text/plain" {
+			t.Errorf("intercepted %s: %d %q", c.path, rep.Status, rep.Body)
+		}
+		if code, body := get(t, f.FreshOrigin()+c.path, "tok-a"); code != 502 || body != c.body {
+			t.Errorf("TCP %s: %d %q", c.path, code, body)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	if got := s.Unsupported(ctx); len(got) != 0 {
+		t.Errorf("unsupported %q", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("the policy waited %s for calls that had failed", d)
+	}
+	for _, r := range s.Calls() {
+		if r.Status != 502 || r.Unsupported {
+			t.Errorf("recorded %+v, want status 502", r)
+		}
+	}
+}
+
+// The answer to HEAD, and one with a null-body status, has no body on
+// either transport, so the two give a client the same response; the
+// status and the unsupported call's record stay (pf1 review 1, P2-2).
+func TestBodylessReplies(t *testing.T) {
+	f := newFacade(t, Config{})
+	f.Handle("getVariableValue", func(context.Context, *Call) Reply {
+		return Reply{Status: 204, Headers: map[string]string{"content-type": "text/plain"}, Body: []byte("not allowed")}
+	})
+	s := f.Register("inv-a", "run-a", env("job-a", "root-a", "tok-a"))
+	head := func(url string) (int, string) {
+		req, _ := http.NewRequest("HEAD", url, nil)
+		req.Header.Set("Authorization", "Bearer tok-a")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	for _, c := range []struct {
+		method, path string
+		status       int
+	}{
+		{"HEAD", "/api/w/ws/jobs_u/get/j1", 501},
+		// The API has no HEAD operation, so HEAD of a served GET route is
+		// unsupported too.
+		{"HEAD", "/api/w/ws/jobs_u/get_root_job_id/job-a", 501},
+		{"GET", "/api/w/ws/variables/get_value/u/x/v", 204},
+	} {
+		rep := intercept(f, "inv-a", c.method, f.WarmOrigin()+c.path, nil, nil)
+		if rep.Status != c.status || rep.Body != nil {
+			t.Errorf("intercepted %s %s: %d %q, want %d and no body", c.method, c.path, rep.Status, rep.Body, c.status)
+		}
+		var code int
+		var body string
+		if c.method == "HEAD" {
+			code, body = head(f.FreshOrigin() + c.path)
+		} else {
+			code, body = get(t, f.FreshOrigin()+c.path, "tok-a")
+		}
+		if code != c.status || body != "" {
+			t.Errorf("TCP %s %s: %d %q, want %d and no body", c.method, c.path, code, body, c.status)
+		}
+	}
+	want := []string{"HEAD /w/ws/jobs_u/get/j1", "HEAD /w/ws/jobs_u/get/j1", "HEAD /w/ws/jobs_u/get_root_job_id/job-a", "HEAD /w/ws/jobs_u/get_root_job_id/job-a"}
+	if got := s.Unsupported(context.Background()); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("unsupported %q, want %q", got, want)
 	}
 }
 

@@ -505,8 +505,11 @@ export function installFetch(
       const a = await route.call({ inv: inv.id, method: req.method, url: req.url, headers: Object.fromEntries(req.headers), body }, signal);
       // The status line's reason phrase, as the facade's TCP transport
       // sends it, so that both transports give a client the same response
-      // (WA-30/a; an ApiError carries it as statusText, WA-41/a).
-      return new Response(a.body ?? null, { status: a.status, statusText: REASON[a.status] ?? "", headers: a.headers });
+      // (WA-30/a; an ApiError carries it as statusText, WA-41/a). The answer
+      // to HEAD, and one with a null-body status, has no body, as over TCP;
+      // a Response with such a status cannot be built with one.
+      const answer = req.method === "HEAD" || NO_BODY.has(a.status) ? null : (a.body ?? null);
+      return new Response(answer, { status: a.status, statusText: REASON[a.status] ?? "", headers: a.headers });
     } finally {
       done?.();
     }

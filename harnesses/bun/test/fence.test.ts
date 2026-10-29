@@ -175,6 +175,32 @@ test("a request the invocation leaves in flight is aborted at settlement, and a 
   }
 });
 
+test("an intercepted reply has no body for HEAD or a null-body status, as over TCP, and keeps the reason phrase (pf1 review 1, P2-2)", async () => {
+  const facade = "http://127.0.0.1:9";
+  const status = new Map<string, number>([["/api/head", 501], ["/api/204", 204], ["/api/205", 205], ["/api/304", 304], ["/api/get", 501]]);
+  installFetch(
+    () => facade,
+    async (call) => ({
+      status: status.get(new URL(call.url).pathname) ?? 500,
+      headers: { "content-type": "text/plain" },
+      body: new TextEncoder().encode("Not implemented in windmill-lite: x"),
+    }),
+  );
+  const c = context();
+  const answer = (path: string, method = "GET") =>
+    invocations.run(c, async () => {
+      const res = await fetch(`${facade}${path}`, { method });
+      return [res.status, res.statusText, res.body === null, await res.text()];
+    });
+  expect(await answer("/api/head", "HEAD")).toEqual([501, "Not Implemented", true, ""]);
+  expect(await answer("/api/204")).toEqual([204, "No Content", true, ""]);
+  expect(await answer("/api/205")).toEqual([205, "Reset Content", true, ""]);
+  expect(await answer("/api/304")).toEqual([304, "Not Modified", true, ""]);
+  // The control: a GET keeps its body.
+  expect(await answer("/api/get")).toEqual([501, "Not Implemented", false, "Not implemented in windmill-lite: x"]);
+  c.resources.settle();
+});
+
 test("a request stays in flight until a reading method has read its body to the end; read any other way, it stays counted until settlement (c3b review 1, R1-2; review 3)", async () => {
   const server = Bun.serve({
     port: 0,

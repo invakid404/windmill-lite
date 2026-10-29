@@ -138,9 +138,10 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   welcome's `facade` origin becomes a `platform` frame attributed to the
   invocation whose context made it, with its body's bytes, and its
   `platform_reply` becomes the `Response`, with the reason phrase Go's
-  `net/http` writes for its status as `statusText`, so that a client sees
-  the same response as from the facade's TCP transport (WA-30/a; an
-  `ApiError` carries it, WA-41/a). Only a warm or host-mode process's
+  `net/http` writes for its status as `statusText`, and no body for a
+  `HEAD` request or a null-body status (204, 205, 304), so that a client
+  sees the same response as from the facade's TCP transport (WA-30/a; an
+  `ApiError` carries the reason phrase, WA-41/a). Only a warm or host-mode process's
   welcome names the facade; a fresh process's requests to it go over TCP
   like any other (ADR 0007). Any other request passes
   through, with a signal of the fence's added to its own. A facade request
@@ -561,7 +562,8 @@ scope and the exit status; `test/fence.test.ts` the settle-time fence (the
 timers and `refresh()`, the fetch view and the evidence that ends a
 body's transfer, with a native-versus-fenced comparison of the
 response's semantics, a reading method or clone borrowed for another
-response, and a refused platform call), the log view, the `Bun.env` write trap and the
+response, an intercepted reply without a body for `HEAD` or a null-body
+status, and a refused platform call), the log view, the `Bun.env` write trap and the
 environment of child processes;
 and `test/host.test.ts` the SDK's refusals: the working directory and an
 engine that cannot start. `test/build.test.ts` checks the build helper's
