@@ -771,7 +771,9 @@ it starts; one that passes before the first write, or while the host's
 `BeforeFirstWrite` decides on it, stops that write. The actual time
 decides, under the write gate, never the delivery of the deadline's
 timer: an atomic state, armed, disarmed or expired, lets one of the
-first write and the timer win. After the first write it no longer
+first write and the timer win, and whoever reads it expired cancels the
+run (idempotently) before acting on it, so the run never stops a write
+before its context says why. After the first write it no longer
 applies. A flow's
 own `timeout` is accepted and not enforced (FX-24, path 4).
 
@@ -851,8 +853,8 @@ retry, a failed transform with a negative timeout, the evaluated value
 timing the leaf), the monitor (a runaway expression, one transition at a
 time, two evaluations in one transition, disabled) and the pre-write
 deadline (one already passed at the start, one that passes while the
-host approves the first write, and its states decided by the actual
-time), that the monitor's budget ignores a recording clock other runs
+host approves the first write, its states decided by the actual time,
+and a timer that wins the expiry but has not cancelled yet), that the monitor's budget ignores a recording clock other runs
 move on, that child flows refresh their loop's ping, and sleep and
 timeout values that are not JSON.
 
