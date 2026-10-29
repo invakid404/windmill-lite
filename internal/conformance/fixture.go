@@ -247,6 +247,15 @@ type Run struct {
 	// comparison with windmill-lite strips it there (StripNotFoundLocations,
 	// ADR 0011). The recorder does not read it.
 	NotFoundLocs []string `json:"not_found_locs,omitempty"`
+	// Copies lists the values of the observation that the case's flow
+	// copies, through user code, from an error windmill-lite generates at
+	// another site (Copy): a failure module or a later step that passes a
+	// pickup error on (FX-15/b, JE-35/d). Equality alone never makes a
+	// value generated, since user code can write the same text, so only a
+	// run can say where its flow copies one; the comparison with
+	// windmill-lite then treats the value there as generated when it equals
+	// that site's error (ADR 0011). The recorder does not read it.
+	Copies []Copy `json:"copies,omitempty"`
 	// Unit restates the run's expressions at unit level, with the context
 	// each evaluation sees (UnitCase).
 	Unit []UnitCase `json:"unit,omitempty"`
@@ -255,6 +264,15 @@ type Run struct {
 	// Recorded is recorded/<name>.json, or nil when the run has no
 	// recording yet.
 	Recorded *Recording `json:"-"`
+}
+
+// Copy is one declared copy (Run.Copies): At, a JSON Pointer into the
+// observation, holds a copy of the error windmill-lite generated at the
+// site Of, a site path (its result, or the value it carried on), of that
+// error's error member, or of its message.
+type Copy struct {
+	At string `json:"at"`
+	Of string `json:"of"`
 }
 
 // SubmitRunWait is Run.Submit for the synchronous run-and-wait endpoint,
@@ -577,6 +595,14 @@ func (r *Run) check() error {
 	for _, p := range r.NotFoundLocs {
 		if _, err := SplitPointer(p); err != nil {
 			return err
+		}
+	}
+	for _, c := range r.Copies {
+		if _, err := SplitPointer(c.At); err != nil {
+			return err
+		}
+		if _, err := ParseSitePath(c.Of); err != nil || c.Of == "" {
+			return fmt.Errorf("copy at %s: of %q is not a site path", c.At, c.Of)
 		}
 	}
 	for i := range r.Unit {

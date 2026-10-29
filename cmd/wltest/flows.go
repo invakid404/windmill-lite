@@ -609,7 +609,7 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare)
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}

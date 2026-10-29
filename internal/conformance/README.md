@@ -22,7 +22,7 @@ fixtures on windmill-lite.
 | `sitepath.go` | `SitePath`, `Segment` and the encoder of [ADR 0011](../../docs/design/0011-differential-testing.md), which answers [Q-OR-17](../../docs/semantics/oracle.md#q-or-17) |
 | `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`), `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) and `ModuleStatus` ([FX-1](../../docs/semantics/execution.md#fx-1)) |
 | `observation.go` | `Observation`, `StepObservation`, `BranchChosen` and `Response`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments, and a run-and-wait run's HTTP response (see below) |
-| `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
+| `fixture.go` | `Fixture`, `Run`, `Copy`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
 | `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
 | `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred`, `CompareStep` and `CompareStepNode` (see [Step cases](#step-cases)) |
 | `claims.go` | `Claim`, `CheckClaims`, `Delay`, `ValueAt`, `SameJSON`: partial assertions about an observation |
@@ -196,11 +196,13 @@ other run runs alone. The oracle fails a group as a whole when one of its
 runs fails or when they were not in flight together.
 
 A run may also carry `claims`, `delays` and `unit`, which the comparator
-does not read (see [Claims](#claims)), and `not_found_locs`, the values
-whose parenthesised not-found location Windmill generated, which only
-the comparison with windmill-lite reads (see
-[Location suffixes](#location-suffixes)); the recorder ignores it, and
-loading checks that each entry is a JSON Pointer. A fixture whose tree is generated
+does not read (see [Claims](#claims)), and two hints only the comparison
+with windmill-lite reads (see [Location suffixes](#location-suffixes)):
+`not_found_locs`, the values whose parenthesised not-found location
+Windmill generated, and `copies` (`Copy`: `at`, a JSON Pointer, and
+`of`, a site path), the values the case's flow copies, through user
+code, from the error windmill-lite generates at a site. The recorder
+ignores both; loading checks that each pointer and site path parses. A fixture whose tree is generated
 sets `Tree`, `RecordedIn` and `Generated` instead of using `windmill/` and
 `recorded/` under its directory.
 

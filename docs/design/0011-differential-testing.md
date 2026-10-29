@@ -206,15 +206,17 @@ because windmill-lite's value at that path has user provenance.
 
 Two refinements (milestone N3c):
 
-- **Copies keep their provenance.** A value that user code passes on
-  unchanged, such as a failure module or a later step echoing a pickup
-  error ([FX-15](../semantics/execution.md#fx-15)/b,
+- **Copies are declared.** A value that user code passes on unchanged,
+  such as a failure module or a later step echoing a pickup error
+  ([FX-15](../semantics/execution.md#fx-15)/b,
   [JE-35](../semantics/expressions.md#je-35)/d), is a copy of the
-  generated error. An argument, a result or a carried value that holds at
-  any depth a value equal to a generated one, to its error, or to that
-  error's message is generated too. User code cannot write the engine's
-  wording without reading it. A user's own error, which equals no
-  generated value, keeps its user provenance.
+  generated error. Equality alone cannot show that: user code can write
+  the same text itself, even before the error exists. So the run declares
+  each copy (`copies`): the value's path and the site whose generated
+  error it copies. The comparison treats that value as generated only
+  when it equals that site's generated error, its error member, or its
+  message in windmill-lite's observation. An undeclared value, or one
+  that differs, keeps its user provenance.
 - **The parenthesised not-found form is declared.** The location
   ` (<file>.rs:<line>)` that ends the lookup helper's not-found text can
   stand inside a message, as in [CF-19](../semantics/control-flow.md#cf-19)/c's

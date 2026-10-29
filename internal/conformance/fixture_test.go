@@ -172,6 +172,9 @@ func TestFixtureOptionChecks(t *testing.T) {
 		{name: "unknown submit", oracle: "{}", run: "target: f/x/y\nsubmit: later\n", err: "is not run_wait_result"},
 		{name: "not-found locations", oracle: "{}", run: "target: f/x/y\nnot_found_locs: [/result, /steps/m:e/result]\n"},
 		{name: "a not-found location that is no pointer", oracle: "{}", run: "target: f/x/y\nnot_found_locs: [result]\n", err: "does not start with /"},
+		{name: "copies", oracle: "{}", run: "target: f/x/y\ncopies: [{at: /result, of: \"m:a\"}, {at: /steps/s:failure/args/e, of: \"m:l/i:0/m:b\"}]\n"},
+		{name: "a copy that is no pointer", oracle: "{}", run: "target: f/x/y\ncopies: [{at: result, of: \"m:a\"}]\n", err: "does not start with /"},
+		{name: "a copy of no site", oracle: "{}", run: "target: f/x/y\ncopies: [{at: /result, of: \"\"}]\n", err: "is not a site path"},
 		{name: "each run in a group", oracle: "{setup: each_run}", setup: setup, run: "target: f/x/y\ngroup: g\n", err: "cannot be in group"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

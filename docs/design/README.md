@@ -69,8 +69,8 @@ loops, which run as N3a's sequential loops do, and `branchone` and
 adds subflows by path, each a child flow with its own results scope,
 failure module and `flow_env`, and the failure module's copy in every
 container body, with the location rule of
-[0011](0011-differential-testing.md) extended to copies of generated
-errors and to the not-found location a run declares. Milestone PF1 is the
+[0011](0011-differential-testing.md) extended to the copies of a
+generated error and the not-found location a run declares. Milestone PF1 is the
 platform facade of [0007](0007-platform-interface.md) in
 [internal/platform/facade](../../internal/platform/facade/README.md): the
 router behind the stock client, attribution over the intercepted `fetch`

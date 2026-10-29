@@ -239,7 +239,7 @@ JE-18/e and JE-44/f) are not encoded yet.
 ## Claims and unit cases
 
 Runs of flow fixtures, and the runs lifted from expression cases, carry
-three kinds of assertion beyond `expect`, and one comparison hint. `go test ./internal/oracle` checks
+three kinds of assertion beyond `expect`, and two comparison hints. `go test ./internal/oracle` checks
 them against the committed recordings; the recorder does not, so a
 contradicted claim still leaves its recording to inspect. `wltest check`
 checks the claims on windmill-lite's own observation too, so a claim
@@ -277,6 +277,15 @@ windmill-lite never writes (D14), stays in the recording (JE-35/b).
   rule 3; `cf/cf-19` run `cf19-c`, milestone N3c). Only `wltest check`
   reads it, to strip that location from the reference where windmill-lite
   generated the value; the recording keeps it.
+- **`copies`**: the values the case's flow copies, through user code,
+  from an error windmill-lite generates at another site, each `at` (a
+  JSON Pointer into the observation) and `of` (that site's path): a
+  failure module or a later step that passes a pickup error on
+  (`execution/fx-15` run `root_pickup`, `je/errors` run `je35-d`,
+  milestone N3c). Only `wltest check` reads it: the value at `at` counts
+  as generated when it equals that site's generated error, its error
+  member or its message, so the location rule of
+  [0011](../docs/design/0011-differential-testing.md) reaches it.
 
 **The JE-8 discriminator.** The key-order example of
 [0003](../docs/design/0003-semantics-placement.md) cannot be told apart in a

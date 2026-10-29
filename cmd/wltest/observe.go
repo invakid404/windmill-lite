@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
 	"strconv"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
@@ -53,9 +51,11 @@ import (
 // it apart (an error stop's, a throwing stop_after_if's, a chaining error
 // at the root's first pickup), and the root's result; and, inside a value
 // that aggregates others (a loop's array), the generated errors the trace
-// points to (StepRecord.ResultNested). There a comparison with the oracle
-// strips a location suffix (conformance.StripLocations), and nowhere else.
-func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
+// points to (StepRecord.ResultNested); and the copies of such an error that
+// the run declares (copies, declaredCopies). There a comparison with the
+// oracle strips a location suffix (conformance.StripLocations), and
+// nowhere else.
+func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec, copies []conformance.Copy) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	for _, c := range t.Children {
 		ids[c.ID] = c.Site
@@ -95,7 +95,10 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	}
 
 	steps := map[conformance.SitePath]conformance.StepObservation{}
-	var unseen []json.RawMessage
+	// sources holds each site's generated errors, a declared copy's
+	// candidates, the one a site with no result carries included (a failure
+	// at the root's pickup, FX-15), which the observation does not show.
+	sources := map[conformance.SitePath][]json.RawMessage{}
 	var expanded []engine.StepRecord
 	for _, rec := range t.Steps {
 		if hidden[rec.Site] {
@@ -130,12 +133,13 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		}
 		st.Args, st.ResolvedArgs = value(rec.RecordedArgs, true), value(rec.ResolvedArgs, false)
 		st.Result, st.Carried = value(rec.Result, true), value(rec.Carried, false)
+		if st.Result != nil && rec.ResultOrigin.Generated() {
+			sources[rec.Site] = append(sources[rec.Site], st.Result)
+		}
+		if st.Carried != nil && rec.CarriedOrigin.Generated() {
+			sources[rec.Site] = append(sources[rec.Site], st.Carried)
+		}
 		if st.Result == nil {
-			if st.Carried != nil && rec.CarriedOrigin.Generated() {
-				// Not observed, since the site has no result (a failure at
-				// the root's pickup, FX-15), but what follows may copy it.
-				unseen = append(unseen, st.Carried)
-			}
 			st.Carried = nil
 		}
 		if rec.Status == conformance.StepFailure && rec.Ran && st.Result != nil {
@@ -213,46 +217,53 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		}
 		o.Steps[site] = st
 	}
-	for k := range unseen {
-		if unseen[k], err = n.Value(unseen[k]); err != nil {
-			return o, nil, err
+	for _, vs := range sources {
+		for k := range vs {
+			if vs[k], err = n.Value(vs[k]); err != nil {
+				return o, nil, err
+			}
 		}
 	}
 	o, err = conformance.MaskPaths(o, spec.Stack, spec.Mask)
 	if err != nil {
 		return o, nil, err
 	}
-	derived, err := copiedGenerated(o, generated, unseen)
-	return o, append(generated, derived...), err
+	declared, err := declaredCopies(o, sources, copies)
+	return o, append(generated, declared...), err
 }
 
-// copiedGenerated returns the pointers of the values in o that are copies
-// of an error windmill-lite generated: an argument, a result or a carried
-// value of a site, or the run's result, holding at any depth a value equal
-// to one at a generated pointer or in unseen (generated values o does not
-// show), its error, or that error's message, outside the values already
-// at a generated pointer (StripLocations reads an error object, a value
-// whose error member is one, and a string in Windmill's error display).
-// User code cannot build such a value without reading the generated one
-// (its text holds the engine's own wording), so a copy carried on through
-// a step, a container's array, a failure module's input or the flow's
-// result keeps its provenance, and the location rule of ADR 0011 applies
-// there too (FX-15/b, JE-35/d: a failure module or a later step that
-// echoes a pickup error).
-func copiedGenerated(o conformance.Observation, generated []string, unseen []json.RawMessage) ([]string, error) {
-	data, err := json.Marshal(o)
-	if err != nil {
-		return nil, err
+// declaredCopies returns the pointers of the copies the run declares
+// (conformance.Copy) whose value in o equals, as JSON, an error
+// windmill-lite generated at the copy's site (sources, normalised), that
+// error's error member, or its message: a failure module or a later step
+// that passes a pickup error on unchanged (FX-15/b, JE-35/d). Equality
+// alone never makes a value generated, since user code can write the same
+// text, so only a declared pointer is considered, and only against its own
+// site's errors; a declaration whose site generated nothing, or whose
+// value differs, adds nothing and the comparison shows the difference
+// (ADR 0011).
+func declaredCopies(o conformance.Observation, sources map[conformance.SitePath][]json.RawMessage, copies []conformance.Copy) ([]string, error) {
+	if len(copies) == 0 {
+		return nil, nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	var tree any
-	if err := dec.Decode(&tree); err != nil {
-		return nil, err
+	decode := func(b []byte) (any, error) {
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.UseNumber()
+		var v any
+		err := dec.Decode(&v)
+		return v, err
 	}
 	canon := func(v any) string {
 		b, _ := json.Marshal(v)
 		return string(b)
+	}
+	data, err := json.Marshal(o)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := decode(data)
+	if err != nil {
+		return nil, err
 	}
 	at := func(p string) (any, bool) {
 		toks, err := conformance.SplitPointer(p)
@@ -261,84 +272,46 @@ func copiedGenerated(o conformance.Observation, generated []string, unseen []jso
 		}
 		v := tree
 		for _, tok := range toks {
-			m, ok := v.(map[string]any)
-			if !ok {
-				a, isArr := v.([]any)
-				k, err := strconv.Atoi(tok)
-				if !isArr || err != nil || k < 0 || k >= len(a) {
+			switch x := v.(type) {
+			case map[string]any:
+				var ok bool
+				if v, ok = x[tok]; !ok {
 					return nil, false
 				}
-				v = a[k]
-				continue
-			}
-			if v, ok = m[tok]; !ok {
+			case []any:
+				k, err := strconv.Atoi(tok)
+				if err != nil || k < 0 || k >= len(x) {
+					return nil, false
+				}
+				v = x[k]
+			default:
 				return nil, false
 			}
 		}
 		return v, true
 	}
-	forms, seen := map[string]bool{}, map[string]bool{}
-	var values []any
-	for _, p := range generated {
-		seen[p] = true
-		if v, ok := at(p); ok {
-			values = append(values, v)
-		}
-	}
-	for _, raw := range unseen {
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.UseNumber()
-		var v any
-		if dec.Decode(&v) == nil {
-			values = append(values, v)
-		}
-	}
-	for _, v := range values {
-		forms[canon(v)] = true
-		if m, ok := v.(map[string]any); ok && m["error"] != nil {
-			forms[canon(m["error"])] = true
-			if e, ok := m["error"].(map[string]any); ok && e["message"] != nil {
-				forms[canon(e["message"])] = true
-			}
-		}
-	}
 	var out []string
-	var walk func(v any, toks []string)
-	walk = func(v any, toks []string) {
-		p := conformance.JoinPointer(toks)
-		if seen[p] {
-			return
+	for _, c := range copies {
+		site, err := conformance.ParseSitePath(c.Of)
+		if err != nil {
+			return nil, err
 		}
-		if forms[canon(v)] {
-			seen[p] = true
-			out = append(out, p)
-			return
-		}
-		switch x := v.(type) {
-		case map[string]any:
-			for _, k := range slices.Sorted(maps.Keys(x)) {
-				walk(x[k], append(slices.Clip(toks), k))
+		forms := map[string]bool{}
+		for _, raw := range sources[site] {
+			v, err := decode(raw)
+			if err != nil {
+				return nil, err
 			}
-		case []any:
-			for k, e := range x {
-				walk(e, append(slices.Clip(toks), strconv.Itoa(k)))
+			forms[canon(v)] = true
+			if m, ok := v.(map[string]any); ok && m["error"] != nil {
+				forms[canon(m["error"])] = true
+				if e, ok := m["error"].(map[string]any); ok && e["message"] != nil {
+					forms[canon(e["message"])] = true
+				}
 			}
 		}
-	}
-	if len(forms) == 0 {
-		return nil, nil
-	}
-	if r, ok := at("/result"); ok {
-		walk(r, []string{"result"})
-	}
-	steps, _ := at("/steps")
-	sm, _ := steps.(map[string]any)
-	for _, site := range slices.Sorted(maps.Keys(sm)) {
-		st, _ := sm[site].(map[string]any)
-		for _, field := range []string{"args", "resolved_args", "result", "carried"} {
-			if v, ok := st[field]; ok {
-				walk(v, []string{"steps", site, field})
-			}
+		if v, ok := at(c.At); ok && forms[canon(v)] {
+			out = append(out, c.At)
 		}
 	}
 	return out, nil

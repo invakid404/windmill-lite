@@ -801,10 +801,14 @@ the slot, so that a copy that never ran is `not_run`.
 
 - **No second run.** A child flow whose failure ended in its failure
   module reports that it was handled (`flowEnd.handled`); a container that
-  fails by such a child carries it (`outcome.handled`), and the flow it is
-  in, and any flow above, does not run its own failure module again for
-  that failure (CF-16 item 4): the container's failure ends the flow, its
-  `continue_on_error` still tolerating it. A subflow step resets it.
+  fails by such a child carries it (`outcome.handled`), as a failure,
+  under a clean `stop_after_all_iters_if` that keeps the failure
+  (`endFailedStop`), or as the error stop a `branchone` or a sequential
+  `branchall` forwards for it, and the flow it is in, and any flow above,
+  decides as if it had no failure module for that failure (CF-16 item 4):
+  the failure ends the flow, its `continue_on_error` still tolerating it.
+  An error stop of the container's own predicate is a failure of its own,
+  which the failure module handles; a subflow step resets the flag.
 - **Counting** ([CF-V1](../../docs/semantics/control-flow.md#cf-v1)): a
   sequential loop, a sequential `branchall` and a `branchone` count a
   child that ran its failure module as failed, a recovered one included;
@@ -956,8 +960,10 @@ outcome (a failure, a tolerated one, both failure modules, a recovered
 one, each kind of stop), a pickup error, the hooks, `same_worker`, the
 executor check through a subflow, and concurrent runs. `bodies_test.go`
 (N3c) covers failure modules in bodies: the copy per failed iteration,
-its scope and id, no second run with or without `skip_failures`, the
-recovery count of each container, and an error stop in a body.
+its scope and id, no second run with or without `skip_failures` and
+through a clean stop of a failed inner loop under a loop, a `branchone`
+and a sequential `branchall`, the recovery count of each container, and
+an error stop in a body.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or

@@ -334,7 +334,8 @@ waits on an external gate except R1.
   the run-wide ones. Every loop iteration and branch of a flow with a
   failure module runs a copy of it, and a container whose child ran its
   copy no longer runs the flow's own failure module again (CF-16 item 4),
-  except across a subflow boundary. "CF-16 to CF-20, CF-29 and CF-V
+  through a clean stop that keeps the failure or the stop a branch
+  forwards for it too, except across a subflow boundary. "CF-16 to CF-20, CF-29 and CF-V
   cases" in its row are read as CF-19's cases, recorded by E3a and E3d
   (`cf/cf-19`), plus the cases of CF-16 to CF-18, CF-20, CF-29 and CF-V1
   to CF-V5. N3c records the latter with its own fixtures under
@@ -345,9 +346,9 @@ waits on an external gate except R1.
   deferred to `none` (and CF-16/d's inline half with them). CF-19/c passes
   through a new run field, `not_found_locs`: it is FX-50 rule 3, the
   case declaring where the parenthesised not-found location is generated.
-  A copy of a generated error that user code passes on keeps its
-  provenance (ADR 0011, amended), which makes JE-35/d and FX-15/b pass;
-  so FX-15/b, which N2 left to NI, is required under N3c. E3a's JE-19/b
+  A run can declare the values that copy, through user code, a site's
+  generated error (`copies`, ADR 0011 amended), which makes JE-35/d and
+  FX-15/b pass; so FX-15/b, which N2 left to NI, is required under N3c. E3a's JE-19/b
   has been required since N3a; its run `je19-d`, a subflow's read of its
   caller's results, passes too. The E3c runs of the row (FX-15/c, FX-33's
   parent view, FX-34/a's `loop` and `step_id`) and `cf-12`'s `b` are

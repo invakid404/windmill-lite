@@ -328,13 +328,14 @@ a few at a time (`flows.go`):
    chaining error with no job, milestone N1b); and, inside a loop's or a
    branchall's array, the entries the trace points to as generated
    (`ResultNested`), at any depth (milestones N3a and N3b). A copy of
-   such a generated error is generated too (milestone N3c): an argument,
-   a result or a carried value, or the flow's result, that holds at any
-   depth a value equal to one at a generated pointer, or to a generated
-   carried value the observation does not show (a failure at the root's
-   pickup), to its error, or to that error's message, as a failure module
-   or a later step that echoes a pickup error does (FX-15/b, JE-35/d):
-   user code cannot write the engine's wording without reading it. A
+   such an error that user code passes on, as a failure module or a later
+   step that echoes a pickup error does (FX-15/b, JE-35/d), is generated
+   only where the run's `copies` declare it (milestone N3c): the value at
+   a declared pointer counts when it equals, as JSON, the generated error
+   of the site the declaration names (its result or carried value, one
+   the observation does not show included), that error's error member, or
+   its message. Equality alone never counts, since user code can write
+   the same text. A
    parenthesised not-found location ` (<file>.rs:<line>)` inside a
    message is stripped only at the values the run's `not_found_locs`
    declares, and only where windmill-lite generated the value
@@ -444,9 +445,13 @@ Windmill v1.767.0's image).
   negative cases for a result, for a carried value in either member order,
   and for a carried value with its own origin, and a declared not-found
   location stripped only where windmill-lite generated the value.
-  `TestObserveCopiedGenerated` (N3c) checks that copies of a generated
-  error, and of its message, are generated, while a user's own error
-  keeps the reference's location. `TestObserveTraceRetries`
+  `TestObserveDeclaredCopies` (N3c) checks that declared copies of a
+  generated error, and of its message, are generated, while the failure
+  module's own error, an undeclared copy, a copy declared against a site
+  that generated nothing and one whose value differs keep the reference's
+  location; `TestObserveUserValueEqualToAGeneratedError` checks that a
+  user's message equal to a later generated error keeps it.
+  `TestObserveTraceRetries`
   checks the attempt sites, a later module's copies of an earlier one's
   attempts with the attempt's own placeholder, a listed attempt with no
   record, and the virtual step left out; `TestCheckDelays` checks a run's
