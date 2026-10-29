@@ -740,14 +740,15 @@ func TestEngineTimeouts(t *testing.T) {
 // milestone, never midway through a run.
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
-		"failure module loop":     `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
-		"loop and failure module": `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", "") + `]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
-		"ai sleep":                flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
-		"while loop":              flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"modules":[]}}`),
-		"squashed loop":           flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
-		"branch":                  flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
-		"subflow":                 flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
-		"cache_ttl":               flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		"failure module loop":           `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
+		"loop and failure module":       `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", "") + `]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"ai sleep":                      flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
+		"branch and failure module":     `{"modules":[{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"while loop and failure module": `{"modules":[{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"squashed while loop":           flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"squash":true,"modules":[]}}`),
+		"squashed loop":                 flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
+		"subflow":                       flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
+		"cache_ttl":                     flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
 		// N2's waits and retries in or on a container, or delaying one,
 		// are NI's.
 		"loop body retry":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
@@ -758,6 +759,13 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"sleep on a loop":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"sleep":{"type":"static","value":1}}`),
 		"a loop's js timeout":   flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"timeout":{"type":"javascript","expr":"1"}}`),
 		"a sleep before a loop": flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`),
+		// The same for while loops and branches (N3b).
+		"branch body sleep":          flowOf(`{"id":"b","value":{"type":"branchall","branches":[{"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}]}}`),
+		"while body retry":           flowOf(`{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
+		"retry on a while loop":      flowOf(`{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[]},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
+		"sleep on a branchone":       flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]},"sleep":{"type":"static","value":1}}`),
+		"a branchall's js timeout":   flowOf(`{"id":"b","value":{"type":"branchall","branches":[]},"timeout":{"type":"javascript","expr":"1"}}`),
+		"a sleep before a branchone": flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {
@@ -782,6 +790,13 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
+	// stop_after_all_iters_if runs only on an active loop or branchall
+	// (CF-13, FX-2): on a step or a branchone it is never evaluated.
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(
+		mod("a", "value", inputs("v", static("1")), `"stop_after_all_iters_if":{"expr":"nope","skip_if_stopped":false}`),
+		`{"id":"b","value":{"type":"branchone","branches":[],"default":[`+mod("c", "value", inputs("v", static("2")), "")+`]},"stop_after_all_iters_if":{"expr":"nope","skip_if_stopped":false}}`,
+	)}, &scripts{})
+	wantStatus(t, runIt(t, e, `{}`, nil), conformance.RunSuccess, `2`)
 }
 
 // One engine serves concurrent runs (run with -race).

@@ -70,11 +70,12 @@ program's flows in sequence, with Windmill's decision list for input
 transforms, the `results` routes, `skip_if`, `mock`, identity steps and
 `stop_after_if`, and K1's host-hook seams, and (N1b) its errors:
 `continue_on_error`, the failure module and recovery, chaining errors,
-the error shapes and the cancellation outcome, and (N2) its waits and
-time: `sleep`, the step timeout and its texts, retries with Windmill's
-16-bit delay arithmetic, jitter and argument reuse, the monitor of flows
-that hang between steps, the pre-write deadline and an injectable clock;
-`host` runs its flows on it too. PF1 gives every step its job identity
+the error shapes and the cancellation outcome, (N2) its waits and time:
+`sleep`, the step timeout and its texts, retries with Windmill's 16-bit
+delay arithmetic, jitter and argument reuse, the monitor of flows that
+hang between steps, the pre-write deadline and an injectable clock, and
+(N3a, N3b) its containers: for and while loops, `branchone` and
+`branchall`; `host` runs its flows on it too. PF1 gives every step its job identity
 ([internal/platform](internal/platform/README.md)) and a platform facade
 ([internal/platform/facade](internal/platform/facade/README.md)): the
 router behind the stock `windmill-client`, which attributes every call to
@@ -173,7 +174,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names), the evaluator's shortcuts and bindings, and the program each expression runs as on QuickJS-ng: its preludes, serialisation, error texts, attempt retries and depth check; the expression suite against the E3a recordings and the budget gate. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a heap on vendored mimalloc, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
-| [internal/engine](internal/engine/README.md) | The flow interpreter: the engine core, which runs a compiled program's flows in sequence (input transforms and the argument pipeline, the `results` routes, `skip_if`, `mock`, identity, `stop_after_if`, a static step timeout, `continue_on_error`, the failure module and recovery, chaining errors and the cancellation outcome) through the hook seams and the precedence of host signals; the contracts it is built on (the step executor, the hooks with no-op defaults, the run trace); the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; and the walking skeleton's bundle loader. |
+| [internal/engine](internal/engine/README.md) | The flow interpreter: the engine core, which runs a compiled program's flows in sequence (input transforms and the argument pipeline, the `results` routes, `skip_if`, `mock`, identity, `stop_after_if`, a static step timeout, `continue_on_error`, the failure module and recovery, chaining errors and the cancellation outcome) and its containers (for and while loops, `branchone`, `branchall`) through the hook seams and the precedence of host signals; the contracts it is built on (the step executor, the hooks with no-op defaults, the run trace); the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; and the walking skeleton's bundle loader. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture, expression-case and step-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator, with the location rule of comparisons with windmill-lite; stub mode's replay table and replay service. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; stub mode's generator and the locator that finds a stub's site in a running job tree; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
 | [internal/platform](internal/platform/README.md) | Job identity: the `WM_*` variables of each invocation, with the state path, the token and the host's configuration; the resource, variable and secret services, their local default store and host chains, the host's value resolvers, and the interpolation walker for the three resource-read contracts and worker argument resolution. |

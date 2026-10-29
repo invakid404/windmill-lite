@@ -7,8 +7,9 @@ entrypoint's selection (milestone C3a), the engine core of milestone
 N1a, which runs a compiled program's flows sequentially, with the errors
 of milestone N1b (`continue_on_error`, the failure module and recovery,
 the error shapes, chaining errors, the final result and the cancellation
-outcome), the for loops of milestone N3a: sequential, collapsed and
-parallel, with `parallelism`, the platform providers a run reads
+outcome), the for loops of milestone N3a (sequential, collapsed and
+parallel, with `parallelism`), the while loops, `branchone` and
+`branchall` of milestone N3b, the platform providers a run reads
 (milestone PF2): a leaf's argument resolution, `flow_env`'s resolution and
 the expression helpers `variable()` and `resource()`, and the waits and
 time of milestone N2: `sleep`, the step timeout and its messages, retries
@@ -36,7 +37,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
-| `frame.go`, `loop.go`, `serde.go` | the flows a run executes (the root and its loops' child flows), their results scopes, and for loops (below); the texts of Windmill's JSON library | N3a; N3b and N3c run their containers on frames |
+| `frame.go`, `loop.go`, `branch.go`, `serde.go` | the flows a run executes (the root and its containers' child flows), their results scopes, for and while loops, and branches (below); the texts of Windmill's JSON library | N3a, N3b; N3c runs its subflows on frames |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
 Site identities are `conformance.SitePath` values. Run statuses are
@@ -52,9 +53,10 @@ and `halted`. Traces, hooks and observations therefore share one vocabulary.
   to fail a module answers `Intercept` with an error outcome instead.
 - **First latch wins.** `Latch` (H5, reached through `Run.Latch`) keeps the
   first error latched and drops later ones, and is safe for concurrent use.
-- **Concurrent calls.** The iterations of a parallel loop run on
-  goroutines of their own, so one run's hooks are called concurrently: a
-  `Hooks` implementation must be safe for concurrent use.
+- **Concurrent calls.** The iterations of a parallel loop and the
+  branches of a parallel `branchall` run on goroutines of their own, so
+  one run's hooks are called concurrently: a `Hooks` implementation must
+  be safe for concurrent use.
 - **Not hooks in this interface:**
   - H4 (cancellation and budgets) reaches the engine as the run's context,
     whose deadline is the hard one, and `RunRequest.PreWriteDeadline`
@@ -190,7 +192,7 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a, N1b, N3a, N2).** A flow's modules in sequence:
+**What it runs (N1a, N1b, N3a, N3b, N2).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
 a static or javascript `timeout`, `retry` and `retry_if`,
@@ -198,18 +200,23 @@ a static or javascript `timeout`, `retry` and `retry_if`,
 `early_return` (which changes only the synchronous HTTP response,
 [FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own `timeout`,
 which nothing enforces: a flow job bypasses every executor timer
-([FX-24](../../docs/semantics/execution.md#fx-24), path 4), and for loops
-with `stop_after_all_iters_if` (below). `New` refuses everything else with
-`ErrUnsupported`, naming the milestone that implements it, for a
-top-level module, a loop body's and the failure module alike: N2's waits
-and retries in a loop's body, on a loop, or as the sleep before a loop
-(a sleep, a retry with attempts or `retry_if`, a javascript or negative
-`timeout`), which NI integrates with containers; while loops and branches
-(N3b); a for loop in a flow with a failure module, whose bodies carry a
-copy of it, and subflows by path (N3c); `cache_ttl`, a path script's own
-included (N4); host-provided sites (F2a); a step of another harness than
-Bun's, whose `bun` and `native` boundaries it runs (L1); a squashed loop
-(EE, [CF-25](../../docs/semantics/control-flow.md#cf-25)); an `ai`
+([FX-24](../../docs/semantics/execution.md#fx-24), path 4), for and while
+loops and `branchall` with `stop_after_all_iters_if`, and `branchone`
+(below). `stop_after_all_iters_if` is evaluated on an active loop or
+`branchall` only, so on any other module it is accepted and never
+evaluated ([CF-13](../../docs/semantics/control-flow.md#cf-13),
+[FX-2](../../docs/semantics/execution.md#fx-2)). `New` refuses everything
+else with `ErrUnsupported`, naming the milestone that implements it, for
+a top-level module, a container body's and the failure module alike:
+N2's waits and retries in a container's body, on a container, or as the
+sleep before a container (a sleep, a retry with attempts or `retry_if`, a
+javascript or negative `timeout`), which NI integrates with containers;
+a container in a flow with a failure module, whose bodies carry a copy of
+it ([CF-16](../../docs/semantics/control-flow.md#cf-16)), and subflows by
+path (N3c); `cache_ttl`, a path script's own included (N4); host-provided
+sites (F2a); a step of another harness than Bun's, whose `bun` and
+`native` boundaries it runs (L1); a squashed for or while loop (EE,
+[CF-25](../../docs/semantics/control-flow.md#cf-25)); an `ai`
 parallelism, whose error the reference does not give; a preprocessor,
 `skip_expr` and an `ai` sleep or timeout (`later`).
 
@@ -291,7 +298,9 @@ parallelism, whose error the reference does not give; a preprocessor,
    `FatalError` and records `H7` in the trace's deviations), then
    Windmill's continue decision (below), with its retries. Last,
    `AfterContinue` applies `haltAfter` when the flow would go on, never on
-   the way to the failure module, and never while a retry is due.
+   the way to the failure module, and never while a retry is due; when the
+   module ends a container's child flow, the halt is pending until the
+   container has completed (below).
 
 **The continue decision** (N1b; [FX-2](../../docs/semantics/execution.md#fx-2)
 completion steps 3, 7 and 8, when no retry is due; the retries are N2's,
@@ -308,6 +317,7 @@ below).
 | failed, not tolerated | the failure module, else the flow fails with the failure value ([FX-31](../../docs/semantics/execution.md#fx-31), [FX-36](../../docs/semantics/execution.md#fx-36)) |
 | an error stop, with a failure module | tolerated: the next module, or past the last one the failure module, entered at cursor `len` with an empty preceding id ([FX-V4](../../docs/semantics/execution.md#fx-v4)); not tolerated: the failure module ([FX-19](../../docs/semantics/execution.md#fx-19)) |
 | an error stop, no failure module | tolerated at the last module: the flow succeeds with the `EarlyStopError`; otherwise it fails with it |
+| a failed loop or `branchall` whose `stop_after_all_iters_if` stops cleanly (N3b) | a stop never continues, not even into the failure module (rule 7.1): tolerated at the last module, the flow succeeds with the array; otherwise it fails with it ([CF-13](../../docs/semantics/control-flow.md#cf-13)) |
 | a throwing `stop_after_if` | the failure module, else the flow fails with the string error; `continue_on_error` never applies ([FX-21](../../docs/semantics/execution.md#fx-21)) |
 
 **The failure module** sits at the slot `s:failure`, the cursor `len`
@@ -410,14 +420,21 @@ resolved map once one exists. Every site has the helpers of
 **The results context.** The run answers the evaluator's lookups
 ([JE-18](../../docs/semantics/expressions.md#je-18),
 [JE-19](../../docs/semantics/expressions.md#je-19)) from the jobs it has
-run, per flow (a frame, `frame.go`: the root, or a loop iteration's child
-flow): `Lookup` (the engine path) gives the job result of the first module
-of the current flow with that id that has a job (a loop's is the array of
-its iterations' results), else the node-id map's; `Stored` (JE-9's direct
-path) gives the node-id map's, where the module that finished last wins.
-The map has scopes ([CF-19](../../docs/semantics/control-flow.md#cf-19)):
-the root's, and one per parallel iteration; a sequential iteration writes
-into its parent's, and a lookup walks from a scope to the root. Both are job results in storage: after an error stop that is
+run, per flow (a frame, `frame.go`: the root, or a loop iteration's or a
+branch's child flow): `Lookup` (the engine path) gives the job result of
+the first module of the current flow with that id that has a job (a
+loop's or a `branchall`'s is the array of its children's results, a
+`branchone`'s its branch's), else the node-id map's; `Stored` (JE-9's
+direct path) gives the node-id map's, where the module that finished last
+wins. A `branchone` that ran no branch has a nil job: `Lookup` fails to
+fetch it with the server's not-found text, ``Failed to fetch result for
+step '<id>': Not found: Completed Job not found at name
+00000000-0000-0000-0000-000000000000``, without its source location (D14),
+and the map holds it as `null`
+([CF-19](../../docs/semantics/control-flow.md#cf-19) route 5). The map has
+scopes (CF-19): the root's, and one per parallel iteration; a sequential
+or while iteration and a branch write into their parent's, and a lookup
+walks from a scope to the root. Both are job results in storage: after an error stop that is
 the step's success value, not the `EarlyStopError`
 ([FX-10](../../docs/semantics/execution.md#fx-10)). An unknown id is
 `null`. The previous module's own reads from memory are the evaluator's
@@ -437,6 +454,8 @@ the step's success value, not the `EarlyStopError`
 <evaluator text>``, `Error parsing result as u16: <serde's message>. Value was: <value>` or `Error parsing static value as u16: <serde's message>` | JE-V1 |
 | a parallel loop of two or more iterations in a `same_worker` flow | a chaining error: `Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker` | CF-7 |
 | a chaining error at a child flow's first module | the child fails at once with the `Anyhow` form, its module not started; the loop sees a failed iteration | FX-15 context 3, CF-V3 |
+| a `branchone` predicate throws | the module fails in place, an ordinary step failure wherever it is, never a chaining error: `{"error": {"message": "Error: <evaluator text>", "name": "Anyhow"}}`, with a nil job | CF-14, CF-23, JE-31 |
+| a parallel `branchall` of two or more branches in a `same_worker` flow | the `same_worker` chaining error of a parallel loop | CF-7 |
 | a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
 | `stop_after_all_iters_if` fails | an error stop of the flow: ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<text>`: <predicate text>"}}``, carried by the loop, whose result stays its array | CF-13, JE-27 |
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
@@ -468,7 +487,8 @@ the errors the engine generated are (`ResultNested`, `CarriedNested`,
 loop's), through every level of nesting up to the run's result, and below
 `/error/result` when an error stop includes the array, so that a
 comparison strips their locations and a user's error beside them keeps
-its own.
+its own; a `branchall`'s array does the same, and a `branchone` carries
+its branch's result with its origin and pointers.
 
 **Readings where the reference is silent**, each pinned by a test:
 
@@ -495,10 +515,10 @@ its own.
 - N2's readings are listed with its section, below.
 - For loops (N3a): an empty body does not evaluate the iterator; a
   collapsed iteration's previous id is empty, and a read of its own loop
-  sees the iterations so far, `[]` at first; on a loop that failed only an
-  error stop of `stop_after_all_iters_if` changes its outcome (with no
-  failure module, a clean stop and the failure both end the flow with the
-  array); a loop whose `stop_after_if` throws fails as a step's does
+  sees the iterations so far, `[]` at first; on a loop that failed, a
+  clean stop of `stop_after_all_iters_if` keeps the failure and the array
+  and still stops the flow, and an error stop replaces the carried value
+  (N3b, below); a loop whose `stop_after_if` throws fails as a step's does
   (FX-21), with no `stop_after_all_iters_if` after it; a static null
   `parallelism` is no limit, as a static null timeout is none; a collapsed
   body takes its loop's `pass_flow_input_directly` instead of its own
@@ -518,6 +538,28 @@ its own.
   serde_json checks after the value's type and range, and serde_json's
   other syntax errors are not reproduced; whatever is not one JSON value
   of the expected kind is refused.
+- While loops and branches (N3b): an empty chosen `branchone` branch at
+  the first module of a child flow passes the JSON string `"{}"` on, as
+  at the root's (CF-14 says "the first step of its flow"); a `branchone`
+  whose predicate threw has a nil job, as an empty branch's
+  ([OR-11](../../docs/semantics/oracle.md#or-11)), so results reads of it
+  behave alike; a stop that a branch propagates is not followed by the
+  `branchone`'s own `stop_after_if`; a branch that fails at a later
+  transition of its child flow (FX-15 context 1) gives its `branchone` the
+  stored error, as a loop's entry is, where
+  [Q-CF-3](../../docs/semantics/control-flow.md#q-cf-3) part 2 leaves open
+  whether Windmill hands it the last successful inner result; an error
+  stop a `branchone` or a sequential `branchall` propagates is an error
+  stop of the module, so `continue_on_error` ends the flow there unless
+  the module is the last
+  ([FX-2](../../docs/semantics/execution.md#fx-2) completion rule 7.1,
+  [FX-19](../../docs/semantics/execution.md#fx-19)); a clean stop with
+  `skip_if_stopped` in a sequential `branchall` flags the `branchall`
+  skipped, as FX-20's "the same skipped flag" says of a `branchone`; a
+  clean `stop_after_all_iters_if` stop of a failed loop or `branchall`
+  leaves the module failed, with no skipped flag (`skip_if_stopped`
+  included), carrying its array, and its child flow, if any, forwards it
+  as the stop of a failure.
 
 **For loops (N3a, `loop.go`).** A loop module that runs is a container: no
 arguments, no H1 or H2, a record whose status is the loop's own and whose
@@ -599,15 +641,91 @@ iterations it started. A halt decided in one parallel iteration stops the
 others at their next module, and wakes a loop whose iterations are all
 held; the run's status ranks the latch, then the cancellation, then the
 halt (ADR 0008), whichever iteration met its signal first. A body
-module's halt-after asks the loops that contain it, at every level and
-given how its flow ended, whether the run would start more: a further
-iteration after a success or a failure `skip_failures` tolerates, an
-iteration a parallel loop still holds, or what follows a loop, which a
-stop breaks to and a failure `skip_failures` does not tolerate fails,
-unless the loop's `continue_on_error` takes it. So a halt never hides a
-failure or a stop that ends the run; reading: a parallel iteration still
-running is taken to succeed. A loop so interrupted records the
-array so far.
+module's halt-after that ends its child flow is pending for the whole run
+(N3b): the loop completes the iteration, its `stop_after_if` included,
+and the halt applies at the run's next start anywhere, the next
+iteration, an iteration a parallel loop still holds, the next module of
+another iteration already running, or, once the loop has completed (its
+`stop_after_all_iters_if` included) and every enclosing container too,
+the next module; a run that ends first keeps the status Windmill gives
+it, and the pending halt is dropped, with no `H8`. So a halt never hides
+a failure or a stop that ends the run. A step already running finishes,
+and a flow that has started (an iteration or a branch launched) runs its
+first module, so a parallel loop's iterations already started are not
+starts. A loop so interrupted records the array so far.
+
+**While loops (N3b, `loop.go`).** A while loop is a sequential loop with
+no iterator ([CF-10](../../docs/semantics/control-flow.md#cf-10)): its
+iterations run one after another, iteration k's `iter` being
+`{"index": k, "value": k}` (CF-3), until its `stop_after_if` breaks it
+after a successful iteration (CF-11, `all_iters` bound as above), a stop
+in its body does (CF-12), an iteration fails that `skip_failures` does
+not tolerate (CF-5), or the run ends (CF-28); nothing else ends it. It
+shares the sequential for loop's code: a one-step body collapses in every
+job kind (CF-8 item 3), each iteration otherwise runs as a child flow at
+`<flow path>/loop-<i>` (CF-24), and its result keeps the iteration that
+broke it. An empty body returns `[]` at once, an empty container
+(CF-29, CF-V2); `stop_after_all_iters_if` is evaluated as for a for loop
+(CF-13). Its `parallel` fields are dropped by the IR (OF-8).
+
+**Branches (N3b, `branch.go`).** A branch that runs is a child flow
+([CF-1](../../docs/semantics/control-flow.md#cf-1)) whose input is its
+flow's input, unchanged and read back from storage
+([JE-37](../../docs/semantics/expressions.md#je-37)), which is its first
+module's previous_result ([CF-9](../../docs/semantics/control-flow.md#cf-9),
+[JE-36](../../docs/semantics/expressions.md#je-36)); it writes into its
+flow's results scope and stays in its innermost flow scope (CF-19,
+WA-V1), at `<flow path>/branchone-<n>` (`-0` the default, `-<i+1>` branch
+i) or `<flow path>/branchall-<i>`
+([CF-24](../../docs/semantics/control-flow.md#cf-24)). The trace lists it
+(`Trace.Children`) under `b:<n>` or `b:default`.
+
+1. **`branchone`** ([CF-14](../../docs/semantics/control-flow.md#cf-14),
+   [JE-31](../../docs/semantics/expressions.md#je-31)): its predicates are
+   evaluated once, in order, each as `Boolean(<expr>)` (so an empty one
+   never holds), with `skip_if`'s scope; the first that holds is chosen,
+   later ones are not evaluated, and the default runs when none holds.
+   The record names it (`BranchChosen`). A throw fails the module in
+   place (Failure values, above). The chosen branch's result is the
+   module's, and the module's `stop_after_if` is then an ordinary stop of
+   the flow. An empty chosen branch runs no child: the module succeeds
+   with a nil job, passing on the previous_result handed to it, or the
+   JSON string `"{}"` at the first module
+   ([OR-25](../../docs/semantics/oracle.md#or-25)).
+2. **`branchall`** ([CF-15](../../docs/semantics/control-flow.md#cf-15)):
+   every branch runs, an empty one included, whose result is then its
+   input; its result is the array of the branches' results in branch
+   order, and its own `stop_after_if` is not evaluated. A parallel one
+   (the deployed default, [CF-6](../../docs/semantics/control-flow.md#cf-6))
+   starts every branch at once on goroutines of their own, with no limit
+   and no fail-fast (continue-all, decisions Q-18), and fails with the
+   full array when a branch whose `skip_failure` is false failed; each
+   parallel branch draws its own rng from its flow's, in branch order. A
+   sequential one goes past a failed branch only when that branch's
+   `skip_failure` is true, and otherwise fails with the results so far. A
+   `branchall` with no branches is an empty container (CF-29).
+   `stop_after_all_iters_if` is evaluated once, with the array, as for a
+   loop (CF-13, [JE-27](../../docs/semantics/expressions.md#je-27)),
+   unless a sequential one was stopped from inside.
+3. **Stops** ([CF-12](../../docs/semantics/control-flow.md#cf-12),
+   [FX-20](../../docs/semantics/execution.md#fx-20)): a clean stop in a
+   `branchone`'s branch or a sequential `branchall`'s stops the flow
+   right after the module, with the same skipped flag, the `branchall`'s
+   result being its results so far; an error stop there, with no failure
+   module, is an error stop of a `branchone`, and of a sequential
+   `branchall` whose stopped branch's `skip_failure` is false, while one
+   whose `skip_failure` is true stops the flow as a success; either way
+   the flow the module is in forwards it one level up, as a stop of a
+   sequential loop's body breaks the loop. A parallel `branchall` ignores
+   a stop: it ends only its branch, and an error stop counts as a failed
+   branch.
+
+The host checks run before every branch, as before every iteration, and
+a body module's halt-after that ends a branch is pending as in a loop:
+it applies at the next branch of a sequential `branchall`, at the next
+module of another branch of a parallel `branchall`, or at what the run
+starts once the container has completed, its `stop_after_if` or
+`stop_after_all_iters_if` included.
 
 **The platform providers (PF2, `providers.go`).** `Config.Platform`, a
 `*platform.Services` ([internal/platform](../platform/README.md#services)),
@@ -672,21 +790,35 @@ start errors, an iterator jsonb refuses, chaining errors in a child flow,
 the hooks inside loops, the host signals across parallel iterations,
 halt-after in nested loops and after each kind of iteration outcome, the
 provenance of generated errors in nested arrays and in an included
-result, concurrent runs, and serde's texts. `env_test.go` (FU5,
-`TestScriptEnvs`) checks a path script's `envs` in a Bun step's
-environment, a later entry winning and every name the worker sets later
-skipped, and none in a native step's, `nativets` or `//native`.
-`providers_test.go` (PF2) covers the resolved arguments (O2 and O3,
-whatever produced them, `$WM_*` from the reserved variables in an argument
-and from the stored fields in a resource, a secret), O3 after a timeout, a
-cancellation and an executor's error, a resolution failure (whose O3 stays
-its O2) and the run's settlement after it, `flow_env` resolved per transition and
-its unresolved fallback with its warnings, the helpers and a helper's
-failure, and an engine with no platform. `waits_test.go` and
-`retry_test.go` (N2) are listed with N2's section, below. The flow
-fixtures run the engine on the real Bun harness
+result, concurrent runs, and serde's texts. `while_test.go` (N3b) covers
+while loops: collapsed and child-flow iterations with their `iter`,
+previous_result chain, job identity and break, every way one ends, a loop
+that only the cancellation ends, and halt-after. `branch_test.go` (N3b)
+covers branches: the predicates' order, scope and throw, the chosen
+branch's child flow, scope and job identity, the empty branch and its nil
+job's results reads, every stop through a `branchone` and a sequential
+`branchall` and one level up, parallel and sequential `branchall` with
+their skip rules, empty branches and no branches, its
+`stop_after_all_iters_if`, the `same_worker` error, the hooks, halt-after,
+a latch and a cancellation in branches, provenance and concurrent runs;
+also a clean `stop_after_all_iters_if` stop of a failed `branchall`, while
+loop or for loop under `continue_on_error`, a halt-after that waits for
+its containers' own stops, for loops' included, and one that stops the
+other children of a parallel container at their next module.
+`env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
+Bun step's environment, a later entry winning and every name the worker
+sets later skipped, and none in a native step's, `nativets` or
+`//native`. `providers_test.go` (PF2) covers the resolved arguments (O2
+and O3, whatever produced them, `$WM_*` from the reserved variables in an
+argument and from the stored fields in a resource, a secret), O3 after a
+timeout, a cancellation and an executor's error, a resolution failure
+(whose O3 stays its O2) and the run's settlement after it, `flow_env`
+resolved per transition and its unresolved fallback with its warnings,
+the helpers and a helper's failure, and an engine with no platform.
+`waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
+below. The flow fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
-milestones N1a, N1b, N3a, PF2 and N2).
+milestones N1a, N1b, N3a, N3b, PF2 and N2).
 
 ## Waits and time
 
@@ -787,7 +919,8 @@ against
 past it cancels the run with canceler `monitor` and a reason that begins
 as Windmill's (`Flow <id> was cancelled because it was hanging in between
 2 steps. Last ping: <time>`, without the URL and worker details). A job's
-completion, and a child flow's (a loop iteration's), refreshes the flow's
+completion, and a child flow's (a loop iteration's or a branch's),
+refreshes the flow's
 ping and starts its next transition, as a child's completion refreshes a
 Windmill flow job's ping. Hooks
 and waits do not count: Windmill has no hooks, and runs a sleep or a

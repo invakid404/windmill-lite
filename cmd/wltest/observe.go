@@ -16,17 +16,18 @@ import (
 //
 //   - modules are the ids of the run's flow, in order, and failure says
 //     that it has a failure module, at s:failure, and the trace's child
-//     flows name theirs (a loop iteration's body, CF-1): each is a site,
-//     and a module the trace has no record of never got a job, so it is
-//     not_run, as the walker reads a flow_status entry without one; virtual
-//     marks the generated `<id>-v` step of a final sleep (OF-17), which
-//     the walker leaves out of the projection (OR-V7), and so does this;
+//     flows name theirs (a loop iteration's or a branch's body, CF-1): each
+//     is a site, and a module the trace has no record of never got a job,
+//     so it is not_run, as the walker reads a flow_status entry without one;
+//     virtual marks the generated `<id>-v` step of a final sleep (OF-17),
+//     which the walker leaves out of the projection (OR-V7), and so does
+//     this;
 //   - jobs maps the id of every invocation the run made, which steps see as
 //     WM_JOB_ID, to its site, and a record's own job (StepRecord.Job)
 //     overrides it, so a retried attempt's job is named by its attempt's
 //     site; the run's own id, WM_FLOW_JOB_ID and WM_ROOT_JOB_ID, is the
-//     root, and a child flow's id is its iteration's site, as the walker
-//     reaches it through flow_jobs (OR-11);
+//     root, and a child flow's id is its iteration's or branch's site, as
+//     the walker reaches it (OR-11);
 //   - a module's record lists the failed attempts of the flow-wide retry
 //     state (StepRecord.FailedRetries, FX-27): the walker fetches the k-th
 //     at <module>/r:<k>, so the attempt's record appears there too, also

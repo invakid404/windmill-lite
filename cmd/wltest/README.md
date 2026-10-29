@@ -6,8 +6,9 @@ E3a added expression files, and E3e `--skip-unmet-workers` and
 `--listen-interval`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
-end to end (milestone N1a), with the for loops of milestone N3a and the
-platform providers of milestone PF2 (`providers.go`). This README covers the `wltest` command in
+end to end (milestone N1a), with the for loops of milestone N3a, the
+while loops and branches of N3b and the platform providers of milestone
+PF2 (`providers.go`). This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -266,7 +267,8 @@ a few at a time (`flows.go`):
    oracle's walker produces ([ADR 0011](../../docs/design/0011-differential-testing.md),
    [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow, or
    of a child flow the trace lists (a loop iteration's body, below its
-   iteration's site `m:<loop>/i:<n>`), that the trace has no record of is
+   iteration's site `m:<loop>/i:<n>`, or a branch's, below `b:<n>` or
+   `b:default`), that the trace has no record of is
    `not_run`, and so is the failure module's site `s:failure` of a flow
    that has one; the root's result and each
    site's `args` and `result` are in their stored form, as the job API
@@ -278,7 +280,8 @@ a few at a time (`flows.go`):
    error to the flow's result). The values are then normalised by
    [OR-14](../../docs/semantics/oracle.md#or-14)'s rules: job ids become the
    placeholders of their sites (the run's own id is the root, `<job:>`, and
-   a child flow's id its iteration's site, as the walker reaches it), and
+   a child flow's id its iteration's or branch's site, as the walker
+   reaches it), and
    a failed site's stack is masked wherever its value is carried
    ([OR-V3](../../docs/semantics/oracle.md#or-v3) clause a); then the
    fixture's `stack` and `mask` pointers apply. Retries (milestone N2):
@@ -304,15 +307,16 @@ a few at a time (`flows.go`):
    carried value that is the same value, in either member order; a
    carried value the engine set apart from the result, whose origin the
    trace records too (an error stop's, a throwing `stop_after_if`'s, a
-   chaining error with no job, milestone N1b); and, inside a loop's array,
-   the entries the trace points to as generated (`ResultNested`), at any
-   depth (milestone N3a). A carried value that differs from the result
-   with no recorded origin is never stripped, nor a user's error beside
-   generated ones. Claims are checked on windmill-lite's observation as it
-   is, so a claim about a location suffix holds only on the oracle. A
-   run's `delays` are checked on the trace's job times (milestone N2): each
-   `to` site's job starts at least `at_least_ms` after the `from` site's job
-   ended, where the oracle's side reads the recording's provenance. A run
+   chaining error with no job, milestone N1b); and, inside a loop's or a
+   branchall's array, the entries the trace points to as generated
+   (`ResultNested`), at any depth (milestones N3a and N3b). A carried
+   value that differs from the result with no recorded origin is never
+   stripped, nor a user's error beside generated ones. Claims are checked
+   on windmill-lite's observation as it is, so a claim about a location
+   suffix holds only on the oracle. A run's `delays` are checked on the
+   trace's job times (milestone N2): each `to` site's job starts at least
+   `at_least_ms` after the `from` site's job ended, where the oracle's
+   side reads the recording's provenance. A run
    with nothing to compare fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
@@ -321,11 +325,11 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: while loops and branches, subflows, a for loop in a
-flow with a failure module, N2's waits and retries in or on a for loop
-(NI), caching, a preprocessor), and a flow that reads flow user state
-through the helper `flow_user_state()` (its compiled program holds the
-text), which needs milestone PF3. The fixture's other runs are checked.
+names the milestone: subflows, a container in a flow with a failure
+module, N2's waits and retries in or on a container (NI), caching, a
+preprocessor), and a flow that reads flow user state through the helper
+`flow_user_state()` (its compiled program holds the text), which needs
+milestone PF3. The fixture's other runs are checked.
 
 ### Expression files
 
@@ -375,8 +379,8 @@ Windmill v1.767.0's image).
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
-- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, PF2
-  (with PF1's fixture) and N2:
+- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
+  PF2 (with PF1's fixture) and N2:
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
