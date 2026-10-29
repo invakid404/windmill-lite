@@ -14,7 +14,9 @@ import (
 // (JE-41, JE-42, WR-5), all through the engine's platform.Services.
 
 // helpers answers the expression helpers of JE-20 for one run, whose
-// effective root is root. Every engine site has an authenticated client
+// effective root is root: the run, or for a run dispatched tracked in its
+// parent the root its jobs share, whose flow user state the stock helpers
+// address too. Every engine site has an authenticated client
 // (only suspend's user_groups_required lacks one, and the engine does not
 // run suspend).
 type helpers struct {

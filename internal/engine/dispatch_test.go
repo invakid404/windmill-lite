@@ -396,3 +396,28 @@ type execFunc func(ctx context.Context, inv Invocation) (StepOutcome, error)
 func (f execFunc) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
 	return f(ctx, inv)
 }
+
+// flow_user_state() in a flow dispatched tracked in its parent reads the
+// root its jobs share, as the stock helpers in its steps do; untracked, the
+// flow reads its own.
+func TestDispatchedFlowUserState(t *testing.T) {
+	services := &platform.Services{}
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("k", js(`flow_user_state("k")`)), ""))}, &scripts{}, services)
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	const run = "00000000-0000-4000-8000-00000000000f"
+	endRun := services.JobRegistry().Begin(platform.Job{ID: run, Kind: platform.JobFlow, Root: run})
+	defer endRun()
+	if err := services.SetFlowUserState(context.Background(), run, "k", []byte("7")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ root, want string }{{run, `{"k":7}`}, {"", `{"k":null}`}} {
+		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchFlow, Target: "f/t/main", Args: []byte(`{}`), RootJob: c.root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := waitResult(t, d, id); !r.Success || string(r.Result) != c.want {
+			t.Errorf("root %q: %+v %s", c.root, r, r.Result)
+		}
+	}
+}

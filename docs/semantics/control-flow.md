@@ -292,6 +292,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `:108` (parallel), `:3425`; `openflow.openapi.yaml:807-809` (the "null"
   claim the source contradicts).
 - **Conformance:** [CF-4/a, CF-4/b](conformance.md#cf-4)
+- **Revision 2026-10-29 (oracle, batch E3e):** the parallel half is now
+  recorded with completions out of index order. On the oracle's two-worker
+  session a parallel loop over `[0, 1]` whose iteration 0 sleeps 1.5 s
+  finished iteration 1 first and still gave `[0, 1]` (fixture
+  `conformance/flows/oracle/workers2`, run `loop_slow`, oracle run
+  40792040448; [Q-OR-7](oracle.md#q-or-7)). The rule is unchanged.
 
 <a id="cf-5"></a>
 ### CF-5 · Sequential loop failure, `skip_failures`, and what the flow sees
@@ -333,7 +339,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-6"></a>
 ### CF-6 · Absent container fields: defaults depend on the stored state
 
-**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; point 6 oracle-observed; the pull output of point 5 and the un-normalized behaviour traced in source, not run) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the materialized values and the behaviour after a successful dependency job oracle-observed; points 5 and 6 oracle-observed; the un-normalized behaviour traced in source, not run) · **Status:** confirmed
 
 - **Rule:**
   1. **Runtime fallback.** At run time `skip_failures` (forloop, whileloop)
@@ -418,6 +424,13 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   submitted (fields absent), as the API answers it after the dependency job
   (fields filled) and as `generate-metadata` writes it (the same fields
   filled), and the source shows why the CLI command writes them.
+- **Revision 2026-10-29 (oracle, batch E3e):** point 5 is recorded
+  (CF-6/b, fixture `conformance/flows/control-flow/pull`, oracle run
+  40794872025): a forloop pushed through the API without `skip_failures`
+  and read back by `wmill sync pull` after its dependency job carries
+  `skip_failures: true` and `parallel: false` in the pulled `flow.yaml`,
+  while a non-container module keeps an unknown field as submitted
+  ([SY-6](openflow.md#sy-6)). The rule is unchanged.
 
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion
@@ -489,6 +502,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `parallelism: 1` is now recorded, so its confidence rises. Before, the
   finding gave the error text alone. What one worker cannot show is
   [Q-CF-18](#q-cf-18).
+- **Revision 2026-10-29 (oracle, batch E3e):** on the oracle's two-worker
+  session the body scripts of an unbounded parallel loop over `[0, 1]`
+  overlapped: both started within 2 ms, and iteration 0's 1.5 s body
+  completed after iteration 1's, while the loop's result stayed `[0, 1]`
+  (fixture `conformance/flows/oracle/workers2`, run `loop_slow`, oracle run
+  40792040448). So the one-at-a-time body scripts of the observed timing
+  above come from the single worker, not from the loop. Release under
+  `parallelism` with several eligible iterations is still unrecorded
+  ([Q-CF-18](#q-cf-18)).
 
 <a id="cf-8"></a>
 ### CF-8 · The simple-loop-body fast path; eligibility follows the executing job's kind
@@ -947,6 +969,15 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   stated, CF-15/a and CF-15/b with `parallel` and the skip flags absent as
   pushed (deployed through the API, so the defaults of [CF-6](#cf-6)
   applied). The stored-status bullet is new: the recordings showed it.
+- **Revision 2026-10-29 (oracle, batch E3e):** branch order is now
+  recorded under real parallelism. On the oracle's two-worker session a
+  parallel `branchall` whose branch 0 sleeps 1.5 s completed branch 1 (and,
+  with three branches, the empty middle branch and branch 2) first, and the
+  result stayed in branch order: `[0, 1]`, and `[0, {}, 2]` with the empty
+  branch keeping index 1 and giving the enclosing flow input `{}` (fixture
+  `conformance/flows/oracle/workers2`, runs `par_slow` and `par_slow_empty`,
+  oracle run 40792040448; [Q-OR-7](oracle.md#q-or-7),
+  [Q-OR-15](oracle.md#q-or-15)). The rule is unchanged.
 
 <a id="cf-16"></a>
 ### CF-16 · `failure_module` inside containers
@@ -1812,7 +1843,11 @@ These are proposals made while studying the behaviour. They bind nothing.
   CF-13/c. *Settled by:* running them on a v1.767.0 CE oracle (setup in
   [oracle.md](oracle.md)), by path after a successful dependency job unless
   the case says otherwise, recording dependency state, stored form and job
-  kinds.
+  kinds. *2026-10-29:* batch E3e recorded CF-6/b with a pull read-back
+  (fixture `conformance/flows/control-flow/pull`, oracle run 40794872025).
+  It recorded no other case of this list (its probe fixture cites `OR-`
+  cases only), so CF-V1/a to CF-V1/c, CF-V2/b, CF-V2/c and CF-29/a remain;
+  still open.
 <a id="q-cf-2"></a>
 - **Q-CF-2** · affects [CF-6](#cf-6) · How long the window between push and
   dependency-job success lasts. The specification needs only the two
@@ -1953,4 +1988,17 @@ These are proposals made while studying the behaviour. They bind nothing.
   running CF-7/a with `parallelism: 2` and recording the body jobs'
   start and end times, which needs a change to the oracle workflow (it runs
   one worker, [OR-4](oracle.md#or-4)). Not needed for the first release
-  unless the design promises an order.
+  unless the design promises an order. **Re-scoped 2026-10-29.** Batch E3e
+  added a second oracle session with two workers (fixtures declaring
+  `oracle: {workers: 2}`, [OR-5](oracle.md#or-5)), so no workflow change is
+  needed any more. It answered the concurrency half for an **unbounded**
+  parallel loop: the body scripts of a two-iteration loop overlapped and
+  the slow iteration 0 completed last, with the result in index order
+  (fixture `conformance/flows/oracle/workers2`, run `loop_slow`, oracle run
+  40792040448; [CF-7](#cf-7)). It did not record CF-7/a or CF-7/b on two
+  workers, so what remains is the `parallelism` case: with `parallelism: 2`
+  over four iterations, whether the released iterations' bodies run
+  concurrently and in which order several eligible iterations start.
+  *Settled by:* CF-7/a and CF-7/b as a fixture of the two-worker session,
+  reading the body jobs' start and end times from the provenance. Still
+  open.

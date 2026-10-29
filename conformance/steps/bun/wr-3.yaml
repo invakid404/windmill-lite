@@ -3,7 +3,7 @@ finding: WR-3
 scope: core
 cases:
   - spec: WR-3/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: the runtime version is the pin
     script: |
       export function main() { return Bun.version; }

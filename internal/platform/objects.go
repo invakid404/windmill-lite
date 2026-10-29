@@ -44,8 +44,8 @@ type ObjectStore interface {
 // the SHA-256 of its storage and key, so that no key can name a path
 // outside the directory, whatever its slashes or dots. It claims no parity
 // with a CE server for what the client contract leaves open (WA-16's
-// design note). It is safe for concurrent use; a reader sees an object
-// whole, before or after a Put.
+// design note). It is safe for concurrent use: each file is replaced
+// whole, so a reader never sees a partly written content.
 type DirObjects struct {
 	dir string
 }

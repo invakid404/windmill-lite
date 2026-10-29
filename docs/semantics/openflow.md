@@ -142,7 +142,7 @@ the effective decoder decides acceptance (OF-1).
 <a id="of-2"></a>
 ### OF-2 · Deploy-time validation: a typed decode plus two checks
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (validation); high (repeated ids in `results` reads, source-traced); medium (repeated ids in `early_return`) · **Status:** confirmed; drafted (repeated ids at run time)
 
 - **Rule:** When a flow is created or updated through the API, the server:
   1. decodes `value` with the effective decoder, in two stages (below);
@@ -188,9 +188,38 @@ the effective decoder decides acceptance (OF-1).
   uniqueness check exists anywhere in `backend/`. UI-only id rules:
   `frontend/src/lib/components/IdEditorInput.svelte:38-56`,
   `frontend/src/lib/components/flows/idUtils.ts:3-21`.
-- **Conformance:** [OF-2/a–g](conformance.md#of-2)
+- **Conformance:** [OF-2/a–g](conformance.md#of-2); repeated ids at run
+  time: [JE-18/e](conformance.md#je-18)
 - **Design note (not Windmill behaviour):** windmill-lite should reproduce the
   accept/reject decision, not necessarily the HTTP envelope.
+- **Revision 2026-10-29 (source re-check, chain N1a):** what a repeated
+  module id does at run time. A re-check confirms that nothing refuses it,
+  neither the API nor the pinned CLI. Execution is positional: the flow
+  status holds one entry per module in list order, each module runs as its
+  own step, and only lookups by id are affected. They do not agree on which
+  entry they pick:
+
+  | Lookup by id | Which module of a repeated id it finds |
+  |---|---|
+  | `results.<id>` naming the previous step ([JE-18](expressions.md#je-18) step 1, the previous-step shortcut) | the previous step's result from memory, whichever module carries the id |
+  | `results.<id>` in the engine, a module of the current flow ([JE-18](expressions.md#je-18) step 2) | the **last** module in list order whose status entry has a job; a later module that has not started yet is skipped, so before it starts the earlier one is found |
+  | the line-anchored direct lookup ([JE-9](expressions.md#je-9), [CF-19](control-flow.md#cf-19) route 4) and [JE-18](expressions.md#je-18) step 3 | the module of that id that **completed most recently** in the scope chain ([JE-19](expressions.md#je-19)'s map, overwritten at each completion) |
+  | the restart and completed-flow fallbacks of [JE-19](expressions.md#je-19) | the **first** module of that id in list order, level by level; if that module has no job the lookup fails (the read gives `null`), and later modules of the id are not tried |
+  | `early_return` ([FX-37](execution.md#fx-37)) | the scoped map, polled until an entry exists, so normally the first module of that id to complete; for a loop or `branchall` result, success is read from the first status entry with that id |
+  | a step job's path (`<flow path>/<id>`) | shared by every module with that id |
+
+  Evidence: `backend/windmill-worker/src/worker_flow.rs:6155-6171` (the
+  step map is collected from the status entries in list order, so a later
+  entry with a job replaces an earlier one), `:1459-1474` (the scoped map
+  written at each completion), `:5076-5086` (job path);
+  `backend/windmill-types/src/flow_status.rs:406-425`, `:454-458` (which
+  entries have a job); `backend/windmill-queue/src/jobs.rs:4559-4611`
+  (scoped lookup), `:4612-4659` (top-down search stopping at the first
+  matching id), `:4463-4540` (`early_return`'s lookup and success query);
+  `backend/windmill-api-jobs/src/execution.rs:294-364` (the poll). The
+  oracle harness names steps by id, so repeated ids also collide in an
+  observation ([OR-11](oracle.md#or-11)). Milestone N1a read step 2 as the
+  first entry; the source gives the last entry with a job.
 
 <a id="of-3"></a>
 ### OF-3 · Raw, full and lite forms of a flow value
@@ -1266,7 +1295,7 @@ differ, the CLI's on-disk form is what a loader sees.
 <a id="sy-6"></a>
 ### SY-6 · Flow folders and what a pulled `flow.yaml` contains
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (the pull round trip oracle-observed) · **Status:** confirmed
 
 - **Rule:**
   - A flow at path `P` is the folder `P.flow/` (default) or `P__flow/` (when
@@ -1293,6 +1322,18 @@ differ, the CLI's on-disk form is what a loader sees.
   `backend/windmill-api/src/workspaces_export.rs:360-379, 832-845`;
   `backend/windmill-types/src/flows.rs:26` (flow value kept as raw JSON).
 - **Conformance:** [SY-6/a–c](conformance.md#sy-6)
+- **Revision 2026-10-29 (oracle, batch E3e):** the pull round trip is
+  recorded (SY-6/c, fixture `conformance/flows/control-flow/pull`, oracle
+  run 40794872025). A flow created through the API with an identity module
+  carrying `extra: 7` and a forloop without `skip_failures` comes back from
+  `wmill sync pull`, after its dependency job, with the identity exactly as
+  submitted and the forloop carrying `skip_failures: true` and
+  `parallel: false`. That matches the source: the dependency job rewrites
+  container values through the typed model and leaves `identity`, `script`
+  and `flow` values untouched
+  (`backend/windmill-worker/src/worker_lockfiles.rs:1048-1222` containers
+  rebuilt, `:1224-1247` and `:1308` other values kept). The confidence now
+  covers the recording; no rule changed.
 
 <a id="sy-7"></a>
 ### SY-7 · Inline scripts inside a flow folder
@@ -2129,7 +2170,14 @@ its licence status is the one given there.
   native-switch and virtual-step cases (OF-3/c–d); the `same_worker` pair
   (OF-16/c–d); the `early_return` fixture (OF-V3/a–b); and the deploy-shape
   cases OF-6/a and OF-8/a. *Settled by:* harness runs against the pinned CE
-  image ([oracle.md](oracle.md)).
+  image ([oracle.md](oracle.md)). *2026-10-29:* batch E3e recorded the pull
+  round trip, so SY-6/c is `oracle-observed` (fixture
+  `conformance/flows/control-flow/pull`, oracle run 40794872025). It also
+  recorded the `early_return` behaviour of OF-V3/a under FX-37/a's values
+  (fixture `conformance/flows/execution/fx-36-http`, run `early`, oracle run
+  40794872025: run-and-wait answered `1` after 164 ms and the flow completed
+  with `2`), but not OF-V3/a's own fixture or OF-V3/b. The other fixtures of
+  this list were not recorded; still open.
 <a id="q-of-2"></a>
 - **Q-OF-2** · affects [OF-2](#of-2) · What HTTP status and body does the API
   return for the two decode error kinds (`Invalid flow value:` and
@@ -2189,7 +2237,9 @@ its licence status is the one given there.
   and optionally an oracle run: a fresh, successfully deployed one-step flow
   with a final sleep on modern workers, comparing the flag off and on and
   recording status ids and sleep scheduling, without assuming the flag forces
-  full worker data (OF-V5/a–b, OF-3/d, OF-17/a).
+  full worker data (OF-V5/a–b, OF-3/d, OF-17/a). *2026-10-29:* batch E3e did
+  not record this (the oracle runs with `DISABLE_FLOW_SCRIPT` unset, and no
+  E3e fixture compares the flag); still open.
 <a id="q-of-12"></a>
 - **Q-OF-12** · affects [OF-13](#of-13) · The language inventory lists 24
   values, but a second reading of the same source range counted 25. Is a
@@ -2208,4 +2258,8 @@ its licence status is the one given there.
   SY-7/f, SY-8/c, SY-10/b, SY-11/b, SY-13/b and SY-16/a to SY-19/b with the
   pinned CLI and read back what was deployed (`scripts/get`, `flows/get`,
   `resources/get`, `variables/get`) or the push's error, plus a run of
-  OF-14/f.
+  OF-14/f. *2026-10-29:* batch E3e did not record these trees. Its one sync
+  fixture, `conformance/flows/control-flow/pull`, records the pull read-back
+  of [SY-6](#sy-6) (SY-6/c); its other fixtures push ordinary trees with
+  the pinned CLI (or create them through the API) and exercise none of the
+  edge cases listed. Still open.
