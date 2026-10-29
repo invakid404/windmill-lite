@@ -196,8 +196,11 @@ sequential and parallel `branchall` with empty branches, early stops in
 bodies, and cached subflows, whose inner modules are `not_run` on a hit.
 E4a's stub fixtures ([conformance/flows/stub](../../conformance/flows/stub))
 recorded failed attempts, sequential, collapsed, parallel and nested loop
-iterations and a named subflow. The other recording batches confirm the
-rest.
+iterations and a named subflow. E3e recorded the probe catalogue's shapes
+again from rebuilt fixtures, a flow preprocessor, parallel bodies that
+complete out of index order on two workers, and a loop left canceled with
+its module in progress when the flow's `skip_expr` throws mid-run. The
+other recording batches confirm the rest.
 
 ## Stub mode
 
@@ -372,6 +375,10 @@ checks it on every CI run:
 | `prefixes` | the catalogue's prefix-only assertions, checked on a run's recorded text |
 | `contradictions` | catalogue claims the oracle contradicted, with the run, pointer and recorded value the run's `expect` holds instead |
 | `gates` | optional: for every run, `<fixture directory>/<run>`, the milestone whose exit gate runs it, which must need the batch merged; E3b's gates N1a, N1b, N2, NI, N3b, PF2 or F1 by the features each flow needs |
+
+Batch E3e's manifest has no `gates`, since only F7b needs E3e merged; it
+defers to `none`, with the reason, what the oracle cannot record or the
+contract leaves out.
 
 Batch E3a was built beside these manifests and has none: most of its runs
 state partial `claims` rather than a whole `expect`, and half of its cases

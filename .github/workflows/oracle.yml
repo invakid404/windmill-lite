@@ -9,7 +9,9 @@ name: Oracle
 # The image is pulled by digest and run as a black box; it is never built
 # on, tagged or pushed (OR-3). It runs nightly, on demand, and on pull
 # requests that change the fixtures or the harness or carry the oracle
-# label.
+# label. Two sessions run side by side: one worker for every fixture, and
+# two workers for the fixtures that need them (OR-5) and the smoke
+# fixture under another LISTEN_NEW_EVENTS_INTERVAL_SEC (OR-7/a).
 
 on:
   schedule:

@@ -39,7 +39,7 @@ value:
         input_transforms: 
           seen:
             type: javascript
-            expr: "(() => { const s = [...new Set(results.l.map((r) => r.error.message.split('`')[1]))]; return s.length > 1 ? 'varies' : s[0]; })()"
+            expr: "new Set(results.l.map((r) => r.error.message.split('`')[1])).size > 1 ? 'varies' : results.l[0].error.message.split('`')[1]"
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

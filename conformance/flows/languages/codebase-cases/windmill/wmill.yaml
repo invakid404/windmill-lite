@@ -25,9 +25,6 @@ codebases:
     includes: ["f/wl_cbx/multi/**"]
     loader: {".bin": "file"}
     assets: [{from: "shared/wl_cbx/data/a.txt", to: "a.txt"}]
-  - relative_path: f/wl_cbx/native
-    includes: ["f/wl_cbx/native/**"]
-    format: esm
   - relative_path: f/wl_cbx/nodeesm
     includes: ["f/wl_cbx/nodeesm/**"]
     format: esm

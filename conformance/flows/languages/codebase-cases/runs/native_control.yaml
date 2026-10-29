@@ -1,5 +1,7 @@
-# WR-50/c's control: the same probe in the esm entry, on Bun.
-spec: [WR-50/c]
+# WR-50's runtime probe in the esm entry: Bun (WR-47/b). It was WR-50/c's
+# control; WR-50/c itself, under //native, never completed on the oracle
+# (batches/e3e.json).
+spec: [WR-47/b]
 target: f/wl_cbx/native_control
 expect:
   status: success
