@@ -738,16 +738,16 @@ func TestEngineTimeouts(t *testing.T) {
 // milestone, never midway through a run.
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
-		"failure module":    `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
-		"continue_on_error": flowOf(mod("a", "echo", "", `"continue_on_error":true`)),
-		"retry":             flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`)),
-		"sleep":             flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
-		"js timeout":        flowOf(mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`)),
-		"negative timeout":  flowOf(mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`)),
-		"loop":              flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}`),
-		"branch":            flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
-		"subflow":           flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
-		"cache_ttl":         flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		"failure module retry": `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"},"retry":{"constant":{"attempts":1,"seconds":0}}}}`,
+		"failure module loop":  `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
+		"retry":                flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`)),
+		"sleep":                flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
+		"js timeout":           flowOf(mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`)),
+		"negative timeout":     flowOf(mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`)),
+		"loop":                 flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}`),
+		"branch":               flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
+		"subflow":              flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
+		"cache_ttl":            flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {

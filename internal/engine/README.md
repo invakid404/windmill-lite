@@ -4,7 +4,10 @@
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)), the
 mapping of a Bun step's outcome to Windmill's stored value with the
 entrypoint's selection (milestone C3a), and the engine core of milestone
-N1a, which runs a compiled program's flows sequentially. This README
+N1a, which runs a compiled program's flows sequentially, with the errors
+of milestone N1b: `continue_on_error`, the failure module and recovery,
+the error shapes, chaining errors, the final result and the cancellation
+outcome. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -18,12 +21,12 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | File | Contents | Built on by |
 |---|---|---|
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it |
-| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below) | C3a; the step-case runner (`wltest check`) and the engine call them |
+| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `ManualFailure`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below) | C3a, N1b; the step-case runner (`wltest check`) and the engine call them |
 | `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
-| `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
-| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `ErrUnsupported`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives. A record's `ResultOrigin` and `CarriedOrigin` say who produced its result and, when the engine set it apart, its carried value | N1a fills it; wl returns it |
+| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
 Site identities are `conformance.SitePath` values. Run statuses are
@@ -98,7 +101,7 @@ stores for a Bun step, which is also what the flow sees of a failed one.
 
 | Outcome | Stored | Origin |
 |---|---|---|
-| `ok` | the result's producer text | — |
+| `ok` | the result's producer text; an object whose top-level `wm_failure` is a string fails, kept as it is with `"error": {"name": "ManualFailure", "message": <wm_failure>}` put in, in place of an `error` member or else last (`ManualFailure`, [WR-17](../../docs/semantics/languages.md#wr-17), [FX-13](../../docs/semantics/execution.md#fx-13)); a `null` marker marks nothing, and a `wm_failure` that is not a string or a `wm_labels` that is not an array of strings disables both | — or user |
 | `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user |
 | `escaped`, by a signal | `execution error:\nprocess terminated by signal: <signal>`, `ExecutionErr`, `step_id` ([WR-4](../../docs/semantics/languages.md#wr-4), [WR-37](../../docs/semantics/languages.md#wr-37)) | harness |
 | `escaped`, by an exit | `exit code for "bun run": <code>, last log lines:\n<tail>`, `ExecutionErr`, `step_id`, `exit_code` ([WR-20](../../docs/semantics/languages.md#wr-20)) | harness |
@@ -120,8 +123,8 @@ override`, before any wrapper runs; the engine fails the step with it as a
 pre-run error (below). The harness selects WR-V1's fallback from the same
 argument.
 
-`outcome_test.go` checks every row, the bypass's edges, the tail and the
-entrypoint's rules.
+`outcome_test.go` checks every row, the bypass's edges, the
+`wm_failure` marker's, the tail and the entrypoint's rules.
 
 ## Settlement
 
@@ -170,17 +173,19 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a).** A flow's top-level modules in sequence: `script`
-and `rawscript` Bun steps, `identity`, input transforms, `skip_if`,
-`mock`, `pass_flow_input_directly`, `stop_after_if`, a static `timeout`
-or none, `flow_env` and `early_return` (which changes only the synchronous HTTP
-response, [FX-37](../../docs/semantics/execution.md#fx-37)). `New` refuses
-everything else with `ErrUnsupported`, naming the milestone that
-implements it: a failure module and `continue_on_error` (N1b); `sleep`, a
-javascript or negative `timeout`, a retry with attempts or `retry_if`, a
-flow timeout (N2); loops and branches (N3a, N3b); subflows by path (N3c);
-`cache_ttl` (N4); host-provided sites (F2a); a step outside the Bun
-boundary (C3n); a preprocessor and `skip_expr` (`later`).
+**What it runs (N1a, N1b).** A flow's top-level modules in sequence:
+`script` and `rawscript` Bun steps, `identity`, input transforms,
+`skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, a static
+`timeout` or none, `continue_on_error`, a failure module of those kinds,
+`flow_env` and `early_return` (which changes only the synchronous HTTP
+response, [FX-37](../../docs/semantics/execution.md#fx-37)). `New`
+refuses everything else with `ErrUnsupported`, naming the milestone that
+implements it, for a top-level module and the failure module alike:
+`sleep`, a javascript or negative `timeout`, a retry with attempts or
+`retry_if`, a flow timeout (N2); loops and branches (N3a, N3b); subflows
+by path (N3c); `cache_ttl` (N4); host-provided sites (F2a); a step
+outside the Bun boundary (C3n); a preprocessor and `skip_expr`
+(`later`).
 
 **One module** follows [FX-2](../../docs/semantics/execution.md#fx-2):
 
@@ -214,8 +219,9 @@ boundary (C3n); a preprocessor and `skip_expr` (`later`).
    job-specific, zero included (no time at all); none, or one at or above
    the maximum, gives the maximum, instance-wide (FX-24, FX-25, WR-37).
    `StoreOutcome` maps the outcome, H1's included.
-5. **`stop_after_if`** after a success, except on an identity job
-   classified skipped: any identity job of a module with a `skip_if`,
+5. **`stop_after_if`** after a success, except on the failure module, and
+   on an identity job classified skipped: any identity job of a module
+   with a `skip_if`,
    whatever the predicate answered, and whether it ran or H1 answered for
    it ([FX-17](../../docs/semantics/execution.md#fx-17),
    [FX-18](../../docs/semantics/execution.md#fx-18),
@@ -225,19 +231,82 @@ boundary (C3n); a preprocessor and `skip_expr` (`later`).
    the module, which carries `{"error": {"name": "EarlyStopError",
    "message": <error_message, or "stop after if: <expr>" when empty>,
    "result"?}}` while its job keeps its success
-   ([FX-V2](../../docs/semantics/execution.md#fx-v2)).
+   ([FX-V2](../../docs/semantics/execution.md#fx-v2)). A throwing
+   predicate fails the module unrecoverably
+   ([FX-21](../../docs/semantics/execution.md#fx-21)).
 6. **`OnModuleEnd`** (H6), then the host completion checks (`Completion`):
-   the latch, cancellation, a fatal error name (H7, which latches a
+   the latch, cancellation (except for an error stop in a flow with a
+   failure module, below), a fatal error name (H7, which latches a
    `FatalError` and records `H7` in the trace's deviations), then
-   Windmill's continue decision. With no failure module, retry or
-   tolerance yet, a failed module fails the flow with the value it
-   carries ([FX-36](../../docs/semantics/execution.md#fx-36)). Last,
-   `AfterContinue` applies `haltAfter` when the flow would go on.
+   Windmill's continue decision (below). Last, `AfterContinue` applies
+   `haltAfter` when the flow would go on, never on the way to the failure
+   module.
 
-The flow's result is the last module's carried value, stored as jsonb; a
-flow with no modules returns its input
-([FX-3](../../docs/semantics/execution.md#fx-3)). A latched, halted or
-canceled run has no result (the cancellation's `Canceled` value is N1b's).
+**The continue decision** (N1b; [FX-2](../../docs/semantics/execution.md#fx-2)
+completion steps 3, 7 and 8, in a flow with no retry, which is N2's).
+`continue_on_error` tolerates a failure unless it is unrecoverable
+([FX-44](../../docs/semantics/execution.md#fx-44)):
+
+| The module | Then |
+|---|---|
+| succeeded | the next module, or the flow succeeds with its result at the last |
+| stopped cleanly | the flow ends with its result, `success` or `skipped` |
+| a chaining error at a later transition | the flow fails at once with the `InternalError`; the failure module does not run ([FX-15](../../docs/semantics/execution.md#fx-15) context 1) |
+| failed (a failed job, a transform error, a chaining error at the root's first pickup), tolerated | the next module, whose `previous_result` and `results.<id>` are the failure value; at the last the flow succeeds with it, and the failure module does not run ([FX-30](../../docs/semantics/execution.md#fx-30)) |
+| failed, not tolerated | the failure module, else the flow fails with the failure value ([FX-31](../../docs/semantics/execution.md#fx-31), [FX-36](../../docs/semantics/execution.md#fx-36)) |
+| an error stop, with a failure module | tolerated: the next module, or past the last one the failure module, entered at cursor `len` with an empty preceding id ([FX-V4](../../docs/semantics/execution.md#fx-v4)); not tolerated: the failure module ([FX-19](../../docs/semantics/execution.md#fx-19)) |
+| an error stop, no failure module | tolerated at the last module: the flow succeeds with the `EarlyStopError`; otherwise it fails with it |
+| a throwing `stop_after_if` | the failure module, else the flow fails with the string error; `continue_on_error` never applies ([FX-21](../../docs/semantics/execution.md#fx-21)) |
+
+**The failure module** sits at the slot `s:failure`, the cursor `len`
+([FX-1](../../docs/semantics/execution.md#fx-1)). It starts like any
+module, through the host's start checks (where `haltBefore` never applies
+to it), its own `skip_if`, arguments and launch, with these differences
+([FX-32](../../docs/semantics/execution.md#fx-32),
+[JE-35](../../docs/semantics/expressions.md#je-35)):
+
+- its `previous_result` is the failing value, and its preceding id the
+  failed module's (empty when it is entered at cursor `len`), so
+  `results.<failed id>` reads the failing value from memory and a simple
+  path reads the failed job's stored result
+  ([FX-10](../../docs/semantics/execution.md#fx-10)); `error` is the
+  evaluator's ([JE-17](../../docs/semantics/expressions.md#je-17));
+- its input transforms also see `started_at`, the run's start time as an
+  RFC 3339 string with 0, 3, 6 or 9 fraction digits, and `flow_job_id`, the
+  run's id; its `WM_FLOW_STEP_ID` is its own id;
+- a `skip_if` that holds replaces it with a passthrough identity job that
+  is never flagged skipped ([FX-17](../../docs/semantics/execution.md#fx-17));
+  it has no stop, and its own `continue_on_error` is ignored;
+- a chaining error while it starts is a later transition's (context 1).
+
+The flow then ends with the failure module's result, stored as it is: it
+succeeds only when the failure module's job succeeded and its result
+decodes as the recovery record with `recover` true, an object's boolean
+member or a one-element array by position; a decode error, an absent
+`recover` or `null` does not recover, and a failure module that fails
+fails the flow with its own failure value
+([FX-33](../../docs/semantics/execution.md#fx-33)).
+
+**Cancellation** ([FX-38](../../docs/semantics/execution.md#fx-38), H4).
+A run whose context ends finishes canceled, without retry,
+`continue_on_error` or the failure module, with the result
+`{"error": {"message": "Job canceled: <reason> by <canceler>", "name":
+"Canceled", "reason", "canceler"}}`, whatever its modules reported. The
+reason and the canceler are the context's cause when it is a
+`*Cancellation`, else Windmill's defaults, `no reason given` and
+`unknown`. A step in flight is abandoned and its job is canceled with the
+worker's text `execution error:\njob process terminated due to cancelled
+by <canceler> (reason: <reason>)`, `ExecutionErr`, `step_id`. Windmill's
+continue decision checks a stop before the cancel flag: a clean stop
+under cancellation ends canceled, not skipped, while an error stop in a
+flow with a failure module still starts what the decision asks for (the
+next module or the failure module), and the run ends canceled at its next
+completion.
+
+The flow's result is what the decision ends it with, stored as jsonb
+(FX-36); a flow with no modules returns its input
+([FX-3](../../docs/semantics/execution.md#fx-3)). A latched or halted run
+has no result.
 
 **The argument pipeline** ([ADR 0005](../../docs/design/0005-json-step-boundaries.md)):
 
@@ -303,6 +372,8 @@ the step's success value, not the `EarlyStopError`
 | `stop_after_if` fails | the module fails unrecoverably with the string `{"error": <text>}` | FX-21, JE-26 |
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
 | the step's timeout | `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`, `ExecutionErr`, `step_id` | WR-37 |
+| a job's result or failure value that jsonb refuses | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-48 case 1, OR-27 |
+| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above) | FX-38 |
 
 A predicate's `<text>` is `Error: <evaluator text>` for a failed
 evaluation, or `Expected a boolean value, found: "<value's JSON>"`
@@ -314,11 +385,14 @@ write (D14).
 
 **Readings where the reference is silent**, each pinned by a test:
 
-- An identity job reads its arguments from storage, so its result, the
-  value a skipped, mocked or identity module carries on, is in stored form,
-  compact: JE-44's table of texts does not list an identity job's result.
+- An identity job reads its arguments from storage, decoded member by
+  member as a flow input's are, so its result, the value a skipped, mocked
+  or identity module carries on, is its `previous_result` in jsonb's
+  printed form, as JE-44's table gives a flow input's member (N1b; N1a
+  read it as the compact stored text).
 - A module that occurs twice in one list (OF-2): `Lookup` finds the first
-  in the flow.
+  in the flow. The reference does not say which status entry JE-18 step 2
+  finds; FX-1's statuses are kept in definition order.
 - An H1 intercept runs no job (`Ran` false), and H3 asks only before a
   leaf's launch that H1 declined: an intercepted module or an identity job
   writes nothing.
@@ -326,6 +400,11 @@ write (D14).
   ([Q-FX-8](../../docs/semantics/execution.md#q-fx-8) leaves the text open).
 - An invalid entrypoint override fails as a pre-run error, with no
   `step_id`.
+- The `wm_failure` marker and the storage failure of FX-48 case 1 apply to
+  a leaf's outcome, never to an identity job's result; an H1 intercept,
+  which runs no job, is checked for `wm_failure` but not for storage.
+- A canceled step's killed text and the run's `Canceled` error take the
+  same reason and canceler, Windmill's defaults included.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -335,7 +414,13 @@ H2 and the skipped classification, `stop_after_if` (each stop, a throw, a
 non-boolean, the textual `results` condition), the chaining errors, the
 argument failures and the keys at the storage boundary, the timeouts'
 precedence, repeated ids, every hook seam and its precedence, the
-refusals, and concurrent runs under `-race`. The flow
+refusals, and concurrent runs under `-race`. `errors_test.go` (N1b)
+covers `continue_on_error`, the failure module (its scope, a failing,
+skipped or chaining one, no stop), the recovery table, the error-stop
+matrix with and without tolerance and a failure module, the unrecoverable
+stop, chaining errors with a failure module, the storage failures, the
+cancellation outcome and its orderings, the hooks with a failure module,
+and the identity job's text. The flow
 fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), milestone N1a's
 exit gate).

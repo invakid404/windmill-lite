@@ -1,0 +1,22 @@
+# WR-17: a successful result that marks itself failed with a string
+# wm_failure is retagged as failed, kept as it is with a ManualFailure
+# error put in (milestone N1b, with FX-13's flow fixture).
+finding: WR-17
+scope: later
+cases:
+  - spec: WR-17/a
+    provenance: source-derived
+    title: a string wm_failure retags the run as failed
+    script: |
+      export function main() { return { wm_failure: "bad input", x: 1 }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {wm_failure: bad input, x: 1, error: {name: ManualFailure, message: bad input}}}
+  - spec: WR-17/b
+    provenance: source-derived
+    title: a mistyped marker disables the markers
+    script: |
+      export function main() { return { wm_failure: true }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {wm_failure: true}}

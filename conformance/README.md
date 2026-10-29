@@ -12,8 +12,8 @@ and E3d (loops, branches and the result cache), the stub-mode acceptance
 cases, and those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
-engine core (milestones E1 and N1a), which runs sequential flows of Bun
-steps; it also runs the expression cases end to end, as the generated
+engine core (milestones E1, N1a and N1b), which runs sequential flows of
+Bun steps and their failure modules; it also runs the expression cases end to end, as the generated
 one-step flows `wltest record` lifts them into. The runs it cannot run yet
 are reported as unsupported, and the runs it must pass are listed in
 `cmd/wltest/testdata/flowsuite.json`
@@ -44,9 +44,9 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` |
-| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a) |
+| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
 ## Flow fixtures
 

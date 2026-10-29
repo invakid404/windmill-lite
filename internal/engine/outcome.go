@@ -43,7 +43,10 @@ var ansiEscape = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])")
 // where the worker adds it; the wrapper's own error object already carries
 // the step id it read from WM_FLOW_STEP_ID (WR-18).
 //
-//   - OutcomeOK: the result text, as the harness serialised it (WR-13).
+//   - OutcomeOK: the result text, as the harness serialised it (WR-13),
+//     unless it marks itself failed with a string wm_failure (WR-17, FX-13):
+//     then it fails, kept as it is with a ManualFailure error added
+//     (ManualFailure).
 //   - OutcomeError: the wrapper's error object, wrapped as {"error": …}
 //     unless it is already a pre-shaped ManualFailure (WR-21, WR-V5).
 //   - OutcomeEscaped, by a signal: the worker's
@@ -54,6 +57,9 @@ var ansiEscape = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])")
 func StoreOutcome(out StepOutcome, stepID string) Stored {
 	switch out.Kind {
 	case OutcomeOK:
+		if v, ok := ManualFailure(out.Body.Producer()); ok {
+			return Stored{Failed: true, Value: v, Origin: OriginUser}
+		}
 		return Stored{Value: out.Body}
 	case OutcomeError:
 		return Stored{Failed: true, Value: FailureValue(out.Body.Producer()), Origin: OriginUser}
@@ -99,6 +105,62 @@ func FailureValue(raw []byte) jsonval.Value {
 		return jsonval.FromProducer(append([]byte(nil), raw...))
 	}
 	return jsonval.FromProducer(append(append([]byte(`{"error":`), raw...), '}'))
+}
+
+// ManualFailure is the failure a successful result turns into when it marks
+// itself failed (WR-17, FX-13): a JSON object whose top-level wm_failure is
+// a string becomes that object with a top-level error member
+// {"name":"ManualFailure","message":<wm_failure>} put in, in place of an
+// error member it had or else last, its other members kept. It is then a
+// pre-shaped failure, stored and passed on as it is (WR-21, WR-V5). A
+// wm_failure that is null or absent marks nothing, and a marker of the wrong
+// type (a wm_failure that is not a string, a wm_labels that is not an array
+// of strings or null) disables both markers, so the result stays a
+// success. ok is false when the result stays one.
+func ManualFailure(result []byte) (jsonval.Value, bool) {
+	ms, ok := members(bytes.TrimSpace(result))
+	if !ok {
+		return jsonval.Value{}, false
+	}
+	var message *string
+	for _, m := range ms {
+		v := bytes.TrimSpace(m.value)
+		switch m.key {
+		case "wm_failure":
+			var s *string
+			if json.Unmarshal(v, &s) != nil {
+				return jsonval.Value{}, false
+			}
+			message = s
+		case "wm_labels":
+			var labels []string
+			if json.Unmarshal(v, &labels) != nil {
+				return jsonval.Value{}, false
+			}
+		}
+	}
+	if message == nil {
+		return jsonval.Value{}, false
+	}
+	e := wrapped(struct {
+		Name    string `json:"name"`
+		Message string `json:"message"`
+	}{"ManualFailure", *message})
+	ems, _ := members(e.Producer())
+	out, put := make([]rawMember, 0, len(ms)+1), false
+	for _, m := range ms {
+		if m.key == "error" {
+			if put {
+				continue
+			}
+			m.value, put = ems[0].value, true
+		}
+		out = append(out, m)
+	}
+	if !put {
+		out = append(out, ems[0])
+	}
+	return jsonval.FromProducer(writeMembers(out)), true
 }
 
 // LogTail is the tail an escaped failure quotes (WR-20): the last

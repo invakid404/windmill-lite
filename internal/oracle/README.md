@@ -101,7 +101,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 
 | File | What it does |
 |---|---|
-| `pins.go` | The image pins (tag and multi-arch index digest), the version string, the CLI package, the compose project and the seeded superadmin. |
+| `pins.go` | The image pins (tag and multi-arch index digest), the version string, the CLI package, the compose project and the seeded superadmin; the reason a run's `cancel_after_ms` cancels it with and the canceler Windmill then names, which `wltest check` gives windmill-lite's run too ([FX-38](../../docs/semantics/execution.md#fx-38)). |
 | `compose.yaml` | The oracle's compose file, embedded. A test checks it against the pins, the hygiene rules and `OracleEnv`. |
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
