@@ -218,6 +218,9 @@ writes its metadata with the CLI before each push. The recordings are
 `exprs/deferred.yaml` lists the JE, CF-19 and CF-V6 catalogue cases that
 recording batch E3a encodes neither here nor as a flow fixture, and those
 it records only in part, each with the reason and where it is checked.
+The cases the semantics reference added after E3a are checked at
+evaluator level in the meantime, by the pipeline cases of
+[internal/expr](../internal/expr/README.md) that run on the engine.
 
 ## Claims and unit cases
 
@@ -239,8 +242,10 @@ contradicted claim still leaves its recording to inspect.
   expression milestones: the `site` and `input` (an input transform's name,
   or `skip_if`, `stop_after_if`, `timeout`, `sleep`), the `expr`, the
   `context` the evaluation sees (`previous_id`, `previous_result` as the
-  producer text held in memory, `flow_input`, and `results`, the stored
-  texts a database read returns), and the expected `text` or `error`. A
+  worker holds it, which after an ordinary step is the producer's text and
+  elsewhere follows [JE-44](../docs/semantics/expressions.md#je-44)'s
+  table, `flow_input` as submitted, and `results`, the stored texts a
+  database read returns), and the expected `text` or `error`. A
   test ties each one to its flow and recording: the expression is the one
   at the site, the previous id is the module before it, the stored forms of
   the context's texts are the recorded results, and at an input transform

@@ -10,12 +10,14 @@ import (
 // whole pipeline, from the shortcuts to the engine and the error texts
 // (milestones B2a and B2b). It is safe for concurrent use.
 //
-// Eval returns the expression's value as producer text: a shortcut's stored
-// text verbatim (JE-6 to JE-9), or the engine's JSON.stringify output
-// (JE-15). An error is the evaluation's failure, with Windmill's message;
-// each site routes it as its finding says (JE-25 to JE-35). Eval checks ctx
-// before it starts, as every expression evaluation is a cancellation point
-// (ADR 0004).
+// Eval returns the expression's value as producer text: a shortcut's text
+// verbatim (JE-6 to JE-9), or the engine's JSON.stringify output (JE-15).
+// That output is not checked to be JSON: an expression that replaces
+// JSON.stringify can return any text, which the site that reads it
+// reports, as Windmill's does (JE-15, Q-JE-14). An error is the
+// evaluation's failure, with Windmill's message; each site routes it as
+// its finding says (JE-25 to JE-35). Eval checks ctx before it starts, as
+// every expression evaluation is a cancellation point (ADR 0004).
 type Evaluator interface {
 	Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, error)
 }
@@ -30,7 +32,9 @@ type Scope struct {
 	PreviousID string
 	// Context holds the context values by name: previous_result, result,
 	// params, resume, resumes, approvers, all_iters, started_at,
-	// flow_job_id, and WM_SCHEDULED_FOR for skip_expr (JE-6, JE-22).
+	// flow_job_id, and WM_SCHEDULED_FOR for skip_expr (JE-6, JE-22). Their
+	// order is the order in which a value nested too deeply is found
+	// (JE-49), which on Windmill is a hash map's.
 	Context []Named
 	// FlowInput is the current (sub)flow's input (JE-37), or the zero Value
 	// at a site with no flow input, where flow_input is bound to null
@@ -39,10 +43,22 @@ type Scope struct {
 	// The shortcuts answer these texts verbatim: JE-6 a context value's,
 	// JE-8 previous_result's, JE-7 a member of FlowInput or FlowEnv. A site
 	// can quote the answer (the timeout site's parse error does), so the
-	// form of each text is observable. ADR 0005's routing table says which
-	// text each value holds; whether a value read from the database (the
-	// flow input's members, previous_result after a loop) is in jsonb's
-	// spaced text output there is open (docs/design/README.md request 8).
+	// form of each text is observable, and each must be the text Windmill's
+	// worker holds (JE-44's table, ADR 0005):
+	//   - FlowInput: the flow job's arguments read back from jsonb member by
+	//     member, so a compact object whose members are each in jsonb's
+	//     printed form, a space after every : and , (JE-7);
+	//   - previous_result after an ordinary step completed in the same
+	//     transition: the producer's text (JE-8);
+	//   - previous_result at the first module and in the preprocessor: the
+	//     same text as FlowInput;
+	//   - previous_result after a loop or branchall: a compact array of the
+	//     children's stored results, decoded and written out again, so with
+	//     numbers re-printed (1.50 reads 1.5, FX-42 rule 2);
+	//   - previous_result read back from storage (the re-fetch, after a
+	//     suspend or a restart, a retry's predicates): the stored result in
+	//     jsonb's printed form;
+	//   - previous_result after an empty chosen branch: the string "{}".
 	FlowInput jsonval.Value
 	// FlowEnv is the resolved flow env (JE-38), or the zero Value when there
 	// is none, where flow_env is bound to {} (JE-10).

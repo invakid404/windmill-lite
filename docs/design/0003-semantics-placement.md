@@ -463,6 +463,23 @@ error, with the database route (a step in between) as its control.
   and the recursion depth that fits the 1 MiB stack, deviations D16 and
   D17 of [0001](0001-equivalence-contract.md). The budget gate above is
   met.
+- Milestone FU3 followed the semantics team's answers to B2a's and B2b's
+  readings (requests 8 and 9 of the [README](README.md)). Two changed the
+  engine contract: every script is a strict-mode global script (JE-50),
+  and the engine runs every queued job before it reads the completion
+  value and drops a job that throws (JE-51), as rquickjs's poll does. The
+  rest are in the program and the pipeline: an Error's message and stack
+  are read as rquickjs reads them, and another thrown value shows
+  rquickjs's debug form, from the kind and payload the engine reports
+  (JE-21, JE-52); a replaced `JSON.stringify`'s string is the result text
+  unchecked, so the evaluator's output need not be JSON (JE-15); context
+  values are rebuilt by assignment (JE-16); `error` is a `let` binding
+  (JE-10) with falsy fallbacks (JE-17); the depth check follows JE-49's
+  order and positions; and the call rewrite places its parenthesis at a
+  character count applied as a byte offset (JE-11), failing the evaluation
+  where Windmill's evaluator panics. The texts the engine supplies for
+  values read from storage follow [0005](0005-json-step-boundaries.md)'s
+  corrected routing table.
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that

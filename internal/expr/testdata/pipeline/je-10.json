@@ -96,6 +96,27 @@
       "site": "input_transform",
       "text": "[resumes, approvers, started_at, flow_job_id, all_iters, WM_SCHEDULED_FOR]",
       "expect": {"binds": ["WM_SCHEDULED_FOR", "all_iters", "approvers", "flow_job_id", "resume", "resumes", "started_at"]}
+    },
+    {
+      "spec": "JE-10/e",
+      "variant": "results",
+      "provenance": "source-derived",
+      "title": "results is a constant: assigning to it fails",
+      "note": "expression mode (no ;); the default fixture's step b has a results context (JE-22)",
+      "site": "input_transform",
+      "text": "(results = 1, 2)",
+      "context": {"previous_id": "a", "previous_result": "{\"v\":1}"},
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: 'results' is read-only\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:45)\n"}}
+    },
+    {
+      "spec": "JE-10/e",
+      "variant": "error",
+      "provenance": "source-derived",
+      "title": "error is a let binding, which the expression may assign",
+      "site": "input_transform",
+      "text": "(error = \"e\", error)",
+      "context": {"previous_id": "a", "previous_result": "{\"v\":1}"},
+      "expect": {"route": "engine", "engine": {"text": "\"e\""}}
     }
   ]
 }

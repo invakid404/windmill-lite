@@ -82,14 +82,23 @@ Which form each consumer gets:
 
 | Consumer | Form | Findings |
 |---|---|---|
-| `previous_result`; `stop_after_if`'s `result`; `results.<preceding id>` in its four exact spellings | producer | FX-42 item 3, JE-8 |
+| `previous_result` after an ordinary step whose job completed in the same transition; `stop_after_if`'s `result`; `results.<preceding id>` in its four exact spellings | producer | FX-42 item 3, JE-8 |
 | an engine read of the preceding id when `previous_result` is bound | producer, under the default reading | FX-V6, [0001](0001-equivalence-contract.md) §6 |
-| simple `results` paths (the direct lookup), other ids, loop and `branchall` aggregates, preprocessor output, a re-derived `previous_result` when the predecessor succeeded | stored | FX-6, FX-42, JE-9, JE-18 |
+| simple `results` paths (the direct lookup) | stored, the path applied, answered in jsonb's printed form (a space after each `:` and `,`) | JE-9, JE-44 |
+| other ids read through the engine | stored | FX-42, JE-18 |
+| `previous_result` after a loop or `branchall` | re-printed: the children's stored results decoded and the array written out again compactly, object keys in jsonb order, an integer that fits 64 bits exact and any other number the nearest double, in the backend JSON library's notation (FX-42 rule 2: a stored `1.50` reads `1.5`) | FX-6, JE-44 |
+| `previous_result` at the first module of a flow or body and in the preprocessor; `flow_input` in shortcuts and in the engine | the flow arguments' text: a compact object, top-level order shuffled per run, each member in jsonb's printed form | JE-7, JE-37, JE-44, FX-42 item 1, OR-23 |
+| a re-derived `previous_result` when the predecessor succeeded (the re-fetch fallback, after a suspend or a restart from a step, a retry's predicates) | that job's stored result in jsonb's printed form | FX-6, JE-36, JE-44 |
 | a re-derived `previous_result` when the predecessor did not succeed; the result of an empty chosen `branchone` | the constant two-character JSON string `"{}"` | FX-6, OR-25 |
-| `flow_input` values in shortcuts and in the engine | stored, top-level order shuffled per run | JE-7, JE-37, FX-42 item 1, OR-23 |
 | `flow_env` values (`later`) | resolved as [JE-38](../semantics/expressions.md#je-38) says, top-level order as stored | JE-7, JE-38 |
 | nested argument values a script receives | stored, then resolution | WR-10, WR-V8 |
 | the final flow result returned to the host | stored | FX-36, FX-42 item 5 |
+
+A value a shortcut answers ([JE-6](../semantics/expressions.md#je-6) to
+[JE-9](../semantics/expressions.md#je-9)) keeps its form as text, since the
+shortcut does not parse it; every other consumer parses it, where the
+printed and re-printed forms read as the stored one but for key order and
+the precision of numbers that are not 64-bit integers.
 
 ### The argument pipeline
 
@@ -230,13 +239,24 @@ runs on demand and nightly, never on every pull request.
   are read from the database too
   ([JE-44](../semantics/expressions.md#je-44)): the flow input's members,
   and `previous_result` after a loop or `branchall` or a re-fetch. Whether
-  Windmill's text there is jsonb's spaced output is not recorded (request 8
-  of the [README](README.md)); until it is, the routing table's stored text
-  stands.
+  Windmill's text there is jsonb's spaced output was request 8 of the
+  [README](README.md).
+- The semantics team answered request 8 from the source, and milestone FU3
+  changed the routing table to the answer: a flow input's member and a
+  `previous_result` read back from storage are in jsonb's printed form, the
+  flow input's top level and the first module's `previous_result` are
+  compact, and `previous_result` after a loop or `branchall` is compact with
+  its numbers re-printed. `expr.Scope` gives the engine these texts, which
+  the shortcuts answer verbatim. They are not recorded yet
+  ([Q-JE-13](../semantics/expressions.md#q-je-13)). The re-printed form
+  needs the backend library's number notation, which FX-42 gives by
+  example (`1000.0`, `1e+21`, `1.2345678901234568e+29`); where it changes
+  from decimal to exponent notation is asked of the semantics team before
+  the loop milestones use it (request 10).
 
 ## Spec IDs relied on
 
 FX-6, FX-10, FX-36, FX-42, FX-48, FX-V5, FX-V6, CF-20, JE-7 to JE-9, JE-15,
-JE-16, JE-18, JE-37, JE-44, JE-V3, WR-9, WR-10, WR-13, WR-14, WR-18, WR-V8, Q-WR-12,
-WA-12, WA-V3, OR-13, OR-23, OR-24, OR-27, Q-FX-7, Q-FX-8, Q-JE-9, Q-WR-4,
+JE-16, JE-18, JE-36, JE-37, JE-44, JE-V3, WR-9, WR-10, WR-13, WR-14, WR-18, WR-V8, Q-WR-12,
+WA-12, WA-V3, OR-13, OR-23, OR-24, OR-25, OR-27, Q-FX-7, Q-FX-8, Q-JE-9, Q-JE-13, Q-WR-4,
 Q-OR-11, Q-OR-12.

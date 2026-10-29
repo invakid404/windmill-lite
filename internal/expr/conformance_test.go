@@ -77,9 +77,10 @@ func (r recordedRef) key() string {
 	return "flows " + r.Fixture + " " + r.Run + " " + r.At + " " + r.Input
 }
 
-// caseContext is what an evaluation sees: previous_result's text as held in
-// memory, the flow input as submitted (expressions read its stored text),
-// the flow env, and the stored texts a database read returns.
+// caseContext is what an evaluation sees: previous_result's text as the
+// worker holds it, the flow input as submitted (expressions read the
+// worker's text of it, workerFlowInput), the flow env, and the stored texts
+// a database read returns.
 type caseContext struct {
 	PreviousID     string            `json:"previous_id"`
 	PreviousResult *string           `json:"previous_result,omitempty"`
@@ -96,6 +97,10 @@ type pipelineExpect struct {
 	Binds    *[]string `json:"binds,omitempty"`
 	// Code is the rewritten code inside the source's wrapper.
 	Code *string `json:"code,omitempty"`
+	// RewritePanic is the byte offset at which JE-11's rewrite would close
+	// a call inside a character, where Windmill's evaluator panics; such a
+	// text has no code.
+	RewritePanic *int `json:"rewrite_panic,omitempty"`
 	// Route is "engine" or the shortcut that answers, by its name in
 	// Shortcut's JSON form.
 	Route *string `json:"route,omitempty"`
@@ -105,6 +110,17 @@ type pipelineExpect struct {
 	// ResultsLookup whether it binds the results lookup.
 	Bound         map[string]string `json:"bound,omitempty"`
 	ResultsLookup *bool             `json:"results_lookup,omitempty"`
+	// Engine is what the evaluation gives on the real engine, for a case
+	// with its own context (TestPipelineCasesOnEngine).
+	Engine *engineExpect `json:"engine,omitempty"`
+}
+
+// engineExpect is an evaluation's outcome on the real engine: its exact
+// text, or its error's exact message or the start of it.
+type engineExpect struct {
+	Text        *string `json:"text,omitempty"`
+	Error       *string `json:"error,omitempty"`
+	ErrorPrefix *string `json:"error_prefix,omitempty"`
 }
 
 // e3aCase is one case that recording batch E3a recorded, as the pipeline
@@ -137,12 +153,35 @@ func storedText(t *testing.T, producer string) string {
 	return string(s)
 }
 
+// workerFlowInput is a flow input as Windmill's worker holds it, given the
+// input as submitted (JE-44's table): the flow job's arguments read back
+// from jsonb member by member, so a compact object whose members are each
+// in jsonb's printed form, here in jsonb's key order (the worker's is a
+// hash map's). It is also previous_result at a flow's first module.
+func workerFlowInput(t *testing.T, submitted string) string {
+	t.Helper()
+	ms := objectMembers([]byte(storedText(t, submitted)))
+	if ms == nil {
+		t.Fatalf("flow input %s is not an object", submitted)
+	}
+	out := []byte{'{'}
+	for i, m := range ms {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = appendSerdeString(out, m.key)
+		out = append(out, ':')
+		out = append(out, databaseText(m.value)...)
+	}
+	return string(append(out, '}'))
+}
+
 // siteScope builds the scope a site sees from a context, as JE-22 gives it
 // for the sites the cases use: previous_result is P, and so is result except
 // at an input transform, which binds params {} instead (JE-23); the flow
-// input is its stored text (JE-44); every site but sleep, retry_if and
-// skip_expr has a results context, and a stop predicate only when its text
-// reads results.
+// input is the worker's text of it (JE-44); every site but sleep, retry_if
+// and skip_expr has a results context, and a stop predicate only when its
+// text reads results.
 func siteScope(t *testing.T, site SiteKind, text string, c caseContext) *Scope {
 	s := &Scope{PreviousID: c.PreviousID, Helpers: &fakeHelpers{}}
 	transform := site == SiteInputTransform || site == SiteFailureInputTransform
@@ -156,7 +195,7 @@ func siteScope(t *testing.T, site SiteKind, text string, c caseContext) *Scope {
 		s.Context = append(s.Context, Named{"params", value("{}")})
 	}
 	if c.FlowInput != nil {
-		s.FlowInput = value(storedText(t, *c.FlowInput))
+		s.FlowInput = value(workerFlowInput(t, *c.FlowInput))
 	}
 	if c.FlowEnv != nil {
 		s.FlowEnv = value(*c.FlowEnv)
@@ -228,7 +267,7 @@ func loadE3a(t *testing.T) map[string]*e3aCase {
 				continue
 			}
 			in := f.Input(c)
-			prev := storedText(t, in)
+			prev := workerFlowInput(t, in)
 			ctx := caseContext{PreviousResult: &prev, FlowInput: &in}
 			if env := f.Env(c); env != "" {
 				ctx.FlowEnv = &env
@@ -541,6 +580,52 @@ func TestPipelineCases(t *testing.T) {
 	}
 }
 
+// TestPipelineCasesOnEngine runs the pipeline cases that say what the real
+// engine gives (expect.engine), each in its own context, and holds the
+// evaluation to it: the cases of the findings whose program the semantics
+// reference corrected after B2b (JE-10, JE-15 to JE-17, JE-21, JE-50 to
+// JE-52), among them catalogue cases no recording holds yet.
+func TestPipelineCasesOnEngine(t *testing.T) {
+	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
+	n := 0
+	for _, f := range loadPipelineFiles(t) {
+		for i := range f.Cases {
+			c := &f.Cases[i]
+			w := c.Expect.Engine
+			if w == nil {
+				continue
+			}
+			n++
+			t.Run(c.name(), func(t *testing.T) {
+				if c.Context == nil {
+					t.Fatal("a case run on the engine gives its own context")
+				}
+				v, err := p.Eval(context.Background(), Compile(c.Site, c.Text), siteScope(t, c.Site, c.Text, *c.Context))
+				got := string(v.Producer())
+				switch {
+				case w.Text != nil:
+					if err != nil || got != *w.Text {
+						t.Errorf("%s, %v; want %s", got, err, *w.Text)
+					}
+				case w.Error != nil:
+					if err == nil || err.Error() != *w.Error {
+						t.Errorf("%s, %q; want the error %q", got, err, *w.Error)
+					}
+				case w.ErrorPrefix != nil:
+					if err == nil || !strings.HasPrefix(err.Error(), *w.ErrorPrefix) {
+						t.Errorf("%s, %q; want an error starting %q", got, err, *w.ErrorPrefix)
+					}
+				default:
+					t.Fatal("expect.engine gives no outcome")
+				}
+			})
+		}
+	}
+	if n < 15 {
+		t.Errorf("%d pipeline cases ran on the engine; the cases have gone missing", n)
+	}
+}
+
 func checkCompiled(t *testing.T, e *Expr, w pipelineExpect) {
 	t.Helper()
 	if w.Trimmed != nil && e.Trimmed != *w.Trimmed {
@@ -558,6 +643,15 @@ func checkCompiled(t *testing.T, e *Expr, w pipelineExpect) {
 	}
 	if w.Binds != nil && !slices.Equal(e.Binds, *w.Binds) {
 		t.Errorf("binds %q, want %q", e.Binds, *w.Binds)
+	}
+	if w.RewritePanic != nil && e.RewritePanic != *w.RewritePanic {
+		t.Errorf("rewrite panic at %d, want %d", e.RewritePanic, *w.RewritePanic)
+	}
+	if e.RewritePanic != 0 {
+		if e.Source != "" || w.Code != nil {
+			t.Errorf("a rewrite that panics gives no code: source %q, want code %v", e.Source, w.Code)
+		}
+		return
 	}
 	code, ok := unwrap(e.Mode, e.Source)
 	if !ok {

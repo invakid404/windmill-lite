@@ -1,0 +1,45 @@
+{
+  "finding": "JE-16",
+  "cases": [
+    {
+      "spec": "JE-16/c",
+      "provenance": "source-derived",
+      "title": "negative zero survives the conversion of a value held in memory (O1)",
+      "note": "an evaluator-level case: no flow input can carry -0, which jsonb stores as 0",
+      "site": "input_transform",
+      "text": "Object.is(previous_result.n, -0)",
+      "context": {"previous_id": "a", "previous_result": "{\"n\":-0}"},
+      "expect": {"route": "engine", "engine": {"text": "true"}}
+    },
+    {
+      "spec": "JE-16/g",
+      "provenance": "source-derived",
+      "title": "a __proto__ key sets the prototype, not an own property",
+      "note": "built with JSON.parse, the value would give [[\"__proto__\"],null,true]",
+      "site": "input_transform",
+      "text": "[Object.keys(flow_input.o), flow_input.o.x, Object.getPrototypeOf(flow_input.o) === Object.prototype]",
+      "context": {"previous_id": "", "flow_input": "{\"o\":{\"__proto__\":{\"x\":1}}}"},
+      "expect": {"route": "engine", "engine": {"text": "[[],1,false]"}}
+    },
+    {
+      "spec": "JE-16",
+      "variant": "proto-null-or-dropped",
+      "provenance": "source-derived",
+      "title": "a __proto__ of null clears the prototype, and one of any other value is dropped",
+      "site": "input_transform",
+      "text": "[Object.getPrototypeOf(flow_input.n), Object.keys(flow_input.d), Object.getPrototypeOf(flow_input.d) === Object.prototype]",
+      "context": {"previous_id": "", "flow_input": "{\"n\":{\"__proto__\":null},\"d\":{\"__proto__\":5,\"a\":1}}"},
+      "expect": {"route": "engine", "engine": {"text": "[null,[\"a\"],true]"}}
+    },
+    {
+      "spec": "JE-16",
+      "variant": "proto-escaped",
+      "provenance": "source-derived",
+      "title": "a __proto__ key written with escapes is the same key",
+      "site": "input_transform",
+      "text": "[Object.keys(previous_result.e), previous_result.e.y]",
+      "context": {"previous_id": "a", "previous_result": "{\"e\":{\"\\u005f_proto__\":{\"y\":2}}}"},
+      "expect": {"route": "engine", "engine": {"text": "[[],2]"}}
+    }
+  ]
+}

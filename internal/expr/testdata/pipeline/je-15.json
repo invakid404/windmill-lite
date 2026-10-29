@@ -1,0 +1,68 @@
+{
+  "finding": "JE-15",
+  "cases": [
+    {
+      "spec": "JE-15/j",
+      "variant": "string",
+      "provenance": "source-derived",
+      "title": "a replaced JSON.stringify's string is the result text",
+      "site": "input_transform",
+      "text": "(JSON.stringify = () => \"7\", 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "7"}}
+    },
+    {
+      "spec": "JE-15/j",
+      "variant": "not-a-string",
+      "provenance": "source-derived",
+      "title": "a value that is not a string reads as null",
+      "site": "input_transform",
+      "text": "(JSON.stringify = () => 5, 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "null"}}
+    },
+    {
+      "spec": "JE-15/j",
+      "variant": "promise",
+      "provenance": "source-derived",
+      "title": "a returned promise is adopted before the value is read",
+      "site": "input_transform",
+      "text": "(JSON.stringify = () => Promise.resolve(\"7\"), 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "7"}}
+    },
+    {
+      "spec": "JE-15/j",
+      "variant": "rejection",
+      "provenance": "source-derived",
+      "title": "a rejection fails the evaluation as an uncaught throw does",
+      "note": "the stack's frames are the replacement's arrow function and the serialising reaction",
+      "site": "input_transform",
+      "text": "(JSON.stringify = () => Promise.reject(new Error(\"serializer failed\")), 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: serializer failed\n    at <anonymous> (eval_script:1:70)\n    at <anonymous> (eval_script:1:135)\n"}}
+    },
+    {
+      "spec": "JE-15/j",
+      "variant": "unpaired-surrogate",
+      "provenance": "source-derived",
+      "title": "a string with an unpaired surrogate does not read as UTF-8, so it reads as null",
+      "note": "the backslash is in the expression's text, so the engine builds the string (JE-52)",
+      "site": "input_transform",
+      "text": "(JSON.stringify = () => \"\\ud800\", 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "null"}}
+    },
+    {
+      "spec": "JE-15",
+      "variant": "unchecked",
+      "provenance": "source-derived",
+      "title": "a string is kept without a check that it is JSON",
+      "note": "the site that reads the text reports what it cannot use (JE-24's boolean check, a number or array parse); in a transform, the storage of the step's arguments is not traced (Q-JE-14)",
+      "site": "input_transform",
+      "text": "(JSON.stringify = () => \"not json\", 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "not json"}}
+    }
+  ]
+}
