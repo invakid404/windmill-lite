@@ -14,7 +14,9 @@ unit:
     expr: "results.l[1]"
     context:
       previous_id: l
-      previous_result: "[10, 20]"
+      # After a loop, previous_result is the worker's compact array of the
+      # iterations' results (JE-44's table).
+      previous_result: "[10,20]"
       results:
         l: "[10, 20]"
     expect:

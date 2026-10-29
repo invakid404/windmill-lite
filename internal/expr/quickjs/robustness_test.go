@@ -173,15 +173,22 @@ func TestUnpairedSurrogatesComeBackAsWTF8(t *testing.T) {
 	}
 }
 
-func TestAThrowingJobFailsTheEvaluation(t *testing.T) {
-	// A job that throws (here a queueMicrotask callback) fails the
-	// evaluation with its exception, even though the result would settle.
-	// Whether Windmill's job loop does the same is an open question.
+func TestAThrowingJobIsDropped(t *testing.T) {
+	// JE-51: a job that throws (here a queueMicrotask callback) is dropped,
+	// and its exception fails nothing; the jobs after it still run.
 	e := newEngine(t, Options{Slots: 1})
-	_, err := run(t, e, `(async () => { queueMicrotask(() => { throw new TypeError("job"); }); await null; await null; return "done"; })()`, expr.Input{})
-	var ex *expr.Exception
-	if !errors.As(err, &ex) || ex.Name != "TypeError" || ex.Message != "job" {
-		t.Fatalf("got %v", err)
+	got := mustRun(t, e, `(async () => { let after = false; queueMicrotask(() => { throw new TypeError("job"); }); queueMicrotask(() => { after = true; }); await null; await null; return "done:" + after; })()`, expr.Input{})
+	if got != "done:true" {
+		t.Fatalf("got %q", got)
+	}
+	// So is an uncatchable one other than the interrupt: running out of
+	// memory inside a job.
+	l := shortLimits(5 * time.Second)
+	l.MemoryMB = 16
+	e = newEngine(t, Options{Limits: l, Slots: 1})
+	got = mustRun(t, e, `(async () => { queueMicrotask(() => { const a = []; for (;;) a.push(new Array(1e5).fill(1)); }); await null; await null; return "done"; })()`, expr.Input{})
+	if got != "done" {
+		t.Fatalf("got %q after a job ran out of memory", got)
 	}
 }
 

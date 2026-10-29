@@ -2,7 +2,8 @@
 # $var: resolution cases that PF2 implements. Synthetic, written for this
 # repository from docs/semantics/conformance.md; the variables are created
 # after the push. Each observer returns its argument, so its result shows the
-# resolved value (point O3, seen as O4).
+# resolved value (point O3, seen as O4); JE-42/d's also says whether the
+# resolved workspace id is the job's own, since the id itself is masked.
 id: je/providers
 spec:
   - JE-20/a

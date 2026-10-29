@@ -1,0 +1,25 @@
+{
+  "finding": "JE-17",
+  "cases": [
+    {
+      "spec": "JE-17/d",
+      "provenance": "source-derived",
+      "title": "an entry's fallbacks are falsy tests",
+      "note": "nullish tests would give \"[] ; [1] m\"",
+      "site": "input_transform",
+      "text": "error.message",
+      "context": {"previous_id": "a", "previous_result": "[{\"error\":{\"step_id\":\"\",\"message\":\"\",\"name\":\"N\"}},{\"error\":{\"message\":\"m\"}}]"},
+      "expect": {"route": "engine", "engine": {"text": "\"[0] N; [1] m\""}}
+    },
+    {
+      "spec": "JE-17",
+      "variant": "falsy-tag-and-text",
+      "provenance": "source-derived",
+      "title": "a step_id of 0 gives the position, and an error with neither message nor name gives undefined",
+      "site": "input_transform",
+      "text": "error.message",
+      "context": {"previous_id": "a", "previous_result": "[{\"error\":{\"step_id\":0,\"message\":\"m\"}},{\"error\":{}}]"},
+      "expect": {"route": "engine", "engine": {"text": "\"[0] m; [1] undefined\""}}
+    }
+  ]
+}
