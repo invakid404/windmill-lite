@@ -37,12 +37,11 @@ type run struct {
 	rootID string
 	// root is the frame of the flow's own modules, its failure module in
 	// the slot after them; its input is the flow input, stored, with its
-	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env as
-	// stored, or zero (JE-38), which its child flows inherit (CF-1), and
-	// each transition resolves into its frame (resolveEnv) with the flow
-	// job's reserved variables, flowJobEnv.
+	// top-level keys shuffled (FX-42 item 1), and its envSrc the flow's
+	// flow_env as stored, or zero (JE-38), which its child flows inherit
+	// (CF-1). Each transition resolves a frame's map into it (resolveEnv)
+	// with the flow job's reserved variables, flowJobEnv.
 	root       *frame
-	env        jsonval.Value
 	flowJobEnv map[string]string
 	latch      Latch
 	settle     *RunSettlement
@@ -62,9 +61,6 @@ type run struct {
 	// holds the iterations of a parallel loop back while H3 decides.
 	writeMu sync.Mutex
 	wrote   bool
-	// started is when the run started: the flow's start time, which a
-	// failure module's input transforms see as started_at (JE-35).
-	started time.Time
 	// clock is the run's clock and jitter its retry-jitter source (H10);
 	// cancel cancels the run's context with a cause (JE-2's monitor, the
 	// pre-write deadline of H4).
@@ -84,9 +80,9 @@ type run struct {
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
 	now := clock.Now()
-	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, wake: make(chan struct{}), started: now, clock: clock, jitter: jitter, cancel: cancel}
+	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, wake: make(chan struct{}), clock: clock, jitter: jitter, cancel: cancel}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
-	r.root.failure = f.FailureModule
+	r.root.failure, r.root.def, r.root.started = f.FailureModule, f, now
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: ModuleStateWarm}
 	r.settle = NewRunSettlement(func() { hooks.OnRunSettled(r.snapshot()) })
@@ -111,11 +107,13 @@ func (r *run) halt() {
 func (r *run) signal() { r.wakeOnce.Do(func() { close(r.wake) }) }
 
 // site is the module at cursor i of fr as hooks see it. Container bodies
-// belong to the enclosing flow, so Flow is the run's flow, and Script is
-// the leaf's static path, <flow path>/<module id> for an inline script.
+// belong to the enclosing flow, so Flow is the flow whose module lists
+// hold the module (the run's, or a subflow's by path, ADR 0008), and
+// Script is the leaf's static path, <flow path>/<module id> for an inline
+// script.
 func (r *run) site(fr *frame, i int) Site {
 	m := fr.moduleAt(i)
-	s := Site{Path: fr.sites[i], Flow: r.f.Path, Module: m.ID}
+	s := Site{Path: fr.sites[i], Flow: fr.def.Path, Module: m.ID}
 	if m.Leaf != nil {
 		if sc := r.e.prog.Scripts[m.Leaf.Script]; sc != nil {
 			s.Script = sc.Path
@@ -269,6 +267,12 @@ type outcome struct {
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
 	chain string
+	// handled: the module, a container, failed because a child flow's
+	// failure ended in a failure module (flowEnd.handled), which outer
+	// levels do not run again for it (CF-16 item 4, FX-34): as a failure,
+	// under a clean stop that keeps it (endFailedStop), or as the error
+	// stop a branch's flow forwards for it.
+	handled bool
 	// failedChild and lastChild are, for a container, its last child job
 	// that failed and its last child job, which a retry of the container
 	// starts from and records as the failed attempt (CF-22).
@@ -354,7 +358,10 @@ type decision struct {
 // collapsed iteration's body takes its loop's continue_on_error, not its
 // own: its failure fails the iteration (CF-8 item 5).
 func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
-	hasFailure := fr.failure != nil
+	// A container's failure that a child's copy of the failure module
+	// handled does not run it again: the flow decides as if it had none
+	// (CF-16 item 4, FX-34).
+	hasFailure := fr.failure != nil && !o.handled
 	ends := func(status conformance.RunStatus) decision {
 		return decision{next: nextEnd, status: status, result: o.carried, origin: o.origin, nested: o.nested}
 	}
@@ -427,15 +434,23 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 
 // flowEnd is how a frame's flow ended: its status and result (a host
 // verdict's status has none), whether a stop ended it (CF-12), errorStop
-// for a failure that a stop ended, and the generated errors inside the
-// result.
+// for a failure that a stop ended, handled when its failure module ended
+// it, and the generated errors inside the result.
 type flowEnd struct {
 	status    conformance.RunStatus
 	result    jsonval.Value
 	origin    Origin
 	stopped   bool
 	errorStop bool
-	nested    []string
+	// handled: the flow ran its failure module, which decided its status:
+	// success when it recovered (FX-33), or it failed with a container
+	// whose failure such a module handled below it. The flow then reports
+	// a failure to what contains it, a recovered one included, and does not
+	// forward a stop; a parallel container judges it by its status instead
+	// (CF-12 item 3, CF-16, CF-V1). Its containers' flows do not run their
+	// failure modules again for it; a subflow step resets that (CF-17).
+	handled bool
+	nested  []string
 	// chain is set when a collapsed iteration's push failed (outcome.chain).
 	chain string
 	// args are a collapsed iteration's body job's stored arguments, the
@@ -550,7 +565,8 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		stop := o.end == endStopped || o.end == endStoppedSkipped || o.end == endErrorStop || o.end == endFailedStop
 		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain, args: o.rec.RecordedArgs,
 			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
-			errorStop: stop && d.status == conformance.RunFailure}
+			errorStop: stop && d.status == conformance.RunFailure,
+			handled:   o.handled && d.status == conformance.RunFailure}
 		// haltAfter (H8): when the flow starts its next module, the run halts
 		// now; when a child flow ends, the halt is pending until the run's
 		// next start, after its containers' completions (pendingHalt); the
@@ -648,9 +664,9 @@ func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin}
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true}
 	case o.end == endSucceeded, o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true}
 	}
 	return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), origin: OriginEngine}
 }
@@ -1116,7 +1132,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		args = objectOf(member{"previous_result", prev.Producer()})
 	default:
 		var err error
-		if args, err = r.args(ctx, fr, i, m.Leaf.Inputs, site.Path, prev, prevID); err != nil {
+		if args, err = r.args(ctx, fr, i, inputsOf(m), site.Path, prev, prevID); err != nil {
 			if ctx.Err() != nil {
 				return notLaunched()
 			}
@@ -1217,6 +1233,8 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		o.rec.Hooks = append(o.rec.Hooks, "H1")
 	case identity:
 		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
+	case m.Kind == ir.KindSubflow:
+		return r.subflow(ctx, fr, i, site.Path, o, stored)
 	default:
 		entry, _, err := Entrypoint(stored)
 		if err != nil {
@@ -1568,8 +1586,10 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 // transformScope is the scope of the input transforms of the module at
 // cursor i of fr (FX-7, JE-22, JE-23): P as previous_result and no result,
 // params always {}, the preceding id, results with JE-9, flow_input and
-// flow_env. The failure module's also see started_at, the flow's start
-// time as an RFC 3339 string, and flow_job_id, the run's id (FX-32, JE-35).
+// flow_env. The failure module's also see started_at, fr's flow's start
+// time as an RFC 3339 string, and flow_job_id, its job id: the run's, or a
+// child flow's or a subflow's for a copy in a body or a subflow's own
+// (FX-32, JE-35, CF-16 item 3).
 func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string) *expr.Scope {
 	s := &expr.Scope{
 		PreviousID: prevID,
@@ -1583,9 +1603,11 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 	if fr.isFailure(i) {
+		// The flow job's: the run's at the root, a body's or a subflow's
+		// own when the failure module runs inside it (FX-32, FX-34).
 		s.Context = append(s.Context,
-			expr.Named{Name: "started_at", Value: jsonval.FromProducer(jsonString(rfc3339(r.started)))},
-			expr.Named{Name: "flow_job_id", Value: jsonval.FromProducer(jsonString(r.id))})
+			expr.Named{Name: "started_at", Value: jsonval.FromProducer(jsonString(rfc3339(fr.started)))},
+			expr.Named{Name: "flow_job_id", Value: jsonval.FromProducer(jsonString(fr.id))})
 	}
 	return s
 }

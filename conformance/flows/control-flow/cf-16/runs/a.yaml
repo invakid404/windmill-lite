@@ -1,0 +1,15 @@
+# CF-16/a: with skip_failures each failed iteration ends in its copy of
+# the handler, whose result is the iteration's entry; the handler ran
+# twice, once in each child flow, and the flow succeeds.
+spec: [CF-16/a]
+target: f/wl_cf16/skip
+expect:
+  status: success
+  result: [{handled: 1}, {handled: 2}]
+  steps:
+    "m:l": {status: success, result: [{handled: 1}, {handled: 2}]}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/s:failure": {status: success, args: {x: 1}, result: {handled: 1}}
+    "m:l/i:1/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:1/s:failure": {status: success, args: {x: 2}, result: {handled: 2}}
+    "s:failure": {status: not_run}

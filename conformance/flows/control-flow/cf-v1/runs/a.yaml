@@ -1,0 +1,13 @@
+# CF-V1/a, CF-16/c: the first iteration's copy recovers, but the
+# sequential loop counts the child as failed, stops and fails the flow
+# with its array; the flow's own handler does not run again.
+spec: [CF-V1/a, CF-16/c]
+target: f/wl_cfv1/seq_loop
+expect:
+  status: failure
+  result: [{recover: true}]
+  steps:
+    "m:l": {status: failure, result: [{recover: true}]}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/s:failure": {status: success, args: {}, result: {recover: true}}
+    "s:failure": {status: not_run}

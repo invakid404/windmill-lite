@@ -1,0 +1,14 @@
+# CF-V1/c, CF-16/c: a parallel branchall counts recovered branches as
+# succeeded, as CF-V1/b's loop does.
+spec: [CF-V1/c, CF-16/c]
+target: f/wl_cfv1/par_branchall
+expect:
+  status: success
+  result: [{recover: true}, {recover: true}]
+  steps:
+    "m:ba": {status: success, result: [{recover: true}, {recover: true}]}
+    "m:ba/b:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:ba/b:0/s:failure": {status: success, args: {}, result: {recover: true}}
+    "m:ba/b:1/m:y": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: y}}}
+    "m:ba/b:1/s:failure": {status: success, args: {}, result: {recover: true}}
+    "s:failure": {status: not_run}

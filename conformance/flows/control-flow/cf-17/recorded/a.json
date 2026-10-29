@@ -1,0 +1,204 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      8,
+      "hidden"
+    ],
+    "steps": {
+      "m:c": {
+        "status": "success",
+        "args": {
+          "v": 4
+        },
+        "result": 8
+      },
+      "m:c/m:s": {
+        "status": "success",
+        "args": {
+          "x": 4
+        },
+        "result": 8
+      },
+      "m:d": {
+        "status": "success",
+        "args": {
+          "x": [
+            8,
+            "hidden"
+          ]
+        },
+        "result": [
+          8,
+          "hidden"
+        ]
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029103122-13996a50fdbe",
+      "revision": "13996a50fdbec5fcd46daab29efbba1cc30f04f8",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40858228112"
+    },
+    "recorded_at": "2026-10-29T10:34:11Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:40909"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 206,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T10:34:11.018517Z",
+          "started_at": "2026-10-29T10:34:11.036470Z",
+          "completed_at": "2026-10-29T10:34:11.138907Z",
+          "duration_ms": 102
+        },
+        "m:c": {
+          "kind": "flow",
+          "created_at": "2026-10-29T10:34:11.039268Z",
+          "started_at": "2026-10-29T10:34:11.042175Z",
+          "completed_at": "2026-10-29T10:34:11.067475Z",
+          "duration_ms": 25
+        },
+        "m:c/m:s": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T10:34:11.044942Z",
+          "started_at": "2026-10-29T10:34:11.046799Z",
+          "completed_at": "2026-10-29T10:34:11.065249Z",
+          "duration_ms": 16
+        },
+        "m:d": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T10:34:11.071759Z",
+          "started_at": "2026-10-29T10:34:11.117825Z",
+          "completed_at": "2026-10-29T10:34:11.136488Z",
+          "duration_ms": 15
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "c",
+            "value": {
+              "input_transforms": {
+                "v": {
+                  "expr": "flow_input.n",
+                  "type": "javascript"
+                }
+              },
+              "path": "f/wl_cf17/child",
+              "type": "flow"
+            }
+          },
+          {
+            "id": "d",
+            "value": {
+              "content": "export async function main(x: any) {\n  return x;\n}\n",
+              "input_transforms": {
+                "x": {
+                  "expr": "[previous_result, results.s ?? \"hidden\"]",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "c",
+            "value": {
+              "path": "f/wl_cf17/child",
+              "type": "flow",
+              "input_transforms": {
+                "v": {
+                  "expr": "flow_input.n",
+                  "type": "javascript"
+                }
+              }
+            }
+          },
+          {
+            "id": "d",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "export async function main(x: any) {\n  return x;\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "x": {
+                  "expr": "[previous_result, results.s ?? \"hidden\"]",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "c",
+            "value": {
+              "type": "flow",
+              "input_transforms": {
+                "v": {
+                  "type": "javascript",
+                  "expr": "flow_input.n"
+                }
+              },
+              "path": "f/wl_cf17/child"
+            }
+          },
+          {
+            "id": "d",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline d.ts",
+              "input_transforms": {
+                "x": {
+                  "type": "javascript",
+                  "expr": "[previous_result, results.s ?? \"hidden\"]"
+                }
+              },
+              "lock": "!inline d.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

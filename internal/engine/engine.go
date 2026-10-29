@@ -148,8 +148,8 @@ func New(cfg Config) (*Engine, error) {
 			if m.Retry != nil && m.Retry.RetryIf != nil {
 				exprs = append(exprs, m.Retry.RetryIf)
 			}
-			if m.Leaf != nil {
-				for _, in := range m.Leaf.Inputs {
+			if m.Leaf != nil || m.Subflow != nil {
+				for _, in := range inputsOf(m) {
 					if in.Transform.Expr != nil {
 						exprs = append(exprs, in.Transform.Expr)
 					}
@@ -244,10 +244,11 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	case f.CacheTTL != nil:
 		return unsupported("a flow cache_ttl (N4)")
 	}
-	// A container's bodies carry the flow's failure module (CF-1, CF-16),
-	// and a loop never collapses in a flow that has one (CF-8).
-	if f.FailureModule != nil && hasContainer(flowModules(f)) {
-		return unsupported("a container in a flow with a failure module, whose bodies carry it (N3c)")
+	// A container in the failure module's slot runs its bodies raw, each
+	// carrying a copy of the failure module with a suffixed id (CF-30,
+	// FX-34), which the reference describes only as source-traced.
+	if f.FailureModule != nil && isContainer(f.FailureModule.Kind) {
+		return unsupported("a %s as the failure module (CF-30)", f.FailureModule.Kind)
 	}
 	for _, m := range flowModules(f) {
 		if err := supportedModule(m, scripts); err != nil {
@@ -268,13 +269,6 @@ func supportedList(ms []*ir.Module, scripts map[string]*ir.Script) error {
 		}
 	}
 	return nil
-}
-
-// hasContainer reports whether a loop or a branch is anywhere in ms.
-func hasContainer(ms []*ir.Module) bool {
-	found := false
-	walk(ms, func(m *ir.Module) { found = found || isContainer(m.Kind) })
-	return found
 }
 
 // isContainer reports whether modules of kind k run their bodies as
@@ -298,7 +292,15 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		}
 	case ir.KindIdentity:
 	case ir.KindSubflow:
-		return unsupported("a subflow by path (N3c)")
+		switch r := m.Retry; {
+		case m.Subflow == nil:
+			return errors.New("a flow module with no subflow")
+		case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
+			// A retried attempt's subflow steps belong under its attempt's
+			// site (ADR 0011); no case of NI's, the milestone that integrates
+			// N2's retries with child flows, covers it (ADR 0012).
+			return unsupported("a retry on a subflow step (later)")
+		}
 	case ir.KindForLoop:
 		if err := supportedLoop(m.ForLoop, scripts); err != nil {
 			return err
@@ -466,7 +468,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	if exec == nil {
 		exec = e.exec
 	}
-	if exec == nil && hasLeaf(flowModules(f)) {
+	if exec == nil && e.hasLeaf(f, map[string]bool{}) {
 		return nil, errors.New("engine: no step executor for the run")
 	}
 	id := req.ID
@@ -496,7 +498,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r.rootID = cmp.Or(req.RootJob, req.ParentJob, id)
 	r.root.scope = cmp.Or(req.RootJob, id)
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
-	r.env = flowEnv(f)
+	r.root.envSrc = flowEnv(f)
 	if _, real := clock.(RealClock); !real {
 		r.trace.Deviations = append(r.trace.Deviations, "H10")
 	}
@@ -512,13 +514,11 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 			defer t.Stop()
 		}
 	}
-	if !r.env.IsZero() {
-		// The flow job's reserved variables, which flow_env's resolution
-		// reads (JE-38): a top-level flow, with no parent, its own
-		// effective root, at the flow's path; or a dispatched one's, with
-		// the links its dispatch sent.
-		r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken()}.Env(e.host)
-	}
+	// The flow job's reserved variables, which flow_env's resolution reads
+	// (JE-38), a subflow's included: a top-level flow, with no parent, its
+	// own effective root, at the flow's path; or a dispatched one's, with
+	// the links its dispatch sent.
+	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken()}.Env(e.host)
 	// The run is a flow job of the job registry while it runs, in its
 	// effective root's tree, so that its steps' root lookups, reads with
 	// a job id and flow user state find it (ADR 0007, D3, WA-14); its user
@@ -596,10 +596,22 @@ func flowEnv(f *ir.Flow) jsonval.Value {
 	return v
 }
 
-// hasLeaf reports whether a step runs anywhere in ms.
-func hasLeaf(ms []*ir.Module) bool {
+// hasLeaf reports whether a step may run anywhere in f, the subflows it
+// calls by path included; seen holds the flows already visited.
+func (e *Engine) hasLeaf(f *ir.Flow, seen map[string]bool) bool {
+	seen[f.Path] = true
 	found := false
-	walk(ms, func(m *ir.Module) { found = found || m.Leaf != nil })
+	walk(flowModules(f), func(m *ir.Module) {
+		switch {
+		case found:
+		case m.Leaf != nil:
+			found = true
+		case m.Subflow != nil && !seen[m.Subflow.Path]:
+			if sub := e.prog.Flows[m.Subflow.Path]; sub != nil {
+				found = e.hasLeaf(sub, seen)
+			}
+		}
+	})
 	return found
 }
 

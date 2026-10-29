@@ -1,0 +1,19 @@
+summary: "CF-V3/a: a caller of the failing subflow"
+value:
+  modules:
+    - id: c
+      value:
+        type: flow
+        path: f/wl_cfv3/start_error
+        input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: "!inline failure.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

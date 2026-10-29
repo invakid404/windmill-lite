@@ -137,7 +137,6 @@ func TestLoadFixtureRejects(t *testing.T) {
 		"no target":           {"runs/r.yaml", "args: {}\n"},
 		"bad expect status":   {"runs/r.yaml", "target: f/x/y\nexpect: {status: fine, result: 1}\n"},
 		"bad expect site":     {"runs/r.yaml", "target: f/x/y\nexpect: {status: success, result: 1, steps: {a: {status: success}}}\n"},
-		"bad derived pointer": {"runs/r.yaml", "target: f/x/y\nderived: [result/m]\n"},
 	} {
 		files := map[string]string{}
 		for k, v := range good {
@@ -171,6 +170,11 @@ func TestFixtureOptionChecks(t *testing.T) {
 		{name: "run and wait in a group", oracle: "{}", run: "target: f/x/y\ngroup: g\nsubmit: run_wait_result\n", err: "runs a flow alone"},
 		{name: "run and wait canceled", oracle: "{}", run: "target: f/x/y\ncancel_after_ms: 5\nsubmit: run_wait_result\n", err: "runs a flow alone"},
 		{name: "unknown submit", oracle: "{}", run: "target: f/x/y\nsubmit: later\n", err: "is not run_wait_result"},
+		{name: "not-found locations", oracle: "{}", run: "target: f/x/y\nnot_found_locs: [/result, /steps/m:e/result]\n"},
+		{name: "a not-found location that is no pointer", oracle: "{}", run: "target: f/x/y\nnot_found_locs: [result]\n", err: "does not start with /"},
+		{name: "copies", oracle: "{}", run: "target: f/x/y\ncopies: [{at: /result, of: \"m:a\"}, {at: /steps/s:failure/args/e, of: \"m:l/i:0/m:b\"}]\n"},
+		{name: "a copy that is no pointer", oracle: "{}", run: "target: f/x/y\ncopies: [{at: result, of: \"m:a\"}]\n", err: "does not start with /"},
+		{name: "a copy of no site", oracle: "{}", run: "target: f/x/y\ncopies: [{at: /result, of: \"\"}]\n", err: "is not a site path"},
 		{name: "each run in a group", oracle: "{setup: each_run}", setup: setup, run: "target: f/x/y\ngroup: g\n", err: "cannot be in group"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

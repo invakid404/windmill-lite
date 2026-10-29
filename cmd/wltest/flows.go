@@ -609,7 +609,7 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare)
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}
@@ -652,10 +652,10 @@ func siteRecord(t *engine.Trace, site string) (engine.StepRecord, bool) {
 // recording holds neither carried nor resolved_args, so they are compared
 // only with an expect. On the reference's side, the location suffix of an
 // internal error is stripped where windmill-lite generated the value
-// (ADR 0011, Location suffixes), and where the run says a step copied such
-// a value (Run.Derived).
+// (ADR 0011, Location suffixes), and so is a parenthesised not-found
+// location the run declares (Run.NotFoundLocs) where windmill-lite
+// generated the value (FX-50 rule 3).
 func compareRun(f *conformance.Fixture, r conformance.Run, got conformance.Observation, generated []string) []string {
-	generated = append(slices.Clip(generated), r.Derived...)
 	opts := f.Compare.Options()
 	var want conformance.Observation
 	switch {
@@ -670,6 +670,11 @@ func compareRun(f *conformance.Fixture, r conformance.Run, got conformance.Obser
 	var problems []string
 	if r.Expect != nil || r.Recorded != nil {
 		ref, err := conformance.StripLocations(want, generated)
+		if err == nil {
+			ref, err = conformance.StripNotFoundLocations(ref, slices.DeleteFunc(slices.Clone(r.NotFoundLocs), func(p string) bool {
+				return !slices.ContainsFunc(generated, func(g string) bool { return p == g || strings.HasPrefix(p, g+"/") })
+			}))
+		}
 		if err != nil {
 			return []string{"compare: " + err.Error()}
 		}

@@ -238,13 +238,24 @@ type Run struct {
 	// Delays are lower bounds on the time between two of the run's jobs,
 	// checked against the recording's provenance like Claims.
 	Delays []Delay `json:"delays,omitempty"`
-	// Derived points to values of the observation that a step copied from
-	// an error windmill-lite generates, such as a failure module returning
-	// its error's message (FX-15/b): ADR 0011's location rule reaches them
-	// as it reaches the errors the trace says windmill-lite generated, by
-	// its templates only (StripLocations). The flow's author names them,
-	// since no trace can follow a value through a user's script.
-	Derived []string `json:"derived,omitempty"`
+	// NotFoundLocs lists the values, by pointer into the observation, whose
+	// error message quotes a not-found error of Windmill's lookup helper
+	// with the parenthesised location " (<file>.rs:<line>)" Windmill
+	// generated: where the case's expected text writes <loc> for it
+	// (FX-50 rule 3, CF-19/c). No textual rule tells that form from a
+	// user's own (FX-50/d), so only a run can say where it is; the
+	// comparison with windmill-lite strips it there (StripNotFoundLocations,
+	// ADR 0011). The recorder does not read it.
+	NotFoundLocs []string `json:"not_found_locs,omitempty"`
+	// Copies lists the values of the observation that the case's flow
+	// copies, through user code, from an error windmill-lite generates at
+	// another site (Copy): a failure module or a later step that passes a
+	// pickup error on (FX-15/b, JE-35/d). Equality alone never makes a
+	// value generated, since user code can write the same text, so only a
+	// run can say where its flow copies one; the comparison with
+	// windmill-lite then treats the value there as generated when it equals
+	// that site's error (ADR 0011). The recorder does not read it.
+	Copies []Copy `json:"copies,omitempty"`
 	// Unit restates the run's expressions at unit level, with the context
 	// each evaluation sees (UnitCase).
 	Unit []UnitCase `json:"unit,omitempty"`
@@ -253,6 +264,15 @@ type Run struct {
 	// Recorded is recorded/<name>.json, or nil when the run has no
 	// recording yet.
 	Recorded *Recording `json:"-"`
+}
+
+// Copy is one declared copy (Run.Copies): At, a JSON Pointer into the
+// observation, holds a copy of the error windmill-lite generated at the
+// site Of, a site path (its result, or the value it carried on), of that
+// error's error member, or of its message.
+type Copy struct {
+	At string `json:"at"`
+	Of string `json:"of"`
 }
 
 // SubmitRunWait is Run.Submit for the synchronous run-and-wait endpoint,
@@ -572,9 +592,17 @@ func (r *Run) check() error {
 			return err
 		}
 	}
-	for _, p := range r.Derived {
+	for _, p := range r.NotFoundLocs {
 		if _, err := SplitPointer(p); err != nil {
-			return fmt.Errorf("derived: %w", err)
+			return err
+		}
+	}
+	for _, c := range r.Copies {
+		if _, err := SplitPointer(c.At); err != nil {
+			return err
+		}
+		if _, err := ParseSitePath(c.Of); err != nil || c.Of == "" {
+			return fmt.Errorf("copy at %s: of %q is not a site path", c.At, c.Of)
 		}
 	}
 	for i := range r.Unit {

@@ -1,0 +1,27 @@
+{
+  "about": "Milestone N3c of ADR 0012, subflows by path, results across scopes, stop propagation and failure modules in bodies: the catalogue cases of CF-16 to CF-18, CF-20, CF-29 and CF-V1 to CF-V5, recorded on the CE oracle by the fixtures below, which N3c wrote and whose runs its exit gate runs on windmill-lite. CF-19's cases are E3a's and E3d's (flows/cf/cf-19), and CF-V2/a is also recorded by flows/control-flow/cf-13 run c. Each case is recorded by a run or deferred with a reason: CF-V4/b and CF-V5/b need an inline or raw-preview submission, which windmill-lite never runs (ADR 0001 sections 1 and 6). TestRecordingBatches enforces it.",
+  "batch": "N3c",
+  "findings": ["CF-16", "CF-17", "CF-18", "CF-20", "CF-29", "CF-V1", "CF-V2", "CF-V3", "CF-V4", "CF-V5"],
+  "cases": [],
+  "fixtures": [
+    "conformance/flows/control-flow/cf-16",
+    "conformance/flows/control-flow/cf-17",
+    "conformance/flows/control-flow/cf-18",
+    "conformance/flows/control-flow/cf-20",
+    "conformance/flows/control-flow/cf-29",
+    "conformance/flows/control-flow/cf-v1",
+    "conformance/flows/control-flow/cf-v2",
+    "conformance/flows/control-flow/cf-v3",
+    "conformance/flows/control-flow/cf-v4",
+    "conformance/flows/control-flow/cf-v5"
+  ],
+  "deferred": [
+    {"case": "CF-V4/b", "milestone": "none", "reason": "an inline child payload, built at run time from raw modules: windmill-lite runs deployed flows by path only, whose bodies are stored flow nodes (ADR 0001 sections 1 and 6, FX-5); the harness submits no inline payload"},
+    {"case": "CF-V5/b", "milestone": "none", "reason": "a raw-flow preview request (Q-CF-15): windmill-lite has no preview mode and never runs raw submissions (ADR 0001 sections 1 and 6), as for E3d's CF-8/d; the by-path half, CF-V5/a, is recorded"}
+  ],
+  "parts": [
+    {"case": "CF-16/d", "part": "CF-V4/b's inline body, whose handler id is suffixed (h-0-0)", "milestone": "none", "reason": "an inline child payload, outside the reference configuration (ADR 0001 sections 1 and 6); the stored-node half, CF-V4/a, is recorded"}
+  ],
+  "prefixes": [],
+  "contradictions": []
+}

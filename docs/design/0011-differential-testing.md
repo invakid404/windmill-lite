@@ -204,6 +204,28 @@ location compares equal to windmill-lite's. Negative test: a user error
 `Error("boom @a.rs:1:2")` against `Error("boom @b.rs:3:4")` still differs,
 because windmill-lite's value at that path has user provenance.
 
+Two refinements (milestone N3c):
+
+- **Copies are declared.** A value that user code passes on unchanged,
+  such as a failure module or a later step echoing a pickup error
+  ([FX-15](../semantics/execution.md#fx-15)/b,
+  [JE-35](../semantics/expressions.md#je-35)/d), is a copy of the
+  generated error. Equality alone cannot show that: user code can write
+  the same text itself, even before the error exists. So the run declares
+  each copy (`copies`): the value's path and the site whose generated
+  error it copies. The comparison treats that value as generated only
+  when it equals that site's generated error, its error member, or its
+  message in windmill-lite's observation. An undeclared value, or one
+  that differs, keeps its user provenance.
+- **The parenthesised not-found form is declared.** The location
+  ` (<file>.rs:<line>)` that ends the lookup helper's not-found text can
+  stand inside a message, as in [CF-19](../semantics/control-flow.md#cf-19)/c's
+  transform error. No textual template tells it from a user's own phrase
+  of the same shape ([FX-50](../semantics/execution.md#fx-50)/d), so the
+  run declares the values where Windmill generated it (`not_found_locs`,
+  FX-50 rule 3). It is stripped there only, and only where windmill-lite's
+  value is generated.
+
 ### Stub mode
 
 `wltest stub <folder>` rewrites a sync tree so that every executed script
@@ -431,22 +453,17 @@ their root jobs were not in flight together.
   [Q-OR-16](../semantics/oracle.md#q-or-16): the recipes OR-V9 disputes
   run with their bindings written out.
 
-- Milestone NI extended the location rule to values a step derives from
-  an error windmill-lite generated, which no trace can follow through a
-  user's script: a failure module that returns its error's message
-  carries Windmill's suffix into its own result (FX-15/b). A run names
-  such values in `derived`, JSON pointers into the observation, and the
-  rule applies there as at the values the trace says windmill-lite
-  generated, by its templates only, so a user's own message with a
-  location still differs; the fixture's author, who wrote the flow, takes
-  responsibility for each pointer. The observation also leaves out what
-  the trace marks superseded, which Windmill's job tree no longer
-  reaches: what a retried container's failed attempt ran besides the job
-  the walker fetches as that attempt, at `<container>/r:<k>` with a child
-  flow's modules below it (CF-22); what a sequential loop ran before its
-  `skip_if` held mid-loop (CF-21); and a collapsed iteration's job that
-  was never pushed. A child flow's virtual `<id>-v` step is left out as
-  the root's is (OR-V7).
+- Milestone NI's observations leave out what the trace marks superseded,
+  which Windmill's job tree no longer reaches: what a retried
+  container's failed attempt ran besides the job the walker fetches as
+  that attempt, at `<container>/r:<k>` with a child flow's modules below
+  it (CF-22), which a later module that lists the attempt shows again
+  below its own `r:<k>`, with everything below it; what a sequential
+  loop ran before its `skip_if` held mid-loop (CF-21); and a collapsed
+  iteration's job that was never pushed. A child flow's virtual
+  `<id>-v` step is left out as the root's is (OR-V7). FX-15/b, whose
+  failure module copies a generated error, passes through N3c's declared
+  `copies`.
 
 ## Spec IDs relied on
 

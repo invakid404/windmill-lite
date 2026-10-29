@@ -7,9 +7,8 @@ claims and unit cases of recording batch E3a, and the replay table and
 replay service of stub mode, milestone E4a, the step-case format and
 its comparison, milestone C3a, the location rule of comparisons with
 the oracle, milestone E1, which milestones N1b and N3a extended to the
-flow engine's templates and milestone NI to a run's `derived` values, and
-the run-and-wait response, the setup policies and the pull of recording
-batch E3e
+flow engine's templates, and the run-and-wait response, the setup policies
+and the pull of recording batch E3e
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
@@ -23,14 +22,14 @@ fixtures on windmill-lite.
 | `sitepath.go` | `SitePath`, `Segment` and the encoder of [ADR 0011](../../docs/design/0011-differential-testing.md), which answers [Q-OR-17](../../docs/semantics/oracle.md#q-or-17) |
 | `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`), `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) and `ModuleStatus` ([FX-1](../../docs/semantics/execution.md#fx-1)) |
 | `observation.go` | `Observation`, `StepObservation`, `BranchChosen` and `Response`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments, and a run-and-wait run's HTTP response (see below) |
-| `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
+| `fixture.go` | `Fixture`, `Run`, `Copy`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
 | `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
 | `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred`, `CompareStep` and `CompareStepNode` (see [Step cases](#step-cases)) |
 | `claims.go` | `Claim`, `CheckClaims`, `Delay`, `ValueAt`, `SameJSON`: partial assertions about an observation |
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
-| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations`, the rule a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
+| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`: stub mode's replay table and the run-scoped service that answers stubs (see [Stub mode](#stub-mode)) |
 
@@ -197,14 +196,13 @@ other run runs alone. The oracle fails a group as a whole when one of its
 runs fails or when they were not in flight together.
 
 A run may also carry `claims`, `delays` and `unit`, which the comparator
-does not read (see [Claims](#claims)), and `derived` (milestone NI): RFC
-6901 pointers into the observation at values a step copied from an error
-windmill-lite generates, such as a failure module that returns its
-error's message (FX-15/b). `wltest check` adds them to the pointers the
-trace gives `StripLocations`, whose templates alone decide what loses a
-location suffix, so a user's own message there still shows its
-difference ([ADR 0011](../../docs/design/0011-differential-testing.md),
-Location suffixes). A fixture whose tree is generated
+does not read (see [Claims](#claims)), and two hints only the comparison
+with windmill-lite reads (see [Location suffixes](#location-suffixes)):
+`not_found_locs`, the values whose parenthesised not-found location
+Windmill generated, and `copies` (`Copy`: `at`, a JSON Pointer, and
+`of`, a site path), the values the case's flow copies, through user
+code, from the error windmill-lite generates at a site. The recorder
+ignores both; loading checks that each pointer and site path parses. A fixture whose tree is generated
 sets `Tree`, `RecordedIn` and `Generated` instead of using `windmill/` and
 `recorded/` under its directory.
 
@@ -426,6 +424,22 @@ ADR 0011's positive case (a generated `Internal:` error compares equal to
 the oracle's with its location) and its negative one (two user errors
 that differ only in such a suffix still differ), that an escaped literal
 is never stripped, and each template's positive and negative cases.
+
+The parenthesised not-found location ` (<file>.rs:<line>)` that ends the
+lookup helper's text, `<kind> not found at name <name>`, can stand inside
+a message, as in a transform error quoting a failed fetch of a step's
+result ([CF-19](../../docs/semantics/control-flow.md#cf-19)/c), and no
+textual rule tells it from a user's own phrase of the same shape
+([FX-50](../../docs/semantics/execution.md#fx-50)/d). So it is stripped
+only where the case's expected text writes `<loc>` for it (FX-50 rule 3):
+the run lists those values in `not_found_locs` (milestone N3c), and
+`StripNotFoundLocations(o, at)` removes, at each pointer that names an
+error object, a value whose `error` member is one, or the message itself,
+the location of the first not-found text in the message, with its leading
+space. `wltest check` passes it only the declared pointers at or below a
+value windmill-lite generated. `TestStripNotFoundLocations` covers a
+declared value, an undeclared user phrase that keeps its location, and
+pointers that name no such message.
 
 ## Comparison
 

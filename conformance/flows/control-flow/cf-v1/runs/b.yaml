@@ -1,0 +1,15 @@
+# CF-V1/b, CF-16/c: a parallel loop judges each child's persisted
+# status, and a recovered child flow completed successfully, so the loop
+# and the flow succeed.
+spec: [CF-V1/b, CF-16/c]
+target: f/wl_cfv1/par_loop
+expect:
+  status: success
+  result: [{recover: true}, {recover: true}]
+  steps:
+    "m:l": {status: success, result: [{recover: true}, {recover: true}]}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/s:failure": {status: success, args: {}, result: {recover: true}}
+    "m:l/i:1/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:1/s:failure": {status: success, args: {}, result: {recover: true}}
+    "s:failure": {status: not_run}

@@ -95,12 +95,18 @@ func (r *run) whileLoop(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 // child (an empty iterator, an empty loop body, a branchall with no
 // branches), at once: its result is [] and its stop_after_if a stop of the
 // flow, not a break (CF-29); its stop_after_all_iters_if is not evaluated
-// (CF-V2).
+// (CF-V2). With no job, its status is its module's: an error stop fails it
+// as it fails any step's module (CF-29, FX-19), which the oracle's walker
+// reads as the status of a container with no child (OR-11).
 func (r *run) emptyContainer(ctx context.Context, fr *frame, i int, o outcome) outcome {
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, jsonEmpty, jsonEmpty
 	o.carried = jsonEmpty
 	r.recordJob(fr, i, jsonEmpty)
-	return r.stop(ctx, fr, i, fr.sites[i], o)
+	o = r.stop(ctx, fr, i, fr.sites[i], o)
+	if o.rec.Module == conformance.ModuleFailure {
+		o.rec.Status = conformance.StepFailure
+	}
+	return o
 }
 
 // loopBody is what a sequential loop runs, for a for loop or a while loop:
@@ -228,7 +234,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		iterPrev = fr.input
 	}
 	var it iterations
-	failed, ran := false, false
+	failed, ran, handled := false, false, false
 	var stopErr error
 	r.progress(fr, i, nil)
 	for k := 0; n < 0 || k < n; k++ {
@@ -313,12 +319,15 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		it.add(e)
 		it.completed(job)
 		r.progress(fr, i, it.values)
-		if e.status == conformance.RunFailure {
+		if e.status == conformance.RunFailure || e.handled {
 			// A failed iteration stops the loop unless skip_failures; an
 			// error stop breaks it either way, and the loop fails unless
-			// skip_failures (CF-5, CF-12 item 4).
+			// skip_failures (CF-5, CF-12 item 4). An iteration that ran its
+			// copy of the failure module failed, even when it recovered
+			// (CF-16, CF-V1).
 			if e.errorStop || !l.skipFailures {
 				failed = !l.skipFailures
+				handled = failed && e.handled
 				break
 			}
 			continue
@@ -343,7 +352,17 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, stopErr)
+	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, stopErr), handled)
+}
+
+// handledBy marks o, a container that completed, as failed by a failure a
+// child's failure module handled, when handled says so and o still fails
+// with it (outcome.handled): as a failure, or under a clean stop of its
+// stop_after_all_iters_if, which keeps that failure (endFailedStop); an
+// error stop of it is a failure of its own.
+func handledBy(o outcome, handled bool) outcome {
+	o.handled = handled && (o.end == endFailed || o.end == endFailedStop)
+	return o
 }
 
 // loopSkipped ends module i of fr, a sequential loop whose skip_if held
@@ -406,7 +425,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	}
 	// More than one child in a same_worker flow fails the loop's start
 	// (CF-7); the flag is the root's, which child flows copy (CF-1).
-	if r.f.SameWorker && m.Sleep == nil && n > 1 {
+	if fr.def.SameWorker && m.Sleep == nil && n > 1 {
 		return r.chainingAt(fr, b.first, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
 	// Every child is created at once (CF-7), in one push: a child whose
@@ -512,7 +531,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		r.ping(fr)
 		release()
 	}
-	failed := false
+	failed, handled := false, false
 	for k, e := range ends {
 		if started[k] && ended(e.status) && stopped == "" {
 			stopped = e.status
@@ -536,12 +555,13 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		// skip_failures (CF-7).
 		if e.status == conformance.RunFailure {
 			failed = !l.SkipFailures
+			handled = handled || e.handled
 		}
 	}
 	if stopped != "" {
 		return r.loopInterrupted(o, &it, nStarted > 0 || canceled, r.endedStatus(ctx, stopped))
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), failed && handled)
 }
 
 // canceledChild is the result a canceled child job leaves its container
@@ -729,7 +749,9 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 		return nil, databaseError(err).Error()
 	}
 	c := newFrame(bodyOf(m).modules, fr.sites[i].Child(conformance.Iteration(k)))
-	c.site, c.child, c.id, c.pinged = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID(), r.clock.Now()
+	now := r.clock.Now()
+	c.site, c.child, c.id, c.pinged, c.started = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID(), now, now
+	c.def, c.failure, c.envSrc = fr.def, fr.failure, fr.envSrc
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = fr.path+"/loop-"+strconv.Itoa(k), fr.scope, fr.nodes, fr.rng
 	if parallel {
@@ -743,7 +765,7 @@ func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, p
 func (r *run) addChild(c *frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	child := ChildFlow{Site: c.site, ID: c.id, Modules: c.ids(), Virtual: make([]bool, len(c.modules))}
+	child := ChildFlow{Site: c.site, ID: c.id, Modules: c.ids(), Virtual: make([]bool, len(c.modules)), Failure: c.failure != nil}
 	for i, m := range c.modules {
 		child.Virtual[i] = m.Virtual
 	}
@@ -760,7 +782,7 @@ func (r *run) addChild(c *frame) {
 func (r *run) collapsedFrame(fr *frame, i, k int, base jsonval.Value, item []byte, prev, loopPrev jsonval.Value, loopPrevID string) *frame {
 	m := fr.modules[i]
 	c := newFrame(bodyOf(m).modules, fr.sites[i].Child(conformance.Iteration(k)))
-	c.collapsed, c.iter, c.parent = m, k, fr
+	c.collapsed, c.iter, c.parent, c.def, c.envSrc = m, k, fr, fr.def, fr.envSrc
 	c.input, c.prev = iterInput(base, k, item), prev
 	c.loopPrev, c.loopPrevID = loopPrev, loopPrevID
 	c.path, c.id, c.scope, c.nodes, c.rng = fr.path, fr.id, fr.scope, fr.nodes, fr.rng

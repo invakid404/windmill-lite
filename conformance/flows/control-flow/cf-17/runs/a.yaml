@@ -1,0 +1,13 @@
+# CF-17/a: the subflow's input is its step's arguments, {v: 4}; its
+# result, 8, is the step's; its step s is in the subflow's own results
+# scope, so the parent's results.s is undefined and d gives "hidden".
+spec: [CF-17/a]
+target: f/wl_cf17/parent
+args: {n: 4}
+expect:
+  status: success
+  result: [8, hidden]
+  steps:
+    "m:c": {status: success, args: {v: 4}, result: 8}
+    "m:c/m:s": {status: success, args: {x: 4}, result: 8}
+    "m:d": {status: success, args: {x: [8, hidden]}, result: [8, hidden]}
