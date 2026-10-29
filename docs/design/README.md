@@ -106,7 +106,10 @@ windmill-lite. `wltest check` serves the oracle's effect sink and replay
 service to every run that needs them and holds the stub calls against the
 run's trace with the same check the oracle applies to its walk. The stub
 acceptance cases, together with a case on codebase scripts, match the
-oracle's recordings.
+oracle's recordings. Its follow-up E4c lays out the copies that `wltest
+stub`, `wltest check` and `wltest record` make of a sync tree so that the
+paths outside the tree that its codebase entries name resolve from the
+copy as from the original, with `wmill.yaml` unchanged.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

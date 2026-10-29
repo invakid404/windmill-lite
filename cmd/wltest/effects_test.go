@@ -41,8 +41,8 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dirs) < 5 {
-		t.Fatalf("%d stub fixtures under %s, want the four of E4a and E4b's codebase fixture", len(dirs), stubDir)
+	if len(dirs) < 6 {
+		t.Fatalf("%d stub fixtures under %s, want the four of E4a, E4b's codebase fixture and E4c's outside fixture", len(dirs), stubDir)
 	}
 	runs := 0
 	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {

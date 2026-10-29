@@ -1,0 +1,27 @@
+summary: wl stub codebase paths outside the root
+value:
+  modules:
+    - id: first
+      value:
+        type: script
+        input_transforms:
+          name:
+            type: javascript
+            expr: flow_input.name
+        path: f/wl_stub_out/tag
+    - id: second
+      value:
+        type: script
+        input_transforms:
+          name:
+            type: javascript
+            expr: results.first
+        path: f/wl_stub_out/tag
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    name:
+      type: string
+  required:
+    - name

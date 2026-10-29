@@ -527,21 +527,32 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 	if err != nil {
 		return nil, dep, err
 	}
+	// The copy carries what the tree's codebase entries name outside it,
+	// at the same places relative to the copied tree (Layout), so the CLI
+	// digests and uploads from the copy what it would from the original
+	// (WR-49); the CLI runs in the copied tree.
 	copyDir := filepath.Join(tmp, "push", ws)
+	var pushDir string
 	if f.Stub {
 		st, err := StubTree(f.SyncTree(), copyDir)
 		if err != nil {
 			return nil, dep, err
 		}
-		dep.Stubbed = st.Files
-		if err := cli.GenerateMetadata(ctx, copyDir, t); err != nil {
+		dep.Stubbed, dep.Outside = st.Files, st.Outside
+		pushDir = filepath.Join(copyDir, filepath.FromSlash(st.Root))
+		if err := cli.GenerateMetadata(ctx, pushDir, t); err != nil {
 			return nil, dep, err
 		}
-		if err := CheckStubSignatures(f.SyncTree(), copyDir); err != nil {
+		if err := CheckStubSignatures(f.SyncTree(), pushDir); err != nil {
 			return nil, dep, err
 		}
-	} else if err := CopyTree(f.SyncTree(), copyDir); err != nil {
-		return nil, dep, err
+	} else {
+		l, err := CopyLayout(f.SyncTree(), copyDir)
+		if err != nil {
+			return nil, dep, err
+		}
+		dep.Outside = l.Outside
+		pushDir = filepath.Join(copyDir, filepath.FromSlash(l.Root))
 	}
 	// Seeded before the push, setup.yaml's variables must be there before
 	// it and gone after it (OR-31/a, OR-31/b); applied after it, they must
@@ -557,7 +568,7 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 			return nil, dep, err
 		}
 	}
-	if err := cli.Push(ctx, copyDir, t); err != nil {
+	if err := cli.Push(ctx, pushDir, t); err != nil {
 		return nil, dep, err
 	}
 	if !before {
@@ -568,11 +579,11 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 	if err := CheckSetup(ctx, c, ws, f.Setup, !before); err != nil {
 		return nil, dep, err
 	}
-	stubbed := dep.Stubbed
+	stubbed, outside := dep.Stubbed, dep.Outside
 	if dep, err = Gate(ctx, c, ws, s.pollInterval, 2*time.Minute); err != nil {
 		return nil, dep, err
 	}
-	dep.Stubbed = stubbed
+	dep.Stubbed, dep.Outside = stubbed, outside
 	return tree, dep, CheckDeployedModules(tree, dep)
 }
 
@@ -618,10 +629,11 @@ func (s *Session) deployAPI(ctx context.Context, c *Client, cli CLI, f *conforma
 		}
 		flows[p] = FlowDeployment{Method: conformance.DeployAPI, Submitted: submitted, Materialized: materialized}
 	}
-	copyDir := filepath.Join(tmp, "generate-metadata", ws)
-	if err := CopyTree(f.SyncTree(), copyDir); err != nil {
+	l, err := CopyLayout(f.SyncTree(), filepath.Join(tmp, "generate-metadata", ws))
+	if err != nil {
 		return nil, dep, nil, err
 	}
+	copyDir := filepath.Join(tmp, "generate-metadata", ws, filepath.FromSlash(l.Root))
 	t := Target{BaseURL: s.base(), Token: c.Token, Workspace: ws}
 	if err := cli.AddMissingFolders(ctx, copyDir, t); err != nil {
 		return nil, dep, nil, err

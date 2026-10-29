@@ -156,15 +156,19 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	if f.Stub {
 		// Stub mode (ADR 0011, milestone E4b): the runs run the stubbed
 		// copy of the tree that wltest record pushes to the oracle, every
-		// script body replaced by a stub that asks the replay service.
+		// script body replaced by a stub that asks the replay service. The
+		// copy carries what the codebase entries name outside the tree
+		// beside it, as the original has it (oracle.Layout), so its
+		// unchanged wmill.yaml reaches the same files.
 		root, err := syncfolder.Find(tree)
 		if err != nil {
 			return failRuns(results, "stub: "+err.Error())
 		}
-		tree = filepath.Join(work, "stubbed")
-		if _, err := oracle.StubTree(root, tree); err != nil {
+		rep, err := oracle.StubTree(root, filepath.Join(work, "stubbed"))
+		if err != nil {
 			return failRuns(results, "stub: "+err.Error())
 		}
+		tree = filepath.Join(work, "stubbed", filepath.FromSlash(rep.Root))
 	}
 	b, err := fc.build(ctx, f, tree, work)
 	if err != nil {

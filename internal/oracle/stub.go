@@ -15,8 +15,11 @@ import (
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
-// StubReport lists what StubTree rewrote.
+// StubReport lists what StubTree rewrote, and where it put the stubbed
+// tree: at Root below the output directory, beside the Outside paths that
+// the tree's codebase entries name (Layout).
 type StubReport struct {
+	Layout
 	// Files are the rewritten script sources, relative to the tree's root,
 	// sorted.
 	Files []string `json:"files"`
@@ -37,13 +40,16 @@ func ErrStubUnsupported(file, step, reason string) *Refusal {
 }
 
 // StubTree copies the sync tree at src (the directory of its wmill.yaml)
-// to dst, which must not exist, and replaces the source of every Bun
+// into dst, which must not exist, and replaces the source of every Bun
 // script and every inline Bun script of a flow with its stub (StubSource),
-// as stub mode requires (ADR 0011). Everything else is copied unchanged:
-// the CLI's metadata (locks, schemas, wmill-lock.yaml) then describes the
-// original, so `generate-metadata` must run on dst before it is pushed;
-// CheckStubSignatures confirms afterwards that the stub kept every
-// script's schema.
+// as stub mode requires (ADR 0011). The copy is laid out as CopyLayout
+// lays it out: the stubbed tree is at dst/Root, with the paths outside the
+// tree that its codebase entries name carried beside it unchanged, so the
+// unchanged wmill.yaml reaches the same files. Everything else is copied
+// unchanged too: the CLI's metadata (locks, schemas, wmill-lock.yaml) then
+// describes the original, so `generate-metadata` must run on the stubbed
+// tree before it is pushed; CheckStubSignatures confirms afterwards that
+// the stub kept every script's schema.
 //
 // It refuses (stub_unsupported) a tree in which some executed script
 // would not be stubbed: a script in another language, a Bun script with
@@ -57,12 +63,11 @@ func StubTree(src, dst string) (*StubReport, error) {
 	if _, err := os.Stat(filepath.Join(src, "wmill.yaml")); err != nil {
 		return nil, fmt.Errorf("oracle: %s is not a sync tree root (no wmill.yaml): %w", src, err)
 	}
-	if _, err := os.Lstat(dst); err == nil {
-		return nil, fmt.Errorf("oracle: stub output %s already exists", dst)
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	layout, err := PlanLayout(src)
+	if err != nil {
 		return nil, err
 	}
-	created, err := outsideTree(src, dst)
+	created, err := layout.target(src, dst)
 	if err != nil {
 		return nil, err
 	}
@@ -147,12 +152,13 @@ func StubTree(src, dst string) (*StubReport, error) {
 		_ = os.RemoveAll(created)
 		return nil, err
 	}
-	if err := CopyTree(src, dst); err != nil {
+	if err := layout.copy(src, dst); err != nil {
 		return fail(err)
 	}
-	rep := &StubReport{}
+	rep := &StubReport{Layout: *layout}
+	root := filepath.Join(dst, filepath.FromSlash(layout.Root))
 	for file, s := range stubs {
-		if err := os.WriteFile(filepath.Join(dst, filepath.FromSlash(file)), []byte(s), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(file)), []byte(s), 0o644); err != nil {
 			return fail(err)
 		}
 		rep.Files = append(rep.Files, file)
@@ -170,6 +176,13 @@ func StubTree(src, dst string) (*StubReport, error) {
 // case-sensitive one stay distinct. It returns the first component of dst
 // that does not exist yet, the directory a failed copy removes.
 func outsideTree(src, dst string) (created string, err error) {
+	return outsideOf(src, "the sync tree "+src, dst)
+}
+
+// outsideOf is outsideTree for any directory src a copy walks, such as a
+// path outside the tree that it carries (Layout); the refusal calls src
+// what.
+func outsideOf(src, what, dst string) (created string, err error) {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return "", err
@@ -206,7 +219,7 @@ func outsideTree(src, dst string) (created string, err error) {
 			return "", err
 		}
 		if os.SameFile(srcInfo, info) {
-			return "", fmt.Errorf("oracle: stub output %s is inside the sync tree %s, which the copy would walk into", dst, src)
+			return "", fmt.Errorf("oracle: output %s is inside %s, which the copy would walk into", dst, what)
 		}
 		parent := filepath.Dir(a)
 		if parent == a {

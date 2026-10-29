@@ -273,7 +273,12 @@ export list (a type-only entry exports nothing), a re-exported,
 default-exported, generic, generator or overloaded `main`, a
 `preprocessor`). `wltest stub` writes the stubbed copy to a new directory
 outside the tree, decided by file identity rather than spelling, never in
-place. Because the copy's metadata still describes the
+place. The paths outside the tree that its codebase entries name (a
+`relative_path`, an asset's `from`, an `inject` file) are carried at the
+same places relative to the stubbed tree, which is then written below as
+many of the tree's parent directories' names as the furthest of them
+climbs: `wmill.yaml` stays as written, because the CLI digests the entry's
+settings as text ([WR-49](../semantics/languages.md#wr-49)). Because the copy's metadata still describes the
 originals, `record` runs the CLI's `generate-metadata` in it and requires
 every path script's generated schema to equal the original's: the CLI
 derives the schema from the signature, so this checks on the oracle that the
@@ -490,6 +495,19 @@ their root jobs were not in flight together.
   windmill-lite. The new fixture `stub/codebase` (a retry inside a loop
   on a CommonJS codebase script, then an ESM one) recorded on the oracle
   exactly as its `expect` and windmill-lite's run give it.
+
+- E4b's follow-up E4c makes every copy of a sync tree (`wltest stub`'s,
+  the stubbed copy `wltest check` builds, and the copies `wltest record`
+  pushes, stubbed or not) carry what the tree's codebase entries name
+  outside it, at the same places relative to the copied tree, without
+  rewriting `wmill.yaml` (`oracle.CopyLayout`). Before it, an entry whose
+  `relative_path` or asset lay outside the tree built and checked on the
+  original, but its stubbed copy failed every flow that used it with
+  `invalid_asset`, and the CLI would have missed the same files in the
+  pushed copy. The fixtures `stub/outside` and `languages/codebase-outside`
+  (a `relative_path` of `../shared`, an asset and an import below it) are
+  recorded on the oracle through those copies and match windmill-lite's
+  runs.
 
 ## Spec IDs relied on
 

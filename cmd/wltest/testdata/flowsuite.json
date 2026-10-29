@@ -1,5 +1,5 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3, NI and E4b of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3, NI and E4b of ADR 0012, and E4b's follow-up E4c): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
     "N1a",
@@ -14,7 +14,8 @@
     "N3c",
     "NI",
     "N4",
-    "E4b"
+    "E4b",
+    "E4c"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -389,6 +390,7 @@
     "conformance/flows/languages/codebase-cases/inject": "E3e",
     "conformance/flows/languages/codebase-cases/loader": "E3e",
     "conformance/flows/languages/codebase-cases/native_control": "E3e",
+    "conformance/flows/languages/codebase-outside/read": "E4c",
     "conformance/flows/languages/codebase/chain": "E1",
     "conformance/flows/languages/wr-16/wr16-e": "E3e",
     "conformance/flows/languages/wr-28/wr28-a": "E3e",
@@ -433,6 +435,7 @@
     "conformance/flows/stub/codebase/ok": "E4b",
     "conformance/flows/stub/collapsed/ok": "E4b",
     "conformance/flows/stub/nested/ok": "E4b",
+    "conformance/flows/stub/outside/ok": "E4c",
     "conformance/flows/stub/retry_loop/exhausted": "E4b",
     "conformance/flows/stub/retry_loop/ok": "E4b",
     "conformance/flows/stub/scopes/alone": "E4b",

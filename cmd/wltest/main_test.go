@@ -72,6 +72,25 @@ func TestStub(t *testing.T) {
 		t.Fatal("the refused output was written")
 	}
 
+	// A tree whose codebase entry names paths outside it is stubbed below
+	// the output, with those paths beside it (oracle.Layout), and the
+	// unchanged wmill.yaml reaches them from the stubbed tree.
+	out = filepath.Join(t.TempDir(), "stubbed")
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"stub", "--out", out, "../../conformance/flows/stub/outside/windmill"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if stdout.String() != "stubbed f/wl_stub_out/tag.ts\ncarried ../shared\ntree windmill\n" || !strings.Contains(stderr.String(), "generate-metadata in "+filepath.Join(out, "windmill")+" before") {
+		t.Fatalf("stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+	for _, p := range []string{"wmill.yaml", "../shared/lib/assets/child.mjs", "../shared/lib/label.ts"} {
+		want, _ := os.ReadFile(filepath.Join("../../conformance/flows/stub/outside/windmill", p))
+		if got, err := os.ReadFile(filepath.Join(out, "windmill", p)); err != nil || string(got) != string(want) {
+			t.Fatalf("%s: %q %v", p, got, err)
+		}
+	}
+
 	tree := t.TempDir()
 	for p, s := range map[string]string{"wmill.yaml": "defaultTs: bun\n", "f/x/a.py": "def main():\n  pass\n"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(tree, p)), 0o755); err != nil {

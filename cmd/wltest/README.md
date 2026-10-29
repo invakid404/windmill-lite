@@ -99,16 +99,25 @@ bin/wltest stub --out <dir> <sync tree>
 ```
 
 Copies the sync tree (the directory of its `wmill.yaml`) to `<dir>`, which
-must not exist and must not lie inside the tree (compared by file identity,
-so a symbolic link or a case alias counts),
+must not exist and must not lie inside the tree or a directory the copy
+carries (compared by file identity, so a symbolic link or a case alias
+counts),
 with the source of every Bun script and every `!inline` Bun rawscript
 replaced by a stub that keeps `main`'s declaration with its parameter list
 and the type declarations, never calls it, and exports a function under
 the name `main` that asks the replay service for its outcome
 ([ADR 0011](../../docs/design/0011-differential-testing.md) stub mode). It
-prints one `stubbed <file>` line per replaced source. The copy's metadata
-still describes the originals, so run `npx -y windmill-cli@1.767.0
-generate-metadata` in it before pushing it. A tree in which some executed
+prints one `stubbed <file>` line per replaced source. When the tree's
+codebase entries name paths outside it (`relative_path`, assets' `from`,
+`inject`), `wmill.yaml` is kept as written and those paths are carried at
+the same places relative to the stubbed tree: the stubbed tree is then
+`<dir>/<root>`, below as many of the tree's parent directories' names as
+the furthest path climbs, and the command prints a `carried <path>` line
+per carried path and a `tree <root>` line
+([internal/oracle](../../internal/oracle/README.md#copies-of-a-sync-tree)).
+The copy's metadata still describes the originals, so run `npx -y
+windmill-cli@1.767.0 generate-metadata` in the stubbed tree before pushing
+it. A tree in which some executed
 script would keep its body is refused, with
 `{"error":"stub_unsupported","file":…,"reason":…}` on standard output and
 exit 1.
@@ -394,7 +403,9 @@ the effects whose `root` is the run's id (`WM_ROOT_JOB_ID`), so the runs
 of a group stay apart, and refuses any other root with 409 (OR-16/c).
 In stub mode the runs run the stubbed copy of the sync tree that `record`
 pushes (`oracle.StubTree`, written to the fixture's work directory and
-built instead of the tree), and each run's `replay` table answers its
+built instead of the tree, with the paths outside the tree that its
+codebase entries name carried beside it, so that the build reads the same
+assets as from the original), and each run's `replay` table answers its
 stubs. The service locates a stub's job at the site the hook recorded:
 the module's site, never an attempt, since the service counts attempts
 itself (ADR 0011). After the run, `conformance.CheckReplay`, the check
@@ -544,7 +555,9 @@ Windmill v1.767.0's image).
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a
   parallel loop, and two concurrent outer runs), plus E4b's retry inside
-  a loop on codebase scripts (`stub/codebase`), on windmill-lite. Each run
+  a loop on codebase scripts (`stub/codebase`) and E4c's codebase entry
+  whose `relative_path` and asset lie outside the tree (`stub/outside`),
+  on windmill-lite. Each run
   must match its `expect` and, with the `expect` dropped, the oracle's
   recording, effects included, in `fresh` and in `warm`. A run without a
   recording fails the test without stopping it. Its group, `scopes` runs
