@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // contextNames are the names JE-6's shortcut answers: the context values
@@ -26,7 +27,9 @@ var bindable = append(slices.Clone(contextNames), "WM_SCHEDULED_FOR", "flow_inpu
 //   - Mode: statement mode or expression mode (JE-13).
 //   - Binds: the names the trimmed text mentions (JE-10, JE-17).
 //   - Source: the trimmed text after the rewrites of JE-11 and JE-12, in
-//     the wrapper the mode selects (JE-13, JE-14).
+//     the wrapper the mode selects (JE-13, JE-14); or, when JE-11's
+//     rewrite would close a call inside a character, where Windmill's
+//     evaluator panics, no Source and that byte offset as RewritePanic.
 func Compile(site SiteKind, text string) *Expr {
 	t := text
 	if site.Predicate() {
@@ -50,7 +53,12 @@ func Compile(site SiteKind, text string) *Expr {
 	if slices.Contains(contextNames, t) {
 		e.Shortcut.ContextName = t
 	}
-	e.Source = wrap(e.Mode, rewriteResults(rewriteCalls(t)))
+	code, at := rewriteCalls(t)
+	if at != 0 {
+		e.RewritePanic = at
+		return e
+	}
+	e.Source = wrap(e.Mode, rewriteResults(code))
 	return e
 }
 
@@ -206,10 +214,16 @@ var helperCalls = []string{"variable(", "resource(", "flow_user_state("}
 
 // rewriteCalls applies JE-11: every occurrence of a helper call text, with
 // no word boundary and inside strings and comments too, becomes
-// (await <call>), its closing parenthesis found by counting parentheses
-// from the call's own. A call whose parentheses never balance is awaited
-// to the end of the text.
-func rewriteCalls(t string) string {
+// (await <call>). The inserted ) goes before the call's own closing
+// parenthesis, found by counting parentheses from the call's own, or at
+// the end of the text when they never balance. Windmill counts that
+// position in characters from the start of the text and applies the count
+// as a byte offset: for text that is ASCII up to there the two agree, and
+// otherwise the ) lands earlier by the extra bytes of the characters
+// before it. Where it would land inside a character, Windmill's evaluator
+// panics; rewriteCalls then returns that byte offset as panicAt, with no
+// code.
+func rewriteCalls(t string) (code string, panicAt int) {
 	type mark struct {
 		at    int
 		close bool
@@ -232,17 +246,21 @@ func rewriteCalls(t string) string {
 				case ')':
 					depth--
 					if depth == 0 {
-						end = j + 1
+						end = j
 						break scan
 					}
 				}
 			}
-			marks = append(marks, mark{start, false}, mark{end, true})
+			at := utf8.RuneCountInString(t[:end])
+			if at < len(t) && !utf8.RuneStart(t[at]) {
+				return "", at
+			}
+			marks = append(marks, mark{start, false}, mark{at, true})
 			from = start + len(call)
 		}
 	}
 	if len(marks) == 0 {
-		return t
+		return t, 0
 	}
 	// At one position, a call that ends closes before the next one opens.
 	slices.SortStableFunc(marks, func(a, b mark) int {
@@ -269,7 +287,7 @@ func rewriteCalls(t string) string {
 		}
 	}
 	b.WriteString(t[last:])
-	return b.String()
+	return b.String(), 0
 }
 
 // resultsRead is JE-12's pattern: results, an optional ?, then a dot and

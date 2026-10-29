@@ -155,13 +155,17 @@ func (e *Engine) Compile(source string) (expr.Program, error) {
 // the evaluation ends is abandoned, and its result is dropped. Every Call
 // must be non-nil.
 //
-// The completion value is settled when the program's top level returns
-// something other than a Promise, or when the Promise it returned has
-// settled; jobs still queued then never run. A job that throws fails the
-// evaluation with its exception. An attempt that ends while a built-in or the
-// readback is still running ends the evaluation all the same: Eval returns
-// expr.ErrAttemptTimeout or context.Cause(ctx), whatever the program got to. The result text is UTF-8, except that an
-// unpaired surrogate comes back as its three-byte (WTF-8) form.
+// Every script is compiled in strict mode (JE-50). The completion value is
+// read only once the job queue is empty: every queued job runs first, in
+// order, the jobs it queues included, so a chain of jobs that never ends
+// runs until the attempt limit. A job that throws is dropped (JE-51). The
+// value is then settled when the program's top level returned something
+// other than a Promise, or when the Promise it returned has settled. An
+// attempt that ends while a built-in or the readback is still running ends
+// the evaluation all the same: Eval returns expr.ErrAttemptTimeout or
+// context.Cause(ctx), whatever the program got to. The result text is UTF-8,
+// except that an unpaired surrogate comes back as its three-byte (WTF-8)
+// form.
 func (e *Engine) Eval(ctx context.Context, p expr.Program, in expr.Input) ([]byte, error) {
 	prog, ok := e.own(p)
 	if !ok {

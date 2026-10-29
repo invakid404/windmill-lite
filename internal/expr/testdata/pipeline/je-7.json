@@ -26,7 +26,7 @@
         "shortcut": {"flow_key": {"env": false, "key": "n + 0"}},
         "code": "flow_input.n + 0",
         "route": "engine",
-        "bound": {"flow_input": "{\"a\":{\"b\":\"nested\"},\"n\":12345678901234567890,\"a.b\":\"lit\"}"},
+        "bound": {"flow_input": "{\"a\":{\"b\": \"nested\"},\"n\":12345678901234567890,\"a.b\":\"lit\"}"},
         "results_lookup": false
       }
     },
@@ -46,7 +46,7 @@
       "recorded": {"exprs": "je-7", "case": "je-7-d"},
       "site": "input_transform",
       "text": "flow_input[\"a\"]",
-      "expect": {"shortcut": {"flow_key": {"env": false, "key": "a"}}, "route": "flow_key", "text": "{\"b\":\"nested\"}"}
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "a"}}, "route": "flow_key", "text": "{\"b\": \"nested\"}"}
     },
     {
       "spec": "JE-7/e",
@@ -84,12 +84,12 @@
       "spec": "JE-7",
       "variant": "stored-member",
       "provenance": "source-derived",
-      "title": "the member's text is a slice of the scope's flow input, verbatim",
-      "note": "the scope holds the flow input's stored text here, as the harness gives it; whether Windmill's text for a member read from the database is jsonb's spaced output is open (docs/design/README.md request 8)",
+      "title": "a member is returned in jsonb's printed form, as the worker holds the flow input",
+      "note": "the flow input is read back from jsonb member by member, so an object or array member has a space after each : and , (JE-7, JE-44's table; corrected 2026-10-28, request 8); the shortcut answers the scope's text verbatim, and the scope holds the worker's text",
       "site": "input_transform",
       "text": "flow_input.o",
       "context": {"previous_id": "", "flow_input": "{\"o\": {\"zz\": 1, \"y\": 1.50e1}}"},
-      "expect": {"route": "flow_key", "text": "{\"y\":15.0,\"zz\":1}"}
+      "expect": {"route": "flow_key", "text": "{\"y\": 15.0, \"zz\": 1}"}
     },
     {
       "spec": "JE-7",

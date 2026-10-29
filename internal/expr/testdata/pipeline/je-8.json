@@ -153,6 +153,28 @@
         "bound": {"previous_result": "1", "result": "1"},
         "results_lookup": false
       }
+    },
+    {
+      "spec": "JE-8",
+      "variant": "after-loop",
+      "provenance": "source-derived",
+      "title": "after a loop, previous_result is the worker's compact array of the children's results, numbers re-printed",
+      "note": "JE-44's table (corrected 2026-10-28, request 8): the iterations returned {\"b\":1.50,\"a\":1}; the worker decodes each stored result (jsonb order) and writes the array out again with the backend's JSON library, so 1.50 reads 1.5 and no spaces stay; the engine builds that text, and the shortcut answers it verbatim",
+      "site": "timeout",
+      "text": "results.l",
+      "context": {"previous_id": "l", "previous_result": "[{\"a\":1,\"b\":1.5},{\"a\":1,\"b\":1.5}]"},
+      "expect": {"shortcut": {"previous_id": "l", "results_path": {"step": "l"}}, "route": "previous_id", "text": "[{\"a\":1,\"b\":1.5},{\"a\":1,\"b\":1.5}]"}
+    },
+    {
+      "spec": "JE-8",
+      "variant": "reread",
+      "provenance": "source-derived",
+      "title": "a previous_result read back from storage is jsonb's printed text",
+      "note": "JE-44's table (corrected 2026-10-28, request 8): after a suspend, a restart from a step, the re-fetch fallback or a retry's predicates, previous_result is the one job's stored result in jsonb's printed form",
+      "site": "input_transform",
+      "text": "results?.a",
+      "context": {"previous_id": "a", "previous_result": "{\"a\": [1, 2], \"bb\": 1}"},
+      "expect": {"shortcut": {"previous_id": "a", "results_path": {"step": "a"}}, "route": "previous_id", "text": "{\"a\": [1, 2], \"bb\": 1}"}
     }
   ]
 }

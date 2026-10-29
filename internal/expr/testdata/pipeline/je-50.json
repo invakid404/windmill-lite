@@ -1,0 +1,35 @@
+{
+  "finding": "JE-50",
+  "cases": [
+    {
+      "spec": "JE-50/a",
+      "provenance": "source-derived",
+      "title": "this in a plain function call is undefined",
+      "note": "expression mode (no ;); a sloppy-mode script would give \"object\"",
+      "site": "input_transform",
+      "text": "typeof (function () { return this })()",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "\"undefined\""}}
+    },
+    {
+      "spec": "JE-50",
+      "variant": "undeclared-assignment",
+      "provenance": "source-derived",
+      "title": "assigning to an undeclared name throws",
+      "site": "input_transform",
+      "text": "(undeclared = 1)",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"error_prefix": "QuickJS evaluation error: Error: undeclared is not defined\n"}}
+    },
+    {
+      "spec": "JE-50",
+      "variant": "octal",
+      "provenance": "source-derived",
+      "title": "a legacy octal literal is a syntax error",
+      "site": "input_transform",
+      "text": "010",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error: Octal literals are not allowed in strict mode\n    at eval_script:1:7\n"}}
+    }
+  ]
+}

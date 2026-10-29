@@ -30,16 +30,23 @@ type Engine interface {
 	// its text as a JavaScript string, and each HostFunc is a global
 	// function; nothing else is defined beyond the engine's built-ins. Then
 	// each of in.Preludes runs, in order, as a global script of the same
-	// context. The program's completion value must be a string, or a
-	// Promise that settles with one; Eval runs pending jobs until it settles
-	// and returns the string as UTF-8.
+	// context. Every script is a strict-mode global script (JE-50). The
+	// program's completion value is a string, or a Promise that settles
+	// with one, which Eval returns as the engine converts it to UTF-8: an
+	// unpaired surrogate comes back as its three-byte (WTF-8) form, which is
+	// not UTF-8.
+	//
+	// Eval reads the completion value only once no job is queued: it runs
+	// every queued job, the jobs those jobs queue included, in order, before
+	// it looks, and again after each host call settles. A job that throws is
+	// dropped, and fails nothing (JE-51).
 	//
 	// Errors:
 	//   - *Exception: the program threw, or its Promise rejected;
 	//   - ErrAttemptTimeout: the attempt reached Limits.Attempt and was
 	//     interrupted (deviation D8);
 	//   - ErrNotString: the program completed with something other than a
-	//     string;
+	//     string, which no conversion turns into one;
 	//   - context.Cause(ctx), when ctx ended before or during the
 	//     evaluation, which is then interrupted.
 	Eval(ctx context.Context, p Program, in Input) ([]byte, error)
@@ -96,8 +103,9 @@ type HostFunc struct {
 type Thrown uint8
 
 const (
-	// ThrownError is an Error object (any value whose name and message the
-	// engine read).
+	// ThrownError is an object of the engine's Error class, an instance of
+	// any of its subclasses included; an object that only looks like one is
+	// ThrownOther (JE-21).
 	ThrownError Thrown = iota + 1
 	// ThrownNull is a bare throw null.
 	ThrownNull
@@ -108,22 +116,110 @@ const (
 )
 
 // Exception is a value a program threw, or with which its Promise rejected.
-// It carries the engine's own texts; the messages that wrap them are the
-// pipeline's (B2b).
+// It carries the engine's own texts and what it knows of the value; the
+// messages written from them are the pipeline's (B2b).
+//
+// Texts are as the engine converts them to UTF-8, so an unpaired surrogate
+// comes back in its three-byte form, which is not UTF-8 (JE-52).
 type Exception struct {
 	Thrown Thrown
-	// Name and Message are the Error object's name and message, for
-	// ThrownError.
-	Name    string
-	Message string
-	// Text is the thrown value converted to a string by the engine, for
-	// example "ReferenceError: x is not defined".
+	// Name is the Error object's name, for ThrownError.
+	Name string
+	// Message and Stack are the Error object's message and stack, for
+	// ThrownError, each converted to a string as Windmill's embedding reads
+	// it. HasMessage and HasStack report whether there is one: there is
+	// none when the property is undefined or null, or when reading it or
+	// converting it to a string throws.
+	Message    string
+	HasMessage bool
+	Stack      string
+	HasStack   bool
+	// Value is what the engine knows of the thrown value, for ThrownOther.
+	Value ThrownValue
+	// Text is a diagnostic: for an Error, its name and message joined as
+	// Error.prototype.toString joins them ("ReferenceError: x is not
+	// defined"); for a thrown string, number or boolean, its string form;
+	// and empty for anything else: a symbol's or an object's conversion
+	// would run the program's code, and a BigInt's decimal text can take
+	// longer to write than the attempt has left. Reading the exception back
+	// does no more than Windmill's embedding needs: an Error's message and
+	// stack, a string's text, and a value's kind and payload.
 	Text string
-	// Stack is the Error object's stack, if it has one.
-	Stack string
 }
 
-func (e *Exception) Error() string { return "expr: JavaScript exception: " + e.Text }
+// ThrownValue is a thrown value that is not an Error: its kind, as
+// Windmill's embedding (rquickjs 0.11.0) classifies it, and its payload,
+// from which the pipeline writes the value's debug form (JE-21).
+type ThrownValue struct {
+	Kind ValueKind
+	// Int, Float and Bool are the payloads of KindInt, KindFloat and
+	// KindBool.
+	Int   int32
+	Float float64
+	Bool  bool
+	// String is KindString's payload, as the engine converts it.
+	String string
+	// Address is the engine's address of a symbol or an object, which
+	// changes from run to run.
+	Address uintptr
+}
+
+// ValueKind is the kind of a thrown value that is not an Error: the
+// engine's tag, and for an object the first of array, constructor,
+// function, promise and proxy that it is.
+type ValueKind uint8
+
+const (
+	KindUnknown ValueKind = iota
+	KindBool
+	// KindInt is a number the engine holds as a 32-bit integer.
+	KindInt
+	// KindFloat is any other number.
+	KindFloat
+	KindString
+	KindSymbol
+	KindArray
+	// KindConstructor is a function the engine can construct with: a
+	// class, or a function declared with function.
+	KindConstructor
+	// KindFunction is any other function, such as an arrow function.
+	KindFunction
+	KindPromise
+	KindProxy
+	KindObject
+	KindBigInt
+)
+
+var valueKindNames = [...]string{
+	KindUnknown:     "value",
+	KindBool:        "boolean",
+	KindInt:         "integer",
+	KindFloat:       "number",
+	KindString:      "string",
+	KindSymbol:      "symbol",
+	KindArray:       "array",
+	KindConstructor: "constructor",
+	KindFunction:    "function",
+	KindPromise:     "promise",
+	KindProxy:       "proxy",
+	KindObject:      "object",
+	KindBigInt:      "BigInt",
+}
+
+// String names the kind in lower case, for diagnostics.
+func (k ValueKind) String() string {
+	if int(k) < len(valueKindNames) {
+		return valueKindNames[k]
+	}
+	return fmt.Sprintf("ValueKind(%d)", uint8(k))
+}
+
+func (e *Exception) Error() string {
+	if e.Text == "" && e.Thrown == ThrownOther {
+		return "expr: JavaScript exception: a thrown " + e.Value.Kind.String()
+	}
+	return "expr: JavaScript exception: " + e.Text
+}
 
 // ErrAttemptTimeout reports an evaluation attempt that reached its wall-clock
 // limit and was interrupted (JE-2, deviation D8).
