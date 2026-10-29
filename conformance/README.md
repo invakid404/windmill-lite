@@ -13,8 +13,9 @@ cases, and those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
 engine core (milestones E1, N1a and N1b), which runs sequential flows of
-Bun steps and their failure modules; it also runs the expression cases end to end, as the generated
-one-step flows `wltest record` lifts them into. The runs it cannot run yet
+Bun steps and their failure modules; it also runs the expression cases
+end to end, as the generated one-step flows `wltest record` lifts them
+into. The runs it cannot run yet
 are reported as unsupported, and the runs it must pass are listed in
 `cmd/wltest/testdata/flowsuite.json`
 ([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression

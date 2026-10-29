@@ -257,7 +257,7 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (`kind: script`), a flow the compiler refuses as an unsupported feature,
 language or pinned hash, a script of another harness or boundary (C3n), a
 flow the engine refuses at open (`engine.ErrUnsupported`, which names the
-milestone: failure modules, waits, retries, containers, subflows), and a
+milestone: waits, retries, containers, subflows, a preprocessor), and a
 flow that reads the platform, which needs the platform providers of PF2:
 its compiled program holds `variable(`, `resource(`, `flow_user_state(`,
 `$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or a script it
