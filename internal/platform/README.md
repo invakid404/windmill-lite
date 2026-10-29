@@ -263,6 +263,9 @@ entry that expired by the latest time a `Get` gave, so it holds only
 entries still live then, whatever their number, and the heap, which
 keeps the older expiries of keys stored again until they come up, is
 rebuilt from the live entries once it has outgrown twice their number.
+Its backing array keeps no key it has given up: a popped slot is
+cleared, a rebuild clears the slots past the live expiries, and a heap
+that a drain empties gives its array up.
 A hit compares an entry's expiry with its own `Get`'s time; only the
 reclaiming uses the latest one, so with clocks that disagree (H10's
 record mode) an entry may go before its own run's clock reaches its
@@ -339,7 +342,8 @@ One walker implements resolution for the three contracts of
 - `results_test.go` (N4) checks `MemoryResults`: a value until its expiry
   and not at it, a replacing write, copies kept and returned, a burst of
   expired entries reclaimed while a small working set goes on, a key
-  stored again many times keeping the heap bounded, the services' one
+  stored again many times keeping the heap bounded, the heap's array
+  holding no key it gave up (`TestMemoryResultsReleasesKeys`), the services' one
   default and a host's cache, and concurrent writers and readers seeing
   whole values.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's
