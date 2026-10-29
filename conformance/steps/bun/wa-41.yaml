@@ -12,12 +12,15 @@ note: >-
   windmill-client@1.767.0 by internal/platform/facade's
   TestUnsupportedPolicyOnTheClient, in fail and observe mode. The same calls
   are recorded through the intercepted fetch (warm) and over loopback TCP
-  (fresh), as WA-30/a requires.
+  (fresh), as WA-30/a requires. Since milestone PF3 serves dispatch and
+  flow user state, a dispatch is refused only for a target not in the
+  bundle, with a 501 that names it (wa-15.yaml), and the swallowed 501 is
+  another route's.
 cases:
   - spec: WA-41/b
     variant: async-dispatch
     provenance: policy
-    title: an async dispatch whose 501 body the script takes for a job id, as the client does (WA-V5/a), fails the step though it returned normally
+    title: an async dispatch whose 501 body the script takes for a job id, as the client does (WA-V5/a), fails the step though it returned normally; the 501 is the refusal of a target not in the bundle, which the error quotes
     script: |
       export async function main() {
         const e = process.env;
@@ -32,28 +35,28 @@ cases:
       - args: '{}'
         expect:
           status: failure
-          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}", calls: ["POST /w/{ws}/jobs/run/p/{path}"]}}
+          result: {error: {name: UnsupportedPlatformCall, message: "dispatch target not in bundle: u/t/x", calls: ["POST /w/{ws}/jobs/run/p/{path}"]}}
         calls: ["501 POST /w/{ws}/jobs/run/p/{path}"]
   - spec: WA-41/b
     variant: swallowed
     provenance: policy
-    title: a flow-state write whose 501 the script swallows, as setFlowUserState does (WA-V5/b), fails the step; the served root lookup does not count
+    title: a 501 the script swallows, as setFlowUserState swallows one (WA-V5/b), fails the step; the served root lookup does not count
     script: |
       export async function main() {
         const e = process.env;
         const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
         const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
         const root = await (await fetch(`${base}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: auth })).json();
-        const res = await fetch(`${base}/jobs/flow/user_states/${root}/k`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "1" });
-        if (!res.ok) console.error(`Error setting flow user state at k: ${await res.text()}`);
+        const res = await fetch(`${base}/jobs_u/queue/cancel/${root}`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "{}" });
+        if (!res.ok) console.error(`Error cancelling ${root}: ${await res.text()}`);
         return null;
       }
     runs:
       - args: '{}'
         expect:
           status: failure
-          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}", calls: ["POST /w/{ws}/jobs/flow/user_states/{id}/{key}"]}}
-        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "501 POST /w/{ws}/jobs/flow/user_states/{id}/{key}"]
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: POST /w/{ws}/jobs_u/queue/cancel/{id}", calls: ["POST /w/{ws}/jobs_u/queue/cancel/{id}"]}}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "501 POST /w/{ws}/jobs_u/queue/cancel/{id}"]
   - spec: WA-41/b
     variant: every-call
     provenance: policy

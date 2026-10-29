@@ -293,6 +293,39 @@ waits on an external gate except R1.
   `client-api/providers`, recorded on the oracle, whose runs the flow suite
   requires; WA-11/b is a write (`later`), deferred with the reason.
 
+- PF3 put the job registry, flow user state, the object store and the
+  dispatcher's interface in `internal/platform`, as the layout says, their
+  routes in the facade, and the default dispatcher in `internal/engine`
+  (`engine.Dispatcher`, with `engine.RunScript` for a root script's run as
+  a script job), since it runs the engine's program and the engine
+  imports `internal/platform`. A flow fixture may list `roots` in its
+  `fixture.yaml`, the bundle's other roots (the targets its steps
+  dispatch, which a host contract lists), which `wltest check` compiles as
+  the default dispatcher's program. "The WA-5, WA-6, WA-14 and WA-16
+  cases" in PF3's row are read as PF2's are, each catalogue case at the
+  level that can run it: WA-5/a and /c as step cases (PF1's `wa-5.yaml`)
+  and, inside bodies, in the flow fixture `client-api/flow-path`, WA-5/b
+  deferred while schedules are out of scope; WA-6/a, /c and /d as that
+  fixture's runs `seq`, `par`, `branch` and `branch_default`, whose
+  recordings the flow suite requires (/d since N3b's branches, which
+  merged first); WA-14/a as step cases (`wa-14.yaml`), on the stock client
+  (`TestFlowUserStateOnTheClient`) and in the flow fixture
+  `client-api/user-state`, recorded on the oracle, whose runs the flow
+  suite requires, WA-14/c by internal/platform's `TestFlowUserState`, and
+  WA-14/b (Python) deferred; WA-16/a and /c as step cases (`wa-16.yaml`)
+  and on the stock client (`TestObjectsOnTheClient`, which checks WA-16/b,
+  the client's own refusal, too), WA-16/d (a CE observation) deferred.
+  WA-6/b needs a retry inside a container's body, which N2 left to NI;
+  PF3 does not need NI merged, and the job identity it observes is PF1's,
+  so by the rule above it gates NI, the milestone that implements the
+  last feature it needs: the oracle recorded it with the fixture, and NI
+  adds it to `flowsuite.json`. "The dispatch-target restriction
+  case" is `wa-15.yaml`, whose cases a step case's bundle, which has no
+  root to dispatch, refuses, and `TestDispatchRefusedOnTheClient` on the
+  stock client. The flow fixture `client-api/dispatch`, on the oracle's
+  second session (two workers, OR-5), records what the reference leaves
+  out of a dispatched job: its identity, which the engine reproduces.
+
 - N3b runs while loops on N3a's sequential loop, with no iterator, and
   `branchone` and `branchall` on frames: each branch that runs is a child
   flow of its own, which the trace lists under `b:<n>` or `b:default`.

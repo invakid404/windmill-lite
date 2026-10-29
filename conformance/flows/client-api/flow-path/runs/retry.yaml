@@ -1,0 +1,7 @@
+# WA-6/b: a body step with retry makes the body non-simple, so each
+# iteration is a sub-flow at <flow>/loop-<index>.
+spec: [WA-6/b]
+target: f/wl_pf3_fp/retry
+claims:
+  - {at: /result/0/flow_path, equals: f/wl_pf3_fp/retry/loop-0}
+  - {at: /result/1/flow_path, equals: f/wl_pf3_fp/retry/loop-1}

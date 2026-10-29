@@ -1,0 +1,7 @@
+# WA-6/a: the simple body runs directly under the flow, so both iterations
+# see the flow's own path.
+spec: [WA-6/a]
+target: f/wl_pf3_fp/seq
+claims:
+  - {at: /result/0/flow_path, equals: f/wl_pf3_fp/seq}
+  - {at: /result/1/flow_path, equals: f/wl_pf3_fp/seq}

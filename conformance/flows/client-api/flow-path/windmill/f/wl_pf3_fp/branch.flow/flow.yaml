@@ -1,0 +1,45 @@
+summary: 'PF3 WA-6/d: branchone sub-flow numbering'
+value:
+  modules:
+    - id: bo
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: s0
+                value:
+                  type: rawscript
+                  content: '!inline s0.ts'
+                  input_transforms: {}
+                  lock: '!inline s0.lock'
+                  language: bun
+            expr: flow_input.pick === 0
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: s1
+                value:
+                  type: rawscript
+                  content: '!inline s1.ts'
+                  input_transforms: {}
+                  lock: '!inline s1.lock'
+                  language: bun
+            expr: flow_input.pick === 1
+            parallel: true
+            skip_failure: true
+        default:
+          - id: d
+            value:
+              type: rawscript
+              content: '!inline d.ts'
+              input_transforms: {}
+              lock: '!inline d.lock'
+              language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    pick:
+      type: number
+      description: ''
+  required: []

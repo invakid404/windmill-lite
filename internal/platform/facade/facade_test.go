@@ -269,8 +269,8 @@ func TestUnsupportedRoutes(t *testing.T) {
 	o := f.WarmOrigin()
 	for _, c := range []struct{ method, url, body string }{
 		{"GET", o + "/api/w/ws/jobs_u/get/j1", "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}"},
-		{"POST", o + "/api/w/ws/jobs/run/p/u/t/x?tag=a", "Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}"},
-		{"POST", o + "/api/w/ws/jobs/flow/user_states/r1/k", "Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}"},
+		{"POST", o + "/api/w/ws/jobs/run/preview?tag=a", "Not implemented in windmill-lite: POST /w/{ws}/jobs/run/preview"},
+		{"POST", o + "/api/w/ws/jobs_u/queue/cancel/j1", "Not implemented in windmill-lite: POST /w/{ws}/jobs_u/queue/cancel/{id}"},
 		// A job the facade does not know of (PF3's registry).
 		{"GET", o + "/api/w/ws/jobs_u/get_root_job_id/elsewhere", "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get_root_job_id/{id}"},
 		{"GET", o + "/api/w/ws/no_such/route", "Not implemented in windmill-lite: GET /w/ws/no_such/route"},
@@ -282,12 +282,12 @@ func TestUnsupportedRoutes(t *testing.T) {
 		}
 	}
 	got := s.Unsupported(context.Background())
-	want := []string{"GET /w/{ws}/jobs_u/get/{id}", "POST /w/{ws}/jobs/run/p/{path}", "POST /w/{ws}/jobs/flow/user_states/{id}/{key}",
+	want := []string{"GET /w/{ws}/jobs_u/get/{id}", "POST /w/{ws}/jobs/run/preview", "POST /w/{ws}/jobs_u/queue/cancel/{id}",
 		"GET /w/{ws}/jobs_u/get_root_job_id/{id}", "GET /w/ws/no_such/route", "GET /elsewhere"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("unsupported %q, want %q", got, want)
 	}
-	if calls := s.Calls(); calls[1].Query != "tag=a" || calls[1].Path != "/api/w/ws/jobs/run/p/u/t/x" {
+	if calls := s.Calls(); calls[1].Query != "tag=a" || calls[1].Path != "/api/w/ws/jobs/run/preview" {
 		t.Errorf("recorded %+v", calls[1])
 	}
 }
@@ -340,7 +340,10 @@ func TestExecutorPolicy(t *testing.T) {
 			}
 		}
 	}
-	const want = `{"name":"UnsupportedPlatformCall","message":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","calls":["POST /w/{ws}/jobs/run/p/{path}","POST /w/{ws}/oidc/token/{audience}"]}`
+	const want = `{"name":"UnsupportedPlatformCall","message":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/preview","calls":["POST /w/{ws}/jobs/run/preview","POST /w/{ws}/oidc/token/{audience}"]}`
+	// A refused dispatch's 501 names its target, and the policy's error
+	// quotes it (ADR 0001 §5a).
+	const refused = `{"name":"UnsupportedPlatformCall","message":"dispatch target not in bundle: u/t/x","calls":["POST /w/{ws}/jobs/run/p/{path}","POST /w/{ws}/jobs/run/preview"]}`
 	for _, c := range []struct {
 		name   string
 		policy Policy
@@ -349,9 +352,10 @@ func TestExecutorPolicy(t *testing.T) {
 		want   string
 		origin engine.Origin
 	}{
-		{"fail, ok replaced", PolicyFail, ok, calls("/api/w/ws/jobs/run/p/u/t/x", "/api/w/ws/oidc/token/aud"), want, engine.OriginFacade},
-		{"fail, error replaced", PolicyFail, thrown, calls("/api/w/ws/jobs/run/p/u/t/x", "/api/w/ws/oidc/token/aud"), want, engine.OriginFacade},
-		{"observe", PolicyObserve, ok, calls("/api/w/ws/jobs/run/p/u/t/x"), `"job id"`, ""},
+		{"fail, ok replaced", PolicyFail, ok, calls("/api/w/ws/jobs/run/preview", "/api/w/ws/oidc/token/aud"), want, engine.OriginFacade},
+		{"fail, error replaced", PolicyFail, thrown, calls("/api/w/ws/jobs/run/preview", "/api/w/ws/oidc/token/aud"), want, engine.OriginFacade},
+		{"fail, dispatch refused", PolicyFail, ok, calls("/api/w/ws/jobs/run/p/u/t/x", "/api/w/ws/jobs/run/preview"), refused, engine.OriginFacade},
+		{"observe", PolicyObserve, ok, calls("/api/w/ws/jobs/run/preview", "/api/w/ws/jobs/run/p/u/t/x"), `"job id"`, ""},
 		{"no unsupported call", PolicyFail, ok, nil, `"job id"`, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -372,7 +376,7 @@ func TestExecutorPolicy(t *testing.T) {
 			}
 			if c.origin == engine.OriginFacade {
 				st := engine.StoreOutcome(out, "a")
-				if !st.Failed || st.Origin != engine.OriginFacade || string(st.Value.Producer()) != `{"error":`+want+`}` {
+				if !st.Failed || st.Origin != engine.OriginFacade || string(st.Value.Producer()) != `{"error":`+c.want+`}` {
 					t.Errorf("stored %+v %s", st, st.Value.Producer())
 				}
 			}
