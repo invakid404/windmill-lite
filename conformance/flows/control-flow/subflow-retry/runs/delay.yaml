@@ -1,0 +1,8 @@
+# CF-17, FX-26: a constant 2 s retry delay between a's two subflow
+# attempts.
+target: f/cfsr/delay
+args: {v: 7}
+# The second subflow job starts at least 2 s after the first one ended, as
+# recorded by oracle run 40915682847 (2.05 s).
+delays:
+  - {from: "m:a/r:0", to: "m:a", at_least_ms: 2000}

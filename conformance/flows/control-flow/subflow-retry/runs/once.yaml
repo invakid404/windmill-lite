@@ -1,0 +1,4 @@
+# CF-17, FX-26: a's subflow fails once; a's retry runs it again, and the
+# second subflow succeeds. b reads results.a.
+target: f/cfsr/once
+args: {v: 7}

@@ -238,7 +238,8 @@ real steps need private systems can then be compared on the oracle without
 those systems; the flows and tables stay with whoever owns them. Outcomes
 are idempotent per raw job id, and the attempt number counts from 0, as the
 `r:` segment does: it is the number of distinct job ids already seen at that
-site in the run. Milestone E4a owns the stub generator and the replay
+site in the run (below a retried flow step, across the step's attempts;
+milestone N5). Milestone E4a owns the stub generator and the replay
 service, with acceptance cases on the oracle for a retry inside a loop, a
 collapsed body, nested loops, a named subflow and a parallel loop under one
 outer run, and two concurrent outer runs. Milestone E4b runs the same cases
@@ -265,9 +266,11 @@ generator refuses a tree in which some executed script would keep its body
 `flow.yaml`, a hub or out-of-tree target, a script step pinned by hash,
 which selects a deployed version rather than the stub pushed at its path
 ([OF-14](../semantics/openflow.md#of-14)), a `flowscript` step, an
-AI-agent step), a retry on a subflow, loop or branch step (the walk puts a
-failed attempt's inner steps under `r:<k>`, which a table does not
-address), and a script whose `main` Windmill would not call as the stub's
+AI-agent step), a retry on a loop or branch step (the walk keeps a failed
+attempt as its last failed child alone, under `r:<k>` without the child's
+`i:` or `b:` segment, so none of its calls matches the site the replay
+service resolved, and a loop's other children are not walked), and a
+script whose `main` Windmill would not call as the stub's
 (no `function main` declaration, one not exported directly or through an
 export list (a type-only entry exports nothing), a re-exported,
 default-exported, generic, generator or overloaded `main`, a
@@ -305,8 +308,10 @@ is recorded as one of the run's effects, `{site, attempt, step, job, flow,
 root_flow, root, args}`, normalised like any value, so a recording shows
 where each call resolved and which scopes Windmill reported. After the run,
 each call must agree with the walk (a failed attempt `k` at
-`<site>/r:<k>`, the module's last job at `<site>`) and every walked job that
-executed a script must have called, or the run fails. A fixture opts in
+`<site>/r:<k>`, the module's last job at `<site>`; below a retried flow
+step, in the walk's order across the step's attempts, milestone N5) and
+every walked job that executed a script must have called, or the run
+fails. A fixture opts in
 with `stub: true`; runs that share a `group` are submitted together as
 concurrent outer runs, and fail together when one of them fails or when
 their root jobs were not in flight together.
@@ -497,6 +502,22 @@ their root jobs were not in flight together.
   windmill-lite. The new fixture `stub/codebase` (a retry inside a loop
   on a CommonJS codebase script, then an ESM one) recorded on the oracle
   exactly as its `expect` and windmill-lite's run give it.
+
+- Milestone N5 accepts a retry on a flow step in stub mode. The oracle
+  walks each failed attempt's subflow whole below the step's `r:<k>`
+  (`control-flow/subflow-retry`). The replay service resolves a step of
+  the subflow at its site without the attempt, since the attempt that
+  will become `r:<k>` is not known while it runs. It counts that step's
+  jobs across the attempts. So a table gives `<flow step>/<inner step>`
+  one outcome per job, in run order. `conformance.CheckReplay` holds each
+  call to the walk: its site is the job's walked site without attempt
+  segments, and its attempt is the job's place among the jobs walked at
+  that site that execute a script or called, ordered by the flow step's
+  attempt, then by the inner module's own. An identity job, such as a
+  step skipped in an earlier attempt, takes no place, since it never
+  calls (`stub/subflow_retry` run `skipped`). A retry on a loop or branch step stays refused: its
+  failed attempt is walked as its last failed child alone, without the
+  child's `i:` or `b:` segment (CF-22).
 
 - E4b's follow-up E4c makes every copy of a sync tree (`wltest stub`'s,
   the stubbed copy `wltest check` builds, and the copies `wltest record`

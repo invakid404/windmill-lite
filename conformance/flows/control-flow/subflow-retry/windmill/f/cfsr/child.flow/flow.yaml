@@ -1,0 +1,28 @@
+summary: 'N5 child flow: one flaky step'
+value:
+  modules:
+    - id: x
+      value:
+        type: script
+        input_transforms:
+          fails:
+            type: javascript
+            expr: flow_input.fails
+          tag:
+            type: javascript
+            expr: flow_input.tag
+          v:
+            type: javascript
+            expr: flow_input.v
+        path: f/cfsr/flaky
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    fails:
+      type: number
+    tag:
+      type: string
+    v:
+      type: ''
+  required: []
