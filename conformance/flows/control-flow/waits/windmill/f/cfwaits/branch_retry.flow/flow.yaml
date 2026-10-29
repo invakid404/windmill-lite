@@ -1,0 +1,44 @@
+summary: a retried module in a branch
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: b0
+                value:
+                  type: script
+                  input_transforms:
+                    tag:
+                      type: static
+                      value: b0
+                    v:
+                      type: static
+                      value: 0
+                  path: f/cfwaits/flaky
+                retry:
+                  constant:
+                    attempts: 1
+                    seconds: 0
+            expr: ''
+            parallel: true
+            skip_failure: false
+          - modules:
+              - id: b1
+                value:
+                  type: script
+                  input_transforms:
+                    x:
+                      type: static
+                      value: 1
+                  path: f/cfwaits/echo
+            expr: ''
+            parallel: true
+            skip_failure: false
+        parallel: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

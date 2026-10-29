@@ -1,0 +1,17 @@
+# CF-21: the sleep of the step before a sequential loop of child flows delays its
+# first child only: iteration 0's first job starts at least 2 s after a's
+# job ended, and iteration 1 follows at once (the recording's provenance).
+spec: [CF-21, FX-23]
+target: f/cf21/sleep_before_seq
+delays:
+  - {from: "m:a", to: "m:l/i:0/m:b", at_least_ms: 2000}
+expect:
+  status: success
+  result: [1, 2]
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: success, result: [1, 2]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:l/i:0/m:c": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:c": {status: success, args: {x: 2}, result: 2}

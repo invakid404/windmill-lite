@@ -1,0 +1,14 @@
+summary: ''
+description: ''
+lock: '!inline f/cfwaits/slow.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    ms:
+      type: number
+      description: ''
+      default: null
+  required:
+    - ms

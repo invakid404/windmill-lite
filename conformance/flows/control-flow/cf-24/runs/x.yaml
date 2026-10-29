@@ -1,0 +1,11 @@
+# CF-24/a: an inline step in a loop body's child flow gets the synthesized
+# path <flow path>/loop-<i>/<module id>.
+spec: [CF-24/a]
+target: f/cf24/x
+expect:
+  status: success
+  result: [f/cf24/x/loop-0/b]
+  steps:
+    "m:l": {status: success, result: [f/cf24/x/loop-0/b]}
+    "m:l/i:0/m:b": {status: success, args: {}, result: f/cf24/x/loop-0/b}
+    "m:l/i:0/m:c": {status: success, args: {x: f/cf24/x/loop-0/b}, result: f/cf24/x/loop-0/b}

@@ -1,0 +1,12 @@
+# CF-26/a: the body's last step has a sleep, so the body gets the virtual
+# identity b-v (OF-17), which the walker leaves out; each iteration's result
+# is b's.
+spec: [CF-26/a]
+target: f/cf26/a
+expect:
+  status: success
+  result: [10, 20]
+  steps:
+    "m:l": {status: success, result: [10, 20]}
+    "m:l/i:0/m:b": {status: success, args: {x: 10}, result: 10}
+    "m:l/i:1/m:b": {status: success, args: {x: 20}, result: 20}

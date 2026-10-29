@@ -1,0 +1,11 @@
+# FX-24/d (path 5): the collapsed loop's timeout of 1 s bounds the body job,
+# whose own timeout of 10 s is ignored; the error's step_id is the loop's.
+# The preview half is outside the reference configuration (ADR 0001).
+spec: [FX-24/d, FX-25]
+target: f/cf27/fx24_d
+expect:
+  status: failure
+  result: [{error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}]
+  steps:
+    "m:l": {status: failure, result: [{error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}]}
+    "m:l/i:0/m:x": {status: failure, args: {ms: 3000}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}}

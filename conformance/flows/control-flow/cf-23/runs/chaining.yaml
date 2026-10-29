@@ -1,0 +1,12 @@
+# CF-23/b: route 3, the loop starts right after a completed, so the flow
+# aborts with the InternalError and its failure module does not run.
+spec: [CF-23/b]
+target: f/cf23/chaining
+args: {k: 1}
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:l": {status: not_run, ran: false}
+    "s:failure": {status: not_run}

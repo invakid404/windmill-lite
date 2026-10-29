@@ -1,0 +1,9 @@
+# CF-21, FX-24: a collapsed loop's negative timeout fails its first body
+# job's push at the root's pickup, a failure of the loop step.
+spec: [CF-21, FX-24, FX-15]
+target: f/cfwaits/loop_timeout_negative_root
+expect:
+  status: failure
+  result: {error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}
+  steps:
+    "m:l": {status: failure, ran: false}

@@ -1,0 +1,11 @@
+# CF-24/b: the lite form drops an inline step's explicit path, so it gets
+# the synthesized path as in CF-24/a.
+spec: [CF-24/b]
+target: f/cf24/x_custom
+expect:
+  status: success
+  result: [f/cf24/x_custom/loop-0/b]
+  steps:
+    "m:l": {status: success, result: [f/cf24/x_custom/loop-0/b]}
+    "m:l/i:0/m:b": {status: success, args: {}, result: f/cf24/x_custom/loop-0/b}
+    "m:l/i:0/m:c": {status: success, args: {x: f/cf24/x_custom/loop-0/b}, result: f/cf24/x_custom/loop-0/b}

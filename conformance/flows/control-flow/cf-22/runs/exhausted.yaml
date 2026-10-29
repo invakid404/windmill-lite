@@ -1,0 +1,15 @@
+# CF-22, FX-26: the retried loop fails again, its one attempt spent, and the
+# flow fails with the second attempt's array.
+spec: [CF-22, FX-26]
+target: f/cf22/exhausted
+note: "Corrected after recording: oracle run 40852609901 walked the failed attempt's child flow modules below m:l/r:0, which the prediction left out."
+expect:
+  status: failure
+  result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b}}]
+  steps:
+    "m:l/r:0": {status: failure, args: {iter: {index: 0, value: 1}}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
+    "m:l/r:0/m:b": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
+    "m:l/r:0/m:c": {status: not_run, ran: false}
+    "m:l": {status: failure, result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b}}]}
+    "m:l/i:0/m:b": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
+    "m:l/i:0/m:c": {status: not_run}

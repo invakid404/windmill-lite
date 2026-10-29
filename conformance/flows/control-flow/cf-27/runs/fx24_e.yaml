@@ -1,0 +1,10 @@
+# FX-24/e (path 4): a parallel loop's iterations are child flows, which no
+# timer bounds: the 3 s step completes.
+spec: [FX-24/e]
+target: f/cf27/fx24_e
+expect:
+  status: success
+  result: [3000]
+  steps:
+    "m:l": {status: success, result: [3000]}
+    "m:l/i:0/m:x": {status: success, args: {ms: 3000}, result: 3000}

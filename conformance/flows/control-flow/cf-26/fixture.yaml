@@ -1,0 +1,13 @@
+# Milestone NI (ADR 0012): CF-26, the virtual identity step of a body.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-26. Every run is by
+# path after the deployment gate saw the flow's dependency job succeed
+# (the reference configuration of ADR 0001 section 1); the job kinds of the
+# root and of every child flow are in each recording's provenance
+# (timings.jobs).
+id: control-flow/cf-26
+spec: [CF-26, CF-26/a, OF-17]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

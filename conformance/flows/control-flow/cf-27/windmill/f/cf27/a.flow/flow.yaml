@@ -1,0 +1,30 @@
+summary: CF-27/a collapsed body jobs are timed
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                ms:
+                  type: static
+                  value: 3000
+              path: f/cf27/slow
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
+      timeout:
+        type: static
+        value: 1
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
