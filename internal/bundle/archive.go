@@ -384,3 +384,55 @@ func foldKey(s string) string {
 	}
 	return b.String()
 }
+
+// Extract writes the bundle of a .wlb archive into dir, which must not
+// exist or be empty, and returns its verification: Verify accepts the
+// archive first (opts), so its entries are clean relative names that make
+// one tree, and the written directory is verified again against the
+// archive's digest, so a file changed in between is caught.
+func Extract(archive, dir string, opts VerifyOptions) (*Verification, error) {
+	v, err := Verify(archive, opts)
+	if err != nil {
+		return nil, err
+	}
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
+		return nil, fmt.Errorf("bundle: %s is not empty", dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.Open(archive)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("bundle: %s: %w", archive, err)
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		p := filepath.Join(dir, filepath.FromSlash(strings.TrimPrefix(hdr.Name, "./")))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return nil, err
+		}
+		out, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		_, err = io.Copy(out, tr)
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return Verify(dir, VerifyOptions{Digest: v.Digest})
+}

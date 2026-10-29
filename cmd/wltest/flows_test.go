@@ -83,13 +83,13 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite is the exit gate of milestones E1 and N1a: every run the
-// flow suite requires passes in warm mode, on the engine and the real Bun
-// harness on the pinned Bun, each compared with its expect or recording.
-// Every other fixture under conformance/flows, and every expression file
-// under conformance/exprs as its generated one-step flow fixture, also
-// runs: each must load, and its runs are reported as passing, failing or
-// unsupported, with the reason.
+// TestFlowSuite is the exit gate of milestones E1, N1a and F1: every run
+// the flow suite requires passes in warm and in fresh mode, through wl on
+// the engine and the real Bun harness on the pinned Bun, each compared
+// with its expect or recording. Every other fixture under
+// conformance/flows, and every expression file under conformance/exprs as
+// its generated one-step flow fixture, also runs: each must load, and its
+// runs are reported as passing, failing or unsupported, with the reason.
 func TestFlowSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	req := requiredRuns(t)
@@ -99,7 +99,6 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer js.Close()
-	fc := &flowChecker{bun: bun, repo: root, mode: conformance.ModeWarm, js: js}
 	dirs, err := findFixtures([]string{flowsDir})
 	if err != nil {
 		t.Fatal(err)
@@ -109,56 +108,61 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
 	}
 	dirs = append(dirs, exprs...)
-	type outcome struct {
-		res  runResult
-		seen bool
-	}
-	got := map[string]outcome{}
-	tally := map[string]int{}
-	for _, fr := range fc.runFixtures(context.Background(), dirs) {
-		if fr.err != nil {
-			t.Errorf("fixture %s does not load: %v", fr.dir, fr.err)
-			continue
-		}
-		rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, r := range fr.runs {
-			key := filepath.ToSlash(rel) + "/" + r.run
-			got[key] = outcome{res: r, seen: true}
-			switch {
-			case r.unsupported != "":
-				tally["unsupported"]++
-			case len(r.problems) > 0:
-				tally["failed"]++
-			default:
-				tally["passed"]++
+	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh} {
+		t.Run(mode, func(t *testing.T) {
+			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js}
+			type outcome struct {
+				res  runResult
+				seen bool
 			}
-		}
-	}
-	var extra []string
-	for key, o := range got {
-		if _, ok := req[key]; !ok && o.res.unsupported == "" && len(o.res.problems) == 0 {
-			extra = append(extra, key)
-		}
-	}
-	for _, key := range slices.Sorted(maps.Keys(req)) {
-		o := got[key]
-		switch {
-		case !o.seen:
-			t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
-		case o.res.unsupported != "":
-			t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
-		case len(o.res.problems) > 0:
-			t.Errorf("required run %s (%s) failed:\n  %s\nharness diagnostics:\n%s", key, req[key], strings.Join(o.res.problems, "\n  "), o.res.diag)
-		}
-	}
-	slices.Sort(extra)
-	t.Logf("flow suite, mode warm: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
-		len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
-	if len(extra) > 0 {
-		t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
+			got := map[string]outcome{}
+			tally := map[string]int{}
+			for _, fr := range fc.runFixtures(context.Background(), dirs) {
+				if fr.err != nil {
+					t.Errorf("fixture %s does not load: %v", fr.dir, fr.err)
+					continue
+				}
+				rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, r := range fr.runs {
+					key := filepath.ToSlash(rel) + "/" + r.run
+					got[key] = outcome{res: r, seen: true}
+					switch {
+					case r.unsupported != "":
+						tally["unsupported"]++
+					case len(r.problems) > 0:
+						tally["failed"]++
+					default:
+						tally["passed"]++
+					}
+				}
+			}
+			var extra []string
+			for key, o := range got {
+				if _, ok := req[key]; !ok && o.res.unsupported == "" && len(o.res.problems) == 0 {
+					extra = append(extra, key)
+				}
+			}
+			for _, key := range slices.Sorted(maps.Keys(req)) {
+				o := got[key]
+				switch {
+				case !o.seen:
+					t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
+				case o.res.unsupported != "":
+					t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
+				case len(o.res.problems) > 0:
+					t.Errorf("required run %s (%s) failed:\n  %s\nharness diagnostics:\n%s", key, req[key], strings.Join(o.res.problems, "\n  "), o.res.diag)
+				}
+			}
+			slices.Sort(extra)
+			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
+				mode, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
+			if len(extra) > 0 {
+				t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
+			}
+		})
 	}
 }
 
@@ -324,8 +328,8 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"pass " + dir + " g_same_job_path\n",
 		// A script that does not build fails only the runs of the flows
 		// that reach it.
-		"fail " + dir + " h_build_problem\n  build: script inline-",
-		" (inline step a of f/t/broken): parse_failed: ",
+		"fail " + dir + " h_build_problem\n  build: f/t/broken step 'a' (script inline-",
+		"): parse_failed: ",
 		"2 passed, 5 failed, 1 unsupported (mode warm)",
 	} {
 		if !strings.Contains(out, want) {

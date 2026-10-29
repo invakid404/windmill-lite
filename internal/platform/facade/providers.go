@@ -11,14 +11,16 @@ import (
 // The resource and variable reads of ADR 0007's services (milestone PF2),
 // which the facade answers from Config.Platform: the three resource-read
 // contracts of WA-40 kept apart, and Windmill's statuses and bodies
-// (WA-10 to WA-12, WA-42). Writes (create, update) are `later` and answer
-// 501.
+// (WA-10 to WA-12, WA-42); and the update of a variable's value (WA-11,
+// milestone F1), when the variable service takes writes. The other writes
+// (creating a variable, the resource writes) are `later` and answer 501.
 func (f *Facade) serveProviders() {
 	f.Handle("getResourceValueInterpolated", f.resourceInterpolated)
 	f.Handle("getResourceValue", f.resourceRaw)
 	f.Handle("existsResource", f.resourceExists)
 	f.Handle("getVariableValue", f.variableValue)
 	f.Handle("existsVariable", f.variableExists)
+	f.Handle("updateVariable", f.variableUpdate)
 }
 
 // resourceInterpolated answers GET /w/{ws}/resources/get_value_interpolated/{path}
@@ -62,6 +64,37 @@ func (f *Facade) variableValue(ctx context.Context, c *Call) Reply {
 		return answer(nil, err)
 	}
 	return answer(platform.JSONString(v), nil)
+}
+
+// variableUpdate answers POST /w/{ws}/variables/update/{path} (WA-11):
+// its body is the API's EditVariable, of which the value and is_secret
+// are applied; description is not kept, since the services hold none. A
+// missing variable is the read's 404. A rename (a path other than the
+// route's) and a value already encrypted (already_encrypted=true) are not
+// served, and nor is any update when the variable service is read-only:
+// each answers 501. The answer is 200 with a text/plain body, as the API's
+// schema gives it; the reference does not give its text, which here names
+// the variable.
+func (f *Facade) variableUpdate(ctx context.Context, c *Call) Reply {
+	path := c.Params["path"]
+	var edit struct {
+		Path     *string `json:"path"`
+		Value    *string `json:"value"`
+		IsSecret *bool   `json:"is_secret"`
+	}
+	if err := json.Unmarshal(c.Body, &edit); err != nil {
+		return Error{Variant: "BadRequest", Message: "the body is not an EditVariable: " + err.Error()}.Reply()
+	}
+	if c.Query.Get("already_encrypted") == "true" || edit.Path != nil && *edit.Path != path {
+		return text(501, UnsupportedPrefix+c.Route.Name())
+	}
+	switch err := f.platform.UpdateVariable(ctx, path, edit.Value, edit.IsSecret); {
+	case errors.Is(err, platform.ErrReadOnlyVariables):
+		return text(501, UnsupportedPrefix+c.Route.Name())
+	case err != nil:
+		return answer(nil, err)
+	}
+	return text(200, "updated variable "+path)
 }
 
 func (f *Facade) variableExists(ctx context.Context, c *Call) Reply {

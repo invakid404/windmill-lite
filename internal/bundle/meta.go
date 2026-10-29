@@ -214,7 +214,8 @@ const (
 
 // ItemProblem is a Problem of one script or host-provided module.
 type ItemProblem struct {
-	// Item is "script <id>" or "host module <id>".
+	// Item is "script <id>" or "host module <id>"; Build names a script
+	// by ScriptItem instead.
 	Item string
 	Problem
 }
