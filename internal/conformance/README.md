@@ -181,7 +181,8 @@ run-and-wait response's body, which is text: a pointer can mask the whole
 [OR-31](../../docs/semantics/oracle.md#or-31); CLI deployment only) or
 `each_run` (after the push, and its variables again before every run, for
 a fixture whose runs change them). The last two need variables in
-`setup.yaml`. A run with `submit: run_wait_result` is submitted through the
+`setup.yaml`, and `each_run` refuses runs in a `group`, which would share
+the variables between resets. A run with `submit: run_wait_result` is submitted through the
 synchronous run-and-wait endpoint, then polled and walked like any other,
 and its observation holds the response; it runs a flow alone, so it takes
 no `kind: script`, `group`, `cancel_after_ms` or `replay`.
