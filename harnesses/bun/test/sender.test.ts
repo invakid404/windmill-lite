@@ -28,6 +28,11 @@ function rig(per = 1 << 30, stall = false) {
   );
   return {
     sender,
+    /** A synchronous write that takes every byte, as the harness's
+     * writeSync to the socket's file descriptor does. */
+    writeSync(b: Uint8Array) {
+      written.push(b.slice());
+    },
     drain() {
       full = false;
       sender.flush();
@@ -119,4 +124,22 @@ test("a result never overtakes a large platform call its invocation made before 
   for (let i = 0; i < 50; i++) r.drain();
   const order = r.messages().map((m) => `${m.t}:${m.t === "platform" ? m.inv : m.id}`);
   expect(order).toEqual(["result:i2", "platform:i1", "result:i1"]);
+});
+
+test("a frame that must reach the engine now goes out synchronously, after the frame in progress and before a stream's next part (child, WR-55)", () => {
+  // The socket took 7 bytes of the large result's first part and no more.
+  const r = rig(7, true);
+  let flushed = false;
+  r.sender.send(big("i1"));
+  r.sender.send({ t: "child", id: "i2", pid: 4242 });
+  r.sender.whenFlushed(() => (flushed = true));
+  expect(r.frames()).toEqual([]);
+  r.sender.flushFramesSync((b) => r.writeSync(b));
+  // The part frame in progress is finished, then the child frame goes;
+  // the stream's further parts wait for the socket, and so does whenFlushed.
+  expect(r.frames()).toEqual(["part:1", "child"]);
+  expect(flushed).toBe(false);
+  for (let i = 0; i < 1000 && !flushed; i++) r.drain();
+  expect(flushed).toBe(true);
+  expect(r.messages().map((m) => m.t)).toEqual(["child", "result"]);
 });

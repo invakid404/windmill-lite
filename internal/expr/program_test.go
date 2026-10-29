@@ -483,23 +483,38 @@ func TestJobQueue(t *testing.T) {
 }
 
 // TestJE11OnEngine follows JE-11 for text that is not ASCII: the inserted
-// parenthesis lands early by the extra bytes before it, which leaves a
-// parenthesis open, and where it would land inside a character the
-// evaluation fails as windmill-lite's own error, as Windmill's evaluator
-// panics there (Q-JE-13). A shortcut still answers such a text first.
+// parenthesis lands early by the extra bytes between the call and it,
+// which leaves a parenthesis open, while text before the call moves
+// nothing; where it would land inside a character the evaluation fails
+// with the runtime's report of the panicked task, as Windmill's evaluator
+// does, numbered anew each time. A shortcut still answers such a text
+// first.
 func TestJE11OnEngine(t *testing.T) {
 	p := NewPipeline(realEngine(t, DefaultLimits(), 1))
-	h := &fakeHelpers{variables: map[string]string{"é": "v"}}
+	h := &fakeHelpers{variables: map[string]string{"é": "v", "x": "w"}}
 	s := &Scope{Helpers: h, FlowInput: value(`{"variable(\"éé\")":3}`)}
 	expectEval(t, p, SiteInputTransform, s, map[string]string{
 		`variable("é")`:             "error: QuickJS evaluation error: Error: Unexpected token ';'\n",
-		`"é" + variable("x")`:       "error: QuickJS evaluation error: Error: Unexpected token ';'\n",
-		`variable("x") + "é"`:       "error: QuickJS evaluation error: Error: Variable not found: x\n",
+		`"é" + variable("x")`:       `"éw"`,
+		`variable("x") + "é"`:       `"wé"`,
 		`flow_input.variable("éé")`: "3",
 	})
-	_, err := evalOn(t, p, SiteInputTransform, `variable("éé")`, s)
-	if want := "Expression evaluation failed: the rewrite of its helper calls inserts a parenthesis at byte 13 of `variable(\"éé\")`, inside a character, where Windmill's evaluator panics"; !errors.Is(err, ErrRewritePanic) || err.Error() != want {
-		t.Errorf("variable(\"éé\"): %v\nwant %q", err, want)
+	panicked := regexp.MustCompile(`^task ([0-9]+) panicked with message "assertion failed: self\.is_char_boundary\(idx\)"$`)
+	var tasks []string
+	for _, text := range []string{`variable("éé")`, `"variable(é)"`} {
+		_, err := evalOn(t, p, SiteInputTransform, text, s)
+		var m []string
+		if err != nil {
+			m = panicked.FindStringSubmatch(err.Error())
+		}
+		if !errors.Is(err, ErrRewritePanic) || m == nil {
+			t.Errorf("%s: %v, want the runtime's panic report", text, err)
+			continue
+		}
+		tasks = append(tasks, m[1])
+	}
+	if len(tasks) == 2 && tasks[0] == tasks[1] {
+		t.Errorf("two panicked rewrites have one task number, %s", tasks[0])
 	}
 }
 

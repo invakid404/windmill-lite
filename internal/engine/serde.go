@@ -6,12 +6,15 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // The texts Windmill's backend writes where it decodes a JSON text with its
 // JSON library (serde_json): the error of a value that is not what the
-// site expects (CF-2's iterator check, JE-V1's u16), and the numbers of a
-// value it decodes and writes out again (JE-44, FX-42 rule 2).
+// site expects (CF-2's iterator check, JE-V1's u16). How the library
+// writes a value it decoded (JE-44, FX-42 rule 9) is internal/platform's
+// Reprint, which the platform's argument resolution uses too.
 
 // elements splits a JSON array's text into its elements' texts, each as
 // written. ok is false for text that is not one JSON array.
@@ -218,96 +221,6 @@ func numberToken(t []byte) []byte {
 
 func isInteger(tok []byte) bool { return !bytes.ContainsAny(tok, ".eE") }
 
-// reprintNumbers rewrites the numbers of a compact JSON text as the
-// backend's JSON library writes them after decoding it (FX-42 rule 2): an
-// integer that fits a signed or unsigned 64-bit integer stays as it is,
-// and every other number becomes the nearest double, in rustFloat's
-// spelling. Strings and the rest of the text are kept.
-func reprintNumbers(text []byte) []byte {
-	var b []byte
-	for i := 0; i < len(text); {
-		c := text[i]
-		switch {
-		case c == '"':
-			j := i + 1
-			for j < len(text) && text[j] != '"' {
-				if text[j] == '\\' {
-					j++
-				}
-				j++
-			}
-			b = append(b, text[i:min(j+1, len(text))]...)
-			i = j + 1
-		case c == '-' || c >= '0' && c <= '9':
-			tok := numberToken(text[i:])
-			b = append(b, reprintNumber(tok)...)
-			i += len(tok)
-		default:
-			b = append(b, c)
-			i++
-		}
-	}
-	return b
-}
-
-func reprintNumber(tok []byte) []byte {
-	if isInteger(tok) {
-		if _, err := strconv.ParseInt(string(tok), 10, 64); err == nil {
-			return tok
-		}
-		if _, err := strconv.ParseUint(string(tok), 10, 64); err == nil {
-			return tok
-		}
-	}
-	f, err := strconv.ParseFloat(string(tok), 64)
-	if err != nil || math.IsInf(f, 0) {
-		return tok
-	}
-	return []byte(rustFloat(f))
-}
-
-// rustFloat spells a double as the backend's JSON library does (FX-42 rule
-// 2): the shortest digits that round-trip, as a decimal with ".0" for an
-// integral value below 10^16 (1000.0), plain decimals down to 10^-5
-// (0.0001), and an exponent otherwise, written as FX-42's examples write
-// it (1e+21, 1.2345678901234568e+29, 1e-7).
-func rustFloat(f float64) string {
-	if f == 0 {
-		if math.Signbit(f) {
-			return "-0.0"
-		}
-		return "0.0"
-	}
-	s := strconv.FormatFloat(f, 'e', -1, 64)
-	neg := s[0] == '-'
-	if neg {
-		s = s[1:]
-	}
-	mant, exp, _ := strings.Cut(s, "e")
-	digits := strings.Replace(mant, ".", "", 1)
-	e, _ := strconv.Atoi(exp)
-	n, kk := len(digits), e+1 // 10^(kk-1) <= |f| < 10^kk
-	var out string
-	switch {
-	case kk >= n && kk <= 16:
-		out = digits + strings.Repeat("0", kk-n) + ".0"
-	case kk > 0 && kk <= 16:
-		out = digits[:kk] + "." + digits[kk:]
-	case kk > -5 && kk <= 0:
-		out = "0." + strings.Repeat("0", -kk) + digits
-	default:
-		out = digits[:1]
-		if n > 1 {
-			out += "." + digits[1:]
-		}
-		if kk-1 < 0 {
-			out += "e-" + strconv.Itoa(1-kk)
-		} else {
-			out += "e+" + strconv.Itoa(kk-1)
-		}
-	}
-	if neg {
-		out = "-" + out
-	}
-	return out
-}
+// rustFloat writes a finite double as the backend's JSON library does
+// (FX-42 rule 9): platform.FormatDouble, the one writer of that rule.
+func rustFloat(f float64) string { return platform.FormatDouble(f) }

@@ -1,0 +1,20 @@
+{
+  "signatures": {
+    "main": {
+      "params": [
+        {
+          "name": "seconds",
+          "date": false
+        },
+        {
+          "name": "detached",
+          "date": false
+        },
+        {
+          "name": "pidFile",
+          "date": false
+        }
+      ]
+    }
+  }
+}

@@ -17,7 +17,7 @@
       "recorded": {"fixture": "je/shortcuts", "run": "je-v6", "at": "m:b", "input": "y"},
       "site": "input_transform",
       "text": "(results.a.n)",
-      "expect": {"shortcut": {}, "code": "((await results.a).n)", "route": "engine", "bound": {"previous_result": "{\"n\": 9007199254740993}"}, "results_lookup": true}
+      "expect": {"shortcut": {}, "code": "((await results.a).n)", "route": "engine", "bound": {"previous_result": "{\"n\": 9007199254740993}", "__wl_previous_id": "a"}, "results_lookup": true}
     }
   ]
 }

@@ -21,7 +21,7 @@ const ProtocolVersion = 1
 // frames of spawned harnesses; the walking skeleton (W1) added
 // `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
 // and host mode's `run`/`run_done`/`run_cancel`; milestone C3a added
-// `warning`. `host_call`/`host_reply` (F2c) are refused as CodeUnknownType
+// `warning`, and FU6 `child`. `host_call`/`host_reply` (F2c) are refused as CodeUnknownType
 // until their milestone.
 const (
 	TypeHello         = "hello"
@@ -32,6 +32,7 @@ const (
 	TypeCancel        = "cancel"
 	TypeLog           = "log"
 	TypeWarning       = "warning"
+	TypeChild         = "child"
 	TypePlatform      = "platform"
 	TypePlatformReply = "platform_reply"
 	TypeRun           = "run"
@@ -185,6 +186,45 @@ type Cancel struct {
 	Reason string
 }
 
+// Child announces a child process an invocation started in a warm or host
+// process, the leader of a process group of its own that stands for the
+// step's process group (WR-55): the engine kills the group when the
+// invocation is abandoned (its timeout or cancellation) and when the
+// process ends, without the harness's event loop, which may be blocked
+// (ADR 0004, failure model item 7). The harness writes it before the
+// step's code goes on.
+type Child struct {
+	// ID is the invocation that started the child.
+	ID string
+	// PID is the child's pid, its process group's id: from 2 to the
+	// largest pid the kernel's signed 32-bit type holds (validGroupID).
+	PID int
+	// Token, when the harness started the child with its group's guardian,
+	// is the token in the guardian's arguments (guardArg), by which the
+	// engine knows it: letters, digits and dashes, at most 64.
+	Token string
+}
+
+// validToken reports whether t can be a guardian's token.
+func validToken(t string) bool {
+	if len(t) == 0 || len(t) > 64 {
+		return false
+	}
+	for _, c := range t {
+		if !(c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+// validGroupID reports whether pid can name a process group of its own
+// when negated for kill: neither 0 nor 1 (-0 is the caller's own group, -1
+// every process the caller may signal), nor a value beyond the kernel's
+// signed 32-bit pid, which would narrow to another target (2^32 + 1 to -1,
+// 2^32 to 0, 2^32 + n to n).
+func validGroupID(pid int) bool { return pid >= 2 && pid <= math.MaxInt32 }
+
 // Log is attributed output of one invocation, batched.
 type Log struct {
 	ID    string
@@ -337,6 +377,7 @@ func (Late) Type() string            { return TypeLate }
 func (Cancel) Type() string          { return TypeCancel }
 func (Log) Type() string             { return TypeLog }
 func (Warning) Type() string         { return TypeWarning }
+func (Child) Type() string           { return TypeChild }
 func (PlatformRequest) Type() string { return TypePlatform }
 func (PlatformReply) Type() string   { return TypePlatformReply }
 func (RunRequest) Type() string      { return TypeRun }
@@ -472,6 +513,16 @@ func (m Warning) appendPayload(b []byte) ([]byte, error) {
 	}
 	if m.Untracked != nil {
 		e.intMap("untracked", m.Untracked)
+	}
+	return e.end()
+}
+
+func (m Child) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeChild)
+	e.str("id", m.ID)
+	e.int("pid", int64(m.PID))
+	if m.Token != "" {
+		e.str("token", m.Token)
 	}
 	return e.end()
 }
@@ -719,6 +770,19 @@ func Decode(payload []byte) (Message, error) {
 			w.Untracked = d.intMap("untracked")
 		}
 		m = w
+	case TypeChild:
+		c := Child{ID: d.str("id"), PID: d.int("pid")}
+		if d.present("token") {
+			c.Token = d.str("token")
+		}
+		switch {
+		case derr != nil:
+		case !validGroupID(c.PID):
+			d.fail(CodeBadField, "child pid %d", c.PID)
+		case d.present("token") && !validToken(c.Token):
+			d.fail(CodeBadField, "child token")
+		}
+		m = c
 	case TypePlatform:
 		m = PlatformRequest{
 			ID:      d.str("id"),

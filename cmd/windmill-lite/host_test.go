@@ -579,6 +579,53 @@ func TestHostNeverSettlingStep(t *testing.T) {
 	}
 }
 
+// WR-55 in host mode under backpressure (FU6, review round 2): a step
+// backs up the host's socket to the engine with a large log, starts a
+// child and blocks the host's event loop. The child's group still reaches
+// the engine, on the host's child channel, written synchronously, so the
+// step's timeout kills the child although the host can neither handle the
+// cancel nor write its socket, and long before the watchdog would end the
+// host.
+func TestHostChildUnderBackpressure(t *testing.T) {
+	// spec: WR-55, WR-37
+	s := supervise(t, 30000)
+	pidFile := filepath.Join(s.dir, "pid")
+	go s.run("f/w1/stall", "a", map[string]any{"pidFile": pidFile}, nil)
+	var pid int
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if b, err := os.ReadFile(pidFile); err == nil && len(bytes.TrimSpace(b)) > 0 {
+			if _, err := fmt.Sscan(string(b), &pid); err == nil && pid > 1 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the step did not start its child")
+		}
+	}
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	ended := func() bool {
+		if syscall.Kill(pid, 0) == syscall.ESRCH {
+			return true
+		}
+		// A killed child of the blocked host stays unreaped.
+		out, err := exec.Command("ps", "-o", "stat=", "-p", fmt.Sprint(pid)).Output()
+		return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
+	}
+	for deadline := time.Now().Add(10 * time.Second); !ended(); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child outlived its step's timeout")
+		}
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted, %d generations: the timeout, not the host's end, was to kill the child", g)
+	}
+	select {
+	case <-s.gen(0).exited:
+		t.Fatal("the host ended: the timeout was to kill the child while the host still ran")
+	default:
+	}
+}
+
 // W1's exit gate: the watchdog test of ADR 0004 (host mode item 4,
 // validation), with review item cl P4-3: a step that spins forever, with a
 // second run active. The engine kills the host within watchdog.killAfter

@@ -237,8 +237,11 @@ only in part, each with the reason and where it is checked.
 The cases the semantics reference added on 2026-10-28 are checked at
 evaluator level in the meantime, by the pipeline cases of
 [internal/expr](../internal/expr/README.md) that run on the engine; those
-it added on 2026-10-29 that no recording holds (JE-11/b–e, JE-16/h,
-JE-18/e and JE-44/f) are not encoded yet.
+it added on 2026-10-29 that no recording holds are checked there too
+(JE-11/b–e, JE-16/h), or at engine level in
+[internal/engine](../internal/engine/README.md) (JE-18/e, and JE-11/e as an
+input transform's failure), since milestone FU6; JE-44/f is not encoded
+yet.
 
 ## Claims and unit cases
 
