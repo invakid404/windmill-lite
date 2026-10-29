@@ -175,6 +175,19 @@ func TestLoopCollapsed(t *testing.T) {
 	sameJSON(t, "l's result", at(t, tr, "m:l").Result, `[{"x":1}]`)
 	sameJSON(t, "m's result", at(t, tr, "m:m").Result, `[{"z":1,"iter":{"index":0,"value":6}}]`)
 
+	// CF-8 item 5: a collapsed body's own continue_on_error is not read,
+	// so its failure fails the iteration and, without skip_failures, the
+	// loop; the loop's own continue_on_error then lets the flow go on.
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(
+		loopOf("l", []string{mod("b", "fail", "", `"continue_on_error":true`)}, `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`, `"continue_on_error":true`),
+		mod("n", "echo", inputs("p", js("previous_result")), ""),
+	)}, &loopSteps{})
+	tr = runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunSuccess, `{"p":[{"error":{"message":"boom","name":"Error","step_id":"l"}}]}`)
+	if l := at(t, tr, "m:l"); l.Status != conformance.StepFailure {
+		t.Fatalf("the loop %+v", l)
+	}
+
 	// JE-36 rule 1: a collapsed loop at the first module gives every
 	// iteration the flow input, without iter.
 	e = mustOpen(t, map[string]string{"f/t/main": flowOf(

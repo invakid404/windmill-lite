@@ -492,7 +492,9 @@ result is the array of its iterations' results
      loop's flow: its previous_result is the step before the loop's
      result, then the previous iteration's (the flow's input every time
      for a loop at the first module, [JE-36](../../docs/semantics/expressions.md#je-36));
-     its previous id is empty; it takes the loop's `timeout`; its step id,
+     its previous id is empty; it takes the loop's `timeout`, and its
+     loop's `continue_on_error` rather than its own, so a failed body
+     fails the iteration (CF-8 item 5); its step id,
      and its errors' `step_id`, are the loop's; its job path is
      `<flow path>/loop-<i>` for an inline step; nothing is registered under
      its own id;
