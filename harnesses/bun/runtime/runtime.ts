@@ -209,9 +209,13 @@ export class Runtime {
     // host's own diag writes through console or process.stderr.
     const diag = opts.diag ?? ((line: string) => realStderr(line + "\n"));
     this.diag = (line) => invocations.exit(() => diag(line));
+    // A fresh process is not told the facade, which it reaches over TCP at
+    // the BASE_URL it was spawned with (ADR 0007, milestone PF1); a native
+    // realm reads that origin then.
+    const spawnedBase = process.env.BASE_URL;
     this.native = new Native({
       bundleDir: opts.bundleDir,
-      baseURL: () => this.facade,
+      baseURL: () => this.facade ?? spawnedBase,
       onError: (job, e) => this.guard("an error from a microtask", () => this.nativeError(job, e, "microtask")),
       onUntracked: (job, kind) => this.guard("an untracked object", () => this.untracked(job, kind)),
     });

@@ -8,9 +8,11 @@ the step runtime core of milestone C3a: Windmill's wrapper rules, the
 `process.exit` interception, the attribution of process-level errors, the
 per-invocation registry and the process scope; milestone C3b's
 settle-time fence, per-invocation logs, child-process wrapping and `fresh`
-mode; and the native boundary mode of milestone C3n, which runs
-`nativets` and `//native` steps with the native runtime's rules
-(deviation D5). This
+mode; the native boundary mode of milestone C3n, which runs `nativets`
+and `//native` steps with the native runtime's rules (deviation D5); and
+milestone PF1, which gave intercepted replies their reason phrase, kept a
+result behind its own platform call, and fixed the borrowed reading
+methods of the fetch view (below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md) in W1's
@@ -135,7 +137,13 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
 - **The fetch view.** `globalThis.fetch` is wrapped. A request to the
   welcome's `facade` origin becomes a `platform` frame attributed to the
   invocation whose context made it, with its body's bytes, and its
-  `platform_reply` becomes the `Response`. Any other request passes
+  `platform_reply` becomes the `Response`, with the reason phrase Go's
+  `net/http` writes for its status as `statusText`, and no body for a
+  `HEAD` request or a null-body status (204, 205, 304), so that a client
+  sees the same response as from the facade's TCP transport (WA-30/a; an
+  `ApiError` carries the reason phrase, WA-41/a). Only a warm or host-mode process's
+  welcome names the facade; a fresh process's requests to it go over TCP
+  like any other (ADR 0007). Any other request passes
   through, with a signal of the fence's added to its own. A facade request
   made outside every invocation, or after its invocation settled, is
   refused with a `TypeError`, and one whose signal has already aborted is
@@ -155,8 +163,12 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   reading methods and `clone` are own properties, calling the native
   ones, and a reading method returns the native promise's continuation, so
   a rejection reaches the step unchanged, unhandled if the step leaves it
-  so (case `D9/fetch-read-unhandled`). Its body, stream, readers and pipes
-  are untouched. A response with no body (a 204, 205 or 304, or the answer
+  so (case `D9/fetch-read-unhandled`). They act on the evidence only when
+  called on that response: borrowed for another receiver
+  (`res.text.call(other)`), a reading method calls the native one on it and
+  leaves the request registered, and only the response's own clone is
+  observed (review item R4-1 of C3b, fixed in PF1). Its body, stream,
+  readers and pipes are untouched. A response with no body (a 204, 205 or 304, or the answer
   to `HEAD`) ends the request at once.
 - **The timer fence.** `setTimeout`, `setInterval` and `setImmediate`, on
   `globalThis` and on `node:timers`, register each handle a step creates
@@ -491,7 +503,9 @@ this mode cannot reproduce is deviation D5 of
   `undefined`, compiled in the realm
   once per process for each set of preamble names. Its **preamble**
   declares `process = { env }`, `BASE_URL` and `BASE_INTERNAL_URL` (both the
-  facade's origin), and for nativets every job variable as a `const` of its
+  facade's origin: the welcome's, or in a fresh process, which the welcome
+  does not tell, the `BASE_URL` it was spawned with), and for nativets
+  every job variable as a `const` of its
   name; the values are the invocation's job variables and nothing else. A
   top-level declaration of one of those names fails the load.
 - **Imports** resolve against `file:///eval.ts`. For a nativets script,
@@ -545,13 +559,17 @@ harness's own messages give an error: Bun 1.3.10 builds the stack of an
 error that a garbage collection formats before anything read it without
 the message, which `describe` puts back. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
-priority, the order per invocation, partial writes and `whenFlushed`.
+priority, the order per invocation (a result held behind a large
+platform call of its invocation included), partial writes and
+`whenFlushed`.
 `test/context.test.ts` checks the environment view's rules in one process
 (a first write of a process variable included), the registry, the process
 scope and the exit status; `test/fence.test.ts` the settle-time fence (the
 timers and `refresh()`, the fetch view and the evidence that ends a
 body's transfer, with a native-versus-fenced comparison of the
-response's semantics, and a refused platform call), the log view, the `Bun.env` write trap and the
+response's semantics, a reading method or clone borrowed for another
+response, an intercepted reply without a body for `HEAD` or a null-body
+status, and a refused platform call), the log view, the `Bun.env` write trap and the
 environment of child processes;
 and `test/host.test.ts` the SDK's refusals: the working directory and an
 engine that cannot start. `test/build.test.ts` checks the build helper's

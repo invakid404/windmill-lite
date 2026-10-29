@@ -67,10 +67,13 @@ step without failing the others.
      streams turns, one part frame each, so a small frame waits behind at
      most one part frame.
    - Messages about one invocation (`invoke`, `cancel`, `result`, `late`,
-     `log`, `warning`) keep their order: one queued while a part stream about the same
+     `log`, `warning`, and a `platform` call, about the invocation its `inv`
+     names) keep their order: one queued while a part stream about the same
      invocation is open waits for that stream's last part. A `cancel` never
-     reaches a harness before the large `invoke` it cancels, and a `late`
-     frame never reaches the engine before the large `result` it follows.
+     reaches a harness before the large `invoke` it cancels, a `late`
+     frame never reaches the engine before the large `result` it follows,
+     and a `result` never reaches it before a large platform call its
+     invocation made first.
    - A frame over 1 MiB, a part stream out of order and a message over the
      limit are protocol errors, as is any frame that does not decode. A
      protocol error ends the connection; the engine then kills the harness,
@@ -774,6 +777,24 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   object from a user's throw of the same shape. The field is optional and
   only an `error` outcome carries it, so a decoder that ignores it reads
   the frame as before.
+
+- Milestone PF1 wired the platform facade of
+  [0007](0007-platform-interface.md) to the protocol, and fixed what it
+  needed:
+  - **Platform order.** A `platform` frame keeps its order with the
+    messages about the invocation its `inv` names (§Transport and framing
+    item 3), and the engine hands each one to the facade on the
+    connection's reader, in frame order, answering it on a goroutine of its
+    own. The facade has therefore seen every call whose frame came before
+    a step's result when the engine reads that result, which the 501
+    policy relies on.
+  - **The facade in the welcome.** A warm or host-mode process is told the
+    facade origin and intercepts it; a fresh one is not, and reaches the
+    facade's listening origin over TCP. Each spawned process gets its
+    facade origin as `BASE_URL`, appended last, over any value of the same
+    name (§Per-invocation identity, the base environment).
+  - **Intercepted replies** carry the reason phrase Go's `net/http` writes
+    for their status as `statusText`, as the TCP transport's do.
 
 ## Spec IDs relied on
 

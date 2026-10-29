@@ -439,9 +439,9 @@ export function decodeAll(payloads: Uint8Array[], maxMessage = DEFAULT_MAX_MESSA
   return out;
 }
 
-/** The messages that are about one invocation, by their id, and those
- * about one host-mode run, which keep their order under a key of their
- * own. */
+/** The messages that are about one invocation, by their id (a platform
+ * call by the invocation it names in inv), and those about one host-mode
+ * run, which keep their order under a key of their own. */
 const ABOUT_INVOCATION = new Set(["invoke", "cancel", "result", "late", "log", "warning"]);
 const ABOUT_RUN = new Set(["run", "run_done", "run_cancel"]);
 
@@ -453,7 +453,8 @@ type Queued = { frame: Uint8Array } | { stream: OutStream };
  * so a small frame never waits behind a whole large message. Messages about
  * one invocation keep their order: one queued behind an open part stream
  * about the same invocation waits until that stream's last part, so a late
- * frame or a log never overtakes its own large result. */
+ * frame or a log never overtakes its own large result, and a result never
+ * overtakes a large platform call its invocation made before it. */
 export class Sender {
   private small: Uint8Array[] = [];
   private streams: OutStream[] = [];
@@ -478,7 +479,15 @@ export class Sender {
     }
     if (this.closed) return;
     const about =
-      typeof m.id !== "string" ? undefined : ABOUT_INVOCATION.has(m.t) ? m.id : ABOUT_RUN.has(m.t) ? `run:${m.id}` : undefined;
+      m.t === "platform" && typeof m.inv === "string"
+        ? m.inv
+        : typeof m.id !== "string"
+          ? undefined
+          : ABOUT_INVOCATION.has(m.t)
+            ? m.id
+            : ABOUT_RUN.has(m.t)
+              ? `run:${m.id}`
+              : undefined;
     const q: Queued =
       payload.length <= this.maxFrame
         ? { frame: frame(payload) }

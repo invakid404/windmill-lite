@@ -41,19 +41,20 @@ cases:
     title: the embedded client is the 1.326.0 one, and reads BASE_INTERNAL_URL and WM_TOKEN from its own process.env
     note: >-
       setClient() with no arguments takes its base URL and token from the
-      client module's own preamble (WR-45); the base URL is the facade
-      origin wltest check gives the harness.
+      client module's own preamble (WR-45); the base URL is the loopback
+      facade origin wltest check gives the harness, whose port the facade
+      picks (milestone PF1).
     language: nativets
     env: {WM_TOKEN: wl-step-token}
     script: |
       import * as wmill from "./windmill.ts";
       export function main() {
         wmill.setClient();
-        return [wmill.OpenAPI.VERSION, wmill.OpenAPI.BASE, wmill.OpenAPI.TOKEN];
+        return [wmill.OpenAPI.VERSION, /^http:\/\/127\.0\.0\.1:[0-9]+\/api$/.test(wmill.OpenAPI.BASE), wmill.OpenAPI.TOKEN];
       }
     runs:
       - args: '{}'
-        expect: {status: success, result: ["1.326.0", "http://127.0.0.1:9/api", wl-step-token]}
+        expect: {status: success, result: ["1.326.0", true, wl-step-token]}
   - spec: WR-40/c
     provenance: source-derived
     title: a static import of a missing host file fails the load

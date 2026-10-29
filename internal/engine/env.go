@@ -29,19 +29,24 @@ var laterBunVariables = map[string]bool{
 // addScriptEnvs adds a path script's own envs, the KEY=VALUE entries of
 // its metadata, to the environment of a Bun invocation of it (WR-22, item
 // 1 of its assembly order): every other source overrides them, so a name
-// the worker sets later is skipped, and among the entries a later one
-// wins. An entry with no "=", or with an empty name, sets nothing. A native
-// invocation gets none of them: the native runtime's process.env holds
-// only the base URLs and the reserved variables (WR-45).
+// the worker sets later, or one env already holds, is skipped, and among
+// the entries a later one wins. An entry with no "=", or with an empty
+// name, sets nothing. A native invocation gets none of them: the native
+// runtime's process.env holds only the base URLs and the reserved
+// variables (WR-45).
 func addScriptEnvs(env map[string]string, s *ir.Script, b Boundary) {
 	if s == nil || s.Metadata == nil || b != BoundaryBun {
 		return
 	}
+	own := map[string]string{}
 	for _, e := range s.Metadata.Envs {
-		k, v, ok := strings.Cut(e, "=")
-		if !ok || k == "" || laterBunVariables[k] {
-			continue
+		if k, v, ok := strings.Cut(e, "="); ok && k != "" && !laterBunVariables[k] {
+			own[k] = v
 		}
-		env[k] = v
+	}
+	for k, v := range own {
+		if _, set := env[k]; !set {
+			env[k] = v
+		}
 	}
 }

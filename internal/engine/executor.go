@@ -201,9 +201,11 @@ type StepOutcome struct {
 	// "SIGKILL", when one did (OutcomeEscaped, WR-4).
 	Signal string
 	// Origin, when set, is who produced an OutcomeError in place of the
-	// step's code: the harness, for the errors it generates in place of
-	// the worker's (WR-37's signature error, a native job's worker-side
-	// errors of WR-43), which StoreOutcome then reports as its origin.
+	// step's code: the platform facade's UnsupportedPlatformCall (ADR 0007,
+	// the 501 policy), or the harness, for the errors it generates in
+	// place of the worker's (WR-37's signature error, a native job's
+	// worker-side errors of WR-43), which StoreOutcome then reports as its
+	// origin.
 	Origin Origin
 }
 

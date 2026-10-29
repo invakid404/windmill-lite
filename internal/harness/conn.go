@@ -114,11 +114,15 @@ func (c *conn) send(m Message) error {
 }
 
 // invocationOf returns the invocation a message is about, for the
-// ordering rule, or "" for one that is about none. A host's runs are
-// ordered the same way, under a key of their own: a run_cancel never
-// overtakes the large run it cancels.
+// ordering rule, or "" for one that is about none: a platform call is
+// about the invocation its Inv names, so a result never overtakes a large
+// platform call made before it (milestone PF1). A host's runs are ordered
+// the same way, under a key of their own: a run_cancel never overtakes the
+// large run it cancels.
 func invocationOf(m Message) string {
 	switch m := m.(type) {
+	case PlatformRequest:
+		return m.Inv
 	case Invoke:
 		return m.ID
 	case Cancel:

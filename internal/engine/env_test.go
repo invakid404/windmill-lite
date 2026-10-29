@@ -76,10 +76,15 @@ func TestScriptEnvs(t *testing.T) {
 			t.Errorf("a Bun step's %s is %q (%v), want %q", k, got, ok, want)
 		}
 	}
-	for _, k := range []string{"NOEQUALS", "", "WM_TOKEN", "PATH", "BASE_URL"} {
+	for _, k := range []string{"NOEQUALS", "", "PATH", "BASE_URL"} {
 		if v, ok := bun[k]; ok {
 			t.Errorf("a Bun step's environment has %q = %q", k, v)
 		}
+	}
+	// The job identity sets WM_TOKEN (PF1), and the script's entry never
+	// replaces it.
+	if bun["WM_TOKEN"] == "mine" {
+		t.Error("a Bun step's WM_TOKEN is the script's envs entry")
 	}
 	for _, script := range []string{"f/t/headed", "f/t/nativets"} {
 		env := exec.got[script]
