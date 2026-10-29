@@ -100,6 +100,11 @@
       "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no observation exists; windmill-lite follows the reference: C3n's step case (conformance/steps/bun/wr-50.yaml, WR-50/c and its control) and FU5's flow-level check (cmd/wltest TestNativeCodebaseFlowStep) run the //native ESM codebase script in the native runtime"
     },
     {
+      "case": "WR-50/f",
+      "milestone": "C3n",
+      "reason": "source-derived in the reference's revision of 2026-10-29 (SC3); no E3e run records it: on the oracle a //native codebase script's job never starts (WR-50/c), so docs/design/README.md requests it from a future batch E3f, in a session whose worker serves the nativets tag; windmill-lite's native boundary mode (C3n) runs the CJS bundle and fails it with a ReferenceError (conformance/steps/bun/wr-50.yaml, variant native-commonjs), whose message is JavaScriptCore's rather than V8's `module is not defined`, a text ADR 0001 D5 lists as one the realm cannot keep"
+    },
+    {
       "case": "WR-49/c",
       "milestone": "none",
       "reason": "when a push deploys a codebase script and which bundle then runs is the CLI's and the server's deploy pipeline, which needs a session that pushes, changes the tree and pushes again; windmill-lite builds each bundle from the folder it loads, so no milestone reproduces it"
