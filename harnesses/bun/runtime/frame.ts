@@ -51,6 +51,7 @@ const FIELDS: Record<string, readonly string[]> = {
   cancel: ["id", "reason"],
   log: ["id", "lines"],
   warning: ["id", "code", "message", "left", "untracked"],
+  child: ["id", "pid"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
@@ -158,6 +159,7 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   cancel: { id: "string", reason: "string" },
   log: { id: "string", lines: "strings" },
   warning: { id: "string", code: "string", message: "string" },
+  child: { id: "string", pid: "int" },
   platform: { id: "string", inv: "string", method: "string", url: "string", headers: "env" },
   platform_reply: { id: "string", status: "int", headers: "env" },
   run: { id: "string", kind: "string", path: "string", args: "raw" },
@@ -265,6 +267,11 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "cancel":
       if (!["timeout", "canceled", "run_ended"].includes(m.reason)) throw new ProtocolError("bad_field", `cancel reason ${JSON.stringify(m.reason)}`);
+      break;
+    case "child":
+      // A process group's id: never every process (-1) nor the caller's
+      // own group (0).
+      if (m.pid <= 1) throw new ProtocolError("bad_field", `child pid ${m.pid}`);
       break;
     case "platform":
     case "platform_reply":
@@ -531,6 +538,23 @@ export class Sender {
       this.current = null;
       write(b);
     }
+  }
+
+  /** Writes, with write, which writes all of its bytes before it returns
+   * or throws, the rest of the frame being written and every whole frame
+   * queued, but no part of a stream not yet begun, in the order flush
+   * would: for a frame that must reach the engine before the caller goes
+   * on, whatever the event loop does next (a child frame). */
+  flushFramesSync(write: (b: Uint8Array) => void) {
+    if (this.closed) return;
+    if (this.current) {
+      const b = this.current;
+      this.current = null;
+      write(b);
+    }
+    if (this.small.length > 0) write(this.next()!);
+    // What is left, and the callbacks waiting for the queue, as ever.
+    this.flush();
   }
 
   /** Calls cb once everything queued so far is written. */

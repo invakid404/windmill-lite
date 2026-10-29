@@ -205,7 +205,10 @@ func sequentialBranchEnd(e flowEnd, skip bool) moduleEnd {
 // so far, the stopped branch's included; end says how (sequentialBranchEnd).
 // Its stop_after_all_iters_if is not evaluated (CF-13, JE-27).
 func (r *run) sequentialStop(fr *frame, i int, o outcome, it *iterations, end moduleEnd) outcome {
-	arr := arrayOf(it.values)
+	arr, err := aggregate(it.values)
+	if err != nil {
+		return aggregateFailed(o, err)
+	}
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.carried = arr, arr, arr

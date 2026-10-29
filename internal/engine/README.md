@@ -536,10 +536,17 @@ its branch's result with its origin and pointers.
   ([JE-44](../../docs/semantics/expressions.md#je-44),
   [FX-42](../../docs/semantics/execution.md#fx-42) rule 9: `1e+21`,
   `1e-6`, `1000.0`, `-0.0`), by `platform.Reprint`, the writer the
-  platform's argument resolution uses; a child result the backend's
-  library could not read back (a number beyond a double, nesting deeper
-  than 128) is kept as stored, since the reference does not say how
-  Windmill's failed read ends; an iterator or `parallelism` whose
+  platform's argument resolution uses (`aggregate`); a child result the
+  backend's library cannot read back (a number beyond a double, nesting
+  deeper than 128, which only an identity child can carry) fails that
+  read at the container's completion, as Windmill's fails: the flow fails
+  at once with a chaining error named `InternalError` (FX-15 context 1),
+  whose message is the library's error text, a reading, since the
+  reference does not give Windmill's (design README, request 13), and the
+  container fails with no result, for a loop, a while loop and a
+  `branchall` alike; the sites that show the iterations so far without
+  reading them back (a running loop's job list, `all_iters`, an
+  interrupted loop's result) keep such a result as stored; an iterator or `parallelism` whose
   text is not JSON (a replaced `JSON.stringify`,
   [JE-15](../../docs/semantics/expressions.md#je-15)) fails with serde_json's
   syntax error for an empty text, a character no value starts with, a

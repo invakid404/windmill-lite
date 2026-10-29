@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -281,5 +282,154 @@ func TestBunWarmCancelKillsChildren(t *testing.T) {
 	}
 	if calls := rec.log(); slices.Contains(strings.Split(calls, "; "), "settled completed") {
 		t.Fatalf("the abandoned call settled: %s", calls)
+	}
+}
+
+// ended reports whether pid has exited: it is gone, or a zombie its parent
+// has not reaped, as a child of a harness whose event loop is blocked
+// stays.
+func ended(pid int) bool {
+	if gone(pid) {
+		return true
+	}
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
+}
+
+// readPID waits for the pid a step writes to pidFile.
+func readPID(t *testing.T, pidFile string) int {
+	t.Helper()
+	var pid int
+	waitFor(t, "the step to start its child", func() bool {
+		b, err := os.ReadFile(pidFile)
+		if err != nil || len(strings.TrimSpace(string(b))) == 0 {
+			return false
+		}
+		pid = childPID(t, b)
+		return true
+	})
+	leftover(t, pid)
+	return pid
+}
+
+// WR-55, WR-37 in a warm process whose event loop the step blocks: the
+// harness cannot handle the cancel, so the engine kills the child groups
+// the step announced (child frames) itself, at once on the invocation's
+// timeout, and when the watchdog ends the process every group still
+// announced, so no child of the step outlives the process. A synchronous
+// child call's child stays in the harness's group, which the engine
+// spawned as its leader and kills with the process (review round 1,
+// finding 1).
+func TestBunWarmStalledChildren(t *testing.T) {
+	// spec: WR-55, WR-37, D2
+	t.Run("the timeout kills the group though the loop is blocked", func(t *testing.T) {
+		cfg := childrenConfig(t)
+		cfg.KillAfter = WatchdogOff
+		p := spawn(t, cfg)
+		pidFile := filepath.Join(t.TempDir(), "pid")
+		rec := newRecorder()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.Execute(ctx, newInvocation("stall", childArgs(t, map[string]any{"seconds": 30, "pidFile": pidFile, "sync": false}), rec))
+			done <- err
+		}()
+		pid := readPID(t, pidFile)
+		cancel(engine.CancelTimeout)
+		if err := <-done; !errors.Is(err, engine.CancelTimeout) {
+			t.Fatalf("got %v, want the timeout", err)
+		}
+		waitFor(t, "the engine to kill the stalled step's child", func() bool { return ended(pid) })
+		select {
+		case <-p.Done():
+			t.Fatal("the process ended: only the child's group was to be killed")
+		default:
+		}
+	})
+	t.Run("the watchdog's kill ends the groups with the process", func(t *testing.T) {
+		cfg := childrenConfig(t)
+		cfg.KillAfter = time.Second
+		p := spawn(t, cfg)
+		pidFile := filepath.Join(t.TempDir(), "pid")
+		rec := newRecorder()
+		done := make(chan engine.StepOutcome, 1)
+		go func() {
+			out, _ := p.Execute(context.Background(), newInvocation("stall", childArgs(t, map[string]any{"seconds": 30, "pidFile": pidFile, "sync": false}), rec))
+			done <- out
+		}()
+		pid := readPID(t, pidFile)
+		select {
+		case <-p.Done():
+		case <-time.After(10 * time.Second):
+			t.Fatal("the watchdog did not end the stalled process")
+		}
+		if out := <-done; out.Kind != engine.OutcomeEscaped || out.Signal != "SIGKILL" {
+			t.Fatalf("got %+v, want the process's kill", out)
+		}
+		waitFor(t, "the child to end with the process", func() bool { return gone(pid) })
+		if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+			t.Fatalf("settled %s", k)
+		}
+	})
+	t.Run("a synchronous child ends with the process", func(t *testing.T) {
+		cfg := childrenConfig(t)
+		cfg.KillAfter = time.Second
+		p := spawn(t, cfg)
+		pidFile := filepath.Join(t.TempDir(), "pid")
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		go p.Execute(ctx, newInvocation("stall", childArgs(t, map[string]any{"seconds": 30, "pidFile": pidFile, "sync": true}), newRecorder()))
+		pid := readPID(t, pidFile)
+		cancel(engine.CancelTimeout)
+		select {
+		case <-p.Done():
+		case <-time.After(10 * time.Second):
+			t.Fatal("the watchdog did not end the process the synchronous call blocks")
+		}
+		waitFor(t, "the synchronous child to end with the process", func() bool { return gone(pid) })
+	})
+}
+
+// WR-55: a fresh job's result, held while its group runs, is released only
+// when the group empties by itself. A kill meanwhile that is not the
+// invocation's own timeout or cancellation (Kill, a pool's close at its
+// deadline) kills the group and fails the job, settled with the process,
+// though its script returned (review round 1, finding 2).
+func TestBunFreshKilledHeldResult(t *testing.T) {
+	// spec: WR-55/b, WR-37
+	cfg := childrenConfig(t)
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	rec := newRecorder()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan engine.StepOutcome, 1)
+	go func() {
+		out, err := p.Execute(ctx, freshInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 30, "detached": false, "pidFile": pidFile}), rec))
+		if err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+		done <- out
+	}()
+	pid := readPID(t, pidFile)
+	waitFor(t, "the result to be held for the group", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.holding
+	})
+	p.Kill()
+	select {
+	case out := <-done:
+		if out.Kind != engine.OutcomeEscaped || out.Signal != "SIGKILL" || out.ExitCode != -1 {
+			t.Fatalf("got %+v, want the group's kill, not the held result", out)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the killed job's outcome never came")
+	}
+	waitFor(t, "the group's child to be killed", func() bool { return gone(pid) })
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
 	}
 }

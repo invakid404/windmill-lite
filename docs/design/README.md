@@ -206,10 +206,11 @@ those since its revision of 2026-10-29 (request 11 below).
 
 Questions reach the semantics team as requests for the reference to cover a
 behaviour ([AGENTS.md](../../AGENTS.md)). The design depended on these, and
-all but the last are answered: 1 to 3 by the semantics requests S1 to S3
+all but the last two are answered: 1 to 3 by the semantics requests S1 to S3
 (pull request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1,
 pull request #36), 10 and 11, and request 1's last question, by its
-revision of 2026-10-29 (SC2, pull request #55). Request 12 is open. Each
+revision of 2026-10-29 (SC2, pull request #55). Requests 12 and 13 are
+open. Each
 item names the findings that answer it. Where an answer differs from a
 reading a milestone took, that milestone's code follows the answer in a
 follow-up; the sync-folder loader and the import base already do (FU4),
@@ -663,14 +664,36 @@ follow SC2's answers (FU6).
     step itself starts detached is left running in every mode, as on
     Windmill, and reported as `detached`. Where Windmill would hold the job open until the
     child exits, the warm step completes at once and the child's work is
-    cut off. Should a warm process hold the invocation's result until its
-    children's groups are empty, as Windmill holds the job, with the timer,
-    `fetch`, log and platform fences applied at the return? The reference
+    cut off. The engine owns the children's groups (the harness announces
+    each in a `child` frame), so a step that blocks the event loop cannot
+    keep them past its timeout or the process's end. A synchronous child
+    call gets no group of its own (its pid comes too late to announce): it
+    stays in the harness's group, which the end of the process kills, and
+    what it leaves running is not attributed. Should a warm process hold
+    the invocation's result until its children's groups are empty, as
+    Windmill holds the job, with the timer, `fetch`, log and platform
+    fences applied at the return? The reference
     does not settle what a shared process should do, and
     [Q-WR-28](../semantics/languages.md#q-wr-28) asks the oracle to confirm
     WR-55 itself. Until it is answered, a script that leaves a child in
     its group is flagged by the `left_behind` warning in both modes, and
     one that must let its children finish runs `fresh`.
+
+13. **A container child result the backend cannot read back**
+    ([FX-42](../semantics/execution.md#fx-42) rule 9,
+    [JE-44](../semantics/expressions.md#je-44); milestone FU6), open. A
+    loop's or `branchall`'s result is its children's stored results read
+    back into the backend's JSON values. A number beyond a double's range,
+    or nesting past the library's recursion limit, is refused by that
+    read, and an identity child can carry either from a flow input that
+    `jsonb` holds as it was written. FX-42 says the parse fails; it does
+    not say what Windmill then does at the container's completion, nor
+    with which error. windmill-lite fails the flow at once with a chaining
+    error named `InternalError` (FX-15 context 1) whose message is the
+    library's text, `number out of range at line <l> column <c>` or
+    `recursion limit exceeded at line <l> column <c>`, the position in the
+    child's stored text, and the container fails with no result. Which
+    error, wrapper and position does Windmill give?
 
 ## Changing the design
 

@@ -20,6 +20,7 @@ import {
   InvocationLog,
   InvocationResources,
   invocations,
+  setChildAnnouncer,
   setChildGroups,
   shadow,
   TAIL_LENGTH,
@@ -228,41 +229,51 @@ test("in a warm process a child leads a process group of its own, which settleme
   }
 });
 
-test("Bun.spawnSync's child leads a group, registered when the child left a process in it (WR-55)", async () => {
-  // spec: WR-55
-  setChildGroups(true);
-  const c = context();
-  const pid = invocations.run(c, () => Bun.spawnSync(["sh", "-c", "sleep 30 > /dev/null 2>&1 &"]).pid);
-  expect(groupAlive(pid)).toBe(true);
-  expect(c.resources.pending()).toEqual({ child: 1 });
-  c.resources.settle();
-  await until("the group to be killed", () => !groupAlive(pid));
-  // One that leaves nothing behind registers nothing.
-  const quiet = context();
-  invocations.run(quiet, () => Bun.spawnSync(["true"]));
-  expect(quiet.resources.pending()).toEqual({});
-});
-
-test("exec, execFile and the sync forms, where Bun ignores the step's detached, start a child in the step's group, as on Windmill (WR-55)", async () => {
+test("a synchronous call's child stays in the caller's group and registers nothing; it cannot be announced before it has exited (WR-55, review round 1)", () => {
   // spec: WR-55
   const cp = require("node:child_process");
   setChildGroups(true);
+  const own = String(pgidOf(process.pid));
   const c = context();
-  const pids = await invocations.run(c, async () => {
-    const a = cp.exec("sleep 30", { detached: true });
-    const b = cp.execFile("sleep", ["30"], { detached: true });
-    cp.execSync("sleep 30 > /dev/null 2>&1 & echo $! > /dev/null", { detached: true });
-    const s = cp.spawnSync("sh", ["-c", "sleep 30 > /dev/null 2>&1 &"]);
-    return [a.pid, b.pid, s.pid] as number[];
-  });
+  const groups = invocations.run(c, () => [
+    new TextDecoder().decode(Bun.spawnSync(["sh", "-c", "ps -o pgid= -p $$"]).stdout).trim(),
+    String(cp.execSync("ps -o pgid= -p $$")).trim(),
+    String(cp.spawnSync("sh", ["-c", "ps -o pgid= -p $$"]).stdout).trim(),
+  ]);
+  expect(groups).toEqual([own, own, own]);
+  expect(c.resources.pending()).toEqual({});
+});
+
+test("exec and execFile, where Bun ignores the step's detached, start a child in a group of its own, announced to the engine with its invocation (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const announced: [string, number][] = [];
+  setChildAnnouncer((id, pid) => announced.push([id, pid]));
+  const c = context();
   try {
-    for (const pid of pids) expect(pgidOf(pid) ?? pid).toBe(pid);
-    // exec, execFile, execSync's leftover and spawnSync's leftover.
-    expect(c.resources.pending()).toEqual({ child: 4 });
+    const pids = await invocations.run(c, async () => {
+      const a = cp.exec("sleep 30", { detached: true });
+      const b = cp.execFile("sleep", ["30"], { detached: true });
+      const d = cp.spawn("sleep", ["30"], { stdio: "ignore", detached: true });
+      return [a.pid, b.pid, d.pid] as number[];
+    });
+    try {
+      for (const pid of pids) expect(pgidOf(pid) ?? pid).toBe(pid);
+      expect(c.resources.pending()).toEqual({ child: 2, detached: 1 });
+      // The step's own detached child is not the engine's to kill.
+      expect(announced).toEqual([
+        [c.id, pids[0]],
+        [c.id, pids[1]],
+      ]);
+    } finally {
+      c.resources.settle();
+      process.kill(pids[2], "SIGKILL");
+    }
+    await until("every group to be killed", () => pids.slice(0, 2).every((pid) => !groupAlive(pid)));
   } finally {
-    c.resources.settle();
+    setChildAnnouncer(() => {});
   }
-  await until("every group to be killed", () => pids.every((pid) => !groupAlive(pid)));
 });
 
 test("a revoked invocation's children are killed now, and one it starts afterwards at once (WR-55, WR-37)", async () => {

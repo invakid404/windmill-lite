@@ -403,7 +403,8 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 }
 
 // loopDone completes an active loop or branchall: its result is the array
-// of its children's results; one that failed fails with it (CF-5, CF-15),
+// of its children's results (aggregate; one the backend cannot read back
+// fails the flow, aggregateFailed); one that failed fails with it (CF-5, CF-15),
 // and a loop whose stop_after_if threw fails as such a step does (FX-21).
 // Then its stop_after_all_iters_if, evaluated once with that array, stops
 // the flow it is in like an ordinary stop_after_if; an evaluation error is
@@ -412,7 +413,10 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 // (endFailedStop, FX-2 completion rule 7.1).
 func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *iterations, failed bool, stopErr error) outcome {
 	m := fr.modules[i]
-	arr := arrayOf(it.values)
+	arr, err := aggregate(it.values)
+	if err != nil {
+		return aggregateFailed(o, err)
+	}
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.carried = arr, arr, arr
@@ -625,15 +629,30 @@ func iterInput(parent jsonval.Value, k int, item []byte) jsonval.Value {
 	return jsonval.FromProducer(writeMembers(ms))
 }
 
-// arrayOf is a loop's result: the array of its iterations' results as the
-// worker writes it after decoding each child's stored result (JE-44): no
-// spaces, keys in jsonb's order, and every number written again in the
-// backend's JSON library's notation (FX-42 rule 9, platform.Reprint). A
-// stored result the library cannot read back, one with a number beyond a
-// double's range or nested more than 128 deep, which only an identity
-// child can hold, is kept as stored: Windmill's read of it fails, and the
-// reference does not say with what error (FU6, an open question).
+// arrayOf is the array of a loop's iterations' results so far, for the
+// sites that show it before or without the loop's completion: the job list
+// a results read of a running loop fetches (progress), all_iters (CF-11)
+// and an interrupted loop's result. Each element is written as aggregate
+// writes it, and one the backend's JSON library cannot read back is kept
+// as stored: those sites do not read the stored results into values.
 func arrayOf(entries []jsonval.Value) jsonval.Value {
+	v, _ := array(entries, false)
+	return v
+}
+
+// aggregate is a loop's or branchall's result at its completion: the
+// array of its children's results as the worker writes it after decoding
+// each child's stored result (JE-44): no spaces, keys in jsonb's order,
+// and every number written again in the backend's JSON library's notation
+// (FX-42 rule 9, platform.Reprint). A stored result the library cannot read
+// back, one with a number beyond a double's range or nested more than 128
+// deep, which only an identity child can hold, fails the read, as
+// Windmill's does: err is the library's error (aggregateFailed).
+func aggregate(entries []jsonval.Value) (jsonval.Value, error) { return array(entries, true) }
+
+// array writes entries as aggregate does; strict says whether a result the
+// backend's JSON library cannot read back fails, or is kept as stored.
+func array(entries []jsonval.Value, strict bool) (jsonval.Value, error) {
 	var b strings.Builder
 	b.WriteByte('[')
 	for k, e := range entries {
@@ -646,12 +665,34 @@ func arrayOf(entries []jsonval.Value) jsonval.Value {
 			if s, err := e.Stored(); err == nil {
 				text = s
 			}
-			if out, err := platform.Reprint(text); err == nil {
+			out, err := platform.Reprint(text)
+			switch {
+			case err == nil:
 				text = out
+			case strict:
+				return jsonval.Value{}, err
 			}
 		}
 		b.Write(text)
 	}
 	b.WriteByte(']')
-	return jsonval.FromProducer([]byte(b.String()))
+	return jsonval.FromProducer([]byte(b.String())), nil
+}
+
+// aggregateFailed is a loop or branchall whose children's results the
+// backend cannot read back at its completion (aggregate): Windmill's read
+// fails while it completes the container, a later transition, so the flow
+// fails at once with a chaining error named InternalError (FX-15 context
+// 1), and the module, which ran, fails with no result. Reading: the
+// reference says the read fails, not with which text or wrapper; the
+// message is the JSON library's error text, with the position in the
+// child's stored text (docs/design/README.md, request 13).
+func aggregateFailed(o outcome, err error) outcome {
+	text := err.Error()
+	o.chain = text
+	o.rec.Ran = true
+	o.rec.Status, o.rec.Module = conformance.StepFailure, conformance.ModuleFailure
+	o.rec.ResultNested = nil
+	o.end, o.carried, o.origin, o.nested = endChained, engineError("InternalError", text), OriginEngine, nil
+	return o
 }

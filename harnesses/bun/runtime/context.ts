@@ -923,6 +923,17 @@ export function setChildGroups(on: boolean) {
   childGroups = on;
 }
 
+/** Tells the engine of a child group an invocation started (a child
+ * frame), before the step's code goes on, so the engine can kill it
+ * without this process's event loop, which the step may block (WR-55).
+ * The runtime sets it. */
+let announceChild: ((id: string, pid: number) => void) | undefined;
+
+/** Sets what announces a child group to the engine (announceChild). */
+export function setChildAnnouncer(fn: (id: string, pid: number) => void) {
+  announceChild = fn;
+}
+
 /** Whether a process is left in the process group pgid. A member the
  * harness may not signal is still a member. */
 function groupAlive(pgid: number): boolean {
@@ -994,17 +1005,27 @@ let childrenInstalled = false;
  * Each job of Windmill's leads its own process group, which its children
  * join, and the group is killed on a timeout or a cancellation (WR-55).
  * In a warm or host process (childGroups), a child the invocation starts
- * leads a group of its own instead, which stands for the step's: the
- * wrapper starts it detached, and it registers as "child", with its group
- * as what is alive and what the release kills, so the release also reaches
- * what the child started, after the child itself has exited. The engine's
- * timeout or cancellation revokes "child" (Runtime.cancel), and settlement
- * kills what is left, which the left_behind warning reports first: Windmill
- * would hold the job open until those processes exit, which a warm process
- * cannot do without letting the step's code run after it settles (an open
- * question in docs/design/README.md; fresh mode does what Windmill does).
- * A sync call's child has exited when the call returns; what it left in
- * its group registers then.
+ * asynchronously leads a group of its own instead, which stands for the
+ * step's: the wrapper starts it detached, and it registers as "child",
+ * with its group as what is alive and what the release kills, so the
+ * release also reaches what the child started, after the child itself has
+ * exited. Before the step's code goes on, the group is announced to the
+ * engine (announceChild, a child frame written synchronously), which kills
+ * it on the invocation's timeout or cancellation and when the process ends
+ * without this event loop, which the step may block. The cancel revokes
+ * "child" here too (Runtime.cancel), and settlement kills what is left,
+ * which the left_behind warning reports first: Windmill would hold the job
+ * open until those processes exit, which a warm process cannot do without
+ * letting the step's code run after it settles (an open question in
+ * docs/design/README.md; fresh mode does what Windmill does).
+ *
+ * A synchronous call's child gets no group of its own: its pid is known
+ * only once it has exited, too late to announce, so it stays in the
+ * harness's group, which the engine spawned as its leader and kills when
+ * the process ends, a watchdog's kill of a process the call blocks
+ * included. What a synchronous child leaves running after it exits stays
+ * in that group too, unattributed: it is not reported, and runs until the
+ * process ends.
  *
  * A child the step itself starts detached, where Bun honours it, is in a
  * session of its own on Windmill too, outside the job's group: never
@@ -1063,11 +1084,11 @@ export function installChildProcesses() {
    * (Bun.spawn(cmd, options) or Bun.spawn({cmd, ...options})); detached,
    * whether the step asked for a session of its own; group, whether the
    * wrapper gives it a group. */
-  const plan = (args: unknown[]) => {
+  const plan = (args: unknown[], sync: boolean) => {
     const at = Array.isArray(args[0]) || typeof args[0] === "string" ? 1 : 0;
     const o = args[at];
     const detached = typeof o === "object" && o !== null && Boolean((o as { detached?: unknown }).detached);
-    const group = childGroups && !detached && workOf() !== undefined;
+    const group = childGroups && !sync && !detached && workOf() !== undefined;
     return { args: withOptions(args, at, group), detached, group };
   };
   /** Registers a child with pid in the caller's registry: a group of its
@@ -1084,6 +1105,10 @@ export function installChildProcesses() {
     }
     const alive = () => groupAlive(pid);
     const done = work.track(detached ? "detached" : "child", detached ? () => {} : () => killGroup(pid), alive);
+    if (!detached) {
+      const id = invocations.getStore()?.id;
+      if (id !== undefined) announceChild?.(id, pid);
+    }
     // The group can outlive its leader; pending() looks again.
     ended?.(() => {
       if (!alive()) done();
@@ -1092,16 +1117,17 @@ export function installChildProcesses() {
   const spawn = Bun.spawn;
   const spawnSync = Bun.spawnSync;
   (Bun as { spawn: unknown }).spawn = function (...args: unknown[]) {
-    const p = plan(args);
+    const p = plan(args, false);
     const child = (spawn as TimerFn)(...p.args) as { pid?: number; exited: Promise<unknown> };
     register(child.pid, p.detached, p.group, (done) => child.exited.then(done, done));
     return child;
   };
   (Bun as { spawnSync: unknown }).spawnSync = function (...args: unknown[]) {
-    const p = plan(args);
+    const p = plan(args, true);
     const out = (spawnSync as TimerFn)(...p.args) as { pid?: number };
-    // The child has exited; what it started is left in its group.
-    if ((p.group || p.detached) && out.pid !== undefined && groupAlive(out.pid)) register(out.pid, p.detached, p.group);
+    // The child has exited; what a detached one started is left in its
+    // own group, and runs on.
+    if (p.detached && out.pid !== undefined && groupAlive(out.pid)) register(out.pid, true, false);
     return out;
   };
 }

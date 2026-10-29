@@ -223,11 +223,21 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     a group of its own that stands for the job's, and register it as
     `child`: alive while a process is left in the group, released by
     killing the group with `SIGKILL`, so what the child started is reached
-    after it exited. A sync call's child has exited when the call returns;
-    what it left in its group registers then. A `cancel` (the engine's
-    timeout or cancellation) revokes `child`: the invocation's groups are
-    killed at once, and any it starts afterwards at once
-    (`InvocationResources.revoke`). Settlement kills what is left;
+    after it exited. Before the step's code goes on, the group is
+    announced to the engine in a `child` frame (`setChildAnnouncer`, which
+    the runtime sets): `Sender.flushFramesSync` writes it, after the frame
+    in progress, straight to the socket's file descriptor, so it reaches
+    the engine even if the step then blocks the event loop, and the engine
+    kills the group on the invocation's timeout or cancellation and when
+    the process ends (a host, whose transport has no synchronous write,
+    sends it as other frames). A `cancel` revokes `child` here too: the
+    invocation's groups are killed at once, and any it starts afterwards
+    at once (`InvocationResources.revoke`). Settlement kills what is left.
+    A synchronous call (`Bun.spawnSync`, and so `spawnSync`, `execSync`
+    and `execFileSync`) gets no group: its child's pid is known only once
+    it has exited, too late to announce, so it stays in the harness's
+    group, which the engine kills when the process ends; what it left
+    running is not attributed or reported;
   - **in a fresh process**, which the engine spawned as the leader of the
     job's group, leave each child in that group, which the engine waits
     for or kills: `child` is registered, with a release that does nothing;

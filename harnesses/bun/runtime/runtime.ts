@@ -58,6 +58,7 @@ import {
   ProcessExit,
   realStderr,
   realTimers,
+  setChildAnnouncer,
   setChildGroups,
   shadow,
 } from "./context.ts";
@@ -334,8 +335,10 @@ export class Runtime {
     this.welcomed = true;
     this.mode = c.module_state;
     // A fresh process leads its job's process group; a warm one gives each
-    // invocation's children groups of their own (WR-55).
+    // invocation's children groups of their own, which it announces to the
+    // engine (WR-55).
     setChildGroups(this.mode !== "fresh");
+    setChildAnnouncer((id, pid) => this.announceChild(id, pid));
     this.facade = c.facade;
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
@@ -767,6 +770,24 @@ export class Runtime {
       } catch (err) {
         this.diag(`windmill-lite harness: ${describe(err)}`);
       }
+    }
+  }
+
+  /** Announces a child group of invocation id to the engine (a child
+   * frame) and writes it at once, through the synchronous transport when
+   * there is one (the spawned harness's), so it reaches the engine whatever
+   * the step's code does next, a blocked event loop included; the engine
+   * then kills the group on the invocation's timeout or cancellation and
+   * when the process ends (WR-55). A failure is written to the
+   * diagnostics, and the spawn goes on. */
+  private announceChild(id: string, pid: number) {
+    if (this.closing()) return;
+    try {
+      this.sender.send({ t: "child", id, pid });
+      const writeSync = this.opts.transport.writeSync;
+      if (writeSync) this.sender.flushFramesSync((b) => writeSync(b));
+    } catch (e) {
+      this.diag(`windmill-lite harness: a child frame was not written: ${describe(e)}`);
     }
   }
 

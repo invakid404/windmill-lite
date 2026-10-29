@@ -145,13 +145,25 @@ never set for Bun. The engine stands in for the worker
 when unset or empty) followed by `/cache_nomount/bun`, and `NODE_PATH` is
 the engine's, set only when the engine has one.
 
-**Process groups** ([WR-55](../../docs/semantics/languages.md#wr-55)). A
-fresh process is its invocation's job process, so `Spawn` makes it the
-leader of a process group of its own, which the step's children join
-unless they start a session of their own. Killing it signals the whole
-group as well. A warm process stays in the engine's group: the harness
-gives each invocation's children groups of their own and kills them itself
-([harnesses/bun](../../harnesses/bun/README.md)).
+**Process groups** ([WR-55](../../docs/semantics/languages.md#wr-55)).
+`Spawn` makes every process the leader of a process group of its own, and
+killing it signals the whole group as well. A fresh process is its
+invocation's job process: the step's children join its group unless they
+start a session of their own, and its outcome waits for them (below). In a
+warm or host process the harness gives each child an invocation starts
+asynchronously a group of its own and announces it in a `child` frame,
+written before the step's code goes on
+([harnesses/bun](../../harnesses/bun/README.md)). The engine records the
+groups per invocation (`invocation.children`) and kills them itself,
+without the harness's event loop, which the step may block: when it
+abandons the invocation (its timeout or cancellation, in `exec`), when the
+process or the host's connection ends (`failInvocations`), and at once
+for a group announced after that or after the invocation settled. It
+forgets an invocation's groups at its settlement, which killed them in
+the harness. A group id of 1 or less, or the harness's own, is refused.
+When a warm process ends, `endGroup` kills what is left in its own group:
+what the steps' synchronous child calls started, which gets no group of
+its own.
 
 **The handshake.** The harness's `hello` must match `Kind`, `Runtime`
 (`PinnedBun`, 1.3.10, for Bun), `Bundle` and the protocol version, and its
@@ -175,7 +187,8 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 | `result` with `settled` true | the outcome | `Settled(completed)` first |
 | `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
-| fresh mode: `result` with `settled` true | the outcome, once the process has exited and no process is left in its group (WR-55): a background child holds the job open | `Settled(completed)` first |
+| fresh mode: `result` with `settled` true | the outcome, once the process has exited and its group has emptied by itself (WR-55): a background child holds the job open; a kill or a failed connection before that fails the job as `escaped` by `SIGKILL`, settled `process_exited` | `Settled(completed)` first |
+| warm or host mode: `child` | nothing; the group is recorded for the invocation, or killed at once when the invocation was abandoned or has settled or the process is ending (WR-55) | none |
 | fresh mode: ctx ends first, before the result or while it waits for the group | `context.Cause(ctx)`, after killing the process and its group | later: `Settled(process_exited)`, nothing late |
 | fresh mode: the process exits 0 before a result (`process.exit(0)`), over a connection that never failed | `empty` ([WR-V2](../../docs/semantics/languages.md#wr-v2)) | `Settled(process_exited)` first |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
@@ -381,10 +394,16 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   a step sees them (WR-22/b), and process groups (WR-55). In fresh mode a
   child in the group holds the outcome until it exits, settled completed
   (WR-55/a), a detached child does not, and a timeout while the outcome
-  waits kills the group and ends the step with the timeout (WR-55/b). In
-  warm mode a normal return settles at once, its `child` reported and
-  killed with its group, a `detached` child reported and left running, and
-  a timeout's `cancel` kills the children of the abandoned call.
+  waits kills the group and ends the step with the timeout (WR-55/b), and
+  a kill that is not the invocation's own (`Kill`, as a pool's close does)
+  fails the held job instead of releasing its result. In warm mode a
+  normal return settles at once, its `child` reported and killed with its
+  group, a `detached` child reported and left running, and a timeout's
+  `cancel` kills the children of the abandoned call. A step that blocks
+  its event loop after it started a child (`stall`) has the child killed
+  by the engine on its timeout, though the harness cannot handle the
+  `cancel`, and with the process when the watchdog kills it; a synchronous
+  child call's child ends with the process too.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
   outcomes fixed before the call ends, late output, protocol violations, an

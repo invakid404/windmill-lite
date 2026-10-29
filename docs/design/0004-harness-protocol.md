@@ -91,6 +91,7 @@ step without failing the others.
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
+| `child` | harness → engine | `id` (the invocation), `pid` (greater than 1) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on; the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
@@ -244,6 +245,8 @@ microtask see none.
    - sockets and clients the step opened itself, and shared objects;
    - a child the step started detached, in a session of its own, and
      processes `Bun.$` starts, which the harness does not wrap;
+   - what a synchronous child call left running after its child exited,
+     which stays in the harness's group until the process ends (item 7);
    - CPU work.
 
    Their errors are reported as `late` (D9). Work started in a process
@@ -294,15 +297,31 @@ microtask see none.
    `Bun.spawnSync` (the sync ones), once each, and passes `detached` on
    only from `spawn` and `fork`, the functions that honour a step's own
    `detached`; `exec`, `execFile` and the sync forms ignore it, so their
-   children are in the job's group on Windmill. The wrappers of the two Bun
-   functions therefore register every child, once, and give each its group;
-   a sync call's child has exited when the call returns, and what it left
-   in its group registers then. A child the step started detached where Bun
-   honours it registers as `detached` and is never killed. The engine's
-   timeout or cancellation sends `cancel`, which kills the invocation's
-   groups at once, and any child it starts afterwards at once, while the
-   call itself goes on (D2); settlement kills what is left (item 4).
-   windmill-lite has no log limit, the third kill trigger WR-55 names.
+   children are in the job's group on Windmill. The wrapper of `Bun.spawn`
+   therefore registers every asynchronous child, once, and gives each its
+   group. A child the step started detached where Bun honours it registers
+   as `detached` and is never killed.
+
+   The engine owns those groups, since the harness's event loop, which the
+   step can block, cannot be relied on to kill them. Before the step's
+   code goes on, the harness announces each group in a `child` frame,
+   written synchronously through the spawned harness's socket descriptor
+   after what the socket already holds (a host's goes out as other frames
+   do). The engine kills an invocation's announced groups when it abandons
+   the invocation (its timeout or cancellation, which also sends `cancel`,
+   on which the harness revokes them and kills at once any child the call
+   starts afterwards) and when the process ends, a watchdog's kill
+   included; settlement kills what is left in the harness (item 4), and
+   the engine forgets them. Every process the engine spawns leads a
+   process group of its own, which its kill and its end reach. A
+   synchronous call's child gets no group of its own, because its pid is
+   known only once it has exited, too late to announce: it stays in the
+   harness's group, which the end of the process kills, so a call that
+   blocks the event loop past the watchdog ends with the process. What a
+   synchronous child leaves running after it exits stays in that group
+   too, unattributed, and runs until the process ends. The call itself
+   goes on after a timeout (D2). windmill-lite has no log limit, the third
+   kill trigger WR-55 names.
 8. **`fresh` mode** restores Windmill's behaviour for all of the above:
    - **One process per invocation**, in its own working directory. The
      engine starts the process for the invocation, and the process offers
@@ -324,9 +343,12 @@ microtask see none.
      The engine spawns it as the leader of a process group, which the
      step's children join, and its kill reaches the whole group. A settled
      result is held until the process has exited and no process is left in
-     its group, so a background child holds the job open as on Windmill,
-     and a timeout or a cancellation meanwhile kills the group and ends the
-     step with its error, although the script returned. A child that
+     its group, so a background child holds the job open as on Windmill.
+     The result is released only when the group empties by itself: a
+     timeout or a cancellation meanwhile kills the group and ends the step
+     with its error, and any other kill (the engine's, a pool's close at
+     its deadline) or a failed connection fails it as killed by `SIGKILL`,
+     settled with the process, although the script returned. A child that
      started a session of its own is not waited for. The engine is not the
      orphans' parent, so it watches the group with signal 0, and reaps
      them when it is their parent (PID 1 of a container, or a subreaper),
@@ -855,11 +877,17 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     model items 4, 7 and 8). Before, child processes were outside the
     fence and left running. A `fresh` process now leads its job's group,
     which its kill reaches and its outcome waits for. In a warm or host
-    process each child an invocation starts leads a group of its own: a
-    `cancel` kills it, settlement kills what is left, and `left_behind`
-    counts a child the step started detached as `detached`, the one kind
-    left running. Killing at settlement where Windmill would wait is the
-    reading recorded as an open question in the [README](README.md).
+    process each child an invocation starts asynchronously leads a group
+    of its own, announced in a new `child` frame: the engine kills it when
+    it abandons the invocation and when the process ends, without the
+    harness's event loop, which the step may block; the harness's `cancel`
+    and settlement kill it too, and `left_behind` counts a child the step
+    started detached as `detached`, the one kind left running. A
+    synchronous call's child stays in the harness's group, which the end
+    of the process kills. A held fresh result is released only when its
+    group empties by itself. Killing at settlement where Windmill would
+    wait is the reading recorded as an open question in the
+    [README](README.md).
     Each child is now registered once: before, one started through
     `node:child_process` was counted twice, by its own wrapper and by
     `Bun.spawn`'s.

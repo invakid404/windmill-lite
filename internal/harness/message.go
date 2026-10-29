@@ -21,7 +21,7 @@ const ProtocolVersion = 1
 // frames of spawned harnesses; the walking skeleton (W1) added
 // `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
 // and host mode's `run`/`run_done`/`run_cancel`; milestone C3a added
-// `warning`. `host_call`/`host_reply` (F2c) are refused as CodeUnknownType
+// `warning`, and FU6 `child`. `host_call`/`host_reply` (F2c) are refused as CodeUnknownType
 // until their milestone.
 const (
 	TypeHello         = "hello"
@@ -32,6 +32,7 @@ const (
 	TypeCancel        = "cancel"
 	TypeLog           = "log"
 	TypeWarning       = "warning"
+	TypeChild         = "child"
 	TypePlatform      = "platform"
 	TypePlatformReply = "platform_reply"
 	TypeRun           = "run"
@@ -183,6 +184,21 @@ type Cancel struct {
 	ID string
 	// Reason is "timeout", "canceled" or "run_ended".
 	Reason string
+}
+
+// Child announces a child process an invocation started in a warm or host
+// process, the leader of a process group of its own that stands for the
+// step's process group (WR-55): the engine kills the group when the
+// invocation is abandoned (its timeout or cancellation) and when the
+// process ends, without the harness's event loop, which may be blocked
+// (ADR 0004, failure model item 7). The harness writes it before the
+// step's code goes on.
+type Child struct {
+	// ID is the invocation that started the child.
+	ID string
+	// PID is the child's pid, its process group's id; greater than 1, so
+	// that neither every process nor the caller's own group is named.
+	PID int
 }
 
 // Log is attributed output of one invocation, batched.
@@ -337,6 +353,7 @@ func (Late) Type() string            { return TypeLate }
 func (Cancel) Type() string          { return TypeCancel }
 func (Log) Type() string             { return TypeLog }
 func (Warning) Type() string         { return TypeWarning }
+func (Child) Type() string           { return TypeChild }
 func (PlatformRequest) Type() string { return TypePlatform }
 func (PlatformReply) Type() string   { return TypePlatformReply }
 func (RunRequest) Type() string      { return TypeRun }
@@ -473,6 +490,13 @@ func (m Warning) appendPayload(b []byte) ([]byte, error) {
 	if m.Untracked != nil {
 		e.intMap("untracked", m.Untracked)
 	}
+	return e.end()
+}
+
+func (m Child) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeChild)
+	e.str("id", m.ID)
+	e.int("pid", int64(m.PID))
 	return e.end()
 }
 
@@ -719,6 +743,12 @@ func Decode(payload []byte) (Message, error) {
 			w.Untracked = d.intMap("untracked")
 		}
 		m = w
+	case TypeChild:
+		c := Child{ID: d.str("id"), PID: d.int("pid")}
+		if derr == nil && c.PID <= 1 {
+			d.fail(CodeBadField, "child pid %d", c.PID)
+		}
+		m = c
 	case TypePlatform:
 		m = PlatformRequest{
 			ID:      d.str("id"),
