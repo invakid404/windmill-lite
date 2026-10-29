@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -16,8 +18,9 @@ import (
 //
 //   - modules are the ids of the run's flow, in order, and failure says
 //     that it has a failure module, at s:failure, and the trace's child
-//     flows name theirs (a loop iteration's or a branch's body, CF-1): each
-//     is a site, and a module the trace has no record of never got a job,
+//     flows name theirs (a loop iteration's or a branch's body, CF-1, or a
+//     subflow's, CF-17) and their failure modules (CF-16): each is a site,
+//     and a module the trace has no record of never got a job,
 //     so it is not_run, as the walker reads a flow_status entry without one;
 //     virtual marks the generated `<id>-v` step of a final sleep (OF-17),
 //     which the walker leaves out of the projection (OR-V7), and so does
@@ -48,9 +51,11 @@ import (
 // it apart (an error stop's, a throwing stop_after_if's, a chaining error
 // at the root's first pickup), and the root's result; and, inside a value
 // that aggregates others (a loop's array), the generated errors the trace
-// points to (StepRecord.ResultNested). There a comparison with the oracle
-// strips a location suffix (conformance.StripLocations), and nowhere else.
-func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
+// points to (StepRecord.ResultNested); and the copies of such an error that
+// the run declares (copies, declaredCopies). There a comparison with the
+// oracle strips a location suffix (conformance.StripLocations), and
+// nowhere else.
+func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec, copies []conformance.Copy) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	for _, c := range t.Children {
 		ids[c.ID] = c.Site
@@ -90,6 +95,10 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	}
 
 	steps := map[conformance.SitePath]conformance.StepObservation{}
+	// sources holds each site's generated errors, a declared copy's
+	// candidates, the one a site with no result carries included (a failure
+	// at the root's pickup, FX-15), which the observation does not show.
+	sources := map[conformance.SitePath][]json.RawMessage{}
 	var expanded []engine.StepRecord
 	for _, rec := range t.Steps {
 		if hidden[rec.Site] {
@@ -124,6 +133,12 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		}
 		st.Args, st.ResolvedArgs = value(rec.RecordedArgs, true), value(rec.ResolvedArgs, false)
 		st.Result, st.Carried = value(rec.Result, true), value(rec.Carried, false)
+		if st.Result != nil && rec.ResultOrigin.Generated() {
+			sources[rec.Site] = append(sources[rec.Site], st.Result)
+		}
+		if st.Carried != nil && rec.CarriedOrigin.Generated() {
+			sources[rec.Site] = append(sources[rec.Site], st.Carried)
+		}
 		if st.Result == nil {
 			st.Carried = nil
 		}
@@ -170,7 +185,11 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	}
 	notRun(conformance.SitePath{}, segs)
 	for _, c := range t.Children {
-		notRun(c.Site, conformance.ModuleSegments(c.Modules))
+		segs := conformance.ModuleSegments(c.Modules)
+		if c.Failure {
+			segs = append(segs, conformance.FailureSlot())
+		}
+		notRun(c.Site, segs)
 	}
 	if t.ResultOrigin.Generated() {
 		generated = append(generated, "/result")
@@ -198,8 +217,104 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		}
 		o.Steps[site] = st
 	}
+	for _, vs := range sources {
+		for k := range vs {
+			if vs[k], err = n.Value(vs[k]); err != nil {
+				return o, nil, err
+			}
+		}
+	}
 	o, err = conformance.MaskPaths(o, spec.Stack, spec.Mask)
-	return o, generated, err
+	if err != nil {
+		return o, nil, err
+	}
+	declared, err := declaredCopies(o, sources, copies)
+	return o, append(generated, declared...), err
+}
+
+// declaredCopies returns the pointers of the copies the run declares
+// (conformance.Copy) whose value in o equals, as JSON, an error
+// windmill-lite generated at the copy's site (sources, normalised), that
+// error's error member, or its message: a failure module or a later step
+// that passes a pickup error on unchanged (FX-15/b, JE-35/d). Equality
+// alone never makes a value generated, since user code can write the same
+// text, so only a declared pointer is considered, and only against its own
+// site's errors; a declaration whose site generated nothing, or whose
+// value differs, adds nothing and the comparison shows the difference
+// (ADR 0011).
+func declaredCopies(o conformance.Observation, sources map[conformance.SitePath][]json.RawMessage, copies []conformance.Copy) ([]string, error) {
+	if len(copies) == 0 {
+		return nil, nil
+	}
+	decode := func(b []byte) (any, error) {
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.UseNumber()
+		var v any
+		err := dec.Decode(&v)
+		return v, err
+	}
+	canon := func(v any) string {
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+	data, err := json.Marshal(o)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := decode(data)
+	if err != nil {
+		return nil, err
+	}
+	at := func(p string) (any, bool) {
+		toks, err := conformance.SplitPointer(p)
+		if err != nil {
+			return nil, false
+		}
+		v := tree
+		for _, tok := range toks {
+			switch x := v.(type) {
+			case map[string]any:
+				var ok bool
+				if v, ok = x[tok]; !ok {
+					return nil, false
+				}
+			case []any:
+				k, err := strconv.Atoi(tok)
+				if err != nil || k < 0 || k >= len(x) {
+					return nil, false
+				}
+				v = x[k]
+			default:
+				return nil, false
+			}
+		}
+		return v, true
+	}
+	var out []string
+	for _, c := range copies {
+		site, err := conformance.ParseSitePath(c.Of)
+		if err != nil {
+			return nil, err
+		}
+		forms := map[string]bool{}
+		for _, raw := range sources[site] {
+			v, err := decode(raw)
+			if err != nil {
+				return nil, err
+			}
+			forms[canon(v)] = true
+			if m, ok := v.(map[string]any); ok && m["error"] != nil {
+				forms[canon(m["error"])] = true
+				if e, ok := m["error"].(map[string]any); ok && e["message"] != nil {
+					forms[canon(e["message"])] = true
+				}
+			}
+		}
+		if v, ok := at(c.At); ok && forms[canon(v)] {
+			out = append(out, c.At)
+		}
+	}
+	return out, nil
 }
 
 func boolPtr(b bool) *bool { return &b }

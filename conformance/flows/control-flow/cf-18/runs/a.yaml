@@ -1,0 +1,12 @@
+# CF-18/a: the loop's skip_if is true, so it runs as an identity job,
+# whose argument is its previous_result, a's 42, with no iteration; its
+# result passes a's 42 through to n.
+spec: [CF-18/a]
+target: f/wl_cf18/skipped
+expect:
+  status: success
+  result: 42
+  steps:
+    "m:a": {status: success, args: {}, result: 42}
+    "m:l": {status: success, skipped: true, args: {previous_result: 42}, result: 42}
+    "m:n": {status: success, args: {x: 42}, result: 42}

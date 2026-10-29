@@ -1,0 +1,10 @@
+# CF-V2/b: the empty loop's own stop_after_if, true, stops the flow
+# cleanly with the loop's [] and n does not run.
+spec: [CF-V2/b]
+target: f/wl_cfv2/loop_stop
+expect:
+  status: success
+  result: []
+  steps:
+    "m:l": {status: success, ran: false, result: []}
+    "m:n": {status: not_run}

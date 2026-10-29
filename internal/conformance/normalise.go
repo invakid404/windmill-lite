@@ -459,6 +459,62 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 	return out, nil
 }
 
+// notFoundLoc is the parenthesised location that ends the text of a
+// not-found error from Windmill's lookup helper, "<kind> not found at name
+// <name> (<file>.rs:<line>)", wherever a message quotes it (FX-50).
+var notFoundLoc = regexp.MustCompile(` not found at name [^ ()]+( \([^ ()]+\.rs:[0-9]+\))`)
+
+// StripNotFoundLocations applies rule 3 of FX-50's masking to the
+// comparison of windmill-lite with the oracle (ADR 0011, Location
+// suffixes): at each pointer, a run declares that the message there quotes
+// a not-found error of the lookup helper whose parenthesised location
+// Windmill generated (Run.NotFoundLocs), as the case's expected text
+// writes <loc> for it (CF-19/c's failed fetch of a step's result). The
+// value at a pointer is an error object, an object whose error member is
+// one, or the message itself; the location of the first not-found text in
+// the message goes, with its leading space. Nothing is stripped where no
+// pointer says so, since a user's own message can hold the same phrase
+// (FX-50/d), and a pointer that does not resolve to such a message is
+// skipped, so its difference shows.
+func StripNotFoundLocations(o Observation, at []string) (Observation, error) {
+	if len(at) == 0 {
+		return o, nil
+	}
+	data, err := json.Marshal(o)
+	if err != nil {
+		return o, err
+	}
+	tree, err := parseJSON(data)
+	if err != nil {
+		return o, err
+	}
+	for _, p := range at {
+		toks, err := SplitPointer(p)
+		if err != nil {
+			return o, err
+		}
+		v := tree.at(toks)
+		if v != nil && v.kind == kindObject {
+			if e := v.member("error"); e != nil && e.kind == kindObject {
+				v = e
+			}
+			v = v.member("message")
+		}
+		if v == nil || v.kind != kindString || v.marker {
+			continue
+		}
+		s := v.str()
+		if m := notFoundLoc.FindStringSubmatchIndex(s); m != nil {
+			*v = jnode{kind: kindString, text: quote(s[:m[2]] + s[m[3]:])}
+		}
+	}
+	var out Observation
+	if err := json.Unmarshal(tree.raw(), &out); err != nil {
+		return o, err
+	}
+	return out, nil
+}
+
 // allItersPrefix begins the message of a stop_after_all_iters_if that
 // fails to evaluate (CF-13).
 const allItersPrefix = "Error evaluating stop_after_all_iters_if expression `"

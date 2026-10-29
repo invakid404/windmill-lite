@@ -315,7 +315,8 @@ func TestLoopBreaks(t *testing.T) {
 // CF-13, CF-29, CF-V2, JE-27: stop_after_all_iters_if stops the flow the
 // loop is in, once, with the array; an evaluation error is an error stop.
 // An empty loop evaluates its stop_after_if as an ordinary stop with [] and
-// no all_iters, and never its stop_after_all_iters_if.
+// no all_iters, and never its stop_after_all_iters_if; with no job, its
+// status is its module's, which an error stop fails (CF-29/a).
 func TestLoopStopsOfTheFlow(t *testing.T) {
 	iter := `"iterator":{"type":"static","value":[1,2]},"parallel":false,"skip_failures":false`
 	empty := `"iterator":{"type":"static","value":[]},"parallel":false,"skip_failures":false`
@@ -340,8 +341,12 @@ func TestLoopStopsOfTheFlow(t *testing.T) {
 			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.loop, after)}, &loopSteps{})
 			tr := runIt(t, e, `{}`, nil)
 			wantStatus(t, tr, conformance.RunStatus(c.status), c.result)
-			if l := at(t, tr, "m:l"); l.Ran != c.ran {
+			l := at(t, tr, "m:l")
+			if l.Ran != c.ran {
 				t.Fatalf("the loop %+v", l)
+			}
+			if failed := c.status == "failure"; !c.ran && (l.Status == conformance.StepFailure) != failed {
+				t.Fatalf("the empty loop %+v", l)
 			}
 		})
 	}

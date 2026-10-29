@@ -98,8 +98,15 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	case endFailed, endErrorStop:
 		// A failed branch fails the module with the branch's result, and an
 		// error stop in it is an error stop of the module, which its flow
-		// forwards (CF-12 item 4, FX-20).
-		o.rec.Status, o.rec.Module = conformance.StepFailure, conformance.ModuleFailure
+		// forwards (CF-12 item 4, FX-20). A branch that ran its copy of the
+		// failure module fails it with that module's result, its job
+		// successful when it recovered (CF-16, CF-V1, FX-33); a failure
+		// such a module handled stays handled through the forwarded stop
+		// that a clean stop of a failed container in it raised.
+		o.rec.Module, o.handled = conformance.ModuleFailure, e.handled
+		if e.status == conformance.RunFailure {
+			o.rec.Status = conformance.StepFailure
+		}
 		return o
 	case endStopped, endStoppedSkipped:
 		// A clean stop in the branch stops the flow right after the module,
@@ -115,12 +122,14 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 
 // branchOneEnd is how a branchone ends when its branch's flow ended as e,
 // before its own stop_after_if: a failure or an error stop of the branch is
-// the module's (CF-12 item 4), and so is a clean stop (item 2).
+// the module's (CF-12 item 4), and so is a clean stop (item 2); a branch
+// that ran its copy of the failure module failed, even when it recovered
+// (CF-16, CF-V1).
 func branchOneEnd(e flowEnd) moduleEnd {
 	switch {
 	case e.status == conformance.RunFailure && e.errorStop:
 		return endErrorStop
-	case e.status == conformance.RunFailure:
+	case e.status == conformance.RunFailure, e.handled:
 		return endFailed
 	case e.stopped && e.status == conformance.RunSkipped:
 		return endStoppedSkipped
@@ -153,7 +162,7 @@ func (r *run) branchAll(ctx context.Context, fr *frame, i int, o outcome) outcom
 func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcome) outcome {
 	bs := fr.modules[i].BranchAll.Branches
 	var it iterations
-	failed := false
+	failed, handled := false, false
 	for k, br := range bs {
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, k > 0, st)
@@ -174,14 +183,20 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcom
 		}
 		it.add(e)
 		if e.stopped || e.errorStop {
-			return r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			// A forwarded stop of a failure that a failure module handled
+			// in the branch keeps it handled (CF-16 item 4).
+			o = r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			o.handled = o.end == endErrorStop && e.handled
+			return o
 		}
-		if e.status == conformance.RunFailure && !br.SkipFailure {
-			failed = true
+		// A branch that ran its copy of the failure module failed, even when
+		// it recovered (CF-16, CF-V1).
+		if (e.status == conformance.RunFailure || e.handled) && !br.SkipFailure {
+			failed, handled = true, e.handled
 			break
 		}
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), handled)
 }
 
 // sequentialBranchEnd is how a sequential branchall ends when a stop ended
@@ -234,7 +249,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 	n := len(bs)
 	// More than one branch in a same_worker flow fails the module's start
 	// (CF-7); the flag is the root's, which child flows copy (CF-1).
-	if r.f.SameWorker && m.Sleep == nil && n > 1 {
+	if fr.def.SameWorker && m.Sleep == nil && n > 1 {
 		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
 	// Every branch is created at once, each with an rng of its own drawn in
@@ -274,20 +289,20 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 		r.ping(fr)
 	}
 	var it iterations
-	failed := false
+	failed, handled := false, false
 	for k, e := range ends[:started] {
 		if ended(e.status) && stopped == "" {
 			stopped = e.status
 		}
 		it.add(e)
 		if e.status == conformance.RunFailure && !bs[k].SkipFailure {
-			failed = true
+			failed, handled = true, handled || e.handled
 		}
 	}
 	if stopped != "" {
 		return r.loopInterrupted(o, &it, started > 0, r.endedStatus(ctx, stopped))
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), handled)
 }
 
 // branchFrame creates the child flow of a branch of module i of fr (CF-1):
@@ -305,7 +320,9 @@ func (r *run) branchFrame(fr *frame, i int, seg conformance.Segment, ms []*ir.Mo
 	}
 	site := fr.sites[i].Child(seg)
 	c := newFrame(ms, site)
-	c.site, c.child, c.id, c.pinged = site, true, newUUID(), r.clock.Now()
+	now := r.clock.Now()
+	c.site, c.child, c.id, c.pinged, c.started = site, true, newUUID(), now, now
+	c.def, c.failure, c.envSrc = fr.def, fr.failure, fr.envSrc
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = path, fr.scope, fr.nodes, fr.rng
 	if parallel {

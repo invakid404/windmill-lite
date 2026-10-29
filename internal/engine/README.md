@@ -9,7 +9,8 @@ of milestone N1b (`continue_on_error`, the failure module and recovery,
 the error shapes, chaining errors, the final result and the cancellation
 outcome), the for loops of milestone N3a (sequential, collapsed and
 parallel, with `parallelism`), the while loops, `branchone` and
-`branchall` of milestone N3b, the platform providers a run reads
+`branchall` of milestone N3b, the subflows by path and the failure
+modules in bodies of milestone N3c, the platform providers a run reads
 (milestone PF2): a leaf's argument resolution, `flow_env`'s resolution and
 the expression helpers `variable()` and `resource()`, the waits and
 time of milestone N2: `sleep`, the step timeout and its messages, retries
@@ -40,7 +41,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
-| `frame.go`, `loop.go`, `branch.go`, `serde.go` | the flows a run executes (the root and its containers' child flows), their results scopes, for and while loops, and branches (below); the texts of Windmill's JSON library | N3a, N3b; N3c runs its subflows on frames |
+| `frame.go`, `loop.go`, `branch.go`, `subflow.go`, `serde.go` | the flows a run executes (the root, its containers' child flows and its subflows by path), their results scopes, for and while loops, branches and subflows (below); the texts of Windmill's JSON library | N3a, N3b, N3c |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
 Site identities are `conformance.SitePath` values. Run statuses are
@@ -195,7 +196,7 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a, N1b, N3a, N3b, N2).** A flow's modules in sequence:
+**What it runs (N1a, N1b, N3a, N3b, N3c, N2).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
 a static or javascript `timeout`, `retry` and `retry_if`,
@@ -204,8 +205,9 @@ a static or javascript `timeout`, `retry` and `retry_if`,
 [FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own `timeout`,
 which nothing enforces: a flow job bypasses every executor timer
 ([FX-24](../../docs/semantics/execution.md#fx-24), path 4), for and while
-loops and `branchall` with `stop_after_all_iters_if`, and `branchone`
-(below). `stop_after_all_iters_if` is evaluated on an active loop or
+loops and `branchall` with `stop_after_all_iters_if`, `branchone`, and
+subflows by path, in a flow with a failure module too, whose bodies each
+carry a copy of it (below). `stop_after_all_iters_if` is evaluated on an active loop or
 `branchall` only, so on any other module it is accepted and never
 evaluated ([CF-13](../../docs/semantics/control-flow.md#cf-13),
 [FX-2](../../docs/semantics/execution.md#fx-2)). `New` refuses everything
@@ -213,10 +215,12 @@ else with `ErrUnsupported`, naming the milestone that implements it, for
 a top-level module, a container body's and the failure module alike:
 N2's waits and retries in a container's body, on a container, or as the
 sleep before a container (a sleep, a retry with attempts or `retry_if`, a
-javascript or negative `timeout`), which NI integrates with containers;
-a container in a flow with a failure module, whose bodies carry a copy of
-it ([CF-16](../../docs/semantics/control-flow.md#cf-16)), and subflows by
-path (N3c); `cache_ttl`, a path script's own included (N4); host-provided
+javascript or negative `timeout`), which NI integrates with containers,
+and a retry on a subflow step, whose attempts' subflow steps NI places
+under the attempt's site; a container as the failure module, whose
+bodies run raw with a suffixed copy of it
+([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
+only); `cache_ttl`, a path script's own included (N4); host-provided
 sites (F2a); a step of another harness than Bun's, whose `bun` and
 `native` boundaries it runs (L1); a squashed for or while loop (EE,
 [CF-25](../../docs/semantics/control-flow.md#cf-25)); an `ai`
@@ -338,9 +342,11 @@ to it), its own `skip_if`, arguments and launch, with these differences
   path reads the failed job's stored result
   ([FX-10](../../docs/semantics/execution.md#fx-10)); `error` is the
   evaluator's ([JE-17](../../docs/semantics/expressions.md#je-17));
-- its input transforms also see `started_at`, the run's start time as an
-  RFC 3339 string with 0, 3, 6 or 9 fraction digits, and `flow_job_id`, the
-  run's id; its `WM_FLOW_STEP_ID` is its own id;
+- its input transforms also see `started_at`, the start time of the flow
+  it runs in (the run's, or a child flow's or a subflow's for a copy in a
+  body or a subflow's own, N3c) as an RFC 3339 string with 0, 3, 6 or 9
+  fraction digits, and `flow_job_id`, that flow's job id; its
+  `WM_FLOW_STEP_ID` is its own id;
 - a `skip_if` that holds replaces it with a passthrough identity job that
   is never flagged skipped ([FX-17](../../docs/semantics/execution.md#fx-17));
   it has no stop, and its own `continue_on_error` is ignored;
@@ -596,7 +602,9 @@ result is the array of its iterations' results
    `stop_after_if` is then an ordinary stop of the flow with `result` `[]`
    and no `all_iters`, and its `stop_after_all_iters_if` is not evaluated
    ([CF-29](../../docs/semantics/control-flow.md#cf-29),
-   [CF-V2](../../docs/semantics/control-flow.md#cf-v2)).
+   [CF-V2](../../docs/semantics/control-flow.md#cf-v2)). With no job, its
+   record's status is its module's, as the oracle's walker reads a
+   container with no child: an error stop fails both (CF-29/a, N3c).
 2. **Iterations.** Each iteration's flow input is the loop's flow input
    plus `iter` = `{"index": i, "value": element}`, an `iter` already there
    moving to `iter_parent` and so on up
@@ -745,6 +753,89 @@ module of another branch of a parallel `branchall`, or at what the run
 starts once the container has completed, its `stop_after_if` or
 `stop_after_all_iters_if` included.
 
+**Subflows by path (N3c, `subflow.go`).** A `type: flow` step runs the
+flow at its path, which the compiler put in the program, as a child flow
+of its own ([CF-17](../../docs/semantics/control-flow.md#cf-17),
+[FX-5](../../docs/semantics/execution.md#fx-5)), at the step's own site;
+the trace lists it (`Trace.Children`) there, and the step's record holds
+the child's id as its job.
+
+- **Input.** The step's evaluated arguments, stored and read back as a
+  script step's are ([JE-44](../../docs/semantics/expressions.md#je-44),
+  [JE-37](../../docs/semantics/expressions.md#je-37)), with their
+  top-level keys shuffled (FX-42); they are its first module's
+  previous_result (CF-9).
+- **Scopes.** It is a results scope of its own, whose lookups of an id it
+  has no step of still walk up to its caller's
+  ([CF-19](../../docs/semantics/control-flow.md#cf-19), Q-CF-12 matched,
+  [ADR 0001](../../docs/design/0001-equivalence-contract.md) §6), and its
+  own innermost flow scope: its steps see its job id as `WM_FLOW_JOB_ID`
+  and `WM_ROOT_FLOW_JOB_ID` and its path as `WM_FLOW_PATH`
+  ([WA-6](../../docs/semantics/client-api.md#wa-6),
+  [WA-V1](../../docs/semantics/client-api.md#wa-v1)); a body inside it
+  hangs below it as below any flow.
+- **Settings.** Its own failure module, `same_worker` and `flow_env`, or
+  its caller's `flow_env` when it defines none
+  ([CF-1](../../docs/semantics/control-flow.md#cf-1),
+  [JE-38](../../docs/semantics/expressions.md#je-38)); `flow_env`'s `$WM_*`
+  references resolve with the run's flow job's variables (reading). Each
+  frame carries its flow (`frame.def`), its stored `flow_env`
+  (`frame.envSrc`) and its start (`frame.started`, a failure module's
+  `started_at`), so a subflow's settings apply inside it.
+- **Outcome.** The step's result is the subflow's. Its job's status is the
+  subflow job's: success when its failure module recovered, skipped when
+  a clean stop with `skip_if_stopped` ended it. A subflow that failed, or
+  that ran its failure module, fails the step, a recovered one included
+  ([CF-V1](../../docs/semantics/control-flow.md#cf-v1),
+  [FX-33](../../docs/semantics/execution.md#fx-33)), and the caller's
+  `continue_on_error` and failure module then apply: the boundary resets
+  the no-second-run rule below, so both failure modules can run
+  (CF-16 item 4). A stop inside it ends only the subflow
+  ([CF-12](../../docs/semantics/control-flow.md#cf-12),
+  [FX-20](../../docs/semantics/execution.md#fx-20)); the step's own
+  `stop_after_if` is evaluated after a success. A chaining error at the
+  subflow's first module fails it at its pickup, bypassing its failure
+  module ([CF-V3](../../docs/semantics/control-flow.md#cf-v3), FX-15
+  context 3).
+- **Refused.** A retry with attempts or `retry_if` on a subflow step,
+  whose attempts' subflows belong under the attempt's site
+  ([ADR 0011](../../docs/design/0011-differential-testing.md)), is NI's.
+
+**Failure modules in bodies (N3c).** In a flow with a failure module,
+every loop iteration and branch runs as a child flow carrying a copy of
+it ([CF-1](../../docs/semantics/control-flow.md#cf-1),
+[CF-8](../../docs/semantics/control-flow.md#cf-8): such a loop never
+collapses), which runs inside that child, at `<child>/s:failure` with the
+module's own id, as a deployed flow's stored node keeps it
+([CF-16](../../docs/semantics/control-flow.md#cf-16),
+[CF-V4](../../docs/semantics/control-flow.md#cf-v4),
+[FX-34](../../docs/semantics/execution.md#fx-34)). It sees the child's
+input, `iter` included, and the child's job as `flow_job_id`; its result
+is the child's entry. The trace's `ChildFlow.Failure` says the child has
+the slot, so that a copy that never ran is `not_run`.
+
+- **No second run.** A child flow whose failure ended in its failure
+  module reports that it was handled (`flowEnd.handled`); a container that
+  fails by such a child carries it (`outcome.handled`), as a failure,
+  under a clean `stop_after_all_iters_if` that keeps the failure
+  (`endFailedStop`), or as the error stop a `branchone` or a sequential
+  `branchall` forwards for it, and the flow it is in, and any flow above,
+  decides as if it had no failure module for that failure (CF-16 item 4):
+  the failure ends the flow, its `continue_on_error` still tolerating it.
+  An error stop of the container's own predicate is a failure of its own,
+  which the failure module handles; a subflow step resets the flag.
+- **Counting** ([CF-V1](../../docs/semantics/control-flow.md#cf-v1)): a
+  sequential loop, a sequential `branchall` and a `branchone` count a
+  child that ran its failure module as failed, a recovered one included;
+  a parallel loop and a parallel `branchall` judge each child's status,
+  so a recovered child succeeds.
+- **Stops.** An error stop in a body runs the child's copy, whose
+  completion does not forward the stop (CF-12 item 3): the container sees
+  an ordinary failed child.
+- **Refused.** A container as the failure module, whose bodies run raw
+  with a suffixed copy ([CF-30](../../docs/semantics/control-flow.md#cf-30),
+  source-traced only).
+
 **The platform providers (PF2, `providers.go`).** `Config.Platform`, a
 `*platform.Services` ([internal/platform](../platform/README.md#services)),
 holds the resources, variables and secrets a run reads; nil means none,
@@ -770,9 +861,11 @@ so every read is a not-found. A host gives the facade the same services.
   which the flow handles as any failure.
 - **`flow_env`** is resolved the same way, with the flow job's reserved
   variables, each time a module starts, into the frame that runs it
-  (JE-38): a child flow inherits its flow's map and resolves it as its own
-  transitions come, and a parallel iteration's frame is its own, so no two
-  goroutines share one. Reading: a child flow's `$WM_*` strings are the
+  (JE-38): a child flow inherits its flow's stored map
+  (`frame.envSrc`) and resolves it as its own transitions come, a
+  subflow by path keeps its own when it defines one (CF-17, N3c), and a
+  parallel iteration's frame is its own, so no two goroutines share one.
+  Reading: a child flow's or a subflow's `$WM_*` strings are the
   top-level flow job's. A failure leaves the map as stored, with the
   warning `flow_env_unresolved` in the trace, and is not cached; a success
   becomes the frame's cached map.
@@ -875,6 +968,17 @@ also a clean `stop_after_all_iters_if` stop of a failed `branchall`, while
 loop or for loop under `continue_on_error`, a halt-after that waits for
 its containers' own stops, for loops' included, and one that stops the
 other children of a parallel container at their next module.
+`subflow_test.go` (N3c) covers subflows by path: the child flow, its
+input, results scope and job identity, a body inside one under a
+caller's loop, the caller's results and `flow_env` it reads, every
+outcome (a failure, a tolerated one, both failure modules, a recovered
+one, each kind of stop), a pickup error, the hooks, `same_worker`, the
+executor check through a subflow, and concurrent runs. `bodies_test.go`
+(N3c) covers failure modules in bodies: the copy per failed iteration,
+its scope and id, no second run with or without `skip_failures` and
+through a clean stop of a failed inner loop under a loop, a `branchone`
+and a sequential `branchall`, the recovery count of each container, and
+an error stop in a body.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or

@@ -54,20 +54,21 @@ func (h helpers) FlowUserState(ctx context.Context, key string) (jsonval.Value, 
 
 // resolveEnv resolves flow_env for the transition that starts a module of
 // fr (JE-38): its $var: and $res: references, as a leaf's arguments are
-// (JE-41, JE-42), with the flow job's reserved variables. A child flow
-// inherits its flow's map (CF-1) and resolves it as its own flow job
-// would; reading, its $WM_* strings are the top-level flow job's. A
-// failure leaves the unresolved map, with a warning, and is not cached; a
-// success becomes the flow's cached map, which the predicates after a
-// child completes read (stopScope). The result is fr's, which only the
-// goroutine that drives fr touches.
+// (JE-41, JE-42), with the flow job's reserved variables. The map is fr's
+// scope's (envSrc): a child flow inherits its flow's, and a subflow by path
+// has its own unless it defines none (CF-1, CF-17); reading, its $WM_*
+// strings are the top-level flow job's. A failure leaves the unresolved
+// map, with a warning, and is not cached; a success becomes the flow's
+// cached map, which the predicates after a child completes read
+// (stopScope). The result is fr's, which only the goroutine that drives fr
+// touches.
 func (r *run) resolveEnv(ctx context.Context, fr *frame) {
-	if r.env.IsZero() {
+	if fr.envSrc.IsZero() {
 		return
 	}
-	v, err := r.e.platform.ResolveArgs(ctx, r.env, r.flowJobEnv, platform.APIEnv(r.flowJobEnv))
+	v, err := r.e.platform.ResolveArgs(ctx, fr.envSrc, r.flowJobEnv, platform.APIEnv(r.flowJobEnv))
 	if err != nil {
-		fr.env = r.env
+		fr.env = fr.envSrc
 		r.mu.Lock()
 		r.trace.Warnings = append(r.trace.Warnings, Warning{Code: "flow_env_unresolved", Message: "flow_env is used unresolved: " + err.Error()})
 		r.mu.Unlock()
@@ -77,13 +78,13 @@ func (r *run) resolveEnv(ctx context.Context, fr *frame) {
 }
 
 // envOf is flow_env as fr's expressions see it: as its current
-// transition resolved it, or the flow's stored map before its first
+// transition resolved it, or its scope's stored map before its first
 // module.
 func (r *run) envOf(fr *frame) jsonval.Value {
 	if !fr.env.IsZero() {
 		return fr.env
 	}
-	return r.env
+	return fr.envSrc
 }
 
 // resolveFailure is a leaf job's argument resolution that failed: the job

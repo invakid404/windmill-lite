@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -327,6 +328,70 @@ func TestStripLocations(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestStripNotFoundLocations is rule 3 of FX-50's masking: the
+// parenthesised location of the lookup helper's not-found text goes only
+// at a pointer the run declares, wherever the message quotes it (CF-19/c:
+// inside a transform error, before the engine's frame lines), and a
+// user's own phrase of the same shape at another pointer stays (FX-50/d).
+func TestStripNotFoundLocations(t *testing.T) {
+	// spec: CF-19/c, FX-50/b, FX-50/d
+	transform := func(loc string) json.RawMessage {
+		msg := "Error during isolated evaluation of expression `[results.br]`:\\nQuickJS evaluation error: Error: Failed to fetch result for step 'br': " +
+			"Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000" + loc + "\\n    at __getResult (eval_script:11:59)\\n"
+		return json.RawMessage(`{"error":{"name":"ExecutionErr","message":"` + msg + `"}}`)
+	}
+	forged := func(loc string) json.RawMessage {
+		return json.RawMessage(`{"error":{"name":"Error","message":"Not found: Completed Job not found at name pretend` + loc + `","stack":"<stack>","step_id":"b"}}`)
+	}
+	e := SitePath{}.Child(Module("e"))
+	b := SitePath{}.Child(Module("b"))
+	observation := func(loc string) Observation {
+		return Observation{Status: RunFailure, Result: transform(loc), Steps: map[SitePath]StepObservation{
+			e: {Status: StepFailure, Args: json.RawMessage(`{}`), Result: transform(loc)},
+			b: {Status: StepFailure, Args: json.RawMessage(`{}`), Result: forged(loc)},
+		}}
+	}
+	differences := func(t *testing.T, got, oracle Observation, at []string) []string {
+		t.Helper()
+		stripped, err := StripNotFoundLocations(oracle, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diffs, err := Compare(got, stripped, CompareOptions{WithRecording: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pointers []string
+		for _, d := range diffs {
+			pointers = append(pointers, d.Pointer)
+		}
+		return pointers
+	}
+	got, oracle := observation(""), observation(" (jobs.rs:9074)")
+	if d := differences(t, got, oracle, nil); len(d) != 3 {
+		t.Fatalf("differences without stripping: %v", d)
+	}
+	// The declared values, an object whose error member is the error and
+	// the message itself, lose the location; the user's phrase at m:b,
+	// which no pointer declares, keeps it.
+	want := []string{"/steps/m:b/result/error/message"}
+	if d := differences(t, got, oracle, []string{"/result", "/steps/m:e/result/error/message"}); !slices.Equal(d, want) {
+		t.Fatalf("differences %v, want %v", d, want)
+	}
+	// A message with no not-found text, and a pointer that resolves to
+	// nothing or to no string, are left alone.
+	if d := differences(t, got, oracle, []string{"/steps/m:e/args", "/steps/m:x/result", "/status"}); len(d) != 3 {
+		t.Fatalf("differences %v", d)
+	}
+	other := Observation{Status: RunFailure, Result: json.RawMessage(`{"error":{"name":"ExecutionErr","message":"a (jobs.rs:1)"}}`)}
+	if s, err := StripNotFoundLocations(other, []string{"/result"}); err != nil || !bytes.Equal(s.Result, other.Result) {
+		t.Fatalf("stripped %s (%v)", s.Result, err)
+	}
+	if _, err := StripNotFoundLocations(got, []string{"result"}); err == nil {
+		t.Fatal("a pointer without its leading slash was accepted")
+	}
 }
 
 // TestNormaliseText normalises response bodies as text: the spelling is

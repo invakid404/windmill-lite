@@ -12,7 +12,7 @@ and the [oracle workflow](../../.github/workflows/oracle.yml). That workflow
 records the OR-20 smoke fixture ([conformance/flows/oracle/smoke](../../conformance/flows/oracle/smoke)),
 the fixtures of the recording batches, E3c's and E3b's under
 [conformance/flows/execution](../../conformance/flows/execution) and E3d's
-under [conformance/flows/control-flow](../../conformance/flows/control-flow),
+and N3c's under [conformance/flows/control-flow](../../conformance/flows/control-flow),
 the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
 see [Stub mode](#stub-mode)), milestone E1's first fixtures under
 `conformance/flows/languages` and `conformance/flows/client-api`, the
@@ -370,7 +370,8 @@ run's provenance holds its target flow's, as `deployment`.
 A recording batch is one of milestones E3a to E3e of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), or an engine
 milestone that records its own fixtures, as N2 records FX-23 to FX-29
-(`n2.json`). `testdata/batches/<batch>.json` holds one, and
+(`n2.json`) and N3c records CF-16 to CF-18, CF-20, CF-29 and CF-V1 to
+CF-V5 (`n3c.json`). `testdata/batches/<batch>.json` holds one, and
 `TestRecordingBatches` checks it on every CI run:
 
 | Field | Meaning |

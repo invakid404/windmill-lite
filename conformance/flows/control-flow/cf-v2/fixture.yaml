@@ -1,0 +1,12 @@
+# Recording batch N3c (ADR 0012): CF-V2, optimized empty containers
+# bypass the all-iterations stop predicate, while their own stop_after_if
+# stops the flow. Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-v2: a loop over [] with a non-empty
+# body, and a branchall with no branches, each followed by n returning
+# "after". Deployed with oracle.deploy api.
+id: control-flow/cf-v2
+spec: [CF-V2, CF-V2/a, CF-V2/b, CF-V2/c]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}
