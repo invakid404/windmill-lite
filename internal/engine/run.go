@@ -1430,8 +1430,10 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 // transformScope is the scope of the input transforms of the module at
 // cursor i of fr (FX-7, JE-22, JE-23): P as previous_result and no result,
 // params always {}, the preceding id, results with JE-9, flow_input and
-// flow_env. The failure module's also see started_at, the flow's start
-// time as an RFC 3339 string, and flow_job_id, the run's id (FX-32, JE-35).
+// flow_env. The failure module's also see started_at, fr's flow's start
+// time as an RFC 3339 string, and flow_job_id, its job id: the run's, or a
+// child flow's or a subflow's for a copy in a body or a subflow's own
+// (FX-32, JE-35, CF-16 item 3).
 func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string) *expr.Scope {
 	s := &expr.Scope{
 		PreviousID: prevID,
