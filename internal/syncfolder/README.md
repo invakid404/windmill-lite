@@ -77,7 +77,7 @@ directories, each file is classified by the first rule that matches
 
 | File or folder | Item |
 |---|---|
-| any file inside `P.flow/` (`P__flow/` with `nonDottedPaths: true`), at any depth | flow `P` |
+| any file inside `P.flow/` (`P__flow/` with `nonDottedPaths: true`), at any depth | flow `P`, without the one marker that ends the name: `report__flow.flow/` is flow `report__flow` |
 | `P.<ext>`, for a last extension `.ts`, `.py`, `.go`, `.sh`, `.sql`, `.gql`, `.ps1`, `.js`, `.php`, `.rs`, `.cs`, `.nu`, `.java`, `.rb` or `.r`, or a name ending `.playbook.yml` | script `P` (its source) |
 | `P.script.yaml`, `P.script.lock` | script `P` (its metadata and lock) |
 | `P.resource.yaml`, `P.variable.yaml` | resource or variable `P` |
@@ -270,6 +270,12 @@ mark is removed, and a leading UTF-16 or UTF-32 one is refused with
 | a flow's inline content file the walk does not read | read as missing, so the fallback name is tried |
 | a flow's inline lock file the walk does not read | the empty lock, with a warning in `InlineScript.Warnings` |
 
+The last three rows hold for a file that cannot be read for any other
+reason too, such as its permissions, as the CLI's reference readers catch
+every failure (SY-5, SY-7). The exception is a read through a symbolic
+link that fails for a reason other than permissions: reads never follow a
+link out of the root, so it fails the item.
+
 ## Errors
 
 | `Kind` | When |
@@ -294,7 +300,9 @@ restrictions of [0001](../../docs/design/0001-equivalence-contract.md) §5a:
   ([SY-V4](../../docs/semantics/openflow.md#sy-v4));
 - `!inline` references, and script lock references, that leave the root are
   refused (`path_escape`); an absolute script lock reference is refused too,
-  and reads through `Open` never follow a link out of the root;
+  and reads through `Open` never follow a link out of the root, so a lock
+  or inline reference whose read fails through a link fails, where the CLI
+  would read the target;
 - script, inline and lock files must be UTF-8 (`invalid_text`), where the
   CLI reads an invalid sequence as U+FFFD;
 - a tree pulled in JSON mode (`json: true`) is refused;

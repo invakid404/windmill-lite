@@ -356,20 +356,18 @@ func scriptLockFile(s string) (string, bool) {
 }
 
 // readLockFile reads a lock file through the decoder; a missing file is
-// the empty lock (SY-5, SY-7), and lockFile is then "". A file the decoder
-// refuses fails the push when the CLI's walk reads it; otherwise it is the
-// empty lock too, and warning is the CLI's warning (SY-19).
+// the empty lock (SY-5, SY-7), and lockFile is then "". So is a file that
+// cannot be read, the decoder's refusal included, and warning is then the
+// CLI's warning (SY-5, SY-19), unless readReference fails the push.
 func (f *Folder) readLockFile(p string) (lock, lockFile, warning string, err *Error) {
-	data, found, refused, err := f.readDecoded(p)
+	data, found, unreadable, err := f.readReference(p)
 	switch {
 	case err != nil:
 		return "", "", "", err
+	case unreadable != nil:
+		return "", "", fmt.Sprintf("Error reading inline path: %s, %s", p, unreadable.Msg), nil
 	case !found:
 		return "", "", "", nil
-	case refused != nil && f.walked[p]:
-		return "", "", "", refused
-	case refused != nil:
-		return "", "", fmt.Sprintf("Error reading inline path: %s, %s", p, refused.Msg), nil
 	}
 	text, terr := checkText(data, p, "")
 	if terr != nil {

@@ -211,20 +211,12 @@ func (f *Folder) inlineScript(dir, id string, rs *openflow.RawScript) (*InlineSc
 	return in, "", nil
 }
 
-// readInline reads an inline content file through the decoder. A file it
-// refuses reads as missing, unless the CLI's walk reads it, which fails the
-// push (SY-19).
+// readInline reads an inline content file through the decoder. A file
+// that cannot be read, the decoder's refusal included, reads as missing,
+// unless readReference fails the push (SY-7, SY-19).
 func (f *Folder) readInline(p string) (data []byte, found bool, err *Error) {
-	data, found, refused, err := f.readDecoded(p)
-	switch {
-	case err != nil:
-		return nil, false, err
-	case refused != nil && f.walked[p]:
-		return nil, false, refused
-	case refused != nil:
-		return nil, false, nil
-	}
-	return data, found, nil
+	data, found, _, err = f.readReference(p)
+	return data, found, err
 }
 
 // inlineLockFile recognises a lock reference: a string that, after leading

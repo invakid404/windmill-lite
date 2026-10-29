@@ -2,6 +2,7 @@ package syncfolder
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -137,18 +138,20 @@ func TestSymlinks(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "root")
 	writeFiles(t, base, map[string]string{
-		"root/wmill.yaml":         "defaultTs: bun\n",
-		"root/shared/x.ts":        mainSrc,
-		"root/f/real/y.ts":        mainSrc,
-		"root/f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: rawscript, language: bun, content: '!inline a.ts', input_transforms: {}}\n",
-		"outside/secret.ts":       "export const secret = 1;\n",
-		"outside/dir/z.ts":        mainSrc,
+		"root/wmill.yaml":           "defaultTs: bun\n",
+		"root/shared/x.ts":          mainSrc,
+		"root/f/real/y.ts":          mainSrc,
+		"root/f/real/y.script.yaml": "lock: '!inline f/real/out.lock'\n",
+		"root/f/x.flow/flow.yaml":   "value:\n  modules:\n    - id: a\n      value: {type: rawscript, language: bun, content: '!inline a.ts', input_transforms: {}}\n",
+		"outside/secret.ts":         "export const secret = 1;\n",
+		"outside/dir/z.ts":          mainSrc,
 	})
 	symlink(t, "../../shared/x.ts", filepath.Join(dir, "f/a/x.ts"))
 	symlink(t, filepath.Join(base, "outside/secret.ts"), filepath.Join(dir, "f/a/leak.ts"))
 	symlink(t, filepath.Join(base, "outside/secret.ts"), filepath.Join(dir, "f/x.flow/a.ts"))
 	symlink(t, "real", filepath.Join(dir, "f/linked"))
 	symlink(t, filepath.Join(base, "outside/dir"), filepath.Join(dir, "f/out"))
+	symlink(t, filepath.Join(base, "outside/secret.ts"), filepath.Join(dir, "f/real/out.lock"))
 
 	f, err := Open(dir)
 	if err != nil {
@@ -163,6 +166,11 @@ func TestSymlinks(t *testing.T) {
 	}
 	if _, err := f.Flow("f/x"); kindOf(err) != ErrIO {
 		t.Errorf("an inline file linked outside the root: %v, want an io error", err)
+	}
+	// A lock the walk does not read is the empty lock when it cannot be
+	// read (SY-5), but a link out of the root is the loader's refusal.
+	if _, err := f.Script("f/real/y"); kindOf(err) != ErrIO {
+		t.Errorf("a lock reference linked outside the root: %v, want an io error", err)
 	}
 	if got := f.Paths(KindScript); !slices.Equal(got, []string{"f/a/leak", "f/a/x", "f/real/y"}) {
 		t.Errorf("Paths = %q: directory links must not be followed", got)
@@ -279,6 +287,78 @@ func TestDataJSONFilesAndOverrides(t *testing.T) {
 	// Without a declared workspace, f/a/r.prod is an ordinary resource.
 	if r, err := f.Resource("f/a/r.prod"); err != nil || string(r.Value) != "2" {
 		t.Errorf("f/a/r.prod: %v", err)
+	}
+}
+
+// deniedFS refuses to read the files named in denied, as a file without
+// read permission does; it still lists and stats them.
+type deniedFS struct {
+	fstest.MapFS
+	denied map[string]bool
+}
+
+func (d deniedFS) ReadFile(name string) ([]byte, error) {
+	if d.denied[name] {
+		return nil, &fs.PathError{Op: "read", Path: name, Err: fs.ErrPermission}
+	}
+	return d.MapFS.ReadFile(name)
+}
+
+// spec: SY-5, SY-7, SY-19
+// TestUnreadableReferences checks files that cannot be read and that are
+// reached only through a reference: a lock is the empty lock with the
+// CLI's warning, and inline content falls back to the module's name. A file
+// the walk reads fails the item instead, as the CLI's walk fails the push.
+func TestUnreadableReferences(t *testing.T) {
+	load := func(cfg string) *Folder {
+		t.Helper()
+		files := fstest.MapFS{}
+		for name, text := range map[string]string{
+			"wmill.yaml":        "defaultTs: bun\n" + cfg,
+			"f/a/x.ts":          mainSrc,
+			"f/a/x.script.yaml": "lock: '!inline f/a/x.script.lock'\n",
+			"f/a/x.script.lock": "lock\n",
+			"f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value: {type: rawscript, language: bun, " +
+				"content: '!inline legacy.ts', lock: '!inline a.lock', input_transforms: {}}\n",
+			"f/a/fl.flow/legacy.ts": "// unreadable\n",
+			"f/a/fl.flow/a.ts":      "// the fallback\n",
+			"f/a/fl.flow/a.lock":    "inline lock\n",
+		} {
+			files[name] = &fstest.MapFile{Data: []byte(text)}
+		}
+		f, err := Load(deniedFS{files, map[string]bool{"f/a/x.script.lock": true, "f/a/fl.flow/legacy.ts": true, "f/a/fl.flow/a.lock": true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+
+	// The filter keeps the locks and the legacy file out of the walk.
+	f := load("includes: ['**/x.ts', '**/flow.yaml']\n")
+	s, err := f.Script("f/a/x")
+	if err != nil || s.Lock == nil || *s.Lock != "" || s.LockFile != "" ||
+		!slices.Equal(s.Warnings, []string{"Error reading inline path: f/a/x.script.lock, read f/a/x.script.lock: permission denied"}) {
+		t.Errorf("script f/a/x = %+v, %v; want the empty lock and the CLI's warning", s, err)
+	}
+	fl, err := f.Flow("f/a/fl")
+	if err != nil {
+		t.Fatalf("flow f/a/fl: %v", err)
+	}
+	rs := fl.Document.Value.Modules[0].Value.(*openflow.RawScript)
+	in := fl.Inline[0]
+	if rs.Content != "// the fallback\n" || in.ContentFile != "f/a/fl.flow/a.ts" || *rs.Lock != "" || in.LockFile != "" ||
+		!slices.Equal(in.Warnings, []string{"Script file legacy.ts not found",
+			"Error reading inline path: f/a/fl.flow/a.lock, read f/a/fl.flow/a.lock: permission denied"}) {
+		t.Errorf("flow f/a/fl: content %q, lock %q, inline %+v", rs.Content, *rs.Lock, in)
+	}
+
+	// Without the filter the walk reads them, and the items fail.
+	f = load("")
+	if _, err := f.Script("f/a/x"); kindOf(err) != ErrIO || !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("script f/a/x with the lock in the walk: %v, want an io error", err)
+	}
+	if _, err := f.Flow("f/a/fl"); kindOf(err) != ErrIO || !strings.Contains(err.Error(), "f/a/fl.flow/legacy.ts") {
+		t.Errorf("flow f/a/fl with its files in the walk: %v, want an io error", err)
 	}
 }
 

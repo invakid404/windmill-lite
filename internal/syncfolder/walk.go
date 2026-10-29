@@ -211,9 +211,13 @@ func (w *walker) items(dir string) error {
 		case skippedDir(name):
 		case strings.HasSuffix(name, ".flow"), strings.HasSuffix(name, "__flow"):
 			// Every file inside is part of the flow (SY-18), nested
-			// folders included.
-			p := strings.TrimSuffix(strings.TrimSuffix(d, ".flow"), "__flow")
-			w.add(KindFlow, p, d)
+			// folders included. Only the marker that ends the name is
+			// stripped: `report__flow.flow` is flow `report__flow`.
+			marker := ".flow"
+			if !strings.HasSuffix(name, marker) {
+				marker = "__flow"
+			}
+			w.add(KindFlow, strings.TrimSuffix(d, marker), d)
 			if err := w.tree(d, d); err != nil {
 				return err
 			}

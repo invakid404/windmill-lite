@@ -233,6 +233,82 @@
           "kind": "flow_layout"
         }
       }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "only the folder marker that ends the name is stripped, so __flow before .flow is part of the flow path (SY-1)",
+      "title": "a dotted flow whose name ends in __flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/report__flow.flow/flow.yaml": "summary: suffixed\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/report.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/report",
+            "f/a/report__flow"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/report__flow": {
+              "at": {
+                "/dir": "f/a/report__flow.flow",
+                "/flow/summary": "suffixed"
+              }
+            },
+            "f/a/report": {
+              "at": {
+                "/dir": "f/a/report.flow",
+                "/flow/summary": "one step"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "under nonDottedPaths the __flow marker alone is stripped",
+      "title": "a non-dotted flow whose name ends in .flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnonDottedPaths: true\n",
+          "f/a/x.flow__flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/x__flow/flow.yaml": "summary: plain\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x",
+            "f/a/x.flow"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/x.flow": {
+              "at": {
+                "/dir": "f/a/x.flow__flow",
+                "/flow/summary": "one step"
+              }
+            },
+            "f/a/x": {
+              "at": {
+                "/dir": "f/a/x__flow",
+                "/flow/summary": "plain"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
     }
   ]
 }
