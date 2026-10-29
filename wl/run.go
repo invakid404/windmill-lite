@@ -169,6 +169,9 @@ func storedText(v jsonval.Value) json.RawMessage {
 // facade hands over as it answers each (Config.Answered): before the
 // step's outcome, so the trace of a run that ends has every call its
 // steps were answered, an abandoned step's included, until the run ends.
+// An invocation's run and site stay known until its run ends, not only
+// until the facade releases the invocation: a call the step never awaited
+// can be answered after the release, while the run goes on.
 type recorder struct {
 	inner engine.StepExecutor
 	mu    sync.Mutex
@@ -181,10 +184,12 @@ type invocation struct {
 	site conformance.SitePath
 }
 
-// callLog is the platform calls of one run.
+// callLog is the platform calls of one run, and its invocations, which
+// end forgets (guarded by the recorder's mu).
 type callLog struct {
 	mu    sync.Mutex
 	calls []PlatformCall
+	invs  []string
 }
 
 func (l *callLog) taken() []PlatformCall {
@@ -203,13 +208,21 @@ func (x *recorder) begin(run string) *callLog {
 
 func (x *recorder) end(run string) {
 	x.mu.Lock()
+	defer x.mu.Unlock()
+	if l := x.runs[run]; l != nil {
+		for _, id := range l.invs {
+			delete(x.invs, id)
+		}
+	}
 	delete(x.runs, run)
-	x.mu.Unlock()
 }
 
 func (x *recorder) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
 	x.mu.Lock()
 	x.invs[inv.ID] = invocation{run: inv.Run, site: inv.Site}
+	if l := x.runs[inv.Run]; l != nil {
+		l.invs = append(l.invs, inv.ID)
+	}
 	x.mu.Unlock()
 	return x.inner.Execute(ctx, inv)
 }
@@ -234,9 +247,13 @@ func (x *recorder) answered(inv string, c facade.Record) {
 }
 
 // released is the facade's Config.Recorded: the invocation's record is
-// dropped, and so is what the recorder knows of it.
+// dropped. What the recorder knows of it goes too unless its run is in
+// flight, whose end forgets it: an answer still on its way to answered,
+// for a call the step did not await, must find its run and site.
 func (x *recorder) released(inv string, _ []facade.Record) {
 	x.mu.Lock()
-	delete(x.invs, inv)
-	x.mu.Unlock()
+	defer x.mu.Unlock()
+	if in, ok := x.invs[inv]; ok && x.runs[in.run] == nil {
+		delete(x.invs, inv)
+	}
 }

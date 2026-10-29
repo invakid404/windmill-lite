@@ -15,8 +15,12 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
+	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform/facade"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
@@ -379,5 +383,74 @@ func TestCloseRacesRuns(t *testing.T) {
 	wg.Wait()
 	if ran.Load()+refused.Load() != 32 {
 		t.Fatalf("%d ran, %d refused", ran.Load(), refused.Load())
+	}
+}
+
+// stepFunc is a step executor of a function.
+type stepFunc func(context.Context, engine.Invocation) (engine.StepOutcome, error)
+
+func (f stepFunc) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+	return f(ctx, inv)
+}
+
+// A call the step did not await, answered after the facade released the
+// step's invocation while the run goes on, still goes to the run's
+// platform calls (ADR 0007, In order); the recorder forgets the
+// invocation when the run ends, and at release one whose run is not in
+// flight.
+func TestRecorderAnswerAfterRelease(t *testing.T) {
+	x := &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
+	calls := x.begin("run")
+	answering, answer := make(chan struct{}), make(chan struct{})
+	fac, err := facade.New(facade.Config{Recorded: x.released, Answered: func(inv string, c facade.Record) {
+		// The answer is decided; its delivery waits until the invocation
+		// has been released.
+		close(answering)
+		<-answer
+		x.answered(inv, c)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fac.Close()
+	reply := make(chan harness.PlatformReply, 1)
+	x.inner = fac.Executor(stepFunc(func(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+		if inv.ID == "job" {
+			// The step fetches without awaiting the answer, and settles.
+			serve := fac.Platform()(harness.PlatformRequest{ID: "p", Inv: inv.ID, Method: "GET", URL: fac.WarmOrigin() + "/api/w/ws/jobs_u/get_root_job_id/job"})
+			go func() { reply <- serve(context.Background()) }()
+			<-answering
+		}
+		inv.Report.Settled(engine.SettleCompleted)
+		return engine.StepOutcome{Kind: engine.OutcomeOK, Body: jsonval.FromProducer([]byte("null"))}, nil
+	}))
+	if _, err := x.Execute(context.Background(), engine.Invocation{ID: "job", Run: "run", Site: conformance.SitePath{}.Child(conformance.Module("a")),
+		Env: map[string]string{"WM_JOB_ID": "job", "WM_ROOT_JOB_ID": "run"}}); err != nil {
+		t.Fatal(err)
+	}
+	close(answer)
+	if r := <-reply; r.Status != 200 {
+		t.Fatalf("reply %+v", r)
+	}
+	if got := calls.taken(); len(got) != 1 || got[0].Job != "job" || got[0].Site.String() != "m:a" || got[0].Status != 200 {
+		t.Fatalf("calls %+v", got)
+	}
+	x.end("run")
+	x.mu.Lock()
+	n := len(x.invs)
+	x.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d invocations known after the run ended", n)
+	}
+	// An invocation of no run in flight, a script run's, is forgotten at
+	// release.
+	if _, err := x.Execute(context.Background(), engine.Invocation{ID: "script", Run: "script", Env: map[string]string{"WM_JOB_ID": "script", "WM_ROOT_JOB_ID": "script"}}); err != nil {
+		t.Fatal(err)
+	}
+	x.mu.Lock()
+	n = len(x.invs)
+	x.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d invocations known after a release with no run in flight", n)
 	}
 }

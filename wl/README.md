@@ -101,10 +101,13 @@ step's site and job, the route it matched and the answer's status, in the
 order the facade answered them. The runtime collects them per run: its
 executor maps each invocation to its run and site, and the facade hands
 over each call as soon as its answer is decided (`Config.Answered`), before
-the step sees the answer. So a run's trace has every call its steps were
-answered before it ended, those of a step that the run's cancellation
-abandoned included; a call answered after the run ended, and the calls of
-the runs the dispatcher starts, are not in it.
+the step sees the answer. An invocation's run and site stay known until
+its run ends, not only until the facade releases the invocation, since a
+call the step did not await can be answered after the step settled. So a
+run's trace has every call its steps were answered before it ended, those
+of a step that settled without awaiting one and of a step that the run's
+cancellation abandoned included; a call answered after the run ended, and
+the calls of the runs the dispatcher starts, are not in it.
 
 `Run` is safe for concurrent use: runs of one runtime share its harness
 pool, its services and its expression engine.
@@ -139,7 +142,10 @@ run; `Close` ending a run in its 30 s sleep, canceled with the runtime's
 reason, and refusing later runs (`ErrClosed`); runs racing `Close`, each
 run or refused; an archive opened twice with one data directory, and
 again after an open that failed once it was extracted; and `BuildInfo`'s
-deviations under an override both ways. `bun_test.go` builds a real
+deviations under an override both ways; and an unawaited call answered
+after its step's invocation was released, which still goes to the run in
+flight, with nothing of the invocation kept after the run ends.
+`bun_test.go` builds a real
 bundle with `bundle.Build` and runs it on
 the pinned Bun in `warm` and `fresh` mode: a step reads a host's variable
 and updates it through the job API, both calls are in the trace with the
