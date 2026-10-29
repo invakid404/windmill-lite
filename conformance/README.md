@@ -14,10 +14,10 @@ catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
 HTTP responses, the contested `later` cases, codebase scripts, and the
 probe catalogue rebuilt as fixtures). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
-engine core (milestones E1, N1a and N1b), which runs sequential flows of
-Bun steps and their failure modules; it also runs the expression cases
-end to end, as the generated one-step flows `wltest record` lifts them
-into. The runs it cannot run yet
+engine core (milestones E1, N1a, N1b, N3a and N3b), which runs flows of
+Bun steps, their failure modules, loops and branches; it also runs the
+expression cases end to end, as the generated one-step flows `wltest
+record` lifts them into. The runs it cannot run yet
 are reported as unsupported, and the runs it must pass are listed in
 `cmd/wltest/testdata/flowsuite.json`
 ([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression
@@ -48,7 +48,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b, N2), with the platform providers (PF2) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b, N2, N3a, N3b), with the platform providers (PF2) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -100,7 +100,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/client-api/providers` | Milestone PF2: the platform services a step reads, one fixture on the oracle and on windmill-lite ([WA-40](../docs/semantics/client-api.md#wa-40)/b), from its `setup.yaml` (a resource type, variables with a secret, resources): arguments the worker resolved, a `$res:` with a nested `$res:` and a secret `$var:`, `$WM_ROOT_JOB_ID` read with the job's id (`""`, [WA-V3](../docs/semantics/client-api.md#wa-v3)/a) and beside a marker (the flow), and a plain argument ([WR-5](../docs/semantics/languages.md#wr-5)/a, /c); the reads the stock client makes, by fetch at `BASE_URL` with the step's token (WA-10/a, WA-11/a, WA-12, WA-42/b, /c, WA-V3/b); and the failures of a missing resource and an invalid path at argument resolution (WR-5/e, /b). A body that carries a Rust location on Windmill is returned as whether it starts as the reference says (D14). |
 | `flows/client-api/user-state` | Milestone PF3: flow user state ([WA-14](../docs/semantics/client-api.md#wa-14)/a), by the calls the stock helpers make, by fetch at `BASE_URL` with the step's token: the root lookup, then the state routes at the root; a write's answer, the read, a missing key, the routes at a script job (404 and null); the iterations of a parallel loop sharing the root's map although each starts its own innermost scope ([WA-V1](../docs/semantics/client-api.md#wa-v1)); and a key read through the expression helper `flow_user_state()` ([JE-20](../docs/semantics/expressions.md#je-20)). Run `order` records the text a value comes back as: jsonb's key order, numbers as Windmill's JSON library writes them. |
 | `flows/client-api/dispatch` | Milestone PF3, on two workers ([OR-5](../docs/semantics/oracle.md#or-5)): the runs a step dispatches, as `runScriptByPath`, `runFlow` and `runFlowAsync` request them, polled as `waitJob` polls. Run `wait`: a script's result, a failed script's error ([WA-15](../docs/semantics/client-api.md#wa-15)/a), a flow's result, and a UUID that names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b). Run `identity`: the job identity of a dispatched script and flow, tracked in their parent or not, and the keys of a dispatched failure, which the reference leaves out and the recording settles. `fixture.yaml`'s `roots` lists the dispatched targets, which `wltest check` compiles as the default dispatcher's program. |
-| `flows/client-api/flow-path` | Milestone PF3: the runnable paths a body step sees ([WA-6](../docs/semantics/client-api.md#wa-6)/a–d, with [WA-5](../docs/semantics/client-api.md#wa-5) and [FX-46](../docs/semantics/execution.md#fx-46)): a simple sequential body under the flow, a body made non-simple by a retry (NI, which runs retries inside containers), a parallel body, and a `branchone`'s numbering (N3b). The catalogue's `WM_FLOW_PATH` is in each run's claims. |
+| `flows/client-api/flow-path` | Milestone PF3: the runnable paths a body step sees ([WA-6](../docs/semantics/client-api.md#wa-6)/a–d, with [WA-5](../docs/semantics/client-api.md#wa-5) and [FX-46](../docs/semantics/execution.md#fx-46)): a simple sequential body under the flow, a body made non-simple by a retry (NI, which runs retries inside containers), a parallel body, and a `branchone`'s numbering, on N3b's branches. The catalogue's `WM_FLOW_PATH` is in each run's claims. |
 | `flows/execution/fx-36-http` | Batch E3e: [FX-36](../docs/semantics/execution.md#fx-36)'s HTTP part (`later`), every run submitted through run-and-wait (`submit: run_wait_result`), so its observation holds the HTTP response beside the walk: FX-36/a–g, an array result ([Q-FX-12](../docs/semantics/execution.md#q-fx-12), decoded positionally), a content type with and without a parameter, base64 transfer encoding to text and to bytes that are not UTF-8, a redirect status, FX-12/a over HTTP, FX-V3/a's skipped flow, and FX-37/a's early response. Gates F7b. |
 | `flows/execution/fx-49` | Batch E3e: [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11), `later`): a flow-level `skip_expr` that the loop at module 0 flips from false to true, with a collapsed and a two-step body, and to a throw. `setup.yaml` resets the variable before every run (`oracle.setup: each_run`). |
 | `flows/execution/fx-10-c` | Batch E3e: FX-10/c, `results[""]` inside a step's own `stop_after_if`, which the reference added after E3b. |
@@ -152,8 +152,9 @@ Each E3b run's `expect` was written from the reference before the oracle
 first ran it. Where the oracle disagreed, the run's `note` says what was
 predicted, what was recorded, and in which oracle runs. The engine
 milestones added the `carried` value of a module that an error stop or a
-throwing `stop_after_if` fails (N1a, N1b), which the oracle exposes no
-recording of: the recorder compares an `expect` without it.
+throwing `stop_after_if` fails (N1a, N1b, and N3b in FX-20's error-stop
+run), which the oracle exposes no recording of: the recorder compares an
+`expect` without it.
 
 ### Recording batches
 

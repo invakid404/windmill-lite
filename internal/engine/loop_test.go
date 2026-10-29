@@ -429,9 +429,9 @@ func TestLoopNestedIter(t *testing.T) {
 	wantStatus(t, tr, conformance.RunSuccess, `[[{"i":{"index":0,"value":"x"},"p":{"index":0,"value":{"a":2,"b":1}},"pp":"mine"}]]`)
 }
 
-// gated answers f/t/value like scripts, but holds every invocation until
-// the test releases it, and records the order they started in and how
-// many ran at once.
+// gated answers f/t/value like scripts, but holds every invocation in a
+// loop body (or whose site holds hold) until the test releases it, and
+// records the order they started in and how many ran at once.
 type gated struct {
 	mu       sync.Mutex
 	started  []string
@@ -439,6 +439,9 @@ type gated struct {
 	running  int
 	peak     int
 	starting chan string
+	// hold is the site part of the invocations it holds: iterations'
+	// ("/i:") unless set.
+	hold string
 }
 
 func newGated() *gated {
@@ -447,8 +450,12 @@ func newGated() *gated {
 
 func (g *gated) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
 	site := inv.Site.String()
-	if !strings.Contains(site, "/i:") {
-		// Steps outside loops are not held: they echo their arguments.
+	hold := g.hold
+	if hold == "" {
+		hold = "/i:"
+	}
+	if !strings.Contains(site, hold) {
+		// Other steps are not held: they echo their arguments.
 		defer inv.Report.Settled(SettleCompleted)
 		return StepOutcome{Kind: OutcomeOK, Body: inv.Args}, nil
 	}

@@ -96,8 +96,8 @@ deferred:
     reason: a parallel loop's body sub-flows need a flow with a for loop; the step level runs no loops
     expected_in: PF3 (conformance/flows/client-api/flow-path, run par)
   - spec: WA-6/d
-    reason: a branchone's sub-flow numbering needs a flow with a branch
-    expected_in: PF3's fixture conformance/flows/client-api/flow-path (runs branch, branch_default), which runs once N3b's branches have merged
+    reason: a branchone's sub-flow numbering needs a flow with a branch; the step level runs no containers
+    expected_in: PF3 (conformance/flows/client-api/flow-path, runs branch and branch_default, on N3b's branches)
   - spec: WA-14/b
     reason: later; the Python setter's reaction to a non-404 failure needs the Python client
     expected_in: L1

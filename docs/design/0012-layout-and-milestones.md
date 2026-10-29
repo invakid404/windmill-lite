@@ -305,26 +305,51 @@ waits on an external gate except R1.
   cases" in PF3's row are read as PF2's are, each catalogue case at the
   level that can run it: WA-5/a and /c as step cases (PF1's `wa-5.yaml`)
   and, inside bodies, in the flow fixture `client-api/flow-path`, WA-5/b
-  deferred while schedules are out of scope; WA-6/a and /c as that
-  fixture's runs `seq` and `par`, whose recordings the flow suite
-  requires; WA-14/a as step cases (`wa-14.yaml`), on the stock client
+  deferred while schedules are out of scope; WA-6/a, /c and /d as that
+  fixture's runs `seq`, `par`, `branch` and `branch_default`, whose
+  recordings the flow suite requires (/d since N3b's branches, which
+  merged first); WA-14/a as step cases (`wa-14.yaml`), on the stock client
   (`TestFlowUserStateOnTheClient`) and in the flow fixture
   `client-api/user-state`, recorded on the oracle, whose runs the flow
   suite requires, WA-14/c by internal/platform's `TestFlowUserState`, and
   WA-14/b (Python) deferred; WA-16/a and /c as step cases (`wa-16.yaml`)
   and on the stock client (`TestObjectsOnTheClient`, which checks WA-16/b,
   the client's own refusal, too), WA-16/d (a CE observation) deferred.
-  WA-6/b needs a retry inside a loop's body, which N2 left to NI, and
-  WA-6/d N3b's branches; PF3 needs neither merged, and the job identity
-  they observe is PF1's, so by the rule above they gate NI and N3b, the
-  milestones that implement the last feature each needs: the oracle
-  recorded them with the fixture, and those milestones add them to
-  `flowsuite.json`. "The dispatch-target restriction
+  WA-6/b needs a retry inside a container's body, which N2 left to NI;
+  PF3 does not need NI merged, and the job identity it observes is PF1's,
+  so by the rule above it gates NI, the milestone that implements the
+  last feature it needs: the oracle recorded it with the fixture, and NI
+  adds it to `flowsuite.json`. "The dispatch-target restriction
   case" is `wa-15.yaml`, whose cases a step case's bundle, which has no
   root to dispatch, refuses, and `TestDispatchRefusedOnTheClient` on the
   stock client. The flow fixture `client-api/dispatch`, on the oracle's
   second session (two workers, OR-5), records what the reference leaves
   out of a dispatched job: its identity, which the engine reproduces.
+
+- N3b runs while loops on N3a's sequential loop, with no iterator, and
+  `branchone` and `branchall` on frames: each branch that runs is a child
+  flow of its own, which the trace lists under `b:<n>` or `b:default`.
+  "The E3d while and branch cases" in its row are E3d's runs whose flows
+  hold a while loop or a branch and no failure module or subflow: `cf-10`'s
+  `a`, `cf-12`'s `d`, `e-fail` and `e-skip`, `cf-14`'s and `cf-15`'s runs;
+  `cf-12`'s `b` needs a failure module in a body (N3c). The flow suite
+  also requires the runs N3b first made pass: CF-9/b, CF-19/a, the two
+  `branchall` runs of `oracle/workers2`, and FX-36's failed `branchall`,
+  which NI's row names but which needs nothing of N2 (a sequential
+  `branchall` whose second branch fails). FX-20's error-stop run gained
+  the carried `EarlyStopError` in its expect, which its recording cannot
+  show. With N1b merged, the engine refuses any container, not only a for
+  loop, in a flow with a failure module (N3c). A `branchone` that ran no
+  branch has a nil job, whose engine read fails with the server's
+  not-found text; CF-19/c's recording has that text end in the server's
+  source location in the middle of a transform error, which ADR 0011's
+  location rule does not reach, so that run stays N3c's. N2 merged first,
+  so its refusal of waits and retries for NI covers every container, not
+  only for loops: a sleep, a retry or a javascript or negative timeout on
+  a while loop, a `branchone` or a `branchall`, in any container's body,
+  or as the sleep before any container; and a branch's child flow keeps
+  its own transition monitor, whose completion refreshes its flow's
+  ping, as a loop iteration's does.
 
 - N1b gave the engine core Windmill's continue decision for a flow
   without retries: `continue_on_error`, the error stops, the

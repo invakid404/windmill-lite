@@ -21,9 +21,9 @@ import (
 )
 
 // run is one run of a flow: its state and its trace. One goroutine drives
-// it, and one more each running iteration of a parallel loop; the
-// Reporters of its invocations write late output into its trace from
-// others, under mu.
+// it, and one more each running iteration of a parallel loop and each
+// running branch of a parallel branchall; the Reporters of its
+// invocations write late output into its trace from others, under mu.
 type run struct {
 	e     *Engine
 	f     *ir.Flow
@@ -53,6 +53,11 @@ type run struct {
 	halted   atomic.Bool
 	wake     chan struct{}
 	wakeOnce sync.Once
+	// pending is a halt-after decided where a child flow ended, which
+	// applies at the run's next start (pendingHalt); haltMu guards it, and
+	// the first one decided is kept.
+	haltMu  sync.Mutex
+	pending *pendingHalt
 	// wrote is set once a write-capable module has launched (H3); writeMu
 	// holds the iterations of a parallel loop back while H3 decides.
 	writeMu sync.Mutex
@@ -215,6 +220,11 @@ const (
 	// an EarlyStopError, while its job succeeded (FX-V2); a sequential
 	// loop takes it as a break (CF-12).
 	endErrorStop
+	// endFailedStop: a clean stop of a module that is Failure: a failed
+	// loop or branchall whose stop_after_all_iters_if stops cleanly
+	// (CF-13). It carries the module's failure value, and a stop never
+	// continues the flow (FX-2 completion rule 7.1).
+	endFailedStop
 	// endUnrecoverable: a throwing stop_after_if (FX-21): the module is
 	// Failure, carrying the string error, and neither a retry nor
 	// continue_on_error applies (FX-44).
@@ -230,16 +240,16 @@ const (
 	// endInterrupted: the module did not complete because the run was
 	// latched or canceled on its way; the completion check ends the run.
 	endInterrupted
-	// endHalted: a module in the module's loop body ended the run halted
-	// (H8); the completion check still ranks a latch or the cancellation
-	// first.
+	// endHalted: a module in the module's container body ended the run
+	// halted (H8); the completion check still ranks a latch or the
+	// cancellation first.
 	endHalted
 )
 
 // failed reports whether the module is Failure: what H7 and Windmill's
 // continue decision treat as a failure.
 func (e moduleEnd) failed() bool {
-	return e == endFailed || e == endErrorStop || e == endUnrecoverable
+	return e == endFailed || e == endErrorStop || e == endFailedStop || e == endUnrecoverable
 }
 
 // outcome is how one module went.
@@ -258,6 +268,44 @@ type outcome struct {
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
 	chain string
+}
+
+// pendingHalt is a halt-after (H8) decided at the module whose trace
+// record is idx, when the module's flow then ended: whether the run starts
+// something after that is for its containers' completions to say, their
+// own stops included. It applies at the run's next start anywhere in the
+// run: an iteration or a branch, or a module that is not the first of its
+// flow, since a flow that has started (its iteration's or branch's start)
+// runs its first module, as a parallel container's other children already
+// started do. A run that ends with no such start, or that starts a failure
+// module, keeps the status Windmill gives it, so a halt never hides how
+// the run would end (ADR 0008).
+type pendingHalt struct{ idx int }
+
+// deferHalt records the halt-after decided at the module whose record is
+// idx as pending, unless one already is.
+func (r *run) deferHalt(idx int) {
+	r.haltMu.Lock()
+	defer r.haltMu.Unlock()
+	if r.pending == nil {
+		r.pending = &pendingHalt{idx: idx}
+	}
+}
+
+// pendingApplies is the check of a start against a pending halt-after: when
+// there is one, the run ends halted, with H8 recorded at the module that
+// decided it unless another halt ended the run first, and it reports true.
+func (r *run) pendingApplies() bool {
+	r.haltMu.Lock()
+	defer r.haltMu.Unlock()
+	if r.pending == nil {
+		return false
+	}
+	if !r.halted.Load() {
+		r.mark(r.pending.idx, "H8")
+		r.halt()
+	}
+	return true
 }
 
 // next is what Windmill's continue decision asks for after a module's
@@ -338,6 +386,14 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 			return ends(conformance.RunSuccess)
 		}
 		return ends(conformance.RunFailure)
+	case endFailedStop:
+		// Rule 1: a clean stop never continues, not even into the failure
+		// module; step 8 turns a tolerated failure at the last module
+		// successful.
+		if tolerated && last {
+			return ends(conformance.RunSuccess)
+		}
+		return ends(conformance.RunFailure)
 	case endUnrecoverable:
 		// Rule 4: the failure module, when there is one (FX-21).
 		if hasFailure {
@@ -366,8 +422,8 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 
 // flowEnd is how a frame's flow ended: its status and result (a host
 // verdict's status has none), whether a stop ended it (CF-12), errorStop
-// for a failure that was an error stop, and the generated errors inside
-// the result.
+// for a failure that a stop ended, and the generated errors inside the
+// result.
 type flowEnd struct {
 	status    conformance.RunStatus
 	result    jsonval.Value
@@ -414,9 +470,10 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 			}
 			return flowEnd{status: st}
 		}
-		// A halt decided in another iteration of a parallel loop comes
-		// after the latch and the cancellation (ADR 0008).
-		if r.halted.Load() {
+		// A halt decided in another iteration of a parallel loop, or a
+		// pending one, comes after the latch and the cancellation (ADR
+		// 0008); a flow that has started runs its first module.
+		if r.halted.Load() || i > 0 && r.pendingApplies() {
 			return flowEnd{status: conformance.RunHalted}
 		}
 		// The root's first pickup is its first module's first start
@@ -465,20 +522,25 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 			}
 		}
 		canceled := ctx.Err() != nil
+		stop := o.end == endStopped || o.end == endStoppedSkipped || o.end == endErrorStop || o.end == endFailedStop
 		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain,
-			stopped:   o.end == endStopped || o.end == endStoppedSkipped,
-			errorStop: o.end == endErrorStop && d.status == conformance.RunFailure}
-		// When the frame's flow ends, the run goes on when what contains the
-		// frame would start something after that ending (frame.after): a
-		// terminal failure or stop of a loop's body starts nothing more.
-		runContinues := d.next != nextEnd || fr.after != nil && fr.after(end)
-		if AfterContinue(ContinueSignals{RunContinues: runContinues, Final: true, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: r.hooks.HaltAfter(site)}) != Proceed {
+			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
+			errorStop: stop && d.status == conformance.RunFailure}
+		// haltAfter (H8): when the flow starts its next module, the run halts
+		// now; when a child flow ends, the halt is pending until the run's
+		// next start, after its containers' completions (pendingHalt); the
+		// root's flow ends with nothing more to start.
+		halt := r.hooks.HaltAfter(site)
+		if AfterContinue(ContinueSignals{RunContinues: d.next != nextEnd, Final: true, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: halt}) != Proceed {
 			if canceled {
 				return flowEnd{status: conformance.RunCanceled}
 			}
 			r.mark(idx, "H8")
 			r.halt()
 			return flowEnd{status: conformance.RunHalted}
+		}
+		if halt && d.next == nextEnd && fr != r.root && !canceled {
+			r.deferHalt(idx)
 		}
 		continues = canceled
 		switch d.next {
@@ -865,10 +927,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		}
 		skipped = v
 	}
-	// A for loop that runs is a container, which launches no job of its
-	// own: no arguments, no H2 and no H1 (CF-1).
-	if m.Kind == ir.KindForLoop && !skipped && (m.Mock == nil || !m.Mock.Enabled) {
-		return r.forLoop(ctx, fr, i, prev, prevID, o)
+	// A container that runs launches no job of its own: no arguments, no
+	// H2 and no H1 (CF-1).
+	if isContainer(m.Kind) && !skipped && (m.Mock == nil || !m.Mock.Enabled) {
+		return r.container(ctx, fr, i, prev, prevID, o)
 	}
 
 	// Start step 8: the arguments, by the first rule that applies (FX-2).
