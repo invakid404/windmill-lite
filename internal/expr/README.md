@@ -289,8 +289,8 @@ Windmill's image, and D17, the recursion depth that fits the 1 MiB stack.
 - **Bindings.** An evaluation binds context values as host strings, which
   the program parses itself. Values are never spliced into source text.
 - **Preludes.** Programs the evaluation runs, in order, before the
-  program, on its context; their top-level `const` declarations are the
-  lexical `results` and `error` of JE-10.
+  program, on its context; their top-level declarations are the lexical
+  `results` (`const`) and `error` (`let`) of JE-10.
 - **Host functions.** These cover the `results` lookups and the helpers. They
   return text that resolves a Promise, or an error that rejects it.
 - **Result.** The program's completion value is a string, which the
