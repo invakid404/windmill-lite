@@ -104,7 +104,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | G1 | in-repository benchmarks of [0004](0004-harness-protocol.md) and [0005](0005-json-step-boundaries.md), run spans | A1, C1, N1a | a recorded baseline | 6 | yes |
 | PF1 | facade router, interception, attribution and the transport restriction, the 501 policy, job identity | C3b, N1a | the attribution test of [0007](0007-platform-interface.md) | 6 | yes |
 | N3c | subflows by path, `results` across scopes, stop propagation, failure modules in bodies | N1b, N3a, N3b | CF-16 to CF-20, CF-29 and CF-V cases; E3a's cross-scope cases (JE-19/b, JE-38/d) and its child-pickup case (JE-35/d, a subflow by path); the E3c runs that need a subflow by path or a body's failure module (FX-15/c, FX-33's parent view, FX-34/a) | 7 | yes |
-| NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; FX-24/d–e (a loop's `timeout`); the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d); E3a's unrecoverable-stop cases on a module with a `retry` (JE-26/b–c); the E3c runs that need a retry, a javascript `timeout` or a container (FX-14/b, FX-15/b, FX-32/b, FX-36's failed `branchall`) | 7 | yes |
+| NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; FX-24/d–e (a loop's `timeout`); the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d); E3a's unrecoverable-stop cases on a module with a `retry` (JE-26/b–c); the E3c runs that need a retry, a javascript `timeout` or a container (FX-14/b, FX-15/b, FX-32/b, FX-36's failed `branchall`); PF3's WA-6/b run of a retry in a loop's body (`client-api/flow-path/retry`) | 7 | yes |
 | PF2 | resources, variables, secrets, the interpolation walker | PF1 | WA-10 to WA-12 and WA-40 to WA-42 cases; the E3b FX-42/h case; E3a's provider cases (JE-11/a, JE-20/a–b, JE-38/b, JE-41/a–c, JE-42/a and /e, JE-V3/a) | 7 | yes |
 | PF3 | flow user state, object store, dispatcher, job registry | PF1 | WA-5, WA-6, WA-14 and WA-16 cases; the dispatch-target restriction case | 7 | yes |
 | E4b | the stub acceptance cases on windmill-lite | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
@@ -492,6 +492,34 @@ waits on an external gate except R1.
   evaluates its timeout per iteration); each flow, the root and every
   child flow, keeps its own retry state and transition monitor, so
   parallel iterations share none.
+
+- NI replaced the engine's refusal of N2's waits and retries in, on and
+  before containers with their behaviour, recorded on the oracle by NI's
+  own fixtures `conformance/flows/control-flow/cf-21` to `cf-28` and
+  `waits`, whose manifest is `internal/oracle/testdata/batches/ni.json`.
+  "CF-21 to CF-28 cases" in its row is read as N2's row reads FX-23 to
+  FX-29: the catalogue cases of those findings, written as runs with an
+  `expect` from the reference before recording, and corrected with a
+  `note` where the oracle disagreed. Four go to `none` (CF-24/c and CF-27/d
+  are raw submissions, CF-25/b is EE) or to N3c (CF-23/c is CF-V3/a).
+  CF-23/a and /b put a failure module beside a container, which the engine
+  refused until N3c; N3c merged first, so NI requires them. The recordings settled what the reference left
+  open, among them that a container's timeout is evaluated for each child
+  in the container's own scope, a collapsed loop's too; that a retried
+  loop's re-entry starts only its first push from its last failed child's
+  input; that the sleep before a parallel container delays every child of
+  its push; and that a canceled container completes as a failure of
+  `Canceled` entries. The oracle contradicted CF-25/a: a squashed loop runs
+  on CE as an ordinary loop, so `squash` has no effect, and the manifest
+  lists the contradiction. FX-15/b, which N2 left to NI, passed first
+  under N3c, which merged first, through its declared `copies`. PF3 merged first
+  with WA-6/b's `client-api/flow-path/retry`, a retry in a loop's body,
+  which NI's engine runs, so NI requires it. N3c left a retry on a subflow
+  step refused for NI; no case of NI's row covers it, so it stays refused,
+  as `later`. The E3b runs that `e3b.json`
+  gates on NI (FX-6's retry variant, FX-8/b, FX-19/d) keep that gate, by
+  the rule that a case needing two milestones gates the first that needs
+  both; `flowsuite.json` already requires them under N2.
 
 ## Spec IDs relied on
 

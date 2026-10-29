@@ -743,39 +743,20 @@ func TestEngineTimeouts(t *testing.T) {
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
 		"failure module branchone": `{"modules":[],"failure_module":{"id":"f","value":{"type":"branchone","branches":[],"default":[]}}}`,
-		"retry on a subflow step":  flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
 		"failure module loop":      `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
+		"retry on a subflow step":  flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
 		"ai sleep":                 flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
-		"squashed while loop":      flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"squash":true,"modules":[]}}`),
-		"squashed loop":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
 		"cache_ignore_s3_path":     flowOf(mod("a", "echo", "", `"cache_ttl":60,"cache_ignore_s3_path":true`)),
-		// N2's waits and retries in or on a container, or delaying one,
-		// are NI's.
-		"loop body retry":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
-		"loop body sleep":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}}`),
-		"loop body js timeout":  flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`) + `]}}`),
-		"loop body negative":    flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`) + `]}}`),
-		"retry on a loop":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
-		"sleep on a loop":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"sleep":{"type":"static","value":1}}`),
-		"a loop's js timeout":   flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"timeout":{"type":"javascript","expr":"1"}}`),
-		"a sleep before a loop": flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`),
-		// The same for while loops and branches (N3b).
-		"branch body sleep":          flowOf(`{"id":"b","value":{"type":"branchall","branches":[{"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}]}}`),
-		"while body retry":           flowOf(`{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
-		"retry on a while loop":      flowOf(`{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[]},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
-		"sleep on a branchone":       flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]},"sleep":{"type":"static","value":1}}`),
-		"a branchall's js timeout":   flowOf(`{"id":"b","value":{"type":"branchall","branches":[]},"timeout":{"type":"javascript","expr":"1"}}`),
-		"a sleep before a branchone": flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	// What milestone N2 runs opens: retries, sleeps, javascript and
+	// What milestones N2 and NI run opens: retries, sleeps, javascript and
 	// negative timeouts (whose failure is a chaining error at run time),
 	// a static timeout of null, a failure module's retry, a loop's static
-	// timeout and a loop's body's.
+	// timeout and a loop's body's, and all of them in and on containers.
 	for name, value := range map[string]string{
 		"failure module retry": `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"},"retry":{"constant":{"attempts":1,"seconds":0}}}}`,
 		"retry":                flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1},"retry_if":{"expr":"true"}}`)),
@@ -785,6 +766,25 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"null timeout":         flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":0,"seconds":1}},"timeout":{"type":"static","value":null}`)),
 		"loop timeouts":        flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":5}`) + `]},"timeout":{"type":"static","value":3}}`),
 		"a sleep after a loop": flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`, mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
+		// N2's waits and retries in or on a container, or delaying one
+		// (milestone NI), and a squashed loop, which runs as CE runs it,
+		// as an ordinary loop (CF-25, recorded by the cf-25 fixture).
+		"loop body retry":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
+		"loop body sleep":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}}`),
+		"loop body js timeout":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`) + `]}}`),
+		"loop body negative":         flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`) + `]}}`),
+		"retry on a loop":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
+		"sleep on a loop":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"sleep":{"type":"static","value":1}}`),
+		"a loop's js timeout":        flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"timeout":{"type":"javascript","expr":"1"}}`),
+		"a sleep before a loop":      flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`),
+		"branch body sleep":          flowOf(`{"id":"b","value":{"type":"branchall","branches":[{"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}]}}`),
+		"while body retry":           flowOf(`{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
+		"retry on a while loop":      flowOf(`{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[]},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
+		"sleep on a branchone":       flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]},"sleep":{"type":"static","value":1}}`),
+		"a branchall's js timeout":   flowOf(`{"id":"b","value":{"type":"branchall","branches":[]},"timeout":{"type":"javascript","expr":"1"}}`),
+		"a sleep before a branchone": flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
+		"squashed while loop":        flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"squash":true,"modules":[]}}`),
+		"squashed loop":              flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
 	} {
 		if _, err := openEngine(t, map[string]string{"f/t/main": value}, &scripts{}); err != nil {
 			t.Errorf("%s: %v", name, err)

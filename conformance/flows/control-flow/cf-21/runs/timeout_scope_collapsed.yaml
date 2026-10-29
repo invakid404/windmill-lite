@@ -1,0 +1,13 @@
+# CF-21, CF-27: a collapsed loop's timeout is evaluated again for each body
+# job it pushes, in the loop's own scope as a child flow's is: its flow
+# input has no iter, so this one throws, a chaining error of a later
+# transition (FX-15 context 1), and the body job is never pushed.
+spec: [CF-21, CF-27, FX-15]
+target: f/cf21/timeout_scope_collapsed
+note: "Corrected after recording: the prediction had the iteration's flow input, iter included, in the scope, and the step running; oracle run 40852609901 recorded the loop's own scope, as for a child flow."
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error during evaluation of expression `flow_input.iter.index + 10`:\nQuickJS evaluation error: Error: cannot read property 'index' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:55)\n"}}
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: not_run, ran: false}

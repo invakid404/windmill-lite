@@ -96,7 +96,11 @@ interface there, their routes in the facade, and in the engine each run's
 registration, `flow_user_state()`, a root script's run as a script job
 and the default dispatcher, which runs a bundle's roots as separate runs
 and refuses any other target (the restriction of
-[0001](0001-equivalence-contract.md) §5a).
+[0001](0001-equivalence-contract.md) §5a). Milestone NI integrates N2's
+waits and retries, the cancellation and failures with the containers of
+N3a and N3b, with its fixtures `cf-21` to `cf-28` and `waits` recorded on
+the oracle, and observations of a container's failed attempts as the
+walker of [0011](0011-differential-testing.md) meets them.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

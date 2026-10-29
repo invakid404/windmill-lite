@@ -1,0 +1,32 @@
+summary: the sleep before a branchone
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/cfwaits/echo
+      sleep:
+        type: static
+        value: 2
+    - id: bo
+      value:
+        type: branchone
+        branches: []
+        default:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 1
+              path: f/cfwaits/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,20 @@
+summary: ''
+description: ''
+lock: '!inline f/cfwaits/flaky.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    tag:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+    v:
+      type: ''
+      description: ''
+      default: null
+  required:
+    - tag
+    - v

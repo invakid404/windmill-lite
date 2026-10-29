@@ -1,0 +1,13 @@
+# Milestone NI (ADR 0012): CF-27, container timeout enforcement, with FX-24/d and FX-24/e.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-27. Every run is by
+# path after the deployment gate saw the flow's dependency job succeed
+# (the reference configuration of ADR 0001 section 1); the job kinds of the
+# root and of every child flow are in each recording's provenance
+# (timings.jobs).
+id: control-flow/cf-27
+spec: [CF-27, CF-27/a, CF-27/b, CF-27/c, FX-24, FX-24/d, FX-24/e, FX-25]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

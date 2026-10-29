@@ -1,0 +1,13 @@
+# CF-27/c: with a two-step body each iteration is a child flow, which
+# nothing times: the 3 s steps outlive the loop's 1 s.
+spec: [CF-27/c]
+target: f/cf27/c
+expect:
+  status: success
+  result: [3000, 3000]
+  steps:
+    "m:l": {status: success, result: [3000, 3000]}
+    "m:l/i:0/m:b": {status: success, args: {ms: 3000}, result: 3000}
+    "m:l/i:0/m:c": {status: success, args: {x: 3000}, result: 3000}
+    "m:l/i:1/m:b": {status: success, args: {ms: 3000}, result: 3000}
+    "m:l/i:1/m:c": {status: success, args: {x: 3000}, result: 3000}

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -24,7 +26,7 @@ import (
 //     so it is not_run, as the walker reads a flow_status entry without one;
 //     virtual marks the generated `<id>-v` step of a final sleep (OF-17),
 //     which the walker leaves out of the projection (OR-V7), and so does
-//     this;
+//     this, a child flow's included (ChildFlow.Virtual, CF-26);
 //   - jobs maps the id of every invocation the run made, which steps see as
 //     WM_JOB_ID, to its site, and a record's own job (StepRecord.Job)
 //     overrides it, so a retried attempt's job is named by its attempt's
@@ -34,7 +36,8 @@ import (
 //   - a module's record lists the failed attempts of the flow-wide retry
 //     state (StepRecord.FailedRetries, FX-27): the walker fetches the k-th
 //     at <module>/r:<k>, so the attempt's record appears there too, also
-//     when it is an earlier module's (FX-29);
+//     when it is an earlier module's (FX-29), and with it what is below it,
+//     a retried container's failed child flow (CF-22);
 //   - stored values (the root's result, each site's args and result) are in
 //     their stored form, as the job API returns them (ADR 0005), while
 //     carried and resolved_args keep the texts the trace holds: the value
@@ -43,7 +46,10 @@ import (
 //     with no job (FX-15 context 2) carries its error to what follows it,
 //     where the observation shows it;
 //   - a failed site whose job ran is a runtime error for stack masking
-//     (OR-V3 clause a), as a failed leaf that executed a script is.
+//     (OR-V3 clause a), as a failed leaf that executed a script is;
+//   - a superseded record or child flow, which Windmill's job tree no
+//     longer reaches (a container's failed attempt, a loop skipped
+//     mid-loop, a collapsed job never pushed; milestone NI), is left out.
 //
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's
@@ -57,8 +63,12 @@ import (
 // nowhere else.
 func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec, copies []conformance.Copy) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
+	var children []engine.ChildFlow
 	for _, c := range t.Children {
-		ids[c.ID] = c.Site
+		if !c.Superseded {
+			children = append(children, c)
+			ids[c.ID] = c.Site
+		}
 	}
 	for id, site := range jobs {
 		ids[id] = site
@@ -70,8 +80,21 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 			hidden[conformance.SitePath{}.Child(segs[i])] = true
 		}
 	}
+	for _, c := range children {
+		csegs := conformance.ModuleSegments(c.Modules)
+		for i, v := range c.Virtual {
+			if v {
+				hidden[c.Site.Child(csegs[i])] = true
+			}
+		}
+	}
 	records := map[conformance.SitePath]engine.StepRecord{}
+	var live []engine.StepRecord
 	for _, rec := range t.Steps {
+		if rec.Superseded {
+			continue
+		}
+		live = append(live, rec)
 		records[rec.Site] = rec
 		if rec.Job != "" {
 			ids[rec.Job] = rec.Site
@@ -100,7 +123,25 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	// at the root's pickup, FX-15), which the observation does not show.
 	sources := map[conformance.SitePath][]json.RawMessage{}
 	var expanded []engine.StepRecord
-	for _, rec := range t.Steps {
+	// moves are the failed attempts the walker meets again below a later
+	// module (FX-29): an attempt that is a child flow's job, a retried
+	// container's (CF-22), is walked in turn there, with everything the
+	// walker met below it the first time, its modules' own attempts
+	// included (OR-11).
+	type move struct{ from, to conformance.SitePath }
+	var moves []move
+	rebase := func(p conformance.SitePath, m move) (conformance.SitePath, bool) {
+		if p == m.from {
+			return m.to, true
+		}
+		rest, ok := strings.CutPrefix(p.String(), m.from.String()+"/")
+		if !ok {
+			return p, false
+		}
+		q, err := conformance.ParseSitePath(m.to.String() + "/" + rest)
+		return q, err == nil
+	}
+	for _, rec := range live {
 		if hidden[rec.Site] {
 			continue
 		}
@@ -115,9 +156,21 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 				continue
 			}
 			// The walker meets the attempt's job again here: a copy whose
-			// pointers are its own.
+			// pointers are its own, and copies of what it met below it,
+			// which a trace records before any module lists the attempt,
+			// so expanded already holds it, attempts and their copies
+			// included.
+			m := move{at, site}
+			moves = append(moves, m)
+			n := len(expanded)
 			src.Site, src.FailedRetries = site, nil
 			expanded = append(expanded, src)
+			for _, sub := range expanded[:n] {
+				if q, ok := rebase(sub.Site, m); ok && sub.Site != at {
+					sub.Site, sub.FailedRetries = q, nil
+					expanded = append(expanded, sub)
+				}
+			}
 		}
 	}
 	for _, rec := range expanded {
@@ -184,7 +237,27 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		segs = append(segs, conformance.FailureSlot())
 	}
 	notRun(conformance.SitePath{}, segs)
-	for _, c := range t.Children {
+	// The child flows the walker meets: the trace's, then their copies
+	// below each move, in the order the moves were made, so that a copy of
+	// a copy is found.
+	flows := slices.Clone(children)
+	for _, m := range moves {
+		for _, c := range flows {
+			if at, ok := rebase(c.Site, m); ok {
+				c.Site = at
+				flows = append(flows, c)
+			}
+		}
+	}
+	for _, c := range flows[len(children):] {
+		csegs := conformance.ModuleSegments(c.Modules)
+		for i, v := range c.Virtual {
+			if v {
+				hidden[c.Site.Child(csegs[i])] = true
+			}
+		}
+	}
+	for _, c := range flows {
 		segs := conformance.ModuleSegments(c.Modules)
 		if c.Failure {
 			segs = append(segs, conformance.FailureSlot())

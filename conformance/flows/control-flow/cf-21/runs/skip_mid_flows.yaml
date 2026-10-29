@@ -1,0 +1,10 @@
+# CF-21 (Q-CF-6): the same with a two-step body, so each iteration is a
+# child flow; the skip_if before iteration 2 sees iteration 1's result.
+spec: [CF-21, Q-CF-6]
+target: f/cf21/skip_mid_flows
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: success, args: {previous_result: 2}, result: 2, skipped: true}

@@ -1,0 +1,38 @@
+summary: a retried module in a body fails again
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                msg:
+                  type: static
+                  value: no
+              path: f/cfwaits/fail
+            retry:
+              constant:
+                attempts: 1
+                seconds: 0
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 1
+              path: f/cfwaits/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

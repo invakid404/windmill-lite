@@ -1,0 +1,11 @@
+# CF-25: the same loop as the first module: it runs too.
+spec: [CF-25]
+target: f/cf25/step0
+note: "Corrected after recording: the prediction, from CF-25, was the failure Squashing flow loops is not available in OSS."
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:l": {status: success, result: [1]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:0/m:c": {status: success, args: {x: 1}, result: 1}

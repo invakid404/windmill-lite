@@ -1,0 +1,14 @@
+# Milestone NI (ADR 0012): N2's waits and retries inside containers, which
+# NI integrates with N3a's and N3b's: a retry, a sleep and a timeout of a
+# module in a loop's or a branch's child flow, each flow keeping its own
+# retry state (FX-27), a container's own timeout and sleep, and the sleep
+# before a branch. Synthetic flows written for this repository from
+# docs/semantics/execution.md (FX-23 to FX-27) and control-flow.md (CF-1,
+# CF-21, CF-27). Every run is by path after the deployment gate saw the
+# flow's dependency job succeed (ADR 0001 section 1).
+id: control-flow/waits
+spec: [FX-23, FX-24, FX-26, FX-27, FX-15, CF-1, CF-21, CF-27]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

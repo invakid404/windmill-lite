@@ -536,6 +536,101 @@ func TestCompareRun(t *testing.T) {
 	}
 }
 
+// CF-22, FX-29, OR-11: a retried loop's failed attempt is its failed
+// child flow, walked at m:l/r:0 with the child's modules below it; after a
+// tolerated failure the next module lists that attempt, and the walker
+// walks the attempt's flow again below m:d/r:0.
+func TestObserveContainerAttempts(t *testing.T) {
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	// Each iteration's child fails at its pickup: its first module's
+	// iterator is no array.
+	inner := &ir.Module{ID: "inner", Kind: ir.KindForLoop, ForLoop: &ir.ForLoop{
+		Iterator: ir.Transform{Type: ir.Javascript, Expr: expr.Compile(expr.SiteIterator, "({})")},
+		Modules:  []*ir.Module{{ID: "u", Kind: ir.KindIdentity}},
+	}}
+	loop := &ir.Module{ID: "l", Kind: ir.KindForLoop, ContinueOnError: true,
+		Retry:   &ir.Retry{Constant: &ir.ConstantRetry{Attempts: 1}},
+		ForLoop: &ir.ForLoop{Iterator: ir.Transform{Type: ir.Static, Value: json.RawMessage(`[1]`)}, Modules: []*ir.Module{inner, {ID: "x", Kind: ir.KindIdentity}}},
+	}
+	e, err := engine.New(engine.Config{JS: js, Program: &ir.Program{Flows: map[string]*ir.Flow{"f/t/main": {Path: "f/t/main", Modules: []*ir.Module{loop, {ID: "d", Kind: ir.KindIdentity}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), engine.RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for site, status := range map[string]conformance.StepStatus{
+		"m:l": conformance.StepFailure, "m:l/i:0/m:inner": conformance.StepNotRun, "m:l/i:0/m:x": conformance.StepNotRun,
+		"m:l/r:0": conformance.StepFailure, "m:l/r:0/m:inner": conformance.StepNotRun, "m:l/r:0/m:x": conformance.StepNotRun,
+		"m:d":     conformance.StepSuccess,
+		"m:d/r:0": conformance.StepFailure, "m:d/r:0/m:inner": conformance.StepNotRun, "m:d/r:0/m:x": conformance.StepNotRun,
+	} {
+		p, _ := conformance.ParseSitePath(site)
+		if st, ok := got.Steps[p]; !ok || st.Status != status {
+			t.Errorf("%s: %+v (present %v), want %s", site, st, ok, status)
+		}
+	}
+	if len(got.Steps) != 10 {
+		t.Fatalf("observed %s", compactJSON(got))
+	}
+	if r, d := got.Steps[conformance.SitePath{}.Child(conformance.Module("l"), conformance.Attempt(0))], got.Steps[conformance.SitePath{}.Child(conformance.Module("d"), conformance.Attempt(0))]; string(r.Args) != `{"iter":{"index":0,"value":1}}` || string(d.Result) != string(r.Result) {
+		t.Fatalf("m:l/r:0 %+v, m:d/r:0 %+v", r, d)
+	}
+}
+
+// CF-22, FX-29, OR-11: when a later module lists a retried container's
+// failed attempt, the walker walks the attempt's child flow again below
+// it, each module with the attempts its own status lists: a body module
+// that lists an earlier body module's attempt (FX-29) shows it below the
+// copy too.
+func TestObserveNestedAttemptCopies(t *testing.T) {
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	// A branchone whose predicate throws fails in place (CF-14).
+	fail := func(id string) *ir.Module {
+		return &ir.Module{ID: id, Kind: ir.KindBranchOne, BranchOne: &ir.BranchOne{Branches: []ir.OneBranch{{Expr: expr.Compile(expr.SiteBranchOne, "missing.x"), Modules: []*ir.Module{{ID: "unused", Kind: ir.KindIdentity}}}}}}
+	}
+	a := fail("a")
+	a.ContinueOnError, a.Retry = true, &ir.Retry{Constant: &ir.ConstantRetry{Attempts: 1}}
+	loop := &ir.Module{ID: "l", Kind: ir.KindForLoop, ContinueOnError: true, Retry: &ir.Retry{Constant: &ir.ConstantRetry{Attempts: 1}},
+		ForLoop: &ir.ForLoop{Iterator: ir.Transform{Type: ir.Static, Value: json.RawMessage(`[1]`)}, Modules: []*ir.Module{a, {ID: "b", Kind: ir.KindIdentity}, fail("c")}}}
+	e, err := engine.New(engine.Config{JS: js, Program: &ir.Program{Flows: map[string]*ir.Flow{"f/t/main": {Path: "f/t/main", Modules: []*ir.Module{loop, {ID: "d", Kind: ir.KindIdentity}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), engine.RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prefix := range []string{"m:l/i:0", "m:l/r:0", "m:d/r:0"} {
+		for _, s := range []string{"/m:a", "/m:a/r:0", "/m:b", "/m:b/r:0", "/m:c"} {
+			p, _ := conformance.ParseSitePath(prefix + s)
+			if _, ok := got.Steps[p]; !ok {
+				t.Errorf("no site %s%s in %s", prefix, s, compactJSON(got))
+			}
+		}
+	}
+	if len(got.Steps) != 2+1+5+1+5+5 {
+		t.Fatalf("%d sites: %s", len(got.Steps), compactJSON(got))
+	}
+}
+
 // A child flow's modules are sites below its iteration's, a module it
 // has no record of is not_run, and its id is its iteration's site (OR-11);
 // a module with no result shows no carried (FX-15 context 2); a carried
