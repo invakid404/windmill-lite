@@ -1,0 +1,9 @@
+# WR-16/f, the validation's expectation: string + uses primitive
+# conversion, so the stream is 7 (as drafted: x).
+spec: [WR-16/f]
+target: f/wl_wr16/wr16_f
+expect:
+  status: success
+  result: "7"
+  steps:
+    "m:s": {status: success, args: {}, result: "7"}

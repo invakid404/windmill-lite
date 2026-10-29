@@ -1,0 +1,10 @@
+# FX-36/c: the decoded status and the nested result.
+spec: [FX-36/c]
+target: f/wl_fx36h/status_nested
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_status_code: 201, result: {ok: true}}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_status_code: 201, result: {ok: true}}}
+  response: {status: 201, content_type: application/json, body: '{"ok": true}'}

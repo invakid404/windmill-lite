@@ -1,0 +1,10 @@
+# Q-OR-6 (python): a Python result with U+0000 does not fail: the NUL
+# reaches storage as the text " null ", so the result is "x null y".
+spec: [OR-27/b]
+target: f/wl_probe/nul_python
+expect:
+  status: success
+  result: {"p": "x null y", "r": "x null y"}
+  steps:
+    "m:a": {"status": "success", "args": {}, "result": "x null y"}
+    "m:b": {"status": "success", "args": {"p": "x null y", "r": "x null y"}, "result": {"p": "x null y", "r": "x null y"}}

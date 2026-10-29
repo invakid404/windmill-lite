@@ -2,7 +2,7 @@
 
 **Current state:** implemented (milestones E2 and E4a of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), extended by
-the recording batches E3c, E3b, E3d and E3a). This README
+the recording batches E3a to E3e). This README
 covers `internal/oracle/`, its vendored `openapi/` directory and its
 `testdata/`. The package is the oracle harness of
 [ADR 0011](../../docs/design/0011-differential-testing.md): it records flow
@@ -15,16 +15,20 @@ the fixtures of the recording batches, E3c's and E3b's under
 under [conformance/flows/control-flow](../../conformance/flows/control-flow),
 the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
 see [Stub mode](#stub-mode)), milestone E1's first fixtures under
-`conformance/flows/languages` and `conformance/flows/client-api`, and the
-expression cases of batch E3a, which
+`conformance/flows/languages` and `conformance/flows/client-api`, the
+fixtures of recording batch E3e (among them the probe catalogue under
+`conformance/flows/oracle`, and its two-worker fixture, which the
+workflow's second session records), and the expression cases of batch
+E3a, which
 `wltest record` lifts into generated flows
 ([conformance](../../conformance/README.md#expression-cases)). E3c extended
 the session and the walker (below), E3b the walker and the batch test, E3d
-the walker and added the API deployment (below), and E3a the session and
-its own batch tests. `wltest check` compares windmill-lite's flow runs
-with each run's `expect` or recording (milestone E1,
-[cmd/wltest](../../cmd/wltest/README.md)); stub mode on windmill-lite (E4b)
-does not exist yet.
+the walker and added the API deployment (below), E3a the session and
+its own batch tests, and E3e the run-and-wait submission, the setup
+policies, the pull read-back and the two-worker session (below). `wltest
+check` compares windmill-lite's flow runs with each run's `expect` or
+recording (milestone E1, [cmd/wltest](../../cmd/wltest/README.md)); stub
+mode on windmill-lite (E4b) does not exist yet.
 
 ## A session
 
@@ -50,7 +54,8 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    then for a healthy status with enough workers; log in as the seeded
    superadmin ([OR-6](../../docs/semantics/oracle.md#or-6)).
 4. **Per fixture.** Refuse a fixture that needs more workers than the
-   session has, and a run whose committed recording names another oracle
+   session has, or, with `SkipUnmetWorkers` (`--skip-unmet-workers`),
+   report its runs as `skipped`, and a run whose committed recording names another oracle
    version, image or CLI than the pins (`recording_identity_mismatch`,
    [OR-V5](../../docs/semantics/oracle.md#or-v5)/b), before anything is
    deployed; to re-record against a new pin, delete the recording. Create a
@@ -68,7 +73,11 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    copy of the tree with the CLI, or create it through the API for a
    fixture with `oracle: {deploy: api}` ([API deployment](#api-deployment));
    apply `setup.yaml` after the push
-   ([OR-31](../../docs/semantics/oracle.md#or-31)); pass the deployment gate
+   ([OR-31](../../docs/semantics/oracle.md#or-31)), or before it for a
+   fixture with `oracle.setup: before_push`, and read each of its variables
+   back: after the push it must answer 200 once applied and 404 when the
+   push removed what was seeded (`CheckSetup`, OR-31/b;
+   `setup_not_applied`, `seed_survived_push`); pass the deployment gate
    ([OR-9](../../docs/semantics/oracle.md#or-9)) and check each deployed
    flow's module ids against the tree (OR-8/b). A stub fixture pushes its
    stubbed tree instead (see [Stub mode](#stub-mode)).
@@ -80,7 +89,18 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    job id, open the sink for it (and, in stub mode, the replay service), submit
    asynchronously and poll `get_result_maybe` until completion, never
    `run_wait_result` ([OR-10](../../docs/semantics/oracle.md#or-10)); a run
-   that times out is canceled, so it cannot hold the worker. Walk the run,
+   that times out is canceled, so it cannot hold the worker. A run with
+   `submit: run_wait_result` is submitted through that endpoint instead,
+   with the same pre-assigned id, to record the HTTP response
+   ([FX-36](../../docs/semantics/execution.md#fx-36),
+   [FX-37](../../docs/semantics/execution.md#fx-37)), and is then polled to
+   completion like the others, since an `early_return` answers while the
+   flow runs on; a redirect it answers is the observation and is not
+   followed; one deadline bounds the response and the poll together,
+   a submission refused without a job fails the run with its response,
+   and the response's time is in the provenance. Before every
+   repetition of a fixture with `oracle.setup: each_run`, its variables are
+   set to `setup.yaml`'s values again (`ResetSetup`). Walk the run,
    normalise it, and repeat as asked (the observations must be equal,
    OR-14/a). Compare the observation with the run's `expect`, under the
    fixture's compare options, and with its committed recording, exactly
@@ -94,6 +114,17 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    whole when the session is canceled, so a launcher such as `npx` cannot
    leave the CLI running and block the teardown.
 
+A session's `ListenInterval` (`--listen-interval`) sets the oracle's
+`LISTEN_NEW_EVENTS_INTERVAL_SEC` through compose's
+`WL_LISTEN_NEW_EVENTS_INTERVAL_SEC`, in place of 1; it is in the
+provenance's environment. The oracle workflow runs two sessions, as a job
+matrix: one worker for every fixture, skipping those that need two, and
+two workers with `--listen-interval 10` for the fixtures that need two
+([conformance/flows/oracle/workers2](../../conformance/flows/oracle/workers2),
+[OR-5/b](../../docs/semantics/conformance.md#or-5)) and the smoke fixture,
+whose recordings, made at 1 s with one worker, must hold unchanged
+([OR-7/a](../../docs/semantics/conformance.md#or-7)).
+
 Every refusal is a `*Refusal` whose text is the JSON the reference gives it,
 for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 
@@ -105,10 +136,10 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `compose.yaml` | The oracle's compose file, embedded. A test checks it against the pins, the hygiene rules and `OracleEnv`. |
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
-| `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `Capture` records exchanges for replay. |
-| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. |
+| `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
+| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
-| `deploy.go` | Boot, login, workspaces, `setup.yaml`, the deployment gate and the deployed-module check. |
+| `deploy.go` | Boot, login, workspaces, `setup.yaml` (`ApplySetup`, `CheckSetup`, `ResetSetup`), the deployment gate and the deployed-module check. |
 | `apideploy.go` | The API deployment of a fixture with `oracle: {deploy: api}` (see below). |
 | `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root of a run that is open (several can be, for concurrent outer runs), and answers anything else with `{"error":"foreign_effect"}`. It also serves the replay service at `/replay`. |
 | `stub.go`, `stubts.go` | Stub mode's generator: `StubTree` writes a stubbed copy of a sync tree, `StubSource` the stub of one Bun script, `CheckStubSignatures` compares schemas after `generate-metadata`. |
@@ -171,8 +202,11 @@ sequential and parallel `branchall` with empty branches, early stops in
 bodies, and cached subflows, whose inner modules are `not_run` on a hit.
 E4a's stub fixtures ([conformance/flows/stub](../../conformance/flows/stub))
 recorded failed attempts, sequential, collapsed, parallel and nested loop
-iterations and a named subflow. The other recording batches confirm the
-rest.
+iterations and a named subflow. E3e recorded the probe catalogue's shapes
+again from rebuilt fixtures, a flow preprocessor, parallel bodies that
+complete out of index order on two workers, and a loop left canceled with
+its module in progress when the flow's `skip_expr` throws mid-run. The
+other recording batches confirm the rest.
 
 ## Stub mode
 
@@ -326,8 +360,10 @@ For each flow it keeps a `FlowDeployment`: the value submitted, the value
 `GET /flows/get` answers after the gate (after the dependency job's
 write-back, [CF-6](../../docs/semantics/control-flow.md#cf-6)), and what
 `generate-metadata` writes for the same source, run on a copy of the tree
-against the same workspace. A run's provenance holds its target flow's, as
-`deployment`.
+against the same workspace; with `oracle.pull`, also what the CLI's `sync
+pull` writes back, pulled into a directory that holds only the fixture's
+`wmill.yaml` ([SY-6](../../docs/semantics/openflow.md#sy-6), CF-6/b). A
+run's provenance holds its target flow's, as `deployment`.
 
 ## Recording batches
 
@@ -345,6 +381,10 @@ checks it on every CI run:
 | `prefixes` | the catalogue's prefix-only assertions, checked on a run's recorded text |
 | `contradictions` | catalogue claims the oracle contradicted, with the run, pointer and recorded value the run's `expect` holds instead |
 | `gates` | optional: for every run, `<fixture directory>/<run>`, the milestone whose exit gate runs it, which must need the batch merged; E3b's gates N1a, N1b, N2, NI, N3b, PF2 or F1 by the features each flow needs |
+
+Batch E3e's manifest has no `gates`, since only F7b needs E3e merged; it
+defers to `none`, with the reason, what the oracle cannot record or the
+contract leaves out.
 
 Batch E3a was built beside these manifests and has none: most of its runs
 state partial `claims` rather than a whole `expect`, and half of its cases
@@ -392,7 +432,9 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestTreeScriptsAreSources` | only a script's source file makes a script there: a flow directory, a resource, a variable or a script's metadata of the same name does not (E3a review R1-2) | a synthetic tree |
 | `TestRecordedParallelismReleaseOrder` | CF-7/b on its recording: with `parallelism: 1`, each iteration's child flow starts after the previous one completed, while CF-7/a's child flows overlap (job times from the provenance) | `conformance/flows/control-flow/cf-7` |
 | `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
-| `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; FX-40/d's body carries the deployed script's hash | `conformance/flows` |
+| `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; the pulled flow keeps an identity module's extra field and fills the loop's `skip_failures` (CF-6/b, SY-6/c); FX-40/d's body carries the deployed script's hash | `conformance/flows` |
+| `TestRecordedEarlyReturn`, `TestRecordedBigPayload`, `TestRecordedOutOfOrderCompletion` | E3e's recordings: run-and-wait answered `early_return`'s value at least a second before the flow completed (FX-37/a); the big payload is whole in a's result and b's arguments (OR-V1/a); on two workers the slow index-0 body completed after the next one, while results stay in index order (Q-OR-7, Q-OR-15) | `conformance/flows` |
+| `TestSessionRecordsRunAndWait`, `TestSessionRunAndWaitRefused`, `TestRunWaitKeepsARedirect`, `TestObserveKeepsTheResponse`, `TestSessionSetupPolicies`, `TestSessionSkipsUnmetWorkers`, `TestSessionListenInterval`, `TestSessionPullsTheDeployedTree` | E3e's session options against the fake Windmill: a run-and-wait run's response (200 and 422, the failed step's stack masked inside the body) beside its walk, a refused submission failing at once, a redirect kept and not followed, the Content-Type kept with its parameters and a body that is not UTF-8 kept as base64 through observations, raw captures and their replay; `setup.yaml` after the push, before it (read back before and after the push) and before every run, with `setup_not_applied` and `seed_survived_push`; a fixture that needs two workers skipped; the listen-interval knob in compose's environment and the provenance; the pulled flow in the deployment evidence | the smoke fixture |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |

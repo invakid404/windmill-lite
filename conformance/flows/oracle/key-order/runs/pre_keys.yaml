@@ -1,0 +1,13 @@
+# OR-24 with the flow's preprocessor (FX-35): the object it built is read
+# back from storage, so the transform sees o's keys in jsonb order (a, cc,
+# bbb), not the order the preprocessor wrote (bbb, a, cc). The
+# catalogue's case is a script's own preprocessor, which runs only for a
+# trigger (WR-11) and stays deferred (internal/oracle coverage.json).
+spec: [OR-24, FX-35]
+target: f/wl_keys/pre_keys
+expect:
+  status: success
+  result: {"ok": ["a", "cc", "bbb"], "received": ["a", "cc", "bbb"]}
+  steps:
+    "m:a": {"status": "success", "args": {"o": {"a": 2, "cc": 3, "bbb": 1}, "ok": ["a", "cc", "bbb"]}, "result": {"ok": ["a", "cc", "bbb"], "received": ["a", "cc", "bbb"]}}
+    "s:preprocessor": {"status": "success", "args": {"reason": "PREPROCESSOR_ARGS_ARE_DISCARDED"}, "result": {"o": {"a": 2, "cc": 3, "bbb": 1}}}

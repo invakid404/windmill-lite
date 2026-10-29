@@ -1,0 +1,38 @@
+summary: 'probe branchall_par: a parallel branchall with an empty branch'
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: b0
+                value:
+                  type: rawscript
+                  content: '!inline b0.ts'
+                  input_transforms: {}
+                  lock: '!inline b0.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules: []
+            expr: ''
+            parallel: true
+            skip_failure: true
+          - modules:
+              - id: b2
+                value:
+                  type: rawscript
+                  content: '!inline b2.ts'
+                  input_transforms: {}
+                  lock: '!inline b2.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: true
+        parallel: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

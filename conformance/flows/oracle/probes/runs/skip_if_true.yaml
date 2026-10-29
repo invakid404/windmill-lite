@@ -1,0 +1,12 @@
+# probe skip_if with {"skip":true} (OR-V2/d): a runs as an identity job
+# with args {"previous_result":"a0"}.
+spec: [OR-V2/d]
+target: f/wl_probe/skip_if
+args: {skip: true}
+expect:
+  status: success
+  result: {p: a0, r: a0}
+  steps:
+    "m:a0": {status: success, args: {}, result: a0}
+    "m:a": {status: success, args: {previous_result: a0}, result: a0, skipped: true}
+    "m:b": {status: success, args: {p: a0, r: a0}, result: {p: a0, r: a0}}

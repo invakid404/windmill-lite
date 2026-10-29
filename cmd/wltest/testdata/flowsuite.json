@@ -3,7 +3,8 @@
   "implemented": [
     "E1",
     "N1a",
-    "N1b"
+    "N1b",
+    "E3e"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -72,6 +73,7 @@
     "conformance/flows/cf/cf-19/cf-v6-b": "N1a",
     "conformance/flows/cf/cf-19/cf19-b": "N1a",
     "conformance/flows/client-api/job-env/envs": "E1",
+    "conformance/flows/execution/fx-10-c/own": "E3e",
     "conformance/flows/execution/fx-12/error_extra": "E1",
     "conformance/flows/execution/fx-12/handled": "N1b",
     "conformance/flows/execution/fx-12/object_throw": "E1",
@@ -136,7 +138,23 @@
     "conformance/flows/languages/bun-results/serialise": "E1",
     "conformance/flows/languages/bun-results/thrown_string": "E1",
     "conformance/flows/languages/bun-results/timeout": "E1",
+    "conformance/flows/languages/codebase-cases/asset": "E3e",
+    "conformance/flows/languages/codebase-cases/banner": "E3e",
+    "conformance/flows/languages/codebase-cases/cjs_rel": "E3e",
+    "conformance/flows/languages/codebase-cases/define": "E3e",
+    "conformance/flows/languages/codebase-cases/esm_rel": "E3e",
+    "conformance/flows/languages/codebase-cases/esm_runtime": "E3e",
+    "conformance/flows/languages/codebase-cases/inject": "E3e",
+    "conformance/flows/languages/codebase-cases/loader": "E3e",
+    "conformance/flows/languages/codebase-cases/native_control": "E3e",
     "conformance/flows/languages/codebase/chain": "E1",
+    "conformance/flows/languages/wr-16/wr16-e": "E3e",
+    "conformance/flows/languages/wr-28/wr28-a": "E3e",
+    "conformance/flows/languages/wr-28/wr28-b": "E3e",
+    "conformance/flows/languages/wr-28/wr28-c": "E3e",
+    "conformance/flows/languages/wr-28/wr28-e": "E3e",
+    "conformance/flows/oracle/big-payload/big_payload": "E3e",
+    "conformance/flows/oracle/key-order/int_keys": "E3e",
     "conformance/flows/oracle/smoke/fail": "N1a",
     "conformance/flows/oracle/smoke/ok": "N1a"
   }

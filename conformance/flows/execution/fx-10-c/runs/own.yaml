@@ -1,0 +1,9 @@
+# FX-10/c: a clean stop with a's result; b never runs.
+spec: [FX-10/c]
+target: f/wl_fx10c/own
+expect:
+  status: success
+  result: {k: 1}
+  steps:
+    "m:a": {status: success, args: {}, result: {k: 1}}
+    "m:b": {status: not_run, ran: false}

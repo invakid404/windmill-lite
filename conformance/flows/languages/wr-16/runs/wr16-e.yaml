@@ -1,0 +1,8 @@
+# WR-16/e: a number result is left unchanged (both readings).
+spec: [WR-16/e]
+target: f/wl_wr16/wr16_e
+expect:
+  status: success
+  result: 5
+  steps:
+    "m:s": {status: success, args: {}, result: 5}

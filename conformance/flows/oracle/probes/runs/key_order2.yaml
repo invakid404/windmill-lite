@@ -1,0 +1,12 @@
+# probe key_order2 (OR-24/a): results.a, no longer the previous step, is
+# read from storage in jsonb order; previous_result keeps m's producer
+# order.
+spec: [OR-24/a]
+target: f/wl_probe/key_order2
+expect:
+  status: success
+  result: {r_keys: [a, cc, bbb], p_keys: [zzz, y]}
+  steps:
+    "m:a": {status: success, args: {}, result: {bbb: 1, a: 2, cc: 3}}
+    "m:m": {status: success, args: {}, result: {zzz: 1, y: 2}}
+    "m:b": {status: success, args: {r_keys: [a, cc, bbb], p_keys: [zzz, y]}, result: {r_keys: [a, cc, bbb], p_keys: [zzz, y]}}

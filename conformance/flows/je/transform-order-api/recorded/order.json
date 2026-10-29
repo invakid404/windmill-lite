@@ -1,0 +1,639 @@
+{
+  "observation": {
+    "status": "success",
+    "result": "varies",
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": "<masked>"
+      },
+      "m:l/i:0/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:0/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:1/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:1/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:10/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:10/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:11/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:11/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:12/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:12/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:13/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:13/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:14/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:14/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:15/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:15/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:2/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:2/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:3/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:3/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:4/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:4/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:5/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:5/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:6/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:6/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:7/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:7/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:8/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:8/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:l/i:9/m:t": {
+        "status": "failure",
+        "args": {},
+        "result": "<masked>"
+      },
+      "m:l/i:9/m:u": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:s": {
+        "status": "success",
+        "args": {
+          "seen": "varies"
+        },
+        "result": "varies"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029013349-ec00ea6f18ab",
+      "revision": "ec00ea6f18ab746c3995a78cb0203e5fb03d2477",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40801169516"
+    },
+    "recorded_at": "2026-10-29T01:41:45Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:44369"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 406,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T01:41:44.604737Z",
+          "started_at": "2026-10-29T01:41:44.648926Z",
+          "completed_at": "2026-10-29T01:41:44.943907Z",
+          "duration_ms": 295
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.652049Z",
+          "started_at": "2026-10-29T01:41:44.656713Z",
+          "completed_at": "2026-10-29T01:41:44.670553Z",
+          "duration_ms": 14
+        },
+        "m:l/i:0/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.659945Z",
+          "started_at": "2026-10-29T01:41:44.663499Z",
+          "completed_at": "2026-10-29T01:41:44.666359Z",
+          "duration_ms": 3
+        },
+        "m:l/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.673913Z",
+          "started_at": "2026-10-29T01:41:44.677029Z",
+          "completed_at": "2026-10-29T01:41:44.689716Z",
+          "duration_ms": 13
+        },
+        "m:l/i:1/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.681551Z",
+          "started_at": "2026-10-29T01:41:44.684241Z",
+          "completed_at": "2026-10-29T01:41:44.686864Z",
+          "duration_ms": 3
+        },
+        "m:l/i:10": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.826512Z",
+          "started_at": "2026-10-29T01:41:44.828995Z",
+          "completed_at": "2026-10-29T01:41:44.839236Z",
+          "duration_ms": 10
+        },
+        "m:l/i:10/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.833388Z",
+          "started_at": "2026-10-29T01:41:44.835270Z",
+          "completed_at": "2026-10-29T01:41:44.836555Z",
+          "duration_ms": 1
+        },
+        "m:l/i:11": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.841767Z",
+          "started_at": "2026-10-29T01:41:44.844186Z",
+          "completed_at": "2026-10-29T01:41:44.853195Z",
+          "duration_ms": 9
+        },
+        "m:l/i:11/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.847276Z",
+          "started_at": "2026-10-29T01:41:44.849198Z",
+          "completed_at": "2026-10-29T01:41:44.850429Z",
+          "duration_ms": 1
+        },
+        "m:l/i:12": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.855811Z",
+          "started_at": "2026-10-29T01:41:44.858282Z",
+          "completed_at": "2026-10-29T01:41:44.867321Z",
+          "duration_ms": 9
+        },
+        "m:l/i:12/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.861405Z",
+          "started_at": "2026-10-29T01:41:44.863292Z",
+          "completed_at": "2026-10-29T01:41:44.864555Z",
+          "duration_ms": 1
+        },
+        "m:l/i:13": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.869891Z",
+          "started_at": "2026-10-29T01:41:44.872393Z",
+          "completed_at": "2026-10-29T01:41:44.881485Z",
+          "duration_ms": 9
+        },
+        "m:l/i:13/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.875421Z",
+          "started_at": "2026-10-29T01:41:44.877445Z",
+          "completed_at": "2026-10-29T01:41:44.878720Z",
+          "duration_ms": 1
+        },
+        "m:l/i:14": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.884134Z",
+          "started_at": "2026-10-29T01:41:44.886560Z",
+          "completed_at": "2026-10-29T01:41:44.895384Z",
+          "duration_ms": 9
+        },
+        "m:l/i:14/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.889665Z",
+          "started_at": "2026-10-29T01:41:44.891496Z",
+          "completed_at": "2026-10-29T01:41:44.892734Z",
+          "duration_ms": 1
+        },
+        "m:l/i:15": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.897967Z",
+          "started_at": "2026-10-29T01:41:44.901171Z",
+          "completed_at": "2026-10-29T01:41:44.910144Z",
+          "duration_ms": 9
+        },
+        "m:l/i:15/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.904190Z",
+          "started_at": "2026-10-29T01:41:44.906175Z",
+          "completed_at": "2026-10-29T01:41:44.907421Z",
+          "duration_ms": 1
+        },
+        "m:l/i:2": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.692662Z",
+          "started_at": "2026-10-29T01:41:44.695830Z",
+          "completed_at": "2026-10-29T01:41:44.706068Z",
+          "duration_ms": 10
+        },
+        "m:l/i:2/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.700251Z",
+          "started_at": "2026-10-29T01:41:44.702077Z",
+          "completed_at": "2026-10-29T01:41:44.703401Z",
+          "duration_ms": 1
+        },
+        "m:l/i:3": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.708643Z",
+          "started_at": "2026-10-29T01:41:44.711769Z",
+          "completed_at": "2026-10-29T01:41:44.722044Z",
+          "duration_ms": 10
+        },
+        "m:l/i:3/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.716163Z",
+          "started_at": "2026-10-29T01:41:44.718161Z",
+          "completed_at": "2026-10-29T01:41:44.719326Z",
+          "duration_ms": 1
+        },
+        "m:l/i:4": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.724929Z",
+          "started_at": "2026-10-29T01:41:44.728227Z",
+          "completed_at": "2026-10-29T01:41:44.740236Z",
+          "duration_ms": 12
+        },
+        "m:l/i:4/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.732654Z",
+          "started_at": "2026-10-29T01:41:44.734689Z",
+          "completed_at": "2026-10-29T01:41:44.737462Z",
+          "duration_ms": 3
+        },
+        "m:l/i:5": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.742932Z",
+          "started_at": "2026-10-29T01:41:44.746018Z",
+          "completed_at": "2026-10-29T01:41:44.757855Z",
+          "duration_ms": 12
+        },
+        "m:l/i:5/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.750237Z",
+          "started_at": "2026-10-29T01:41:44.752713Z",
+          "completed_at": "2026-10-29T01:41:44.755251Z",
+          "duration_ms": 3
+        },
+        "m:l/i:6": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.760559Z",
+          "started_at": "2026-10-29T01:41:44.763744Z",
+          "completed_at": "2026-10-29T01:41:44.773663Z",
+          "duration_ms": 10
+        },
+        "m:l/i:6/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.767803Z",
+          "started_at": "2026-10-29T01:41:44.769668Z",
+          "completed_at": "2026-10-29T01:41:44.770879Z",
+          "duration_ms": 1
+        },
+        "m:l/i:7": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.776143Z",
+          "started_at": "2026-10-29T01:41:44.779314Z",
+          "completed_at": "2026-10-29T01:41:44.789281Z",
+          "duration_ms": 10
+        },
+        "m:l/i:7/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.783467Z",
+          "started_at": "2026-10-29T01:41:44.785363Z",
+          "completed_at": "2026-10-29T01:41:44.786549Z",
+          "duration_ms": 1
+        },
+        "m:l/i:8": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.791931Z",
+          "started_at": "2026-10-29T01:41:44.795016Z",
+          "completed_at": "2026-10-29T01:41:44.804990Z",
+          "duration_ms": 10
+        },
+        "m:l/i:8/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.799052Z",
+          "started_at": "2026-10-29T01:41:44.800941Z",
+          "completed_at": "2026-10-29T01:41:44.802261Z",
+          "duration_ms": 1
+        },
+        "m:l/i:9": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T01:41:44.807566Z",
+          "started_at": "2026-10-29T01:41:44.811046Z",
+          "completed_at": "2026-10-29T01:41:44.823609Z",
+          "duration_ms": 13
+        },
+        "m:l/i:9/m:t": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.815512Z",
+          "started_at": "2026-10-29T01:41:44.817992Z",
+          "completed_at": "2026-10-29T01:41:44.820728Z",
+          "duration_ms": 3
+        },
+        "m:s": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T01:41:44.914127Z",
+          "started_at": "2026-10-29T01:41:44.916733Z",
+          "completed_at": "2026-10-29T01:41:44.940583Z",
+          "duration_ms": 20
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "iterator": {
+                "expr": "Array.from({ length: 16 }, (_, i) => i)",
+                "type": "javascript"
+              },
+              "modules": [
+                {
+                  "id": "t",
+                  "value": {
+                    "content": "// Never runs: each of its transforms names an undefined identifier.\nexport async function main(zz: number, b: number, aa: number) {\n  return [zz, b, aa];\n}\n",
+                    "input_transforms": {
+                      "aa": {
+                        "expr": "aa_first",
+                        "type": "javascript"
+                      },
+                      "b": {
+                        "expr": "b_first",
+                        "type": "javascript"
+                      },
+                      "zz": {
+                        "expr": "zz_first",
+                        "type": "javascript"
+                      }
+                    },
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                },
+                {
+                  "id": "u",
+                  "value": {
+                    "content": "// Never runs: t fails first.\nexport async function main() {\n  return 'unreached';\n}\n",
+                    "input_transforms": {},
+                    "language": "bun",
+                    "type": "rawscript"
+                  }
+                }
+              ],
+              "parallel": false,
+              "skip_failures": true,
+              "type": "forloopflow"
+            }
+          },
+          {
+            "id": "s",
+            "value": {
+              "content": "// The expressions that failed first across the sixteen evaluations.\nexport async function main(seen: string[]) {\n  return seen;\n}\n",
+              "input_transforms": {
+                "seen": {
+                  "expr": "new Set(results.l.map((r) => r.error.message.split('`')[1])).size > 1 ? 'varies' : results.l[0].error.message.split('`')[1]",
+                  "type": "javascript"
+                }
+              },
+              "language": "bun",
+              "type": "rawscript"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "t",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "// Never runs: each of its transforms names an undefined identifier.\nexport async function main(zz: number, b: number, aa: number) {\n  return [zz, b, aa];\n}\n",
+                    "language": "bun",
+                    "input_transforms": {
+                      "b": {
+                        "expr": "b_first",
+                        "type": "javascript"
+                      },
+                      "aa": {
+                        "expr": "aa_first",
+                        "type": "javascript"
+                      },
+                      "zz": {
+                        "expr": "zz_first",
+                        "type": "javascript"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "u",
+                  "value": {
+                    "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+                    "type": "rawscript",
+                    "content": "// Never runs: t fails first.\nexport async function main() {\n  return 'unreached';\n}\n",
+                    "language": "bun",
+                    "input_transforms": {}
+                  }
+                }
+              ],
+              "iterator": {
+                "expr": "Array.from({ length: 16 }, (_, i) => i)",
+                "type": "javascript"
+              },
+              "parallel": false,
+              "skip_failures": true
+            }
+          },
+          {
+            "id": "s",
+            "value": {
+              "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+              "type": "rawscript",
+              "content": "// The expressions that failed first across the sixteen evaluations.\nexport async function main(seen: string[]) {\n  return seen;\n}\n",
+              "language": "bun",
+              "input_transforms": {
+                "seen": {
+                  "expr": "new Set(results.l.map((r) => r.error.message.split('`')[1])).size > 1 ? 'varies' : results.l[0].error.message.split('`')[1]",
+                  "type": "javascript"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "l",
+            "value": {
+              "type": "forloopflow",
+              "modules": [
+                {
+                  "id": "t",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline t.ts",
+                    "input_transforms": {
+                      "aa": {
+                        "type": "javascript",
+                        "expr": "aa_first"
+                      },
+                      "b": {
+                        "type": "javascript",
+                        "expr": "b_first"
+                      },
+                      "zz": {
+                        "type": "javascript",
+                        "expr": "zz_first"
+                      }
+                    },
+                    "lock": "!inline t.lock",
+                    "language": "bun"
+                  }
+                },
+                {
+                  "id": "u",
+                  "value": {
+                    "type": "rawscript",
+                    "content": "!inline u.ts",
+                    "input_transforms": {},
+                    "lock": "!inline u.lock",
+                    "language": "bun"
+                  }
+                }
+              ],
+              "iterator": {
+                "type": "javascript",
+                "expr": "Array.from({ length: 16 }, (_, i) => i)"
+              },
+              "parallel": false,
+              "skip_failures": true
+            }
+          },
+          {
+            "id": "s",
+            "value": {
+              "type": "rawscript",
+              "content": "!inline s.ts",
+              "input_transforms": {
+                "seen": {
+                  "type": "javascript",
+                  "expr": "new Set(results.l.map((r) => r.error.message.split('`')[1])).size > 1 ? 'varies' : results.l[0].error.message.split('`')[1]"
+                }
+              },
+              "lock": "!inline s.lock",
+              "language": "bun"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# OR-5/b: on two workers the run completes, and a's result is the child's.
+spec: [OR-5/b]
+target: f/wl_w2/blocking
+expect:
+  status: success
+  result: {child: 7}
+  steps:
+    "m:a": {status: success, args: {}, result: {child: 7}}

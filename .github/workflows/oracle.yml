@@ -9,7 +9,9 @@ name: Oracle
 # The image is pulled by digest and run as a black box; it is never built
 # on, tagged or pushed (OR-3). It runs nightly, on demand, and on pull
 # requests that change the fixtures or the harness or carry the oracle
-# label.
+# label. Two sessions run side by side: one worker for every fixture, and
+# two workers for the fixtures that need them (OR-5) and the smoke
+# fixture under another LISTEN_NEW_EVENTS_INTERVAL_SEC (OR-7/a).
 
 on:
   schedule:
@@ -61,13 +63,26 @@ jobs:
           echo "$changed"
 
   record:
-    name: Oracle record
+    name: Oracle record (${{ matrix.session.id }})
     needs: changes
     # !cancelled() lets the job run when the trigger job was skipped (on a
     # schedule or dispatch) but not after a cancellation.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.record == 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        session:
+          # One worker records every fixture, skipping those that need two.
+          - id: workers1
+            args: --workers 1 --skip-unmet-workers conformance/flows conformance/exprs
+          # Two workers record the fixtures that need them (OR-5/b), and the
+          # smoke fixture again with LISTEN_NEW_EVENTS_INTERVAL_SEC=10: its
+          # recordings, made at 1 s with one worker, must hold unchanged
+          # (OR-7/a).
+          - id: workers2
+            args: --workers 2 --listen-interval 10 conformance/flows/oracle/smoke conformance/flows/oracle/workers2
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,14 +106,16 @@ jobs:
 
       - name: Record the fixtures
         # wltest measures free disk itself and refuses to pull without the
-        # reserve of OR-30.
+        # reserve of OR-30. A run that has not completed after 2 minutes is
+        # canceled and fails, so a hung run cannot exhaust the job; the
+        # slowest runs (JE-2's three 20 s attempts) take about 75 s.
         run: |
           df -h /
-          bin/wltest record --check --regenerate-metadata --repeat 2 \
+          bin/wltest record --check --regenerate-metadata --repeat 2 --run-timeout 2m \
             --out "$RUNNER_TEMP/oracle/recorded" \
             --raw "$RUNNER_TEMP/oracle/raw" \
             --report "$RUNNER_TEMP/oracle/report.json" \
-            conformance/flows conformance/exprs
+            ${{ matrix.session.args }}
 
       - name: Metadata drift gate (OR-8)
         if: ${{ !cancelled() }}
@@ -124,7 +141,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: oracle-${{ github.run_id }}-${{ github.run_attempt }}
+          name: oracle-${{ matrix.session.id }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/oracle
           if-no-files-found: ignore
           retention-days: 30

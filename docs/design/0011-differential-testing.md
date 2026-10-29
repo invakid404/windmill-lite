@@ -47,8 +47,11 @@ The `oracle` package implements the reference's design as written:
 3. **Run and capture** ([OR-10](../semantics/oracle.md#or-10),
    [OR-V1](../semantics/oracle.md#or-v1), [OR-V2](../semantics/oracle.md#or-v2)):
    asynchronous submission and `get_result_maybe` polling, never
-   `run_wait_result`; full arguments and results only from `get_args` and
-   `get_result_maybe`; status from job metadata.
+   `run_wait_result` to observe a run; full arguments and results only from
+   `get_args` and `get_result_maybe`; status from job metadata. A run that
+   records the run-and-wait response itself (`submit: run_wait_result`,
+   FX-36's HTTP part) is submitted there, then polled and walked the same
+   way, the response joining its observation (milestone E3e).
 4. **Walk** ([OR-11](../semantics/oracle.md#or-11) topology,
    [OR-V7](../semantics/oracle.md#or-v7)): by `flow_jobs` children in index
    order, `failed_retries` as attempts, generated `-v` steps omitted, the
@@ -394,6 +397,29 @@ their root jobs were not in flight together.
   result whose recorded origin is windmill-lite's, and a carried value that
   is the same value. Steps run the scripts the compiler's inventory names,
   never a script found by its job path, which two scripts can share.
+
+- Recording batch E3e added four harness options, each recorded by its
+  fixtures. A run may be submitted through the synchronous run-and-wait
+  endpoint (`submit: run_wait_result`, item 3): the run is still polled to
+  completion and walked, and the observation gains a `response` (status,
+  the Content-Type as sent, and the body: text when it is UTF-8, else
+  base64), so FX-36's HTTP part and `early_return` (FX-37/a) are recorded
+  for the HTTP adapter. The body is text because its spelling is what a
+  client sees; the normaliser rewrites only job ids in it, and the stack of
+  a runtime error where the body holds that error's object. A redirect is
+  recorded, never followed. A fixture
+  may apply `setup.yaml` before the push, which must then remove what it
+  seeded, or before every run (`oracle.setup`), and every session reads
+  `setup.yaml`'s variables back after the push (OR-31/b). An API-deployed
+  fixture may read its tree back with the CLI's `sync pull`
+  (`oracle.pull`; CF-6/b, SY-6/c). The oracle workflow runs a second
+  session with two workers (OR-5/b, Q-OR-7, Q-OR-15) and
+  `LISTEN_NEW_EVENTS_INTERVAL_SEC=10`, under which the smoke fixture's
+  recordings must hold (OR-7/a); the first session skips the fixtures
+  that need two workers. E3e also rebuilt the probe catalogue as
+  executable fixtures (`conformance/flows/oracle/`), which answers
+  [Q-OR-16](../semantics/oracle.md#q-or-16): the recipes OR-V9 disputes
+  run with their bindings written out.
 
 ## Spec IDs relied on
 

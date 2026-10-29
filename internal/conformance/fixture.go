@@ -83,6 +83,17 @@ type OracleNeeds struct {
 	// the tree leaves out reaches the server absent and the dependency job
 	// fills it (CF-6).
 	Deploy string `json:"deploy,omitempty"`
+	// Setup is when the harness applies setup.yaml (OR-31): SetupAfterPush
+	// (the default) once after the push; SetupBeforePush once before the
+	// push and never after it, so the push removes what it seeded; or
+	// SetupEachRun after the push and its variables again before every
+	// run, for a fixture whose runs change them.
+	Setup string `json:"setup,omitempty"`
+	// Pull reads the deployed tree back with the CLI's sync pull after the
+	// deployment gate and keeps each flow's pulled value in the runs'
+	// deployment evidence (SY-6, CF-6). It needs Deploy api, so the value
+	// pulled is the one the API created from the tree as written.
+	Pull bool `json:"pull,omitempty"`
 }
 
 // The deployment methods of OracleNeeds.Deploy.
@@ -91,8 +102,23 @@ const (
 	DeployAPI = "api"
 )
 
+// The setup policies of OracleNeeds.Setup.
+const (
+	SetupAfterPush  = "after_push"
+	SetupBeforePush = "before_push"
+	SetupEachRun    = "each_run"
+)
+
 // DeploysThroughAPI reports whether the tree is deployed through the API.
 func (o OracleNeeds) DeploysThroughAPI() bool { return o.Deploy == DeployAPI }
+
+// SetupPolicy returns Setup, SetupAfterPush when it is empty.
+func (o OracleNeeds) SetupPolicy() string {
+	if o.Setup == "" {
+		return SetupAfterPush
+	}
+	return o.Setup
+}
 
 // NeedWorkers returns the number of workers the fixture needs.
 func (o OracleNeeds) NeedWorkers() int {
@@ -116,6 +142,9 @@ type CompareSpec struct {
 	Stack []string `json:"stack,omitempty"`
 	// Mask lists values replaced by MarkerMasked: environment-derived
 	// values such as WM_BASE_URL, WM_WORKSPACE, identities and tokens.
+	// Stack and Mask point into the observation's values; a run-and-wait
+	// response's body is text, which they do not reach inside (only the
+	// whole body can be masked).
 	Mask []string `json:"mask,omitempty"`
 	// Unordered lists arrays that compare as multisets (OR-23).
 	Unordered []string `json:"unordered,omitempty"`
@@ -182,6 +211,12 @@ type Run struct {
 	// Group names the runs that are submitted together, as concurrent
 	// outer runs; a run without a group runs alone (RunBatches).
 	Group string `json:"group,omitempty"`
+	// Submit is how the run is submitted: empty for the asynchronous
+	// submit and poll of OR-10, or SubmitRunWait for the synchronous
+	// run-and-wait endpoint, whose HTTP response the observation then
+	// holds as well (FX-36, FX-37, OR-10/b). Either way the run is polled
+	// to completion and walked.
+	Submit string `json:"submit,omitempty"`
 	// Replay is the run's replay table, for a fixture in stub mode: the
 	// outcome of each attempt at each stubbed site. A stub fixture's run
 	// without one answers every call with replay_miss.
@@ -207,8 +242,15 @@ type Run struct {
 	Recorded *Recording `json:"-"`
 }
 
+// SubmitRunWait is Run.Submit for the synchronous run-and-wait endpoint,
+// POST /w/{ws}/jobs/run_wait_result/f/{path}.
+const SubmitRunWait = "run_wait_result"
+
 // IsScript reports whether the run targets a script rather than a flow.
 func (r Run) IsScript() bool { return r.Kind == "script" }
+
+// RunsAndWaits reports whether the run is submitted through run-and-wait.
+func (r Run) RunsAndWaits() bool { return r.Submit == SubmitRunWait }
 
 // ArgsOrEmpty returns the run's arguments, {} when it has none.
 func (r Run) ArgsOrEmpty() json.RawMessage {
@@ -290,6 +332,9 @@ func LoadFixture(dir string) (*Fixture, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	if p := f.Oracle.SetupPolicy(); p != SetupAfterPush && (f.Setup == nil || len(f.Setup.Variables) == 0) {
+		return nil, fmt.Errorf("%s: oracle.setup %s needs variables in %s", filepath.Join(dir, FixtureFile), p, SetupFile)
+	}
 	entries, err := os.ReadDir(filepath.Join(dir, RunsDir))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", dir, err)
@@ -318,6 +363,14 @@ func LoadFixture(dir string) (*Fixture, error) {
 	}
 	if len(f.Runs) == 0 {
 		return nil, fmt.Errorf("%s: fixture has no runs/*%s", dir, runExtension)
+	}
+	if f.Oracle.SetupPolicy() == SetupEachRun {
+		// Concurrent runs would share the variables between resets.
+		for _, r := range f.Runs {
+			if r.Group != "" {
+				return nil, fmt.Errorf("%s: oracle.setup %s resets before each run, so run %s cannot be in group %s", filepath.Join(dir, FixtureFile), SetupEachRun, r.Name, r.Group)
+			}
+		}
 	}
 	sort.Slice(f.Runs, func(i, j int) bool { return f.Runs[i].Name < f.Runs[j].Name })
 	return f, nil
@@ -413,6 +466,18 @@ func (f *Fixture) check() error {
 	if f.Stub && f.Oracle.DeploysThroughAPI() {
 		return fmt.Errorf("stub: true needs oracle.deploy %s: stub mode pushes a stubbed tree with the CLI", DeployCLI)
 	}
+	switch f.Oracle.Setup {
+	case "", SetupAfterPush, SetupEachRun:
+	case SetupBeforePush:
+		if f.Oracle.DeploysThroughAPI() {
+			return fmt.Errorf("oracle.setup %s needs oracle.deploy %s: only the CLI's push removes what was seeded", SetupBeforePush, DeployCLI)
+		}
+	default:
+		return fmt.Errorf("oracle.setup %q is not %s, %s or %s", f.Oracle.Setup, SetupAfterPush, SetupBeforePush, SetupEachRun)
+	}
+	if f.Oracle.Pull && !f.Oracle.DeploysThroughAPI() {
+		return fmt.Errorf("oracle.pull needs oracle.deploy %s", DeployAPI)
+	}
 	switch f.Compare.Mode {
 	case "", "exact", "subset":
 	default:
@@ -472,6 +537,17 @@ func (r *Run) check() error {
 	}
 	if r.CancelAfterMS != nil && *r.CancelAfterMS < 0 {
 		return errors.New("cancel_after_ms is negative")
+	}
+	switch r.Submit {
+	case "":
+	case SubmitRunWait:
+		// One flow, alone and to its end: a canceled or concurrent
+		// run-and-wait would observe the cancellation or the other runs.
+		if r.IsScript() || r.Group != "" || r.CancelAfterMS != nil || r.Replay != nil {
+			return fmt.Errorf("submit %s runs a flow alone: it takes no kind script, group, cancel_after_ms or replay", SubmitRunWait)
+		}
+	default:
+		return fmt.Errorf("submit %q is not %s", r.Submit, SubmitRunWait)
 	}
 	for _, c := range r.Claims {
 		if err := c.check(); err != nil {

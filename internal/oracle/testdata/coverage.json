@@ -24,158 +24,26 @@
     {
       "case": "OR-19/a",
       "by": "the oracle workflow itself: record --check on a clean checkout, failing on a changed observation and never on provenance"
+    },
+    {
+      "case": "OR-7/a",
+      "by": "the oracle workflow's second session: wltest record --check with --listen-interval 10 and two workers records the smoke fixture, whose committed recordings were made at 1 s with one worker, and fails unless every observation is unchanged"
+    },
+    {
+      "case": "OR-31/b",
+      "by": "every session: CheckSetup reads each setup.yaml variable back after the push, requiring 404 for a fixture with oracle.setup before_push, whose push removed it (oracle/seeded), and 200 once setup.yaml was applied after the push"
     }
   ],
   "deferred": [
-    {
-      "case": "OR-2/a",
-      "milestone": "E3e",
-      "reason": "the env probe (Bun.version inside the oracle) is a recording of the remaining probes"
-    },
     {
       "case": "OR-2/b",
       "milestone": "E1",
       "reason": "a provenance check of windmill-lite's own Bun harness, which wltest check owns"
     },
     {
-      "case": "OR-5/b",
-      "milestone": "E3e",
-      "reason": "the two-worker profile is in compose.yaml (workers2), but the blocking-child fixture is a later recording (Q-OR-18)"
-    },
-    {
-      "case": "OR-7/a",
-      "milestone": "E3e",
-      "reason": "a knob comparison of two recordings (Q-OR-18)"
-    },
-    {
       "case": "OR-7/b",
-      "milestone": "E3e",
-      "reason": "optional result-size profile (Q-OR-14)"
-    },
-    {
-      "case": "OR-10/a",
-      "milestone": "E3e",
-      "reason": "the composite probe; the harness already polls get_result_maybe and never uses run_wait_result"
-    },
-    {
-      "case": "OR-10/b",
-      "milestone": "F7b",
-      "reason": "run_wait_result's HTTP rewriting is a host-adapter concern"
-    },
-    {
-      "case": "OR-12/c",
-      "milestone": "E3c",
-      "reason": "the fail_mid probe is in the FX errors batch"
-    },
-    {
-      "case": "OR-12/d",
-      "milestone": "E3c",
-      "reason": "the missing-variable error is in the FX errors batch"
-    },
-    {
-      "case": "OR-13/a",
-      "milestone": "E3a",
-      "reason": "the key_order probe is in the JE batch, with the JE-8 key-order discriminator"
-    },
-    {
-      "case": "OR-16/a",
-      "milestone": "E3e",
-      "reason": "the effects probe; the sink and its grouping are tested here (OR-16/c)"
-    },
-    {
-      "case": "OR-16/b",
-      "milestone": "E3e",
-      "reason": "the EE delete_after_use probe"
-    },
-    {
-      "case": "OR-17/a",
-      "milestone": "E3e",
-      "reason": "the sleep probe; timings are recorded in provenance here, never compared"
-    },
-    {
-      "case": "OR-21/a",
-      "milestone": "E3e",
-      "reason": "the subflow delete_after_use probe (Q-OR-18)"
-    },
-    {
-      "case": "OR-22/a",
-      "milestone": "E3a",
-      "reason": "static $var: resolution timing is in the JE batch"
-    },
-    {
-      "case": "OR-24/a",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch"
-    },
-    {
-      "case": "OR-24/b",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-12)"
-    },
-    {
-      "case": "OR-24/c",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-11)"
-    },
-    {
-      "case": "OR-24/d",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-11)"
-    },
-    {
-      "case": "OR-24/e",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-11)"
-    },
-    {
-      "case": "OR-27/b",
-      "milestone": "E3e",
-      "reason": "other NUL positions and languages are open (Q-OR-6)"
-    },
-    {
-      "case": "OR-29/a",
-      "milestone": "E3e",
-      "reason": "the env probe"
-    },
-    {
-      "case": "OR-31/a",
-      "milestone": "E3e",
-      "reason": "the push-removes-a-seeded-variable probe; setup.yaml is applied after the push here"
-    },
-    {
-      "case": "OR-31/b",
-      "milestone": "E3e",
-      "reason": "the 404 and 200 variable check around a push (Q-OR-18)"
-    },
-    {
-      "case": "OR-V1/a",
-      "milestone": "E3e",
-      "reason": "the big_payload probe; the walker already reads get_args and get_result_maybe for every job"
-    },
-    {
-      "case": "OR-V1/b",
-      "milestone": "E3e",
-      "reason": "the big_payload probe"
-    },
-    {
-      "case": "OR-V2/b",
-      "milestone": "E3b",
-      "reason": "the stop_plain probe is a stop_after_if case of the FX core batch"
-    },
-    {
-      "case": "OR-V2/e",
-      "milestone": "E3d",
-      "reason": "the throwing branchone predicate (Q-OR-8) is in the CF batch"
-    },
-    {
-      "case": "OR-V9/b",
-      "milestone": "E3e",
-      "reason": "the bare-iter variant is part of the probe-catalogue reconstruction (Q-OR-16)"
-    },
-    {
-      "case": "OR-V9/d",
-      "milestone": "E3e",
-      "reason": "the parallel loop is part of the probe-catalogue reconstruction (Q-OR-16)"
+      "milestone": "none",
+      "reason": "optional (Q-OR-14): the knob MAX_RESULT_SIZE_MB would change every observation of the session it is set for, and no milestone of ADR 0012 implements the result-size limit's error"
     }
   ]
 }

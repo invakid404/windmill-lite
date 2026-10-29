@@ -1,0 +1,14 @@
+# OR-V9/a: loop_seq_multi with v bound to flow_input.iter.value gives the
+# recorded ["a12","b12"], from two-step child flows (flownode, in the
+# provenance's job kinds).
+spec: [OR-V9/a, OR-28]
+target: f/wl_probe/loop_seq_multi
+expect:
+  status: success
+  result: [a12, b12]
+  steps:
+    "m:l": {status: success, result: [a12, b12]}
+    "m:l/i:0/m:x1": {status: success, args: {v: a}, result: a1}
+    "m:l/i:0/m:x2": {status: success, args: {p: a1}, result: a12}
+    "m:l/i:1/m:x1": {status: success, args: {v: b}, result: b1}
+    "m:l/i:1/m:x2": {status: success, args: {p: b1}, result: b12}

@@ -1,0 +1,10 @@
+# probe loop_empty: an empty loop succeeds without running a child and
+# gives []; the next step sees [] twice.
+spec: [OR-11/b, OR-26/b, OR-V2/c]
+target: f/wl_probe/loop_empty
+expect:
+  status: success
+  result: {p: [], r: []}
+  steps:
+    "m:l": {status: success, ran: false, result: []}
+    "m:after": {status: success, args: {p: [], r: []}, result: {p: [], r: []}}

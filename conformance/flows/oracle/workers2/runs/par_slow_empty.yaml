@@ -1,0 +1,10 @@
+# Q-OR-15: the empty middle branch keeps index 1 under real parallelism.
+spec: [OR-26/a]
+target: f/wl_w2/par_slow_empty
+expect:
+  status: success
+  result: [0, {}, 2]
+  steps:
+    "m:ba": {status: success, result: [0, {}, 2]}
+    "m:ba/b:0/m:s0": {status: success, args: {}, result: 0}
+    "m:ba/b:2/m:s2": {status: success, args: {}, result: 2}

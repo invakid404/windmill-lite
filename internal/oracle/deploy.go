@@ -141,6 +141,46 @@ func ApplySetup(ctx context.Context, c *Client, workspace string, s *conformance
 	return nil
 }
 
+// CheckSetup reads back each variable of a fixture's setup.yaml and
+// requires it to be there (present true: setup.yaml was applied after the
+// push) or gone (present false: it was seeded before a push that removed
+// it), which is OR-31/b's 200 and 404. A variable in the other state is
+// refused as setup_not_applied or seed_survived_push.
+func CheckSetup(ctx context.Context, c *Client, workspace string, s *conformance.Setup, present bool) error {
+	if s == nil {
+		return nil
+	}
+	for _, v := range s.Variables {
+		ok, err := c.VariableExists(ctx, workspace, v.Path)
+		if err != nil {
+			return err
+		}
+		if ok != present {
+			code := "setup_not_applied"
+			if !present {
+				code = "seed_survived_push"
+			}
+			return refusal(code, "variable", jsonString(v.Path))
+		}
+	}
+	return nil
+}
+
+// ResetSetup sets each variable of a fixture's setup.yaml to its value
+// again, before a run of a fixture with oracle.setup each_run, whose runs
+// change them. Resource types and resources are not reset.
+func ResetSetup(ctx context.Context, c *Client, workspace string, s *conformance.Setup) error {
+	if s == nil {
+		return nil
+	}
+	for _, v := range s.Variables {
+		if err := c.UpdateVariable(ctx, workspace, v.Path, v.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Deployment is what the gate saw: each item's status after its lock job,
 // and each flow's deployed module ids.
 type Deployment struct {

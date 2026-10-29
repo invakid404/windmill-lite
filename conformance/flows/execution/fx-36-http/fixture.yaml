@@ -1,0 +1,18 @@
+# Recording batch E3e: FX-36's HTTP part (later), the run-and-wait
+# response that the oracle harness observes only for runs submitted with
+# submit: run_wait_result (OR-10). Each run is also polled to completion
+# and walked, so the flow's own outcome is in the observation beside the
+# response. The cases are FX-36/a to FX-36/g, the array result of Q-FX-12,
+# FX-12/a over HTTP, FX-37/a's early response, FX-V3/a's skipped flow, and
+# more of FX-36's rules: a content type unquotes the string result and is
+# sent as given, a charset parameter included; base64 transfer encoding
+# decodes it, to bytes that need not be UTF-8; and a 3xx status code is
+# answered as it is, which the harness does not follow. They gate
+# milestone F7b, the HTTP adapter. Synthetic, written for this repository
+# from docs/semantics/conformance.md#fx-36.
+id: execution/fx-36-http
+spec: [FX-36, FX-37/a, FX-12/a, FX-V3/a]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,10 @@
+# FX-36: with a content type the body is the nested string as text.
+spec: [FX-36]
+target: f/wl_fx36h/content_type
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_content_type: text/plain, result: hi}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_content_type: text/plain, result: hi}}
+  response: {status: 200, content_type: text/plain, body: hi}
