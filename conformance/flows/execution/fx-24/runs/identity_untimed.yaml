@@ -1,0 +1,10 @@
+# FX-24/f: an identity job runs at once with no timer, so even a timeout
+# of 0 has no effect; it passes the flow input on (FX-16).
+spec: [FX-24/f, FX-16]
+target: f/wl_fx24/identity_untimed
+args: {x: 1}
+expect:
+  status: success
+  result: {x: 1}
+  steps:
+    "m:a": {status: success, args: {previous_result: {x: 1}}, result: {x: 1}}

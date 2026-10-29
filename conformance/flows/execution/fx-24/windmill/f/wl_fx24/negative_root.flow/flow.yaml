@@ -1,0 +1,18 @@
+summary: 'FX-24/b a negative timeout at the root pickup'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_fx24/echo
+      timeout:
+        type: javascript
+        expr: '-1'
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

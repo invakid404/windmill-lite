@@ -1,0 +1,13 @@
+# JE-29: a float that JavaScript writes with an exponent; serde_json names
+# it with an exponent and a sign, 1e+21, as FX-42 rule 2 writes numbers.
+spec: [JE-29, FX-15]
+target: f/wl_fx24/js_exponent
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error parsing result as i32: invalid type: floating point `1e+21`, expected i32 at line 1 column 5. Value was: 1e+21"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}
+note: >-
+  Corrected after recording. The prediction had 1e21; oracle run
+  40828218479 recorded 1e+21.

@@ -19,10 +19,19 @@ import (
 //     flows name theirs (a loop iteration's or a branch's body, CF-1): each
 //     is a site, and a module the trace has no record of never got a job,
 //     so it is not_run, as the walker reads a flow_status entry without one;
+//     virtual marks the generated `<id>-v` step of a final sleep (OF-17),
+//     which the walker leaves out of the projection (OR-V7), and so does
+//     this;
 //   - jobs maps the id of every invocation the run made, which steps see as
-//     WM_JOB_ID, to its site; the run's own id, WM_FLOW_JOB_ID and
-//     WM_ROOT_JOB_ID, is the root, and a child flow's id is its iteration's
-//     or branch's site, as the walker reaches it (OR-11);
+//     WM_JOB_ID, to its site, and a record's own job (StepRecord.Job)
+//     overrides it, so a retried attempt's job is named by its attempt's
+//     site; the run's own id, WM_FLOW_JOB_ID and WM_ROOT_JOB_ID, is the
+//     root, and a child flow's id is its iteration's or branch's site, as
+//     the walker reaches it (OR-11);
+//   - a module's record lists the failed attempts of the flow-wide retry
+//     state (StepRecord.FailedRetries, FX-27): the walker fetches the k-th
+//     at <module>/r:<k>, so the attempt's record appears there too, also
+//     when it is an earlier module's (FX-29);
 //   - stored values (the root's result, each site's args and result) are in
 //     their stored form, as the job API returns them (ADR 0005), while
 //     carried and resolved_args keep the texts the trace holds: the value
@@ -41,13 +50,27 @@ import (
 // that aggregates others (a loop's array), the generated errors the trace
 // points to (StepRecord.ResultNested). There a comparison with the oracle
 // strips a location suffix (conformance.StripLocations), and nowhere else.
-func observeTrace(t *engine.Trace, modules []string, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
+func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	for _, c := range t.Children {
 		ids[c.ID] = c.Site
 	}
 	for id, site := range jobs {
 		ids[id] = site
+	}
+	segs := conformance.ModuleSegments(modules)
+	hidden := map[conformance.SitePath]bool{}
+	for i, v := range virtual {
+		if v {
+			hidden[conformance.SitePath{}.Child(segs[i])] = true
+		}
+	}
+	records := map[conformance.SitePath]engine.StepRecord{}
+	for _, rec := range t.Steps {
+		records[rec.Site] = rec
+		if rec.Job != "" {
+			ids[rec.Job] = rec.Site
+		}
 	}
 	n := &conformance.Normaliser{IDs: ids}
 	o := conformance.Observation{Status: t.Status}
@@ -67,7 +90,28 @@ func observeTrace(t *engine.Trace, modules []string, failure bool, jobs map[stri
 	}
 
 	steps := map[conformance.SitePath]conformance.StepObservation{}
+	var expanded []engine.StepRecord
 	for _, rec := range t.Steps {
+		if hidden[rec.Site] {
+			continue
+		}
+		expanded = append(expanded, rec)
+		for k, at := range rec.FailedRetries {
+			src, ok := records[at]
+			if !ok {
+				return o, nil, fmt.Errorf("site %s lists the failed attempt %s, which has no record", rec.Site, at)
+			}
+			site := rec.Site.Child(conformance.Attempt(k))
+			if site == at {
+				continue
+			}
+			// The walker meets the attempt's job again here: a copy whose
+			// pointers are its own.
+			src.Site, src.FailedRetries = site, nil
+			expanded = append(expanded, src)
+		}
+	}
+	for _, rec := range expanded {
 		if _, dup := steps[rec.Site]; dup {
 			return o, nil, fmt.Errorf("site %s recorded twice", rec.Site)
 		}
@@ -116,12 +160,11 @@ func observeTrace(t *engine.Trace, modules []string, failure bool, jobs map[stri
 	notRun := func(prefix conformance.SitePath, segs []conformance.Segment) {
 		for _, seg := range segs {
 			site := prefix.Child(seg)
-			if _, ok := steps[site]; !ok {
+			if _, ok := steps[site]; !ok && !hidden[site] {
 				steps[site] = conformance.StepObservation{Status: conformance.StepNotRun}
 			}
 		}
 	}
-	segs := conformance.ModuleSegments(modules)
 	if failure {
 		segs = append(segs, conformance.FailureSlot())
 	}

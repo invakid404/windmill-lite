@@ -7,8 +7,9 @@ queue, no job per step, and no worker pickup.
 **Current state:** first implementation milestones. The engine core runs
 flows of Bun steps in sequence from a compiled program, with their failure
 modules and for loops, whose steps reach a platform facade that serves
-resources and variables; the other containers, waits, retries and the rest
-of the platform come in the next milestones. The repository holds
+resources and variables, and with their sleeps, timeouts and retries; the
+other containers and the rest of the platform come in the next
+milestones. The repository holds
 a Go module, the `windmill-lite` command, which builds and verifies bundles
 and serves the walking skeleton's host mode but does not run bundles yet,
 CI, a
@@ -69,9 +70,12 @@ program's flows in sequence, with Windmill's decision list for input
 transforms, the `results` routes, `skip_if`, `mock`, identity steps and
 `stop_after_if`, and K1's host-hook seams, and (N1b) its errors:
 `continue_on_error`, the failure module and recovery, chaining errors,
-the error shapes and the cancellation outcome, and (N3a, N3b) its
-containers: for and while loops, `branchone` and `branchall`; `host` runs
-its flows on it too. PF1 gives every step its job identity
+the error shapes and the cancellation outcome, (N2) its waits and time:
+`sleep`, the step timeout and its texts, retries with Windmill's 16-bit
+delay arithmetic, jitter and argument reuse, the monitor of flows that
+hang between steps, the pre-write deadline and an injectable clock, and
+(N3a, N3b) its containers: for and while loops, `branchone` and
+`branchall`; `host` runs its flows on it too. PF1 gives every step its job identity
 ([internal/platform](internal/platform/README.md)) and a platform facade
 ([internal/platform/facade](internal/platform/facade/README.md)): the
 router behind the stock `windmill-client`, which attributes every call to

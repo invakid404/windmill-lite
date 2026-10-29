@@ -12,7 +12,15 @@ expect:
   result: H
   steps:
     "m:a/r:0": {status: success, args: {}, result: 3}
-    "m:a": {status: success, module: failure, args: {}, result: 3}
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: 3
+      # FX-2 completion step 4: the stopped module carries the
+      # EarlyStopError on to the failure module; the oracle exposes no
+      # carried value, so the recording cannot show it.
+      carried: {error: {name: EarlyStopError, message: E}}
     "s:failure/r:0": {status: success, args: {}, result: 3}
     "s:failure": {status: success, args: {}, result: H}
 note: >-

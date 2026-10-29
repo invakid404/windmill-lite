@@ -1,0 +1,26 @@
+summary: 'JE-29 an object timeout'
+value:
+  modules:
+    - id: x
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_fx24/echo
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_fx24/echo
+      timeout:
+        type: javascript
+        expr: '({a: 1})'
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

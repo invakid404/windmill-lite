@@ -1,0 +1,11 @@
+# FX-24 path 4: a flow's own timeout (its metadata, OF-16) is stored on
+# the flow job but nothing enforces it, since flow jobs bypass every
+# executor timer: the 3 s step outlives the flow's 1 s and the flow
+# succeeds.
+spec: [FX-24, OF-16]
+target: f/wl_fx24/flow_timeout
+expect:
+  status: success
+  result: 3000
+  steps:
+    "m:a": {status: success, args: {ms: 3000}, result: 3000}

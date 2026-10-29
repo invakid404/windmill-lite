@@ -76,7 +76,12 @@ host secret layer and the one interpolation walker for the three
 resource-read contracts, in
 [internal/platform](../../internal/platform/README.md); the facade serves
 the reads, and the engine resolves a leaf's arguments, `flow_env` and the
-expression helpers through the same services.
+expression helpers through the same services. Milestone N2 adds
+the engine's waits and time: `sleep`, the step timeout and its messages,
+retries with their arithmetic, jitter and argument reuse, deadlines (the
+monitor of flows that hang between steps, the pre-write deadline of
+[0008](0008-host-hooks.md)'s H4) and the clock of H10, with its fixtures
+`fx-23` to `fx-29` recorded on the oracle.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

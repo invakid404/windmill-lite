@@ -1,0 +1,23 @@
+# FX-28/b: retry_if throws while the completion is decided, so the failure
+# is re-processed as unrecoverable with the predicate's error as a string,
+# as FX-21's but converted twice: two "Error: " prefixes and two location
+# suffixes (FX-50). No retry: the failure module runs and sees
+# {"error": <string>}; its result does not recover, so the flow fails
+# with it.
+spec: [FX-28/b, FX-21, FX-50]
+target: f/wl_fx28/throw_handler
+expect:
+  status: failure
+  result: string
+  steps:
+    "m:a":
+      status: failure
+      args: {msg: x}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      carried: {error: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}
+    "s:failure": {status: success, args: {x: string}, result: string}
+note: >-
+  Corrected after recording. The prediction had FX-21's string, one
+  "Error: " prefix and one location suffix; oracle run 40818457347 recorded
+  a second prefix and a second suffix, @worker_flow.rs:1710:32, the
+  completion's conversion of retry_if's error.

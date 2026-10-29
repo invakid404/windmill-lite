@@ -1,0 +1,16 @@
+# FX-29/a: a runs 3 times and is tolerated; b starts with the counter at 2,
+# has no attempt left and runs once. b's Failure status lists a's two
+# failed attempts as its own failed_retries, so the walker meets them at
+# m:b/r:0 and m:b/r:1 as well (FX-27).
+spec: [FX-29/a, FX-27]
+target: f/wl_fx29/carries_over
+expect:
+  status: failure
+  result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}
+  steps:
+    "m:a/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:b/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:b/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:b": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}

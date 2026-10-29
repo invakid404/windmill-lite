@@ -1,0 +1,26 @@
+summary: 'FX-23 a negative fractional sleep clamps to 0'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_fx23/echo
+      sleep:
+        type: static
+        value: -0.5
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_fx23/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

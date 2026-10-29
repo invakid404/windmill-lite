@@ -1,0 +1,10 @@
+# FX-24/c: at a later transition the flow fails at once with the bare
+# InternalError (FX-15 context 1), and a never gets a job.
+spec: [FX-24/c, FX-15]
+target: f/wl_fx24/negative_later
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Timeout value cannot be negative"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

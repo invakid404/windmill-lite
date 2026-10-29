@@ -1,0 +1,21 @@
+summary: 'FX-28/a a false retry_if prevents the retry'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          msg:
+            type: static
+            value: fatal
+        path: f/wl_fx28/fail
+      retry:
+        constant:
+          attempts: 3
+          seconds: 0
+        retry_if:
+          expr: error.message === 'transient'
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

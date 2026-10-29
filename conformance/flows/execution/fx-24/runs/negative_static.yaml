@@ -1,0 +1,9 @@
+# FX-24: a static negative timeout fails the same way.
+spec: [FX-24, FX-15]
+target: f/wl_fx24/negative_static
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Timeout value cannot be negative"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

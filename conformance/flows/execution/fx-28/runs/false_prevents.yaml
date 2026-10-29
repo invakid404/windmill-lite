@@ -1,0 +1,8 @@
+# FX-28/a: exactly one run; the flow fails with the step's error.
+spec: [FX-28/a]
+target: f/wl_fx28/false_prevents
+expect:
+  status: failure
+  result: {error: {message: fatal, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a": {status: failure, args: {msg: fatal}, result: {error: {message: fatal, name: Error, stack: "<stack>", step_id: a}}}

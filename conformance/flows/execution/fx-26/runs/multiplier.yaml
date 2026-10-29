@@ -1,0 +1,11 @@
+# FX-26/b: a single delay of 3 × 2^1 = 6 s.
+spec: [FX-26/b]
+target: f/wl_fx26/multiplier
+expect:
+  status: failure
+  result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a/r:0": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {msg: e}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: a}}}
+delays:
+  - {from: "m:a/r:0", to: "m:a", at_least_ms: 6000}

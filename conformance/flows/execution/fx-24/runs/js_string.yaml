@@ -1,0 +1,10 @@
+# JE-29: a string does not deserialise as an i32; the message quotes the
+# evaluator's text.
+spec: [JE-29, FX-15]
+target: f/wl_fx24/js_string
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: 'Error parsing result as i32: invalid type: string "5", expected i32 at line 1 column 3. Value was: "5"'}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

@@ -1,0 +1,18 @@
+summary: "FX-23 a final module's sleep"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 3
+        path: f/wl_fx23/echo
+      sleep:
+        type: static
+        value: 1
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

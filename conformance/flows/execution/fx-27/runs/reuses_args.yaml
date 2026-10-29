@@ -1,0 +1,10 @@
+# FX-27/a: a fails once and succeeds on its retry, which got the first
+# attempt's x: the step returns true.
+spec: [FX-27/a, JE-V2]
+target: f/wl_fx27/reuses_args
+expect:
+  status: success
+  result: true
+  steps:
+    "m:a/r:0": {status: failure, args: {x: "<masked>"}, result: {error: {message: "first attempt", name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: success, args: {x: "<masked>"}, result: true}

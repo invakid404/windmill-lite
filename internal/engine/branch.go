@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/rand/v2"
 	"strconv"
-	"sync"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -39,7 +38,7 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	seg, body, path := conformance.DefaultBranch(), m.BranchOne.Default, fr.path+"/branchone-0"
 	chosen := &conformance.BranchChosen{Type: "default"}
 	for j, br := range m.BranchOne.Branches {
-		v, err := r.predicate(ctx, br.Expr, site, r.startScope(fr, prev, prevID))
+		v, err := r.predicate(ctx, fr, br.Expr, site, r.startScope(fr, prev, prevID))
 		if err != nil {
 			if ctx.Err() != nil {
 				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
@@ -85,6 +84,8 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	}
 	r.addChild(c)
 	e := r.runList(ctx, c)
+	// The branch's completion refreshes its flow's ping (JE-2).
+	r.ping(fr)
 	if ended(e.status) {
 		return branchInterrupted(o, true, r.endedStatus(ctx, e.status))
 	}
@@ -166,6 +167,8 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcom
 		}
 		r.addChild(c)
 		e := r.runList(ctx, c)
+		// The branch's completion refreshes its flow's ping (JE-2).
+		r.ping(fr)
 		if ended(e.status) {
 			return r.loopInterrupted(o, &it, true, r.endedStatus(ctx, e.status))
 		}
@@ -247,7 +250,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 	ends := make([]flowEnd, n)
 	started := 0
 	stopped := conformance.RunStatus("")
-	var wg sync.WaitGroup
+	done := make(chan struct{}, n)
 	// The branches start together, after one check of the host signals
 	// (CF-15), so none waits on another's outcome to start.
 	if st, ended := r.iterationEnded(ctx); ended {
@@ -255,14 +258,18 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 	} else {
 		for k, c := range children {
 			started++
-			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				ends[k] = r.runList(ctx, c)
+				done <- struct{}{}
 			}()
 		}
 	}
-	wg.Wait()
+	// This goroutine refreshes the flow's ping as each branch completes
+	// (JE-2).
+	for range started {
+		<-done
+		r.ping(fr)
+	}
 	var it iterations
 	failed := false
 	for k, e := range ends[:started] {
@@ -295,7 +302,7 @@ func (r *run) branchFrame(fr *frame, i int, seg conformance.Segment, ms []*ir.Mo
 	}
 	site := fr.sites[i].Child(seg)
 	c := newFrame(ms, site)
-	c.site, c.child, c.id = site, true, newUUID()
+	c.site, c.child, c.id, c.pinged = site, true, newUUID(), r.clock.Now()
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = path, fr.scope, fr.nodes, fr.rng
 	if parallel {
