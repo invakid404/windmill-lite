@@ -173,6 +173,17 @@ flight and become late output afterwards. The last `RecentLate` (4,096)
 settled invocations per process keep receiving late output of work they
 left running (D9).
 
+**The arguments file** ([WR-5](../../docs/semantics/languages.md#wr-5),
+milestone PF2). Before it sends an invocation, a spawned process writes
+the invocation's arguments, as the script receives them (after the
+engine's `$var:` and `$res:` resolution), to `args.json` (`ArgsFile`) in
+its working directory, as Windmill's worker writes them into a job's
+directory: written beside it and renamed over it, so a script never reads
+it half written. A fresh process's file is its one invocation's; a warm
+process's working directory is every invocation's (D10), so its file is
+the latest invocation's. A host-mode connection has no working directory
+of its own and writes none (F3a).
+
 ## Death and the watchdog
 
 A harness that exits fails every in-flight invocation as escaped, with its
@@ -338,6 +349,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   death before any Reporter does.
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher.
+- The arguments file is checked end to end by the step case
+  `conformance/steps/bun/wr-5.yaml` (two runs of one warm process, and
+  fresh processes) and by FX-42/h's run `args_file`
+  ([cmd/wltest](../../cmd/wltest/README.md)).
 
 The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and
 `WL_WINDMILL_CLIENT` for the Q-WA-4 test. Without them they skip, unless

@@ -6,7 +6,8 @@ E3a added expression files, and E3e `--skip-unmet-workers` and
 `--listen-interval`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
-end to end (milestone N1a). This README covers the `wltest` command in
+end to end (milestone N1a), with the for loops of milestone N3a and the
+platform providers of milestone PF2 (`providers.go`). This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -162,7 +163,9 @@ when it passes, and its value is then `engine.TimeoutError`'s for the
 boundary. Each case has a platform facade of its own
 ([internal/platform/facade](../../internal/platform/facade/README.md),
 milestone PF1), in its default `fail` policy, through whose `Executor` the
-runs go: a warm process gets its non-listening origin as `BASE_URL` and
+runs go, and which serves the case's `setup`, its variables and resources
+(milestone PF2; a secret's value is its plaintext, which the runner passes
+in as a host passes its secrets): a warm process gets its non-listening origin as `BASE_URL` and
 intercepts its fetches, a fresh one its listening origin, which it
 reaches over TCP. A native step reads the same origin as `BASE_URL` and
 `BASE_INTERNAL_URL`. A run's `calls` compares what the facade recorded
@@ -235,7 +238,15 @@ a few at a time (`flows.go`):
    its non-listening origin as `BASE_URL` and intercept their fetches to
    it, a native step reads the same origin as `BASE_URL` and
    `BASE_INTERNAL_URL`, and its `Executor` attributes every call and
-   applies the 501 policy in `fail` mode. Runs go in name
+   applies the 501 policy in `fail` mode. The facade and the engine read
+   one set of platform services (milestone PF2, `providers.go`): the
+   resources and variables of the fixture's sync folder, then those of its
+   `setup.yaml`, which the oracle creates after the push and so replace
+   the folder's; a setup applied before the push holds nothing at run time,
+   since the push removes it (OR-31). A secret is held as the folder holds
+   it (ciphertext without `plainSecrets`); a setup's secret is its
+   plaintext, passed in as a host passes its secrets, never through a
+   bundle. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run with the
    reason and the canceler the oracle's cancellation names
@@ -250,16 +261,21 @@ a few at a time (`flows.go`):
    bundle does, and gives its job path as `WM_JOB_PATH`.
 3. **Observe** (`observe.go`). The run's trace becomes the observation the
    oracle's walker produces ([ADR 0011](../../docs/design/0011-differential-testing.md),
-   [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow that
-   the trace has no record of is `not_run`, and so is the failure module's
-   site `s:failure` of a flow that has one; the root's result and each
+   [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow, or
+   of a child flow the trace lists (a loop iteration's body, below its
+   iteration's site `m:<loop>/i:<n>`), that the trace has no record of is
+   `not_run`, and so is the failure module's site `s:failure` of a flow
+   that has one; the root's result and each
    site's `args` and `result` are in their stored form, as the job API
    returns them ([ADR 0005](../../docs/design/0005-json-step-boundaries.md));
    `carried` and `resolved_args` keep the trace's texts, the value carried
    on in memory and the arguments the script received, and are written only
-   where their text differs. The values are then normalised by
+   where their text differs, and a site with no result has no `carried`
+   (a module that failed at the root's pickup with no job carries its
+   error to the flow's result). The values are then normalised by
    [OR-14](../../docs/semantics/oracle.md#or-14)'s rules: job ids become the
-   placeholders of their sites (the run's own id is the root, `<job:>`), and
+   placeholders of their sites (the run's own id is the root, `<job:>`, and
+   a child flow's id its iteration's site, as the walker reaches it), and
    a failed site's stack is masked wherever its value is carried
    ([OR-V3](../../docs/semantics/oracle.md#or-v3) clause a); then the
    fixture's `stack` and `mask` pointers apply.
@@ -268,17 +284,20 @@ a few at a time (`flows.go`):
    then its `claims` are checked. On the reference's side, the location
    suffixes of a message that matches a catalogue template carrying `<loc>`
    (the recognised internal error, the chaining errors of FX-15, the
-   string of FX-21) are stripped where windmill-lite generated the value
+   string of FX-21, a failed `stop_after_all_iters_if`'s error stop) are
+   stripped where windmill-lite generated the value
    (`conformance.StripLocations`, ADR 0011's location rule): a result whose
    origin the trace records as the engine, a harness or the facade; a
-   carried value that is the same value, in either member order; and a
+   carried value that is the same value, in either member order; a
    carried value the engine set apart from the result, whose origin the
    trace records too (an error stop's, a throwing `stop_after_if`'s, a
-   chaining error with no job, milestone N1b). A carried value that differs
-   from the result with no recorded origin is never stripped. Claims are
-   checked on windmill-lite's observation as it is, so a claim about a
-   location suffix holds only on the oracle. A run with nothing to compare
-   fails.
+   chaining error with no job, milestone N1b); and, inside a loop's array,
+   the entries the trace points to as generated (`ResultNested`), at any
+   depth (milestone N3a). A carried value that differs from the result
+   with no recorded origin is never stripped, nor a user's error beside
+   generated ones. Claims are checked on windmill-lite's observation as it
+   is, so a claim about a location suffix holds only on the oracle. A run
+   with nothing to compare fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with effects (the effect sink), a script run
@@ -286,14 +305,13 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: waits, retries, containers, subflows, a preprocessor),
-and a flow that reads the platform, which needs the platform providers of
-PF2: its compiled program holds `variable(`, `resource(`,
-`flow_user_state(`, `$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or
-a script it reaches names a variable or resource of the fixture's
-`setup.yaml`. The fixture's other runs are checked. So is a run the oracle
-canceled on its own, with no `cancel_after_ms` (JE-2/a: its monitor of flows
-that hang between steps), which has no counterpart on windmill-lite.
+names the milestone: waits, retries, while loops and branches, subflows, a
+for loop in a flow with a failure module, caching, a preprocessor), and a
+flow that reads flow user state through the helper `flow_user_state()`
+(its compiled program holds the text), which needs milestone PF3. The
+fixture's other runs are checked. So is a run the oracle canceled on its
+own, with no `cancel_after_ms` (JE-2/a: its monitor of flows that hang
+between steps), which has no counterpart on windmill-lite.
 
 ### Expression files
 
@@ -336,8 +354,9 @@ Windmill v1.767.0's image).
   with and without `//native`, bun with it) through the real build and
   harness, checking each one's boundary and its `BASE_URL` and
   `BASE_INTERNAL_URL`.
-- `TestFlowSuite` is the exit gate of milestones E1, N1a and N1b: every
-  run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
+- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a and
+  PF2 (with PF1's fixture):
+  every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
@@ -358,11 +377,15 @@ Windmill v1.767.0's image).
   same for codebase scripts: one that does not bundle and one whose asset
   collides fail their own flows, while a flow whose codebase script reads
   its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
-  same isolation for codebase step cases. `TestObserveTrace`, `TestCompareRun`,
+  same isolation for codebase step cases. `TestObserveTrace`,
+  `TestObserveChildFlows`, `TestObserveNestedGenerated`,
+  `TestObserveIncludedResult` (an error stop's included array, end to end
+  on the engine), `TestCompareRun`,
   `TestCarriedLocation` and `TestObserveFailureSlotAndCarriedOrigin` need
   no Bun: they check the observation of a trace (stored forms, `not_run`
-  sites, the failure module's site, placeholders, stack masking, the kept
-  `carried` and `resolved_args`, the generated values) and which reference
+  sites, the failure module's site, a child flow's sites and id,
+  placeholders, stack masking, the kept `carried` and `resolved_args`, the
+  generated values) and which reference
   a run is compared with, including the location rule's positive and
   negative cases for a result, for a carried value in either member order,
   and for a carried value with its own origin.

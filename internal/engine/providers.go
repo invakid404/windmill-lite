@@ -42,30 +42,38 @@ func (h helpers) FlowUserState(context.Context, string) (jsonval.Value, error) {
 	return jsonval.Value{}, fmt.Errorf("windmill-lite: flow_user_state() needs the flow user state of milestone PF3: %w", ErrUnsupported)
 }
 
-// resolveEnv resolves the flow's flow_env for the transition that starts
-// a module (JE-38): its $var: and $res: references, as a leaf's arguments
-// are (JE-41, JE-42), with the flow job's reserved variables. A failure
-// leaves the unresolved map, with a warning, and is not cached; a success
-// becomes the cached map that the predicates after a child completes read
-// (stopScope).
-func (r *run) resolveEnv(ctx context.Context) {
-	if r.envStored.IsZero() {
+// resolveEnv resolves flow_env for the transition that starts a module of
+// fr (JE-38): its $var: and $res: references, as a leaf's arguments are
+// (JE-41, JE-42), with the flow job's reserved variables. A child flow
+// inherits its flow's map (CF-1) and resolves it as its own flow job
+// would; reading, its $WM_* strings are the top-level flow job's. A
+// failure leaves the unresolved map, with a warning, and is not cached; a
+// success becomes the flow's cached map, which the predicates after a
+// child completes read (stopScope). The result is fr's, which only the
+// goroutine that drives fr touches.
+func (r *run) resolveEnv(ctx context.Context, fr *frame) {
+	if r.env.IsZero() {
 		return
 	}
-	if r.flowJobEnv == nil {
-		// The flow job is the run: a top-level flow, with no parent, its own
-		// effective root, at the flow's path.
-		r.flowJobEnv = platform.Identity{JobID: r.id, RootJobID: r.id, JobPath: r.f.Path, Token: platform.NewToken()}.Env(r.e.host)
-	}
-	v, err := r.e.platform.ResolveArgs(ctx, r.envStored, r.flowJobEnv, platform.APIEnv(r.flowJobEnv))
+	v, err := r.e.platform.ResolveArgs(ctx, r.env, r.flowJobEnv, platform.APIEnv(r.flowJobEnv))
 	if err != nil {
-		r.env = r.envStored
+		fr.env = r.env
 		r.mu.Lock()
 		r.trace.Warnings = append(r.trace.Warnings, Warning{Code: "flow_env_unresolved", Message: "flow_env is used unresolved: " + err.Error()})
 		r.mu.Unlock()
 		return
 	}
-	r.env, r.envCached = v, v
+	fr.env, fr.envCached = v, v
+}
+
+// envOf is flow_env as fr's expressions see it: as its current
+// transition resolved it, or the flow's stored map before its first
+// module.
+func (r *run) envOf(fr *frame) jsonval.Value {
+	if !fr.env.IsZero() {
+		return fr.env
+	}
+	return r.env
 }
 
 // resolveFailure is a leaf job's argument resolution that failed: the job

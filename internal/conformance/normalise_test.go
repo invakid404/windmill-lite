@@ -163,6 +163,39 @@ func TestStripLocations(t *testing.T) {
 			t.Fatalf("user errors that differ in a location suffix compared equal: %v", d)
 		}
 	})
+	// The flow engine's templates keep their Rust locations through the
+	// normaliser; at a generated value the rule strips them, one or two,
+	// and nothing else: not a user's error, not a message outside the
+	// template, not a location inside the message.
+	template := func(name, msg string) string {
+		b, _ := json.Marshal(map[string]map[string]string{"error": {"name": name, "message": msg}})
+		return string(b)
+	}
+	for _, c := range []struct {
+		name, ours, oracle string
+		equal              bool
+	}{
+		{"pickup, two locations", template("Anyhow", "Error: Error: QuickJS evaluation error: Error: x\n    at eval_script:1:1\n"),
+			template("Anyhow", "Error: Error: QuickJS evaluation error: Error: x\n    at eval_script:1:1\n @worker_flow.rs:2451:11 @worker.rs:3822:13"), true},
+		{"pickup, one location", template("Anyhow", "Error: Bad request: no"), template("Anyhow", "Error: Bad request: no @worker.rs:3822:13"), true},
+		{"chaining", template("InternalError", "Error: QuickJS evaluation error: y\n"), template("InternalError", "Error: QuickJS evaluation error: y\n @worker_flow.rs:2451:11"), true},
+		{"all-iterations stop", template("EarlyStopError", "Error evaluating stop_after_all_iters_if expression `z`: Error: e\n"),
+			template("EarlyStopError", "Error evaluating stop_after_all_iters_if expression `z`: Error: e\n @worker_flow.rs:2451:11"), true},
+		{"a user's stop message", template("EarlyStopError", "halt"), template("EarlyStopError", "halt @a.rs:1:2"), false},
+		{"a pickup message outside the template", template("Anyhow", "boom"), template("Anyhow", "boom @a.rs:1:2"), false},
+		{"a location inside the message", template("InternalError", "a b"), template("InternalError", "a @a.rs:1:2 b"), false},
+		{"another name", template("Error", "Error: x"), template("Error", "Error: x @a.rs:1:2"), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, oracle := observe(t, c.ours), observe(t, c.oracle)
+			if d := differences(t, got, oracle, generated); (len(d) == 0) != c.equal {
+				t.Fatalf("differences %v", d)
+			}
+			if d := differences(t, got, oracle, nil); len(d) != 2 {
+				t.Fatalf("differences without stripping: %v", d)
+			}
+		})
+	}
 	t.Run("a user's literal marker", func(t *testing.T) {
 		// The normaliser escapes a literal "<loc>" in user text, so it is
 		// never taken for the marker.

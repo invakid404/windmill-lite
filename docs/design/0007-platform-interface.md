@@ -76,8 +76,9 @@ Depth fails at 50 on every node; arrays are walked only at depth ≤ 2 with at
 most 1000 items; `$var:` and `$jsonvar:` output is terminal; a `$res:` path
 needs a `/`. API reads answer with the bodies of
 [WA-42](../semantics/client-api.md#wa-42), for example
-`Not found: Resource not found at name <p> (resources.rs:<line>)` for a
-missing nested resource (the line is normalised). Worker argument resolution
+`Not found: Resource not found at name <p>` for a missing nested resource,
+which Windmill ends in a parenthesised Rust location that windmill-lite
+does not write (D14). Worker argument resolution
 fails the step with its own texts instead, for example
 ``Variable <p> not found for `<name>`…`` ([JE-42](../semantics/expressions.md#je-42),
 [WR-5](../semantics/languages.md#wr-5)).
@@ -292,6 +293,58 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     until F3a, whose SDK must set `BASE_URL` from the welcome before any
     step module loads; and a call's `{workspace}` is not checked against
     the caller's `WM_WORKSPACE`.
+- Milestone PF2 implemented the resource, variable and secret services,
+  their local defaults, the host secret layer and the interpolation walker
+  ([internal/platform](../../internal/platform/README.md)), their routes in
+  the facade, and the engine's reads of them
+  ([internal/engine](../../internal/engine/README.md)), and fixed what this
+  record left open:
+  - **One set of services.** `platform.Services` holds `Resources`,
+    `Variables`, `Secrets` and the `ValueResolver` chain; the facade and
+    the engine take the same one, and a nil field takes its default. The
+    local default is `platform.Store`, filled from a bundle's `data/`
+    (`platform.LoadData`); a host's overrides come first in a
+    `ResourceChain` or `VariableChain`. Per-run services (H13) are F2a's.
+  - **Secrets** are never in a bundle; a host passes them, as plaintext in
+    a store of its own or through `Secrets`. `LocalSecrets` reveals a
+    secret held as plaintext and fails ciphertext under the workspace key,
+    and an `$encrypted:` value, with `secret_unavailable`, which a read
+    answers as the 500 `Internal: secret_unavailable: …` and argument
+    resolution quotes as its cause.
+  - **The host secret layer** runs on each resource value once its
+    interpolation is done, a nested one's included, and on each secret's
+    plaintext; a raw read is not passed through it.
+  - **Written out again.** What the walker parsed is written out as
+    Windmill's backend JSON library writes it (FX-42 rule 2): key order
+    kept, integers exact within 64 bits, every other number a double in
+    the library's notation, minimal escapes; a resource is read in jsonb's
+    stored form first, as the API reads its column. Parse errors are in the
+    library's words, with its line and column (FX-51/c).
+  - **A read with a job id** (`job_id`, contract (b)) resolves `$WM_*`
+    from the stored fields of a live invocation's job
+    (`platform.APIEnv`: its stored root, `""` for a step directly in a
+    top-level flow); a job the facade does not know of answers 501, as the
+    root lookup does, until PF3's job registry. The engine passes a step's
+    stored fields directly, taken before H12 changes its environment.
+  - **Argument resolution** happens at the job's pickup, after its job
+    identity and H12, before the step runs; a failure fails the job with
+    the worker's execution error. `$<NAME>` reads the job's variables as
+    its process sees them, H12's changes included.
+  - **`flow_env`** is resolved on every transition, into the frame that
+    starts the module, so the iterations of a parallel loop share no
+    state; reading, a child flow's `$WM_*` strings are the top-level flow
+    job's. **`resource()`** in an expression reads as the stock client
+    does, without a job id, since the reference does not say which
+    contract Windmill's helper uses.
+  - **The arguments file.** FX-42/h observes the resolver's spelling
+    through `args.json` (WR-5), so the harness writes it into the step's
+    working directory before each invocation, the latest invocation's in a
+    warm process (D10).
+  - **Not yet:** the writes (`createResource`, `updateResourceValue`,
+    `createVariable`, `updateVariable`) and so `setState` are `later` and
+    answer 501; a secret's plaintext is not registered for log masking
+    ([Q-WA-9](../semantics/client-api.md#q-wa-9), `later`); per-run
+    providers (H13) are F2a's.
 
 ## Spec IDs relied on
 
