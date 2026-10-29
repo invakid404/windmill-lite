@@ -275,6 +275,25 @@ waits on an external gate except R1.
   it also refuses a path script's own `cache_ttl` (N4), which a loop body
   made reachable.
 
+- N3b runs while loops on N3a's sequential loop, with no iterator, and
+  `branchone` and `branchall` on frames: each branch that runs is a child
+  flow of its own, which the trace lists under `b:<n>` or `b:default`.
+  "The E3d while and branch cases" in its row are E3d's runs whose flows
+  hold a while loop or a branch and no failure module or subflow: `cf-10`'s
+  `a`, `cf-12`'s `d`, `e-fail` and `e-skip`, `cf-14`'s and `cf-15`'s runs;
+  `cf-12`'s `b` needs a failure module in a body (N3c). The flow suite
+  also requires the runs N3b first made pass: CF-9/b, CF-19/a, the two
+  `branchall` runs of `oracle/workers2`, and FX-36's failed `branchall`,
+  which NI's row names but which needs nothing of N2 (a sequential
+  `branchall` whose second branch fails). FX-20's error-stop run gained
+  the carried `EarlyStopError` in its expect, which its recording cannot
+  show. With N1b merged, the engine refuses any container, not only a for
+  loop, in a flow with a failure module (N3c). A `branchone` that ran no
+  branch has a nil job, whose engine read fails with the server's
+  not-found text; CF-19/c's recording has that text end in the server's
+  source location in the middle of a transform error, which ADR 0011's
+  location rule does not reach, so that run stays N3c's.
+
 - N1b gave the engine core Windmill's continue decision for a flow
   without retries: `continue_on_error`, the error stops, the
   unrecoverable stop and the failure module at `s:failure` with its

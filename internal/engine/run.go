@@ -18,9 +18,9 @@ import (
 )
 
 // run is one run of a flow: its state and its trace. One goroutine drives
-// it, and one more each running iteration of a parallel loop; the
-// Reporters of its invocations write late output into its trace from
-// others, under mu.
+// it, and one more each running iteration of a parallel loop and each
+// running branch of a parallel branchall; the Reporters of its
+// invocations write late output into its trace from others, under mu.
 type run struct {
 	e     *Engine
 	f     *ir.Flow
@@ -560,10 +560,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		}
 		skipped = v
 	}
-	// A for loop that runs is a container, which launches no job of its
-	// own: no arguments, no H2 and no H1 (CF-1).
-	if m.Kind == ir.KindForLoop && !skipped && (m.Mock == nil || !m.Mock.Enabled) {
-		return r.forLoop(ctx, fr, i, prev, prevID, o)
+	// A container that runs launches no job of its own: no arguments, no
+	// H2 and no H1 (CF-1).
+	if isContainer(m.Kind) && !skipped && (m.Mock == nil || !m.Mock.Enabled) {
+		return r.container(ctx, fr, i, prev, prevID, o)
 	}
 
 	// Start step 8: the arguments, by the first rule that applies (FX-2).

@@ -199,16 +199,17 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		return "    - id: " + id + "\n      value:\n        type: rawscript\n        content: '!inline " + id + ".ts'\n        input_transforms: {}\n        language: bun\n"
 	}
 	writeTree(t, dir, map[string]string{
-		"fixture.yaml":                       "id: e1/checker\nspec: [OR-15]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
-		"windmill/wmill.yaml":                "defaultTs: bun\nincludes: [\"f/**\"]\n",
-		"windmill/f/t/one.flow/flow.yaml":    flow(inline("a")),
-		"windmill/f/t/one.flow/a.ts":         "export async function main() { return 1; }\n",
-		"windmill/f/t/job.flow/flow.yaml":    flow(inline("a")),
-		"windmill/f/t/job.flow/a.ts":         "export async function main() { return process.env.WM_JOB_ID; }\n",
-		"windmill/f/t/two.flow/flow.yaml":    flow(inline("a") + inline("b")),
-		"windmill/f/t/two.flow/a.ts":         "export async function main() { throw new Error(\"no\"); }\n",
-		"windmill/f/t/two.flow/b.ts":         "export async function main() { return 2; }\n",
-		"windmill/f/t/branch.flow/flow.yaml": flow("    - id: o\n      value:\n        type: branchone\n        branches: []\n        default: []\n"),
+		"fixture.yaml":                      "id: e1/checker\nspec: [OR-15]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
+		"windmill/wmill.yaml":               "defaultTs: bun\nincludes: [\"f/**\"]\n",
+		"windmill/f/t/one.flow/flow.yaml":   flow(inline("a")),
+		"windmill/f/t/one.flow/a.ts":        "export async function main() { return 1; }\n",
+		"windmill/f/t/job.flow/flow.yaml":   flow(inline("a")),
+		"windmill/f/t/job.flow/a.ts":        "export async function main() { return process.env.WM_JOB_ID; }\n",
+		"windmill/f/t/two.flow/flow.yaml":   flow(inline("a") + inline("b")),
+		"windmill/f/t/two.flow/a.ts":        "export async function main() { throw new Error(\"no\"); }\n",
+		"windmill/f/t/two.flow/b.ts":        "export async function main() { return 2; }\n",
+		"windmill/f/t/cache.flow/flow.yaml": flow(inline("a") + "      cache_ttl: 60\n"),
+		"windmill/f/t/cache.flow/a.ts":      "export async function main() { return 1; }\n",
 		// Inline step a of f/t/same has the job path f/t/same/a, which is
 		// also the path of the script that step b runs (WR-29): two scripts,
 		// one job path.
@@ -222,7 +223,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"runs/b_wrong_job.yaml":              "target: f/t/job\nexpect:\n  status: success\n  result: \"<job:m:b>\"\n  steps:\n    \"m:a\": {status: success, args: {}, result: \"<job:m:b>\"}\n",
 		"runs/c_wrong_recording.yaml":        "target: f/t/two\n",
 		"runs/d_wrong_claim.yaml":            "target: f/t/two\nclaims:\n  - {at: /steps/m:b/status, equals: success}\n",
-		"runs/e_unsupported.yaml":            "target: f/t/branch\nexpect: {status: success, result: {}}\n",
+		"runs/e_unsupported.yaml":            "target: f/t/cache\nexpect: {status: success, result: 1}\n",
 		"runs/g_same_job_path.yaml":          "target: f/t/same\nexpect:\n  status: success\n  result: [2, f/t/same/a]\n  steps:\n    \"m:a\": {status: success, args: {}, result: [1, f/t/same/a]}\n    \"m:b\": {status: success, args: {}, result: [2, f/t/same/a]}\n",
 		"runs/h_build_problem.yaml":          "target: f/t/broken\nexpect: {status: success, result: 1}\n",
 		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}}\n    \"m:b\": {status: not_run}\n",
@@ -241,7 +242,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"fail " + dir + " c_wrong_recording\n  /steps/m:b/args: (absent) != {}\n  /steps/m:b/ran: false != true\n  /steps/m:b/result: (absent) != 2\n  /steps/m:b/status: \"not_run\" != \"success\"\n",
 		"fail " + dir + " d_wrong_claim\n  /steps/m:b/status: \"not_run\" (want \"success\")\n",
 		`observed {"status":"success","result":"<job:m:a>",`,
-		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/branch: module \"o\": a branchone (N3b)",
+		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/cache: module \"a\": cache_ttl (N4)",
 		"pass " + dir + " f_holds\n",
 		"pass " + dir + " g_same_job_path\n",
 		// A script that does not build fails only the runs of the flows

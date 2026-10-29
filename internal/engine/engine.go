@@ -20,7 +20,8 @@ import (
 
 // Engine runs the flows of one compiled program (ir.Program, ADR 0002):
 // the flow interpreter of ADR 0003, milestone N1a's engine core with
-// N1b's errors. It runs a flow's top-level modules in sequence, through
+// N1b's errors, N3a's for loops and N3b's while loops and branches. It
+// runs a flow's top-level modules in sequence, through
 // Windmill's decision list (FX-2): input transforms and the argument
 // pipeline (FX-7, ADR 0005), the results routes of expressions (FX-10,
 // JE-18), skip_if (FX-17), mock (FX-18), identity (FX-16), stop_after_if
@@ -118,6 +119,11 @@ func New(cfg Config) (*Engine, error) {
 					exprs = append(exprs, l.Parallelism.Expr)
 				}
 			}
+			if b := m.BranchOne; b != nil {
+				for _, br := range b.Branches {
+					exprs = append(exprs, br.Expr)
+				}
+			}
 		})
 	}
 	for _, x := range exprs {
@@ -131,15 +137,39 @@ func New(cfg Config) (*Engine, error) {
 	return e, nil
 }
 
-// walk calls fn for every module of ms, a for loop's body modules after
-// the loop.
+// walk calls fn for every module of ms, a container's body modules after
+// the container.
 func walk(ms []*ir.Module, fn func(*ir.Module)) {
 	for _, m := range ms {
 		fn(m)
-		if m.ForLoop != nil {
-			walk(m.ForLoop.Modules, fn)
+		for _, body := range bodies(m) {
+			walk(body, fn)
 		}
 	}
+}
+
+// bodies returns the module lists of a container: a loop's body, a
+// branchone's branches then its default, a branchall's branches.
+func bodies(m *ir.Module) [][]*ir.Module {
+	switch {
+	case m.ForLoop != nil:
+		return [][]*ir.Module{m.ForLoop.Modules}
+	case m.WhileLoop != nil:
+		return [][]*ir.Module{m.WhileLoop.Modules}
+	case m.BranchOne != nil:
+		var out [][]*ir.Module
+		for _, br := range m.BranchOne.Branches {
+			out = append(out, br.Modules)
+		}
+		return append(out, m.BranchOne.Default)
+	case m.BranchAll != nil:
+		var out [][]*ir.Module
+		for _, br := range m.BranchAll.Branches {
+			out = append(out, br.Modules)
+		}
+		return out
+	}
+	return nil
 }
 
 func unsupported(format string, args ...any) error {
@@ -169,10 +199,10 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	case f.Timeout != nil:
 		return unsupported("a flow timeout (N2)")
 	}
-	// A loop's bodies carry the flow's failure module (CF-1, CF-16), and a
-	// loop never collapses in a flow that has one (CF-8).
-	if f.FailureModule != nil && hasLoop(flowModules(f)) {
-		return unsupported("a for loop in a flow with a failure module, whose bodies carry it (N3c)")
+	// A container's bodies carry the flow's failure module (CF-1, CF-16),
+	// and a loop never collapses in a flow that has one (CF-8).
+	if f.FailureModule != nil && hasContainer(flowModules(f)) {
+		return unsupported("a container in a flow with a failure module, whose bodies carry it (N3c)")
 	}
 	for _, m := range flowModules(f) {
 		if err := supportedModule(m, scripts); err != nil {
@@ -185,7 +215,7 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	return nil
 }
 
-// supportedList checks the modules of a loop's body.
+// supportedList checks the modules of a container's body.
 func supportedList(ms []*ir.Module, scripts map[string]*ir.Script) error {
 	for _, m := range ms {
 		if err := supportedModule(m, scripts); err != nil {
@@ -195,11 +225,17 @@ func supportedList(ms []*ir.Module, scripts map[string]*ir.Script) error {
 	return nil
 }
 
-// hasLoop reports whether a for loop is anywhere in ms.
-func hasLoop(ms []*ir.Module) bool {
+// hasContainer reports whether a loop or a branch is anywhere in ms.
+func hasContainer(ms []*ir.Module) bool {
 	found := false
-	walk(ms, func(m *ir.Module) { found = found || m.Kind == ir.KindForLoop })
+	walk(ms, func(m *ir.Module) { found = found || isContainer(m.Kind) })
 	return found
+}
+
+// isContainer reports whether modules of kind k run their bodies as
+// containers (CF-1): for and while loops, branchone and branchall.
+func isContainer(k ir.Kind) bool {
+	return k == ir.KindForLoop || k == ir.KindWhileLoop || k == ir.KindBranchOne || k == ir.KindBranchAll
 }
 
 func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
@@ -223,9 +259,24 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 			return err
 		}
 	case ir.KindWhileLoop:
-		return unsupported("a %s (N3b)", m.Kind)
+		switch {
+		case m.WhileLoop == nil:
+			return errors.New("a whileloopflow module with no loop")
+		case m.WhileLoop.Squash:
+			return unsupported("a squashed while loop (CF-25, EE)")
+		}
+		if err := supportedList(m.WhileLoop.Modules, scripts); err != nil {
+			return err
+		}
 	case ir.KindBranchOne, ir.KindBranchAll:
-		return unsupported("a %s (N3b)", m.Kind)
+		if m.Kind == ir.KindBranchOne && m.BranchOne == nil || m.Kind == ir.KindBranchAll && m.BranchAll == nil {
+			return fmt.Errorf("a %s module with no branches", m.Kind)
+		}
+		for _, body := range bodies(m) {
+			if err := supportedList(body, scripts); err != nil {
+				return err
+			}
+		}
 	case ir.KindProvided:
 		return unsupported("a host-provided site (F2a)")
 	default:
@@ -241,8 +292,6 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		return unsupported("retry (N2)")
 	case m.CacheTTL != nil:
 		return unsupported("cache_ttl (N4)")
-	case m.StopAfterAllItersIf != nil && m.Kind != ir.KindForLoop:
-		return unsupported("stop_after_all_iters_if on a %s (N3b)", m.Kind)
 	}
 	if t := m.Timeout; t != nil {
 		if _, err := staticTimeout(t.Value); err != nil {

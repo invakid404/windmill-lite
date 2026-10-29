@@ -738,19 +738,21 @@ func TestEngineTimeouts(t *testing.T) {
 // milestone, never midway through a run.
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
-		"failure module retry":    `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"},"retry":{"constant":{"attempts":1,"seconds":0}}}}`,
-		"failure module loop":     `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
-		"loop and failure module": `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", "") + `]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
-		"retry":                   flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`)),
-		"sleep":                   flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
-		"js timeout":              flowOf(mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`)),
-		"negative timeout":        flowOf(mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`)),
-		"while loop":              flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"modules":[]}}`),
-		"squashed loop":           flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
-		"loop body":               flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
-		"branch":                  flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
-		"subflow":                 flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
-		"cache_ttl":               flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		"failure module retry":          `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"},"retry":{"constant":{"attempts":1,"seconds":0}}}}`,
+		"failure module loop":           `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
+		"loop and failure module":       `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", "") + `]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"retry":                         flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`)),
+		"sleep":                         flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
+		"js timeout":                    flowOf(mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`)),
+		"negative timeout":              flowOf(mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`)),
+		"branch and failure module":     `{"modules":[{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"while loop and failure module": `{"modules":[{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"squashed while loop":           flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"squash":true,"modules":[]}}`),
+		"branch body":                   flowOf(`{"id":"b","value":{"type":"branchall","branches":[{"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}]}}`),
+		"squashed loop":                 flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
+		"loop body":                     flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
+		"subflow":                       flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
+		"cache_ttl":                     flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {
@@ -761,6 +763,13 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	if _, err := openEngine(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":0,"seconds":1}},"timeout":{"type":"static","value":null}`))}, &scripts{}); err != nil {
 		t.Fatal(err)
 	}
+	// stop_after_all_iters_if runs only on an active loop or branchall
+	// (CF-13, FX-2): on a step or a branchone it is never evaluated.
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(
+		mod("a", "value", inputs("v", static("1")), `"stop_after_all_iters_if":{"expr":"nope","skip_if_stopped":false}`),
+		`{"id":"b","value":{"type":"branchone","branches":[],"default":[`+mod("c", "value", inputs("v", static("2")), "")+`]},"stop_after_all_iters_if":{"expr":"nope","skip_if_stopped":false}}`,
+	)}, &scripts{})
+	wantStatus(t, runIt(t, e, `{}`, nil), conformance.RunSuccess, `2`)
 }
 
 // One engine serves concurrent runs (run with -race).

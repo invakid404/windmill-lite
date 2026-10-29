@@ -16,13 +16,13 @@ import (
 //
 //   - modules are the ids of the run's flow, in order, and failure says
 //     that it has a failure module, at s:failure, and the trace's child
-//     flows name theirs (a loop iteration's body, CF-1): each is a site,
-//     and a module the trace has no record of never got a job, so it is
-//     not_run, as the walker reads a flow_status entry without one;
+//     flows name theirs (a loop iteration's or a branch's body, CF-1): each
+//     is a site, and a module the trace has no record of never got a job,
+//     so it is not_run, as the walker reads a flow_status entry without one;
 //   - jobs maps the id of every invocation the run made, which steps see as
 //     WM_JOB_ID, to its site; the run's own id, WM_FLOW_JOB_ID and
 //     WM_ROOT_JOB_ID, is the root, and a child flow's id is its iteration's
-//     site, as the walker reaches it through flow_jobs (OR-11);
+//     or branch's site, as the walker reaches it (OR-11);
 //   - stored values (the root's result, each site's args and result) are in
 //     their stored form, as the job API returns them (ADR 0005), while
 //     carried and resolved_args keep the texts the trace holds: the value
