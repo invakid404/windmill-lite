@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
-	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -61,15 +60,9 @@ func (f *fakeSteps) scripts() []string {
 	return s
 }
 
-var (
-	jsOnce sync.Once
-	jsEng  *quickjs.Engine
-	jsErr  error
-)
-
 func skeleton(t *testing.T, exec StepExecutor, edit func(*SkeletonConfig)) *Skeleton {
 	t.Helper()
-	jsOnce.Do(func() { jsEng, jsErr = quickjs.New(quickjs.Options{Slots: 2}) })
+	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
 	if jsErr != nil {
 		t.Fatal(jsErr)
 	}
@@ -84,7 +77,7 @@ func skeleton(t *testing.T, exec StepExecutor, edit func(*SkeletonConfig)) *Skel
 	return s
 }
 
-func run(t *testing.T, s *Skeleton, path, args string, hooks Hooks) *Trace {
+func runFlow(t *testing.T, s *Skeleton, path, args string, hooks Hooks) *Trace {
 	t.Helper()
 	tr, err := s.Run(context.Background(), SkeletonRun{Path: path, Args: jsonval.FromProducer([]byte(args)), Hooks: hooks})
 	if err != nil {
@@ -109,23 +102,29 @@ func step(t *testing.T, tr *Trace, id string) StepRecord {
 // step's result is the flow's, stored as jsonb.
 func TestSkeletonTransforms(t *testing.T) {
 	f := &fakeSteps{}
-	tr := run(t, skeleton(t, f, nil), "f/w1/transforms", `{"name":"ada","n":2}`, nil)
+	tr := runFlow(t, skeleton(t, f, nil), "f/w1/transforms", `{"name":"ada","n":2}`, nil)
 	if tr.Status != conformance.RunSuccess {
 		t.Fatalf("status %s, result %s", tr.Status, tr.Result)
 	}
+	// The arguments' top-level order is shuffled per run (ADR 0001 §2), so
+	// they compare as values; each argument is in its stored form, which
+	// keeps a plain decimal's digits (JE-44).
 	a := step(t, tr, "a")
 	const wantArgs = `{"greeting":"hello ${flow_input.name}","n":1.50,"name":"ADA","sum":3,"obj":{"k":2},"params":{}}`
-	if got := string(a.ResolvedArgs.Producer()); got != wantArgs {
-		t.Fatalf("a's arguments\n got %s\nwant %s", got, wantArgs)
+	sameJSON(t, "a's arguments", a.ResolvedArgs, wantArgs)
+	if !strings.Contains(string(a.ResolvedArgs.Producer()), `"n":1.50`) {
+		t.Fatalf("a static number keeps its spelling: %s", a.ResolvedArgs)
 	}
-	// previous_result reaches the engine as converted JSON (JE-16), so the
-	// number comes back in JavaScript's spelling.
+	// The text previous_result is a context name, so JE-6's shortcut
+	// answers it with a's result verbatim, never through the engine: the
+	// number keeps its spelling.
 	b := step(t, tr, "b")
-	if got, want := string(b.ResolvedArgs.Producer()), `{"prev":`+strings.Replace(wantArgs, "1.50", "1.5", 1)+`,"missing":null}`; got != want {
-		t.Fatalf("b's arguments\n got %s\nwant %s", got, want)
+	sameJSON(t, "b's arguments", b.ResolvedArgs, `{"prev":`+wantArgs+`,"missing":null}`)
+	if !strings.Contains(string(b.ResolvedArgs.Producer()), `"n":1.50`) {
+		t.Fatalf("JE-6 answers previous_result verbatim: %s", b.ResolvedArgs)
 	}
 	// jsonb's order: shorter keys first, then bytewise (ADR 0005).
-	if got, want := string(tr.Result.Producer()), `{"prev":{"n":1.5,"obj":{"k":2},"sum":3,"name":"ADA","params":{},"greeting":"hello ${flow_input.name}"},"missing":null}`; got != want {
+	if got, want := string(tr.Result.Producer()), `{"prev":{"n":1.50,"obj":{"k":2},"sum":3,"name":"ADA","params":{},"greeting":"hello ${flow_input.name}"},"missing":null}`; got != want {
 		t.Fatalf("the result is not the last step's stored form\n got %s\nwant %s", got, want)
 	}
 	if got := f.scripts(); strings.Join(got, ",") != "f/w1/echo,f/w1/transforms/b" {
@@ -155,7 +154,7 @@ func TestSkeletonStepTimeout(t *testing.T) {
 	} {
 		s := skeleton(t, &fakeSteps{}, func(c *SkeletonConfig) { c.InstanceTimeout = tc.cap })
 		start := time.Now()
-		tr := run(t, s, "f/w1/timeout", `{}`, nil)
+		tr := runFlow(t, s, "f/w1/timeout", `{}`, nil)
 		if d := time.Since(start); d < 900*time.Millisecond || d > 3*time.Second {
 			t.Fatalf("the run took %v; the timeout is 1 s", d)
 		}
@@ -200,7 +199,7 @@ func (h *interceptB) Intercept(_ context.Context, _ Run, s Site, args jsonval.Va
 func TestSkeletonIntercept(t *testing.T) {
 	f := &fakeSteps{}
 	h := &interceptB{}
-	tr := run(t, skeleton(t, f, nil), "f/w1/intercept", `{"x":7}`, h)
+	tr := runFlow(t, skeleton(t, f, nil), "f/w1/intercept", `{"x":7}`, h)
 	if tr.Status != conformance.RunSuccess || string(tr.Result.Producer()) != `{"from_b":{"stood":"in"}}` {
 		t.Fatalf("status %s, result %s", tr.Status, tr.Result)
 	}
@@ -214,7 +213,7 @@ func TestSkeletonIntercept(t *testing.T) {
 		t.Fatalf("b %+v", b)
 	}
 	// The static form the host-mode run frame carries.
-	tr = run(t, skeleton(t, &fakeSteps{}, nil), "f/w1/intercept", `{"x":7}`,
+	tr = runFlow(t, skeleton(t, &fakeSteps{}, nil), "f/w1/intercept", `{"x":7}`,
 		StaticIntercepts{Results: map[string]jsonval.Value{"b": jsonval.FromProducer([]byte(`"static"`))}})
 	if string(tr.Result.Producer()) != `{"from_b":"static"}` {
 		t.Fatalf("static intercept: %s", tr.Result)
@@ -228,15 +227,15 @@ func TestSkeletonIntercept(t *testing.T) {
 func TestSkeletonFailureValues(t *testing.T) {
 	f := &fakeSteps{}
 	s := skeleton(t, f, nil)
-	tr := run(t, s, "f/w1/throws", `{}`, nil)
+	tr := runFlow(t, s, "f/w1/throws", `{}`, nil)
 	if want := storedOf(t, `{"error":{"message":"boom","name":"Error","stack":"Error: boom","step_id":"a"}}`); tr.Status != conformance.RunFailure || string(tr.Result.Producer()) != want {
 		t.Fatalf("status %s, result %s; want %s", tr.Status, tr.Result, want)
 	}
 	if len(tr.Steps) != 1 {
 		t.Fatalf("the flow went on after the failure: %+v", tr.Steps)
 	}
-	tr = run(t, s, "f/w1/transform-error", `{}`, nil)
-	want := storedOf(t, "{\"error\":{\"message\":\"Error during isolated evaluation of expression `flow_input.missing.deeper`:\\nTypeError: cannot read property 'deeper' of undefined\",\"name\":\"ExecutionErr\"}}")
+	tr = runFlow(t, s, "f/w1/transform-error", `{}`, nil)
+	want := storedOf(t, "{\"error\":{\"message\":\"Error during isolated evaluation of expression `flow_input.missing.deeper`:\\nQuickJS evaluation error: Error: cannot read property 'deeper' of undefined\\n    at <anonymous> (eval_script:1:1)\\n    at <eval> (eval_script:1:54)\\n\",\"name\":\"ExecutionErr\"}}")
 	if tr.Status != conformance.RunFailure || string(tr.Result.Producer()) != want {
 		t.Fatalf("transform error: %s\nwant %s", tr.Result, want)
 	}
@@ -301,7 +300,7 @@ func (h *settleHook) OnRunSettled(t *Trace) {
 // was abandoned, with OnRunEnd's warnings in both traces.
 func TestSkeletonRunEndThenSettled(t *testing.T) {
 	h := &settleHook{ch: make(chan *Trace, 1)}
-	tr := run(t, skeleton(t, &fakeSteps{}, nil), "f/w1/echo", `{"x":1}`, h)
+	tr := runFlow(t, skeleton(t, &fakeSteps{}, nil), "f/w1/echo", `{"x":1}`, h)
 	var settled *Trace
 	select {
 	case settled = <-h.ch:
@@ -345,7 +344,7 @@ func (h latchAt) InvocationEnv(context.Context, Run, Site, map[string]string) er
 func TestSkeletonLatch(t *testing.T) {
 	for _, where := range []string{"start", "intercept", "env"} {
 		f := &fakeSteps{}
-		tr := run(t, skeleton(t, f, nil), "f/w1/two", `{"ms":0}`, latchAt{where: where})
+		tr := runFlow(t, skeleton(t, f, nil), "f/w1/two", `{"ms":0}`, latchAt{where: where})
 		if tr.Status != conformance.RunLatched || tr.Latched == nil || tr.Latched.Error() != "host says stop" || len(tr.Steps) != 1 {
 			t.Fatalf("%s: status %s, latched %v, steps %d", where, tr.Status, tr.Latched, len(tr.Steps))
 		}
@@ -369,10 +368,11 @@ func TestSkeletonUnserialisableAndUnmentioned(t *testing.T) {
 		"sym":{"type":"javascript","expr":"Symbol('s')"},
 		"computed":{"type":"javascript","expr":"globalThis['fl' + 'ow_input']"}}}}]}}`), 0o644)
 	s := skeleton(t, &fakeSteps{}, func(c *SkeletonConfig) { c.BundleDir = dir })
-	tr := run(t, s, "f/x", `{"k":1}`, nil)
-	if a := step(t, tr, "a"); tr.Status != conformance.RunSuccess || string(a.ResolvedArgs.Producer()) != `{"fn":null,"sym":null,"computed":null}` {
-		t.Fatalf("status %s, arguments %s, result %s", tr.Status, a.ResolvedArgs, tr.Result)
+	tr := runFlow(t, s, "f/x", `{"k":1}`, nil)
+	if tr.Status != conformance.RunSuccess {
+		t.Fatalf("status %s, result %s", tr.Status, tr.Result)
 	}
+	sameJSON(t, "the arguments", step(t, tr, "a").ResolvedArgs, `{"fn":null,"sym":null,"computed":null}`)
 }
 
 // Everything outside the skeleton fails at load with
@@ -399,14 +399,12 @@ func TestSkeletonRefusesWhatItDoesNotRun(t *testing.T) {
 	}
 }
 
-func TestStatementMode(t *testing.T) {
-	for text, want := range map[string]bool{
-		"return 1": true, "return": true, "const x = 1": true, "if(x) y": true, "a; b": true,
-		"x": false, "{ k: 1 }": false, `"a;b"`: false, "`x;y`": false, `'it\'s;'`: false, "f(';')": false,
-	} {
-		if got := statementMode(text); got != want {
-			t.Errorf("statementMode(%q) = %v, want %v", text, got, want)
-		}
+// sameJSON fails unless v is the JSON value want, in any member order.
+func sameJSON(t *testing.T, what string, v jsonval.Value, want string) {
+	t.Helper()
+	same, err := conformance.SameJSON(v.Producer(), []byte(want), false)
+	if err != nil || !same {
+		t.Fatalf("%s\n got %s\nwant %s (%v)", what, v, want, err)
 	}
 }
 
@@ -466,7 +464,7 @@ func TestSkeletonBoundary(t *testing.T) {
 	}
 	exec := &boundaries{got: map[string]Boundary{}}
 	s := skeleton(t, exec, func(c *SkeletonConfig) { c.BundleDir, c.ScriptsDir = dir, scripts })
-	if tr := run(t, s, "f/x", "{}", nil); tr.Status != conformance.RunSuccess {
+	if tr := runFlow(t, s, "f/x", "{}", nil); tr.Status != conformance.RunSuccess {
 		t.Fatalf("status %s", tr.Status)
 	}
 	want := map[string]Boundary{

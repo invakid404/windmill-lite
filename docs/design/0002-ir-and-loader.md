@@ -408,10 +408,13 @@ only hand-written files.
   refused every hash pin, since rule 6 cannot be decided from a folder; and
   fixed the host contract's provided sites to mandatory call sites that
   match one module everywhere. Its expressions hold their site and text;
-  the textual pipeline of milestone B2a fills in the rest.
+  the textual pipeline of milestone B2a fills in the rest. Milestone N1a
+  made the compiler call it: every `Expr` of a program is compiled
+  (`ir.Version` 2), and the engine compiles each one's bytecode when it
+  opens the program.
 - Milestone C3n exported the deploy's relabelling of a Bun-family rawscript
   (`ir.DeployedLanguage`) and the boundary of a language (`ir.BoundaryOf`),
-  so that the step-case runner and the walking skeleton apply the
+  so that the step-case runner and the walking skeleton's loader apply the
   compiler's rule rather than one of their own. The header decides only
   for `bun` and `bunnative`: a `nativets` step is native with or without a
   `//native` line, and is always transpiled, never bundled
