@@ -1,0 +1,25 @@
+finding: WR-5
+scope: core
+note: >-
+  Milestone PF2: the arguments file. Before the script runs, the harness
+  writes args.json into the step's working directory, holding the
+  arguments the script receives: the engine's resolution of $var: and $res:
+  is the flow level's (client-api/providers, je/providers), and a step case
+  passes its arguments as resolved. In a warm process the working
+  directory is every invocation's (D10), so the file is the latest
+  invocation's; in fresh mode it is the invocation's own. WR-5's catalogue
+  cases need the engine's resolution and are deferred.
+cases:
+  - spec: WR-5
+    variant: args-file
+    provenance: source-derived
+    title: the script reads its own arguments from args.json in its working directory, run after run
+    script: |
+      export async function main(a: any) {
+        return await Bun.file("args.json").text();
+      }
+    runs:
+      - args: '{"a":1,"b":[1,"x"]}'
+        expect: {status: success, result: '{"a":1,"b":[1,"x"]}'}
+      - args: '{"a":2}'
+        expect: {status: success, result: '{"a":2}'}

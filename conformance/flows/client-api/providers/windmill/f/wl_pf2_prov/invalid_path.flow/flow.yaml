@@ -1,0 +1,18 @@
+summary: PF2 invalid_path
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms:
+          x:
+            type: static
+            value: $res:pg
+        lock: '!inline a.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

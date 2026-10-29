@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -182,6 +183,7 @@ type Process struct {
 	host       *hostSide // nil for a spawned process
 	conn       *conn
 	dir        string
+	argsMu     sync.Mutex // orders the writes of args.json in dir
 	pid        int
 	killAfter  time.Duration
 	heartbeat  time.Duration
@@ -941,6 +943,9 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if ctx.Err() != nil {
 		return engine.StepOutcome{}, notDispatched, context.Cause(ctx)
 	}
+	if err := p.writeArgs(inv.Args); err != nil {
+		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
+	}
 	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), fixed: fixed}
 	p.mu.Lock()
 	if p.state != stateServing || p.killReason != "" || p.ending {
@@ -1158,6 +1163,44 @@ func orNone(s []string) string {
 
 // PID returns the harness's process id.
 func (p *Process) PID() int { return p.pid }
+
+// ArgsFile is the file in a process's working directory that holds the
+// arguments of its latest invocation, as the worker writes them into a
+// job's directory before the script runs (WR-5): after $var: and $res:
+// resolution, which the engine did. In a warm process the directory is
+// every invocation's (D10), so the file is the latest invocation's.
+const ArgsFile = "args.json"
+
+// writeArgs replaces the process's args.json with args, whole: it is
+// written beside it and renamed over it, so a script reading it never sees
+// it half written. A process without a working directory of its own (a
+// host-mode connection) has none.
+func (p *Process) writeArgs(args jsonval.Value) error {
+	if p.dir == "" {
+		return nil
+	}
+	p.argsMu.Lock()
+	defer p.argsMu.Unlock()
+	f, err := os.CreateTemp(p.dir, ".args-*.json")
+	if err != nil {
+		return err
+	}
+	text := args.Producer()
+	if len(text) == 0 {
+		text = []byte("{}")
+	}
+	_, err = f.Write(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(f.Name(), filepath.Join(p.dir, ArgsFile))
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
+}
 
 // Dir returns the process's private working directory, which is removed
 // when the process exits.

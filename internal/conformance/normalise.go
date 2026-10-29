@@ -40,6 +40,11 @@ var locSuffix = regexp.MustCompile(` @[^ @]+:[0-9]+:[0-9]+$`)
 // " (<file>.rs:<line>)" that some not-found messages end in.
 var trailingLoc = regexp.MustCompile(`(?: @[^ @]+\.rs:[0-9]+:[0-9]+| \([^ ()]+\.rs:[0-9]+\))$`)
 
+// resolveErrPrefix begins the message of a job whose argument resolution
+// failed with an internal error (JE-42, WR-5): the execution envelope
+// around Windmill's located internal error.
+const resolveErrPrefix = "execution error:\nInternal: "
+
 // anyhowPrefix is the prefix each conversion into Windmill's Anyhow error
 // kind puts before a message, with a location suffix after it (FX-50).
 const anyhowPrefix = "Error: "
@@ -368,7 +373,11 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 //     generic error display: one "Error: " prefix per conversion, and one
 //     location suffix per conversion at the end;
 //   - the string error of a throwing stop_after_if (FX-21), the same
-//     display.
+//     display;
+//   - a job that failed before its script ran because its arguments did
+//     not resolve (JE-42, WR-5, FX-51/c), ExecutionErr, whose message is
+//     the execution envelope around an internal error with its location:
+//     "execution error:\nInternal: …<loc>" loses its one suffix.
 //
 // For the last two, a message that begins with n "Error: " prefixes loses
 // its last n suffixes, and only when it ends in n of them. The value at a
@@ -421,6 +430,12 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 			}
 		case "InternalError", "Anyhow":
 			stripDisplay(msg)
+		case "ExecutionErr":
+			if s := msg.str(); strings.HasPrefix(s, resolveErrPrefix) {
+				if loc := trailingLoc.FindStringIndex(s); loc != nil {
+					*msg = jnode{kind: kindString, text: quote(s[:loc[0]])}
+				}
+			}
 		}
 	}
 	var out Observation

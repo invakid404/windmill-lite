@@ -41,6 +41,8 @@ type Engine struct {
 	eval   expr.Evaluator
 	host   platform.Host
 	cap    time.Duration
+	// platform is the platform providers the run reads (PF2).
+	platform *platform.Services
 }
 
 // Config configures an Engine.
@@ -64,6 +66,11 @@ type Config struct {
 	// InstanceTimeout is the instance's maximum job duration (WR-37); zero
 	// means Windmill's self-hosted default of 604800 s.
 	InstanceTimeout time.Duration
+	// Platform holds the resources, variables and secrets that runs read
+	// (ADR 0007, milestone PF2): through a leaf's argument resolution,
+	// flow_env and the expression helpers. nil means none, so every read
+	// is a not-found. A host gives the facade the same services.
+	Platform *platform.Services
 }
 
 // ErrUnsupported marks a program that uses a feature the engine does not
@@ -80,7 +87,7 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.JS == nil {
 		return nil, errors.New("engine: no expression engine")
 	}
-	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout}
+	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout, platform: cfg.Platform}
 	if cfg.Workspace != "" {
 		e.host.Workspace = cfg.Workspace
 	}
@@ -286,7 +293,8 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	}
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)))
 	r.input = jsonval.FromProducer(flowInputText(stored, r.rng))
-	r.env = flowEnv(f)
+	r.envStored = flowEnv(f)
+	r.env = r.envStored
 	r.run(ctx)
 	// H9: OnRunEnd sees the outcome first; its warnings are part of the
 	// returned trace and of the one OnRunSettled receives, possibly at once
@@ -334,8 +342,8 @@ func cancellationOf(ctx context.Context) (reason, canceler string) {
 // flowEnv is the flow's flow_env as an object in its stored form: the flow
 // value is stored as jsonb, so its keys come in jsonb's order (JE-38,
 // ADR 0005), or the zero Value when the flow has none, where expressions
-// see {} (JE-10). Its $var: and $res: references are resolved by the
-// platform providers (PF2); until then the values are bound as written.
+// see {} (JE-10). Its $var: and $res: references are resolved on every
+// transition (run.resolveEnv).
 func flowEnv(f *ir.Flow) jsonval.Value {
 	if len(f.FlowEnv) == 0 {
 		return jsonval.Value{}

@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // Policy is what becomes of a step that made an unsupported call
@@ -115,6 +117,10 @@ type Config struct {
 	// record is released (Session.Release): after it settled and its
 	// outcome was decided.
 	Recorded func(inv string, calls []Record)
+	// Platform holds the resources, variables and secrets the facade's
+	// reads answer from (milestone PF2); nil means none, so every read is
+	// a not-found.
+	Platform *platform.Services
 }
 
 // Facade is the platform facade: its routes and handlers, the registry of
@@ -124,6 +130,7 @@ type Facade struct {
 	policy   Policy
 	maxBody  int64
 	recorded func(string, []Record)
+	platform *platform.Services
 	routes   *routeTable
 	handlers map[string]Handler
 	warm     *reservation
@@ -164,6 +171,7 @@ func New(cfg Config) (*Facade, error) {
 		policy:   cfg.Policy,
 		maxBody:  cfg.MaxBody,
 		recorded: cfg.Recorded,
+		platform: cfg.Platform,
 		routes:   defaultRoutes,
 		handlers: map[string]Handler{},
 		invs:     map[string]*entry{},
@@ -176,6 +184,7 @@ func New(cfg Config) (*Facade, error) {
 		f.maxBody = 512 << 20
 	}
 	f.Handle("getRootJobId", f.rootJobID)
+	f.serveProviders()
 	var err error
 	if f.warm, err = reserve(); err != nil {
 		return nil, err

@@ -1,0 +1,16 @@
+# WR-5/b: a one-segment $res: path fails the job before its script runs;
+# Windmill's message ends in a Rust location, which windmill-lite's does
+# not carry (D14), so the claims state its start.
+spec: [WR-5/b]
+target: f/wl_pf2_prov/invalid_path
+claims:
+  - at: /status
+    equals: failure
+  - at: /steps/m:a/status
+    equals: failure
+  - at: /steps/m:a/args
+    equals: {x: "$res:pg"}
+  - at: /steps/m:a/result/error/name
+    equals: ExecutionErr
+  - at: /steps/m:a/result/error/message
+    prefix: "execution error:\nInternal: Argument `x` is an invalid resource path: pg"
