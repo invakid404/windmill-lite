@@ -150,7 +150,8 @@ type Result struct {
 	Body jsonval.Value
 	// Origin is OriginHarness when an error outcome's Body is one the
 	// harness generated in place of the worker's: WR-37's signature error,
-	// or a native job's worker-side error of WR-43 (an `execution error:`).
+	// or a native job's transpile or load failure or //proxy refusal (WR-43,
+	// WR-45; an `execution error:`).
 	// It is "" for the step code's own error, and written only for an
 	// error outcome.
 	Origin string
@@ -410,6 +411,9 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 }
 
 func (m Result) appendPayload(b []byte) ([]byte, error) {
+	if m.Origin != "" && (m.Origin != OriginHarness || m.Outcome != OutcomeError) {
+		return b, protoErr(CodeBadField, "%s result origin %q", m.Outcome, m.Origin)
+	}
 	e := newEnvelope(b, TypeResult)
 	e.str("id", m.ID)
 	e.str("outcome", m.Outcome)
@@ -419,11 +423,7 @@ func (m Result) appendPayload(b []byte) ([]byte, error) {
 			return b, protoErr(CodeMissingField, "%s result without body", m.Outcome)
 		}
 		e.raw("body", m.Body.Producer())
-		switch {
-		case m.Origin == "":
-		case m.Origin != OriginHarness || m.Outcome != OutcomeError:
-			return b, protoErr(CodeBadField, "%s result origin %q", m.Outcome, m.Origin)
-		default:
+		if m.Origin != "" {
 			e.str("origin", m.Origin)
 		}
 	case OutcomeEscaped:

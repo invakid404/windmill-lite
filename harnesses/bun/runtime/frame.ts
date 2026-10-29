@@ -232,9 +232,9 @@ export function decode(payload: Uint8Array): Message {
     case "result":
       switch (m.outcome) {
         case "error":
+          checkField(m.t, m, "body", "raw");
           // Only "harness" is named: an error the harness generated.
           if (m.origin != null && m.origin !== "harness") throw new ProtocolError("bad_field", `result origin ${JSON.stringify(m.origin)}`);
-          checkField(m.t, m, "body", "raw");
           break;
         case "ok":
           checkField(m.t, m, "body", "raw");

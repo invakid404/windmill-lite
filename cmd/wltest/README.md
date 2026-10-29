@@ -345,9 +345,9 @@ Windmill v1.767.0's image).
   with and without `//native`, bun with it) through the real build and
   harness, checking each one's boundary and its `BASE_URL` and
   `BASE_INTERNAL_URL`. Milestone FU5 added three such flows:
-  `TestNativeGeneratedErrorsAreGenerated` (a native load failure is
-  recorded as generated, so the oracle's location suffix is stripped from
-  it, D14), `TestScriptEnvsReachOnlyBunSteps` (a path script's `envs` reach
+  `TestNativeGeneratedErrorsAreGenerated` (a native load failure and a
+  transpile failure are recorded as generated, so the oracle's location
+  suffix is stripped from them, D14), `TestScriptEnvsReachOnlyBunSteps` (a path script's `envs` reach
   its Bun step under `PATH` and the reserved variables, and never a native
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its

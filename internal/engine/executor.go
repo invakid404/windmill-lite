@@ -203,9 +203,9 @@ type StepOutcome struct {
 	// Origin, when set, is who produced an OutcomeError in place of the
 	// step's code: the platform facade's UnsupportedPlatformCall (ADR 0007,
 	// the 501 policy), or the harness, for the errors it generates in
-	// place of the worker's (WR-37's signature error, a native job's
-	// worker-side errors of WR-43), which StoreOutcome then reports as its
-	// origin.
+	// place of the worker's (WR-37's signature error; a native job's
+	// transpile and load failures and its //proxy refusal, WR-43 and
+	// WR-45), which StoreOutcome then reports as its origin.
 	Origin Origin
 }
 

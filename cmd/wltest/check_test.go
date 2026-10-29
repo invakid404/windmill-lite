@@ -701,34 +701,42 @@ func checkFixture(t *testing.T, bun, id string, files map[string]any) (string, i
 }
 
 // The errors a native step's harness generates in place of the worker's
-// (WR-43's second form, here a load failure, WR-40) are recorded as
-// generated, so a comparison strips the Rust location suffix the oracle's
-// message ends in (ADR 0001 §2, D14). The reference's side is the message
-// windmill-lite writes plus a location, as the oracle would record it; the
-// run passes only when the result frame names the harness as the origin
-// and StripLocations knows the execution error's template.
+// (WR-43's second form) are recorded as generated, so a comparison strips
+// the Rust location suffix the oracle's message ends in (ADR 0001 §2, D14).
+// The two rows the catalogue writes with a location are checked: a load
+// failure (here a missing named import, WR-40) and a transpile failure
+// (WR-43/f). The reference's side is the message windmill-lite writes plus
+// a location, as the oracle would record it; a run passes only when the
+// result frame names the harness as the origin and StripLocations knows
+// the execution error's template. test/native.test.ts checks that the
+// other generated errors, a signature that did not parse and //proxy, are
+// marked too.
 func TestNativeGeneratedErrorsAreGenerated(t *testing.T) {
 	bun := bunOrSkip(t)
-	const message = "execution error:\nError: failed to load module: SyntaxError: The requested module './windmill.ts' does not provide an export named 'noSuchExport'"
-	located := map[string]any{"error": map[string]any{
-		"message": message + " @windmill-runtime-nativets/src/lib.rs:890:21", "name": "ExecutionErr", "step_id": "a",
-	}}
-	flow := map[string]any{"summary": "a native load failure", "value": map[string]any{"modules": []any{
-		map[string]any{"id": "a", "value": map[string]any{
-			"type": "rawscript", "language": "nativets", "input_transforms": map[string]any{},
-			"content": "import { noSuchExport } from \"./windmill.ts\";\nexport function main() { return typeof noSuchExport; }\n",
-		}},
-	}}}
-	out, code := checkFixture(t, bun, "languages/native-generated", map[string]any{
+	files := map[string]any{
 		"fixture.yaml": map[string]any{"id": "languages/native-generated", "spec": []string{"WR-40", "WR-43"}, "scope": "core",
 			"provenance": "source-derived", "languages": []string{"nativets"}, "oracle": map[string]any{"workers": 1}},
-		"runs/located.yaml": map[string]any{"spec": []string{"WR-43"}, "target": "f/wl_native/load", "expect": map[string]any{
+	}
+	for _, c := range []struct{ name, content, message string }{
+		{"load", "import { noSuchExport } from \"./windmill.ts\";\nexport function main() { return typeof noSuchExport; }\n",
+			"execution error:\nError: failed to load module: SyntaxError: The requested module './windmill.ts' does not provide an export named 'noSuchExport'"},
+		{"transpile", "export function main( {\n", "execution error:\nError: Expected identifier but found end of file at file:///eval.ts:1:25"},
+	} {
+		located := map[string]any{"error": map[string]any{
+			"message": c.message + " @windmill-runtime-nativets/src/lib.rs:890:21", "name": "ExecutionErr", "step_id": "a",
+		}}
+		files["runs/"+c.name+".yaml"] = map[string]any{"spec": []string{"WR-43"}, "target": "f/wl_native/" + c.name, "expect": map[string]any{
 			"status": "failure", "result": located,
 			"steps": map[string]any{"m:a": map[string]any{"status": "failure", "args": map[string]any{}, "result": located}},
-		}},
-		"windmill/f/wl_native/load.flow/flow.yaml": flow,
-	})
-	if code != 0 || !strings.Contains(out, "1 passed, 0 failed, 0 unsupported") {
+		}}
+		files["windmill/f/wl_native/"+c.name+".flow/flow.yaml"] = map[string]any{"summary": "a native " + c.name + " failure", "value": map[string]any{"modules": []any{
+			map[string]any{"id": "a", "value": map[string]any{
+				"type": "rawscript", "language": "nativets", "input_transforms": map[string]any{}, "content": c.content,
+			}},
+		}}}
+	}
+	out, code := checkFixture(t, bun, "languages/native-generated", files)
+	if code != 0 || !strings.Contains(out, "2 passed, 0 failed, 0 unsupported") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 }

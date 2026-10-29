@@ -28,6 +28,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `serde.go` | the flows a run executes (the root and its loops' child flows), their results scopes, and for loops (below); the texts of Windmill's JSON library | N3a; N3b and N3c run their containers on frames |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
@@ -107,7 +108,7 @@ stores for a Bun step, which is also what the flow sees of a failed one.
 | Outcome | Stored | Origin |
 |---|---|---|
 | `ok` | the result's producer text; an object whose top-level `wm_failure` is a string fails, kept as it is with `"error": {"name": "ManualFailure", "message": <wm_failure>}` put in, in place of an `error` member or else last (`ManualFailure`, [WR-17](../../docs/semantics/languages.md#wr-17), [FX-13](../../docs/semantics/execution.md#fx-13)); a `null` marker marks nothing, and a `wm_failure` that is not a string or a `wm_labels` that is not `null` or an array of strings (a `null` element included) disables both | — or user |
-| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user, or the outcome's `Origin` when set: `facade` for the facade's `UnsupportedPlatformCall` ([ADR 0007](../../docs/design/0007-platform-interface.md), the 501 policy), `harness` for the errors the harness generates in place of the worker's ([WR-37](../../docs/semantics/languages.md#wr-37)'s signature error, a native job's `execution error:` of [WR-43](../../docs/semantics/languages.md#wr-43)), which the `result` frame names |
+| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user, or the outcome's `Origin` when set: `facade` for the facade's `UnsupportedPlatformCall` ([ADR 0007](../../docs/design/0007-platform-interface.md), the 501 policy), `harness` for the errors the harness generates in place of the worker's ([WR-37](../../docs/semantics/languages.md#wr-37)'s signature error; a native job's transpile and load failures and `//proxy` refusal, [WR-43](../../docs/semantics/languages.md#wr-43)), which the `result` frame names |
 | `escaped`, by a signal | `execution error:\nprocess terminated by signal: <signal>`, `ExecutionErr`, `step_id` ([WR-4](../../docs/semantics/languages.md#wr-4), [WR-37](../../docs/semantics/languages.md#wr-37)) | harness |
 | `escaped`, by an exit | `exit code for "bun run": <code>, last log lines:\n<tail>`, `ExecutionErr`, `step_id`, `exit_code` ([WR-20](../../docs/semantics/languages.md#wr-20)) | harness |
 | `empty` | `Internal: Result of job is invalid json (empty)`, `InternalErr`, no `step_id` ([WR-V2](../../docs/semantics/languages.md#wr-v2)), and no Rust location (D14) | harness |
@@ -601,8 +602,11 @@ start errors, an iterator jsonb refuses, chaining errors in a child flow,
 the hooks inside loops, the host signals across parallel iterations,
 halt-after in nested loops and after each kind of iteration outcome, the
 provenance of generated errors in nested arrays and in an included
-result, concurrent runs, and serde's texts. The flow fixtures run the
-engine on the real Bun harness
+result, concurrent runs, and serde's texts. `env_test.go` (FU5,
+`TestScriptEnvs`) checks a path script's `envs` in a Bun step's
+environment, a later entry winning and every name the worker sets later
+skipped, and none in a native step's, `nativets` or `//native`. The flow
+fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
 milestones N1a, N1b and N3a).
 

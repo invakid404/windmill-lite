@@ -432,7 +432,8 @@ var recordedLoc = regexp.MustCompile(` @[^ @]+:[0-9]+:[0-9]+$`)
 // evaluator's output text as it is, `Value was: <text>` (JE-29): the
 // step's failure, or the run's when the step never ran, here before a
 // location suffix. So the text a shortcut answered is observed exactly,
-// spacing and key order included. A recording without that error quotes
+// spacing and key order included. A timeout case with a text whose
+// recording quotes no value fails: its text would be checked against
 // nothing.
 func checkQuoted(obs conformance.Observation, site conformance.SitePath, text string) error {
 	const parse, quote = "Error parsing result as i32: ", ". Value was: "
@@ -459,7 +460,7 @@ func checkQuoted(obs conformance.Observation, site conformance.SitePath, text st
 		}
 		return nil
 	}
-	return nil
+	return errors.New("no recorded i32 parse error quotes the timeout's value, so the case's text is not observed")
 }
 
 // moduleAt finds the module a site path names in a flow value, and returns

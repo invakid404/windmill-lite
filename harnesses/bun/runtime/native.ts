@@ -56,8 +56,9 @@ export type NativeForm = {
 
 /** How a native invocation ended: the result's JSON text, or the error
  * object's, which the engine stores as {"error": …} (WR-21). generated
- * marks a worker-side error of WR-43, which the harness writes in place of
- * the worker's, not the script's exception. */
+ * marks an error the harness writes in place of the worker's (WR-43's
+ * transpile and load failures, a signature that did not parse, //proxy),
+ * not the script's exception. */
 export type NativeResult = { ok: string } | { error: string; generated?: true };
 
 /** The invocation a native job belongs to. */

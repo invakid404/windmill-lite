@@ -32,9 +32,11 @@ Not here yet:
   connection.
 - Mapping an outcome to Windmill's stored value: `engine.StoreOutcome`
   does it from the `engine.StepOutcome` this package returns
-  ([internal/engine](../engine/README.md)). An `error` result whose
-  `origin` is `harness` becomes a `StepOutcome` whose `Origin` is
-  `engine.OriginHarness`.
+  ([internal/engine](../engine/README.md)).
+
+What this package does carry of the outcome's provenance: an `error`
+result whose `origin` is `harness` becomes a `StepOutcome` whose `Origin`
+is `engine.OriginHarness` (`process.go`, milestone FU5).
 
 ## Files
 

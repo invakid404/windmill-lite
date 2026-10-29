@@ -101,11 +101,11 @@
         "entry": "main",
         "args": {},
         "env": {
-          "A": "quote\" backslash\\ bs\b ff\f nl\n cr\r tab\t ctl\u0001\u001f del eé emoji😀 ls\u2028"
+          "A": "quote\" backslash\\ bs\b ff\f nl\n cr\r tab\t ctl\u0001\u001f del eé emoji😀 ls "
         },
         "boundary": "bun"
       },
-      "payload": "{\"t\":\"invoke\",\"id\":\"i2\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{\"A\":\"quote\\\" backslash\\\\ bs\\b ff\\f nl\\n cr\\r tab\\t ctl\\u0001\\u001f del eé emoji😀 ls\u2028\"},\"boundary\":\"bun\"}"
+      "payload": "{\"t\":\"invoke\",\"id\":\"i2\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{\"A\":\"quote\\\" backslash\\\\ bs\\b ff\\f nl\\n cr\\r tab\\t ctl\\u0001\\u001f del eé emoji😀 ls \"},\"boundary\":\"bun\"}"
     },
     {
       "case": "result-ok",
@@ -848,6 +848,14 @@
         "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"error\",\"body\":{},\"origin\":\"user\",\"settled\":true}"
       ],
       "error": "bad_field"
+    },
+    {
+      "case": "bad-origin-no-body",
+      "title": "an error result without a body is missing its body, whatever its origin: both codecs read body first",
+      "frames": [
+        "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"error\",\"origin\":\"user\",\"settled\":true}"
+      ],
+      "error": "missing_field"
     },
     {
       "case": "bad-late-kind",

@@ -550,9 +550,10 @@ so the engine always learns how it ended, by that frame or by the exit.
 Go tests write, `conformance/protocol/frames.json`. `test/wrapper.test.ts`
 checks the wrapper's rules, `test/native.test.ts` the native boundary
 mode (the build's native form, the realm's globals, the fetch user agent
-against a local endpoint, settlement, the error shapes, and the boundary:
-every WR-45 class realm-facing, what each way of handing an object over
-gives, and what it counts as untracked), and
+against a local endpoint, settlement, the error shapes, which errors are
+marked generated, and the boundary: every WR-45 class realm-facing, what
+each way of handing an object over gives, and what it counts as
+untracked), and
 `test/fit.test.ts` how a warning's message
 is cut to fit `max_message`, and `test/describe.test.ts` the text the
 harness's own messages give an error: Bun 1.3.10 builds the stack of an

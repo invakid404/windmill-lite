@@ -141,7 +141,7 @@ The engine maps a `result` to Windmill's stored value with the rules of
 | `outcome` | Harness saw | Stored error |
 |---|---|---|
 | `ok` | the entrypoint returned | none; the result text is `body` |
-| `error` | the wrapper caught a throw, or the harness failed the step as the worker would before running it | `body` is the [WR-18](../semantics/languages.md#wr-18) object (Bun), or the native boundary's error object (D5); with `origin` `harness` it is an error the harness generated: [WR-37](../semantics/languages.md#wr-37)'s signature error, or a native job's worker-side `execution error:` of [WR-43](../semantics/languages.md#wr-43) |
+| `error` | the wrapper caught a throw, or the harness failed the step as the worker would before running it | `body` is the [WR-18](../semantics/languages.md#wr-18) object (Bun), or the native boundary's error object (D5); with `origin` `harness` it is an error the harness generated: [WR-37](../semantics/languages.md#wr-37)'s signature error, or a native job's transpile or load failure or `//proxy` refusal, an `execution error:` of [WR-43](../semantics/languages.md#wr-43) |
 | `escaped` | `throw null`/`undefined`, a module evaluation or import failure, a failing error handler, a non-zero `process.exit`, or an attributed process-level error (below) | [WR-20](../semantics/languages.md#wr-20): `ExecutionErr`, `exit code for "bun run": <code>, last log lines:\n<tail>`, with `exit_code` |
 | `empty` | `process.exit(0)`, or no result | [WR-V2](../semantics/languages.md#wr-v2): `InternalErr` without `step_id` |
 

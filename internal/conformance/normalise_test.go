@@ -254,6 +254,8 @@ func TestStripLocations(t *testing.T) {
 			{"a native transpile failure", object("ExecutionErr", `execution error:\nError: Expected ',', got '{'`), object("ExecutionErr", `execution error:\nError: Expected ',', got '{' @lib.rs:399:9`), true},
 			{"an internal error", object("ExecutionErr", internal), object("ExecutionErr", internal+" @variables.rs:300:5"), true},
 			{"no suffix to strip", object("ExecutionErr", `execution error:\nProxy is an EE feature`), object("ExecutionErr", `execution error:\nProxy is an EE feature`), true},
+			// Only the rows the catalogue writes with a location.
+			{"a message written without a location", object("ExecutionErr", `execution error:\nProxy is an EE feature`), object("ExecutionErr", `execution error:\nProxy is an EE feature @lib.rs:755:9`), false},
 			// One suffix, no more.
 			{"two suffixes", object("ExecutionErr", load), object("ExecutionErr", load+" @a.rs:1:2 @b.rs:3:4"), false},
 			{"not an execution error's message", object("ExecutionErr", "Error: x"), object("ExecutionErr", "Error: x @worker.rs:1:2"), false},
