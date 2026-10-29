@@ -48,6 +48,12 @@ func TestFakeCLI(t *testing.T) {
 		if strings.Contains(cli, "--version") {
 			fmt.Println("CLI version: " + CLIVersion)
 		}
+		if strings.Contains(cli, "sync push") || strings.Contains(cli, "generate-metadata") {
+			if err := codebasePathsResolve(); err != nil {
+				fmt.Fprintln(os.Stderr, "fake CLI:", err)
+				os.Exit(1)
+			}
+		}
 		if marker := args[i+2]; marker != "-" && strings.Contains(cli, "sync push") {
 			_ = os.WriteFile(marker, nil, 0o644)
 			time.Sleep(time.Minute)

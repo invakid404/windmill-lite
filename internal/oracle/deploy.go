@@ -190,6 +190,10 @@ type Deployment struct {
 	// Stubbed lists the script sources a stub fixture's push replaced
 	// (StubTree).
 	Stubbed []string `json:"stubbed,omitempty"`
+	// Outside lists the paths outside the sync tree, relative to its root,
+	// that the pushed copy carried for the tree's codebase entries
+	// (Layout).
+	Outside []string `json:"outside,omitempty"`
 }
 
 // Gate waits for the deployment of everything the push created (OR-9). For

@@ -1,0 +1,19 @@
+# Stub mode (ADR 0011) on a codebase entry that reaches outside the sync
+# root (SY-8): its relative_path is ../shared, its asset is read from
+# ../shared/lib/assets/child.mjs, and the original script imports a module
+# from ../shared/lib, each resolved against the root, the CLI's working
+# directory (WR-47, WR-49). wltest stub, wltest check and wltest record lay
+# the stubbed copy out with those paths beside the copied tree
+# (oracle.Layout), so wmill.yaml stays as written: the CLI digests the
+# entry's settings and the files under relative_path into the codebase id,
+# and uploads the asset with each stub's bundle, as it would from the
+# original (WR-49), and windmill-lite's build reads the asset. Both steps
+# call the stubbed script, which takes each outcome from the run's replay
+# table. Synthetic, written for this repository.
+id: stub/outside
+spec: [SY-8, WR-47, WR-49, WR-50, OR-11]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, effects: true}
+stub: true
