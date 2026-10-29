@@ -89,6 +89,9 @@ type HostConfig struct {
 type hostSide struct {
 	run     func(ctx context.Context, p *Process, r RunRequest) RunDone
 	workdir string
+	// dir is workdir made absolute, the Process's dir once the handshake
+	// has checked it, set before the welcome lets the host submit a run.
+	dir     string
 	refuse  *Reject
 	getppid func() int
 	signal  func(pid int) error
@@ -263,6 +266,12 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		return nil, err
 	}
 	p.host = &hostSide{run: cfg.Run, workdir: cfg.Workdir, refuse: cfg.Refuse, getppid: cfg.getppid, signal: cfg.signal}
+	if cfg.Workdir != "" {
+		if p.host.dir, err = filepath.Abs(cfg.Workdir); err != nil {
+			cfg.Conn.Close()
+			return nil, err
+		}
+	}
 	// The host's own stdout and stderr are not the engine's to read.
 	p.stdio = &lineWriter{diag: p.diag, keep: 20}
 	if p.host.getppid == nil {
@@ -276,12 +285,6 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		return nil, err
 	}
 	p.openTarget()
-	// The host's working directory, checked in the handshake, takes each
-	// invocation's args.json, as a warm process's own directory does; it
-	// is the host's, so the engine never removes it.
-	if cfg.Workdir != "" {
-		p.dir, _ = filepath.Abs(cfg.Workdir)
-	}
 	if p.killAfter > 0 {
 		go p.watchdog()
 	}
@@ -390,7 +393,10 @@ func (p *Process) maybeByeLocked() {
 		return
 	}
 	h.byeSent = true
-	if err := p.conn.send(Bye{}); err != nil && !errors.Is(err, net.ErrClosed) {
+	// Behind every run_done queued before it, whole: a host that exits on
+	// bye has each outcome by then, however large (ADR 0004 host mode
+	// item 3).
+	if err := p.conn.sendAfter(Bye{}, "run:"); err != nil && !errors.Is(err, net.ErrClosed) {
 		p.diag.printf("bye not sent: %v", err)
 	}
 }

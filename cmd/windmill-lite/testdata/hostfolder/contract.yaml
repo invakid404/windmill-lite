@@ -15,5 +15,6 @@ roots:
   - flow: f/host/variable
   - flow: f/host/cb_scope
   - flow: f/host/cb_asset
+  - flow: f/host/big
   - script: f/host/sleep
 host_modules: [f/host/scopes.ts]

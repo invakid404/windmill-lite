@@ -246,6 +246,8 @@ export async function connect(o: ConnectOptions): Promise<Host> {
         }
       : undefined;
   let inflight = 0;
+  // Called each time no run is in flight.
+  const idle: (() => void)[] = [];
   let draining = false;
   let drained: Promise<void> | undefined;
   let closing = false;
@@ -351,6 +353,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
         .finally(() => {
           inflight--;
           opts.signal?.removeEventListener("abort", cancel);
+          if (inflight === 0) for (const cb of idle.splice(0)) cb();
         });
     },
     health: () => ({ ...runtime.hostHealth(), runs: inflight, draining, recycle }),
@@ -366,9 +369,15 @@ export async function connect(o: ConnectOptions): Promise<Host> {
           resolve();
         }
       });
+      // Done once the engine said bye, after the outcome of every run it
+      // took, and every caller has its run's outcome; or at the deadline.
+      const settledIn = new Promise<void>((resolve) => (inflight === 0 ? resolve() : idle.push(resolve)));
       let timer: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, Math.max(0, timeoutMs))));
-      return Promise.race([drained, deadline]).finally(() => clearTimeout(timer));
+      return Promise.race([Promise.all([drained, settledIn]), deadline]).then(
+        () => clearTimeout(timer),
+        () => clearTimeout(timer),
+      );
     },
     async close() {
       closing = true;

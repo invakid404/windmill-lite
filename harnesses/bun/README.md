@@ -94,8 +94,10 @@ cannot corrupt the protocol.
 - **Host mode's runs** (F3a). `submit` sends a `run` and resolves with
   its `run_done`, or rejects with a `RunError` (`draining`, `refused`) for
   a run the engine did not start; its `onSettled` is called on
-  `run_settled`, outside every invocation. `drainEngine` sends the host's
-  `drain` and calls back on the engine's `bye`. `hostHealth` adds the age
+  `run_settled`, in the snapshot of the submission's async context and
+  outside every invocation. `drainEngine` sends the host's `drain`, behind
+  every `run` queued before it (`Sender.sendAfter`), and calls back on the
+  engine's `bye`. `hostHealth` adds the age
   of the oldest abandoned invocation and the number of script modules
   loaded to the health pings carry, and `onHeartbeat` hears it at every
   heartbeat.
@@ -421,16 +423,19 @@ It returns a `Host`:
   re-enters it (H11). `intercept` maps module ids to the results that
   stand in for them (H1's static form). `onSettled` is called once the run
   has settled, after its outcome (`run_settled`, ADR 0004 host mode item
-  5): every invocation it started has settled, which may be never, and
-  resources an abandoned step may still use are released there.
+  5), in the scope the run was submitted in (H11), outside every
+  invocation: every invocation it started has settled, which may be never,
+  and resources an abandoned step may still use are released there.
 - `health()` reports invocations in flight and abandoned, the age of the
   oldest abandoned one, unattributed errors, lag, RSS, the script modules
   loaded (`modules`), the runs in flight, whether it drains, and the
   recycle trigger that tripped (`recycle`, or null).
 - `drain(timeoutMs)` refuses new runs (`draining`), here and in the engine,
-  to which it sends `drain`, and waits up to the timeout for the engine's
-  `bye`, which comes once the runs in flight have ended; the host may then
-  exit (ADR 0004 host mode item 3).
+  to which it sends `drain` behind every run submitted before it, whole
+  (the send queue's `sendAfter`), and waits up to the timeout for the
+  engine's `bye`, which comes once the runs in flight have ended and their
+  outcomes have gone out whole, and for every caller of `run` to have its
+  outcome; the host may then exit (ADR 0004 host mode item 3).
 - `close()` ends the connection and resolves once the engine has exited;
   the host lives on.
 
@@ -674,8 +679,9 @@ error that a garbage collection formats before anything read it without
 the message, which `describe` puts back. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:
 priority, the order per invocation (a result held behind a large
-platform call of its invocation included), partial writes and
-`whenFlushed`.
+platform call of its invocation included), partial writes,
+`whenFlushed`, and the barrier a host's `drain` takes behind large runs
+under backpressure, with a pong still overtaking them.
 `test/context.test.ts` checks the environment view's rules in one process
 (a first write of a process variable included), the registry, the process
 scope and the exit status; `test/fence.test.ts` the settle-time fence (the
@@ -690,8 +696,9 @@ sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
 and `test/host.test.ts` the SDK: the shared working-directory cases of
 `conformance/protocol/host/workdir.json` through `checkWorkdir`, the
-refusals before the engine starts, and the assets extracted into the
-working directory before it does. `test/build.test.ts` checks the build helper's
+refusals before the engine starts, the assets extracted into the
+working directory before it does, and a run's `onSettled` running in its
+own submission scope, for concurrent runs, and never for a refused one. `test/build.test.ts` checks the build helper's
 scans and parse. All are developer checks, run by CI's non-required
 `Bun harness checks` job. The merge gate is the Go side:
 [internal/harness](../../internal/harness/README.md) drives this runtime

@@ -85,7 +85,11 @@ milestone C1 fixed the details they left open.
   as a message about the invocation its `inv` names (PF1), so a harness
   never sends a result ahead of a large platform call its invocation made
   before it. Messages about one host-mode run (`run`, `run_done`,
-  `run_cancel`) keep their order the same way, under a key of their own.
+  `run_cancel`, `run_settled`) keep their order the same way, under a key
+  of their own. A barrier (`sendAfter`) waits behind every open stream
+  whose key has a prefix, and what waits about those keys: a host-mode
+  `bye` waits so behind every `run_done` queued before it (F3a), while
+  unrelated small frames are not held.
 - **Limits.** `DefaultMaxMessage` is 512 MiB; `ProcessConfig.MaxMessage`
   lowers it and the welcome passes it on. It applies to whole frames and to
   reassembled messages. An invocation whose `invoke` would exceed it is not
@@ -354,7 +358,10 @@ take that number.
   (else `workdir_not_writable`) and the hello's `workdir` once both are
   resolved without symbolic links (else `workdir_mismatch`): `CheckWorkdir`,
   on the shared cases of `conformance/protocol/host/workdir.json`, which
-  the host SDK runs too (ADR 0004 host mode item 7). `HostConfig.Refuse`
+  the host SDK runs too (ADR 0004 host mode item 7). The directory is the
+  process's `Dir` from the moment the handshake publishes the serving
+  state, before the welcome goes out, since the host may submit a run as
+  soon as it reads it. `HostConfig.Refuse`
   refuses the host whatever its hello says (`RejectEngine`,
   `engine_refused`, when the engine cannot open the bundle).
 - **Runs.** Each `run` frame starts `HostConfig.Run` on a goroutine of its
@@ -368,7 +375,8 @@ take that number.
 - **Drain** (host mode item 3). A host sends `drain` (from a spawned
   harness it is a protocol error): every later `run` is answered with a
   `run_done` whose `error` is `draining`, and once no run is in flight the
-  engine sends `bye`, after the last `run_done`.
+  engine sends `bye`, behind every `run_done` queued before it, whole,
+  however large (`sendAfter`, prefix `run:`).
 - **No taint, no recycle.** Abandoned invocations stay in the host until
   they settle, counted in its health; the engine never stops routing to
   the host (D2).
@@ -462,8 +470,11 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   `CheckWorkdir` and through the handshake, a hello without a working
   directory, a refused host, a host's invocation environment (`BASE_URL`)
   and `args.json`, the host's drain (a run after it answered `draining`,
-  `bye` after the last `run_done`, also when idle), and `run_settled` after
-  `run_done`, never before.
+  `bye` after the last `run_done`, also when idle, and behind two large
+  outcomes sent in parts), `run_settled` after `run_done`, never before,
+  and a run sent the moment the welcome arrives, whose invocation already
+  has its `args.json`. `conn_test.go` checks the barrier: behind open run
+  streams and what waits about them, with a pong still overtaking them.
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
   the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture

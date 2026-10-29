@@ -227,3 +227,64 @@ func TestMatchJSON(t *testing.T) {
 		}
 	}
 }
+
+// A barrier (sendAfter) waits behind every open stream about a key with
+// its prefix, and behind what waits about those keys, while an unrelated
+// small frame queued after it still overtakes the streams: a host-mode bye
+// goes out only after every large run_done queued before it.
+func TestBarrierWaitsForRunStreams(t *testing.T) {
+	c, peer := connPair(t)
+	big := func(id string) RunDone {
+		return RunDone{ID: id, Status: "success", Result: jsonval.FromProducer([]byte(`"` + strings.Repeat("x", 3*PartChunk) + `"`))}
+	}
+	for _, m := range []Message{big("a"), big("b"), RunSettled{ID: "a"}, RunDone{ID: "c", Status: "success"}} {
+		if err := c.send(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.sendAfter(Bye{}, "run:"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.send(Pong{ID: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	// 4 parts per stream (3 chunks of payload plus the envelope), the
+	// run_settled, the small run_done, the pong and the bye.
+	types := readTypes(t, peer, 12)
+	index := func(ty string) int {
+		for i, x := range types {
+			if x == ty {
+				return i
+			}
+		}
+		return -1
+	}
+	lastPart := -1
+	for i, x := range types {
+		if strings.HasPrefix(x, "part:") {
+			lastPart = i
+		}
+	}
+	bye, pong, settled := index(TypeBye), index(TypePong), index(TypeRunSettled)
+	if bye != len(types)-1 || bye < lastPart || bye < settled || bye < index(TypeRunDone) {
+		t.Fatalf("frames %v: bye must follow every part and every run frame", types)
+	}
+	if pong < 0 || pong > lastPart {
+		t.Fatalf("frames %v: the pong must overtake the streams", types)
+	}
+}
+
+// With no run stream open, a barrier goes out at once, in order with the
+// small frames queued before it.
+func TestBarrierWithoutStreams(t *testing.T) {
+	c, peer := connPair(t)
+	if err := c.send(RunDone{ID: "c", Status: "success"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.sendAfter(Bye{}, "run:"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(readTypes(t, peer, 2), " "); got != "run_done bye" {
+		t.Fatalf("frames %s", got)
+	}
+}

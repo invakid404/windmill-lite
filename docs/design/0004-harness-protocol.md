@@ -594,7 +594,13 @@ change:
    example after too many abandoned invocations. On the wire the host sends
    `drain`: from then on the engine answers each `run` with a `run_done`
    whose `error` is `draining`, and once the runs in flight have ended it
-   answers `bye`; the SDK also refuses new runs itself. Recycle triggers
+   answers `bye`; the SDK also refuses new runs itself. Neither overtakes
+   the run messages it closes: `drain` goes out only after every `run` the
+   host sent before it has gone out whole, and `bye` only after every
+   `run_done` queued before it has, however large, while unrelated small
+   frames keep their priority. So a host that exits once `drain(timeout)`
+   resolves has the outcome of every run the engine took, unless the
+   timeout came first. Recycle triggers
    that the host sets (resident memory over a threshold on consecutive
    heartbeats, more script modules loaded than a cap) are reported through
    `health()` for the host to act on; the SDK never drains on its own.
@@ -645,7 +651,8 @@ change:
    Resources that no step code can reach (host-side bookkeeping) may be
    released at `onRunEnd`. A host-mode run's outcome is its `run_done`; when
    it has settled, the engine sends `run_settled` after it, which the SDK
-   reports to the run's `onSettled`.
+   reports to the run's `onSettled`, in the scope the run was submitted in
+   ([0008](0008-host-hooks.md) H11).
 6. **Losing the host.** If the host process exits, its in-flight runs are
    lost with it: their callers are the host's own callers. The engine fails
    them as `harness_lost` and does not try to move them, because their scopes
@@ -659,9 +666,10 @@ change:
    symbolic links. So a host that does not use the SDK is held to the same
    rule; both sides run the cases of `conformance/protocol/host`. The
    engine writes each invocation's `args.json` there, as in a warm
-   process's own directory, and since the host was not spawned with the
-   base environment, each invocation carries the facade's origin as
-   `BASE_URL`. An engine that cannot serve the host at all (the bundle
+   process's own directory (set before the welcome goes out, since the
+   host may submit a run as soon as it reads it), and since the host was
+   not spawned with the base environment, each invocation carries the
+   facade's origin as `BASE_URL`. An engine that cannot serve the host at all (the bundle
    does not open) refuses it in the handshake too, with `engine_refused`
    and its reason.
 

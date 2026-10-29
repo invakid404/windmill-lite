@@ -289,6 +289,9 @@ type runResult struct {
 	// when the run settled, in milliseconds after it was submitted.
 	DoneAt    float64 `json:"doneAt"`
 	SettledAt float64 `json:"settledAt"`
+	// SettledTenant is, for /settle, the tenant onSettled read from the
+	// host's scope.
+	SettledTenant *string `json:"settledTenant"`
 }
 
 // run submits a run of the flow at path through the host, as one of its
@@ -937,23 +940,54 @@ func TestHostDrain(t *testing.T) {
 	}
 }
 
+// Review round 1, finding 1, end to end: a drain that starts while a run
+// whose outcome is larger than one frame is in flight ends only after that
+// run's caller has its whole outcome; the engine's bye waits for it.
+func TestHostDrainAfterALargeOutcome(t *testing.T) {
+	s := supervise(t, 30000)
+	const size = 3 << 20
+	var got struct {
+		Order  []string   `json:"order"`
+		Status string     `json:"status"`
+		Length int        `json:"length"`
+		Health hostHealth `json:"health"`
+	}
+	body, _ := json.Marshal(map[string]any{"path": "f/host/big", "tenant": "t", "args": map[string]any{"ms": 1000, "size": size}})
+	resp, err := s.client.Post("http://host/drainorder?after=300", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "success" || got.Length != size || len(got.Order) != 2 || got.Order[0] != "run" || got.Order[1] != "drain" || got.Health.Runs != 0 {
+		t.Fatalf("drain with a large outcome in flight: %+v", got)
+	}
+}
+
 // onRunSettled across the connection (ADR 0004 host mode item 5, H9): a
 // step's timeout abandons it while it runs on, so its run's outcome comes
 // at about 1 s, and the run settles only when the abandoned step has ended,
 // at about 1.5 s; the host hears both, in that order.
 func TestHostRunSettled(t *testing.T) {
 	s := supervise(t, 30000)
-	r, err := s.post("/settle", map[string]any{"path": "f/host/linger", "args": map[string]any{"ms": 1500}})
+	r, err := s.post("/settle", map[string]any{"path": "f/host/linger", "tenant": "linger", "args": map[string]any{"ms": 1500}})
 	if err != nil || r.Status != "failure" {
 		t.Fatalf("%+v, %v", r, err)
 	}
 	if r.DoneAt < 900 || r.DoneAt > 1450 || r.SettledAt < 1450 || r.SettledAt > 5000 {
 		t.Fatalf("the outcome at %.0f ms, settled at %.0f ms; want about 1000 and 1500", r.DoneAt, r.SettledAt)
 	}
+	// onSettled runs in the run's own scope (H11; review round 1, finding
+	// 3), after a timeout abandoned its step and its outcome went out.
+	if r.SettledTenant == nil || *r.SettledTenant != "linger" {
+		t.Fatalf("onSettled read the tenant %v; want the run's, linger", r.SettledTenant)
+	}
 	t.Logf("onRunSettled: the outcome at %.0f ms, settled at %.0f ms", r.DoneAt, r.SettledAt)
 	// A run that abandoned nothing settles with its outcome.
-	r, err = s.post("/settle", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 1}})
-	if err != nil || r.Status != "success" || r.SettledAt < 0 {
+	r, err = s.post("/settle", map[string]any{"path": "f/host/echo", "tenant": "echo", "args": map[string]any{"x": 1}})
+	if err != nil || r.Status != "success" || r.SettledAt < 0 || r.SettledTenant == nil || *r.SettledTenant != "echo" {
 		t.Fatalf("%+v, %v", r, err)
 	}
 }

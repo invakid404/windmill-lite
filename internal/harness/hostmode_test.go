@@ -1,12 +1,14 @@
 package harness
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -302,5 +304,139 @@ func TestHostRunSettled(t *testing.T) {
 	close(later)
 	if m, ok := next().(RunSettled); !ok || m.ID != "later" {
 		t.Fatalf("%+v; want run_settled", m)
+	}
+}
+
+// Review round 1, finding 1: bye waits behind every run_done queued before
+// it, whole, however large, so a host that exits on bye has the outcome of
+// every run the engine took; the run that arrived after drain is refused
+// at once, ahead of them.
+func TestHostDrainWaitsForLargeOutcomes(t *testing.T) {
+	release := make(chan struct{})
+	h, _, err := attach(t, HostConfig{Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
+		<-release
+		if r.ID == "small" {
+			return RunDone{Status: "success", Result: jsonval.FromProducer([]byte(`1`))}
+		}
+		return RunDone{Status: "success", Result: jsonval.FromProducer([]byte(`"` + strings.Repeat("x", 2*MaxFrame) + `"`))}
+	}}, hostHello())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.expect(TypeWelcome)
+	for _, id := range []string{"large-1", "large-2", "small"} {
+		h.send(RunRequest{ID: id, Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(`{}`))})
+	}
+	h.send(Drain{})
+	h.send(RunRequest{ID: "late", Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(`{}`))})
+	if d := h.expect(TypeRunDone).(RunDone); d.ID != "late" || d.Error == nil || d.Error.Code != RunDraining {
+		t.Fatalf("the run after drain: %+v", d)
+	}
+	close(release)
+	streams := map[string]bool{} // part stream id: complete
+	small := false
+	for {
+		select {
+		case m, ok := <-h.msgs:
+			if !ok {
+				t.Fatal("the connection closed before bye")
+			}
+			switch m := m.(type) {
+			case Part:
+				streams[m.ID] = m.Last
+			case RunDone:
+				small = small || m.ID == "small"
+			case Bye:
+				done := 0
+				for _, last := range streams {
+					if last {
+						done++
+					}
+				}
+				if done != 2 || len(streams) != 2 || !small {
+					t.Fatalf("bye after %d of the 2 large outcomes whole (streams %v), the small one: %v", done, streams, small)
+				}
+				return
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("no bye")
+		}
+	}
+}
+
+// Review round 1, finding 2: a host may submit a run as soon as it reads
+// the welcome, before AttachHost has returned on the engine's side; the
+// run's invocation already has its args.json in the host's working
+// directory. Each try sends the run at once from a host played here.
+func TestHostRunRightAfterWelcome(t *testing.T) {
+	for i := range 20 {
+		dir := t.TempDir()
+		ec, hc := socketConns(t)
+		r := bufio.NewReader(hc)
+		attached := make(chan *Process, 1)
+		go func() {
+			p, err := AttachHost(context.Background(), HostConfig{
+				Conn: ec, Kind: "bun", Runtime: PinnedBun, Bundle: "sha256:b", Workdir: dir, KillAfter: WatchdogOff,
+				Diagnostics: &syncBuffer{}, getppid: func() int { return fakeHostPID }, signal: func(int) error { return nil },
+				Run: func(ctx context.Context, p *Process, r RunRequest) RunDone {
+					out, err := p.Execute(ctx, engine.Invocation{ID: "inv", Run: r.ID, Script: "s", Entry: "main", Args: r.Args})
+					if err != nil {
+						return RunDone{Status: "failure"}
+					}
+					return RunDone{Status: "success", Result: out.Body}
+				},
+			})
+			if err != nil {
+				t.Error(err)
+			}
+			attached <- p
+		}()
+		write := func(m Message) {
+			b, err := Encode(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := hc.Write(appendFrame(nil, b)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		read := func() Message {
+			for {
+				b, err := readFrame(r, MaxFrame)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m, err := Decode(b)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ping := m.(Ping); !ping {
+					return m
+				}
+			}
+		}
+		hello := hostHello()
+		hello.Workdir = dir
+		write(hello)
+		if w, ok := read().(Welcome); !ok || w.Config == nil {
+			t.Fatalf("try %d: no welcome", i)
+		}
+		write(RunRequest{ID: "r", Kind: RunFlow, Path: "f/x", Args: jsonval.FromProducer([]byte(`{"try":` + strconv.Itoa(i) + `}`))})
+		if _, ok := read().(Invoke); !ok {
+			t.Fatalf("try %d: no invoke", i)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, ArgsFile))
+		if want := `{"try":` + strconv.Itoa(i) + `}`; err != nil || string(b) != want {
+			t.Fatalf("try %d: args.json %q, %v; want %s", i, b, err, want)
+		}
+		write(Result{ID: "inv", Outcome: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+		if d, ok := read().(RunDone); !ok || d.Status != "success" {
+			t.Fatalf("try %d: run_done %+v", i, d)
+		}
+		p := <-attached
+		hc.Close()
+		if p != nil {
+			<-p.Done()
+		}
 	}
 }

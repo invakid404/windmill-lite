@@ -576,6 +576,12 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 	if p.host != nil {
 		p.pid = h.PID
 		p.diag.pid.Store(int64(h.PID))
+		// The host's working directory, checked above, takes each
+		// invocation's args.json, as a warm process's own directory does
+		// (it is the host's, so the engine never removes it). It is set
+		// before the welcome goes out: the host may submit a run as soon as
+		// it reads it.
+		p.dir = p.host.dir
 	}
 	p.mu.Unlock()
 	if err := p.conn.send(w); err != nil {

@@ -92,3 +92,36 @@ test("connect extracts the bundle's codebase assets into the working directory b
     process.chdir(cwd);
   }
 });
+
+// Review round 1, finding 3: a run's onSettled runs in the scope the run
+// was submitted in (H11), outside every invocation, after its run_done has
+// removed it from the runs in flight; concurrent runs keep their own.
+test("onSettled runs in its run's submission scope", async () => {
+  const { AsyncLocalStorage } = await import("node:async_hooks");
+  const { Runtime } = await import("../runtime/runtime.ts");
+  const { encode, frame } = await import("../runtime/frame.ts");
+  const store = new AsyncLocalStorage<string>();
+  const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", host: true, transport: { write: (b) => b.length, end: () => {} }, exit: () => {} });
+  runtime.start();
+  const send = (m: Record<string, unknown>) => runtime.onData(frame(encode(m as { t: string })));
+  send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: 1 << 20 } });
+  const seen: Record<string, string | undefined> = {};
+  const submit = (tenant: string) =>
+    store.run(tenant, () =>
+      runtime.submit("flow", "f/x", "{}", undefined, () => {
+        seen[tenant] = store.getStore();
+      }),
+    );
+  const a = submit("tenant-a");
+  const b = submit("tenant-b");
+  const refused = submit("tenant-refused");
+  send({ t: "run_done", id: a.id, status: "failure" });
+  send({ t: "run_done", id: b.id, status: "success", result: 1 });
+  send({ t: "run_done", id: refused.id, error: { code: "draining", message: "m" } });
+  await Promise.all([a.done, b.done, refused.done.catch(() => {})]);
+  send({ t: "run_settled", id: b.id });
+  send({ t: "run_settled", id: a.id });
+  send({ t: "run_settled", id: refused.id });
+  expect(seen).toEqual({ "tenant-a": "tenant-a", "tenant-b": "tenant-b" });
+  runtime.onClose();
+});

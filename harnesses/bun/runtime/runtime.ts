@@ -231,7 +231,7 @@ export class Runtime {
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
   private scopes = new Map<string, <R>(fn: () => R) => R>();
   /** Host mode: what to call when a run settles, from its submission
-   * until run_settled (onRunSettled). */
+   * until run_settled (onRunSettled), bound to the run's scope. */
   private settledHandlers = new Map<string, () => void>();
   /** Host mode: called when the engine answers a drain with bye. */
   private onBye: (() => void) | undefined;
@@ -931,7 +931,11 @@ export class Runtime {
     const done = new Promise<RunOutcome>((resolve, reject) => {
       this.runs.set(id, { resolve, reject });
       this.scopes.set(id, scope);
-      if (onSettled) this.settledHandlers.set(id, onSettled);
+      // onSettled is a host hook of the run, so it runs in the scope the
+      // run was submitted in (H11), outside every invocation; the handler
+      // keeps that scope until the run settles, is refused, or the
+      // connection ends.
+      if (onSettled) this.settledHandlers.set(id, () => scope(() => invocations.exit(onSettled)));
       try {
         this.send({ t: "run", id, kind, path, args: new Raw(args), intercept: intercept === undefined ? undefined : new Raw(intercept) });
       } catch (e) {
@@ -951,7 +955,9 @@ export class Runtime {
     if (!this.opts.host) throw new Error("windmill-lite: only a host drains its engine");
     if (this.onBye) throw new Error("windmill-lite: the engine is already draining");
     this.onBye = onBye;
-    this.send({ t: "drain" });
+    // Behind every run submitted before it, whole: the engine starts each
+    // of them, and says bye only once they have ended.
+    if (!this.closing()) this.sender.sendAfter({ t: "drain" }, "run:");
   }
 
   /** Host mode: cancels a run this process submitted. */
@@ -983,7 +989,7 @@ export class Runtime {
     if (!this.opts.host || this.runs.has(m.id)) throw new ProtocolError("unexpected_message", `run_settled for run ${JSON.stringify(m.id)}, which has no outcome`);
     const on = this.settledHandlers.get(m.id);
     this.settledHandlers.delete(m.id);
-    if (on) this.guard("a run's onSettled", () => invocations.exit(on));
+    if (on) this.guard("a run's onSettled", on);
   }
 
   /** Reports how the entrypoint call ended: as the result, or, for an

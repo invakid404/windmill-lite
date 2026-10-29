@@ -512,6 +512,9 @@ export class Sender {
   private small: Uint8Array[] = [];
   private streams: OutStream[] = [];
   private latest = new Map<string, OutStream>();
+  /** Messages sendAfter holds, in order, each until no stream about a key
+   * with its prefix is open. */
+  private barriers: { prefix: string; q: Queued }[] = [];
   private current: Uint8Array | null = null;
   private nextStream = 0;
   private flushed: (() => void)[] = [];
@@ -523,6 +526,32 @@ export class Sender {
     private maxFrame = MAX_FRAME,
     private chunk = PART_CHUNK,
   ) {}
+
+  /** Queues a message behind every message about a key that begins with
+   * prefix that is still being sent in parts, and behind what waits about
+   * those keys: it goes out once all of them have gone out whole. Other
+   * messages are not held by it. A host's drain waits so behind the runs
+   * it submitted before it ("run:", ADR 0004 host mode item 3). Throws
+   * message_too_large without queuing it. */
+  sendAfter(m: Outgoing, prefix: string) {
+    const payload = encode(m);
+    if (payload.length > this.maxMessage) {
+      throw new ProtocolError("message_too_large", `${m.t} message of ${payload.length} bytes exceeds ${this.maxMessage}`);
+    }
+    if (this.closed) return;
+    const q: Queued =
+      payload.length <= this.maxFrame ? { frame: frame(payload) } : { stream: { id: String(++this.nextStream), about: undefined, payload, off: 0, seq: 0, after: [] } };
+    if (this.barriers.length > 0 || this.open(prefix)) this.barriers.push({ prefix, q });
+    else this.enqueue(q);
+    this.flush();
+  }
+
+  /** Whether a stream about a key that begins with prefix has not sent
+   * its last part. */
+  private open(prefix: string): boolean {
+    for (const about of this.latest.keys()) if (about.startsWith(prefix)) return true;
+    return false;
+  }
 
   /** Queues a message; throws message_too_large without queuing it. */
   send(m: Outgoing) {
@@ -605,7 +634,7 @@ export class Sender {
 
   /** Calls cb once everything queued so far is written. */
   whenFlushed(cb: () => void) {
-    if (!this.current && this.small.length === 0 && this.streams.length === 0) cb();
+    if (!this.current && this.small.length === 0 && this.streams.length === 0 && this.barriers.length === 0) cb();
     else this.flushed.push(cb);
   }
 
@@ -623,9 +652,11 @@ export class Sender {
       this.enqueue(q);
       if ("stream" in q) {
         q.stream.after.push(...s.after.slice(i + 1));
-        return;
+        break;
       }
     }
+    // The barriers, in order, whose streams have all gone out.
+    while (this.barriers.length > 0 && !this.open(this.barriers[0].prefix)) this.enqueue(this.barriers.shift()!.q);
   }
 
   private next(): Uint8Array | null {

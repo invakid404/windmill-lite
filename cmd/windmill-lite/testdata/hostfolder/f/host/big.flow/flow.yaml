@@ -1,0 +1,5 @@
+summary: A step that waits flow_input.ms and returns a string of flow_input.size characters
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/big, input_transforms: {ms: {type: javascript, expr: flow_input.ms}, size: {type: javascript, expr: flow_input.size}}}

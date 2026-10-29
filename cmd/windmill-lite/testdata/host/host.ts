@@ -65,13 +65,32 @@ Bun.serve({
         let settledAt = -1;
         let markSettled = () => {};
         const settled = new Promise<void>((resolve) => (markSettled = resolve));
+        // The scope onSettled runs in: the run's own (H11).
+        let settledTenant: string | null = null;
         const r = await submit(b, () => {
           settledAt = performance.now() - start;
+          settledTenant = scopes.store.getStore()?.tenant ?? null;
           markSettled();
         });
         const doneAt = performance.now() - start;
         await Promise.race([settled, Bun.sleep(Number(url.searchParams.get("wait") ?? "10000"))]);
-        return Response.json({ ...r, doneAt, settledAt });
+        return Response.json({ ...r, doneAt, settledAt, settledTenant });
+      }
+      case "/drainorder": {
+        // Submits a run, drains while it is in flight, and reports in which
+        // order the run's caller and the drain finished, with the length of
+        // the result the caller got.
+        const b = await req.json();
+        const order: string[] = [];
+        const run = submit(b).then((r) => {
+          order.push("run");
+          return r as { status?: string; result?: unknown };
+        });
+        await Bun.sleep(Number(url.searchParams.get("after") ?? "200"));
+        const drained = host.drain(Number(url.searchParams.get("ms") ?? "20000")).then(() => order.push("drain"));
+        const r = await run;
+        await drained;
+        return Response.json({ order, status: r.status, length: typeof r.result === "string" ? r.result.length : -1, health: host.health() });
       }
       case "/drain": {
         const start = performance.now();
