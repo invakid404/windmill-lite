@@ -49,8 +49,18 @@ func TestSleepDelay(t *testing.T) {
 		{"true", 0, "Expected an integer, found: Bool(true)"},
 		{"[1, 1.5, -2, null]", 0, "Expected an integer, found: Array [Number(1), Number(1.5), Number(-2), Null]"},
 		{`{"b":1,"a":{"c":[]}}`, 0, `Expected an integer, found: Object {"b": Number(1), "a": Object {"c": Array []}}`},
+		// serde_json's syntax errors, for text a replaced JSON.stringify
+		// returns (JE-15): a broken literal, a truncated one, a leading
+		// zero, a character no value starts with on a later line, more
+		// than white space after the value.
 		{"1 2", 0, "trailing characters at line 1 column 3"},
-		{"nope", 0, "expected value at line 1 column 1"},
+		{"nope", 0, "expected ident at line 1 column 2"},
+		{"tru", 0, "EOF while parsing a value at line 1 column 3"},
+		{"01", 0, "invalid number at line 1 column 2"},
+		{"-01", 0, "invalid number at line 1 column 3"},
+		{"\n  x", 0, "expected value at line 2 column 3"},
+		{"", 0, "EOF while parsing a value at line 1 column 0"},
+		{"null x", 0, "trailing characters at line 1 column 6"},
 	} {
 		got, err := sleepDelay([]byte(c.text))
 		switch {
@@ -80,7 +90,9 @@ func TestTimeoutResult(t *testing.T) {
 		// The recorded JE-29/a.
 		{"1.5", 0, p + "invalid type: floating point `1.5`, expected i32 at line 1 column 3. Value was: 1.5"},
 		{"2e0", 0, p + "invalid type: floating point `2.0`, expected i32 at line 1 column 3. Value was: 2e0"},
-		{"1e21", 0, p + "invalid type: floating point `1000000000000000000000.0`, expected i32 at line 1 column 4. Value was: 1e21"},
+		// serde_json writes the float with ryu (fx-24/js_exponent).
+		{"1e21", 0, p + "invalid type: floating point `1e21`, expected i32 at line 1 column 4. Value was: 1e21"},
+		{"1e+21", 0, p + "invalid type: floating point `1e21`, expected i32 at line 1 column 5. Value was: 1e+21"},
 		{"-0", 0, p + "invalid type: floating point `-0.0`, expected i32 at line 1 column 2. Value was: -0"},
 		{"2147483648", 0, p + "invalid value: integer `2147483648`, expected i32 at line 1 column 10. Value was: 2147483648"},
 		{"-3000000000", 0, p + "invalid value: integer `-3000000000`, expected i32 at line 1 column 11. Value was: -3000000000"},
@@ -94,6 +106,12 @@ func TestTimeoutResult(t *testing.T) {
 		{"", 0, p + "EOF while parsing a value at line 1 column 0. Value was: "},
 		{"1 2", 0, p + "trailing characters at line 1 column 3. Value was: 1 2"},
 		{"1e400", 0, p + "number out of range at line 1 column 5. Value was: 1e400"},
+		// serde_json's syntax errors come before the type: a broken
+		// literal, a leading zero, a value on a later line.
+		{"nope", 0, p + "expected ident at line 1 column 2. Value was: nope"},
+		{"01", 0, p + "invalid number at line 1 column 2. Value was: 01"},
+		{"\n \"5\"", 0, p + "invalid type: string \"5\", expected i32 at line 2 column 4. Value was: \n \"5\""},
+		{"5 x", 0, p + "trailing characters at line 1 column 3. Value was: 5 x"},
 	} {
 		got, err := timeoutResult([]byte(c.text))
 		switch {

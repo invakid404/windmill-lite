@@ -179,6 +179,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			r.addChild(c)
 			c.after = after(k)
 			e = r.runList(ctx, c)
+			// The child flow's completion refreshes the loop's flow's
+			// ping (JE-2).
+			r.ping(fr)
 		}
 		if ended(e.status) {
 			return r.loopInterrupted(o, &it, ran, r.endedStatus(ctx, e.status))
@@ -343,6 +346,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		<-done
 		running--
 		completed++
+		// The loop's goroutine refreshes its flow's ping as each child
+		// flow completes (JE-2).
+		r.ping(fr)
 		release()
 	}
 	var it iterations
@@ -528,7 +534,7 @@ func (r *run) childFrame(fr *frame, i, k int, item []byte, parallel bool) (*fram
 		return nil, databaseError(err).Error()
 	}
 	c := newFrame(m.ForLoop.Modules, fr.sites[i].Child(conformance.Iteration(k)))
-	c.site, c.child, c.id = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID()
+	c.site, c.child, c.id, c.pinged = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID(), r.clock.Now()
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = fr.path+"/loop-"+strconv.Itoa(k), fr.scope, fr.nodes, fr.rng
 	if parallel {

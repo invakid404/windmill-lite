@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -534,15 +536,17 @@ func TestEngineTimeoutValues(t *testing.T) {
 // Windmill's monitor of flows that hang between steps cancels them. A job
 // starts a new transition; a negative timeout disables the monitor.
 func TestEngineTransitionMonitor(t *testing.T) {
-	const busy = "(() => { const t = Date.now(); while (Date.now() - t < 200) {} return 1 })()"
+	// Each busy evaluation takes 400 ms against a budget of 600 ms: one
+	// fits a transition with room to spare under load, two do not.
+	const busy = "(() => { const t = Date.now(); while (Date.now() - t < 400) {} return 1 })()"
 	for _, c := range []struct {
 		name, flow string
 		limit      time.Duration
 		status     conformance.RunStatus
 	}{
-		{"a runaway transform", flowOf(mod("a", "value", inputs("v", js("(() => { while (true) {} })()")), "")), 300 * time.Millisecond, conformance.RunCanceled},
-		{"one transition at a time", flowOf(mod("a", "value", inputs("v", js(busy)), ""), mod("b", "value", inputs("v", js(busy)), "")), 300 * time.Millisecond, conformance.RunSuccess},
-		{"two evaluations in one transition", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), 300 * time.Millisecond, conformance.RunCanceled},
+		{"a runaway transform", flowOf(mod("a", "value", inputs("v", js("(() => { while (true) {} })()")), "")), 600 * time.Millisecond, conformance.RunCanceled},
+		{"one transition at a time", flowOf(mod("a", "value", inputs("v", js(busy)), ""), mod("b", "value", inputs("v", js(busy)), "")), 600 * time.Millisecond, conformance.RunSuccess},
+		{"two evaluations in one transition", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), 600 * time.Millisecond, conformance.RunCanceled},
 		{"disabled", flowOf(mod("a", "value", inputs("v", js(busy), "w", js(busy)), "")), -1, conformance.RunSuccess},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -646,5 +650,113 @@ func TestEngineMonitorIgnoresTheRunsClock(t *testing.T) {
 	defer func() { close(stop); <-done }()
 	for range 5 {
 		wantStatus(t, runReq(t, e, RunRequest{Clock: clock}), conformance.RunSuccess, "")
+	}
+}
+
+// H4: a pre-write deadline that has passed when the run starts cancels it
+// before anything launches, however the scheduler delivers timers.
+func TestEnginePreWriteDeadlinePassed(t *testing.T) {
+	old := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(old)
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("1")), ""))}, s)
+	for range 10 {
+		tr := runReq(t, e, RunRequest{Hooks: writes{at: map[string]bool{"a": true}}, PreWriteDeadline: time.Now().Add(-time.Second)})
+		wantStatus(t, tr, conformance.RunCanceled, "")
+		if tr.MayHaveMutated {
+			t.Fatal("a write launched after the deadline")
+		}
+	}
+	wantCalls(t, s)
+}
+
+// H4: the actual time decides between the first write and the pre-write
+// deadline, never the delivery of the deadline's timer: a deadline that
+// has passed expires, and cancels the run, when the first write would
+// disarm it; one still ahead is disarmed, and expiring it later does
+// nothing.
+func TestPreWriteDeadlineStates(t *testing.T) {
+	var cause error
+	r := &run{cancel: func(err error) { cause = err }}
+	r.preWriteAt = time.Now().Add(-time.Millisecond)
+	if r.disarmPreWrite() || r.preWrite.Load() != preWriteExpired || cause != ErrPreWriteDeadline {
+		t.Fatalf("a passed deadline: state %d, cause %v", r.preWrite.Load(), cause)
+	}
+	cause = nil
+	r = &run{cancel: func(err error) { cause = err }}
+	r.preWriteAt = time.Now().Add(time.Hour)
+	if !r.disarmPreWrite() || r.preWrite.Load() != preWriteDisarmed {
+		t.Fatalf("a deadline ahead: state %d", r.preWrite.Load())
+	}
+	if r.expirePreWrite() || cause != nil {
+		t.Fatalf("the timer expired a disarmed deadline: cause %v", cause)
+	}
+	// With no deadline, nothing is due.
+	if r = (&run{}); r.preWriteDue() || !r.disarmPreWrite() {
+		t.Fatal("no deadline stops a write")
+	}
+}
+
+// JE-2: a child flow's completion refreshes its loop's flow's ping, so a
+// loop whose every transition fits the budget is not canceled however many
+// child flows it completes, while one transition over the budget is.
+func TestEngineMonitorRefreshedByChildFlows(t *testing.T) {
+	busy := func(ms int) string {
+		return `"stop_after_if":{"skip_if_stopped":false,"expr":` + string(jsonString(fmt.Sprintf("((t) => { while (Date.now() - t < %d) {} })(Date.now()) || false", ms))) + `}`
+	}
+	body := []string{mod("a", "value", inputs("v", static("1")), ""), mod("b", "value", inputs("v", static("2")), "")}
+	for _, c := range []struct {
+		name   string
+		ms     int
+		status conformance.RunStatus
+	}{
+		// Five iterations of 150 ms add up to 750 ms, which the budget of
+		// 400 ms would cancel were the ping not refreshed.
+		{"each transition fits", 150, conformance.RunSuccess},
+		{"one transition does not", 600, conformance.RunCanceled},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(loopOf("l", body, `"iterator":{"type":"static","value":[1,2,3,4,5]}`, busy(c.ms)))}, s)
+			e.transition = 400 * time.Millisecond
+			tr := runReq(t, e, RunRequest{})
+			wantStatus(t, tr, c.status, "")
+			if c.status == conformance.RunSuccess && len(s.calls()) != 10 {
+				t.Fatalf("calls %v", s.calls())
+			}
+		})
+	}
+}
+
+// JE-15, JE-28, JE-29: a replaced JSON.stringify hands sleep and timeout
+// text that is not JSON, which fails with serde_json's syntax errors (the
+// helpers of serde.go): a broken or truncated literal, a leading zero, a
+// value on a later line.
+func TestEngineTimeValuesNotJSON(t *testing.T) {
+	stringify := func(text string) string {
+		return js(`(JSON.stringify = () => ` + string(jsonString(text)) + `, 1)`)
+	}
+	for _, c := range []struct {
+		name, flow, want string
+	}{
+		{"sleep, a broken literal", flowOf(mod("a", "value", "", `"sleep":`+stringify("nope")), mod("b", "value", "", "")), "expected ident at line 1 column 2"},
+		{"sleep, a truncated literal", flowOf(mod("a", "value", "", `"sleep":`+stringify("tru")), mod("b", "value", "", "")), "EOF while parsing a value at line 1 column 3"},
+		{"sleep, a leading zero", flowOf(mod("a", "value", "", `"sleep":`+stringify("01")), mod("b", "value", "", "")), "invalid number at line 1 column 2"},
+		{"timeout, a broken literal", flowOf(mod("a", "value", "", ""), mod("b", "value", "", `"timeout":`+stringify("nope"))), "Error parsing result as i32: expected ident at line 1 column 2. Value was: nope"},
+		{"timeout, a leading zero", flowOf(mod("a", "value", "", ""), mod("b", "value", "", `"timeout":`+stringify("01"))), "Error parsing result as i32: invalid number at line 1 column 2. Value was: 01"},
+		{"timeout, a later line", flowOf(mod("a", "value", "", ""), mod("b", "value", "", `"timeout":`+stringify("\n  x"))), "Error parsing result as i32: expected value at line 2 column 3. Value was: \n  x"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tr := runReq(t, mustOpen(t, map[string]string{"f/t/main": c.flow}, &scripts{}), RunRequest{})
+			var res struct {
+				Error struct{ Name, Message string }
+			}
+			if err := json.Unmarshal(tr.Result.Producer(), &res); err != nil {
+				t.Fatal(err)
+			}
+			if res.Error.Name != "InternalError" || res.Error.Message != c.want {
+				t.Fatalf("got %s %q, want %q", res.Error.Name, res.Error.Message, c.want)
+			}
+		})
 	}
 }

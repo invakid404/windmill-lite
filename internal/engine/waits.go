@@ -223,17 +223,39 @@ func (c *RecordClock) Waits() []time.Duration {
 
 // decodeJSON decodes one JSON value: its numbers as json.Number, its
 // objects as orderedObject. Text that is not one JSON value (an evaluation
-// can return such text, B2b's readback) fails with serde_json's message
-// for the commonest cases.
+// returns such text when the user's code replaces JSON.stringify, JE-15)
+// fails with serde_json's error, which serde.go writes: the end of the
+// text, a character no value starts with or a broken true, false or null
+// (serdeSyntax), a leading zero (serdeNumber), then more than white space
+// after the value (serdeTrailing). Reading: serde_json's other syntax
+// errors, for a value that starts well and breaks later, are not
+// reproduced: they read "expected value" where the decoder stopped, or
+// "EOF while parsing a value" at the end.
 func decodeJSON(text []byte) (any, error) {
+	if msg, ok := serdeSyntax(text); ok {
+		return nil, errors.New(msg)
+	}
+	t := bytes.TrimLeft(text, " \t\r\n")
+	start := len(text) - len(t)
+	if t[0] == '-' || t[0] >= '0' && t[0] <= '9' {
+		if msg, bad := serdeNumber(text, start, numberToken(t)); bad {
+			return nil, errors.New(msg)
+		}
+	}
 	dec := json.NewDecoder(bytes.NewReader(text))
 	dec.UseNumber()
 	v, err := decodeValue(dec)
 	if err != nil {
-		return nil, fmt.Errorf("expected value at line 1 column %d", leadingSpace(text)+1)
+		var se *json.SyntaxError
+		switch {
+		case errors.As(err, &se):
+			return nil, errors.New("expected value" + serdePosition(text, int(se.Offset)))
+		default:
+			return nil, errors.New("EOF while parsing a value" + serdePosition(text, len(text)))
+		}
 	}
-	if rest := text[dec.InputOffset():]; len(bytes.TrimSpace(rest)) > 0 {
-		return nil, fmt.Errorf("trailing characters at line 1 column %d", int(dec.InputOffset())+leadingSpace(rest)+1)
+	if msg, trailing := serdeTrailing(text, int(dec.InputOffset())); trailing {
+		return nil, errors.New(msg)
 	}
 	return v, nil
 }
@@ -314,83 +336,48 @@ func classifyNumber(s string) (numberKind, uint64, int64, float64) {
 }
 
 // parseI32 deserialises text into an i32 as serde_json::from_str does,
-// with its error text: "invalid type: …" or "invalid value: …", "expected
-// i32", then the position after the bytes read, "at line L column C".
+// with its error text, on the serde helpers of serde.go that parseU16
+// uses too: a syntax error first (serdeSyntax, serdeNumber); then an
+// integer out of the i32 range ("invalid value: integer `n`, expected
+// i32"), a number beyond f64's range ("number out of range") or a value
+// of another type (serdeError's "invalid type: …"), each at the position
+// after the bytes read, "at line L column C"; then more than white space
+// after an i32 (serdeTrailing). serde_json checks a value's type and range
+// before what follows it.
 func parseI32(text []byte) (int32, error) {
-	i := leadingSpace(text)
-	at := func(pos int, msg string) error {
-		line, col := 1, pos
-		if nl := bytes.LastIndexByte(text[:pos], '\n'); nl >= 0 {
-			line, col = 1+bytes.Count(text[:nl+1], []byte{'\n'}), pos-nl-1
-		}
-		return fmt.Errorf("%s at line %d column %d", msg, line, col)
+	if msg, ok := serdeSyntax(text); ok {
+		return 0, errors.New(msg)
 	}
-	invalid := func(pos int, unexpected string) error {
-		return at(pos, "invalid type: "+unexpected+", expected i32")
+	t := bytes.TrimLeft(text, " \t\r\n")
+	start := len(text) - len(t)
+	if t[0] != '-' && (t[0] < '0' || t[0] > '9') {
+		return 0, errors.New(serdeError(text, "i32"))
 	}
-	if i == len(text) {
-		return 0, at(i, "EOF while parsing a value")
+	tok := numberToken(t)
+	pos := start + len(tok)
+	if msg, bad := serdeNumber(text, start, tok); bad {
+		return 0, errors.New(msg)
 	}
-	dec := json.NewDecoder(bytes.NewReader(text[i:]))
-	dec.UseNumber()
-	var v any
-	switch text[i] {
-	case '[':
-		return 0, invalid(i, "sequence")
-	case '{':
-		return 0, invalid(i, "map")
-	}
-	if err := dec.Decode(&v); err != nil {
-		return 0, at(i+1, "expected value")
-	}
-	end := i + int(dec.InputOffset())
 	var n int32
-	var err error
-	switch v := v.(type) {
-	case nil:
-		err = invalid(end, "null")
-	case bool:
-		err = invalid(end, fmt.Sprintf("boolean `%t`", v))
-	case string:
-		err = invalid(end, "string "+rustDebug(v))
-	case json.Number:
-		switch k, u, s, f := classifyNumber(string(v)); {
-		case k == numberUnsigned && u <= math.MaxInt32:
-			n = int32(u)
-		case k == numberUnsigned:
-			err = at(end, fmt.Sprintf("invalid value: integer `%d`, expected i32", u))
-		case k == numberSigned && s >= math.MinInt32:
-			n = int32(s)
-		case k == numberSigned:
-			err = at(end, fmt.Sprintf("invalid value: integer `%d`, expected i32", s))
-		case math.IsInf(f, 0):
-			// serde_json refuses a number beyond f64's range as it reads it.
-			err = at(end, "number out of range")
-		default:
-			err = invalid(end, "floating point `"+floatDisplay(f)+"`")
-		}
+	switch k, u, s, f := classifyNumber(string(tok)); {
+	case k == numberUnsigned && u <= math.MaxInt32:
+		n = int32(u)
+	case k == numberUnsigned:
+		return 0, fmt.Errorf("invalid value: integer `%d`, expected i32%s", u, serdePosition(text, pos))
+	case k == numberSigned && s >= math.MinInt32:
+		n = int32(s)
+	case k == numberSigned:
+		return 0, fmt.Errorf("invalid value: integer `%d`, expected i32%s", s, serdePosition(text, pos))
+	case math.IsInf(f, 0):
+		// serde_json refuses a number beyond f64's range as it reads it.
+		return 0, errors.New("number out of range" + serdePosition(text, pos))
+	default:
+		return 0, errors.New(serdeError(text, "i32"))
 	}
-	if err != nil {
-		return 0, err
-	}
-	if rest := text[end:]; len(bytes.TrimSpace(rest)) > 0 {
-		return 0, at(end+leadingSpace(rest)+1, "trailing characters")
+	if msg, trailing := serdeTrailing(text, pos); trailing {
+		return 0, errors.New(msg)
 	}
 	return n, nil
-}
-
-// floatDisplay writes f as serde's Unexpected::Float does: Rust's Display
-// of an f64 (the shortest digits that read back, never an exponent), with
-// ".0" added when it has no decimal point.
-func floatDisplay(f float64) string {
-	if math.IsInf(f, 0) || math.IsNaN(f) {
-		return map[bool]string{true: "inf", false: "-inf"}[f > 0]
-	}
-	s := strconv.FormatFloat(f, 'f', -1, 64)
-	if !strings.Contains(s, ".") {
-		s += ".0"
-	}
-	return s
 }
 
 // rustValueDebug writes a JSON value as the Debug form of serde_json's
@@ -445,10 +432,11 @@ func writeValueDebug(b *strings.Builder, v any) {
 }
 
 // ryuFormat writes f as the ryu crate's format_finite does, which
-// serde_json's Number displays floats with: the shortest digits, in
-// positional form when the decimal point falls within 16 digits of them
-// and in scientific form (1e30, 1.234e-7) otherwise, with ".0" on an
-// integral value.
+// serde_json displays floats with, in a Number's debug form and in the
+// "floating point `…`" of a value of another type than expected
+// (serdeUnexpected): the shortest digits, in positional form when the
+// decimal point falls within 16 digits of them and in scientific form
+// (1e30, 1.234e-7) otherwise, with ".0" on an integral value.
 func ryuFormat(f float64) string {
 	if f == 0 {
 		if math.Signbit(f) {

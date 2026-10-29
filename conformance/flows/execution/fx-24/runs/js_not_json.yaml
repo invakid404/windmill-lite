@@ -1,0 +1,10 @@
+# JE-29, JE-15: a replaced JSON.stringify hands the site text that is not
+# JSON; serde_json's syntax error names where its reader stopped.
+spec: [JE-29, JE-15, FX-15]
+target: f/wl_fx24/js_not_json
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error parsing result as i32: expected ident at line 1 column 2. Value was: nope"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

@@ -1,0 +1,11 @@
+# FX-23, JE-28, JE-15: a replaced JSON.stringify hands the sleep text that
+# is not JSON; it fails with serde_json's syntax error, a chaining error at
+# a later transition, and b never gets a job.
+spec: [FX-23, JE-28, JE-15, FX-15]
+target: f/wl_fx23/sleep_not_json
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "expected ident at line 1 column 2"}}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:b": {status: not_run}

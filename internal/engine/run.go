@@ -53,11 +53,16 @@ type run struct {
 	started time.Time
 	// clock is the run's clock and jitter its retry-jitter source (H10);
 	// cancel cancels the run's context with a cause (JE-2's monitor, the
-	// pre-write deadline of H4), and preWrite is that deadline's timer.
-	clock    Clock
-	jitter   Jitter
-	cancel   context.CancelCauseFunc
-	preWrite *time.Timer
+	// pre-write deadline of H4).
+	clock  Clock
+	jitter Jitter
+	cancel context.CancelCauseFunc
+	// preWriteAt is the run's pre-write deadline (H4), zero for none, and
+	// preWrite its state: armed until the first write-capable launch
+	// disarms it or the deadline expires it, whichever comes first, the
+	// actual time deciding and never the delivery of the deadline's timer.
+	preWriteAt time.Time
+	preWrite   atomic.Int32
 
 	mu    sync.Mutex // guards trace and the frames' job results
 	trace Trace
@@ -995,26 +1000,24 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			r.ended(fr, &out)
 			return out
 		}
-		// H3: the host may veto the run's first write-capable launch.
+		// H3: the host may veto the run's first write-capable launch. H4:
+		// the pre-write deadline applies until that launch, so one that
+		// has passed stops it before the host is asked, and one that
+		// passes while the host decides stops it after; otherwise the
+		// launch disarms it.
 		if r.hooks.WriteCapable(site) {
 			r.writeMu.Lock()
-			if !r.wrote {
+			if !r.wrote && !r.preWriteDue() {
 				r.wrote = true
 				if err := r.hooks.BeforeFirstWrite(ctx, r, site); err != nil {
 					r.Latch(HookLatchError(ctx, err))
 				}
-				// H4: the pre-write deadline applies until the first write.
-				if r.preWrite != nil {
-					r.preWrite.Stop()
+				if r.latch.Err() == nil {
+					r.disarmPreWrite()
 				}
 			}
 			r.writeMu.Unlock()
-			if r.latch.Err() != nil {
-				return notLaunched()
-			}
-			// A pre-write deadline that passed while the host decided
-			// stops the write (H4).
-			if errors.Is(context.Cause(ctx), ErrPreWriteDeadline) {
+			if r.latch.Err() != nil || r.preWrite.Load() == preWriteExpired {
 				return notLaunched()
 			}
 			r.mu.Lock()
@@ -1084,15 +1087,64 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	return r.stop(ctx, fr, i, site.Path, o)
 }
 
+// The states of a pre-write deadline (run.preWrite).
+const (
+	preWriteArmed int32 = iota
+	preWriteDisarmed
+	preWriteExpired
+)
+
+// expirePreWrite expires the run's pre-write deadline, unless the first
+// write disarmed it first, and then cancels the run with
+// ErrPreWriteDeadline (H4). It reports whether the deadline is expired.
+func (r *run) expirePreWrite() bool {
+	if r.preWrite.CompareAndSwap(preWriteArmed, preWriteExpired) {
+		r.cancel(ErrPreWriteDeadline)
+	}
+	return r.preWrite.Load() == preWriteExpired
+}
+
+// preWriteDue reports whether the run's pre-write deadline stops a first
+// write now: it has expired, or its time has come, which expires it.
+func (r *run) preWriteDue() bool {
+	if r.preWriteAt.IsZero() {
+		return false
+	}
+	if time.Now().Before(r.preWriteAt) {
+		return r.preWrite.Load() == preWriteExpired
+	}
+	return r.expirePreWrite()
+}
+
+// disarmPreWrite disarms the run's pre-write deadline at its first
+// write-capable launch, once the host has approved it (H3, H4), and
+// reports whether the write may launch: not when the deadline passed
+// first, while the host decided included.
+func (r *run) disarmPreWrite() bool {
+	if r.preWriteDue() {
+		return false
+	}
+	r.preWrite.CompareAndSwap(preWriteArmed, preWriteDisarmed)
+	return r.preWrite.Load() != preWriteExpired
+}
+
 // ended records that the job of o, a job of fr's flow which started at
 // o.rec.Start, has ended: its duration, and the end of the transition that
 // pushed it, which starts the next one (JE-2's monitor, which a collapsed
 // iteration's loop's flow keeps).
 func (r *run) ended(fr *frame, o *outcome) {
-	now := r.clock.Now()
-	o.rec.Duration = now.Sub(o.rec.Start)
+	o.rec.Duration = r.since(o.rec.Start)
+	r.ping(fr)
+}
+
+// ping refreshes the ping of fr's flow, a collapsed iteration's its
+// loop's: one of its jobs, or one of its child flows, has completed, which
+// ends the transition the monitor measures and starts the next (JE-2: a
+// flow job's ping is refreshed when a child completes). Only the goroutine
+// that runs the flow calls it.
+func (r *run) ping(fr *frame) {
 	own := fr.owner()
-	own.spent, own.pinged = 0, now
+	own.spent, own.pinged = 0, r.clock.Now()
 }
 
 // passDirect reports whether module m of fr receives its flow's input as

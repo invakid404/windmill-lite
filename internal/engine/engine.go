@@ -452,8 +452,16 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 		r.trace.Deviations = append(r.trace.Deviations, "H10")
 	}
 	if !req.PreWriteDeadline.IsZero() {
-		r.preWrite = time.AfterFunc(time.Until(req.PreWriteDeadline), func() { cancel(ErrPreWriteDeadline) })
-		defer r.preWrite.Stop()
+		// H4: a deadline that has passed cancels the run before it starts;
+		// a later one expires on time, unless the first write disarmed it
+		// first (run.disarmPreWrite).
+		r.preWriteAt = req.PreWriteDeadline
+		if !time.Now().Before(r.preWriteAt) {
+			r.expirePreWrite()
+		} else {
+			t := time.AfterFunc(time.Until(r.preWriteAt), func() { r.expirePreWrite() })
+			defer t.Stop()
+		}
 	}
 	r.run(ctx)
 	// H9: OnRunEnd sees the outcome first; its warnings are part of the

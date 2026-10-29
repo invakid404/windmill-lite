@@ -705,8 +705,12 @@ run's seed, so a fixed seed fixes them.
 `RunRequest.PreWriteDeadline` ends the run canceled, with
 `ErrPreWriteDeadline` as its context's cause and Windmill's default
 reason and canceler, when it passes before the first write-capable
-module launched (H3), also while the host's `BeforeFirstWrite` decides,
-and that module then does not launch; after that launch it no longer
+module launched (H3): a deadline already passed cancels the run before
+it starts; one that passes before the first write, or while the host's
+`BeforeFirstWrite` decides on it, stops that write. The actual time
+decides, under the write gate, never the delivery of the deadline's
+timer: an atomic state, armed, disarmed or expired, lets one of the
+first write and the timer win. After the first write it no longer
 applies. A flow's
 own `timeout` is accepted and not enforced (FX-24, path 4).
 
@@ -719,7 +723,10 @@ against
 `Config.TransitionTimeout` (zero means 60 s, negative disables it), and
 past it cancels the run with canceler `monitor` and a reason that begins
 as Windmill's (`Flow <id> was cancelled because it was hanging in between
-2 steps. Last ping: <time>`, without the URL and worker details). Hooks
+2 steps. Last ping: <time>`, without the URL and worker details). A job's
+completion, and a child flow's (a loop iteration's), refreshes the flow's
+ping and starts its next transition, as a child's completion refreshes a
+Windmill flow job's ping. Hooks
 and waits do not count: Windmill has no hooks, and runs a sleep or a
 retry delay as a scheduled job. So a runaway expression, whose three
 20 s attempts and two 5 s pauses take 70 s, ends the run canceled at
@@ -742,8 +749,19 @@ fixture recorded on the oracle:
   `retry_if` that changed its answer) proceeds with the continue decision
   as if no retry had been due.
 - The failure module's counter reset leaves the list of failed attempts.
-- A sleep's or timeout's value that is not JSON (B2b's readback can return
-  such text) fails with serde_json's message for the commonest cases.
+- A sleep's or timeout's value that is not JSON (a replaced
+  `JSON.stringify`, JE-15) fails with serde_json's syntax error, through
+  the helpers N3a's iterator and `parallelism` use (`serde.go`): a broken
+  or truncated literal, a character no value starts with, a leading zero,
+  then more than white space after the value, at serde_json's positions
+  (lines included); its other syntax errors read `expected value` where
+  the decoder stopped. An i32 is checked for type and range before what
+  follows it. The oracle recorded the commonest of these
+  (`fx-23/sleep_not_json`, `fx-24/js_not_json`, `fx-24/js_leading_zero`).
+- serde_json names a float of the wrong type as ryu writes it
+  (`floating point `1e21``, recorded by `fx-24/js_exponent`), and a
+  negative zero is a float (`-0.0`); `serdeUnexpected`, which N3a's
+  iterator and `parallelism` errors share, writes both so.
 - A sleep beyond about 292 years waits that long, where Windmill's
   scheduled time would overflow.
 - serde_json's `Value` debug form writes an object's members in insertion
@@ -767,9 +785,11 @@ and contexts (every module evaluates its own, the root's Anyhow and its
 retry, a failed transform with a negative timeout, the evaluated value
 timing the leaf), the monitor (a runaway expression, one transition at a
 time, two evaluations in one transition, disabled) and the pre-write
-deadline (one that passes while the host approves the first write
-included), and that the monitor's budget ignores a recording clock other
-runs move on.
+deadline (one already passed at the start, one that passes while the
+host approves the first write, and its states decided by the actual
+time), that the monitor's budget ignores a recording clock other runs
+move on, that child flows refresh their loop's ping, and sleep and
+timeout values that are not JSON.
 
 ## The walking skeleton
 
