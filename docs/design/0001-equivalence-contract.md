@@ -158,7 +158,7 @@ recorded in each run's trace.
 | D2 | A timed-out or canceled step is abandoned, not killed; its JavaScript may run on until it settles or the harness process is recycled. In host mode the engine neither recycles nor kills the host, except through the watchdog when the host's event loop stops answering; a step that blocks the event loop longer than the watchdog's threshold therefore ends the host and every run in it, even if it would have finished. In a `warm` process the engine spawned, the same watchdog kills the process and fails all its in-flight invocations; and while one step blocks a shared event loop, every co-resident invocation stalls and can reach its own `timeout`. `fresh` processes are exempt from the watchdog (case `watchdog/finite-cpu`) | one warm process serves many invocations; killing it would fail unrelated steps, and in host mode it is the host | [0004](0004-harness-protocol.md) |
 | D3 | Job ids are windmill-lite UUIDs; job introspection answers from the run, not from a job table | there is no queue | [0007](0007-platform-interface.md) |
 | D4 | The `cache_ttl` result cache is per process unless the host plugs in a shared store | Windmill's cache lives in its database | [0007](0007-platform-interface.md) |
-| D5 | `nativets` and `//native` scripts run in the Bun harness under a native boundary mode, not in Windmill's V8 isolate | one JavaScript harness; the reference covers the native runtime only in outline ([WR-31](../semantics/languages.md#wr-31), `later`), so the mode's rules wait for a semantics request (README) and the API surface is checked at build | [0004](0004-harness-protocol.md), [0002](0002-ir-and-loader.md) |
+| D5 | `nativets` and `//native` scripts run in the Bun harness under a native boundary mode, not in Windmill's V8 isolate: each invocation in a fresh JavaScriptCore realm with the native runtime's rules ([WR-40](../semantics/languages.md#wr-40) to [WR-45](../semantics/languages.md#wr-45)); what the realm cannot reproduce is listed below | one JavaScript harness, which host mode needs: a host's steps run in its own Bun process | [0004](0004-harness-protocol.md), [0002](0002-ir-and-loader.md), [0010](0010-packaging.md) |
 | D6 | Module ids missing from a never-deployed folder are derived from their position, not random | reproducible bundle identity | [0002](0002-ir-and-loader.md) |
 | D7 | `//nobundling` scripts are bundled at build time instead of resolving imports and installing packages at run time | a bundle must run offline; results are the same, but `import.meta`, file paths and stack text differ, as they already do between Windmill's two modes ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
 | D8 | An expression attempt that hits the 20 s limit is interrupted; Windmill leaves the evaluation running on its thread | frees the CPU; the error text, the three attempts and the 5 s pauses are unchanged | §7, [JE-2](../semantics/expressions.md#je-2) |
@@ -166,11 +166,100 @@ recorded in each run's trace.
 | D10 | A harness process has one working directory for all its invocations, not a fresh one per job, and every codebase entry's assets are visible there to every script; so one entry's `package.json` asset declaring `"type": "module"` also makes Bun import the default export of every CommonJS codebase module there as Node does (milestone C2b) | the working directory is process-global; Windmill gives each job its own, with only its entry's assets ([WR-1](../semantics/languages.md#wr-1)) | [0004](0004-harness-protocol.md) |
 | D11 | An intercepted `process.exit` fixes the step's outcome at the call, but `finally` blocks run and a `catch` can swallow it and continue | the process must not exit; the call can only throw | [0004](0004-harness-protocol.md) |
 | D12 | A host-provided module has one instance per process, shared by the host and every script that imports it | singletons that hold the host's scopes must be the host's own; Windmill inlines every import into each script's bundle ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
-| D13 | Codebase scripts built as CommonJS run on Bun's CommonJS loader, not Node. Milestone C2b's cases (Node against Bun, `conformance/steps/bun/d13.yaml`) find the runtime visible (`globalThis.Bun`, `process.versions.bun`), an `_ENTRYPOINT_OVERRIDE` of `default` calling the module's default export on Bun where Node finds the whole exports object, and a `package.json` asset declaring `"type": "module"`, under which Node fails to load a CommonJS bundle that the harness runs; named exports, overrides, `__dirname`, run-time `require` of the bundle's files and assets, and thrown errors agree | one JavaScript harness, and host mode needs the steps in the host's Bun process; Windmill runs CJS codebase bundles under Node ([WR-30](../semantics/languages.md#wr-30), [WR-50](../semantics/languages.md#wr-50)) | [0002](0002-ir-and-loader.md) |
+| D13 | Codebase scripts built as CommonJS run on Bun's CommonJS loader, not Node, and so does an ES module one whose header says `//nodejs`, which Windmill also runs on Node ([WR-50](../semantics/languages.md#wr-50)/d). Milestone C2b's cases (Node against Bun, `conformance/steps/bun/d13.yaml`) find the runtime visible (`globalThis.Bun`, `process.versions.bun`), an `_ENTRYPOINT_OVERRIDE` of `default` calling the module's default export on Bun where Node finds the whole exports object, and a `package.json` asset declaring `"type": "module"`, under which Node fails to load a CommonJS bundle that the harness runs; named exports, overrides, `__dirname`, run-time `require` of the bundle's files and assets, and thrown errors agree | one JavaScript harness, and host mode needs the steps in the host's Bun process; Windmill runs CJS codebase bundles under Node ([WR-30](../semantics/languages.md#wr-30), [WR-50](../semantics/languages.md#wr-50)) | [0002](0002-ir-and-loader.md) |
 | D14 | Messages windmill-lite generates in place of Windmill's server-side ones carry no Rust location suffix | windmill-lite has no Rust source; §2 strips the oracle's suffix only on generated messages | §2 |
 | D15 | A host-set cap on in-flight invocations per process. There is none by default; with one set, concurrent children that wait on each other, or parents that wait on runs they dispatched locally, can wait forever where a Windmill with enough workers completes them | a host may need to bound concurrency; the reference has no such bound | [0004](0004-harness-protocol.md) |
 | D16 | A transcendental `Math` function (`Math.sin`, `Math.tan`, `Math.log`, `Math.cosh` and the like) gives what the engine build's C library gives, which can differ in the last digit from the glibc of Windmill's image. Measured on recording batch E3a's 30 values: the static musl engine (`amd64` and `arm64`) gives all of them; the glibc of CI's Ubuntu 24.04 runner differs on `Math.cbrt(10)` and macOS's libm on 6, each by one unit in the last place. Other inputs can differ on any library but the image's own | QuickJS-ng calls the C library's libm, and the release engine links musl statically ([0003](0003-semantics-placement.md)); no libm that reproduces glibc's results is vendored | [JE-1](../semantics/expressions.md#je-1), [0003](0003-semantics-placement.md) |
 | D17 | A recursion fits deeper in an expression than on Windmill: both engines stop at QuickJS-ng's 1 MiB stack ([JE-48](../semantics/expressions.md#je-48)), but the depth that fits depends on the compiled engine's frames. Recording batch E3a found that JE-48/a's depth of 1 000 overflows on the oracle (600 fits); windmill-lite's builds fit about 1 020 to 1 070 frames of such a function (1 019 on the static `amd64` engine, 1 070 on `arm64`, 1 035 on macOS) | depth is not portable between builds (JE-48); matching it would mean calibrating the stack limit to one compiler's frames | [0003](0003-semantics-placement.md) |
+
+**D5, the native boundary mode** (milestone C3n). A native invocation runs
+in a `node:vm` context of the harness process, made for it and released
+when it settles, so its module state and globals never survive it, in any
+mode ([WR-41](../semantics/languages.md#wr-41)): D1 does not apply to it.
+Its global object holds the native runtime's web APIs and nothing of Bun's
+([WR-45](../semantics/languages.md#wr-45)). The realm keeps the argument
+binding, the result's serialisation (V8's BigInt message included), both
+error shapes, the environment preamble and its redeclaration failures, the
+timeout text, the failure of a job by a rejection nobody handles (of its
+own promises or of those the web APIs hand it) or a throw from a timer,
+a module scope with no `arguments` and an undefined `this`, and the end of
+its timers and fetches (a response's body included) when it settles.
+
+The web APIs reach the realm through a boundary that **fails closed**:
+each promise and object they hand an invocation is tracked as its own
+when the boundary hands it over, or handed over untracked and counted. No
+path an object can travel is listed; the boundary sits on the realm's only
+ways into the web APIs, so what it cannot tell apart is counted rather
+than missed.
+
+- *Where it sits.* The realm gets each class WR-45 lists as a subclass of
+  the harness realm's, made once per process, which inherits from its
+  parent's subclass as in V8 (`CustomEvent` from `Event`, `File` from
+  `Blob`). Its constructor is the only way the realm makes one, and each
+  member of the class, its own, inherited, symbol-named and static ones,
+  hands on what it returns or throws. The function globals (`atob`,
+  `btoa`, `reportError`, `structuredClone`) do the same, and `crypto`,
+  `crypto.subtle` and `performance` are objects of their subclasses that
+  forward to the shared ones. What the harness calls back is wrapped where
+  the realm hands it over: a method's callback argument
+  (`FormData.forEach`), the callbacks of a stream's underlying source,
+  sink, transformer and queuing strategy, and every event listener and
+  `on…` handler of every event target, which runs in the async context of
+  the invocation that registered it. Each gets its `this` and arguments
+  handed on.
+- *Tracked.* A promise of the harness realm, as the invocation's, and each
+  promise its `then` derives (`catch`, `finally` and `await` included),
+  whose value or reason is handed on in turn, so a rejection nobody
+  handles fails the invocation ([WR-43](../semantics/languages.md#wr-43)).
+  An instance of a WR-45 class, which takes its subclass's prototype. The
+  contents of an array, `Map`, `Set` or plain object, all through (a
+  message event's `data`, `structuredClone`'s result, a key pair), and the
+  results of an iterator, sync or async.
+- *Handed on as data.* Buffers and their views, dates, regular
+  expressions, errors other than `DOMException`, boxed primitives, the
+  JSON `json()` parses, and the realm's own objects when a web API gives
+  them back (a signal's `reason`): there is nothing in them to track.
+- *Counted.* Anything else of the harness realm: an object of a class
+  WR-45 does not list (Bun's `performance.timing`, a `PerformanceTiming`)
+  or a harness function. It is handed over as it is and counted on the
+  invocation, and the count reaches the engine as a `native_untracked`
+  warning ahead of the frame that settles it
+  ([0004](0004-harness-protocol.md)). One handed out in no invocation's
+  context, or after its invocation settled, cannot be counted on it: it is
+  a `native_untracked` warning to every invocation in flight, or a
+  diagnostic line. A promise internal to a web API that is never handed
+  over belongs to no invocation: a rejection of it nobody handles is an
+  unattributed error (0004's failure model, item 3).
+
+The realm cannot keep:
+
+- JavaScriptCore's texts where they differ from V8's: a redeclared name, a
+  cyclic result, a missing export, the cause of a load failure, the text
+  and frames of a stack. The BigInt and stack-overflow messages are V8's;
+- the stack limit, which is JavaScriptCore's; and a stack replaced by a
+  value that is not a string leaves no source line in front of it
+  (WR-43/i), since JavaScriptCore keeps a thrown error's frames only in
+  its stack text;
+- the 128 MiB heap cap per isolate (WR-44/c): the realms share the
+  harness's heap; and the failure of a job whose promise can never settle
+  (WR-43/e): with other invocations on the event loop, the harness cannot
+  know that nothing is pending, so such a step runs until its timeout;
+- `FileReader`, which Bun 1.3.10 lacks;
+- separate web API objects: the realm gets the harness realm's classes
+  through the subclasses above, made once per process, and the shared
+  `crypto` and `performance` through forwarders; a script that changes one
+  of them (a prototype, `crypto`) changes it for the other native
+  invocations of the process, as D1 says of Bun's `globalThis`; and a web
+  API's promise, buffer or parsed JSON is the harness realm's, so it is
+  not an `instanceof` the realm's `Promise`, `ArrayBuffer` or `Object`;
+- imports of files of the host: windmill-lite reads none, so only the
+  embedded client resolves ([WR-40](../semantics/languages.md#wr-40)); the
+  client is `windmill-client@1.326.0`, the version Windmill embeds, built
+  from npm into the bundle;
+- the drop of the isolate when an outcome is fixed early: the call goes on
+  until it settles (D2, D9);
+- result streaming ([WR-46](../semantics/languages.md#wr-46), `later`),
+  which is not implemented.
 
 `fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10 and D11:
 it runs one process per invocation, in its own working directory, and kills

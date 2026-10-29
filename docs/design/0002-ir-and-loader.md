@@ -174,7 +174,7 @@ switch. The IR maps languages to harness classes:
 | Languages | Harness class | Boundary mode |
 |---|---|---|
 | `bun` | `bun` | Bun ([WR-13](../semantics/languages.md#wr-13), [WR-18](../semantics/languages.md#wr-18)) |
-| `bunnative`, `nativets` | `bun` | native (deviation D5); its rules wait for a semantics request (README) |
+| `bunnative`, `nativets` | `bun` | native ([WR-40](../semantics/languages.md#wr-40) to [WR-45](../semantics/languages.md#wr-45), a realm per invocation: deviation D5) |
 | `python3`, `deno`, `go`, `bash` (`later`) | one class each | per [WR-33](../semantics/languages.md#wr-33) to [WR-35](../semantics/languages.md#wr-35) |
 | anything else | none | load error `unsupported_language: <lang>` naming the step |
 
@@ -412,6 +412,13 @@ only hand-written files.
   made the compiler call it: every `Expr` of a program is compiled
   (`ir.Version` 2), and the engine compiles each one's bytecode when it
   opens the program.
+- Milestone C3n exported the deploy's relabelling of a Bun-family rawscript
+  (`ir.DeployedLanguage`) and the boundary of a language (`ir.BoundaryOf`),
+  so that the step-case runner and the walking skeleton's loader apply the
+  compiler's rule rather than one of their own. The header decides only
+  for `bun` and `bunnative`: a `nativets` step is native with or without a
+  `//native` line, and is always transpiled, never bundled
+  ([WR-40](../semantics/languages.md#wr-40)'s note, from SC1).
 - Milestone F4's build applies rule 5 (`missing_lock`, for a script whose
   own source imports a package and that has no lock or a blank one) and the
   workflow-as-code refusal, from the Bun helper's scans; the relative-import

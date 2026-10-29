@@ -1,0 +1,199 @@
+# WR-45: what the native runtime offers. process is a module-scope {env}
+# object holding the job's variables and both base URLs (nativets also
+# declares each as a const), the global surface is a fixed list of web
+# APIs, and nothing of Bun's is there. "Both kinds" cases run once as
+# nativets and once as a bun script whose first line is //native.
+finding: WR-45
+scope: core
+cases:
+  - spec: WR-45/a
+    variant: nativets
+    provenance: source-derived
+    title: what process.env holds (nativets)
+    language: nativets
+    env: {WM_TOKEN: wl-step-token}
+    script: |
+      export function main() { return [typeof process.env.WM_TOKEN, process.env.WM_FLOW_STEP_ID, process.env.BASE_URL === process.env.BASE_INTERNAL_URL, typeof process.env.PATH, typeof (process as any).exit]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [string, a, true, "undefined", "undefined"]}
+  - spec: WR-45/a
+    variant: bunnative
+    provenance: source-derived
+    title: what process.env holds (bunnative)
+    env: {WM_TOKEN: wl-step-token}
+    script: |
+      //native
+      export function main() { return [typeof process.env.WM_TOKEN, process.env.WM_FLOW_STEP_ID, process.env.BASE_URL === process.env.BASE_INTERNAL_URL, typeof process.env.PATH, typeof (process as any).exit]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [string, a, true, "undefined", "undefined"]}
+  - spec: WR-45
+    variant: base-url-and-names
+    provenance: policy
+    title: both base URLs are the facade's origin, and process.env holds nothing but the job's variables
+    note: The facade origin is the one wltest check gives the harness; on Windmill it is the worker's internal base URL.
+    language: nativets
+    script: |
+      export function main() { return [process.env.BASE_URL, Object.keys(process.env).sort()]; }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result:
+            - "http://127.0.0.1:9"
+            - [BASE_INTERNAL_URL, BASE_URL, WM_FLOW_JOB_ID, WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_ID, WM_JOB_PATH, WM_ROOT_FLOW_JOB_ID, WM_ROOT_JOB_ID, WM_WORKSPACE]
+  - spec: WR-45
+    variant: own-copy
+    provenance: source-derived
+    title: a write to process.env stays in the job, and the next job sees the job's value
+    language: nativets
+    script: |
+      export function main() { const before = process.env.WM_WORKSPACE; process.env.WM_WORKSPACE = "changed"; return [before, process.env.WM_WORKSPACE, WM_WORKSPACE]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [wl_step, changed, wl_step]}
+      - args: '{}'
+        expect: {status: success, result: [wl_step, changed, wl_step]}
+  - spec: WR-45/b
+    variant: nativets
+    provenance: source-derived
+    title: reserved names are bare identifiers in nativets
+    language: nativets
+    script: |
+      declare const WM_WORKSPACE: string;
+      export function main() { return typeof WM_WORKSPACE; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: string}
+  - spec: WR-45/b
+    variant: bunnative
+    provenance: source-derived
+    title: but not in bunnative
+    script: |
+      //native
+      declare const WM_WORKSPACE: string;
+      export function main() { return typeof WM_WORKSPACE; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: "undefined"}
+  - spec: WR-45/c
+    provenance: source-derived
+    title: redeclaring a preamble name fails the load (nativets)
+    language: nativets
+    script: |
+      const BASE_URL = "x"; export function main() { return BASE_URL; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-45
+    variant: redeclare-bunnative
+    provenance: source-derived
+    title: both kinds declare process and BASE_URL, so a //native script that declares one fails its load too
+    script: |
+      //native
+      const process = { env: {} };
+      export function main() { return Object.keys(process.env).length; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+          - {at: /result/error/name, equals: ExecutionErr}
+  - spec: WR-45
+    variant: redeclare-job-variable
+    provenance: source-derived
+    title: nativets also declares every job variable, so a top-level declaration of one fails the load
+    language: nativets
+    script: |
+      const WM_JOB_PATH = "mine"; export function main() { return WM_JOB_PATH; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+  - spec: WR-45
+    variant: invalid-variable-name
+    provenance: source-derived
+    scope: later
+    title: a variable whose name is not an identifier fails every nativets load
+    language: nativets
+    env: {WL-DASHED: "1"}
+    script: |
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, prefix: "execution error:\nError: failed to load module"}
+  - spec: WR-45/d
+    variant: nativets
+    provenance: source-derived
+    title: installed globals (nativets)
+    language: nativets
+    script: |
+      export function main() { return [typeof fetch, typeof URLPattern, typeof atob, typeof setInterval, typeof crypto.subtle, typeof structuredClone, typeof queueMicrotask, typeof CompressionStream, typeof Intl]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [function, function, function, function, object, function, function, function, object]}
+  - spec: WR-45/d
+    variant: bunnative
+    provenance: source-derived
+    title: installed globals (bunnative)
+    script: |
+      //native
+      export function main() { return [typeof fetch, typeof URLPattern, typeof atob, typeof setInterval, typeof crypto.subtle, typeof structuredClone, typeof queueMicrotask, typeof CompressionStream, typeof Intl]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [function, function, function, function, object, function, function, function, object]}
+  - spec: WR-45
+    variant: timers-and-events
+    provenance: source-derived
+    title: timers return numeric ids and can be cleared, and globalThis is an event target
+    language: nativets
+    script: |
+      export async function main() {
+        let fired = 0;
+        const t = setTimeout(() => { fired += 10; }, 5);
+        clearTimeout(t);
+        const i = setInterval(() => { fired += 1; if (fired >= 2) clearInterval(i); }, 1);
+        await new Promise(r => setTimeout(r, 50));
+        let seen = "";
+        globalThis.addEventListener("ping", (e: Event) => { seen = e.type; });
+        globalThis.dispatchEvent(new Event("ping"));
+        return [typeof t, fired, seen];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [number, 2, ping]}
+  - spec: WR-45/e
+    provenance: source-derived
+    title: absent globals (nativets)
+    language: nativets
+    script: |
+      export function main() { const g = globalThis as any; return [typeof g.Bun, typeof g.Buffer, typeof g.require, typeof g.WebSocket, typeof g.EventSource, typeof g.setImmediate, typeof g.navigator, typeof g.Deno?.env]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ["undefined", "undefined", "undefined", "undefined", "undefined", "undefined", "undefined", "undefined"]}
+  - spec: WR-45
+    variant: absent-globals-bunnative
+    provenance: source-derived
+    title: the same globals are absent for a //native step
+    script: |
+      //native
+      export function main() { const g = globalThis as any; return [typeof g.Bun, typeof g.Buffer, typeof g.require, typeof g.process, typeof g.module, typeof g.__dirname, typeof g.setImmediate, typeof g.Deno, typeof g.Deno?.core]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ["undefined", "undefined", "undefined", "undefined", "undefined", "undefined", "undefined", object, object]}
+  - spec: WR-45/f
+    provenance: source-derived
+    scope: later
+    title: //proxy is refused on CE
+    language: nativets
+    script: |
+      //proxy http://127.0.0.1:3128
+      export function main() { return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nProxy is an EE feature", name: ExecutionErr, step_id: a}}}

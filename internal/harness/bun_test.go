@@ -27,10 +27,52 @@ func TestBunHandshake(t *testing.T) {
 	if h.Proto != ProtocolVersion || h.Harness.Kind != "bun" || h.Runtime != PinnedBun || h.Bundle != cfg.Bundle || h.PID != p.PID() {
 		t.Fatalf("hello %+v", h)
 	}
-	// The runtime intercepts facade fetches (W1) and runs fresh mode
-	// (C3b); native and host are a later milestone's and the host SDK's.
-	if h.Caps != (Caps{Fetch: true, Fresh: true}) {
-		t.Fatalf("caps %+v, want fetch and fresh", h.Caps)
+	// The runtime intercepts facade fetches (W1), runs fresh mode (C3b)
+	// and the native boundary (C3n); host is the host SDK's.
+	if h.Caps != (Caps{Fetch: true, Native: true, Fresh: true}) {
+		t.Fatalf("caps %+v, want fetch, native and fresh", h.Caps)
+	}
+}
+
+// The engine refuses a native invocation, before it is dispatched, to a
+// harness whose hello does not offer the native boundary, and to a process
+// with no facade origin, which a native step must read as BASE_URL and
+// BASE_INTERNAL_URL (WR-45; c3n review r3, finding 6). A Bun invocation
+// needs neither.
+func TestCheckInvocationNeedsTheNativeCap(t *testing.T) {
+	inv := newInvocation("echo", `{}`, newRecorder())
+	inv.Boundary = engine.BoundaryNative
+	const facade = "http://127.0.0.1:9"
+	if err := checkInvocation(inv, Caps{Fetch: true}, engine.ModuleStateWarm, facade); err == nil || !strings.Contains(err.Error(), "no native boundary") {
+		t.Fatalf("without the cap: %v, want a refusal", err)
+	}
+	if err := checkInvocation(inv, Caps{Fetch: true, Native: true}, engine.ModuleStateWarm, ""); err == nil || !strings.Contains(err.Error(), "facade") {
+		t.Fatalf("without a facade: %v, want a refusal", err)
+	}
+	if err := checkInvocation(inv, Caps{Fetch: true, Native: true}, engine.ModuleStateWarm, facade); err != nil {
+		t.Fatalf("with the cap and a facade: %v", err)
+	}
+	inv.Boundary = engine.BoundaryBun
+	if err := checkInvocation(inv, Caps{Fetch: true}, engine.ModuleStateWarm, ""); err != nil {
+		t.Fatalf("a Bun invocation: %v", err)
+	}
+}
+
+// A script built for one boundary and invoked with the other escapes,
+// naming the mismatch, instead of running.
+func TestBunBoundaryMismatch(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	// A native invocation needs a facade origin (WR-45).
+	cfg.Facade = "http://127.0.0.1:9"
+	p := spawn(t, cfg)
+	inv := newInvocation("echo", `{}`, newRecorder())
+	inv.Boundary = engine.BoundaryNative
+	out, err := p.Execute(context.Background(), inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Kind != engine.OutcomeEscaped || !strings.Contains(out.Tail, "is not built for the native boundary") {
+		t.Fatalf("outcome %+v, want escaped for the boundary", out)
 	}
 }
 
@@ -483,7 +525,6 @@ func TestBunNotDispatched(t *testing.T) {
 		want string
 	}{
 		"canceled before dispatch": {canceled, func(*engine.Invocation) {}, "context canceled"},
-		"native boundary":          {context.Background(), func(i *engine.Invocation) { i.Boundary = engine.BoundaryNative }, "no native boundary"},
 		"fresh mode":               {context.Background(), func(i *engine.Invocation) { i.ModuleState = engine.ModuleStateFresh }, `module state "fresh", the process in "warm"`},
 		"invalid entrypoint":       {context.Background(), func(i *engine.Invocation) { i.Entry = "not-a-name" }, "not a valid name"},
 		"env not UTF-8":            {context.Background(), func(i *engine.Invocation) { i.Env = map[string]string{"X": "\xff"} }, "invalid_utf8"},

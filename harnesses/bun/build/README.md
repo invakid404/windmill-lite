@@ -8,7 +8,9 @@ does yet, and no `windmill-lite build` command exists (F4). It runs on the
 pinned Bun 1.3.10 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
 refuses another unless the caller allows it. Codebase scripts are not
 bundled here: esbuild bundles them in Go (C2b), and the helper only parses
-their sources (`parse`, below).
+their sources (`parse`, below). Milestone C3n added the native form of
+`nativets` and `//native` scripts and the embedded client (below, "Native
+scripts").
 
 ## Running
 
@@ -17,8 +19,13 @@ cd harnesses/bun/build && bun install --frozen-lockfile   # once: the parser
 bun harnesses/bun/build/main.ts <request.json> <response.json>
 ```
 
-The helper has one dependency, `@babel/parser` (MIT), pinned with its own
-dependencies in `bun.lock`; it parses TypeScript for the signature parse.
+The helper has two dependencies, pinned with their own in `bun.lock`:
+`@babel/parser` (MIT), which parses TypeScript for the signature parse and
+JavaScript for the native form, and `windmill-client@1.326.0` (Apache-2.0),
+the package the native runtime's embedded client is built from. Its
+version is the one Windmill embeds
+([WR-40](../../../docs/semantics/languages.md#wr-40)); Renovate holds it
+there.
 `node_modules/` is not committed.
 
 The request and response types are in `protocol.ts`. A request is `scan`,
@@ -46,6 +53,7 @@ the rest are still built.
 | `signature.ts` | The AST parse: signatures, `Date` marking, import specifiers, live bindings |
 | `annotations.ts` | Leading-comment annotations and the bundler target they select |
 | `wac.ts` | Workflow-as-code detection |
+| `native.ts` | The native form of a module, the nativets transpile, the `//useragent` and `//proxy` header, the embedded client |
 | `text.ts` | Rust's line and whitespace rules, for the textual scans |
 | `protocol.ts` | The request and response |
 
@@ -133,6 +141,57 @@ Sources are written under the dependency set's directory before bundling,
 so the paths a bundle's comments name are the same on every machine:
 `entry/<id>.ts`, `src/<Windmill path>.ts`, `host/<id>.mjs` and
 `node_modules/…`.
+
+### Native scripts
+
+A nativets script, or a Bun-family one whose header says `//native`, runs
+with the native boundary (deviation D5;
+[WR-40](../../../docs/semantics/languages.md#wr-40)). The request's
+`language` says nativets; the header says `//native`.
+
+- **nativets** is transpiled with `Bun.Transpiler` (types stripped,
+  nothing bundled, no import transform), with target `none`. Its imports
+  stay for the harness to resolve. Text the transpiler rejects is not a
+  build problem: the metadata records its diagnostic, with its position as
+  `file:///eval.ts:<line>:<column>`, and the step fails when it runs
+  ([WR-43](../../../docs/semantics/languages.md#wr-43)). Its `packages` are
+  empty, since nothing is installed for it.
+- **`//native`** is bundled as any other script for its target (browser,
+  or node with `//nodejs`), without the env rewrite, and with host-provided
+  modules inlined rather than shimmed: a native step's realm does not reach
+  the process registry.
+- **The native form.** Either module is then parsed as JavaScript and
+  written as the source of one async arrow function,
+  `scripts/bun/<id>.native.js` (no `.mjs`): an arrow, so that the module's
+  scope has no `arguments`; its import declarations bound on the first line
+  from the function's parameter, its `export` keywords removed and every
+  later line kept in place, `import.meta` and `import(…)` read from the
+  parameter, the module's own `this` (outside every function but arrows,
+  and every class member) written as `(void 0)`, and a namespace of getters
+  returned, so live bindings stay live. A nativets script's own `this` is
+  written so before its transpile too, because Bun's transpiler writes it
+  as `null`; a `//native` bundle keeps what Bun's bundler makes of it, as
+  Windmill's bundle of it does. A default
+  export of an expression, or of an anonymous declaration, becomes a
+  `const`. The parameter's name is one the text never spells. The metadata's
+  `boundary` is `native`, and its `native` part records the kind, the
+  parameter, the offset where the harness inserts the preamble, the static
+  imports in order, the named imports that must exist (`links`), and the
+  `//useragent` and `//proxy` header annotations, read from the leading
+  run of `//` lines, which a blank line ends
+  ([WR-45](../../../docs/semantics/languages.md#wr-45)). The signatures
+  come from the source, as for any script.
+- **A `//native` codebase script** (WR-50) is bundled by esbuild in Go; the
+  `native` op takes that bundle (a file under the work directory) and
+  writes its native form, with the source's header annotations. The native
+  runtime evaluates it as an ES module whatever its format, so a CommonJS
+  bundle fails on its first use of `module`, `exports` or `require`, as on
+  Windmill.
+- **The embedded client.** When the bundle has a nativets script, the
+  helper bundles `windmill-client` (it refuses another version than
+  1.326.0) for the browser target as CommonJS, and writes it in its native
+  form to `scripts/native/windmill.js`, with `windmill.meta.json`; its
+  namespace is its exports object's own names.
 
 ### The parse
 
@@ -223,6 +282,11 @@ and the case that pins it carries provenance `policy` or a note
 - Pin removal takes its specifiers from the parse; the `.ts` rewrite from
   Bun's `scan` (not `scanImports`), with the `ts` loader.
 - A bundle is built without `NODE_ENV`, so it inlines `"development"`.
+- A nativets transpile error's text is Bun's transpiler's, with a position
+  in `file:///eval.ts`; Windmill's parser diagnostic differs.
+- An anonymous `export default function` of a native module becomes a
+  `const`, so it is not hoisted (Bun's transpiler names one, so only a
+  hand-written native module meets this).
 
 ## Tests
 
@@ -230,4 +294,5 @@ The merge gate is the Go side:
 [internal/bundle](../../../internal/bundle/README.md) runs every case of
 `conformance/build` through this helper on the pinned Bun.
 `harnesses/bun/test/build.test.ts` has developer checks of the scans and the
-parse, run by `bun test` in `harnesses/bun`.
+parse, and `harnesses/bun/test/native.test.ts` of the native form, run by
+`bun test` in `harnesses/bun`.

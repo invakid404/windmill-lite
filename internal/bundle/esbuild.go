@@ -458,7 +458,14 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 			continue
 		}
 		meta.Format = settings.Format
-		if p := cfg.bundleOne(e, settings, meta, shims); p != nil {
+		// A //native script runs in a realm of its own, which the
+		// process-wide registry of host-provided modules does not reach, so
+		// it inlines them as the Bun build does for one (D5).
+		sh := shims
+		if meta.Annotations.Native {
+			sh = nil
+		}
+		if p := cfg.bundleOne(e, settings, meta, sh); p != nil {
 			problems = append(problems, ItemProblem{item, *p})
 			continue
 		}
@@ -471,6 +478,12 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 			assets[to] = a
 		}
 		built = append(built, e)
+	}
+	// A //native script's bundle runs in the native runtime (WR-50): its
+	// native form is the helper's, as for every native script.
+	var err2 error
+	if built, problems, err2 = cfg.nativeForms(ctx, &bc, built, res, problems); err2 != nil {
+		return nil, err2
 	}
 	// Paths that would not extract to one tree (a file that is also a
 	// directory of another) collide too. The working directory is the
@@ -508,6 +521,64 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 		return res, &BuildError{Problems: problems}
 	}
 	return res, nil
+}
+
+// nativeForms has the build helper write the native form of each built
+// //native codebase script (WR-50), the module the harness runs at the
+// native boundary, and records it in the script's metadata. A script whose
+// form fails is a problem, and is no longer built.
+func (cfg *CodebaseConfig) nativeForms(ctx context.Context, bc *BunConfig, built []CodebaseScript, res *CodebaseResult, problems []ItemProblem) ([]CodebaseScript, []ItemProblem, error) {
+	req := helperRequest{
+		Version: 1, Op: "native", Folder: cfg.Folder, Work: cfg.Work, Out: cfg.Out,
+		Scripts: map[string]string{}, Deps: map[string]string{}, Define: map[string]string{},
+		HostModules: []helperHostModule{}, Entries: []helperEntry{},
+	}
+	if !cfg.AllowBunMismatch {
+		req.RequireBun = harness.PinnedBun
+	}
+	for _, e := range built {
+		if b := res.Scripts[e.ID].nativeBundle; b != "" {
+			req.Entries = append(req.Entries, helperEntry{ID: e.ID, Path: e.Path, File: e.File, Bundle: b})
+		}
+	}
+	if len(req.Entries) == 0 {
+		return built, problems, nil
+	}
+	resp, err := runHelper(ctx, bc, &req)
+	if err != nil {
+		return nil, nil, err
+	}
+	var kept []CodebaseScript
+	for _, e := range built {
+		meta := res.Scripts[e.ID]
+		if meta.nativeBundle == "" {
+			kept = append(kept, e)
+			continue
+		}
+		item := "script " + e.ID
+		r, ok := resp.Entries[e.ID]
+		var form struct {
+			Native *NativeMeta `json:"native"`
+		}
+		switch {
+		case !ok:
+			problems = append(problems, ItemProblem{item, Problem{"internal", "the native form was not reported"}})
+			continue
+		case r.Error != nil:
+			problems = append(problems, ItemProblem{item, *r.Error})
+			continue
+		case json.Unmarshal(r.Meta, &form) != nil || form.Native == nil:
+			problems = append(problems, ItemProblem{item, Problem{"internal", "the native form has no record"}})
+			continue
+		}
+		form.Native.Imports = nonNilStrings(form.Native.Imports)
+		if form.Native.Links == nil {
+			form.Native.Links = []NativeLink{}
+		}
+		meta.Boundary, meta.Native = "native", form.Native
+		kept = append(kept, e)
+	}
+	return kept, problems, nil
 }
 
 // WarningEsbuild: esbuild warned while bundling a codebase script, for
@@ -627,7 +698,14 @@ func (cfg *CodebaseConfig) bundleOne(e CodebaseScript, s *CodebaseSettings, meta
 		if s.Format == CJS {
 			ext = ".cjs"
 		}
-		if err := writeFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(e.ID)+ext), out.text); err != nil {
+		dst := filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(e.ID)+ext)
+		if meta.Annotations.Native {
+			// It waits in the work directory for its native form, which
+			// is the bundle's module instead.
+			dst = filepath.Join(cfg.Work, "native", filepath.FromSlash(e.ID)+".js")
+			meta.nativeBundle = dst
+		}
+		if err := writeFile(dst, out.text); err != nil {
 			return &Problem{"internal", err.Error()}
 		}
 		meta.HostModules = used
