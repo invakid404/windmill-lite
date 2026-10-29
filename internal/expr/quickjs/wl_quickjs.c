@@ -691,20 +691,51 @@ int wl_result(wl_slot *s, wl_text *out)
 	return WL_OK;
 }
 
-// prop_text reads obj[name] as text, or "" when it is absent.
-static wl_text prop_text(wl_slot *s, JSValueConst obj, const char *name)
+// data_text reads obj's property name into *t without running the
+// program's code, and returns whether there is one: the first data
+// property of that name along the prototype chain, when its value is a
+// string. An accessor, a Proxy on the chain or a value that is not a string
+// ends the search with none, so no getter or trap is called.
+static int data_text(wl_slot *s, JSValueConst obj, const char *name, wl_text *t)
 {
-	wl_text t = {"", 0};
-	JSValue v = JS_GetPropertyStr(s->ctx, obj, name);
+	JSContext *ctx = s->ctx;
+	JSAtom atom = JS_NewAtom(ctx, name);
+	JSValue cur = JS_DupValue(ctx, obj), next;
+	JSPropertyDescriptor desc;
+	int found = 0, r, depth;
 
-	if (JS_IsException(v)) {
-		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
-		return t;
+	t->ptr = "";
+	t->len = 0;
+	if (atom == JS_ATOM_NULL) {
+		JS_FreeValue(ctx, JS_GetException(ctx));
+		JS_FreeValue(ctx, cur);
+		return 0;
 	}
-	if (!JS_IsUndefined(v))
-		t = keep_cstr(s, v);
-	JS_FreeValue(s->ctx, v);
-	return t;
+	for (depth = 0; depth < 1024 && JS_IsObject(cur) && !JS_IsProxy(cur); depth++) {
+		r = JS_GetOwnProperty(ctx, &desc, cur, atom);
+		if (r < 0) {
+			JS_FreeValue(ctx, JS_GetException(ctx));
+			break;
+		}
+		if (r > 0) {
+			if (!(desc.flags & JS_PROP_GETSET) && JS_IsString(desc.value))
+				found = read_cstr(s, desc.value, t);
+			JS_FreeValue(ctx, desc.value);
+			JS_FreeValue(ctx, desc.getter);
+			JS_FreeValue(ctx, desc.setter);
+			break;
+		}
+		next = JS_GetPrototype(ctx, cur);
+		JS_FreeValue(ctx, cur);
+		cur = next;
+		if (JS_IsException(cur)) {
+			JS_FreeValue(ctx, JS_GetException(ctx));
+			break;
+		}
+	}
+	JS_FreeValue(ctx, cur);
+	JS_FreeAtom(ctx, atom);
+	return found;
 }
 
 // coerced_text reads obj[name] into *t as rquickjs 0.11.0 reads an
@@ -777,29 +808,6 @@ static int value_kind(wl_slot *s, JSValueConst v)
 	return WL_KIND_UNKNOWN;
 }
 
-// symbol_text is a thrown symbol's string form, Symbol(<description>),
-// which ToString refuses to give.
-static wl_text symbol_text(wl_slot *s, JSValueConst v)
-{
-	wl_text t = {"", 0};
-	JSAtom to_string = JS_NewAtom(s->ctx, "toString");
-	JSValue str;
-
-	if (to_string == JS_ATOM_NULL) {
-		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
-		return t;
-	}
-	str = JS_Invoke(s->ctx, v, to_string, 0, NULL);
-	JS_FreeAtom(s->ctx, to_string);
-	if (JS_IsException(str)) {
-		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
-		return t;
-	}
-	t = keep_cstr(s, str);
-	JS_FreeValue(s->ctx, str);
-	return t;
-}
-
 int wl_exception(wl_slot *s, wl_exc *out)
 {
 	JSValueConst v = s->exc;
@@ -814,11 +822,15 @@ int wl_exception(wl_slot *s, wl_exc *out)
 		// when it cannot even allocate its out-of-memory error.
 		out->thrown = WL_THROWN_UNDEFINED;
 	} else if (JS_IsError(v)) {
+		// The message and the stack, in that order, are what Windmill's
+		// embedding reads, and it may run the program's getters and
+		// conversions to read them. Nothing else here runs the program's
+		// code: the name is read from data properties only, and the
+		// Error's string form is left to the caller to compose.
 		out->thrown = WL_THROWN_ERROR;
-		out->name = prop_text(s, v, "name");
 		out->has_message = coerced_text(s, v, "message", &out->message);
 		out->has_stack = coerced_text(s, v, "stack", &out->stack);
-		out->text = keep_cstr(s, v);
+		data_text(s, v, "name", &out->name);
 	} else {
 		out->thrown = WL_THROWN_OTHER;
 		out->kind = value_kind(s, v);
@@ -840,7 +852,19 @@ int wl_exception(wl_slot *s, wl_exc *out)
 			out->address = (uintptr_t)JS_VALUE_GET_PTR(v);
 			break;
 		}
-		out->text = JS_IsSymbol(v) ? symbol_text(s, v) : keep_cstr(s, v);
+		// Only a primitive other than a symbol is converted to text, which
+		// runs none of the program's code; a symbol's or an object's
+		// conversion could (toString, Symbol.toPrimitive, a Proxy's traps),
+		// and the debug form needs only the kind and the address (JE-21).
+		switch (out->kind) {
+		case WL_KIND_BOOL:
+		case WL_KIND_INT:
+		case WL_KIND_FLOAT:
+		case WL_KIND_STRING:
+		case WL_KIND_BIG_INT:
+			out->text = keep_cstr(s, v);
+			break;
+		}
 	}
 	return s->interrupted ? WL_INTERRUPTED : WL_OK;
 }

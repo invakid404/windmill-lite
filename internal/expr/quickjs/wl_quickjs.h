@@ -52,6 +52,9 @@ enum {
 
 typedef struct wl_exc {
 	int thrown;
+	// name is an Error's name, read from data properties only; text is the
+	// string form of a thrown primitive other than a symbol, and empty for
+	// anything else.
 	wl_text name, message, text, stack;
 	// For WL_THROWN_ERROR: whether message and stack were read. Each is
 	// absent when its property is undefined or null, or when reading it or
@@ -130,9 +133,10 @@ int wl_settle(wl_slot *s, uint32_t id, int ok, const char *text, size_t len);
 // wl_release. WL_OK, WL_NOT_STRING or WL_EXCEPTION.
 int wl_result(wl_slot *s, wl_text *out);
 // wl_exception describes the exception of the last WL_EXCEPTION. Its texts
-// are valid until wl_release. Reading an Error's properties can run the
-// program's own getters, so it returns WL_INTERRUPTED if the interrupt
-// stopped one of them, else WL_OK.
+// are valid until wl_release. Reading an Error's message and stack can run
+// the program's own getters and conversions, as Windmill's embedding reads
+// them, so it returns WL_INTERRUPTED if the interrupt stopped one of them,
+// else WL_OK; nothing else it reads runs the program's code.
 int wl_exception(wl_slot *s, wl_exc *out);
 
 #endif

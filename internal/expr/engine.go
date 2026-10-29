@@ -136,8 +136,12 @@ type Exception struct {
 	HasStack   bool
 	// Value is what the engine knows of the thrown value, for ThrownOther.
 	Value ThrownValue
-	// Text is the thrown value converted to a string by the engine, for
-	// example "ReferenceError: x is not defined".
+	// Text is a diagnostic: for an Error, its name and message joined as
+	// Error.prototype.toString joins them ("ReferenceError: x is not
+	// defined"); for a thrown primitive other than a symbol, its string
+	// form; and empty for a symbol or an object, whose conversion would run
+	// the program's code. Reading the exception back runs none of it beyond
+	// what Windmill's embedding runs: an Error's message and stack.
 	Text string
 }
 
@@ -184,7 +188,36 @@ const (
 	KindBigInt
 )
 
-func (e *Exception) Error() string { return "expr: JavaScript exception: " + e.Text }
+var valueKindNames = [...]string{
+	KindUnknown:     "value",
+	KindBool:        "boolean",
+	KindInt:         "integer",
+	KindFloat:       "number",
+	KindString:      "string",
+	KindSymbol:      "symbol",
+	KindArray:       "array",
+	KindConstructor: "constructor",
+	KindFunction:    "function",
+	KindPromise:     "promise",
+	KindProxy:       "proxy",
+	KindObject:      "object",
+	KindBigInt:      "BigInt",
+}
+
+// String names the kind in lower case, for diagnostics.
+func (k ValueKind) String() string {
+	if int(k) < len(valueKindNames) {
+		return valueKindNames[k]
+	}
+	return fmt.Sprintf("ValueKind(%d)", uint8(k))
+}
+
+func (e *Exception) Error() string {
+	if e.Text == "" && e.Thrown == ThrownOther {
+		return "expr: JavaScript exception: a thrown " + e.Value.Kind.String()
+	}
+	return "expr: JavaScript exception: " + e.Text
+}
 
 // ErrAttemptTimeout reports an evaluation attempt that reached its wall-clock
 // limit and was interrupted (JE-2, deviation D8).

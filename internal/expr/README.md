@@ -240,17 +240,23 @@ each site then wraps
 | a call rewrite that Windmill's evaluator panics on (JE-11) | ``Expression evaluation failed: the rewrite of its helper calls inserts a parenthesis at byte <n> of `<trimmed text>`, inside a character, where Windmill's evaluator panics``, windmill-lite's own | `ErrRewritePanic` |
 
 An Error's message and stack are read as Windmill's embedding (rquickjs
-0.11.0) reads them: converted to strings, and absent when the property is
-`null` or `undefined`, when reading or converting it throws, or when the
-text is not UTF-8, as a message holding an unpaired surrogate is not
-([JE-52](../../docs/semantics/expressions.md#je-52)). A value's debug form
-is rquickjs's type name and payload: `String(Ok("s"))` (Rust's quoting and
-escapes), `Int(1)` for a number the engine holds as a 32-bit integer,
-`Float(1.5)`, `Float(1e300)` or `Float(NaN)` for any other (Rust's
-notation: `1.0`, exponents from 1e16 and below 1e-4), `Bool(true)`,
-`BigInt"BigInt"`, and for a symbol, an array, a constructor, another
-function, a promise, a proxy or another object its type name and the
-engine's address, `Object(0x…)`, which changes from run to run.
+0.11.0) reads them, in that order: converted to strings, and absent when
+the property is `null` or `undefined`, when reading or converting it
+throws, or when the text is not UTF-8, as a message holding an unpaired
+surrogate is not ([JE-52](../../docs/semantics/expressions.md#je-52)).
+Nothing else read back runs the program's code: an Error's name, which the
+memory check needs, comes from data properties only, and a value that is
+not an Error is not converted unless it is a primitive other than a
+symbol, so a `toString`, `Symbol.toPrimitive` or Proxy trap is never
+called. A value's debug form is rquickjs's type name and payload:
+`String(Ok("s"))` (Rust's quoting and escapes), `Int(1)` for a number the
+engine holds as a 32-bit integer, `Float(1.5)`, `Float(1e300)` or
+`Float(NaN)` for any other (Rust's notation: the shortest digits that read
+back, a tie between two broken upward, as in `1000000000000000.3` for
+`1000000000000000.25`; `1.0`; exponents from 1e16 and below 1e-4),
+`Bool(true)`, `BigInt"BigInt"`, and for a symbol, an array, a constructor,
+another function, a promise, a proxy or another object its type name and
+the engine's address, `Object(0x…)`, which changes from run to run.
 `debugform.go` writes them.
 
 `<N>` and the time limit are the engine's `Limits`. An evaluation whose
@@ -276,7 +282,10 @@ reference is still silent, each pinned by a test:
 - **The scope's order** stands for Windmill's hash maps where JE-49 reports
   the first of several values nested too deeply.
 - **Rust's notation** in a debug form uses Go's Unicode tables to decide
-  which characters a string escapes; they can lag Rust's by a version.
+  which characters a string escapes. Go's tables (Unicode 17) and rustc
+  1.94.0's agreed on every Unicode scalar value, and the float notation on
+  270 588 values; a later Unicode version on either side could differ on
+  newly assigned characters.
 
 Two named deviations of
 [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 come from the
@@ -352,6 +361,10 @@ context-free case's recorded argument as its stored form.
   catalogue case of those findings that an E3a fixture or run cites is the
   spec of a restatement. A restatement gives its route, and a shortcut's
   text.
+- `TestDebugFormMatchesRust` holds the debug form's float and string
+  notation to `testdata/debugform.json`, texts rustc printed, among them
+  floats whose two shortest digit strings tie; `TestDebugFloat` pins the
+  presentation rules on named values.
 - `TestPipelineCasesOnEngine` runs on the real engine every case that
   gives `expect.engine`, in its own context: among them the catalogue
   cases that no recording holds yet (JE-10/e, JE-15/j, JE-16/c, JE-16/g,
@@ -415,7 +428,8 @@ end with no leaked heap block.
   helpers (JE-20), the bindings and their rebuild by assignment (JE-10,
   JE-16), the depth check's positions and order (JE-49), the recursion
   depth (JE-48, D17), strict mode (JE-50), the job queue (JE-51), JE-11's
-  rewrite of text that is not ASCII, and ADR 0003's JE-8 key-order example
+  rewrite of text that is not ASCII, a readback that runs none of the
+  program's code (`TestReadbackRunsNoCode`), and ADR 0003's JE-8 key-order example
   on the engine's routes: the proxy answers the previous step from memory
   in the producer's key order and another step from the database in
   jsonb's (review item cx R16).

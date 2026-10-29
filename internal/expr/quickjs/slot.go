@@ -348,6 +348,7 @@ func exception(x *C.wl_exc) *expr.Exception {
 		ex.Name = gotext(x.name)
 		ex.Message, ex.HasMessage = gotext(x.message), x.has_message != 0
 		ex.Stack, ex.HasStack = gotext(x.stack), x.has_stack != 0
+		ex.Text = errorText(ex.Name, ex.Message)
 	case C.WL_THROWN_NULL:
 		ex.Thrown, ex.Text = expr.ThrownNull, "null"
 	case C.WL_THROWN_UNDEFINED:
@@ -357,6 +358,22 @@ func exception(x *C.wl_exc) *expr.Exception {
 		ex.Value = thrownValue(x)
 	}
 	return ex
+}
+
+// errorText joins an Error's name and message as Error.prototype.toString
+// does, from the texts the C side read without running the program's code:
+// a missing name is "Error", and an empty part is left out with its colon.
+func errorText(name, message string) string {
+	switch {
+	case name == "":
+		name = "Error"
+		if message == "" {
+			return name
+		}
+	case message == "":
+		return name
+	}
+	return name + ": " + message
 }
 
 // valueKinds maps the C side's kinds of a thrown value to expr's.

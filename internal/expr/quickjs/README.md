@@ -83,16 +83,21 @@ What the package does not do:
    QuickJS-ng writes an unpaired surrogate as three bytes (WTF-8);
    `JSON.stringify` escapes those, so its text is plain UTF-8. Anything else
    gives `expr.ErrNotString`. A throw or rejection gives an `*expr.Exception`
-   that keeps the thrown kind (`Error`, `null`, `undefined`, other) and the
-   value's string form (`Symbol(<description>)` for a symbol). For an
-   `Error` it keeps the `name`, and the `message` and `stack` as Windmill's
-   embedding reads them: converted to strings, each absent when it is `null`
-   or `undefined` or its conversion throws. For another value it keeps its
-   kind as rquickjs 0.11.0 classifies it (by tag; an object as the first of
-   array, constructor, function, promise and proxy that it is, else
-   object) and its payload: a number, a boolean, a string's bytes, or the
-   engine's address of a symbol or an object. The pipeline writes Windmill's
-   texts from them ([JE-21](../../../docs/semantics/expressions.md#je-21)).
+   that keeps the thrown kind (`Error`, `null`, `undefined`, other). For an
+   `Error` it keeps the `message` and `stack` as Windmill's embedding reads
+   them, first and in that order: converted to strings, each absent when it
+   is `null` or `undefined` or its conversion throws. It keeps the `name`
+   too, read from data properties along the prototype chain only, never
+   through a getter or a Proxy, and a text that joins the name and message
+   as `Error.prototype.toString` does, without calling it. For another
+   value it keeps its kind as rquickjs 0.11.0 classifies it (by tag; an
+   object as the first of array, constructor, function, promise and proxy
+   that it is, else object) and its payload: a number, a boolean, a
+   string's bytes, or the engine's address of a symbol or an object, and
+   the string form of a primitive other than a symbol. A symbol or an
+   object is never converted, so its `toString`, `Symbol.toPrimitive` or
+   traps do not run. The pipeline writes Windmill's texts from these
+   ([JE-21](../../../docs/semantics/expressions.md#je-21)).
    rquickjs tests a promise by `JS_PromiseState(…) >= 0`, which works
    because the quickjs-ng it vendors adds `JS_PROMISE_NOT_A_PROMISE = -1`;
    this revision's enum has no negative member, so the engine tests the

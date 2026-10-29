@@ -71,16 +71,81 @@ func debugFloat(f float64) string {
 	case math.IsInf(f, -1):
 		return "-inf"
 	}
-	if a := math.Abs(f); a != 0 && a < 1e-4 || a >= 1e16 {
-		mantissa, exp, _ := strings.Cut(strconv.FormatFloat(f, 'e', -1, 64), "e")
-		n, _ := strconv.Atoi(exp)
-		return mantissa + "e" + strconv.Itoa(n)
+	sign := ""
+	if math.Signbit(f) {
+		sign = "-"
 	}
-	s := strconv.FormatFloat(f, 'f', -1, 64)
-	if !strings.Contains(s, ".") {
-		s += ".0"
+	a := math.Abs(f)
+	if a == 0 {
+		return sign + "0.0"
 	}
-	return s
+	digits, k := shortestDigits(a)
+	// The value is 0.<digits> × 10^k.
+	if a < 1e-4 || a >= 1e16 {
+		s := digits[:1]
+		if len(digits) > 1 {
+			s += "." + digits[1:]
+		}
+		return sign + s + "e" + strconv.Itoa(k-1)
+	}
+	switch {
+	case k <= 0:
+		return sign + "0." + strings.Repeat("0", -k) + digits
+	case k < len(digits):
+		return sign + digits[:k] + "." + digits[k:]
+	}
+	return sign + digits + strings.Repeat("0", k-len(digits)) + ".0"
+}
+
+// shortestDigits returns the digits Rust's shortest formatting gives for a
+// finite a > 0, and the exponent k with a's value 0.<digits> × 10^k: the
+// fewest digits that read back as a, and of the numbers with that many
+// digits that do, the one nearest a's exact value, the greater on a tie.
+// Go's shortest formatting finds the same number of digits but can break
+// that tie the other way (1000000000000000.25 is 1000000000000000.2 in Go
+// and 1000000000000000.3 in Rust), so the digits are chosen here, between
+// the two neighbours of the exact value at that length.
+func shortestDigits(a float64) (string, int) {
+	mant, _, _ := strings.Cut(strconv.FormatFloat(a, 'e', -1, 64), "e")
+	n := len(mant) - strings.Count(mant, ".")
+	// A float64 has at most 767 significant decimal digits, so 800 give
+	// its exact value.
+	mant, e, _ := strings.Cut(strconv.FormatFloat(a, 'e', 800, 64), "e")
+	exact := strings.Replace(mant, ".", "", 1)
+	exp, _ := strconv.Atoi(e)
+	lower, rest := exact[:n], strings.TrimRight(exact[n:], "0")
+	if rest == "" {
+		return strings.TrimRight(lower, "0"), exp + 1
+	}
+	upper, upExp := incrementDigits(lower), exp
+	if len(upper) > n {
+		upper, upExp = upper[:n], exp+1
+	}
+	readsBack := func(d string, x int) bool {
+		v, err := strconv.ParseFloat(d[:1]+"."+d[1:]+"e"+strconv.Itoa(x), 64)
+		return err == nil && v == a
+	}
+	lowOK, upOK := readsBack(lower, exp), readsBack(upper, upExp)
+	// The exact value lies above lower by rest, a fraction of one unit in
+	// the last digit: below one half favours lower, a half or more upper.
+	if lowOK && (!upOK || rest < "5") {
+		return strings.TrimRight(lower, "0"), exp + 1
+	}
+	return strings.TrimRight(upper, "0"), upExp + 1
+}
+
+// incrementDigits adds one to the decimal digit string d, which grows by a
+// digit when it is all nines.
+func incrementDigits(d string) string {
+	b := []byte(d)
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] < '9' {
+			b[i]++
+			return string(b)
+		}
+		b[i] = '0'
+	}
+	return "1" + string(b)
 }
 
 // debugString is Rust's debug notation of a string: quoted, with \0, \t,

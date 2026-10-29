@@ -256,28 +256,35 @@ func TestExceptions(t *testing.T) {
 		// conversion throws.
 		{`(() => { const e = new Error("m"); e.message = 5; e.stack = null; throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", Message: "5", HasMessage: true, Text: "Error: 5"}},
 		{`(() => { const e = new Error("m"); e.message = undefined; e.stack = 7; throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", Stack: "7", HasStack: true, Text: "Error"}},
-		{`(() => { const e = new Error("m"); e.message = Symbol(); throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", HasStack: true}},
+		{`(() => { const e = new Error("m"); e.message = Symbol(); throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", HasStack: true, Text: "Error"}},
 		// Another value: its kind as rquickjs classifies it, and its payload
 		// (JE-21). An object's address changes, so it is checked apart.
 		{`(() => { throw "str" })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindString, String: "str"}, Text: "str"}},
 		{`(() => { throw "\ud83d" })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindString, String: "\xed\xa0\xbd"}, Text: "\xed\xa0\xbd"}},
-		{`(() => { throw {a: 1} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}, Text: "[object Object]"}},
+		{`(() => { throw {a: 1} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}}},
 		{`(() => { throw 42 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindInt, Int: 42}, Text: "42"}},
 		{`(() => { throw 4.5 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFloat, Float: 4.5}, Text: "4.5"}},
 		{`(() => { throw false })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBool}, Text: "false"}},
 		{`(() => { throw 10n })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBigInt}, Text: "10"}},
-		{`(() => { throw [1] })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindArray}, Text: "1"}},
-		{`(() => { throw class C {} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindConstructor}, Text: "class C {}"}},
-		{`(() => { throw () => 1 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFunction}, Text: "() => 1"}},
-		{`(() => { throw Promise.resolve() })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindPromise}, Text: "[object Promise]"}},
-		{`(() => { throw new Proxy({}, {}) })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindProxy}, Text: "[object Object]"}},
-		{`(() => { throw {message: "m", name: "Error"} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}, Text: "[object Object]"}},
+		{`(() => { throw [1] })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindArray}}},
+		{`(() => { throw class C {} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindConstructor}}},
+		{`(() => { throw () => 1 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFunction}}},
+		{`(() => { throw Promise.resolve() })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindPromise}}},
+		{`(() => { throw new Proxy({}, {}) })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindProxy}}},
+		{`(() => { throw {message: "m", name: "Error"} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}}},
+		// Nothing converts an object or a symbol: its toString would be the
+		// program's code (review round 1, R1-1).
+		{`(() => { throw {toString() { throw new Error("called") }} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}}},
 		{`Promise.reject(null)`, expr.Exception{Thrown: expr.ThrownNull, Text: "null"}},
 		{`(() => { throw undefined })()`, expr.Exception{Thrown: expr.ThrownUndefined, Text: "undefined"}},
-		// A symbol, which ToString refuses, and an Error whose getters throw,
-		// are still reported, with the texts that could be read.
-		{`(() => { throw Symbol("s") })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindSymbol}, Text: "Symbol(s)"}},
-		{`(() => { const e = new Error("x"); Object.defineProperty(e, "message", { get() { throw new Error("boom"); } }); throw e; })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", HasStack: true}},
+		// A symbol, and an Error whose message getter throws, are still
+		// reported, with what could be read. An Error's text is its name and
+		// message as Error.prototype.toString joins them, from those reads;
+		// its name comes from data properties only, so a name getter is not
+		// called and the name is then "Error".
+		{`(() => { throw Symbol("s") })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindSymbol}}},
+		{`(() => { const e = new Error("x"); Object.defineProperty(e, "message", { get() { throw new Error("boom"); } }); throw e; })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", HasStack: true, Text: "Error"}},
+		{`(() => { const e = new TypeError("x"); Object.defineProperty(e, "name", { get() { throw new Error("called"); } }); throw e; })()`, expr.Exception{Thrown: expr.ThrownError, Message: "x", HasMessage: true, HasStack: true, Text: "Error: x"}},
 	} {
 		_, err := run(t, e, tc.source, expr.Input{})
 		var ex *expr.Exception
