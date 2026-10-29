@@ -18,7 +18,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | File | Contents | Built on by |
 |---|---|---|
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it |
-| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below) | C3a; the step-case runner (`wltest check`) and the engine call them |
+| `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below); `TimeoutError`, a step's timeout text by boundary (C3n) | C3a; the step-case runner (`wltest check`) and the engine call them |
 | `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
@@ -135,10 +135,12 @@ An invocation settles when its entrypoint call can run no more code, and
 | `process_exited` | the harness process ended before the call did | before when the invocation was in flight; later when it had been abandoned or its outcome was fixed early |
 
 - **Warnings.** `Warning` hands over a process-level error no invocation
-  owned (code `unattributed_error`), or what the invocation still had when
+  owned (code `unattributed_error`), what the invocation still had when
   it settled (code `left_behind`, its `Left` counting the timers, requests
   and child processes by kind), which the settle-time fence then revoked
-  (D9). Neither changes the outcome.
+  (D9), or what the native boundary handed a native invocation but does
+  not track (code `native_untracked`, its `Untracked` counting by kind,
+  D5). None changes the outcome.
 - **Order.** One invocation's `Reporter` is never called from two goroutines
   at once. Its calls come in this order: `Late` and `Warning`; at most one
   `Late` with `Final` set, which says how a late-ending call ended;
@@ -179,8 +181,9 @@ everything else with `ErrUnsupported`, naming the milestone that
 implements it: a failure module and `continue_on_error` (N1b); `sleep`, a
 javascript or negative `timeout`, a retry with attempts or `retry_if`, a
 flow timeout (N2); loops and branches (N3a, N3b); subflows by path (N3c);
-`cache_ttl` (N4); host-provided sites (F2a); a step outside the Bun
-boundary (C3n); a preprocessor and `skip_expr` (`later`).
+`cache_ttl` (N4); host-provided sites (F2a); a step of another harness
+than Bun's, whose `bun` and `native` boundaries it runs (L1); a
+preprocessor and `skip_expr` (`later`).
 
 **One module** follows [FX-2](../../docs/semantics/execution.md#fx-2):
 
@@ -302,7 +305,7 @@ the step's success value, not the `EarlyStopError`
 | the same at a later module | the flow fails at once, the module not run: `{"error": {"message": <text>, "name": "InternalError"}}` | FX-15 context 1, JE-35 (a) |
 | `stop_after_if` fails | the module fails unrecoverably with the string `{"error": <text>}` | FX-21, JE-26 |
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
-| the step's timeout | `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`, `ExecutionErr`, `step_id` | WR-37 |
+| the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
 
 A predicate's `<text>` is `Error: <evaluator text>` for a failed
 evaluation, or `Expected a boolean value, found: "<value's JSON>"`
@@ -346,11 +349,19 @@ exit gate).
 that holds each flow as `flows/<flow path>.flow.json`, the flow's OpenFlow
 document as JSON, turns each into the IR, and runs it on an `Engine`. Its
 scripts are named by their job paths (`scripts/bun/<flow path>/<id>.mjs`
-for an inline step), which it records as their inventory ids. It accepts
-W1's subset (script steps by path and inline Bun steps, static, javascript
-and ai transforms, a static step timeout) and refuses anything else with
-`ErrSkeletonUnsupported`, at load. `windmill-lite host` serves it until
-F3a moves host mode onto `wl` and its bundles.
+for an inline step, or `.native.js`), which it records as their inventory
+ids. It accepts W1's subset (script steps by path and inline Bun-family
+steps, `bun`, `bunnative` and `nativets`; static, javascript and ai
+transforms; a static step timeout) and refuses anything else with
+`ErrSkeletonUnsupported`, at load. Each step gets its boundary (C3n): an
+inline step's follows the compiler's rule (`ir.DeployedLanguage`,
+`ir.BoundaryOf`), native for a `nativets` step with or without a
+`//native` header ([WR-40](../../docs/semantics/languages.md#wr-40)'s
+note) and for a `bun` or `bunnative` step whose header says `//native`;
+a path script's is what its metadata in the bundle records
+(`SkeletonConfig.ScriptsDir`, by default the bundle directory), Bun when
+it has none. `windmill-lite host` serves it until F3a moves host mode onto
+`wl` and its bundles.
 
 `testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step
 modules written by hand, each with the `.meta.json` signature the build

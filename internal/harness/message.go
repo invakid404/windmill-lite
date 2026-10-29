@@ -187,17 +187,23 @@ type Log struct {
 // Warning is something an invocation in flight is told that fails
 // nothing: a process-level error that no invocation's context raised,
 // sent once for each invocation in flight when it happened (ADR 0004, the
-// shared-process failure model, item 3), or what an invocation left
-// behind, sent just before the frame that settles it (the D9 fence).
+// shared-process failure model, item 3), what an invocation left
+// behind, sent just before the frame that settles it (the D9 fence), or
+// what the native boundary handed a native invocation but does not track,
+// sent just before that frame too (ADR 0001, D5).
 type Warning struct {
 	// ID is the invocation in flight.
 	ID string
-	// Code is WarningUnattributed or WarningLeftBehind.
+	// Code is WarningUnattributed, WarningLeftBehind or
+	// WarningNativeUntracked.
 	Code    string
 	Message string
 	// Left counts what a left_behind warning reports, by kind ("timeout",
 	// "interval", "immediate", "fetch", "child"); nil otherwise.
 	Left map[string]int
+	// Untracked counts what a native_untracked warning reports, by kind (a
+	// class name, or "function <name>"); nil otherwise.
+	Untracked map[string]int
 }
 
 // Warning codes.
@@ -209,6 +215,12 @@ const (
 	// handles and requests an invocation still had when it settled, which
 	// the settle-time fence then revoked (D9).
 	WarningLeftBehind = "left_behind"
+	// WarningNativeUntracked is the code of the warning that reports what
+	// the native boundary handed a native invocation but does not track,
+	// sent just before the frame that settles it, and of the one for what
+	// it handed out in no invocation's context, sent to each invocation in
+	// flight (ADR 0001, D5).
+	WarningNativeUntracked = "native_untracked"
 )
 
 // PlatformRequest is a fetch to the platform facade that the harness
@@ -445,6 +457,9 @@ func (m Warning) appendPayload(b []byte) ([]byte, error) {
 	if m.Left != nil {
 		e.intMap("left", m.Left)
 	}
+	if m.Untracked != nil {
+		e.intMap("untracked", m.Untracked)
+	}
 	return e.end()
 }
 
@@ -677,6 +692,9 @@ func Decode(payload []byte) (Message, error) {
 		w := Warning{ID: d.str("id"), Code: d.str("code"), Message: d.str("message")}
 		if d.present("left") {
 			w.Left = d.intMap("left")
+		}
+		if d.present("untracked") {
+			w.Untracked = d.intMap("untracked")
 		}
 		m = w
 	case TypePlatform:

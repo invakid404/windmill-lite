@@ -64,6 +64,9 @@ func TestLoadStepFileRefuses(t *testing.T) {
 		{"by_mode without fresh", "wr-6.yaml", stepCaseHead + "    deviation: D1\n    runs: [{args: '{}', by_mode: {warm: {expect: {status: success, result: 1}}}}]\n", "exactly warm and fresh"},
 		{"by_mode and a check", "wr-6.yaml", stepCaseHead + "    deviation: D1\n    runs: [{args: '{}', expect: {status: success, result: 1}, by_mode: {warm: {expect: {status: success, result: 1}}, fresh: {expect: {status: success, result: 1}}}}]\n", "one or the other"},
 		{"a bad late kind", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', late: [{kind: warning}]}]\n", "late kind"},
+		{"left without its warning", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', left: {timeout: 1}}]\n", "which warnings does not list"},
+		{"untracked without its warning", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', untracked: {WeakMap: 1}}]\n", "untracked counts a native_untracked warning"},
+		{"an untracked count below 1", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', warnings: [native_untracked], untracked: {WeakMap: 0}}]\n", "counts at least 1"},
 		{"a bad path", "wr-6.yaml", stepCaseHead + "    path: u/x/y\n    runs: [{args: '{}', expect: {status: success, result: 1}}]\n", "not a Windmill path"},
 		{"a finding cited without a variant", "wr-6.yaml", strings.Replace(stepCaseHead, "spec: WR-6/a", "spec: WR-6", 1) + "    runs: [{args: '{}', expect: {status: success, result: 1}}]\n", "needs a variant"},
 		{"two sources for one path", "wr-6.yaml", stepCaseHead + "    path: f/x/s\n    runs: [{args: '{}', expect: {status: success, result: 1}}]\n" +
@@ -145,5 +148,64 @@ cases:
 	diffs, err := CompareStep(c, &c.Runs[0], ModeWarm, got)
 	if err != nil || len(diffs) != 1 || !strings.Contains(diffs[0], "/result/error/stack") {
 		t.Fatalf("a successful result's error.stack must be compared: %v, %v", diffs, err)
+	}
+}
+
+// keep_stack leaves a failure's stack unmasked, so a claim reads its text
+// (WR-43's source line); without it the claim sees the marker.
+func TestCompareStepKeepStack(t *testing.T) {
+	file := func(keep string) *StepCase {
+		f, err := LoadStepFile(writeStepFile(t, "wr-43.yaml", `finding: WR-43
+scope: core
+cases:
+  - spec: WR-43/c
+    provenance: source-derived
+    title: t
+    language: nativets
+    compare: {`+keep+`}
+    script: |
+      export function main() { throw new Error("x"); }
+    runs:
+      - args: '{}'
+        claims: [{at: /result/error/stack, contains: ["throw new Error"]}]
+`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &f.Cases[0]
+	}
+	got := Observation{Status: RunFailure, Result: json.RawMessage(`{"error":{"message":"x","stack":"  throw new Error(\"x\");\nError: x","name":"Error"}}`)}
+	c := file("keep_stack: true")
+	if diffs, err := CompareStep(c, &c.Runs[0], ModeWarm, got); err != nil || len(diffs) != 0 {
+		t.Fatalf("kept stack: %v, %v", diffs, err)
+	}
+	c = file("")
+	if diffs, err := CompareStep(c, &c.Runs[0], ModeWarm, got); err != nil || len(diffs) != 1 {
+		t.Fatalf("masked stack: the claim must fail: %v, %v", diffs, err)
+	}
+}
+
+// A case's language and timeout are checked when the file loads.
+func TestStepCaseLanguageAndTimeout(t *testing.T) {
+	for _, tc := range []struct{ field, want string }{
+		{"language: deno", `language "deno" is not bun, bunnative or nativets`},
+		{"timeout: 0", "timeout 0 is not a positive number of seconds"},
+	} {
+		_, err := LoadStepFile(writeStepFile(t, "wr-44.yaml", `finding: WR-44
+scope: core
+cases:
+  - spec: WR-44/a
+    provenance: source-derived
+    title: t
+    `+tc.field+`
+    script: |
+      export function main() {}
+    runs:
+      - args: '{}'
+        expect: {status: success, result: null}
+`))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want %q", tc.field, err, tc.want)
+		}
 	}
 }

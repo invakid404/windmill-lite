@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -119,5 +120,28 @@ func TestEntrypoint(t *testing.T) {
 	}
 	if _, _, err := Entrypoint(text(`[1]`)); err == nil || errors.Is(err, ErrInvalidEntrypoint) {
 		t.Errorf("arguments that are not an object: %v", err)
+	}
+}
+
+// A step that its timeout ended fails with its boundary's text: WR-37's
+// for Bun, naming the limit that applied; WR-44's for native, the
+// duration in whole seconds, rounded down, whichever limit applied.
+func TestTimeoutError(t *testing.T) {
+	for _, tc := range []struct {
+		b            Boundary
+		step         string
+		d            time.Duration
+		instanceWide bool
+		want         string
+	}{
+		{BoundaryBun, "a", time.Second, false, `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}`},
+		{BoundaryBun, "", time.Hour, true, `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding instance-wide job duration limit","name":"ExecutionErr"}}`},
+		{BoundaryNative, "a", time.Second, false, `{"error":{"message":"execution error:\nQuery timeout after (>1s)","name":"ExecutionErr","step_id":"a"}}`},
+		{BoundaryNative, "a", 2900 * time.Millisecond, false, `{"error":{"message":"execution error:\nQuery timeout after (>2s)","name":"ExecutionErr","step_id":"a"}}`},
+		{BoundaryNative, "a", 604800 * time.Second, true, `{"error":{"message":"execution error:\nQuery timeout after (>604800s)","name":"ExecutionErr","step_id":"a"}}`},
+	} {
+		if got := string(TimeoutError(tc.b, tc.step, tc.d, tc.instanceWide).Producer()); got != tc.want {
+			t.Errorf("TimeoutError(%s, %q, %s, %v) = %s, want %s", tc.b, tc.step, tc.d, tc.instanceWide, got, tc.want)
+		}
 	}
 }

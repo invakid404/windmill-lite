@@ -1,0 +1,78 @@
+# D5 (ADR 0001 §5, ADR 0004): the Bun harness runs a native step in a realm
+# of its own, behind a boundary that fails closed. Every promise and object
+# a web API hands the step is tracked as its invocation's when the boundary
+# hands it over, or handed over untracked and counted, and the count is a
+# native_untracked warning that reaches the invocation before it settles.
+# Bun's performance.timing, a PerformanceTiming, is not one of the native
+# runtime's web APIs (WR-45), so the boundary does not track it.
+finding: D5
+scope: core
+cases:
+  - spec: D5
+    variant: untracked-nativets
+    provenance: policy
+    title: an object the native boundary does not track is reported when the invocation settles (nativets)
+    language: nativets
+    script: |
+      export function main() { return typeof performance.timing.toJSON; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: function}
+        warnings: [native_untracked]
+        untracked: {PerformanceTiming: 1}
+  - spec: D5
+    variant: untracked-bunnative
+    provenance: policy
+    title: an object the native boundary does not track is reported when the invocation settles (bunnative)
+    script: |
+      //native
+      export function main() { return [typeof performance.timing, typeof performance.toJSON().timing]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [object, object]}
+        warnings: [native_untracked]
+        untracked: {PerformanceTiming: 2}
+  - spec: D5
+    variant: tracked
+    provenance: policy
+    title: what the web APIs hand over, by return, iterator, callback, event, message, stream and promise, is tracked, so no warning comes
+    note: >-
+      c3n review round 3, finding 1: each object here reaches the script by
+      a different path, and the boundary tracks each, so the run gets no
+      native_untracked warning.
+    language: nativets
+    script: |
+      export async function main() {
+        const out: unknown[] = [];
+        const form = new FormData();
+        form.append("f", new Blob(["x"]), "f.txt");
+        for (const [k, v] of form) out.push(k, v instanceof File);
+        form.forEach((v) => out.push(v instanceof Blob));
+        const url = new URL("http://example.invalid/a?b=1");
+        for (const [k] of url.searchParams) out.push(k);
+        out.push(new URLPattern({ pathname: "/a/:id" }).exec("http://example.invalid/a/7")!.pathname.groups.id);
+        const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+        out.push(pair.publicKey instanceof CryptoKey, (await crypto.subtle.exportKey("jwk", pair.publicKey)).kty);
+        const c = new AbortController();
+        c.signal.addEventListener("abort", (e) => out.push(e.type, e.target instanceof AbortSignal));
+        c.abort();
+        const mc = new MessageChannel();
+        const data = await new Promise<{ t: string; b: Blob }>((r) => { mc.port2.onmessage = (e) => r(e.data); mc.port1.postMessage({ t: "message", b: new Blob(["b"]) }); });
+        mc.port1.close();
+        mc.port2.close();
+        out.push(data.t, await data.b.text());
+        for await (const chunk of new Response("abc").body!.pipeThrough(new TextDecoderStream())) out.push(chunk);
+        const t = new TransformStream({ transform(ch: string, ctl) { ctl.enqueue(ch.toUpperCase()); } });
+        const w = t.writable.getWriter();
+        w.write("t");
+        w.close();
+        out.push(await new Response(t.readable.pipeThrough(new TextEncoderStream())).text());
+        out.push(performance.mark("m") instanceof PerformanceMark, performance.getEntriesByName("m")[0] instanceof PerformanceEntry);
+        out.push(structuredClone({ d: new Date(0) }).d.toISOString());
+        return out;
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result: [f, true, true, b, "7", true, EC, abort, true, message, b, abc, T, true, true, "1970-01-01T00:00:00.000Z"]

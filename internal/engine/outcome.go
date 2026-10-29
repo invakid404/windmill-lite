@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -113,6 +114,22 @@ func LogTail(log string) string {
 		log = log[i+len(codeExecutionMarker):]
 	}
 	return strings.TrimSpace(ansiEscape.ReplaceAllString(log, ""))
+}
+
+// TimeoutError is the stored value of a step that its timeout d ended,
+// with the step abandoned (FX-24, D2). A Bun step's text is WR-37's, which
+// names the job-specific limit unless the duration was the instance's
+// maximum; a native step's is WR-44's, `Query timeout after (>Ns)` with the
+// duration in whole seconds, rounded down, whichever limit applied.
+func TimeoutError(b Boundary, stepID string, d time.Duration, instanceWide bool) jsonval.Value {
+	if b == BoundaryNative {
+		return workerError(stepID, fmt.Sprintf("execution error:\nQuery timeout after (>%ds)", int64(d/time.Second)))
+	}
+	limit := "job-specific duration limit"
+	if instanceWide {
+		limit = "instance-wide job duration limit"
+	}
+	return workerError(stepID, "execution error:\njob process terminated due to timeout after exceeding "+limit)
 }
 
 // workerError is a failure the worker raises around a job, wrapped:

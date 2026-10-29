@@ -10,9 +10,10 @@ In Windmill a value changes form as it moves:
 
 - a Bun step's result is `JSON.stringify(v ?? null)` with an `undefined` →
   `null` replacer and a `BigInt` patch ([WR-13](../semantics/languages.md#wr-13),
-  [WR-14](../semantics/languages.md#wr-14)); a native step serialises by its
-  own rules, which the reference does not cover yet
-  ([0001](0001-equivalence-contract.md) D5);
+  [WR-14](../semantics/languages.md#wr-14)); a native step's is
+  `JSON.stringify(v ?? null)` with no replacer, so `undefined` fields are
+  left out ([WR-42](../semantics/languages.md#wr-42),
+  [0001](0001-equivalence-contract.md) D5);
 - that **producer text** is kept in memory as `previous_result` and as
   `stop_after_if`'s `result`, and is also **stored** in PostgreSQL `jsonb`,
   which orders keys (shorter first, then bytewise), keeps the last duplicate,
@@ -160,10 +161,10 @@ and back in the oracle's PostgreSQL image, pinned by the same digest
 ### Results and errors in the harness
 
 The harness serialises each result once with the boundary mode's rules
-(Bun: replacer plus `BigInt.prototype.toJSON`; native: the rules the
-semantics request will settle, D5) and errors with
-[WR-18](../semantics/languages.md#wr-18) (plain `JSON.stringify`, no
-replacer). The producer text is that string; Go does not reparse it except
+(Bun: replacer plus `BigInt.prototype.toJSON`; native: no replacer, in the
+invocation's realm, [WR-42](../semantics/languages.md#wr-42), D5) and errors
+with [WR-18](../semantics/languages.md#wr-18) (plain `JSON.stringify`, no
+replacer), or for native with [WR-43](../semantics/languages.md#wr-43). The producer text is that string; Go does not reparse it except
 where a route or the trace needs a field. A value that the serialiser
 cannot turn into text (a top-level function or symbol) fails the step as an
 `error` outcome with the WR-18 shape and name `TypeError`, which is what the
