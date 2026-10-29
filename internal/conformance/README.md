@@ -250,7 +250,9 @@ the case's own `stack` and `mask` pointers on both sides, and
 `unordered` and `strict_key_order`, and checks the claims. A run's `late`,
 `settled`, `warnings`, `left` and `untracked` are the runner's to check, since only it
 sees the invocation's Reporter, and so are its `calls`, the platform calls
-the facade recorded against the invocation (milestone PF1). `CommonJS` tells a codebase case built as CommonJS
+the facade recorded against the invocation (milestone PF1). A case's
+`setup`, in `setup.yaml`'s format, is the variables and resources its
+facade serves (milestone PF2). `CommonJS` tells a codebase case built as CommonJS
 (its entry's `format` is not `esm`, WR-47), which also runs on Node (D13);
 `CompareStepNode` compares what Node showed with the run's `node` check,
 or with its own `expect` and `claims` when the two runtimes agree, as
@@ -400,7 +402,7 @@ generated, these templates lose their suffixes:
 | a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup), whose message is Windmill's generic display ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | one ` @<file>.rs:<line>:<col>` or ` (<file>.rs:<line>)` per leading `Error: `, when the message ends in that many |
 | the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)), the same display | the same |
 | the error stop of a `stop_after_all_iters_if` that fails to evaluate ([CF-13](../../docs/semantics/control-flow.md#cf-13), milestone N3a), an `EarlyStopError` whose message quotes the expression and then gives its cause in that display | the cause's, the same way |
-| the worker's execution error, `ExecutionErr`, of a native transpile or load failure ([WR-43](../../docs/semantics/languages.md#wr-43), a message that begins `execution error:\nError: `) or of an internal error ([WR-37](../../docs/semantics/languages.md#wr-37), `execution error:\nInternal: `), which ends in a location (milestone FU5); the execution errors the catalogue writes without one, such as `Proxy is an EE feature` and the timeouts, are not this template | one trailing suffix |
+| the worker's execution error, `ExecutionErr`, of a native transpile or load failure ([WR-43](../../docs/semantics/languages.md#wr-43), a message that begins `execution error:\nError: `) or of an internal error ([WR-37](../../docs/semantics/languages.md#wr-37), `execution error:\nInternal: `), which ends in a location (milestone FU5), an argument resolution's among them ([JE-42](../../docs/semantics/expressions.md#je-42), [WR-5](../../docs/semantics/languages.md#wr-5)/b, PF2); the execution errors the catalogue writes without one, such as `Proxy is an EE feature` and the timeouts, are not this template | one trailing suffix |
 
 So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
 `Error: <typed message><loc>` one, while a typed message with no prefix

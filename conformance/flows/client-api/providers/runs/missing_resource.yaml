@@ -1,0 +1,12 @@
+# WR-5/e: a $res: argument naming no resource fails the job before its
+# script runs, quoting the API's error (written from the reference).
+spec: [WR-5/e]
+target: f/wl_pf2_prov/missing_resource
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "execution error:\nNot found: Resource f/wl_pf2_prov/missing not found for `x`: Not found: Resource f/wl_pf2_prov/missing not found", step_id: a}}
+  steps:
+    "m:a":
+      status: failure
+      args: {x: "$res:f/wl_pf2_prov/missing"}
+      result: {error: {name: ExecutionErr, message: "execution error:\nNot found: Resource f/wl_pf2_prov/missing not found for `x`: Not found: Resource f/wl_pf2_prov/missing not found", step_id: a}}

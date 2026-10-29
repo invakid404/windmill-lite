@@ -519,8 +519,9 @@ func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site con
 		PreviousID: prevID,
 		Context:    []expr.Named{{Name: "previous_result", Value: prev}, {Name: "result", Value: prev}},
 		FlowInput:  fr.input,
-		FlowEnv:    r.env,
+		FlowEnv:    r.envOf(fr),
 		Results:    r.results(fr),
+		Helpers:    helpers{r.e.platform},
 	}
 	v, err := r.evaluate(ctx, t.Expr, site, s)
 	if err != nil {

@@ -404,9 +404,14 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 	var diag syncBuffer
 	// The case's own platform facade (ADR 0007, milestone PF1), in its
 	// default fail mode: a warm process reaches it through the intercepted
-	// fetch, at an origin where nothing listens; a fresh one over TCP.
+	// fetch, at an origin where nothing listens; a fresh one over TCP. It
+	// serves the case's setup (milestone PF2).
 	calls := &callLog{byInv: map[string][]facade.Record{}}
-	f, err := facade.New(facade.Config{Recorded: calls.store})
+	services, err := platformOf(nil, c.Setup, "")
+	if err != nil {
+		return []string{"setup: " + err.Error()}, ""
+	}
+	f, err := facade.New(facade.Config{Recorded: calls.store, Platform: services})
 	if err != nil {
 		return []string{"facade: " + err.Error()}, ""
 	}

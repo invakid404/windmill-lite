@@ -227,6 +227,11 @@ func TestStripLocations(t *testing.T) {
 			{"fewer suffixes than prefixes", object("Anyhow", "Error: Error: x"), object("Anyhow", "Error: Error: x @worker.rs:3822:13"), false},
 			{"a typed message has no prefix", object("InternalError", "Expected an integer, found: -1"), object("InternalError", "Expected an integer, found: -1 @worker.rs:1:2"), false},
 			{"another error name", object("Error", "Error: x"), object("Error", "Error: x @worker.rs:3822:13"), false},
+			// spec: JE-42/g, WR-5/b, FX-51/c: an argument resolution's
+			// internal error in the execution envelope loses its one suffix,
+			// and only that envelope.
+			{"a resolution's internal error", object("ExecutionErr", `execution error:\nInternal: Argument `+"`x`"+` is an invalid resource path: pg`), object("ExecutionErr", `execution error:\nInternal: Argument `+"`x`"+` is an invalid resource path: pg @common.rs:278:20`), true},
+			{"a resolution's not-found has no suffix", object("ExecutionErr", `execution error:\nNot found: x`), object("ExecutionErr", `execution error:\nNot found: x @common.rs:278:20`), false},
 		} {
 			got, oracle := observe(t, c.wl), observe(t, c.oracle)
 			d := differences(t, got, oracle, generated)

@@ -1,0 +1,10 @@
+{
+  "f/app/pw": {
+    "path": "f/app/pw",
+    "file": "f/app/pw.variable.yaml",
+    "value": "p",
+    "is_secret": false,
+    "description": "",
+    "encrypted": false
+  }
+}

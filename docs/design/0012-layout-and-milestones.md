@@ -245,11 +245,10 @@ waits on an external gate except R1.
   variable (PF2); and JE-24/b and /d fail the root at its first pickup,
   whose recorded messages carry Rust locations that ADR 0011's location
   rule does not strip yet, which is N1b's, with the chaining errors and
-  JE-35/b. The flow runner decides per run whether
-  a run needs the platform providers (PF2): its flow names a variable or
-  resource of the fixture's `setup.yaml`, or reads the platform through a
-  helper or a `$var:`-style reference; the fixture's other runs are
-  checked.
+  JE-35/b. Until PF2, the flow runner reported a run that read the
+  platform as unsupported; since PF2 it serves every fixture's resources
+  and variables, and reports as unsupported only a run whose flow calls
+  `flow_user_state()`, which needs PF3.
 - N3a runs for loops on frames: the engine runs the root flow and each
   non-collapsed iteration's child flow with one interpreter, each with
   its own results scope where CF-19 starts one, and a collapsed iteration
@@ -274,6 +273,25 @@ waits on an external gate except R1.
   then runs as a child flow that carries a copy of it, which is N3c's;
   it also refuses a path script's own `cache_ttl` (N4), which a loop body
   made reachable.
+- PF2 put the resource, variable and secret services, their local
+  default store (`platform.Store`, filled from a bundle's `data/` by
+  `platform.LoadData`) and the interpolation walker in
+  `internal/platform`, as the layout says, and their routes in the facade.
+  The engine takes the same `platform.Services` as the facade
+  (`engine.Config.Platform`): it resolves a leaf's arguments when the job
+  is picked up, `flow_env` on every transition, into the frame that starts
+  the module, so parallel iterations share none, and the expression
+  helpers. FX-42/h's run `args_file` reads the arguments file, so the
+  harness writes `args.json` into each step's working directory
+  (WR-5, core), the latest invocation's in a warm process (D10). "The
+  WA-10 to WA-12 and WA-40 to WA-42 cases" in PF2's row are read as each
+  catalogue case of those findings at the level that can run it: the step
+  cases (`conformance/steps/bun/wa-*.yaml`, through the real harness in
+  `warm` and `fresh`), the walker's unit cases
+  (`internal/platform/testdata/interpolation.json`), the stock client
+  (`TestProvidersOnTheClient`) and, for WA-40/a and /b, the flow fixture
+  `client-api/providers`, recorded on the oracle, whose runs the flow suite
+  requires; WA-11/b is a write (`later`), deferred with the reason.
 
 - N3b runs while loops on N3a's sequential loop, with no iterator, and
   `branchone` and `branchall` on frames: each branch that runs is a child

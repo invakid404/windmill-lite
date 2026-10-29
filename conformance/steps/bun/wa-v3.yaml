@@ -1,0 +1,25 @@
+finding: WA-V3
+scope: core
+note: >-
+  Milestone PF2: the client interpolated read's side of WA-V3 (ADR 0007).
+  The worker's side, WA-V3/a, needs the engine's argument resolution and
+  is the flow fixture client-api/providers. Each script reads the platform as the stock client does, by fetch at BASE_URL with its token, so the cases need no client: the same reads go through the intercepted fetch (warm) and over loopback TCP (fresh), and the case's setup is what the facade serves. The stock client's own handling of the answers (its prefixes and error wrapping) is checked with windmill-client@1.767.0 by internal/platform/facade's TestProvidersOnTheClient, and the walker's rules at unit level by internal/platform/testdata/interpolation.json.
+cases:
+  - spec: WA-V3/b
+    provenance: source-derived
+    title: "$jsonvar: output is not substituted again"
+    setup:
+      variables:
+        - {path: u/test/j, value: '{"x":"$var:u/test/v"}'}
+        - {path: u/test/v, value: s}
+      resources:
+        - {path: u/test/r, resource_type: object, value: {"f": "$jsonvar:u/test/j"}}
+    script: |
+      export async function main(path: string) {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{"path":"resources/get_value_interpolated/u/test/r"}'
+        expect: {status: success, result: {status: 200, type: application/json, body: '{"f":{"x":"$var:u/test/v"}}'}}

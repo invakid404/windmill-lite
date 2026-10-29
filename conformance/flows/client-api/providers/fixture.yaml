@@ -1,0 +1,19 @@
+# Milestone PF2's fixture: the platform services a flow step reads,
+# recorded on the oracle and run by wltest check on windmill-lite, where
+# the platform facade and the engine answer from setup.yaml (WA-40/b).
+# Step a of services receives arguments the worker resolved: $res: with a
+# nested $res: and a secret $var:, a reserved name beside a marker, and a
+# plain argument (WR-5/a, WR-5/c, WA-V3/a); it then makes the reads the
+# stock client's getResource and getVariable make, with fetch at BASE_URL
+# and its own token (WA-10/a, WA-11/a, WA-12, WA-42/b, WA-42/c, WA-V3/b),
+# and returns what it saw. A body that carries a Rust location on Windmill
+# is returned as whether it starts as the reference says (D14). Runs
+# missing_resource and invalid_path fail the step at its argument
+# resolution (WR-5/e, WR-5/b). Synthetic, written for this repository from
+# docs/semantics/client-api.md and docs/semantics/conformance.md.
+id: client-api/providers
+spec: [WA-40/b, WA-40/a, WA-V3/a, WA-V3/b, WA-10/a, WA-11/a, WA-12/a, WA-12/c, WA-42/b, WA-42/c, WR-5/a, WR-5/b, WR-5/c, WR-5/e, OR-14]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
