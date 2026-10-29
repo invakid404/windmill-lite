@@ -386,13 +386,17 @@ stripped.
   multisets ([OR-23](../../docs/semantics/oracle.md#or-23)). Each expected
   element is compared at its own index, so strict key order applies inside
   it and unordered pointers below it (for example `/result/0/values`) still
-  hold. In subset mode, or with such a pointer below the array, the
-  elements are matched one to one by a maximum bipartite matching, so a
-  broad expected element never takes the only match of a narrower one.
-  Otherwise element equality is an equivalence that ignores the index, and
-  the elements are counted by their canonical text (members sorted by key,
-  or in order under strict key order), in about linear time;
-  `BenchmarkCompareUnordered` measures both paths;
+  hold. With such a pointer below the array, equality depends on the
+  index, and the elements are matched one to one by a maximum bipartite
+  matching. Otherwise elements with the same canonical text (members sorted
+  by key, or in order under strict key order) are interchangeable. An exact
+  comparison counts them by that text, in about linear time. A subset
+  comparison, whose equality is not symmetric, matches groups of them with
+  their multiplicities, comparing each pair of groups once, so a broad
+  expected element never takes the only match of a narrower one and
+  repeated elements cost one comparison (500 repeated scalars: 63 µs, from
+  23 ms for the matching of single elements);
+  `BenchmarkCompareUnordered` measures each path;
 - numbers by their JSON text;
 - a step field one side leaves to its canonical absence and the other spells
   out is expanded first, so the two spellings compare equal;
@@ -402,4 +406,7 @@ stripped.
 `testdata/compare/cases.json` holds the cases.
 `TestUnorderedCountingAgreesWithMatching` checks, on random arrays with
 repeated elements and reshuffled members, that counting and the matching
-agree under either key-order policy.
+agree under either key-order policy, and
+`TestUnorderedSubsetGroupsAgreeWithMatching` that, in subset mode, the
+matching of groups agrees with the matching of single elements when the
+actual elements carry extra members.
