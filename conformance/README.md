@@ -14,10 +14,10 @@ catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
 HTTP responses, the contested `later` cases, codebase scripts, and the
 probe catalogue rebuilt as fixtures). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
-engine core (milestones E1, N1a and N1b), which runs sequential flows of
-Bun steps and their failure modules; it also runs the expression cases
-end to end, as the generated one-step flows `wltest record` lifts them
-into. The runs it cannot run yet
+engine core (milestones E1, N1a, N1b, N3a and N3b), which runs flows of
+Bun steps, their failure modules, loops and branches; it also runs the
+expression cases end to end, as the generated one-step flows `wltest
+record` lifts them into. The runs it cannot run yet
 are reported as unsupported, and the runs it must pass are listed in
 `cmd/wltest/testdata/flowsuite.json`
 ([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression
@@ -48,7 +48,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b, N3a, N3b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -147,8 +147,9 @@ Each E3b run's `expect` was written from the reference before the oracle
 first ran it. Where the oracle disagreed, the run's `note` says what was
 predicted, what was recorded, and in which oracle runs. The engine
 milestones added the `carried` value of a module that an error stop or a
-throwing `stop_after_if` fails (N1a, N1b), which the oracle exposes no
-recording of: the recorder compares an `expect` without it.
+throwing `stop_after_if` fails (N1a, N1b, and N3b in FX-20's error-stop
+run), which the oracle exposes no recording of: the recorder compares an
+`expect` without it.
 
 ### Recording batches
 
