@@ -1,0 +1,25 @@
+summary: CF-24/e a collapsed inline body gets the iteration path
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms: {}
+              lock: '!inline b.lock'
+              language: bun
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

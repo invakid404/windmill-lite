@@ -29,24 +29,30 @@ import (
 var errIterator = errors.New("engine: the loop cannot start")
 
 // container runs module i of fr, a container that runs (CF-1): a for loop
-// or a while loop, a branchone or a branchall.
-func (r *run) container(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome) outcome {
+// or a while loop, a branchone or a branchall. b is how the module started:
+// b.first says that the start is its flow's pickup, where a chaining error
+// of its start fails the module or the child flow (FX-15 contexts 2 and
+// 3), while a retry's re-entry is a later transition (context 1); b.due
+// delays its first child, the sleep of the module before it (CF-21); and
+// b.base, on a retry of a loop, is the input its children start from
+// (CF-22 rule 3).
+func (r *run) container(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	switch fr.modules[i].Kind {
 	case ir.KindForLoop:
-		return r.forLoop(ctx, fr, i, prev, prevID, o)
+		return r.forLoop(ctx, fr, i, prev, prevID, o, b)
 	case ir.KindWhileLoop:
-		return r.whileLoop(ctx, fr, i, prev, o)
+		return r.whileLoop(ctx, fr, i, prev, prevID, o, b)
 	case ir.KindBranchOne:
-		return r.branchOne(ctx, fr, i, prev, prevID, o)
+		return r.branchOne(ctx, fr, i, prev, prevID, o, b)
 	}
-	return r.branchAll(ctx, fr, i, o)
+	return r.branchAll(ctx, fr, i, prev, prevID, o, b)
 }
 
 // forLoop runs module i of fr, a for loop, from its iterator to its
 // completion; o is its outcome so far (its record's site). The loop's own
 // stop_after_if is a break (CF-11), and its stop_after_all_iters_if a stop
 // of the flow it is in (CF-13).
-func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome) outcome {
+func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	m := fr.modules[i]
 	l := m.ForLoop
 	site := fr.sites[i]
@@ -61,16 +67,16 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
 				return o
 			}
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
 	}
 	if len(items) == 0 {
 		return r.emptyContainer(ctx, fr, i, o)
 	}
 	if l.Parallel {
-		return r.parallelLoop(ctx, fr, i, prev, prevID, items, o)
+		return r.parallelLoop(ctx, fr, i, prev, prevID, items, o, b)
 	}
-	return r.sequentialLoop(ctx, fr, i, prev, len(items), func(k int) []byte { return items[k] }, o)
+	return r.sequentialLoop(ctx, fr, i, prev, prevID, len(items), func(k int) []byte { return items[k] }, o, b)
 }
 
 // whileLoop runs module i of fr, a while loop (CF-10): its iterations run
@@ -79,11 +85,11 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 // iteration fails that skip_failures does not tolerate (CF-5), or the run
 // ends; nothing else ends it. A loop with no body returns [] at once, as
 // an empty for loop does (CF-10, CF-29).
-func (r *run) whileLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, o outcome) outcome {
+func (r *run) whileLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	if len(fr.modules[i].WhileLoop.Modules) == 0 {
 		return r.emptyContainer(ctx, fr, i, o)
 	}
-	return r.sequentialLoop(ctx, fr, i, prev, -1, func(k int) []byte { return []byte(strconv.Itoa(k)) }, o)
+	return r.sequentialLoop(ctx, fr, i, prev, prevID, -1, func(k int) []byte { return []byte(strconv.Itoa(k)) }, o, b)
 }
 
 // emptyContainer completes module i of fr, a container that creates no
@@ -157,10 +163,33 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 
 // iterations are a loop's results so far, in index order, with the
 // pointers of the errors windmill-lite generated among them, which a
-// comparison needs (ADR 0011, StepRecord.ResultNested).
+// comparison needs (ADR 0011, StepRecord.ResultNested), and the last child
+// job that failed and the last that completed, which a retry of the loop
+// starts from and records (CF-22).
 type iterations struct {
-	values []jsonval.Value
-	nested []string
+	values       []jsonval.Value
+	nested       []string
+	failed, last *childJob
+}
+
+// childJob is a child job of a container as a retry of the container sees
+// it (CF-22): a child flow (an iteration's or a branch's), or a collapsed
+// iteration's body job; its site (the child flow's, or the body job's
+// record), its stored input, and how it ended.
+type childJob struct {
+	site  conformance.SitePath
+	flow  bool
+	input jsonval.Value
+	end   flowEnd
+}
+
+// completed notes a child job that completed: the last one, and the last
+// one that failed.
+func (it *iterations) completed(j *childJob) {
+	it.last = j
+	if j.end.status == conformance.RunFailure {
+		it.failed = j
+	}
 }
 
 // add appends an iteration's result: a generated error at the iteration's
@@ -180,13 +209,27 @@ func (it *iterations) add(e flowEnd) {
 // loop one after another (CF-5, CF-8, CF-10, CF-11, CF-12): n of them, or,
 // for a while loop, n < 0, as many as run until something ends the loop;
 // item gives iteration k's element. prev is the loop's previous_result,
-// which a collapsed iteration chains (CF-8 item 5).
-func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, n int, item func(k int) []byte, o outcome) outcome {
+// which a collapsed iteration chains (CF-8 item 5), and prevID its
+// preceding id; b is how the loop started (container).
+func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, n int, item func(k int) []byte, o outcome, b begin) outcome {
 	m := fr.modules[i]
 	l := bodyOf(m)
+	// A retry's re-entry pushes the loop's first child from the input of
+	// its last failed child; the next iterations are pushed from the
+	// loop's own flow input (CF-22 rule 3, recorded by
+	// cf-22/collapsed_input).
+	base := func(k int) jsonval.Value {
+		if k == 0 && !b.base.IsZero() {
+			return b.base
+		}
+		return fr.input
+	}
 	// A collapsed iteration's previous_result is the step before the loop's
 	// result, then the previous iteration's; a loop at the first module of
 	// its flow gives every iteration the flow's input (JE-36 rules 1 and 5).
+	// The flow's last result, which the loop's skip_if sees before each
+	// iteration after the first, follows the same rule, a child flow's
+	// result standing for a collapsed job's (CF-21).
 	iterPrev := prev
 	if i == 0 {
 		iterPrev = fr.input
@@ -199,36 +242,83 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, ran, st)
 		}
+		if k > 0 {
+			// The previous child's completion starts a transition of the
+			// loop's flow, which pushes the next child: flow_env is resolved
+			// again (JE-38) for what it evaluates, the loop's skip_if and
+			// timeout and a collapsed body job's arguments.
+			r.resolveEnv(ctx, fr)
+		}
+		if k > 0 && m.SkipIf != nil {
+			// A sequential loop's skip_if is evaluated again before every
+			// iteration after the first (CF-21, Q-CF-6); a throw is a chaining
+			// error of a later transition (FX-15).
+			skip, err := r.predicate(ctx, fr, m.SkipIf, fr.sites[i], r.startScope(fr, iterPrev, prevID))
+			switch {
+			case err != nil && ctx.Err() != nil:
+				return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
+			case err != nil:
+				return r.chainingAt(fr, false, o, predicateText(err))
+			case skip:
+				return r.loopSkipped(ctx, fr, i, o, iterPrev)
+			}
+		}
 		ran = true
 		var e flowEnd
+		var job *childJob
 		if l.collapse {
-			c := r.collapsedFrame(fr, i, k, item(k), iterPrev)
+			c := r.collapsedFrame(fr, i, k, base(k), item(k), iterPrev, prev, prevID)
+			if k == 0 {
+				c.due = b.due
+			}
 			e = r.runList(ctx, c)
 			if e.chain != "" {
 				// The push of the iteration's job failed: a chaining error
 				// of the loop's flow, at its pickup only for the first
-				// iteration of a loop that is its first module.
-				return r.chainingAt(fr, k == 0 && i == 0, o, e.chain)
+				// iteration of a loop at its first module's first start (a
+				// retry's re-entry is a later transition, FX-15). The job
+				// was never pushed, so Windmill has no site for it.
+				r.supersede(fr.sites[i].Child(conformance.Iteration(k)), conformance.SitePath{}, conformance.SitePath{})
+				return r.chainingAt(fr, k == 0 && b.first, o, e.chain)
 			}
-			if i > 0 {
-				iterPrev = e.result
-			}
+			job = &childJob{site: c.sites[0], input: e.args, end: e}
 		} else {
-			c, text := r.childFrame(fr, i, k, item(k), false)
+			// The loop's timeout is evaluated for each child it pushes, and
+			// a failure is a chaining error of its flow (CF-21); nothing
+			// enforces it on a child flow (CF-27).
+			if text, err := r.childTimeout(ctx, fr, i, prev, prevID); err != nil {
+				if ctx.Err() != nil {
+					return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
+				}
+				return r.chainingAt(fr, k == 0 && b.first, o, text)
+			}
+			c, text := r.childFrame(fr, i, k, base(k), item(k), false)
 			if c == nil {
 				// The push of the iteration's child flow failed.
-				return r.chainingAt(fr, k == 0 && i == 0, o, text)
+				return r.chainingAt(fr, k == 0 && b.first, o, text)
+			}
+			if k == 0 {
+				c.due = b.due
 			}
 			r.addChild(c)
 			e = r.runList(ctx, c)
+			job = &childJob{site: c.site, flow: true, input: c.input, end: e}
 			// The child flow's completion refreshes the loop's flow's
 			// ping (JE-2).
 			r.ping(fr)
 		}
 		if ended(e.status) {
-			return r.loopInterrupted(o, &it, ran, r.endedStatus(ctx, e.status))
+			st := r.endedStatus(ctx, e.status)
+			if st == conformance.RunCanceled {
+				it.add(canceledChild(ctx, job))
+			}
+			return r.loopInterrupted(o, &it, ran, st)
+		}
+		if i > 0 {
+			iterPrev = e.result
 		}
 		it.add(e)
+		it.completed(job)
 		r.progress(fr, i, it.values)
 		if e.status == conformance.RunFailure || e.handled {
 			// A failed iteration stops the loop unless skip_failures; an
@@ -276,47 +366,85 @@ func handledBy(o outcome, handled bool) outcome {
 	return o
 }
 
+// loopSkipped ends module i of fr, a sequential loop whose skip_if held
+// before an iteration after the first, as a skipped identity job of p, the
+// flow's last result (CF-21, Q-CF-6): the identity job replaces the loop's
+// state, so its iterations so far are lost (recorded by cf-21/skip_mid),
+// and the flow goes on with p.
+func (r *run) loopSkipped(ctx context.Context, fr *frame, i int, o outcome, p jsonval.Value) outcome {
+	r.supersede(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
+	stored, err := storeMembers(objectOf(member{"previous_result", p.Producer()}))
+	if err != nil {
+		return r.chainingAt(fr, false, o, err.Error())
+	}
+	o.rec.RecordedArgs, o.rec.ResolvedArgs, o.rec.Start = stored, stored, r.clock.Now()
+	return r.identityJob(ctx, fr, i, fr.sites[i], o, stored, true)
+}
+
+// childTimeout evaluates the timeout of module i of fr, a container, for a
+// child flow it pushes (CF-21): with the container's P, preceding id and
+// flow input, as the step's own timeout is (FX-24). Nothing enforces it on
+// a child flow (CF-27); a failure returns the chaining error's text.
+func (r *run) childTimeout(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string) (string, error) {
+	m := fr.modules[i]
+	if m.Timeout == nil {
+		return "", nil
+	}
+	if _, err := r.moduleTimeout(ctx, fr, m, fr.sites[i], prev, prevID); err != nil {
+		return err.Error(), err
+	}
+	return "", nil
+}
+
 // parallelLoop runs a parallel loop's iterations at once, each a child
 // flow with its own results scope (CF-7, CF-19): parallelism, evaluated
 // per child, holds the children at and beyond it, and completions release
 // them. The loop completes when every iteration has, with no fail-fast
 // (Windmill's continue-all, ADR 0008), and its stop_after_if is not
 // evaluated.
-func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, items [][]byte, o outcome) outcome {
+func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, items [][]byte, o outcome, b begin) outcome {
 	m := fr.modules[i]
 	l := m.ForLoop
 	n := len(items)
-	// parallelism is evaluated per child, as each is created (JE-V1); -1
-	// is no limit.
+	// The loop's timeout, then its parallelism, are evaluated per child, as
+	// each is created (CF-21, JE-V1); -1 is no limit. Nothing enforces the
+	// timeout on a child flow (CF-27).
 	limits := make([]int, n)
 	for k := range limits {
 		limits[k] = -1
-		if l.Parallelism == nil {
-			continue
+		text, err := r.childTimeout(ctx, fr, i, prev, prevID)
+		if err == nil && l.Parallelism != nil {
+			limits[k], text, err = r.parallelism(ctx, fr, m, fr.sites[i], prev, prevID)
 		}
-		lim, text, err := r.parallelism(ctx, fr, m, fr.sites[i], prev, prevID)
 		if err != nil {
 			if ctx.Err() != nil {
 				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
 				return o
 			}
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
-		limits[k] = lim
 	}
 	// More than one child in a same_worker flow fails the loop's start
 	// (CF-7); the flag is the root's, which child flows copy (CF-1).
 	if fr.def.SameWorker && m.Sleep == nil && n > 1 {
-		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
+		return r.chainingAt(fr, b.first, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
-	// Every child is created at once (CF-7): a child whose input cannot be
-	// stored fails the loop's start, before any runs.
+	// Every child is created at once (CF-7), in one push: a child whose
+	// input cannot be stored fails the loop's start, before any runs. On a
+	// retry's re-entry that push starts every child from the input of the
+	// last failed child (CF-22 rule 3); the sleep before the loop delays
+	// every child it pushes (CF-21, recorded by cf-21/sleep_before_par).
+	base := fr.input
+	if !b.base.IsZero() {
+		base = b.base
+	}
 	children := make([]*frame, n)
 	for k, item := range items {
-		c, text := r.childFrame(fr, i, k, item, true)
+		c, text := r.childFrame(fr, i, k, base, item, true)
 		if c == nil {
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
+		c.due = b.due
 		children[k] = c
 	}
 	for _, c := range children {
@@ -377,6 +505,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 	}
 	release()
+	var it iterations
 	for running > 0 || (stopped == "" && nStarted < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
@@ -390,22 +519,36 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			stopped = r.endedStatus(ctx, conformance.RunCanceled)
 			continue
 		}
-		<-done
+		k := <-done
 		running--
 		completed++
+		// The last child to fail, in the order the loop received their
+		// completions, is the one a retry starts from (CF-22 rule 3).
+		if !ended(ends[k].status) {
+			it.completed(&childJob{site: children[k].site, flow: true, input: children[k].input, end: ends[k]})
+		}
 		// The loop's goroutine refreshes its flow's ping as each child
 		// flow completes (JE-2).
 		r.ping(fr)
 		release()
 	}
-	var it iterations
 	failed, handled := false, false
 	for k, e := range ends {
-		if !started[k] {
-			continue
-		}
-		if ended(e.status) && stopped == "" {
+		if started[k] && ended(e.status) && stopped == "" {
 			stopped = e.status
+		}
+	}
+	canceled := stopped != "" && r.endedStatus(ctx, stopped) == conformance.RunCanceled
+	for k, e := range ends {
+		switch {
+		case canceled && (!started[k] || ended(e.status)):
+			// The cancellation reaches every child, held ones included,
+			// which completes as failed with the Canceled error without
+			// running its body (CF-28, recorded by cf-28/held).
+			it.add(canceledChild(ctx, nil))
+			continue
+		case !started[k]:
+			continue
 		}
 		it.add(e)
 		// A clean stop ends only its own iteration (CF-12 item 2); every
@@ -416,10 +559,20 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			handled = handled || e.handled
 		}
 	}
-	if stopped != "" || nStarted < n {
-		return r.loopInterrupted(o, &it, nStarted > 0, r.endedStatus(ctx, stopped))
+	if stopped != "" {
+		return r.loopInterrupted(o, &it, nStarted > 0 || canceled, r.endedStatus(ctx, stopped))
 	}
 	return handledBy(r.loopDone(ctx, fr, i, o, &it, failed, nil), failed && handled)
+}
+
+// canceledChild is the result a canceled child job leaves its container
+// (CF-28): a child flow's is the Canceled error of its flow, and a
+// collapsed body job's its own, the killed step's.
+func canceledChild(ctx context.Context, j *childJob) flowEnd {
+	if j != nil && !j.flow && !j.end.result.IsZero() {
+		return flowEnd{status: conformance.RunFailure, result: j.end.result, origin: j.end.origin}
+	}
+	return flowEnd{status: conformance.RunFailure, result: canceledError(cancellationOf(ctx)), origin: OriginEngine}
 }
 
 // loopDone completes an active loop or branchall: its result is the array
@@ -442,6 +595,7 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 	o.rec.Result, o.rec.Carried, o.carried = arr, arr, arr
 	o.rec.ResultNested, o.rec.CarriedNested, o.nested = it.nested, it.nested, it.nested
 	o.rec.Status, o.rec.Module = conformance.StepSuccess, conformance.ModuleSuccess
+	o.failedChild, o.lastChild = it.failed, it.last
 	if failed || stopErr != nil {
 		o.rec.Status, o.rec.Module, o.end = conformance.StepFailure, conformance.ModuleFailure, endFailed
 	}
@@ -473,15 +627,22 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 	return o
 }
 
-// loopInterrupted is a loop that the latch, the cancellation or a halt
-// stopped before it completed (status says which); its result is the
-// array so far.
+// loopInterrupted is a loop or a branchall that the latch, the
+// cancellation or a halt stopped before it completed (status says which);
+// its result is the array so far. A canceled one completes as its flow job
+// does on Windmill once its children have reported, a failure whose array
+// holds the Canceled error of each child the cancellation reached (CF-28,
+// recorded by cf-28/held); the latch and a halt are windmill-lite's own,
+// and leave it canceled.
 func (r *run) loopInterrupted(o outcome, it *iterations, ran bool, status conformance.RunStatus) outcome {
 	o.rec.Ran = ran
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultNested = conformance.StepCanceled, conformance.ModuleFailure, arrayOf(it.values), it.nested
 	o.end = endInterrupted
-	if status == conformance.RunHalted {
+	switch status {
+	case conformance.RunHalted:
 		o.end = endHalted
+	case conformance.RunCanceled:
+		o.rec.Status = conformance.StepFailure
 	}
 	return o
 }
@@ -576,7 +737,8 @@ func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site con
 }
 
 // childFrame creates the child flow of iteration k of module i of fr, a
-// for or while loop (CF-1): its input is the loop's flow input plus iter
+// for or while loop (CF-1): its input is base, the loop's flow input or, on
+// a retry, the input of its last failed child (CF-22 rule 3), plus iter
 // (CF-3), which it reads back from storage (JE-44); its first module's
 // previous_result is that input (CF-9). A sequential or while iteration
 // writes into its parent's results scope and stays in its innermost flow
@@ -585,9 +747,9 @@ func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site con
 // childFrame then returns nil and the chaining error's text. Reading: the
 // iterator's own storage check rules that out, since the loop's input is
 // stored too.
-func (r *run) childFrame(fr *frame, i, k int, item []byte, parallel bool) (*frame, string) {
+func (r *run) childFrame(fr *frame, i, k int, base jsonval.Value, item []byte, parallel bool) (*frame, string) {
 	m := fr.modules[i]
-	stored, err := iterInput(fr.input, k, item).Stored()
+	stored, err := iterInput(base, k, item).Stored()
 	if err != nil {
 		return nil, databaseError(err).Error()
 	}
@@ -608,18 +770,26 @@ func (r *run) childFrame(fr *frame, i, k int, item []byte, parallel bool) (*fram
 func (r *run) addChild(c *frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.trace.Children = append(r.trace.Children, ChildFlow{Site: c.site, ID: c.id, Modules: c.ids(), Failure: c.failure != nil})
+	child := ChildFlow{Site: c.site, ID: c.id, Modules: c.ids(), Virtual: make([]bool, len(c.modules)), Failure: c.failure != nil}
+	for i, m := range c.modules {
+		child.Virtual[i] = m.Virtual
+	}
+	r.trace.Children = append(r.trace.Children, child)
 }
 
 // collapsedFrame is iteration k of module i of fr, a collapsed for or while
-// loop (CF-8): its body step runs as a job of fr, with the loop's flow input
-// plus iter as flow_input, prev as previous_result and an empty previous
-// id, and registers nothing under its own id.
-func (r *run) collapsedFrame(fr *frame, i, k int, item []byte, prev jsonval.Value) *frame {
+// loop (CF-8): its body step runs as a job of fr, with base plus iter as
+// flow_input, prev as previous_result and an empty previous id, and
+// registers nothing under its own id. base is the loop's flow input or, on
+// a retry, its last failed body job's stored arguments (CF-22 rule 3);
+// loopPrev and loopPrevID are the loop's own previous_result and preceding
+// id, which its timeout sees (CF-21).
+func (r *run) collapsedFrame(fr *frame, i, k int, base jsonval.Value, item []byte, prev, loopPrev jsonval.Value, loopPrevID string) *frame {
 	m := fr.modules[i]
 	c := newFrame(bodyOf(m).modules, fr.sites[i].Child(conformance.Iteration(k)))
 	c.collapsed, c.iter, c.parent, c.def, c.envSrc = m, k, fr, fr.def, fr.envSrc
-	c.input, c.prev = iterInput(fr.input, k, item), prev
+	c.input, c.prev = iterInput(base, k, item), prev
+	c.loopPrev, c.loopPrevID = loopPrev, loopPrevID
 	c.path, c.id, c.scope, c.nodes, c.rng = fr.path, fr.id, fr.scope, fr.nodes, fr.rng
 	return c
 }

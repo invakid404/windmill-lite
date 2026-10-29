@@ -1,0 +1,11 @@
+# CF-25: a parallel loop does not take the squash start path.
+spec: [CF-25]
+target: f/cf25/parallel
+expect:
+  status: success
+  result: [1, 2]
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:l": {status: success, result: [1, 2]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}

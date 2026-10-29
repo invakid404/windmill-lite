@@ -234,8 +234,7 @@ func flowModules(f *ir.Flow) []*ir.Module {
 // that implements the feature. A flow's own timeout (its metadata's,
 // OF-16) is accepted and has no effect: a flow job bypasses every executor
 // timer, so nothing enforces it (FX-24, path 4). N2's waits and retries run
-// on the flow's own modules; on a for loop, in its body, or as the sleep
-// that delays a loop's start, they are NI's (waits).
+// on every module, containers and their bodies included (milestone NI).
 func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	switch {
 	case f.PreprocessorModule != nil:
@@ -244,11 +243,6 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 		return unsupported("a flow skip_expr")
 	case f.CacheTTL != nil:
 		return unsupported("a flow cache_ttl (N4)")
-	}
-	for i, m := range f.Modules {
-		if i > 0 && isContainer(m.Kind) && f.Modules[i-1].Sleep != nil {
-			return unsupported("module %q: a sleep before a %s (NI)", f.Modules[i-1].ID, m.Kind)
-		}
 	}
 	// A container in the failure module's slot runs its bodies raw, each
 	// carrying a copy of the failure module with a suffixed id (CF-30,
@@ -267,37 +261,11 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	return nil
 }
 
-// supportedList checks the modules of a container's body, where N2's waits
-// and retries are NI's.
+// supportedList checks the modules of a container's body.
 func supportedList(ms []*ir.Module, scripts map[string]*ir.Script) error {
 	for _, m := range ms {
-		err := niWaits(m, "in a container's body")
-		if err == nil {
-			err = supportedModule(m, scripts)
-		}
-		if err != nil {
+		if err := supportedModule(m, scripts); err != nil {
 			return fmt.Errorf("module %q: %w", m.ID, err)
-		}
-	}
-	return nil
-}
-
-// niWaits refuses N2's waits and retries on a module where milestone NI
-// integrates them with containers (ADR 0012): a sleep, a retry with
-// attempts or retry_if, a javascript or negative timeout.
-func niWaits(m *ir.Module, where string) error {
-	r := m.Retry
-	switch {
-	case m.Sleep != nil:
-		return unsupported("a sleep %s (NI)", where)
-	case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
-		return unsupported("a retry %s (NI)", where)
-	case m.Timeout != nil && m.Timeout.Type != ir.Static:
-		return unsupported("a %s timeout %s (NI)", m.Timeout.Type, where)
-	}
-	if t := m.Timeout; t != nil {
-		if _, err := staticTimeout(t.Value); err == errNegativeTimeout {
-			return unsupported("a negative timeout %s (NI)", where)
 		}
 	}
 	return nil
@@ -329,25 +297,17 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 			return errors.New("a flow module with no subflow")
 		case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
 			// A retried attempt's subflow steps belong under its attempt's
-			// site (ADR 0011), which NI integrates with N2's retries.
-			return unsupported("a retry on a subflow step (NI)")
+			// site (ADR 0011); no case of NI's, the milestone that integrates
+			// N2's retries with child flows, covers it (ADR 0012).
+			return unsupported("a retry on a subflow step (later)")
 		}
 	case ir.KindForLoop:
-		if err := niWaits(m, "on a for loop"); err != nil {
-			return err
-		}
 		if err := supportedLoop(m.ForLoop, scripts); err != nil {
 			return err
 		}
 	case ir.KindWhileLoop:
-		if err := niWaits(m, "on a while loop"); err != nil {
-			return err
-		}
-		switch {
-		case m.WhileLoop == nil:
+		if m.WhileLoop == nil {
 			return errors.New("a whileloopflow module with no loop")
-		case m.WhileLoop.Squash:
-			return unsupported("a squashed while loop (CF-25, EE)")
 		}
 		if err := supportedList(m.WhileLoop.Modules, scripts); err != nil {
 			return err
@@ -355,9 +315,6 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 	case ir.KindBranchOne, ir.KindBranchAll:
 		if m.Kind == ir.KindBranchOne && m.BranchOne == nil || m.Kind == ir.KindBranchAll && m.BranchAll == nil {
 			return fmt.Errorf("a %s module with no branches", m.Kind)
-		}
-		if err := niWaits(m, "on a "+string(m.Kind)); err != nil {
-			return err
 		}
 		for _, body := range bodies(m) {
 			if err := supportedList(body, scripts); err != nil {
@@ -406,10 +363,6 @@ func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
 	switch {
 	case l == nil:
 		return errors.New("a forloopflow module with no loop")
-	case l.Squash:
-		// CE fails a squashed sequential loop that starts runners (CF-25),
-		// whose route the reference leaves open; squash is EE.
-		return unsupported("a squashed for loop (CF-25, EE)")
 	case l.Parallelism != nil && l.Parallelism.Type == ir.AI:
 		// An ai iterator fails the loop with CF-2's text; the reference
 		// gives none for an ai parallelism.

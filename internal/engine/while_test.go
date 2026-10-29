@@ -159,7 +159,8 @@ func TestWhileEnds(t *testing.T) {
 
 // CF-10, CF-28, FX-38: nothing but the run's end stops a while loop with
 // no stop: its cancellation abandons the running iteration and starts no
-// other, and the run ends canceled.
+// other, and the run ends canceled. The loop completes as a failure whose
+// array ends with the killed body job's result (recorded by cf-28/held).
 func TestWhileRunsUntilCanceled(t *testing.T) {
 	g := newGated()
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(whileOf("w", []string{mod("b", "value", inputs("v", js("flow_input.iter.index")), "")}, false, ""))}, g)
@@ -177,7 +178,7 @@ func TestWhileRunsUntilCanceled(t *testing.T) {
 	cancel()
 	tr := <-out
 	wantStatus(t, tr, conformance.RunCanceled, "")
-	if w := at(t, tr, "m:w"); w.Status != conformance.StepCanceled || len(arrayElems(t, w.Result)) != 4 {
+	if w := at(t, tr, "m:w"); w.Status != conformance.StepFailure || len(arrayElems(t, w.Result)) != 5 || errorName(jsonval.FromProducer(arrayElems(t, w.Result)[4])) != "ExecutionErr" {
 		t.Fatalf("the loop %+v", w)
 	}
 }

@@ -1,0 +1,13 @@
+# CF-21: a container's timeout is evaluated per child pushed, in step
+# scope: the loop's flow input, which has no iter, so this one throws, a
+# chaining error of a later transition (FX-15 context 1). With iter in
+# scope it would be 0, which nothing enforces on a child flow (CF-27).
+spec: [CF-21, CF-27, FX-15]
+target: f/cf21/timeout_scope_flows
+note: "Corrected after recording: the prediction had the evaluator's text wrong (TypeError, one stack line); oracle run 40852609901 recorded the text windmill-lite's evaluator writes. The reading it discriminates, no iter in the timeout's scope, was confirmed."
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error during evaluation of expression `flow_input.iter.index`:\nQuickJS evaluation error: Error: cannot read property 'index' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:50)\n"}}
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: not_run, ran: false}

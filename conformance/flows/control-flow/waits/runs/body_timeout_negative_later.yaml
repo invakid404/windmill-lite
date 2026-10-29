@@ -1,0 +1,12 @@
+# FX-24, FX-15 context 1: a negative timeout at the child flow's second
+# module aborts the child with the InternalError, which the loop takes as
+# its failed iteration.
+spec: [FX-24, FX-15]
+target: f/cfwaits/body_timeout_negative_later
+expect:
+  status: failure
+  result: [{error: {name: InternalError, message: "Timeout value cannot be negative"}}]
+  steps:
+    "m:l": {status: failure, result: [{error: {name: InternalError, message: "Timeout value cannot be negative"}}]}
+    "m:l/i:0/m:x": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:0/m:b": {status: not_run, ran: false}

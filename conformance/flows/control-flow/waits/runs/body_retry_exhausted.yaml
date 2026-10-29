@@ -1,0 +1,12 @@
+# FX-26: b fails again after its one retry, which fails the iteration and
+# the loop.
+spec: [FX-26, CF-5]
+target: f/cfwaits/body_retry_exhausted
+expect:
+  status: failure
+  result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b}}]
+  steps:
+    "m:l": {status: failure, result: [{error: {name: Error, stack: "<stack>", message: "no", step_id: b}}]}
+    "m:l/i:0/m:b/r:0": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
+    "m:l/i:0/m:b": {status: failure, args: {msg: "no"}, result: {error: {name: Error, stack: "<stack>", message: "no", step_id: b}}}
+    "m:l/i:0/m:c": {status: not_run}

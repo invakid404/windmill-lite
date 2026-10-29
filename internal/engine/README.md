@@ -15,9 +15,11 @@ modules in bodies of milestone N3c, the platform providers a run reads
 the expression helpers `variable()` and `resource()`, the waits and
 time of milestone N2: `sleep`, the step timeout and its messages, retries
 with their arithmetic, jitter and argument reuse, deadlines and the clock,
-and (milestone PF3) each run's place in the job registry, the helper
+(milestone PF3) each run's place in the job registry, the helper
 `flow_user_state()`, a root script's run as a script job and the default
-dispatcher. This README
+dispatcher, and the integration of milestone NI: N2's waits and retries,
+the cancellation and failures inside containers, and the evaluation timing
+of container-level fields. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -196,7 +198,7 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a, N1b, N3a, N3b, N3c, N2).** A flow's modules in sequence:
+**What it runs (N1a, N1b, N3a, N3b, N3c, N2, NI).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
 a static or javascript `timeout`, `retry` and `retry_if`,
@@ -207,23 +209,22 @@ which nothing enforces: a flow job bypasses every executor timer
 ([FX-24](../../docs/semantics/execution.md#fx-24), path 4), for and while
 loops and `branchall` with `stop_after_all_iters_if`, `branchone`, and
 subflows by path, in a flow with a failure module too, whose bodies each
-carry a copy of it (below). `stop_after_all_iters_if` is evaluated on an active loop or
+carry a copy of it (below), with N2's waits and retries in, on and before
+containers (NI, below).
+`stop_after_all_iters_if` is evaluated on an active loop or
 `branchall` only, so on any other module it is accepted and never
 evaluated ([CF-13](../../docs/semantics/control-flow.md#cf-13),
 [FX-2](../../docs/semantics/execution.md#fx-2)). `New` refuses everything
 else with `ErrUnsupported`, naming the milestone that implements it, for
 a top-level module, a container body's and the failure module alike:
-N2's waits and retries in a container's body, on a container, or as the
-sleep before a container (a sleep, a retry with attempts or `retry_if`, a
-javascript or negative `timeout`), which NI integrates with containers,
-and a retry on a subflow step, whose attempts' subflow steps NI places
-under the attempt's site; a container as the failure module, whose
+a container as the failure module, whose
 bodies run raw with a suffixed copy of it
 ([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
-only); `cache_ttl`, a path script's own included (N4); host-provided
+only); a retry on a subflow step, whose attempts' subflows would go
+below the attempt's site, which no case of NI covers (`later`);
+`cache_ttl`, a path script's own included (N4); host-provided
 sites (F2a); a step of another harness than Bun's, whose `bun` and
-`native` boundaries it runs (L1); a squashed for or while loop (EE,
-[CF-25](../../docs/semantics/control-flow.md#cf-25)); an `ai`
+`native` boundaries it runs (L1); an `ai`
 parallelism, whose error the reference does not give; a preprocessor,
 `skip_expr` and an `ai` sleep or timeout (`later`).
 
@@ -533,10 +534,7 @@ its branch's result with its origin and pointers.
   (FX-21), with no `stop_after_all_iters_if` after it; a static null
   `parallelism` is no limit, as a static null timeout is none; a collapsed
   body takes its loop's `pass_flow_input_directly` instead of its own
-  (CF-8 item 5) and then receives its iteration's flow input; a loop's
-  `skip_if` is evaluated once, not before
-  every iteration ([CF-21](../../docs/semantics/control-flow.md#cf-21) is
-  `later`, [Q-CF-6](../../docs/semantics/control-flow.md#q-cf-6)); the
+  (CF-8 item 5) and then receives its iteration's flow input; the
   text of P after a loop is the compact array with every number written
   again in the backend's notation
   ([JE-44](../../docs/semantics/expressions.md#je-44),
@@ -678,7 +676,8 @@ it, and the pending halt is dropped, with no `H8`. So a halt never hides
 a failure or a stop that ends the run. A step already running finishes,
 and a flow that has started (an iteration or a branch launched) runs its
 first module, so a parallel loop's iterations already started are not
-starts. A loop so interrupted records the array so far.
+starts. A loop so interrupted records the array so far; a canceled one
+completes as a failure (NI, below).
 
 **While loops (N3b, `loop.go`).** A while loop is a sequential loop with
 no iterator ([CF-10](../../docs/semantics/control-flow.md#cf-10)): its
@@ -799,7 +798,8 @@ the child's id as its job.
   context 3).
 - **Refused.** A retry with attempts or `retry_if` on a subflow step,
   whose attempts' subflows belong under the attempt's site
-  ([ADR 0011](../../docs/design/0011-differential-testing.md)), is NI's.
+  ([ADR 0011](../../docs/design/0011-differential-testing.md)): N3c left
+  it to NI, whose cases do not cover it, so it is `later`.
 
 **Failure modules in bodies (N3c).** In a flow with a failure module,
 every loop iteration and branch runs as a child flow carrying a copy of
@@ -1003,7 +1003,7 @@ the helpers and a helper's failure, and an engine with no platform.
 `waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
 below. The flow fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
-milestones N1a, N1b, N3a, N3b, PF2, N2 and PF3).
+milestones N1a, N1b, N3a, N3b, N3c, PF2, N2, PF3 and NI).
 
 ## Waits and time
 
@@ -1175,6 +1175,113 @@ host approves the first write, its states decided by the actual time,
 and a timer that wins the expiry but has not cancelled yet), that the monitor's budget ignores a recording clock other runs
 move on, that child flows refresh their loop's ping, and sleep and
 timeout values that are not JSON.
+
+## Containers and waits
+
+Milestone NI integrates N1b's errors and N2's waits and retries with N3a's
+and N3b's containers ([CF-21](../../docs/semantics/control-flow.md#cf-21)
+to [CF-28](../../docs/semantics/control-flow.md#cf-28)). The fixtures
+`conformance/flows/control-flow/cf-21` to `cf-28` and `waits`, recorded on
+the oracle by NI (`internal/oracle/testdata/batches/ni.json`), settle what
+the reference left to them.
+
+- **Inside a body.** A child flow (a loop iteration's or a branch's) runs
+  N2's sleeps, timeouts and retries as any flow does, with a retry state
+  and a transition monitor of its own (FX-27), so the iterations of a
+  parallel loop retry independently. A body whose last module has a
+  sleep ends in the virtual `<id>-v` identity, which the trace marks
+  (`ChildFlow.Virtual`, CF-26). A body module with a sleep or a retry
+  never collapses (CF-8), so a collapsed iteration has neither.
+- **The sleep before a container** (CF-21) delays its first push of
+  children: the first child of a sequential loop or `branchall`, the
+  chosen branch of a `branchone`, every child of a parallel loop or
+  `branchall`, all pushed at once (recorded by
+  `cf-21/sleep_before_par`); later children do not wait. Such a child
+  flow is scheduled (`frame.due`): it is picked up once the delay has
+  passed, before any of its modules starts, so a first module that
+  completes without a job, an empty container, does not use the delay
+  up, and a cancellation while it is queued fails it without running its
+  body (CF-28); a collapsed iteration's body job waits as any job does. A
+  container's retry delay schedules its first push the same way. A
+  container's own sleep delays the module after it, evaluated with the
+  container's result, as any module's.
+- **A container's timeout** is evaluated for each child it pushes, in the
+  container's own scope: its previous_result, its preceding id and its
+  flow's input, with no `iter`, a collapsed loop's included (recorded by
+  `cf-21/timeout_scope_flows` and `timeout_scope_collapsed`). Its failure
+  is a chaining error of the container's flow (FX-15), at its pickup for
+  the first child of a container that is its first module. It bounds each
+  collapsed body job and no child flow (CF-27).
+- **A container's retry** (CF-22) runs it again from scratch after the
+  backoff: its iterator or predicates again and every child. Its
+  `previous_result` is restored as a module's is (FX-6). The re-entry's
+  first push of a retried loop (the first child of a sequential loop,
+  every child of a parallel one) starts from the stored input of the loop's
+  last failed child job, so a child flow sees the failed child's `iter` as
+  `iter_parent`, and a collapsed body job transforms the failed job's
+  arguments; later iterations start from the loop's own flow input
+  (recorded by `cf-22/iter_parent` and `collapsed_input`). The re-entry is
+  a later transition, so a chaining error there (its iterator, timeout,
+  `parallelism` or a push) fails the flow at once (FX-15 context 1), as a
+  leaf's retry does. The failed
+  attempt is recorded as Windmill's job tree keeps it: the module's job,
+  its last child job that failed, else its last child job, at
+  `<site>/r:<k>`, a child flow's modules below it; a `branchall`, which
+  has no job of its own, leaves no attempt site, and its attempts still
+  count. What else the failed attempt ran is superseded
+  (`StepRecord.Superseded`, `ChildFlow.Superseded`), since the walker no
+  longer reaches it.
+- **`flow_env`** is resolved again (JE-38) at each transition of a
+  sequential container's flow that pushes its next child, after the
+  previous one completed, so the next push's `skip_if`, timeout and a
+  collapsed body job's arguments see what the previous child changed. A
+  collapsed iteration's job belongs to its loop's flow, whose resolution
+  it uses (`frame.owner`); the predicates evaluated after a child
+  completes keep reading the flow's cached map.
+- **A sequential loop's `skip_if`** (for or while) is evaluated again
+  before every iteration after the first, with the flow's last result as
+  `previous_result` (the previous iteration's, or the flow's input for a
+  loop at its first module) and the loop's preceding id. When it holds the
+  loop ends as a skipped identity job of that result, and its iterations
+  so far are superseded (recorded by `cf-21/skip_mid`, `skip_mid_flows`
+  and `skip_mid_while`); a throw is a chaining error of a later
+  transition. A parallel loop evaluates it once (`cf-21/skip_parallel`).
+- **Cancellation** (CF-28) reaches every child: a canceled container
+  completes as a failure whose array holds, for each child the
+  cancellation reached, held ones included, the `Canceled` error (a
+  collapsed body job's own killed result), and the children that had
+  completed keep theirs (recorded by `cf-28/held`); a canceled
+  `branchone` fails with its branch's `Canceled` error. The run then ends
+  canceled.
+- **`squash`** (CF-25) has no effect: on the Community Edition a squashed
+  loop runs as an ordinary loop, collapsed or not, sequential or parallel
+  (recorded by the `cf-25` fixture, which contradicts CF-25/a's predicted
+  error).
+- **A collapsed iteration whose push fails** (its timeout, its arguments'
+  storage) has no site, since its job was never pushed; its record is
+  superseded.
+
+**Readings where the reference is silent:**
+
+- A parallel loop's failed attempt, and the input its retry starts from,
+  are those of the last child to fail in the order the loop received
+  their completions (no recording discriminates).
+- A container's timeout is evaluated for each child before its
+  `parallelism`, in the order the reference lists them (pinned by
+  `TestContainerTimeoutPerChild`).
+- The flow's last result that a mid-loop `skip_if` sees for a loop of
+  child flows is the previous child flow's result, as for a collapsed
+  loop (recorded by `cf-21/skip_mid_flows`).
+
+**Tests.** `containers_test.go` covers the sleep before every kind of
+container on the recording clock (a child flow whose first module is an
+empty loop, and a cancellation while the child is queued, included),
+`flow_env` resolved again before each sequential push, a container's
+timeout per child and its routes, a container's retry (the re-run, the attempt record, `iter_parent`,
+a `branchall`, spent attempts), the mid-loop `skip_if` (collapsed, child
+flows, while, parallel, a throw), `squash`, and the waits and retries in a
+parallel loop's child flows with the virtual identity; `while_test.go`
+and `branch_test.go` cover a canceled container's failure.
 
 ## The walking skeleton
 

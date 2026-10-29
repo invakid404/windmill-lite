@@ -1,0 +1,10 @@
+# CF-24/e: a collapsed inline body runs as a job of the loop's flow, with
+# the path <flow path>/loop-<i>.
+spec: [CF-24/e]
+target: f/cf24/e
+expect:
+  status: success
+  result: [f/cf24/e/loop-0]
+  steps:
+    "m:l": {status: success, result: [f/cf24/e/loop-0]}
+    "m:l/i:0/m:b": {status: success, args: {}, result: f/cf24/e/loop-0}

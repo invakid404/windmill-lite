@@ -1,0 +1,13 @@
+# CF-21, FX-23: the sleep before a branchone delays its branch's first job.
+spec: [CF-21, FX-23, CF-14]
+target: f/cfwaits/sleep_before_branch
+note: "Corrected after recording: the prediction left out the branch chosen, which the walker records."
+delays:
+  - {from: "m:a", to: "m:bo/b:default/m:b", at_least_ms: 2000}
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:bo": {status: success, result: 1, branch_chosen: {type: default}}
+    "m:bo/b:default/m:b": {status: success, args: {x: 1}, result: 1}

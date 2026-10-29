@@ -1,0 +1,42 @@
+summary: a retried module in a par loop's body
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                tag:
+                  type: javascript
+                  expr: '"b" + flow_input.iter.index'
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/cfwaits/flaky
+            retry:
+              constant:
+                attempts: 1
+                seconds: 0
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              path: f/cfwaits/echo
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

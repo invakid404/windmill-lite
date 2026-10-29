@@ -1,0 +1,14 @@
+# Milestone NI (ADR 0012): CF-23, errors raised while starting a container.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-23. Every run is by
+# path after the deployment gate saw the flow's dependency job succeed
+# (the reference configuration of ADR 0001 section 1); the job kinds of the
+# root and of every child flow are in each recording's provenance
+# (timings.jobs).
+id: control-flow/cf-23
+spec: [CF-23, CF-23/a, CF-23/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
+note: "Both flows have a failure module beside a container, which windmill-lite runs from milestone N3c (ADR 0012)."

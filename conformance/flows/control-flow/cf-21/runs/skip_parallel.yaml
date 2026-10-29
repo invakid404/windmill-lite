@@ -1,0 +1,14 @@
+# CF-21: only a sequential loop re-evaluates its skip_if; a parallel loop
+# evaluates it once, at its start, where previous_result is 0, so every
+# iteration runs although each later result would make it hold.
+spec: [CF-21]
+target: f/cf21/skip_parallel
+expect:
+  status: success
+  result: [1, 2, 3]
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: success, result: [1, 2, 3]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b": {status: success, args: {x: 2}, result: 2}
+    "m:l/i:2/m:b": {status: success, args: {x: 3}, result: 3}
