@@ -2502,8 +2502,10 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     EE-only; a build without the `private` feature rejects it with
     `Squashing flow loops is not available in OSS`. The published CE image
     is built with `private` and does not use that stub: the oracle recorded
-    it running a squashed loop as an ordinary loop
-    ([CF-25](control-flow.md#cf-25), [CF-25/d](conformance.md#cf-25)).
+    six squashed loops on it completing with the results of their
+    unsquashed forms, without that error ([CF-25](control-flow.md#cf-25),
+    [CF-25/d](conformance.md#cf-25)). Whether it reuses a runtime across
+    iterations is not recorded ([Q-CF-19](control-flow.md#q-cf-19)).
   - **Concurrency limits, debouncing, worker tags and `preserve_step_tags`**
     are scheduling only.
   - **`same_worker: true` pinning.** The next job is pinned to the current
@@ -2540,6 +2542,12 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   cleanup is `enterprise`-gated; the only CE effect is on the synchronous
   script routes, and a deployed flow keeps the key only in the deploy race
   ([OR-21](oracle.md#or-21)).
+- **Revision 2026-10-29 (SC3 validation rounds 1 and 2):** the `squash`
+  item first took milestone NI's recordings to mean that the CE image
+  runs a squashed loop as an ordinary loop. It now says only what those
+  six runs show, their results and no stub error, and leaves runtime
+  reuse open ([CF-25](control-flow.md#cf-25),
+  [Q-CF-19](control-flow.md#q-cf-19)).
 
 <a id="fx-42"></a>
 ### FX-42 · Where JSON serialisation happens between steps

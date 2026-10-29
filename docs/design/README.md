@@ -657,13 +657,28 @@ Nothing here may commit the oracle's database credentials unmasked.
   [CF-23/e, CF-23/f](../semantics/conformance.md#cf-23): (i) with a
   failure module returning `[previous_result, error]` (expected `[1,
   {"name":"UnknownError","message":"Could not parse the error","error":1}]`),
-  and (i) with one retry whose `retry_if` is true only for the carried
-  value (expected a second branch job).
+  and (i) with one `retry` object holding both `constant: {attempts: 1,
+  seconds: 0}` and a `retry_if` that is true only for the carried value
+  (expected a second branch job), next to the same with `retry_if` false
+  (expected one branch job).
 - **`ai` parallelism and squash on the CE image**
-  ([CF-7/e, CF-25/c](../semantics/conformance.md#cf-7)). What the CE image
-  does with a squashed loop is now recorded (milestone NI's
-  `control-flow/cf-25`, [CF-25/d](../semantics/conformance.md#cf-25)): it
-  runs as an ordinary loop. Still to record: CF-25/c's two flows (the flag
+  ([CF-7/e, CF-25/c](../semantics/conformance.md#cf-7),
+  [Q-CF-19](../semantics/control-flow.md#q-cf-19)). Milestone NI recorded
+  six squashed loops on the CE image (`control-flow/cf-25`,
+  [CF-25/d](../semantics/conformance.md#cf-25)): each gave the result of
+  its unsquashed form and none failed. Those runs do not show whether the
+  CE image reuses one runtime across a squashed loop's iterations: each
+  sequential loop that starts the runners ran a single iteration, and job
+  counts and kinds are the same either way. Still to record: Q-CF-19, a
+  sequential `forloopflow` over `[1, 2, 3]` and a `whileloopflow` whose
+  `stop_after_if` (`result.v >= 2`) ends it after its third iteration,
+  each with `squash: true`, once with a one-step Bun body and once with a
+  two-step body running the same script twice, next to the same four
+  flows without `squash`, on the default worker tags; the script keeps a
+  counter at module scope and returns its process id, the counter after
+  adding 1, and its input `v` (the iteration's value or index). Observe
+  each iteration's process id and counter: a counter above 1 or a process
+  id repeated across iterations means a reused runtime. Also CF-25/c's two flows (the flag
   on a loop module with `sleep: {type: static, value: 0}` followed by an
   identity step, and on a parallel loop as the first step; both expected
   to give `[1, 2]`), and CF-7/e: a parallel loop over `[1, 2]` with

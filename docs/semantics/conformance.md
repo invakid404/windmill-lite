@@ -3088,13 +3088,22 @@ Findings: [control-flow.md](control-flow.md).
     [JE-17](expressions.md#je-17)'s decision list for it (rule 3), not the
     branch job's stored `InternalError`.
 - **CF-23/f** · source-derived · `retry_if` sees the carried value too.
-  - **Given:** `b` of CF-23/d (i) with `retry: {constant: {attempts: 1,
-    seconds: 0}}` and `retry_if: {expr: "result === 1 && previous_result
-    === 1 && error.name === 'UnknownError' && error.error === 1"}`.
+  - **Given:** `b` of CF-23/d (i) with one `retry` object that holds both
+    the delay and the predicate: `retry: {constant: {attempts: 1, seconds:
+    0}, retry_if: {expr: "result === 1 && previous_result === 1 &&
+    error.name === 'UnknownError' && error.error === 1"}}`; and, as a
+    control, the same with `retry_if: {expr: "false"}` inside `retry`.
   - **Expect:** the predicate is true, so `b` is retried once: a second
     branch job runs and aborts the same way, and the flow then fails with
     the stored result `1`. Had the predicate seen the stored
     `InternalError`, it would be false and no second branch job would run.
+    The control runs one branch job only and fails as CF-23/d (i).
+  - **Correction 2026-10-29 (SC3 validation round 2):** the setup wrote
+    `retry_if` beside `retry`. Only the `retry` object's own `retry_if`
+    is read, so a module-level one is ignored and an unconditional retry
+    would give the same second job ([FX-26](execution.md#fx-26)). The
+    predicate now sits inside `retry`, and the false-predicate control
+    tells a conditional retry from an ignored predicate.
 
 <a id="cf-24"></a>
 ### CF-24 · Child job paths and step ids
@@ -3143,7 +3152,7 @@ Findings: [control-flow.md](control-flow.md).
     closed-source runner module in place of the stub that writes this
     text. The case is therefore outside the reference configuration and is
     not recorded; what the CE image does with the same loop is
-    [Q-CF-19](control-flow.md#q-cf-19), answered by CF-25/d.
+    [Q-CF-19](control-flow.md#q-cf-19), which CF-25/d answers in part.
     Milestone NI's run `later` of `conformance/flows/control-flow/cf-25`,
     which cites this case, records the CE image instead: CF-25/d.
 - **CF-25/b** · source-derived · EE data semantics ([Q-CF-11](control-flow.md#q-cf-11)).
@@ -3160,8 +3169,8 @@ Findings: [control-flow.md](control-flow.md).
     and a parallel loop, never start the runners, so the flag has no
     effect. This is decided before the build-dependent runner module is
     called, so it holds on the CE image too.
-- **CF-25/d** · oracle-observed · The CE image runs a squashed loop as an
-  ordinary loop.
+- **CF-25/d** · oracle-observed · The CE image completes six squashed
+  loops with their unsquashed results.
   - **Given:** CE; flows whose loop `l` has `squash: true`: a sequential
     `forloopflow` over `[1]` with body `[b: echo(x = flow_input.iter.value),
     c: echo(x = results.b)]` at step 0, and the same after a first step
@@ -3172,14 +3181,28 @@ Findings: [control-flow.md](control-flow.md).
     `[b]`, which collapses; a parallel loop over `[1, 2]` with body `[b]`;
     and a sequential loop over `[]`. `echo` returns its argument.
   - **Expect:** each flow succeeds with the result it has without
-    `squash` (`[1]`, `[1]`, `[0]`, `[1]`, `[1, 2]`, `[]`). Each iteration
-    runs as ordinary child jobs (a `flownode` child flow per iteration with
-    `script` steps; the collapsed body's step directly), and the flow job's
-    stored value keeps `squash: true`. No error is raised.
+    `squash` (`[1]`, `[1]`, `[0]`, `[1]`, `[1, 2]`, `[]`), and none fails
+    with the stub's text of CF-25/a. The iteration jobs have the kinds the
+    deployed body gives ([CF-V5](control-flow.md#cf-v5)): at step 0, after
+    a step and in the while loop, one `flownode` child per iteration with
+    the `script` steps `b` and `c` inside; in the collapsed loop, step `b`
+    directly as a `script` child; in the parallel loop, one `flowpreview`
+    child per iteration with the `script` step `b` inside; in the empty
+    loop, none. The flow job's stored value keeps `squash:
+    true` (seen in the raw capture; the normalised recording does not keep
+    it). The case does not show whether the iterations ran on a reused
+    runtime ([Q-CF-19](control-flow.md#q-cf-19)).
   - **Recorded:** [`flows/control-flow/cf-25`](../../conformance/flows/control-flow/cf-25)
     runs `step0`, `later`, `while`, `collapsed`, `empty` (oracle run
     40857510216) and `parallel` (oracle run 40852609901), recorded by
     milestone NI.
+  - **Correction 2026-10-29 (SC3 validation round 2):** the case gave
+    every iteration a `flownode` child; run `parallel` records
+    `flowpreview` children. Its title and expectation also said that the
+    CE image runs a squashed loop as an ordinary loop, which these runs
+    cannot show: each sequential loop that starts the runners ran one
+    iteration, and job counts and kinds are the same on both paths
+    ([CF-25](control-flow.md#cf-25)).
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details
@@ -5613,7 +5636,8 @@ These cases test when a push deploys and which bytes then run, not how the bundl
   - **Expect:** ``Argument `xs[1]` should be a numeric value`` (the first parameter's rules run before the second's); `Missing field k in o`; `Argument o.k cannot be null`; `1`.
 - **WR-54/f** · source-derived · a stored-schema `type` array naming `array` cannot be built
   - **Given:** a script created through the scripts API with content `// schema_validation` then `export function main(xs: string[] | null) { return xs; }` and the stored schema `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"xs":{"type":["array","null"],"items":{"type":"string"}}},"required":[]}`; run by path with `{"xs":["a"]}`.
-  - **Expect:** the job fails before the script runs; its message contains ``Couldn't create schema validator for script requiring schema validation: Array type should have field `items` ``. Any input fails the same way.
+  - **Expect:** the job fails before the script runs. Its message contains ``Couldn't create schema validator for script requiring schema validation: Error: Problem making rule for xs: Error: Array type should have field `items`<loc><loc>``, each `<loc>` one location suffix ` @<file>.rs:<line>:<col>` with its leading space (the first from collecting the `type` array's members, the second from the property loop); the load's own conversion adds a further suffix after them. Compare with the suffixes masked. Any input fails the same way.
+  - **Correction 2026-10-29 (SC3 validation round 2):** the case expected the builder's text right after the load-error text. Two wrapping layers stand between them, `Error: Problem making rule for xs: ` and the inner `Error: `, with a location suffix for each ([WR-54](languages.md#wr-54)).
 - **WR-54/g** · source-derived · the same union written as `anyOf` builds
   - **Given:** as WR-54/f with `xs` described by `{"anyOf":[{"type":"array","items":{"type":"string"}},{"type":"null"}]}`; runs with `{"xs":["a"]}` and `{"xs":[1]}`.
   - **Expect:** `["a"]`; then ``execution error:\nProblem with arguments: Argument `xs` is not valid, failed matching to one of the expected types. Here is a list of possible errors:\n- Problem with arguments: Argument `xs[0]` should be a string\n- Problem with arguments: Argument `xs` should be null\n``.

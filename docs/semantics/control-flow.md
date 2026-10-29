@@ -1488,7 +1488,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-25"></a>
 ### CF-25 · `squash`
 
-**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the CE image's outcome, oracle-observed); low (EE semantics) · **Status:** confirmed; drafted (the conditions, and the stub's error text)
+**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the six recorded CE outcomes, oracle-observed); low (what the CE image's runner does across iterations, [Q-CF-19](#q-cf-19)); low (EE semantics) · **Status:** confirmed; drafted (the conditions, and the stub's error text)
 
 - **Rule:** `squash: true` on a sequential loop asks Windmill to run all
   iterations on one dedicated runner. The worker decides from public code
@@ -1500,15 +1500,29 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   - **The published CE image** is built with `features=ce`, which includes
     `private` ([OR-3](oracle.md#or-3)): its release build copies in the
     closed-source runner module, and the stub is not compiled. The public
-    source cannot say what that module does, but the oracle recorded it
-    ([Q-CF-19](#q-cf-19), [CF-25/d](conformance.md#cf-25)): the CE image
-    runs a squashed loop **as an ordinary loop**. A sequential `forloopflow`
-    at step 0 or after a step, a `whileloopflow`, a loop whose body
-    collapses, a parallel loop and an empty loop all completed with the
-    results they give without `squash`, each iteration's body as ordinary
-    child jobs (a `flownode` child per iteration, `script` steps inside),
-    and the flow job's stored value kept `squash: true`. No error is
-    raised, so on CE the flag has no observable effect.
+    source cannot say what that module does. The oracle recorded six
+    squashed loops on the CE image ([CF-25/d](conformance.md#cf-25)): a
+    sequential `forloopflow` at step 0 and after a step, a
+    `whileloopflow`, a loop whose one-step body collapses, a parallel loop
+    and an empty loop. Each completed with the result it gives without
+    `squash`, none failed with the stub's text, and the flow job's stored
+    value kept `squash: true` (seen in the raw capture). Their iteration jobs have the kinds the
+    deployed body gives ([CF-26](#cf-26), [CF-V5](#cf-v5)): a `flownode`
+    child per iteration for the two-step bodies (step 0, after a step, the
+    while loop), the step itself as a `script` child for the collapsed
+    body, a `flowpreview` child per iteration for the parallel loop's
+    one-step body, which stays inline, and none for the empty loop.
+  - **What those recordings do not show.** They do not show that the CE
+    image runs a squashed loop as an ordinary loop, nor that the flag has
+    no effect there. Each recorded sequential loop that starts the runners
+    ran a single iteration (the three for loops iterate over `[1]`, the
+    while loop stops after its first), the parallel loop never starts them,
+    the empty loop runs no iteration, and the body only echoes its input.
+    Job counts and kinds cannot tell the paths apart either: the squash
+    path queues the ordinary iteration job before it starts the runners,
+    and a worker hands such a job to a runner without changing its kind.
+    Whether the CE image's runner reuses one runtime across iterations is
+    [Q-CF-19](#q-cf-19).
 
   Empty loops start no runners, and parallel loops do not take the squash
   start path, in every build. Whether squash changes data semantics in EE
@@ -1603,6 +1617,22 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   and job kinds; the stored flow kept `squash: true`. The rule now states
   it, new case CF-25/d records it, and [Q-CF-19](#q-cf-19) is answered.
   CF-25/a still describes only a build without `private`.
+- **Revision 2026-10-29 (SC3 validation round 2, findings 2 and 3):**
+  the revision just above read more into NI's recordings than they
+  show. They establish six results and the absence of the stub's error,
+  not that the CE image runs a squashed loop as an ordinary loop: every
+  recorded sequential loop that starts the runners has one iteration,
+  and the squash path queues the ordinary iteration job before starting
+  the runners (`backend/windmill-worker/src/worker_flow.rs:4793-4839`),
+  which a worker then hands to a runner without changing its kind
+  (`backend/windmill-worker/src/worker.rs:2879-2905`). The rule now says
+  only what the runs show, and [Q-CF-19](#q-cf-19) is re-scoped to
+  runtime reuse. The job kinds are now stated per run: the parallel
+  loop's one-step body stays inline at deploy, so its iterations are
+  `flowpreview` children, not `flownode`
+  (`backend/windmill-worker/src/worker_lockfiles.rs:1571-1591`;
+  `worker_flow.rs:5038-5073`, `:5364-5380`; the collapse is for
+  sequential loops only, `:5298-5300`).
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details
@@ -2236,3 +2266,29 @@ These are proposals made while studying the behaviour. They bind nothing.
   image runs every squashed loop as an ordinary loop, with the results and
   child job kinds of an unsquashed one, and raises no error
   ([CF-25](#cf-25), [CF-25/d](conformance.md#cf-25)).
+  **Re-scoped 2026-10-29 (SC3 validation round 2).** The answer above
+  claimed more than the recordings show. They settle that the CE image
+  does not fail these six squashed loops with the stub's text and that
+  each gives the result of its unsquashed form. They do not show whether
+  the closed-source runner runs the iterations, or whether it reuses one
+  runtime across them: each recorded sequential loop that starts the
+  runners ran a single iteration, and the body only echoes its input.
+  The discriminator proposed above does not work: the squash path
+  queues the ordinary iteration job before starting the runners, and a
+  worker hands that job to a runner without changing its kind, so the
+  number and kind of iteration jobs are the same on both paths
+  ([CF-25](#cf-25)). What remains: does the CE image run the iterations
+  of a sequential squashed loop in one reused runtime? *Settled by:*
+  oracle runs, on the default worker tags, of a sequential
+  `forloopflow` over `[1, 2, 3]` and of a `whileloopflow` with
+  `stop_after_if: {expr: "result.v >= 2"}` (three iterations), each
+  with `squash: true`, once with a one-step body (which collapses) and
+  once with a two-step body that runs the same script twice, next to the
+  same four flows without `squash`. The script is a Bun script that
+  keeps a counter at module scope and returns `{"pid": <its process
+  id>, "n": <the counter after adding 1>, "v": <its input>}`, with `v =
+  "flow_input.iter.index"` (the while loop's iteration index; the for
+  loop's `flow_input.iter.value`). Observe each iteration's `pid` and
+  `n`: in the unsquashed controls every iteration should report `n = 1`
+  and its own `pid`; in a squashed loop, an `n` above 1 or a `pid`
+  repeated across iterations means a reused runtime.
