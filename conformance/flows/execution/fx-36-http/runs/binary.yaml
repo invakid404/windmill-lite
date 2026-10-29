@@ -1,6 +1,6 @@
 # FX-36: base64 transfer encoding decodes "/wD+" to the bytes ff 00 fe,
 # which the observation keeps losslessly as base64 (encoding: base64).
-spec: [FX-36]
+spec: [FX-36, FX-36/l]
 target: f/wl_fx36h/binary
 submit: run_wait_result
 expect:

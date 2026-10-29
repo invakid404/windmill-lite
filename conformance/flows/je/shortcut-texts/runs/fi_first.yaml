@@ -2,7 +2,7 @@
 # storage, and the shortcut answers jsonb's spaced text, {"a": 2, "b": 1},
 # which the timeout's i32 parse error quotes. At the first module the
 # error is the first-pickup Anyhow of JE-35 route (b).
-spec: [JE-7, JE-29, JE-44]
+spec: [JE-7, JE-29, JE-44, JE-44/d]
 target: f/wl_je_texts/fi_first
 args: {o: {b: 1, a: 2}}
 expect:

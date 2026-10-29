@@ -1,6 +1,6 @@
 # probe nul (OR-27/a): a and the root fail with the InternalErr of the
 # database's refusal, whose location is masked; b does not run.
-spec: [OR-27/a]
+spec: [OR-27/a, FX-48/a]
 target: f/wl_probe/nul
 expect:
   status: failure

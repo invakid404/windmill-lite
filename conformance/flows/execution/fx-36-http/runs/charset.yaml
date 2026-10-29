@@ -1,6 +1,6 @@
 # FX-36: the content type as given, with its charset parameter, and the
 # string result as the text body.
-spec: [FX-36]
+spec: [FX-36, FX-36/k]
 target: f/wl_fx36h/charset
 submit: run_wait_result
 expect:

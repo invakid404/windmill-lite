@@ -8,7 +8,7 @@ note: >-
   the reference does not state (request 4 in docs/design/README.md).
 cases:
   - spec: FX-48/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: a NUL in a result fails the completion insert
     given: '"x\u0000y"'
     expect:

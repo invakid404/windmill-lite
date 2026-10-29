@@ -5,7 +5,7 @@
   "cases": [
     {
       "spec": "WR-47/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "an absent format builds CommonJS",
       "part": "build",
       "rest_in": "the step suite (steps/bun/d13.yaml) runs the bundle on Node and on the Bun harness (D13)",
@@ -31,7 +31,7 @@
     },
     {
       "spec": "WR-47/b",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "format: esm builds ES module output, which runs on Bun",
       "given": {
         "folder": {
@@ -64,7 +64,7 @@
     },
     {
       "spec": "WR-47/c",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "define is applied",
       "given": {
         "folder": {
@@ -86,7 +86,7 @@
     },
     {
       "spec": "WR-47/d",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "inject supplies a free identifier",
       "note": "Inject paths resolve against the sync root, the CLI's working directory. The injected file is a script of the entry too, built on its own.",
       "given": {
@@ -110,7 +110,7 @@
     },
     {
       "spec": "WR-47/e",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "a loader map is applied",
       "given": {
         "folder": {
@@ -133,7 +133,7 @@
     },
     {
       "spec": "WR-47/f",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "banner is prepended",
       "given": {
         "folder": {

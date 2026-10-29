@@ -11,11 +11,12 @@
     {"spec": "WR-26/b", "reason": "dependency inference: windmill-lite consumes the folder's locks and does not generate them (ADR 0002, validation 5)", "expected_in": "a later milestone that adds lock generation (L1)"},
     {"spec": "WA-31/a", "reason": "per-invocation isolation in a warm process is the harness's env view and fetch interception", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"},
     {"spec": "WA-31/b", "reason": "the concurrent Bun.env reads run in the harness; the rewrite they rely on is checked by this directory's WA-31 cases", "expected_in": "W1 (the Q-WA-4 env-view test) and C3b"},
-    {"spec": "WR-49/b", "reason": "later: windmill-lite refuses a bundle with several output files (unsupported_feature; this directory's WR-49 several-outputs-refused case), since the tar layout's naming is medium confidence (Q-WR-25)", "expected_in": "a later milestone that adds multi-file codebase bundles (L1)"},
+    {"spec": "WR-49/b", "reason": "later: windmill-lite refuses a bundle with several output files (unsupported_feature; this directory's WR-49 several-outputs-refused case), since the layout is in WR-49's later scope (ADR 0001 §5a); only its main.js naming for a script file name with a second dot is still medium confidence (Q-WR-25)", "expected_in": "a later milestone that adds multi-file codebase bundles (L1)"},
     {"spec": "WR-49/c", "reason": "later: when a push makes a new version; windmill-lite deploys nothing, and the bundle digest follows every input (ADR 0010)", "expected_in": "not applicable (no deploy step)"},
     {"spec": "WR-49/d", "reason": "later: when a push makes a new version; windmill-lite deploys nothing, and the bundle digest follows every input (ADR 0010)", "expected_in": "not applicable (no deploy step)"},
     {"spec": "WR-49/e", "reason": "later: when a push selects a script; windmill-lite rebuilds the bundle from the folder, so a changed asset outside relative_path reaches it", "expected_in": "not applicable (no deploy step)"},
     {"spec": "WR-49/f", "reason": "later: what a direct script push uploads; windmill-lite deploys nothing", "expected_in": "not applicable (no deploy step)"},
-    {"spec": "WR-49/g", "reason": "later: the server's no-op snapshot; windmill-lite has no server-side bundle store", "expected_in": "not applicable (no deploy step)"}
+    {"spec": "WR-49/g", "reason": "later: the server's no-op snapshot; windmill-lite has no server-side bundle store", "expected_in": "not applicable (no deploy step)"},
+    {"spec": "WR-49/h", "reason": "later: the CLI's form-data encoding sends a single-file upload with CRLF line breaks, which the server and the worker keep; windmill-lite uploads nothing and builds the bundle with LF line breaks (ADR 0002: the CLI parity check reads the upload's CRLF as LF)", "expected_in": "a later milestone that reproduces the upload's line breaks (L1)"}
   ]
 }

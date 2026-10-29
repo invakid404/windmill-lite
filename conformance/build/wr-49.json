@@ -5,7 +5,7 @@
   "cases": [
     {
       "spec": "WR-49/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "title": "an asset is carried in the bundle at its to path",
       "part": "build",
       "rest_in": "the step suite (steps/bun/wr-49.yaml): a spawned harness extracts it into its working directory, where the script reads it",
@@ -102,7 +102,7 @@
       "variant": "several-outputs-refused",
       "provenance": "policy",
       "title": "a bundle with several output files is refused",
-      "note": "esbuild emits a second file for a file loader or a native add-on; the CLI then uploads a tar of every output, a layout the reference covers only at medium confidence (WR-49, Q-WR-25), so the build refuses it (ADR 0001 §5a).",
+      "note": "esbuild emits a second file for a file loader or a native add-on; the CLI then uploads a tar of every output without the entry's assets (WR-49/b), a layout in WR-49's later scope, so the build refuses it (ADR 0001 §5a).",
       "given": {
         "folder": {
           "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    loader: {\".bin\": \"file\"}\n",

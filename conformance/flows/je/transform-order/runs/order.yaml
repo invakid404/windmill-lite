@@ -1,7 +1,7 @@
 # JE-23: the order is unspecified (a hash map). Recorded: not the same
 # transform first in every evaluation, so "varies", whatever the order in
 # which the flow writes the transforms.
-spec: [JE-23, JE-V5]
+spec: [JE-23, JE-23/e, JE-V5]
 target: f/wl_je_order/order
 expect:
   status: success

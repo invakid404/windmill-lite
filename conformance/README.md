@@ -222,9 +222,11 @@ writes its metadata with the CLI before each push. The recordings are
 `exprs/deferred.yaml` lists the JE, CF-19 and CF-V6 catalogue cases that
 recording batch E3a encodes neither here nor as a flow fixture, and those
 it records only in part, each with the reason and where it is checked.
-The cases the semantics reference added after E3a are checked at
+The cases the semantics reference added on 2026-10-28 are checked at
 evaluator level in the meantime, by the pipeline cases of
-[internal/expr](../internal/expr/README.md) that run on the engine.
+[internal/expr](../internal/expr/README.md) that run on the engine; those
+it added on 2026-10-29 that no recording holds (JE-11/b–e, JE-16/h,
+JE-18/e and JE-44/f) are not encoded yet.
 
 ## Claims and unit cases
 

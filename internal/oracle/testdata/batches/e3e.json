@@ -18,8 +18,10 @@
   "cases": [
     "FX-10/c",
     "FX-12/a",
+    "FX-48/a",
     "CF-6/b",
     "SY-6/c",
+    "WR-3/a",
     "OR-2/a",
     "OR-5/b",
     "OR-10/a",
@@ -40,6 +42,7 @@
     "OR-24/c",
     "OR-24/d",
     "OR-24/e",
+    "OR-24/f",
     "OR-25/a",
     "OR-26/a",
     "OR-26/b",
@@ -51,7 +54,10 @@
     "OR-V2/d",
     "OR-V4/a",
     "JE-19/e",
+    "JE-23/e",
     "JE-36/d",
+    "JE-44/d",
+    "JE-44/e",
     "JE-V1/a"
   ],
   "fixtures": [
@@ -109,6 +115,16 @@
       "reason": "a no-op snapshot request, as for WR-49/c"
     },
     {
+      "case": "WR-49/h",
+      "milestone": "none",
+      "reason": "source-derived; no E3e run records it: a single-file upload's CRLF line breaks come from the CLI's form-data encoding, and the server and the worker keep them byte for byte; windmill-lite uploads nothing and builds each bundle from the folder it loads, with LF line breaks (ADR 0002, C2b's parity check), so no milestone of ADR 0012 reproduces them; a later one would belong to L1"
+    },
+    {
+      "case": "FX-36/i",
+      "milestone": "F7b",
+      "reason": "source-derived; no E3e run records it: the arrays of other lengths, the string status code and the alias given twice, which decode to no metadata, are FX-36's HTTP part, which F7b, the HTTP adapter, implements"
+    },
+    {
       "case": "OR-24/e",
       "milestone": "none",
       "reason": "a script's own preprocessor runs only for a trigger (WR-11, later), which the harness does not fire, and no milestone of ADR 0012 implements script preprocessors; oracle/key-order run pre_keys records the flow-preprocessor variant instead"
@@ -153,6 +169,12 @@
       "part": "the generic job endpoint answers WINDMILL_TOO_BIG",
       "milestone": "none",
       "reason": "the harness reads payloads only from the dedicated endpoints (OR-V1), so the generic endpoint's substitute is in the raw capture, not the observation"
+    },
+    {
+      "case": "FX-36/m",
+      "part": "the header Location: /elsewhere",
+      "milestone": "F7b",
+      "reason": "the harness records the redirect without following it, and an observation keeps no response headers, so the catalogue's header is source-derived; F7b, the HTTP adapter, sends it"
     }
   ],
   "prefixes": [
@@ -161,15 +183,6 @@
       "run": "conformance/flows/languages/codebase-cases/node_version",
       "pointer": "/result",
       "prefix": "v20."
-    }
-  ],
-  "contradictions": [
-    {
-      "case": "FX-36/b",
-      "catalogue": "HTTP 422 with body {\"error\": {\"message\": \"z\", \"name\": \"Error\", \"stack\": <any>, \"step_id\": \"a\"}}",
-      "run": "conformance/flows/execution/fx-36-http/failed",
-      "pointer": "/response/body",
-      "observed": "{\"error\": {\"name\": \"Error\", \"stack\": \"<stack>\", \"message\": \"z\", \"step_id\": \"a\"}}"
     }
   ]
 }
