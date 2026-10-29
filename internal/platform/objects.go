@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -40,12 +41,16 @@ type ObjectStore interface {
 }
 
 // DirObjects is the local default of the object store: a directory that
-// keeps each object as two files, its content and its metadata, named by
-// the SHA-256 of its storage and key, so that no key can name a path
-// outside the directory, whatever its slashes or dots. It claims no parity
-// with a CE server for what the client contract leaves open (WA-16's
-// design note). It is safe for concurrent use: each file is replaced
-// whole, so a reader never sees a partly written content.
+// keeps each object as one file, named by the SHA-256 of its storage and
+// key, so that no key can name a path outside the directory, whatever its
+// slashes or dots. The file holds one version of the object whole: a line
+// of JSON metadata (its storage, key, content type and disposition), then
+// its content. A Put writes the new version to a temporary file and
+// renames it into place, so concurrent readers and writers only ever see
+// a version some Put wrote, the last rename wins, and a Put that fails
+// leaves the version before it as it was. It claims no parity with a CE
+// server for what the client contract leaves open (WA-16's design note).
+// It is safe for concurrent use.
 type DirObjects struct {
 	dir string
 }
@@ -59,7 +64,7 @@ func NewDirObjects(dir string) (*DirObjects, error) {
 	return &DirObjects{dir: dir}, nil
 }
 
-// objectMeta is what an object's metadata file holds.
+// objectMeta is the metadata line of an object's file.
 type objectMeta struct {
 	Storage            string `json:"storage"`
 	Key                string `json:"key"`
@@ -67,45 +72,39 @@ type objectMeta struct {
 	ContentDisposition string `json:"content_disposition,omitempty"`
 }
 
-// name is the file name of the object at (storage, key), without its
-// extension.
-func (d *DirObjects) name(storage, key string) string {
+// path is the file of the object at (storage, key).
+func (d *DirObjects) path(storage, key string) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%d:%s:%s", len(storage), storage, key)
-	return filepath.Join(d.dir, hex.EncodeToString(h.Sum(nil)))
+	return filepath.Join(d.dir, hex.EncodeToString(h.Sum(nil))+".obj")
 }
 
-// Put stores o, its content first and then its metadata, each by writing
-// a temporary file and renaming it into place.
+// Put stores o as the object's one new version: its metadata line and its
+// content in one file, written to a temporary file and renamed into place.
 func (d *DirObjects) Put(_ context.Context, storage, key string, o Object) error {
-	base := d.name(storage, key)
 	meta, err := json.Marshal(objectMeta{Storage: storage, Key: key, ContentType: o.ContentType, ContentDisposition: o.ContentDisposition})
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(base+".data", o.Content); err != nil {
-		return err
-	}
-	return writeAtomic(base+".json", meta)
+	data := make([]byte, 0, len(meta)+1+len(o.Content))
+	data = append(append(append(data, meta...), '\n'), o.Content...)
+	return writeAtomic(d.path(storage, key), data)
 }
 
-// Get returns the object at (storage, key).
+// Get returns the object at (storage, key): the one version its file
+// holds, read whole.
 func (d *DirObjects) Get(_ context.Context, storage, key string) (Object, bool, error) {
-	base := d.name(storage, key)
-	raw, err := os.ReadFile(base + ".json")
+	raw, err := os.ReadFile(d.path(storage, key))
 	if errors.Is(err, fs.ErrNotExist) {
 		return Object{}, false, nil
 	}
 	if err != nil {
 		return Object{}, false, err
 	}
+	line, content, found := bytes.Cut(raw, []byte{'\n'})
 	var meta objectMeta
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		return Object{}, false, fmt.Errorf("platform: the metadata of object %s in storage %s: %w", key, storage, err)
-	}
-	content, err := os.ReadFile(base + ".data")
-	if err != nil {
-		return Object{}, false, err
+	if !found || json.Unmarshal(line, &meta) != nil || meta.Storage != storage || meta.Key != key {
+		return Object{}, false, fmt.Errorf("platform: the file of object %s in storage %s is not one this store wrote", key, storage)
 	}
 	return Object{Content: content, ContentType: meta.ContentType, ContentDisposition: meta.ContentDisposition}, true, nil
 }

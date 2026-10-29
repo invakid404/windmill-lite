@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"sync"
@@ -69,17 +70,12 @@ type FlowUserState interface {
 	SetUserState(ctx context.Context, job, key string, v json.RawMessage) error
 }
 
-// Registry is the local default of the job registry and of the flow user
-// state service: the jobs of one runtime and the user state of its live
-// flow jobs, in memory. A flow job's map is discarded when the job's tree
-// is forgotten, after its root run has ended (WA-14's design note: a
-// windmill-lite lifetime policy, faithful for every access the stock
-// helpers make during the run). It is safe for concurrent use.
+// Registry is the local default of the job registry: the jobs of one
+// runtime, in memory. It is safe for concurrent use.
 type Registry struct {
 	mu    sync.Mutex
 	jobs  map[string]*regJob
 	trees map[string]map[string]bool // root → the ids of its jobs
-	state map[string]map[string]json.RawMessage
 }
 
 // regJob is one job of the registry.
@@ -94,7 +90,7 @@ type regJob struct {
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{jobs: map[string]*regJob{}, trees: map[string]map[string]bool{}, state: map[string]map[string]json.RawMessage{}}
+	return &Registry{jobs: map[string]*regJob{}, trees: map[string]map[string]bool{}}
 }
 
 // Begin registers j. A registration of an id the registry derived makes
@@ -177,10 +173,10 @@ func (r *Registry) rootLive(root string) bool {
 	return e != nil && !e.derived && e.live > 0
 }
 
-// sweep forgets every job of root's tree that has ended, and its user
-// state: once the root has ended, nothing of its run can look them up. A
-// job still live stays until it ends, and the derived flow jobs stay with
-// it, so that it can still look up the scopes it runs in.
+// sweep forgets every job of root's tree that has ended: once the root
+// has ended, nothing of its run can look them up. A job still live stays
+// until it ends, and the derived flow jobs stay with it, so that it can
+// still look up the scopes it runs in.
 func (r *Registry) sweep(root string) {
 	tree := r.trees[root]
 	live := false
@@ -196,7 +192,6 @@ func (r *Registry) sweep(root string) {
 			continue
 		}
 		delete(r.jobs, id)
-		delete(r.state, id)
 		delete(tree, id)
 	}
 	if len(tree) == 0 {
@@ -219,29 +214,129 @@ func (r *Registry) Job(id string) (Job, bool, bool) {
 	return e.job, live, true
 }
 
+// UserStates is the local default of the flow user state service: the
+// maps of the flow jobs that a job registry, whichever Jobs service the
+// Services hold, reports live, in memory. Each map is kept with its job's
+// effective root, read from the registry when the map is first written,
+// and forgotten when that root's registration through the Services ends
+// and the registry no longer reports it live (WA-14's design note: a
+// windmill-lite lifetime policy, faithful for every access the stock
+// helpers make during the run). So that it stays bounded with a Jobs
+// service that knows runs registered elsewhere, it also drops, each time
+// it has doubled since the last sweep, the maps of the jobs the registry
+// no longer reports live, which no read could see. It is safe for
+// concurrent use.
+type UserStates struct {
+	jobs Jobs
+
+	mu    sync.Mutex
+	maps  map[string]*userMap
+	sweep int // the number of maps at which the next sweep runs
+}
+
+// userMap is one flow job's user state.
+type userMap struct {
+	root string
+	vals map[string]json.RawMessage
+}
+
+// minSweep is the number of maps below which UserStates never sweeps.
+const minSweep = 64
+
+// NewUserStates returns the user state of the flow jobs that jobs knows.
+func NewUserStates(jobs Jobs) *UserStates {
+	return &UserStates{jobs: jobs, maps: map[string]*userMap{}, sweep: minSweep}
+}
+
 // UserState returns the value stored under key for the flow job.
-func (r *Registry) UserState(_ context.Context, job, key string) (json.RawMessage, bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	v, ok := r.state[job][key]
+func (u *UserStates) UserState(_ context.Context, job, key string) (json.RawMessage, bool, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	m := u.maps[job]
+	if m == nil {
+		return nil, false, nil
+	}
+	v, ok := m.vals[key]
 	return v, ok, nil
 }
 
-// SetUserState stores v under key for the flow job, if the registry knows
-// it; a map for a job it has forgotten would never be discarded.
-func (r *Registry) SetUserState(_ context.Context, job, key string, v json.RawMessage) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.jobs[job] == nil {
+// SetUserState stores v under key for the flow job, which must be one the
+// job registry knows: a map for a job it does not know of would have no
+// root to be forgotten with.
+func (u *UserStates) SetUserState(_ context.Context, job, key string, v json.RawMessage) error {
+	j, _, ok := u.jobs.Job(job)
+	if !ok {
 		return nil
 	}
-	m := r.state[job]
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	m := u.maps[job]
 	if m == nil {
-		m = map[string]json.RawMessage{}
-		r.state[job] = m
+		if len(u.maps) >= u.sweep {
+			u.dropDead()
+		}
+		m = &userMap{root: cmp.Or(j.Root, job), vals: map[string]json.RawMessage{}}
+		u.maps[job] = m
 	}
-	m[key] = v
+	m.vals[key] = v
 	return nil
+}
+
+// dropDead drops the maps of the jobs the registry no longer reports live,
+// and sets the next sweep at twice the maps that remain. Called with mu
+// held.
+func (u *UserStates) dropDead() {
+	for id := range u.maps {
+		if _, live, ok := u.jobs.Job(id); !ok || !live {
+			delete(u.maps, id)
+		}
+	}
+	u.sweep = max(minSweep, 2*len(u.maps))
+}
+
+// forgetRoot drops the maps of root's jobs, once the registry no longer
+// reports root live.
+func (u *UserStates) forgetRoot(root string) {
+	if _, live, ok := u.jobs.Job(root); ok && live {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for id, m := range u.maps {
+		if m.root == root {
+			delete(u.maps, id)
+		}
+	}
+}
+
+// size is the number of maps held.
+func (u *UserStates) size() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return len(u.maps)
+}
+
+// servicesJobs is the job registry as the Services hand it to the engine
+// and the facade: their Jobs service, whose registrations of a root also
+// tell the default user state service when the root has ended, so that it
+// forgets the root's maps.
+type servicesJobs struct {
+	Jobs
+	states *UserStates // nil when the Services hold a FlowUserState of their own
+}
+
+func (s servicesJobs) Begin(j Job) func() {
+	end := s.Jobs.Begin(j)
+	if s.states == nil || j.ID == "" || cmp.Or(j.Root, j.ID) != j.ID {
+		return end
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			end()
+			s.states.forgetRoot(j.ID)
+		})
+	}
 }
 
 // noJobs is the job registry of a nil *Services: it keeps nothing.

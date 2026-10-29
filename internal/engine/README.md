@@ -689,7 +689,11 @@ so every read is a not-found. A host gives the facade the same services.
   or when the dispatcher closes (`Close`), which cancels what still runs.
   Any other target is not in the bundle (`platform.NotInBundleError`,
   ADR 0001 §5a), and arguments that are not a JSON object jsonb could
-  store are a 400. It answers the result polls for its runs; the record of
+  store are a 400. A run's links (its `parent_job`, `root_job` and the
+  parent job's runnable path, from the job registry) are taken when the
+  dispatch is accepted, so a run that starts after its parent has ended,
+  after `scheduled_in_secs` or at once, keeps them. It answers the result
+  polls for its runs; the record of
   a completed run is kept while the dispatching step's root lives in the
   registry, and swept after. A host sets it as the services' `Dispatcher`
   before any run starts, over an executor that is the facade's, so that
@@ -733,7 +737,9 @@ stored, the script job's identity on its own and with a dispatch's links
 (as the oracle recorded it), the refusals of a target not in the bundle
 or of the wrong kind and of a hash, arguments that are not an object, a
 run detached from its call that reports started and is canceled by
-`Close`, a scheduled start, a script job's own timeout, the records
+`Close`, a scheduled start, the links of a run that starts after its
+parent has ended (a script and a flow, delayed and at once), a script
+job's own timeout, the records
 following their root, a script root refused at open, and a run's flow
 user state read by `flow_user_state()` and gone with the run.
 `providers_test.go` (PF2) covers the resolved arguments (O2 and O3,

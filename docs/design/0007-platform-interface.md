@@ -358,9 +358,11 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   ([internal/engine](../../internal/engine/README.md)), and fixed what this
   record left open:
   - **One registry.** `platform.Services` gained `Jobs`, `UserState`,
-    `Objects` and `Dispatcher`; a nil `Jobs` or `UserState` is one
-    `platform.Registry` per `Services`, made when first needed, so the
-    facade and the engine that share a `*Services` share it. The engine
+    `Objects` and `Dispatcher`; a nil `Jobs` is one `platform.Registry`
+    per `Services`, and a nil `UserState` one `platform.UserStates` over
+    whichever `Jobs` the `Services` hold, a host's included, each made
+    when first needed, so the facade and the engine that share a
+    `*Services` share them. The engine
     registers each flow run, its own root; the facade registers each
     invocation as a script job, and the flow scopes its variables name
     become known with it. A job stays known while its root lives; once the
@@ -377,11 +379,18 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     it is Q-WA-10. A value comes back as the oracle recorded it
     (`conformance/flows/client-api/user-state`, run `order`): in jsonb's
     key order, with numbers as Windmill's JSON library writes them (`1e3`
-    as `1000.0`). The engine's `flow_user_state()` reads the same map.
+    as `1000.0`). The engine's `flow_user_state()` reads the same map. The
+    default forgets a run's maps when the run's registration through
+    `Services.JobRegistry` ends, and drops the maps of jobs the registry no
+    longer reports live as it grows, so it stays bounded whatever `Jobs`
+    service a host gives.
   - **The object store** default, `platform.DirObjects`, is a directory
-    that keeps each object by the SHA-256 of its storage (`_default_` when
-    none) and key, so no key names a path outside it, with its content
-    type and disposition. It serves explicit keys only: an upload without
+    that keeps each object as one file named by the SHA-256 of its storage
+    (`_default_` when none) and key, so no key names a path outside it:
+    one version, its metadata line and its content, renamed into place
+    whole, so a reader never pairs one upload's content with another's
+    content type and a failed upload leaves the object as it was. It
+    serves explicit keys only: an upload without
     `file_key`, a call with `s3_resource_path`, and every call when the
     host configured no store answer 501, named; deletion, credentials and
     presigning have no handler (`later`). Its error texts are
@@ -403,8 +412,10 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     innermost scope (`WM_ROOT_FLOW_JOB_ID`) the `root_job`; its effective
     root the first of `root_job`, `parent_job` and itself that is set, so
     it shares the dispatching run's flow user state; its flow path the
-    dispatching job's runnable path, so its state path is `<that
-    path>/nostep_user`; no step id. A dispatched failure's error is the
+    dispatching job's runnable path, taken from the job registry when the
+    dispatch is accepted, so that a run that starts after its parent has
+    ended keeps it, and so its state path is `<that path>/nostep_user`; no
+    step id. A dispatched failure's error is the
     wrapper's `{message, name, stack}`, without a step id. A flow
     dispatched with the links (`runFlow`) runs its steps with the
     dispatched flow as their parent and the `root_job` as their innermost

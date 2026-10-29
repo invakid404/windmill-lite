@@ -421,3 +421,51 @@ func TestDispatchedFlowUserState(t *testing.T) {
 		}
 	}
 }
+
+// pf3 review round 1, P2-3: a dispatch's links are taken when it is
+// accepted, so a run that starts after the dispatching job and its run
+// have ended, after a delay or at once, still gets the parent's path. A
+// script's flow path and state path are the parent's; a flow's own job
+// carries them too, which its flow_env's $WM_FLOW_PATH reads (JE-38).
+func TestDispatchedLinksOutliveTheParent(t *testing.T) {
+	s := &scripts{}
+	services := testServices(t)
+	e := openWithPlatform(t, map[string]string{
+		"f/t/main": `{"modules":[` + mod("a", "echo", inputs("p", js(`flow_env.p[0]`)), "") + `],"flow_env":{"p":["$WM_FLOW_PATH","$var:u/t/v"]}}`,
+	}, s, services)
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	endRun := services.JobRegistry().Begin(platform.Job{ID: "run", Kind: platform.JobFlow, Root: "run", Path: "f/x/flow"})
+	endParent := services.JobRegistry().Begin(platform.Job{ID: "parent", Kind: platform.JobScript, Root: "run", Path: "f/x/flow/a"})
+	dispatch := func(kind platform.DispatchKind, target string, delay int64) string {
+		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: kind, Target: target, Args: []byte(`{}`), ParentJob: "parent", RootJob: "run", ScheduledInSecs: delay})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	late, lateFlow := dispatch(platform.DispatchScript, "f/t/echo", 1), dispatch(platform.DispatchFlow, "f/t/main", 1)
+	soon := dispatch(platform.DispatchScript, "f/t/echo", 0)
+	endParent()
+	endRun()
+	if _, _, known := services.JobRegistry().Job("parent"); known {
+		t.Fatal("the parent is still known after its run ended")
+	}
+	for _, id := range []string{late, soon} {
+		waitResult(t, d, id)
+		var env map[string]string
+		s.mu.Lock()
+		for _, inv := range s.invs {
+			if inv.ID == id {
+				env = inv.Env
+			}
+		}
+		s.mu.Unlock()
+		if env["WM_FLOW_PATH"] != "f/x/flow/a" || env["WM_STATE_PATH"] != "f/x/flow/a/nostep_user" || env["WM_FLOW_JOB_ID"] != "parent" || env["WM_ROOT_JOB_ID"] != "run" {
+			t.Errorf("%s: the parent's links lost: %v", id, env)
+		}
+	}
+	if r := waitResult(t, d, lateFlow); !r.Success || string(r.Result) != `{"p":"f/x/flow/a"}` {
+		t.Errorf("the flow's own job: %+v %s", r, r.Result)
+	}
+}

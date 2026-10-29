@@ -185,9 +185,10 @@ func (c VariableChain) Variable(ctx context.Context, path string) (Variable, boo
 // what the engine resolves a leaf's arguments, flow_env and the
 // expression helpers through and registers its runs with; a host gives
 // both the same *Services. A nil field takes its default: no resources,
-// no variables, LocalSecrets, no resolvers; one Registry per Services for
-// Jobs and UserState, made when first needed, so the facade and the
-// engine that share a *Services share it; no object store, whose calls
+// no variables, LocalSecrets, no resolvers; for Jobs one Registry per
+// Services, and for UserState one UserStates per Services over whichever
+// Jobs it holds, each made when first needed, so the facade and the
+// engine that share a *Services share them; no object store, whose calls
 // answer 501; and no dispatcher, so that no target is in the bundle. A
 // nil *Services has no registry either: it keeps no job. Services are
 // safe for concurrent use when their services are; a field is set before
@@ -203,12 +204,14 @@ type Services struct {
 	Objects    ObjectStore
 	Dispatcher Dispatcher
 
-	localOnce sync.Once
-	local     *Registry
+	localOnce  sync.Once
+	local      *Registry
+	statesOnce sync.Once
+	states     *UserStates
 }
 
-// Registry returns the services' own registry, the default of Jobs and
-// UserState, making it when first needed; nil for a nil *Services.
+// Registry returns the services' own registry, the default of Jobs,
+// making it when first needed; nil for a nil *Services.
 func (s *Services) Registry() *Registry {
 	if s == nil {
 		return nil
@@ -217,9 +220,17 @@ func (s *Services) Registry() *Registry {
 	return s.local
 }
 
-// JobRegistry returns the job registry: Jobs, or the services' own
-// registry.
-func (s *Services) JobRegistry() Jobs { return s.jobs() }
+// JobRegistry returns the job registry the engine and the facade register
+// their jobs with: Jobs, or the services' own registry. When the services
+// hold no FlowUserState of their own, a root's registration through it
+// also makes the default user state service forget the root's maps once
+// the registry no longer reports the root live.
+func (s *Services) JobRegistry() Jobs {
+	if s == nil {
+		return noJobs{}
+	}
+	return servicesJobs{Jobs: s.jobs(), states: s.defaultStates()}
+}
 
 func (s *Services) jobs() Jobs {
 	switch {
@@ -231,14 +242,24 @@ func (s *Services) jobs() Jobs {
 	return s.Registry()
 }
 
+// defaultStates is the services' own UserStates, over their Jobs, or nil
+// when they hold a FlowUserState of their own.
+func (s *Services) defaultStates() *UserStates {
+	if s == nil || s.UserState != nil {
+		return nil
+	}
+	s.statesOnce.Do(func() { s.states = NewUserStates(s.jobs()) })
+	return s.states
+}
+
 func (s *Services) userState() FlowUserState {
 	switch {
 	case s == nil:
-		return NewRegistry()
+		return NewUserStates(noJobs{})
 	case s.UserState != nil:
 		return s.UserState
 	}
-	return s.Registry()
+	return s.defaultStates()
 }
 
 func (s *Services) resource(ctx context.Context, path string) (Resource, bool, error) {

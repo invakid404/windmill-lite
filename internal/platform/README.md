@@ -19,7 +19,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 |---|---|
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
 | `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services` |
-| `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry`, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState` (PF3) |
+| `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState` (PF3) |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
 | `interpolate.go` | the walker: `RawResource`, `InterpolatedResource`, `ResourceExists`, `VariableExists`, `VariableValue`, `ResolveArgs`, `APIEnv` |
@@ -85,9 +85,10 @@ random and unguessable.
 `Variables` and `Secrets`, and the host's `ValueResolver` chain (PF2);
 `Jobs`, `UserState`, `Objects` and `Dispatcher` (PF3). A nil field takes
 its default: no resources, no variables, `LocalSecrets`, no resolvers;
-for `Jobs` and `UserState`, one `Registry` per `Services`, made when
-first needed (`Services.Registry`), so the facade and the engine that
-share a `*Services` share it; no object store, whose routes then answer
+for `Jobs` one `Registry` per `Services` (`Services.Registry`), and for
+`UserState` one `UserStates` per `Services` over whichever `Jobs` it
+holds, each made when first needed, so the facade and the engine that
+share a `*Services` share them; no object store, whose routes then answer
 501; and no dispatcher, so that no dispatch target is in the bundle. A
 nil `*Services` has nothing, so every read is a not-found and no job is
 kept. The facade answers its routes from it and the engine reads it and
@@ -160,13 +161,22 @@ unknown job, and once the run has ended, as the API answers once a root
 has left the queue. `Services.SetFlowUserState` writes a key of a live flow
 job only, and otherwise fails with `ErrFlowJobNotFound`, the API's 404
 `Not found: Flow job not found`; a body that is not JSON jsonb could store
-is a 400. The value is held in jsonb's stored form, as the root's flow
-status column holds it. The local default (`Registry`) discards a run's
-map when its tree is forgotten: windmill-lite's lifetime policy (WA-14's
-design note), faithful for every access the stock helpers make during the
-run; so a write by id after the run is refused with the 404, where whether
-Windmill accepts it is [Q-WA-10](../../docs/semantics/client-api.md#q-wa-10).
-A host's own `FlowUserState` gets only reads and writes of live flow jobs.
+is a 400. The value is held as a read gives it back, which the oracle
+recorded: jsonb's key order, numbers as Windmill's JSON library writes
+them. The local default, `UserStates`, works with whichever `Jobs` the
+services hold, a host's included: it keeps each map with its job's
+effective root, read from that registry, and forgets a run's maps when
+the run's registration through `Services.JobRegistry` ends and the
+registry no longer reports it live: windmill-lite's lifetime policy
+(WA-14's design note), faithful for every access the stock helpers make
+during the run; so a write by id after the run is refused with the 404,
+where whether Windmill accepts it is
+[Q-WA-10](../../docs/semantics/client-api.md#q-wa-10). So that it stays
+bounded with a registry that knows runs registered elsewhere, it also
+drops, each time it has doubled since the last sweep, the maps of jobs
+the registry no longer reports live, which no read could see. A host's
+own `FlowUserState` gets only reads and writes of live flow jobs, and
+keeps its own lifetime.
 
 ## The object store
 
@@ -174,11 +184,16 @@ A host's own `FlowUserState` gets only reads and writes of live flow jobs.
 files by storage and key, the storage `_default_` (`DefaultStorage`) for an
 object that names none: what the job helpers `writeS3File` and
 `loadS3File` reach, for explicit keys. Its local default, `DirObjects`,
-keeps each object in a directory as two files, its content and its
-metadata (its storage, key, content type and disposition), named by the
-SHA-256 of its storage and key, so that no key names a path outside the
-directory whatever its slashes or dots; each file is written to a
-temporary file and renamed into place. It claims no parity with a CE
+keeps each object in a directory as one file, named by the SHA-256 of its
+storage and key, so that no key names a path outside the directory
+whatever its slashes or dots. The file holds one version of the object
+whole, a line of JSON metadata (its storage, key, content type and
+disposition) and then its content; a `Put` writes the new version to a
+temporary file and renames it into place, so concurrent readers and
+writers only see versions a `Put` wrote, content and metadata together,
+the last rename wins, and a `Put` that fails leaves the version before
+it as it was. A file whose metadata names another object is refused. It
+claims no parity with a CE
 server for what the client contract leaves open (keys a server generates,
 a resource's own bucket, quotas, errors: WA-16's design note,
 [Q-WA-3](../../docs/semantics/client-api.md#q-wa-3)).
@@ -255,11 +270,16 @@ One walker implements resolution for the three contracts of
   step that outlives its run, jobs of a root never registered, and the
   tree forgotten with nothing left behind; flow user state (WA-14/a's
   reads and writes, the stored form, the 404 and the 400, and WA-14/c's
-  read and write after the run); and the services' one registry, shared by
-  callers that first ask at once.
+  read and write after the run, with its maps forgotten), with a host's
+  `Jobs` (writes, reads and the maps forgotten with the run), bounded with
+  a registry whose runs end elsewhere, and with a host's `FlowUserState`;
+  and the services' one registry, shared by callers that first ask at
+  once.
 - `objects_test.go` (PF3) checks `DirObjects`: storages kept apart,
   metadata, a replacing write, a missing object, keys that would escape
-  the directory, and no temporary file left.
+  the directory, no temporary file left, concurrent writers and readers
+  seeing only whole versions and ending on a writer's last, a failed
+  `Put` leaving the committed version, and a foreign file refused.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's
   cases, each citing its catalogue case or finding: WA-10/a, WA-11/a,
   WA-12/a to WA-12/f, WA-42/b and /c, WA-V3/a and /b, JE-42/a to /h,

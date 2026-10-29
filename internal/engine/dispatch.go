@@ -207,6 +207,10 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	if _, err := args.Stored(); err != nil {
 		return "", &platform.Error{Variant: "BadRequest", Message: "windmill-lite: the arguments of a dispatched run cannot be stored: " + err.Error()}
 	}
+	// The run's links are taken now, while the dispatching job is still
+	// registered: the run may start after it has ended (a delay, or a
+	// caller that returns at once).
+	links := x.links(d)
 	id := newUUID()
 	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"]}
 	x.mu.Lock()
@@ -218,12 +222,12 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	x.runs[id] = rec
 	x.wg.Add(1)
 	x.mu.Unlock()
-	go x.run(id, d, args, rec)
+	go x.run(id, d, args, links, rec)
 	return id, nil
 }
 
 // run runs one dispatched target to its end.
-func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, rec *dispatched) {
+func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, links parentLinks, rec *dispatched) {
 	defer x.wg.Done()
 	if d.ScheduledInSecs > 0 {
 		t := time.NewTimer(time.Duration(d.ScheduledInSecs) * time.Second)
@@ -238,9 +242,9 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, rec
 	x.mu.Unlock()
 	var res platform.JobResult
 	if d.Kind == platform.DispatchFlow {
-		res = x.runFlow(id, d, args)
+		res = x.runFlow(id, d.Target, args, links)
 	} else {
-		res = x.runScript(id, d, args)
+		res = x.runScript(id, d.Target, args, links)
 	}
 	res.Started, res.Completed = true, true
 	x.mu.Lock()
@@ -249,33 +253,37 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, rec
 }
 
 // runFlow runs a dispatched flow, with the links its dispatch sent.
-func (x *Dispatcher) runFlow(id string, d platform.Dispatch, args jsonval.Value) platform.JobResult {
-	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: d.Target, Args: args, Exec: x.exec, ParentJob: d.ParentJob, RootJob: d.RootJob, ParentPath: x.parentPath(d)})
+func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
+	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path})
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: t.Status == conformance.RunSuccess, Result: storedText(t.Result)}
 }
 
-// runScript runs a dispatched script, with the links its dispatch sent:
-// the parent's runnable path is the job registry's.
-func (x *Dispatcher) runScript(id string, d platform.Dispatch, args jsonval.Value) platform.JobResult {
-	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: d.Target, Args: args, Exec: x.exec, ParentJob: d.ParentJob, RootJob: d.RootJob, ParentPath: x.parentPath(d)})
+// runScript runs a dispatched script, with the links its dispatch sent.
+func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
+	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path})
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: !r.Failed, Result: storedText(r.Result)}
 }
 
-// parentPath is the runnable path of the job a dispatch names as its
-// parent, from the job registry, "" when it names none or one the
-// registry does not know.
-func (x *Dispatcher) parentPath(d platform.Dispatch) string {
-	if d.ParentJob == "" {
-		return ""
+// parentLinks are the links a dispatch tracked in its parent gives its
+// run: the query's parent_job and root_job, and the parent job's runnable
+// path, taken from the job registry when the dispatch is accepted.
+type parentLinks struct{ job, root, path string }
+
+// links snapshots d's links; the path is "" when d names no parent, or one
+// the registry does not know.
+func (x *Dispatcher) links(d platform.Dispatch) parentLinks {
+	l := parentLinks{job: d.ParentJob, root: d.RootJob}
+	if l.job != "" {
+		j, _, _ := x.e.platform.JobRegistry().Job(l.job)
+		l.path = j.Path
 	}
-	j, _, _ := x.e.platform.JobRegistry().Job(d.ParentJob)
-	return j.Path
+	return l
 }
 
 // storedText is a result's stored form, as the completed job's row holds
