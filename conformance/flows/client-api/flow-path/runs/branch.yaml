@@ -1,0 +1,6 @@
+# WA-6/d: branches[1] runs as the sub-flow branchone-2.
+spec: [WA-6/d]
+target: f/wl_pf3_fp/branch
+args: {pick: 1}
+claims:
+  - {at: /result/flow_path, equals: f/wl_pf3_fp/branch/branchone-2}

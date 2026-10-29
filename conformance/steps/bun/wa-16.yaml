@@ -1,0 +1,72 @@
+finding: WA-16
+scope: core
+note: >-
+  Milestone PF3: the object store's job helpers, for explicit keys, which
+  the facade answers from the case's own local object store (ADR 0007;
+  WA-16's design note: a host extension implementing the verified client
+  contract, with no claim of CE parity for what it leaves open). Each
+  script makes the requests the stock client's writeS3File and loadS3File
+  make, by fetch at BASE_URL with its token, and builds their results as
+  they do; the client's own parsing of an S3 object (WA-16/b) and its
+  error texts are checked with windmill-client@1.767.0 by
+  internal/platform/facade's TestObjectsOnTheClient.
+cases:
+  - spec: WA-16/a
+    provenance: source-derived
+    title: "an explicit-key upload posts the raw body with file_key and resolves to {s3: <the answer's file_key>}"
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/job_helpers/upload_s3_file?file_key=t%2Fa.txt`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${e.WM_TOKEN}`, "content-type": "application/octet-stream" },
+          body: "hi",
+        });
+        return { s3: (await res.json()).file_key };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {s3: t/a.txt}}
+        calls: ["200 POST /w/{ws}/job_helpers/upload_s3_file"]
+  - spec: WA-16/c
+    provenance: source-derived
+    title: a round trip through windmill-lite's local store gives the uploaded content back, in the default storage and in another
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/job_helpers`;
+        const write = async (query: string, body: string) => {
+          const res = await fetch(`${base}/upload_s3_file?${query}`, { method: "POST", headers: auth, body });
+          return { s3: (await res.json()).file_key };
+        };
+        const load = async (query: string) => {
+          const res = await fetch(`${base}/download_s3_file?${query}`, { headers: auth });
+          return res.ok ? await res.text() : `${res.status} ${await res.text()}`;
+        };
+        const o = await write("file_key=t%2Fa.txt", "hi");
+        await write("file_key=t%2Fa.txt&storage=other", "there");
+        return [o, await load("file_key=t%2Fa.txt"), await load("file_key=t%2Fa.txt&storage=other"), await load("file_key=none")];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: success
+          result: [{s3: t/a.txt}, hi, there, '404 Not found: windmill-lite: no object "none" in storage "_default_"']
+        calls: ["200 POST /w/{ws}/job_helpers/upload_s3_file", "200 POST /w/{ws}/job_helpers/upload_s3_file", "200 GET /w/{ws}/job_helpers/download_s3_file", "200 GET /w/{ws}/job_helpers/download_s3_file", "404 GET /w/{ws}/job_helpers/download_s3_file"]
+  - spec: WA-16
+    variant: generated-key
+    provenance: policy
+    title: an upload without file_key asks the server for a key, which windmill-lite does not generate (later), so the step fails with UnsupportedPlatformCall
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/job_helpers/upload_s3_file`, { method: "POST", headers: { authorization: `Bearer ${e.WM_TOKEN}` }, body: "x" });
+        return [res.status, await res.text()];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: POST /w/{ws}/job_helpers/upload_s3_file without file_key (a key the server generates)", calls: ["POST /w/{ws}/job_helpers/upload_s3_file"]}}
+        calls: ["501 POST /w/{ws}/job_helpers/upload_s3_file"]

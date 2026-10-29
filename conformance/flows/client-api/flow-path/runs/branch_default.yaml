@@ -1,0 +1,6 @@
+# WA-6/d: the default branch runs as the sub-flow branchone-0.
+spec: [WA-6/d]
+target: f/wl_pf3_fp/branch
+args: {pick: 5}
+claims:
+  - {at: /result/flow_path, equals: f/wl_pf3_fp/branch/branchone-0}

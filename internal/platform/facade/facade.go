@@ -1,10 +1,11 @@
-// Package facade is the platform facade of ADR 0007 (milestones PF1 and
-// PF2): the Go router behind the stock client's platform calls, attributed
+// Package facade is the platform facade of ADR 0007 (milestones PF1 to
+// PF3): the Go router behind the stock client's platform calls, attributed
 // to the invocation that made each one, over the harness's intercepted
 // fetch in warm and host-mode processes and over loopback TCP in fresh
 // ones, with Windmill's status codes and text/plain error bodies, the 501
-// policy for the routes windmill-lite does not serve, and the resource and
-// variable reads.
+// policy for the routes windmill-lite does not serve, the resource and
+// variable reads (PF2), and the job registry's lookups, flow user state,
+// the object store and dispatch (PF3).
 package facade
 
 import (
@@ -93,8 +94,13 @@ type Record struct {
 	Route string
 	// Status is the answer's status, 0 while the call is being answered.
 	Status int
-	// Unsupported marks a call answered 501.
+	// Unsupported marks a call answered 501, and Message is that answer's
+	// text, which the 501 policy's error quotes for the first such call:
+	// "Not implemented in windmill-lite: <METHOD> <route template>", or a
+	// handler's own, such as a refused dispatch's "dispatch target not in
+	// bundle: <path>".
 	Unsupported bool
+	Message     string
 }
 
 // name is how a 501 names the call: its route, or, when no route of the
@@ -118,9 +124,14 @@ type Config struct {
 	// record is released (Session.Release): after it settled and its
 	// outcome was decided.
 	Recorded func(inv string, calls []Record)
-	// Platform holds the resources, variables and secrets the facade's
-	// reads answer from (milestone PF2); nil means none, so every read is
-	// a not-found.
+	// Platform holds the services the facade's routes answer from: the
+	// resources, variables and secrets of milestone PF2, and the job
+	// registry, flow user state, object store and dispatcher of milestone
+	// PF3. The engine that runs the steps takes the same *Services, so
+	// that the runs it registers are the ones the facade looks up. nil
+	// means empty services of the facade's own: every read is a
+	// not-found, the registry knows only the facade's invocations, and no
+	// dispatch target is in the bundle.
 	Platform *platform.Services
 }
 
@@ -157,6 +168,8 @@ type entry struct {
 	token  string
 	calls  []*Record
 	ended  bool
+	// endJob ends the invocation's job in the job registry.
+	endJob func()
 	// inflight counts the calls being answered; idle is closed and
 	// replaced when it drops to zero.
 	inflight int
@@ -184,8 +197,13 @@ func New(cfg Config) (*Facade, error) {
 	if f.maxBody == 0 {
 		f.maxBody = 512 << 20
 	}
-	f.Handle("getRootJobId", f.rootJobID)
+	if f.platform == nil {
+		f.platform = &platform.Services{}
+	}
+	f.serveJobs()
 	f.serveProviders()
+	f.serveDispatch()
+	f.serveObjects()
 	var err error
 	if f.warm, err = reserve(); err != nil {
 		return nil, err
@@ -238,9 +256,17 @@ type Session struct {
 // and by its token (WM_TOKEN in env) over TCP. A token that two live
 // invocations carry names neither, and goes on naming none until every
 // registration that carried it has ended; a later one is then its sole
-// owner. Executor registers each invocation it runs.
+// owner. Executor registers each invocation it runs. The invocation is a
+// script job of the job registry (D3) until it ends: its job id is
+// WM_JOB_ID (id when unset), its root WM_ROOT_JOB_ID, and the flow scopes
+// it runs in become known with it.
 func (f *Facade) Register(id, run string, env map[string]string) *Session {
 	e := &entry{caller: Caller{ID: id, Run: run, Env: env}, token: env["WM_TOKEN"], idle: make(chan struct{})}
+	job := env["WM_JOB_ID"]
+	if job == "" {
+		job = id
+	}
+	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env})
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {
@@ -266,6 +292,7 @@ func (s *Session) End() {
 		return
 	}
 	s.e.ended = true
+	s.e.endJob()
 	if u := f.tokens[s.e.token]; s.e.token != "" && u != nil {
 		if u.live--; u.live == 0 {
 			delete(f.tokens, s.e.token)
@@ -305,18 +332,27 @@ func (s *Session) Calls() []Record {
 // ctx ends, and returns the names of its unsupported calls, in order:
 // "<METHOD> <route template>" as the 501 named each.
 func (s *Session) Unsupported(ctx context.Context) []string {
+	names, _ := s.unsupported(ctx)
+	return names
+}
+
+// unsupported is Unsupported, with the message of the first unsupported
+// call.
+func (s *Session) unsupported(ctx context.Context) (names []string, message string) {
 	f, e := s.f, s.e
 	for {
 		f.mu.Lock()
 		if e.inflight == 0 || ctx.Err() != nil {
-			var names []string
 			for _, r := range e.calls {
 				if r.Unsupported {
+					if names == nil {
+						message = r.Message
+					}
 					names = append(names, r.name())
 				}
 			}
 			f.mu.Unlock()
-			return names
+			return names, message
 		}
 		idle := e.idle
 		f.mu.Unlock()
@@ -427,9 +463,9 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 		}
 	}
 	if h == nil {
-		rec.Status, rec.Unsupported = 501, true
+		rec.Status, rec.Unsupported, rec.Message = 501, true, UnsupportedPrefix+rec.name()
 		f.mu.Unlock()
-		return fixed(text(501, UnsupportedPrefix+rec.name()))
+		return fixed(text(501, rec.Message))
 	}
 	e.inflight++
 	f.mu.Unlock()
@@ -449,6 +485,9 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 			f.mu.Lock()
 			rec.Status = rep.Status
 			rec.Unsupported = rep.Status == 501
+			if rec.Unsupported {
+				rec.Message = unsupportedMessage(rec, rep)
+			}
 			if e.inflight--; e.inflight == 0 {
 				close(e.idle)
 				e.idle = make(chan struct{})
@@ -457,6 +496,15 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 		}()
 		return h(ctx, call)
 	}
+}
+
+// unsupportedMessage is what the 501 policy quotes of a handler's 501: its
+// text/plain body, or the route's name when it has none.
+func unsupportedMessage(rec *Record, rep Reply) string {
+	if strings.HasPrefix(rep.Headers["content-type"], "text/plain") && len(rep.Body) > 0 {
+		return string(rep.Body)
+	}
+	return UnsupportedPrefix + rec.name()
 }
 
 func bearer(h string) (string, bool) {

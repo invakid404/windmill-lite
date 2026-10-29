@@ -1,0 +1,203 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "p1": 1,
+      "p2": 2,
+      "none": null
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "get": {
+            "text": "{\"n\":1}",
+            "type": "application/json",
+            "status": 200
+          },
+          "set": {
+            "text": "Flow job state updated",
+            "type": "text/plain",
+            "status": 200
+          },
+          "missing": {
+            "text": "null",
+            "type": "application/json",
+            "status": 200
+          },
+          "own_get": {
+            "text": "null",
+            "type": "application/json",
+            "status": 200
+          },
+          "own_set": {
+            "text": "Not found: Flow job not found",
+            "type": "text/plain",
+            "status": 404
+          },
+          "set_order": {
+            "text": "Flow job state updated",
+            "type": "text/plain",
+            "status": 200
+          },
+          "root_is_env": true
+        }
+      },
+      "m:b": {
+        "status": "success",
+        "args": {
+          "p1": 1,
+          "none": null
+        },
+        "result": {
+          "p1": 1,
+          "p2": 2,
+          "none": null
+        }
+      },
+      "m:l": {
+        "status": "success",
+        "result": [
+          {
+            "k": {
+              "n": 1
+            },
+            "v": 1,
+            "set": 200,
+            "own_scope": true,
+            "root_is_env": true
+          },
+          {
+            "k": {
+              "n": 1
+            },
+            "v": 2,
+            "set": 200,
+            "own_scope": true,
+            "root_is_env": true
+          }
+        ]
+      },
+      "m:l/i:0/m:x": {
+        "status": "success",
+        "args": {
+          "v": 1
+        },
+        "result": {
+          "k": {
+            "n": 1
+          },
+          "v": 1,
+          "set": 200,
+          "own_scope": true,
+          "root_is_env": true
+        }
+      },
+      "m:l/i:1/m:x": {
+        "status": "success",
+        "args": {
+          "v": 2
+        },
+        "result": {
+          "k": {
+            "n": 1
+          },
+          "v": 2,
+          "set": 200,
+          "own_scope": true,
+          "root_is_env": true
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029080707-71b8a83ec2fb",
+      "revision": "71b8a83ec2fbbab770d0b1dc5c094bc6817fc5ea",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40839879047"
+    },
+    "recorded_at": "2026-10-29T08:09:38Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:39127"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 610,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T08:09:38.117970Z",
+          "started_at": "2026-10-29T08:09:38.123444Z",
+          "completed_at": "2026-10-29T08:09:38.546936Z",
+          "duration_ms": 423
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T08:09:38.125209Z",
+          "started_at": "2026-10-29T08:09:38.129760Z",
+          "completed_at": "2026-10-29T08:09:38.219214Z",
+          "duration_ms": 87
+        },
+        "m:b": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T08:09:38.442609Z",
+          "started_at": "2026-10-29T08:09:38.475338Z",
+          "completed_at": "2026-10-29T08:09:38.542472Z",
+          "duration_ms": 64
+        },
+        "m:l/i:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-29T08:09:38.226560Z",
+          "started_at": "2026-10-29T08:09:38.283912Z",
+          "completed_at": "2026-10-29T08:09:38.392593Z",
+          "duration_ms": 109
+        },
+        "m:l/i:0/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T08:09:38.288474Z",
+          "started_at": "2026-10-29T08:09:38.301834Z",
+          "completed_at": "2026-10-29T08:09:38.381015Z",
+          "duration_ms": 76
+        },
+        "m:l/i:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-10-29T08:09:38.226560Z",
+          "started_at": "2026-10-29T08:09:38.291702Z",
+          "completed_at": "2026-10-29T08:09:38.427458Z",
+          "duration_ms": 136
+        },
+        "m:l/i:1/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T08:09:38.297589Z",
+          "started_at": "2026-10-29T08:09:38.381761Z",
+          "completed_at": "2026-10-29T08:09:38.422473Z",
+          "duration_ms": 36
+        }
+      }
+    }
+  }
+}

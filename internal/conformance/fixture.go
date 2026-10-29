@@ -45,8 +45,14 @@ type Fixture struct {
 	// Stub runs the fixture in stub mode (ADR 0011): every script body of
 	// the sync tree is replaced by a stub that keeps main's signature and
 	// takes its outcome from the run's replay table.
-	Stub bool   `json:"stub,omitempty"`
-	Note string `json:"note,omitempty"`
+	Stub bool `json:"stub,omitempty"`
+	// Roots are the bundle's other roots on windmill-lite: the scripts and
+	// flows its steps dispatch locally with runScript* or runFlow*, which a
+	// host contract lists since no static path reaches them (ADR 0002).
+	// wltest check compiles them as the roots of the default dispatcher's
+	// program; the oracle, which runs the whole workspace, ignores them.
+	Roots []string `json:"roots,omitempty"`
+	Note  string   `json:"note,omitempty"`
 
 	// Setup is setup.yaml, or nil when the fixture has none.
 	Setup *Setup `json:"-"`

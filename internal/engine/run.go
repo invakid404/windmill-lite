@@ -30,6 +30,11 @@ type run struct {
 	id    string
 	hooks Hooks
 	exec  StepExecutor
+
+	// rootID is the effective root of the run's jobs: the run itself,
+	// unless the links of a dispatch tracked in its parent place it in
+	// another run's tree (RunRequest.RootJob).
+	rootID string
 	// root is the frame of the flow's own modules, its failure module in
 	// the slot after them; its input is the flow input, stored, with its
 	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env as
@@ -79,7 +84,7 @@ type run struct {
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
 	now := clock.Now()
-	r := &run{e: e, f: f, id: id, hooks: hooks, exec: exec, wake: make(chan struct{}), started: now, clock: clock, jitter: jitter, cancel: cancel}
+	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, wake: make(chan struct{}), started: now, clock: clock, jitter: jitter, cancel: cancel}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
 	r.root.failure = f.FailureModule
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
@@ -1537,7 +1542,7 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 }
 
@@ -1556,7 +1561,7 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 	if fr.isFailure(i) {
 		s.Context = append(s.Context,
@@ -1575,7 +1580,7 @@ func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope 
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {
@@ -1599,7 +1604,7 @@ func (r *run) sleepScope(fr *frame, own jsonval.Value) *expr.Scope {
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 }
 
@@ -1614,7 +1619,7 @@ func (r *run) timeoutScope(fr *frame, prev jsonval.Value, prevID string) *expr.S
 		FlowInput:  fr.input,
 		FlowEnv:    r.envOf(fr),
 		Results:    r.results(fr),
-		Helpers:    helpers{r.e.platform},
+		Helpers:    helpers{r.e.platform, r.rootID},
 	}
 }
 
@@ -1628,7 +1633,7 @@ func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Sc
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: failed}, {Name: "result", Value: failed}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 	if strings.Contains(x.Trimmed, "flow_env") {
 		s.FlowEnv = r.envOf(fr)
@@ -1885,7 +1890,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		JobID:         inv.ID,
 		FlowJobID:     in.id,
 		RootFlowJobID: in.scope,
-		RootJobID:     r.id,
+		RootJobID:     r.rootID,
 		FlowPath:      in.path,
 		StepID:        fr.stepID(i),
 		JobPath:       r.jobPath(fr, i),

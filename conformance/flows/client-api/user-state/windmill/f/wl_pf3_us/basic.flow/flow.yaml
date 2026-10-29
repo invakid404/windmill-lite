@@ -1,0 +1,47 @@
+summary: PF3 flow user state
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline x.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1, 2]'
+        parallel: true
+        skip_failures: false
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          none:
+            type: javascript
+            expr: flow_user_state("missing")
+          p1:
+            type: javascript
+            expr: flow_user_state("p1")
+        lock: '!inline b.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

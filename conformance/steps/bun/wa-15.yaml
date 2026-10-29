@@ -1,0 +1,74 @@
+finding: WA-15
+scope: core
+note: >-
+  Milestone PF3: the dispatch-target restriction of ADR 0001 §5a. A local
+  dispatch's target must be a root of the bundle (ADR 0002's host
+  contract); a step case's bundle has no root a step can dispatch, so
+  every dispatch is refused with a 501 whose body is "dispatch target not
+  in bundle: <path>", and the step fails with UnsupportedPlatformCall
+  quoting it, whatever its own outcome. Each script makes the requests the
+  stock client makes, by fetch at BASE_URL with its token: the async
+  dispatch, which takes the body for a job id (WA-V5/a), and the
+  synchronous one, whose result poll that id then fails at once with a
+  400. The same refusals on windmill-client@1.767.0 are checked by
+  internal/platform/facade's TestDispatchRefusedOnTheClient, and WA-15's
+  catalogue cases at the flow level by conformance/flows/client-api/dispatch.
+cases:
+  - spec: WA-15
+    variant: not-in-bundle
+    provenance: policy
+    title: a script dispatch whose target is not a root of the bundle fails the step with UnsupportedPlatformCall naming the target
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs/run/p/f/wl_step/missing?parent_job=${e.WM_JOB_ID}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${e.WM_TOKEN}`, "content-type": "application/json" },
+          body: "{}",
+        });
+        return [res.status, await res.text()];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "dispatch target not in bundle: f/wl_step/missing", calls: ["POST /w/{ws}/jobs/run/p/{path}"]}}
+        calls: ["501 POST /w/{ws}/jobs/run/p/{path}"]
+  - spec: WA-15
+    variant: not-in-bundle-wait
+    provenance: policy
+    title: waiting on a refused dispatch, as runScriptByPath does, fails at once instead of polling forever, and the step fails with the refusal
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        const id = await (await fetch(`${base}/jobs/run/p/f/wl_step/missing`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "{}" })).text();
+        const poll = await fetch(`${base}/jobs_u/completed/get_result_maybe/${encodeURI(id)}`, { headers: auth });
+        throw new Error(`the poll answered ${poll.status}: ${await poll.text()}`);
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "dispatch target not in bundle: f/wl_step/missing", calls: ["POST /w/{ws}/jobs/run/p/{path}"]}}
+        calls: ["501 POST /w/{ws}/jobs/run/p/{path}", "400 GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}"]
+  - spec: WA-15
+    variant: not-in-bundle-flow
+    provenance: policy
+    title: a flow dispatch and a dispatch by hash are refused alike; the error quotes the first and lists both
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}`, "content-type": "application/json" };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        const flow = await fetch(`${base}/jobs/run/f/f/wl_step/other`, { method: "POST", headers: auth, body: "{}" });
+        const hash = await fetch(`${base}/jobs/run/h/0123abcd`, { method: "POST", headers: auth, body: "{}" });
+        return [await flow.text(), await hash.text()];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "dispatch target not in bundle: f/wl_step/other", calls: ["POST /w/{ws}/jobs/run/f/{path}", "POST /w/{ws}/jobs/run/h/{hash}"]}}
+        calls: ["501 POST /w/{ws}/jobs/run/f/{path}", "501 POST /w/{ws}/jobs/run/h/{hash}"]
