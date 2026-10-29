@@ -1,0 +1,10 @@
+# CF-V3/b: run directly, the flow's first pickup fails at the root, where
+# the failure module runs (route 1 of CF-23, FX-15 context 2).
+spec: [CF-V3/b]
+target: f/wl_cfv3/start_error
+expect:
+  status: failure
+  result: child-handled
+  steps:
+    "m:l": {status: failure, ran: false}
+    "s:failure": {status: success, args: {}, result: child-handled}

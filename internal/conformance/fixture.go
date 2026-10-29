@@ -238,6 +238,15 @@ type Run struct {
 	// Delays are lower bounds on the time between two of the run's jobs,
 	// checked against the recording's provenance like Claims.
 	Delays []Delay `json:"delays,omitempty"`
+	// NotFoundLocs lists the values, by pointer into the observation, whose
+	// error message quotes a not-found error of Windmill's lookup helper
+	// with the parenthesised location " (<file>.rs:<line>)" Windmill
+	// generated: where the case's expected text writes <loc> for it
+	// (FX-50 rule 3, CF-19/c). No textual rule tells that form from a
+	// user's own (FX-50/d), so only a run can say where it is; the
+	// comparison with windmill-lite strips it there (StripNotFoundLocations,
+	// ADR 0011). The recorder does not read it.
+	NotFoundLocs []string `json:"not_found_locs,omitempty"`
 	// Unit restates the run's expressions at unit level, with the context
 	// each evaluation sees (UnitCase).
 	Unit []UnitCase `json:"unit,omitempty"`
@@ -562,6 +571,11 @@ func (r *Run) check() error {
 	}
 	for _, d := range r.Delays {
 		if err := d.check(); err != nil {
+			return err
+		}
+	}
+	for _, p := range r.NotFoundLocs {
+		if _, err := SplitPointer(p); err != nil {
 			return err
 		}
 	}

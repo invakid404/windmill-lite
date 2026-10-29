@@ -1,0 +1,13 @@
+# Recording batch N3c (ADR 0012): CF-V3, child-flow startup errors
+# bypass that child's failure module. Synthetic flows written for this
+# repository from docs/semantics/conformance.md#cf-v3: the flow
+# f/wl_cfv3/start_error's first module is a loop whose static iterator is
+# {}, which fails at the flow's first pickup; its own handler returns
+# "child-handled", and the caller's returns "parent-handled". Deployed with
+# oracle.deploy api.
+id: control-flow/cf-v3
+spec: [CF-V3, CF-V3/a, CF-V3/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

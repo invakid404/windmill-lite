@@ -1,0 +1,20 @@
+summary: "CF-17/a: a subflow by path"
+value:
+  modules:
+    - id: c
+      value:
+        type: flow
+        path: f/wl_cf17/child
+        input_transforms:
+          v: {type: javascript, expr: flow_input.n}
+    - id: d
+      value:
+        type: rawscript
+        content: "!inline d.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: '[previous_result, results.s ?? "hidden"]'}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {n: {type: number}}

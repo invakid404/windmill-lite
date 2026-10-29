@@ -1,0 +1,14 @@
+# Recording batch N3c (ADR 0012): CF-16, failure_module inside containers.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-16: a loop over [1, 2] whose body always
+# fails, in a flow whose failure module returns {handled: iter.value}. Each
+# iteration's child flow runs its copy of the handler; the flow's own
+# handler does not run again for the loop's failure (CF-16 item 4).
+# Deployed with oracle.deploy api: the harness creates the tree's items
+# through the REST API as written.
+id: control-flow/cf-16
+spec: [CF-16, CF-16/a, CF-16/b]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

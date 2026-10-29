@@ -455,6 +455,10 @@ func TestCompareRun(t *testing.T) {
 		}
 		return s + `}}}`
 	}
+	notFound := func(loc string) string {
+		return `{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression ` + "`[results.br]`" +
+			`:\nQuickJS evaluation error: Error: Failed to fetch result for step 'br': Not found: Completed Job not found at name x` + loc + `\n"}}`
+	}
 	got := obs(step(internal(""), ""))
 	withLoc := obs(step(internal(" <loc>"), ""))
 	for _, c := range []struct {
@@ -470,6 +474,14 @@ func TestCompareRun(t *testing.T) {
 		{"carried, expect", conformance.Run{Expect: &got}, obs(step(internal(""), `{"other":1}`)), nil, 2},
 		{"carried, recording", conformance.Run{Recorded: &conformance.Recording{Observation: got}}, obs(step(internal(""), `{"other":1}`)), nil, 0},
 		{"nothing to compare", conformance.Run{}, got, nil, 1},
+		// FX-50 rule 3: a declared not-found location goes where
+		// windmill-lite generated the value, and nowhere else.
+		{"declared not-found location", conformance.Run{Recorded: &conformance.Recording{Observation: obs(step(notFound(" (jobs.rs:9074)"), ""))}, NotFoundLocs: []string{"/result", "/steps/m:a/result"}},
+			obs(step(notFound(""), "")), []string{"/result", "/steps/m:a/result"}, 0},
+		{"undeclared not-found location", conformance.Run{Recorded: &conformance.Recording{Observation: obs(step(notFound(" (jobs.rs:9074)"), ""))}, NotFoundLocs: []string{"/result"}},
+			obs(step(notFound(""), "")), []string{"/result", "/steps/m:a/result"}, 1},
+		{"declared at a user value", conformance.Run{Recorded: &conformance.Recording{Observation: obs(step(notFound(" (user.rs:123)"), ""))}, NotFoundLocs: []string{"/result", "/steps/m:a/result"}},
+			obs(step(notFound(""), "")), nil, 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Every failed comparison ends with the observation itself.

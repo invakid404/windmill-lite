@@ -1,0 +1,14 @@
+# CF-16/b: without skip_failures the loop stops after the first handled
+# failure and fails the flow with its array; the handler ran once, in the
+# first iteration's child flow, and the flow's own handler does not run
+# for the loop's failure (CF-16 item 4).
+spec: [CF-16/b]
+target: f/wl_cf16/stop
+expect:
+  status: failure
+  result: [{handled: 1}]
+  steps:
+    "m:l": {status: failure, result: [{handled: 1}]}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/s:failure": {status: success, args: {x: 1}, result: {handled: 1}}
+    "s:failure": {status: not_run}

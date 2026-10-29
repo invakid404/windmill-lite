@@ -1,0 +1,19 @@
+summary: "CF-V2: an empty branchall with all"
+value:
+  modules:
+    - id: l
+      stop_after_all_iters_if: {expr: "true", skip_if_stopped: false}
+      value:
+        type: branchall
+        parallel: false
+        branches: []
+    - id: n
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

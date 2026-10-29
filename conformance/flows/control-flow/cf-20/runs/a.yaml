@@ -1,0 +1,12 @@
+# CF-20/a: each branch reads a's {v: [1]} as a copy of its own and
+# pushes 9 onto it, so neither entry is [1, 9, 9].
+spec: [CF-20/a]
+target: f/wl_cf20/copies
+expect:
+  status: success
+  result: [{v: [1, 9]}, {v: [1, 9]}]
+  steps:
+    "m:a": {status: success, args: {}, result: {v: [1]}}
+    "m:ba": {status: success, result: [{v: [1, 9]}, {v: [1, 9]}]}
+    "m:ba/b:0/m:b0": {status: success, args: {x: {v: [1]}}, result: {v: [1, 9]}}
+    "m:ba/b:1/m:b1": {status: success, args: {x: {v: [1]}}, result: {v: [1, 9]}}

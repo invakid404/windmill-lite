@@ -170,6 +170,8 @@ func TestFixtureOptionChecks(t *testing.T) {
 		{name: "run and wait in a group", oracle: "{}", run: "target: f/x/y\ngroup: g\nsubmit: run_wait_result\n", err: "runs a flow alone"},
 		{name: "run and wait canceled", oracle: "{}", run: "target: f/x/y\ncancel_after_ms: 5\nsubmit: run_wait_result\n", err: "runs a flow alone"},
 		{name: "unknown submit", oracle: "{}", run: "target: f/x/y\nsubmit: later\n", err: "is not run_wait_result"},
+		{name: "not-found locations", oracle: "{}", run: "target: f/x/y\nnot_found_locs: [/result, /steps/m:e/result]\n"},
+		{name: "a not-found location that is no pointer", oracle: "{}", run: "target: f/x/y\nnot_found_locs: [result]\n", err: "does not start with /"},
 		{name: "each run in a group", oracle: "{setup: each_run}", setup: setup, run: "target: f/x/y\ngroup: g\n", err: "cannot be in group"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

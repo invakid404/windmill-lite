@@ -11,6 +11,12 @@ claims:
     equals: failure
   - at: /steps/m:e/result/error/message
     contains: ["Failed to fetch result for step 'br'"]
+# The message quotes the lookup helper's not-found text with the
+# parenthesised location Windmill generated (" (jobs.rs:9074)", the
+# catalogue's <loc>): FX-50 rule 3, so the comparison with windmill-lite
+# strips it at step e's failure and at the flow's result, which is that
+# failure.
+not_found_locs: [/steps/m:e/result, /result]
 # CF-19/c's unit restatement is step d's direct lookup only. Step c's
 # engine read of the preceding id is served from memory, where the empty
 # default left a's 42 (FX-10 reading (b)); a unit case cannot state that

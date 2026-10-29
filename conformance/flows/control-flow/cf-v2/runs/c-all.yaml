@@ -1,0 +1,9 @@
+# CF-V2/c: as CF-V2/a for a branchall with no branches.
+spec: [CF-V2/c]
+target: f/wl_cfv2/branchall_all
+expect:
+  status: success
+  result: after
+  steps:
+    "m:l": {status: success, ran: false, result: []}
+    "m:n": {status: success, args: {}, result: after}

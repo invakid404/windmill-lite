@@ -89,12 +89,18 @@ func (r *run) whileLoop(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 // child (an empty iterator, an empty loop body, a branchall with no
 // branches), at once: its result is [] and its stop_after_if a stop of the
 // flow, not a break (CF-29); its stop_after_all_iters_if is not evaluated
-// (CF-V2).
+// (CF-V2). With no job, its status is its module's: an error stop fails it
+// as it fails any step's module (CF-29, FX-19), which the oracle's walker
+// reads as the status of a container with no child (OR-11).
 func (r *run) emptyContainer(ctx context.Context, fr *frame, i int, o outcome) outcome {
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, jsonEmpty, jsonEmpty
 	o.carried = jsonEmpty
 	r.recordJob(fr, i, jsonEmpty)
-	return r.stop(ctx, fr, i, fr.sites[i], o)
+	o = r.stop(ctx, fr, i, fr.sites[i], o)
+	if o.rec.Module == conformance.ModuleFailure {
+		o.rec.Status = conformance.StepFailure
+	}
+	return o
 }
 
 // loopBody is what a sequential loop runs, for a for loop or a while loop:

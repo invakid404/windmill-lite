@@ -75,6 +75,47 @@ func TestSubflowRuns(t *testing.T) {
 	}
 }
 
+// WA-6, WA-V1, FX-5, ADR 0007: a body inside a subflow, which a loop body
+// of the caller calls, is a job of its own child flow: its parent is that
+// child flow, its innermost scope the subflow's job for a sequential
+// body and its own for a parallel one, its flow path under the subflow's
+// path, and its effective root the run.
+func TestSubflowBodyIdentity(t *testing.T) {
+	for _, parallel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("parallel %v", parallel), func(t *testing.T) {
+			s := &loopSteps{}
+			e := mustOpen(t, map[string]string{
+				"f/t/child": flowOf(loopOf("p", []string{mod("b", "echo", "", ""), mod("b2", "echo", "", "")}, fmt.Sprintf(`"iterator":{"type":"static","value":[1]},"parallel":%v`, parallel), "")),
+				"f/t/main":  flowOf(loopOf("l", []string{subflowOf("c", "f/t/child", "", "")}, `"iterator":{"type":"static","value":[1]},"parallel":false`, "")),
+			}, s)
+			tr := runIt(t, e, `{}`, nil)
+			wantStatus(t, tr, conformance.RunSuccess, "")
+			child := func(site string) string {
+				for _, c := range tr.Children {
+					if c.Site.String() == site {
+						return c.ID
+					}
+				}
+				t.Fatalf("no child flow at %s in %+v", site, tr.Children)
+				return ""
+			}
+			sub, body := child("m:l/i:0/m:c"), child("m:l/i:0/m:c/m:p/i:0")
+			if at(t, tr, "m:l/i:0/m:c").Job != sub {
+				t.Fatalf("the flow step's job is not its subflow's")
+			}
+			scope, path := sub, "f/t/child/loop-0"
+			if parallel {
+				scope, path = body, "f/t/child/forloop-0"
+			}
+			env := s.inv(t, "m:l/i:0/m:c/m:p/i:0/m:b").Env
+			if env["WM_FLOW_JOB_ID"] != body || env["WM_ROOT_FLOW_JOB_ID"] != scope || env["WM_ROOT_JOB_ID"] != tr.RunID ||
+				env["WM_FLOW_PATH"] != path || env["WM_FLOW_STEP_ID"] != "b" {
+				t.Fatalf("the body step's environment %v (subflow %s, body %s)", env, sub, body)
+			}
+		})
+	}
+}
+
 // CF-19, Q-CF-12 (ADR 0001 §6: matched), JE-19, JE-38, CF-17: a subflow
 // reads its caller's results when it has no step of that id, as Windmill's
 // scoped lookup walks up; it keeps a flow_env of its own, or its caller's

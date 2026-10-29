@@ -1,0 +1,13 @@
+# CF-V3/a: the subflow fails at its first pickup, which completes it
+# without running its handler: its result is the Anyhow error, not
+# "child-handled". The caller's handler runs for the step's failure.
+spec: [CF-V3/a]
+target: f/wl_cfv3/parent
+expect:
+  status: failure
+  result: parent-handled
+  steps:
+    "m:c": {status: failure, args: {}, result: {error: {name: Anyhow, message: "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"}}}
+    "m:c/m:l": {status: not_run, ran: false}
+    "m:c/s:failure": {status: not_run, ran: false}
+    "s:failure": {status: success, args: {}, result: parent-handled}
