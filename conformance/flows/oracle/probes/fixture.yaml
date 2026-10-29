@@ -19,17 +19,39 @@ provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, effects: true, setup: each_run}
 compare:
-  # key_order's transform sees flow_input's keys in a random order (OR-23/a).
-  unordered: [/steps/m:a0/args/fi_keys, /steps/m:a0/result/fi_keys]
+  # key_order's transform sees flow_input's keys in a random order (OR-23/a),
+  # and so do the arguments windmill-lite resolved for it, which only an
+  # expect holds (E4b's follow-up).
+  unordered: [/steps/m:a0/args/fi_keys, /steps/m:a0/result/fi_keys, /steps/m:a0/resolved_args/fi_keys]
   # env's values that change between runs or sessions: the workspace,
   # the object path (a timestamp and the job), the scheduled time and the
-  # runnable id (OR-29).
+  # runnable id; and those the environment sets, which the harness masks
+  # (OR-29, OR-14): the user the run is permissioned as (WM_EMAIL,
+  # WM_USERNAME, WM_PERMISSIONED_AS) and the instance's URL (WM_BASE_URL),
+  # host configuration on windmill-lite (ADR 0007). The value a step
+  # carries on, which only an expect holds, is masked alike.
   mask:
     - /result/env/WM_WORKSPACE
     - /result/env/WM_OBJECT_PATH
     - /result/env/WM_SCHEDULED_FOR
     - /result/env/WM_RUNNABLE_ID
+    - /result/env/WM_EMAIL
+    - /result/env/WM_USERNAME
+    - /result/env/WM_PERMISSIONED_AS
+    - /result/env/WM_BASE_URL
     - /steps/m:a/result/env/WM_WORKSPACE
     - /steps/m:a/result/env/WM_OBJECT_PATH
     - /steps/m:a/result/env/WM_SCHEDULED_FOR
     - /steps/m:a/result/env/WM_RUNNABLE_ID
+    - /steps/m:a/result/env/WM_EMAIL
+    - /steps/m:a/result/env/WM_USERNAME
+    - /steps/m:a/result/env/WM_PERMISSIONED_AS
+    - /steps/m:a/result/env/WM_BASE_URL
+    - /steps/m:a/carried/env/WM_WORKSPACE
+    - /steps/m:a/carried/env/WM_OBJECT_PATH
+    - /steps/m:a/carried/env/WM_SCHEDULED_FOR
+    - /steps/m:a/carried/env/WM_RUNNABLE_ID
+    - /steps/m:a/carried/env/WM_EMAIL
+    - /steps/m:a/carried/env/WM_USERNAME
+    - /steps/m:a/carried/env/WM_PERMISSIONED_AS
+    - /steps/m:a/carried/env/WM_BASE_URL

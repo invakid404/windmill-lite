@@ -843,7 +843,7 @@ func writeJobFile(job, name string, data []byte) error {
 // variables are empty and which is its own effective root (WA-4, WA-V1);
 // then the case's own.
 func jobEnv(c *conformance.StepCase, step, invID, runID string) map[string]string {
-	id := platform.Identity{JobID: invID, RootJobID: invID, StepID: step, JobPath: c.ScriptPath(), Token: platform.NewToken()}
+	id := platform.Identity{JobID: invID, RootJobID: invID, StepID: step, JobPath: c.ScriptPath(), Token: platform.NewToken(), Start: time.Now()}
 	if step != "" {
 		id.FlowJobID, id.RootFlowJobID, id.RootJobID, id.FlowPath = runID, runID, runID, conformance.StepFolder+"/flow"
 	}

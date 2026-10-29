@@ -10,7 +10,9 @@ package platform
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Host is the part of a job's environment that comes from the instance and
@@ -30,18 +32,24 @@ type Host struct {
 	// BaseURL is WM_BASE_URL, the instance's public URL, which the stock
 	// client uses for the links it builds, never for its calls (WA-1).
 	BaseURL string
+	// WorkerGroup is WM_WORKER_GROUP, the worker group the job runs in.
+	// windmill-lite has no worker groups (WR-22 puts them out of scope),
+	// so it is configuration too.
+	WorkerGroup string
 }
 
 // DefaultHost is the host configuration of a host that sets none. The
 // values are windmill-lite's own placeholders, not Windmill's: no instance
 // or user exists to take them from. BaseURL is the stock client's own
 // default for an unset WM_BASE_URL (WA-1), so a client reads the same
-// links either way.
+// links either way. WorkerGroup is the group of the reference
+// configuration's one worker, default (OR-29).
 var DefaultHost = Host{
-	Workspace: "windmill-lite",
-	Username:  "windmill-lite",
-	Email:     "windmill-lite@localhost",
-	BaseURL:   "http://localhost:3000",
+	Workspace:   "windmill-lite",
+	Username:    "windmill-lite",
+	Email:       "windmill-lite@localhost",
+	BaseURL:     "http://localhost:3000",
+	WorkerGroup: "default",
 }
 
 // withDefaults returns h with its zero fields taken from DefaultHost.
@@ -60,6 +68,9 @@ func (h Host) withDefaults() Host {
 	}
 	if h.BaseURL == "" {
 		h.BaseURL = DefaultHost.BaseURL
+	}
+	if h.WorkerGroup == "" {
+		h.WorkerGroup = DefaultHost.WorkerGroup
 	}
 	return h
 }
@@ -99,17 +110,32 @@ type Identity struct {
 	// captures it at import (WA-1, WA-31); on loopback TCP, where a process
 	// is one invocation, the token names it (ADR 0007).
 	Token string
+	// Start is when the job starts. windmill-lite schedules every job to
+	// start at once, after any sleep or retry delay it waited out, so
+	// Start is its scheduled time (WM_SCHEDULED_FOR), and it stamps the
+	// job's object path (WM_OBJECT_PATH). Zero means the time Env is
+	// called.
+	Start time.Time
 }
 
 // Env returns the identity's job variables with h's host configuration:
-// the core variables of WA-4 (WM_WORKSPACE, WM_TOKEN, WM_BASE_URL,
-// WM_JOB_ID, WM_FLOW_JOB_ID, WM_ROOT_FLOW_JOB_ID, WM_ROOT_JOB_ID,
-// WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_PATH, WM_STATE_PATH) and the host's
-// WM_EMAIL, WM_USERNAME and WM_PERMISSIONED_AS. The other variables of the
-// table are `later` and are not set; BASE_URL belongs to the process, not
-// the invocation (ADR 0004).
+// every reserved variable of WA-4 (WR-22). The core ones are WM_WORKSPACE,
+// WM_TOKEN, WM_BASE_URL, WM_JOB_ID, WM_FLOW_JOB_ID, WM_ROOT_FLOW_JOB_ID,
+// WM_ROOT_JOB_ID, WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_PATH and
+// WM_STATE_PATH; the host gives WM_EMAIL, WM_USERNAME, WM_PERMISSIONED_AS
+// and WM_WORKER_GROUP. Of the others, a job windmill-lite runs has a
+// scheduled time (WM_SCHEDULED_FOR, whole seconds, UTC) and an object path
+// (ObjectPath); WM_SCHEDULE_PATH, WM_END_USER_EMAIL and WM_TESTED_RUNNABLE
+// are empty, since no schedule, app or CI test starts one, and so is
+// WM_RUNNABLE_ID, since windmill-lite keeps no script hashes, as for a
+// flow step Windmill did not reduce (WA-V10). BASE_URL belongs to the
+// process, not the invocation (ADR 0004).
 func (id Identity) Env(h Host) map[string]string {
 	h = h.withDefaults()
+	start := id.Start
+	if start.IsZero() {
+		start = time.Now()
+	}
 	return map[string]string{
 		"WM_WORKSPACE":        h.Workspace,
 		"WM_TOKEN":            id.Token,
@@ -125,7 +151,28 @@ func (id Identity) Env(h Host) map[string]string {
 		"WM_FLOW_STEP_ID":     id.StepID,
 		"WM_JOB_PATH":         id.JobPath,
 		"WM_STATE_PATH":       StatePath(id.FlowPath, id.StepID, id.JobPath, h.Username),
+		"WM_SCHEDULED_FOR":    start.UTC().Format("2006-01-02T15:04:05Z"),
+		"WM_SCHEDULE_PATH":    "",
+		"WM_OBJECT_PATH":      ObjectPath(id.FlowPath, id.StepID, id.JobPath, start, id.JobID),
+		"WM_WORKER_GROUP":     h.WorkerGroup,
+		"WM_RUNNABLE_ID":      "",
+		"WM_END_USER_EMAIL":   "",
+		"WM_TESTED_RUNNABLE":  "",
 	}
+}
+
+// ObjectPath is WM_OBJECT_PATH (WA-4) for a job that no schedule triggered,
+// so its trigger part is "manual", with the job's start as its epoch
+// milliseconds:
+//
+//   - a flow step: <flow path, each "/" an "_">/manual/<step id>/<ms>_<job id>;
+//   - otherwise: <runnable path, each "/" an "_">/manual/<ms>_<job id>.
+func ObjectPath(flowPath, stepID, jobPath string, start time.Time, jobID string) string {
+	stamp := strconv.FormatInt(start.UnixMilli(), 10) + "_" + jobID
+	if flowPath != "" {
+		return strings.ReplaceAll(flowPath, "/", "_") + "/manual/" + stepID + "/" + stamp
+	}
+	return strings.ReplaceAll(jobPath, "/", "_") + "/manual/" + stamp
 }
 
 // StatePath is WM_STATE_PATH (WA-5), for a job that no schedule

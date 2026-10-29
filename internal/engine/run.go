@@ -1450,6 +1450,7 @@ func (r *run) jobEnv(fr *frame, i int, id string) map[string]string {
 		StepID:        fr.stepID(i),
 		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
+		Start:         r.clock.Now(),
 	}.Env(r.e.host)
 }
 
