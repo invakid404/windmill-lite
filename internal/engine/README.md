@@ -17,7 +17,7 @@ time of milestone N2: `sleep`, the step timeout and its messages, retries
 with their arithmetic, jitter and argument reuse, deadlines and the clock,
 and (milestone PF3) each run's place in the job registry, the helper
 `flow_user_state()`, a root script's run as a script job and the default
-dispatcher. This README
+dispatcher, and the `cache_ttl` result cache of milestone N4. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -40,6 +40,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
+| `cache.go` | The `cache_ttl` result cache (N4, below): the key, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
 | `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `branch.go`, `subflow.go`, `serde.go` | the flows a run executes (the root, its containers' child flows and its subflows by path), their results scopes, for and while loops, branches and subflows (below); the texts of Windmill's JSON library | N3a, N3b, N3c |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
@@ -196,7 +197,7 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a, N1b, N3a, N3b, N3c, N2).** A flow's modules in sequence:
+**What it runs (N1a, N1b, N3a, N3b, N3c, N2, N4).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
 a static or javascript `timeout`, `retry` and `retry_if`,
@@ -207,7 +208,8 @@ which nothing enforces: a flow job bypasses every executor timer
 ([FX-24](../../docs/semantics/execution.md#fx-24), path 4), for and while
 loops and `branchall` with `stop_after_all_iters_if`, `branchone`, and
 subflows by path, in a flow with a failure module too, whose bodies each
-carry a copy of it (below). `stop_after_all_iters_if` is evaluated on an active loop or
+carry a copy of it, and `cache_ttl` on steps, loops and flows, a path
+script's own included (below). `stop_after_all_iters_if` is evaluated on an active loop or
 `branchall` only, so on any other module it is accepted and never
 evaluated ([CF-13](../../docs/semantics/control-flow.md#cf-13),
 [FX-2](../../docs/semantics/execution.md#fx-2)). `New` refuses everything
@@ -220,7 +222,9 @@ and a retry on a subflow step, whose attempts' subflow steps NI places
 under the attempt's site; a container as the failure module, whose
 bodies run raw with a suffixed copy of it
 ([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
-only); `cache_ttl`, a path script's own included (N4); host-provided
+only); `cache_ignore_s3_path` (`later`), since the object store keeps no
+ETag to hash an S3 object's argument with
+([FX-40](../../docs/semantics/execution.md#fx-40)); host-provided
 sites (F2a); a step of another harness than Bun's, whose `bun` and
 `native` boundaries it runs (L1); a squashed for or while loop (EE,
 [CF-25](../../docs/semantics/control-flow.md#cf-25)); an `ai`
@@ -910,8 +914,48 @@ so every read is a not-found. A host gives the facade the same services.
   before any run starts, over an executor that is the facade's, so that
   the dispatched runs' calls are attributed.
 - **A script root is checked when the engine opens**, as every flow is
-  (ADR 0001 §3's rule): a Bun script in either boundary, without its own
-  `cache_ttl` (N4).
+  (ADR 0001 §3's rule): a Bun script in either boundary. Its own
+  `cache_ttl` caches its script job (N4, below).
+
+**The result cache (N4, `cache.go`).** Before a job with a `cache_ttl`
+runs, the engine looks it up in the result cache of its platform
+services (`platform.ResultCache`, [ADR 0007](../../docs/design/0007-platform-interface.md);
+an engine with none keeps one of its own, per process, D4)
+([FX-40](../../docs/semantics/execution.md#fx-40)):
+
+- **Which TTL applies.** An inline step takes its module's `cache_ttl`,
+  and a collapsed iteration its loop's; a path script takes its own and
+  drops its module's; a subflow by path takes its flow-level `cache_ttl`
+  and drops its step's; the root flow takes its own; a script root run as
+  a script job takes its own. An identity, a container and a body's child
+  flow carry none. A `cache_ttl` of 0 caches nothing.
+- **The key** is a SHA-256 over the bundle's digest, the job's kind
+  (`flowscript`, `script` or `flow`), its runnable (an inline step's
+  inventory id, which the collapsed iterations of its loop share; a path
+  script's path; a flow's path) and each argument in sorted key order as
+  its name and stored text. No path that differs between jobs enters it,
+  so the iterations of one loop share an entry, as FX-40/d recorded; the
+  bundle's digest keeps entries from crossing bundles in a shared store.
+- **A hit**, once a leaf's job is picked up (after H1, which answers at
+  the launch, before a job exists) or when a flow job starts, completes
+  the job successfully at once with the cached result: a leaf's record
+  has a job id of its own, `Cached` set, its arguments as stored and no
+  invocation, and its `stop_after_if` applies as after any success; a
+  subflow's child flow is listed with no module run; a root run's trace
+  is `Cached`, with no step.
+- **A store** follows a job that succeeded: a leaf's result, until now
+  plus the TTL on the run's clock (H10). A flow job stores its final
+  result when the job that ended it succeeded, before and whatever the
+  recover check decides (`flowEnd.lastJobOK`), so a failed flow whose
+  failure module's job succeeded caches that module's result, which the
+  next call returns as a success (FX-40/b). An intercepted (H1) outcome is
+  never stored.
+- **A store's failure** is a miss, and a `result_cache_unavailable`
+  warning in the trace; it never fails the run.
+
+`Config.ModuleState` is the module-state mode every invocation runs in
+(ADR 0006), warm by default, which the trace records; `wltest check` runs
+the FX-40 fixtures in both.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -963,7 +1007,18 @@ executor check through a subflow, and concurrent runs. `bodies_test.go`
 its scope and id, no second run with or without `skip_failures` and
 through a clean stop of a failed inner loop under a loop, a `branchone`
 and a sequential `branchall`, the recovery count of each container, and
-an error stop in a body.
+an error stop in a body. `cache_test.go` (N4) covers the result cache: a
+step's hit with no invocation and a job id of its own, across calls and
+runs, and other arguments' miss; expiry on the run's clock; FX-40's TTL
+matrix (a path script's own, its module's dropped, a subflow step's
+dropped, two inline steps never sharing); a collapsed loop's iterations
+sharing under the loop's TTL or a path body's own; a flow job's store
+after its failure module's success and none after a failure, a failing
+failure module or a tolerated failure at its last module; the root
+flow's own cache; a host store shared across engines of one bundle and
+not across bundles, and a failing one; H1 bypassing the cache; and the
+engine's module state. `dispatch_test.go`'s `TestRunScriptCache` covers
+a script root's own `cache_ttl`.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or

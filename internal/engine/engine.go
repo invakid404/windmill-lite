@@ -52,6 +52,11 @@ type Engine struct {
 	transition time.Duration
 	// platform is the platform providers the run reads (PF2).
 	platform *platform.Services
+	// results is the result cache of cache_ttl (N4): the platform's, or
+	// the engine's own when it has none.
+	results platform.ResultCache
+	// moduleState is the module-state mode every invocation runs in.
+	moduleState ModuleState
 }
 
 // Config configures an Engine.
@@ -88,8 +93,14 @@ type Config struct {
 	// the job registry each run is registered with and the flow user state
 	// flow_user_state() reads (milestone PF3). nil means none, so every
 	// read is a not-found and no run is registered. A host gives the
-	// facade the same services.
+	// facade the same services. Its result cache holds the results of the
+	// jobs that run with a cache_ttl (milestone N4, FX-40); with no
+	// services, the engine keeps one of its own.
 	Platform *platform.Services
+	// ModuleState is the module-state mode the engine's invocations run in
+	// (ADR 0006), which its Exec must serve: ModuleStateWarm, the default,
+	// or ModuleStateFresh.
+	ModuleState ModuleState
 }
 
 // ErrUnsupported marks a program that uses a feature the engine does not
@@ -106,7 +117,15 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.JS == nil {
 		return nil, errors.New("engine: no expression engine")
 	}
-	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout, platform: cfg.Platform}
+	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout, platform: cfg.Platform,
+		results: resultCache(cfg.Platform), moduleState: cfg.ModuleState}
+	switch e.moduleState {
+	case "":
+		e.moduleState = ModuleStateWarm
+	case ModuleStateWarm, ModuleStateFresh:
+	default:
+		return nil, fmt.Errorf("engine: module state %q is not warm or fresh", cfg.ModuleState)
+	}
 	if cfg.Workspace != "" {
 		e.host.Workspace = cfg.Workspace
 	}
@@ -242,8 +261,8 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 		return unsupported("a preprocessor module")
 	case f.SkipExpr != nil:
 		return unsupported("a flow skip_expr")
-	case f.CacheTTL != nil:
-		return unsupported("a flow cache_ttl (N4)")
+	case f.CacheIgnoreS3Path != nil && *f.CacheIgnoreS3Path:
+		return unsupported("cache_ignore_s3_path (later)")
 	}
 	for i, m := range f.Modules {
 		if i > 0 && isContainer(m.Kind) && f.Modules[i-1].Sleep != nil {
@@ -319,9 +338,6 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		if l.Harness != ir.ClassBun || (l.Boundary != ir.BoundaryBun && l.Boundary != ir.BoundaryNative) {
 			return unsupported("a %s step in the %s boundary", l.Harness, l.Boundary)
 		}
-		if s := scripts[l.Script]; s != nil && s.Metadata != nil && s.Metadata.CacheTTL != nil {
-			return unsupported("a script's own cache_ttl (N4)")
-		}
 	case ir.KindIdentity:
 	case ir.KindSubflow:
 		switch r := m.Retry; {
@@ -374,8 +390,8 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		return unsupported("an ai sleep (later)")
 	case m.Timeout != nil && m.Timeout.Type == ir.AI:
 		return unsupported("an ai timeout (later)")
-	case m.CacheTTL != nil:
-		return unsupported("cache_ttl (N4)")
+	case m.CacheIgnoreS3Path != nil && *m.CacheIgnoreS3Path:
+		return unsupported("cache_ignore_s3_path (later)")
 	}
 	if t := m.Timeout; t != nil && t.Type == ir.Static {
 		if _, err := staticTimeout(t.Value); err != nil && err != errNegativeTimeout {
@@ -386,16 +402,13 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 }
 
 // supportedRootScript checks a script root, which the default dispatcher
-// runs as a script job (RunScript): a Bun step in either boundary, without
-// its own cache_ttl.
+// runs as a script job (RunScript): a Bun step in either boundary.
 func supportedRootScript(s *ir.Script) error {
 	switch {
 	case s == nil:
 		return errors.New("not in the program's inventory")
 	case s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative):
 		return unsupported("a %s script in the %s boundary", s.Harness, s.Boundary)
-	case s.Metadata != nil && s.Metadata.CacheTTL != nil:
-		return unsupported("a script's own cache_ttl (N4)")
 	}
 	return nil
 }

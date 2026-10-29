@@ -40,6 +40,7 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	r.addChild(c)
 	o.rec.Ran, o.rec.Job = true, c.id
 	e := r.runList(ctx, c)
+	o.rec.Cached = e.cached
 	// The subflow's completion ends its step's job, which refreshes fr's
 	// ping (JE-2).
 	r.ended(fr, &o)
@@ -74,7 +75,9 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 // input, read back from storage (JE-44) and its first module's
 // previous_result (CF-9). It is a results scope of its own below fr's
 // (CF-19) and its own innermost flow scope (WA-V1), at sub's path (WA-6),
-// and keeps flow_env of its own or else fr's (CF-17, JE-38). It runs on
+// and keeps flow_env of its own or else fr's (CF-17, JE-38), and its flow's
+// cache_ttl, under which the result cache may answer its flow job (FX-40:
+// the step's own cache_ttl is dropped). It runs on
 // fr's goroutine, so it shares fr's rng.
 func (r *run) subflowFrame(fr *frame, i int, sub *ir.Flow, stored jsonval.Value) *frame {
 	now := r.clock.Now()
@@ -83,7 +86,7 @@ func (r *run) subflowFrame(fr *frame, i int, sub *ir.Flow, stored jsonval.Value)
 	c.def, c.failure = sub, sub.FailureModule
 	c.input = jsonval.FromProducer(flowInputText(stored.Producer(), fr.rng))
 	c.path, c.nodes, c.rng = sub.Path, newNodeScope(fr.nodes), fr.rng
-	c.scope = c.id
+	c.scope, c.cacheTTL = c.id, flowTTL(sub)
 	if c.envSrc = flowEnv(sub); c.envSrc.IsZero() {
 		c.envSrc = fr.envSrc
 	}
