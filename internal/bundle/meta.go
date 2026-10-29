@@ -12,8 +12,13 @@ type ScriptMeta struct {
 	// Path is the script's import base (WR-29).
 	Path string `json:"path"`
 	// Target is the bundler target its annotations selected (WR-40):
-	// "bun", "browser" for `//native`, "node" for `//nodejs`.
-	Target         string         `json:"target"`
+	// "bun", "browser" for `//native`, "node" for `//nodejs`; "none" for a
+	// nativets script, which is transpiled and not bundled.
+	Target string `json:"target"`
+	// Boundary is the boundary mode the script runs in: "bun", or "native"
+	// for a nativets script or a Bun-family one with the `//native` header
+	// (WR-40, deviation D5), whose module is scripts/bun/<id>.native.js.
+	Boundary       string         `json:"boundary"`
 	Annotations    Annotations    `json:"annotations"`
 	WorkflowAsCode WorkflowAsCode `json:"workflow_as_code"`
 	// Exports are the bundled module's export names.
@@ -33,6 +38,8 @@ type ScriptMeta struct {
 	// dependency set's directory; for a codebase script, esbuild's inputs,
 	// with paths relative to the sync root.
 	Metafile json.RawMessage `json:"metafile,omitempty"`
+	// Native is the record of a native-boundary script's native form.
+	Native *NativeMeta `json:"native,omitempty"`
 	// Bundler is "esbuild" for a codebase script (BuildCodebase), whose
 	// module the harness loads from its working directory; empty for a
 	// module of the Bun build.
@@ -42,6 +49,42 @@ type ScriptMeta struct {
 	Format Format `json:"format,omitempty"`
 
 	esbuildWarnings []string
+	// nativeBundle is where a //native codebase script's bundle waits for
+	// its native form (BuildCodebase).
+	nativeBundle string
+}
+
+// NativeMeta is what the harness needs to run a native-boundary script
+// besides its module's text (harnesses/bun/build/native.ts): the module is
+// the source of one async function, into which the harness inserts the
+// environment preamble (WR-45), and which it calls with the static imports
+// it resolved against file:///eval.ts and linked (WR-40).
+type NativeMeta struct {
+	// Kind is "nativets" or "bunnative".
+	Kind string `json:"kind"`
+	// Param is the function's parameter, a name the module never spells;
+	// PreambleAt the offset in the module's text where the preamble goes.
+	Param      string `json:"param,omitempty"`
+	PreambleAt int    `json:"preamble_at,omitempty"`
+	// Imports are the static import specifiers, in order; Links the named
+	// imports and re-exports that must exist in the module imported.
+	Imports []string     `json:"imports"`
+	Links   []NativeLink `json:"links"`
+	// UserAgent and Proxy are the `//useragent` and `//proxy` header
+	// annotations (WR-45).
+	UserAgent string `json:"user_agent,omitempty"`
+	Proxy     string `json:"proxy,omitempty"`
+	// TranspileError is the transpiler's diagnostic for a nativets script
+	// that does not transpile: such a step fails when it runs, before
+	// anything loads (WR-43), and has no module.
+	TranspileError string `json:"transpile_error,omitempty"`
+}
+
+// NativeLink is one named import or re-export: the name must be an export
+// of the module of the Import-th specifier.
+type NativeLink struct {
+	Import int    `json:"import"`
+	Name   string `json:"name"`
 }
 
 // Annotations are a script's leading-comment flags (WR-31).
@@ -211,3 +254,7 @@ type Warning struct {
 // script using it also imports directly, so that package exists twice in
 // the process with different configuration (ADR 0010).
 const WarningSharedDependency = "host_module_shared_dependency"
+
+// WarningNativeImport: a native-boundary script imports a module the native
+// runtime cannot load, so the step fails when it runs (WR-40, D5).
+const WarningNativeImport = "native_import_unavailable"

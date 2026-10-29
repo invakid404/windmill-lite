@@ -173,8 +173,8 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		if l == nil {
 			return fmt.Errorf("a %s module with no leaf", m.Kind)
 		}
-		if l.Harness != ir.ClassBun || l.Boundary != ir.BoundaryBun {
-			return unsupported("a %s step in the %s boundary (C3n)", l.Harness, l.Boundary)
+		if l.Harness != ir.ClassBun || (l.Boundary != ir.BoundaryBun && l.Boundary != ir.BoundaryNative) {
+			return unsupported("a %s step in the %s boundary", l.Harness, l.Boundary)
 		}
 		if s := scripts[l.Script]; s != nil && s.Metadata != nil && s.Metadata.CacheTTL != nil {
 			return unsupported("a script's own cache_ttl (N4)")

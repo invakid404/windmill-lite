@@ -145,14 +145,22 @@ registration order, and runs each case's runs in order through the protocol
 configuration a case's runs share a harness process of its own, in which
 module state and `globalThis` survive from one run to the next (D1); in
 `fresh` each run has a process of its own, which ends with it, as a
-Windmill job's does. Each run's entrypoint is `engine.Entrypoint`'s, its
+Windmill job's does. A native step runs in a realm of its own every time,
+in either (D5). Each script is built with the language a deploy records
+(`ir.DeployedLanguage`), and invoked with that language's boundary
+(`ir.BoundaryOf`). Each run's entrypoint is `engine.Entrypoint`'s, its
 job variables the core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the
 case's `step_id`, default `a`) or of a script job (`step_id: ""`), and its
 outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
-compared by `conformance.CompareStep`. Every run is observed up to its
-settlement (at most 10 s), since an outcome fixed early (an intercepted
-`process.exit`) comes before the call ends: its warnings are those
-collected until then, and `left` compares the counts of its `left_behind`
+compared by `conformance.CompareStep`; a case's `timeout` abandons the run
+when it passes, and its value is then `engine.TimeoutError`'s for the
+boundary. The harness is given the facade origin `http://127.0.0.1:9`,
+where nothing listens: a native step reads it as `BASE_URL` and
+`BASE_INTERNAL_URL`, and a platform call there gets a 501. Every run is
+observed up to its settlement (at most 10 s), since an outcome fixed early
+(an intercepted `process.exit`) comes before the call ends: its warnings
+are those collected until then, `left` compares the counts of its
+`left_behind` warning, and `untracked` those of its `native_untracked`
 warning. A run whose call must not settle says `settled: pending` and is
 observed for 500 ms instead. A run's late reports are compared, when the
 case states them, at the end of its case, so that a late report of work it
@@ -166,7 +174,9 @@ its entry's settings and the shims the scan wrote; its runs go to the
 harness as any other's. With `--node` (default `WL_NODE`; empty skips
 it), each run of a **CommonJS** codebase case also runs on Node, as
 Windmill runs such a bundle (deviation D13,
-[WR-50](../../docs/semantics/languages.md#wr-50)): in a fresh job
+[WR-50](../../docs/semantics/languages.md#wr-50)), unless its header makes
+it native, which Windmill gives to the native runtime whatever its
+bundle's format (WR-50/c, `onNode`): in a fresh job
 directory laid out in Windmill's order: a placeholder `package.json` of
 `{}`, then the bundle as `main.js` and the entry's assets at their paths,
 so an asset named `package.json` replaces the placeholder and its `type`
@@ -207,8 +217,11 @@ a few at a time (`flows.go`):
    does not build) fails or skips only the runs of that target; a folder
    that does not load, or a build that fails as a whole, fails them all.
 2. **Run.** Each target flow's program gets an engine of its own
-   (`engine.Engine`, milestone N1a), and every run goes to one pool of Bun
-   harness processes per fixture, the `warm` configuration. Runs go in name
+   (`engine.Engine`, milestone N1a), which invokes each step with its
+   boundary, a native one included (C3n), and every run goes to one pool
+   of Bun harness processes per fixture, the `warm` configuration, given
+   the step cases' facade origin, so a native step reads the same
+   `BASE_URL` and `BASE_INTERNAL_URL` in both. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run, and a run
    that has not ended after 60 s fails. Each run has its own id, which its
@@ -250,7 +263,7 @@ a few at a time (`flows.go`):
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with effects (the effect sink), a script run
 (`kind: script`), a flow the compiler refuses as an unsupported feature,
-language or pinned hash, a script of another harness or boundary (C3n), a
+language or pinned hash, a script of another harness (L1), a
 flow the engine refuses at open (`engine.ErrUnsupported`, which names the
 milestone: failure modules, waits, retries, while loops and branches,
 subflows, caching), and a flow that reads the platform, which needs the platform providers of PF2:
@@ -286,7 +299,8 @@ Node side needs `WL_NODE`; without it the step suite runs on Bun only,
 unless `WL_REQUIRE_NODE` is set, as CI sets it (with Node 20, the major of
 Windmill v1.767.0's image).
 
-- `TestStepSuite` is the exit gate of milestones C3a and C3b: every step
+- `TestStepSuite` is the exit gate of milestones C3a and C3b, and with
+  `wr-40.yaml` to `wr-45.yaml` and `d5.yaml` milestone C3n's: every step
   case passes, in `warm` and in `fresh`; with `WL_NODE` it is also
   milestone C2b's D13 gate, every CommonJS codebase case holding on Node
   too. `TestStepCheckerReportsDifferences` checks that a wrong expectation
@@ -294,6 +308,13 @@ Windmill v1.767.0's image).
   that a wrong or unstated Node difference fails, and `TestStepCatalogue`
   that every catalogue case of a finding with a step file is a step case or
   deferred.
+  `TestNativeRejectionIsItsInvocationsOwn` checks that a native
+  invocation's unhandled rejection of a web API's promise fails it and no
+  invocation beside it in the same process.
+  `TestNativeFlowSteps` runs a flow's three kinds of native step (nativets
+  with and without `//native`, bun with it) through the real build and
+  harness, checking each one's boundary and its `BASE_URL` and
+  `BASE_INTERNAL_URL`.
 - `TestFlowSuite` is the exit gate of milestones E1, N1a and N3a: every run the
   flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;

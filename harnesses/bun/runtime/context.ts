@@ -439,7 +439,7 @@ export type PlatformAnswer = { status: number; headers: Record<string, string>; 
 let fetchRoute:
   | { origin: () => string | undefined; call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer> }
   | undefined;
-let errorRoute: ((kind: string, e: unknown) => void) | undefined;
+let errorRoute: ((kind: string, e: unknown, promise?: unknown) => void) | undefined;
 let fetchInstalled = false;
 
 /** The reason a request an invocation left in flight is aborted with when
@@ -959,16 +959,17 @@ let handlersInstalled = false;
  * every invocation in it. Each error goes to onError, called inside the
  * handler, where current() names the invocation whose context raised it,
  * if any: on Bun 1.3.10 a throw from a timer keeps its context, and an
- * unhandled rejection or a throw from a microtask has none (item 2). A
- * ProcessExit thrown out of a callback never reaches onError: its call
- * already fixed the outcome or was reported. */
-export function installProcessHandlers(onError: (kind: string, e: unknown) => void) {
+ * unhandled rejection or a throw from a microtask has none (item 2). For
+ * a rejection, onError also gets the promise, whose realm names a native
+ * invocation (native.ts). A ProcessExit thrown out of a callback never
+ * reaches onError: its call already fixed the outcome or was reported. */
+export function installProcessHandlers(onError: (kind: string, e: unknown, promise?: unknown) => void) {
   errorRoute = onError;
   if (handlersInstalled) return;
   handlersInstalled = true;
-  const handle = (kind: string) => (e: unknown) => {
+  const handle = (kind: string) => (e: unknown, promise?: unknown) => {
     if (e instanceof ProcessExit) return;
-    errorRoute!(kind, e);
+    errorRoute!(kind, e, promise);
   };
   process.on("uncaughtException", handle("uncaughtException"));
   process.on("unhandledRejection", handle("unhandledRejection"));

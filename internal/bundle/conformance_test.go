@@ -48,6 +48,8 @@ type entryGiven struct {
 		ExplicitPath string `json:"explicit_path"`
 	} `json:"flow"`
 	Dependencies map[string]string `json:"dependencies"`
+	// Language is the language a deploy records (BunScript.Language).
+	Language string `json:"language"`
 }
 
 type buildCase struct {
@@ -124,6 +126,10 @@ type entryExpect struct {
 	BundleContains   []string                 `json:"bundle_contains"`
 	BundleNotContain []string                 `json:"bundle_not_contains"`
 	FirstLine        string                   `json:"first_line"`
+	// Boundary is the script's boundary mode, and TranspileError a text
+	// its recorded transpile error contains (deviation D5).
+	Boundary       string `json:"boundary"`
+	TranspileError string `json:"transpile_error"`
 }
 
 type problemWant struct {
@@ -252,7 +258,7 @@ func runBuildCase(t *testing.T, bun, helper string, c buildCase) {
 	}
 	var scripts []BunScript
 	for _, e := range entries {
-		s := BunScript{ID: e.ID, Path: e.Path, Lock: lockOf(e.Dependencies)}
+		s := BunScript{ID: e.ID, Path: e.Path, Lock: lockOf(e.Dependencies), Language: e.Language}
 		switch {
 		case e.Flow != nil:
 			s.Path = ImportBase(e.Flow.Path, e.Flow.Module, e.Flow.ExplicitPath)
@@ -529,8 +535,11 @@ func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
 func builtModule(t *testing.T, out, id string) string {
 	t.Helper()
 	base := filepath.Join(out, "scripts", "bun", filepath.FromSlash(id))
-	if _, err := os.Stat(base + ".cjs"); err == nil {
-		return base + ".cjs"
+	// A native-boundary script's module is its native form (D5).
+	for _, ext := range []string{".native.js", ".cjs"} {
+		if _, err := os.Stat(base + ext); err == nil {
+			return base + ext
+		}
 	}
 	if _, err := os.Stat(base + ".mjs"); err != nil {
 		t.Fatalf("script %s: no module in the bundle: %v", id, err)
@@ -556,6 +565,9 @@ func checkBuiltEntry(t *testing.T, out, id string, w entryExpect) {
 	}
 	if w.Target != "" && m.Target != w.Target {
 		t.Errorf("%s: target %s, want %s", item, m.Target, w.Target)
+	}
+	if w.Boundary != "" && m.Boundary != w.Boundary {
+		t.Errorf("%s: boundary %s, want %s", item, m.Boundary, w.Boundary)
 	}
 	if w.Exports != nil && !slices.Equal(m.Exports, w.Exports) {
 		t.Errorf("%s: exports %q, want %q", item, m.Exports, w.Exports)
@@ -661,6 +673,12 @@ func checkEntry(t *testing.T, id string, w entryExpect, res *BunResult, p Proble
 	if w.Target != "" && m.Target != w.Target {
 		t.Errorf("%s: target %s, want %s", item, m.Target, w.Target)
 	}
+	if w.Boundary != "" && m.Boundary != w.Boundary {
+		t.Errorf("%s: boundary %s, want %s", item, m.Boundary, w.Boundary)
+	}
+	if w.TranspileError != "" && (m.Native == nil || !strings.Contains(m.Native.TranspileError, w.TranspileError)) {
+		t.Errorf("%s: native %+v, want a transpile error containing %q", item, m.Native, w.TranspileError)
+	}
 	if w.WorkflowAsCode != nil && m.WorkflowAsCode != *w.WorkflowAsCode {
 		t.Errorf("%s: workflow-as-code %+v, want %+v", item, m.WorkflowAsCode, *w.WorkflowAsCode)
 	}
@@ -671,7 +689,12 @@ func checkEntry(t *testing.T, id string, w entryExpect, res *BunResult, p Proble
 		t.Errorf("%s: host modules %q, want %q", item, m.HostModules, w.HostModules)
 	}
 	if len(w.BundleContains)+len(w.BundleNotContain) > 0 || w.FirstLine != "" {
-		b, err := os.ReadFile(filepath.Join(out, "scripts", "bun", id+".mjs"))
+		// A native-boundary script's module is its native form (D5).
+		ext := ".mjs"
+		if m.Boundary == "native" {
+			ext = ".native.js"
+		}
+		b, err := os.ReadFile(filepath.Join(out, "scripts", "bun", id+ext))
 		if err != nil {
 			t.Fatalf("%s: %v", item, err)
 		}
