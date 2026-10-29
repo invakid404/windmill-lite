@@ -17,7 +17,10 @@
           "script": {
             "f/a/x": {
               "at": {
-                "/lock": ""
+                "/lock": "",
+                "/warnings": [
+                  "Error reading inline path: f/a/x.script.lock, the file is missing"
+                ]
               },
               "absent": [
                 "/lock_file"
@@ -45,6 +48,86 @@
               "at": {
                 "/lock": "a\nb"
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5/c",
+      "provenance": "source-derived",
+      "title": "a leading space is not a reference",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: ' !inline f/a/x.script.lock'\n",
+          "f/a/x.script.lock": "L"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": " !inline f/a/x.script.lock"
+              },
+              "absent": [
+                "/lock_file",
+                "/warnings"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "a legacy list is joined before the reference test",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: ['!inline f/a/x.script.lock']\n",
+          "f/a/x.script.lock": "joined\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "joined\n",
+                "/lock_file": "f/a/x.script.lock"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-5",
+      "provenance": "source-derived",
+      "title": "a tab after !inline is not a reference",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "lock: \"!inline\\tf/a/x.script.lock\"\n",
+          "f/a/x.script.lock": "L"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "!inline\tf/a/x.script.lock"
+              },
+              "absent": [
+                "/lock_file"
+              ]
             }
           }
         }

@@ -49,6 +49,59 @@
       }
     },
     {
+      "spec": "SY-13/b",
+      "provenance": "source-derived",
+      "title": "no wmill.yaml",
+      "given": {
+        "files": {
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/fl.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "root": ".",
+        "warnings": [
+          "No wmill.yaml found. Use 'wmill init' to bootstrap it."
+        ],
+        "paths": {
+          "script": [
+            "f/a/x",
+            "f/b/y"
+          ],
+          "flow": [
+            "f/a/fl"
+          ]
+        },
+        "filtered": {
+          "script": [],
+          "flow": []
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/language": "bun"
+              }
+            },
+            "f/b/y": {
+              "at": {
+                "/language": "bun"
+              }
+            }
+          },
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/dir": "f/a/fl.flow"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
       "spec": "SY-13",
       "provenance": "source-derived",
       "title": "skip switches",
@@ -127,8 +180,8 @@
     },
     {
       "spec": "SY-13",
-      "provenance": "policy",
-      "note": "a reading: each item is filtered by its main file (a script's source, a flow's flow.yaml, a resource or variable file)",
+      "provenance": "source-derived",
+      "note": "flow.yaml is the only file of each folder, so it alone selects its flow (SY-17)",
       "title": "a flow is filtered by its flow.yaml",
       "given": {
         "files": {
@@ -362,6 +415,75 @@
             "f/a/.x"
           ]
         }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "policy",
+      "policy": "ADR 0001 §5a: windmill-lite reads no JSON-mode tree",
+      "title": "JSON mode is refused",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\njson: true\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.json": "{}\n"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "unsupported_feature",
+          "contains": [
+            "wmill.yaml:2",
+            "unsupported: JSON mode"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "note": "the CLI's decoder refuses the file (SY-19), inside its YAML syntax error",
+      "title": "a wmill.yaml in UTF-16",
+      "given": {
+        "files": {
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        },
+        "hex_files": {
+          "wmill.yaml": "fffe640065006600610075006c007400540073003a002000620075006e000a00"
+        }
+      },
+      "expect": {
+        "load": {
+          "kind": "invalid_text",
+          "contains": [
+            "YAML syntax error in wmill.yaml: File wmill.yaml is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-13",
+      "provenance": "source-derived",
+      "title": "a wmill.yaml with a UTF-8 byte order mark",
+      "given": {
+        "files": {
+          "wmill.yaml": "﻿defaultTs: deno\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/language": "deno"
+              }
+            }
+          }
+        },
+        "not_warnings": [
+          "no defaultTs"
+        ]
       }
     }
   ]

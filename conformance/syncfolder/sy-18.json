@@ -1,0 +1,132 @@
+{
+  "finding": "SY-18",
+  "cases": [
+    {
+      "spec": "SY-18/a",
+      "provenance": "source-derived",
+      "title": "unclassified files are ignored",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/notes.md": "# notes\n",
+          "f/a/x.yml": "a: 1\n",
+          "f/a/data.json": "{}\n",
+          "f/a/fl.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/fl.flow/README.md": "# the flow\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ],
+          "flow": [
+            "f/a/fl"
+          ],
+          "resource": [],
+          "variable": []
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-18/b",
+      "provenance": "source-derived",
+      "title": "a stray .js file fails the push",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/helper.js": "export const h = 1;\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/helper",
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/helper": {
+              "error": {
+                "kind": "unknown_language",
+                "contains": [
+                  "The item f/a/helper.js has an unrecognized type ending script"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "unknown_language",
+          "contains": [
+            "f/a/helper.js has an unrecognized type ending script"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-18",
+      "provenance": "source-derived",
+      "title": ".json data files are dropped in YAML mode",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/r.resource.json": "{\"resource_type\": \"x\", \"value\": 1}\n",
+          "f/a/v.variable.json": "{\"value\": \"v\"}\n",
+          "t.resource-type.json": "{}\n",
+          "f/a/r.resource.yaml": "resource_type: x\nvalue: 2\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource": [
+            "f/a/r"
+          ],
+          "variable": [],
+          "resource_type": []
+        },
+        "items": {
+          "resource": {
+            "f/a/r": {
+              "at": {
+                "/file": "f/a/r.resource.yaml",
+                "/value": 2
+              }
+            }
+          }
+        },
+        "warnings": [
+          "f/a/v.variable.json is ignored: the CLI drops .json files",
+          "t.resource-type.json is ignored"
+        ],
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-18",
+      "provenance": "source-derived",
+      "title": "only listed extensions in a flow folder select it",
+      "note": "README.md and notes.txt are dropped, and a.inline_script.lock never selects when new (SY-17)",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/fl.flow/README.md": "# x\n",
+          "f/a/fl.flow/notes.txt": "x\n",
+          "f/a/fl.flow/a.inline_script.lock": "{}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": []
+        },
+        "warnings": [
+          "f/a/fl.flow is ignored"
+        ]
+      }
+    }
+  ]
+}
