@@ -453,7 +453,8 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   lock (WR-26), the codebase refusals (WR-47, WR-49). A clean one can check
   what it recorded for each script, its assets and warnings, and run its
   modules: the codebase cases of WR-47 (the CLI's settings), WR-49 (assets),
-  WA-31 (the env rewrite in CommonJS and ESM output) and D12 (shims).
+  WA-31 (the env rewrite in CommonJS and ESM output) and D12 (shims, and
+  modules outside the folder, whose files a case gives in `given.outside`).
 - `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
   flow, an inline step, a path script, a workspace import, a host-provided
   module, a codebase script with a define, an import of its codebase and an
@@ -471,6 +472,23 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
   directory and the refusals.
+- `TestBuildOutsideHostModule` (milestone F3h) builds a folder whose
+  codebase script imports, from outside the folder, a module holding an
+  `AsyncLocalStorage` store, listed by its path from the sync root: it
+  checks the manifest, the copy, the shim and the script's metadata, then
+  runs the script with the host's own instance registered, inside and
+  outside the host's scope, and with the bundled copy. `TestOutsideID`
+  checks the ids. `TestCodebaseHostModulesKeepBuildTime` bundles six
+  codebase scripts that import a package of 400 modules, without and with
+  a listed module, and fails when listing one makes the build more than
+  three times slower (61 times before F3h); `BenchmarkCodebaseHostModules`
+  times both. `TestHostModulesKeepLoadEffects` builds one folder without
+  and with host-provided modules, runs each step in a process of its own
+  with every copy registered, and checks that the steps see the same load
+  effects (modules of packages and directories marked
+  `sideEffects: false`, outside modules listed or not, a listed module's
+  Bun copy, a Bun script with a lock), but for D12's one difference: a
+  listed module that a step imports without using.
 - `TestVerify`, `TestVerifyArchiveEntries`, `TestWriteArchive`,
   `TestExtract` (an archive extracted into an empty directory verifies with
   the archive's digest; a non-empty directory is refused),

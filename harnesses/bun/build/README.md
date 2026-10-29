@@ -3,14 +3,16 @@
 **Current state:** the Bun build helper of milestone C2a
 ([ADR 0012](../../../docs/design/0012-layout-and-milestones.md)). This README
 covers `harnesses/bun/build`. The Go build in
-[internal/bundle](../../../internal/bundle/README.md) runs it; nothing else
-does yet, and no `windmill-lite build` command exists (F4). It runs on the
+[internal/bundle](../../../internal/bundle/README.md), behind
+`windmill-lite build` (F4), runs it; nothing else does. It runs on the
 pinned Bun 1.3.10 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
 refuses another unless the caller allows it. Codebase scripts are not
 bundled here: esbuild bundles them in Go (C2b), and the helper only parses
 their sources (`parse`, below). Milestone C3n added the native form of
 `nativets` and `//native` scripts and the embedded client (below, "Native
-scripts").
+scripts"). Milestone F3h narrowed the workspace plugin's resolve filter
+(below, step 3) and added the parse of host-provided modules outside the
+folder.
 
 ## Running
 
@@ -50,7 +52,7 @@ the rest are still built.
 
 | File | Contents |
 |---|---|
-| `main.ts` | Reads the request, checks the Bun version, runs the scan or the build, writes the response |
+| `main.ts` | Reads the request, checks the Bun version, runs the scan, the build or the parse, writes the response |
 | `build.ts` | Dependency installs, the import transforms and resolution, `Bun.build`, host-provided modules, the metafile |
 | `imports.ts` | Pinned-import removal, the `.ts` rewrite, workspace paths, package names |
 | `signature.ts` | The AST parse: signatures, `Date` marking, import specifiers, live bindings |

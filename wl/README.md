@@ -232,6 +232,10 @@ both, an `InvocationEnv` hook's variable in the step's environment (H12)
 and a run's own variable read and updated through the job API (H13), the
 runtime's left as it was; and the same platform calls in the returned
 trace and in the traces `OnRunEnd` and `OnRunSettled` get, for a run
-canceled while its step waits too. It needs
-`WL_BUN` and the build helper's dependencies, and skips without them unless
+canceled while its step waits too. `outside_test.go` builds a bundle whose
+host contract lists two modules outside the sync folder (milestone F3h)
+and runs it on Bun without a host: a codebase script that imports one finds
+no host scope, and two step bundles share the other's one registered copy.
+Both need
+`WL_BUN` and the build helper's dependencies, and skip without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
