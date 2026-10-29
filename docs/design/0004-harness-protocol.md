@@ -351,7 +351,18 @@ microtask see none.
    group, the release's included, looks at its members afresh under the
    group's own lock and ends the group for good, so a group is killed
    once, by whichever path comes first, and no path signals its id from
-   a look that another path's kill made out of date. The engine
+   a look that another path's kill made out of date. The guardian is an
+   orphan from its start, adopted by PID 1 or the nearest subreaper,
+   which is the engine when it runs as PID 1 of a container without an
+   init, or as a subreaper; so is what a member leaves when it exits. The
+   engine reaps those it is the parent of, or each would stay a zombie
+   until the engine exits: what it kills, after the kill and after the
+   harness process has gone too, and a descendant that exits while its
+   group still runs. It waits for each by its own pid, without blocking,
+   only while the pid is still the process it saw in the group (the same
+   start time) and only when it is that process's parent, so no wait
+   takes the exit status of another of its children, an `exec.Cmd`'s
+   included. The engine
    kills an invocation's announced groups when it abandons the invocation
    (its timeout or cancellation), at its settlement, when the process
    ends, a watchdog's kill included, and at once for a group announced
@@ -395,7 +406,8 @@ microtask see none.
      started a session of its own is not waited for. The engine is not the
      orphans' parent, so it watches the group with signal 0, and reaps
      them when it is their parent (PID 1 of a container, or a subreaper),
-     as Windmill's worker does.
+     as Windmill's worker does: each by its own pid, never by the group's
+     id, which another process of the engine's may hold by then.
    - **No watchdog.**
 
    See [0006](0006-module-state.md).

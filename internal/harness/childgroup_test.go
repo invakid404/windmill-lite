@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,13 +16,18 @@ import (
 )
 
 // fakeProcs stands in for the kernel's process table in the child-group
-// tests: each group's members, with their start times, and the groups
-// signalled. No real signal is sent.
+// tests: each group's members, with their start times, the groups
+// signalled, and the processes reaped. No real signal is sent and no real
+// process is waited for.
 type fakeProcs struct {
 	mu       sync.Mutex
 	groups   map[int][]groupMember
-	guards   map[int]string // pid → the token in its environment
+	guards   map[int]string // pid → the token in its arguments
 	signaled []int
+	// parents are the processes whose parent is the engine (pid → true);
+	// zombies are those that have exited, not yet reaped.
+	parents, zombies map[int]bool
+	reaped           []int
 	// hold, when set, runs once, in the next listing of members, after the
 	// listing is taken and before it is returned: it pauses whoever looks.
 	hold func()
@@ -29,8 +35,42 @@ type fakeProcs struct {
 
 func useFakeProcs(t *testing.T) *fakeProcs {
 	t.Helper()
-	f := &fakeProcs{groups: map[int][]groupMember{}, guards: map[int]string{}}
-	gm, ig, sg := groupMembers, isGuard, signalGroup
+	f := &fakeProcs{groups: map[int][]groupMember{}, guards: map[int]string{}, parents: map[int]bool{}, zombies: map[int]bool{}}
+	// No reaping goroutine may read the process operations while they are
+	// replaced, nor reap a fake group with the real ones afterwards.
+	resetReaper()
+	gm, ig, sg, rp, wp := groupMembers, isGuard, signalGroup, readProc, reapPID
+	readProc = func(pid int) (procInfo, bool) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for pgid, ms := range f.groups {
+			for _, m := range ms {
+				if m.pid == pid {
+					info := procInfo{start: m.start, pgid: pgid, zombie: f.zombies[pid]}
+					if f.parents[pid] {
+						info.ppid = os.Getpid()
+					}
+					return info, true
+				}
+			}
+		}
+		return procInfo{}, false
+	}
+	reapPID = func(pid int) bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		switch {
+		case !f.parents[pid]:
+			return true // ECHILD: not the engine's child
+		case !f.zombies[pid]:
+			return false
+		}
+		f.reaped = append(f.reaped, pid)
+		for pgid, ms := range f.groups {
+			f.groups[pgid] = slices.DeleteFunc(ms, func(m groupMember) bool { return m.pid == pid })
+		}
+		return true
+	}
 	isGuard = func(pid int, token string) bool {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -57,8 +97,50 @@ func useFakeProcs(t *testing.T) *fakeProcs {
 		defer f.mu.Unlock()
 		f.signaled = append(f.signaled, pgid)
 	}
-	t.Cleanup(func() { groupMembers, isGuard, signalGroup = gm, ig, sg })
+	t.Cleanup(func() {
+		resetReaper()
+		groupMembers, isGuard, signalGroup, readProc, reapPID = gm, ig, sg, rp, wp
+	})
 	return f
+}
+
+// resetReaper forgets the groups the reaper holds and waits for its
+// goroutine to exit.
+func resetReaper() {
+	reaper.mu.Lock()
+	reaper.sets = nil
+	done := reaper.done
+	reaper.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
+// adopt makes the engine the parent of pids.
+func (f *fakeProcs) adopt(pids ...int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pid := range pids {
+		f.parents[pid] = true
+	}
+}
+
+// exit makes pids zombies.
+func (f *fakeProcs) exit(pids ...int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, pid := range pids {
+		f.zombies[pid] = true
+	}
+}
+
+func (f *fakeProcs) tookReaped() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.reaped
+	f.reaped = nil
+	slices.Sort(out)
+	return out
 }
 
 // set makes the members of group pgid ms, each a pid and its start time.
@@ -302,6 +384,182 @@ func TestChildGroupEndsOnce(t *testing.T) {
 			t.Fatalf("signalled %v, want the release's kill alone", got)
 		}
 	})
+}
+
+// The engine reaps the members of the groups it owns that it is the parent
+// of, as when it runs as PID 1 or a subreaper and adopted them, each by its
+// own pid and only while it is still the process the engine saw: a
+// released guardian, what a cancellation killed, a process forked as the
+// kill landed, and a descendant that exits while its group still runs.
+// It leaves another's child to its parent, never waits for a pid another
+// process took, does not trust a listing once no member it holds is left
+// in the group, and never waits for a harness's own pid (review round 5,
+// finding 1).
+func TestReapChildGroups(t *testing.T) {
+	// spec: WR-55
+	f := useFakeProcs(t)
+	m := func(pid int, start uint64) groupMember { return groupMember{pid: pid, start: start} }
+	f.guards[6000] = "tk"
+	held := func() int {
+		reaper.mu.Lock()
+		defer reaper.mu.Unlock()
+		return len(reaper.sets)
+	}
+	// Each case starts with no process adopted, exited or reaped.
+	clean := func() {
+		resetReaper()
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.parents, f.zombies, f.reaped, f.signaled = map[int]bool{}, map[int]bool{}, nil, nil
+	}
+	t.Run("a released guardian", func(t *testing.T) {
+		clean()
+		f.set(4242, m(4242, 1), m(6000, 2))
+		f.adopt(6000)
+		g, _ := newChildGroup(4242, "tk")
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		p := &Process{invs: map[string]*invocation{"i": inv}}
+		f.set(4242, m(6000, 2))
+		p.retireChildren()
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+		f.exit(6000)
+		p.retireChildren()
+		if got := f.tookReaped(); !slices.Equal(got, []int{6000}) || held() != 0 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+	})
+	t.Run("a cancellation's kill", func(t *testing.T) {
+		clean()
+		f.set(4242, m(4242, 1), m(6000, 2), m(5000, 3))
+		f.adopt(6000, 5000) // 4242 is the harness's child
+		g, _ := newChildGroup(4242, "tk")
+		killChildGroups([]*childGroup{g})
+		f.took()
+		f.exit(4242, 6000, 5000)
+		reapPass()
+		if got := f.tookReaped(); !slices.Equal(got, []int{5000, 6000}) || held() != 1 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+		f.set(4242) // the harness reaped its child
+		reapPass()
+		if got := f.tookReaped(); len(got) != 0 || held() != 0 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+	})
+	t.Run("a pid another process took", func(t *testing.T) {
+		clean()
+		f.set(4242, m(6000, 2))
+		f.adopt(6000)
+		reapLater(4242, 0, []groupMember{m(6000, 2)})
+		f.set(4242, m(6000, 99)) // reaped elsewhere, and its pid reused
+		f.exit(6000)
+		reapPass()
+		if got := f.tookReaped(); len(got) != 0 || held() != 0 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+	})
+	t.Run("a process forked as the kill landed", func(t *testing.T) {
+		clean()
+		f.set(4242, m(6000, 2))
+		reapLater(4242, 0, []groupMember{m(6000, 2)})
+		f.set(4242, m(6000, 2), m(5001, 4))
+		f.adopt(6000, 5001)
+		f.exit(6000, 5001)
+		reapPass()
+		if got := f.tookReaped(); !slices.Equal(got, []int{5001, 6000}) || held() != 0 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+	})
+	t.Run("no member held is left: the listing is not trusted", func(t *testing.T) {
+		clean()
+		f.set(4242, m(6000, 2))
+		reapLater(4242, 0, []groupMember{m(6000, 2)})
+		f.set(4242, m(4242, 50)) // the group ended and its id was reused
+		f.adopt(4242)
+		f.exit(4242)
+		reapPass()
+		if got := f.tookReaped(); len(got) != 0 || held() != 0 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+	})
+	t.Run("a descendant that exits while its group runs", func(t *testing.T) {
+		clean()
+		f.set(4242, m(4242, 1), m(6000, 2))
+		f.adopt(6000)
+		g, _ := newChildGroup(4242, "tk")
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		p := &Process{invs: map[string]*invocation{"i": inv}}
+		f.set(4242, m(4242, 1), m(6000, 2), m(5002, 5))
+		f.adopt(5002)
+		p.retireChildren() // seen running
+		f.set(4242, m(4242, 1), m(6000, 2), m(5002, 5), m(5003, 6))
+		f.adopt(5003)
+		f.exit(5002, 5003)
+		p.retireChildren()
+		if got := f.tookReaped(); !slices.Equal(got, []int{5002}) {
+			t.Fatalf("reaped %v, want the one seen at two looks", got)
+		}
+		p.retireChildren()
+		if got := f.tookReaped(); !slices.Equal(got, []int{5003}) || len(inv.children) != 1 || len(f.took()) != 0 {
+			t.Fatalf("reaped %v, held %d", got, len(inv.children))
+		}
+	})
+	t.Run("a harness's own pid", func(t *testing.T) {
+		clean()
+		f.set(7000, m(7000, 1), m(7001, 2))
+		f.adopt(7000, 7001)
+		f.exit(7000, 7001)
+		reapLater(7000, 7000, []groupMember{m(7000, 1), m(7001, 2)})
+		reapPass()
+		if got := f.tookReaped(); !slices.Equal(got, []int{7001}) || held() != 0 {
+			t.Fatalf("reaped %v, %d groups left", got, held())
+		}
+	})
+}
+
+// A guardian the engine is the parent of, as when it adopted the guardian
+// as PID 1 or a subreaper, is reaped once its group is retired: here a real
+// guardian, the test's own child in a group of its own, released by the
+// engine's watcher, leaves the process table without the test waiting for
+// it (review round 5, finding 1: the reviewer's probe).
+func TestReviewOwnedGuardianReaped(t *testing.T) {
+	// spec: WR-55
+	resetReaper()
+	const token = "123451234512345"
+	cmd := exec.Command("sleep", guardArg(token))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() {
+		syscall.Kill(-pid, syscall.SIGKILL)
+		var ws syscall.WaitStatus
+		syscall.Wait4(pid, &ws, syscall.WNOHANG, nil)
+	})
+	waitFor(t, "the guardian's token", func() bool { return processHasGuard(pid, token) })
+	g, ok := newChildGroup(pid, token)
+	if !ok {
+		t.Fatal("no group")
+	}
+	inv := &invocation{id: "i", children: []*childGroup{g}}
+	p := &Process{invs: map[string]*invocation{"i": inv}}
+	p.retireChildren()
+	if len(inv.children) != 0 {
+		t.Fatal("the guardian-only group was not released")
+	}
+	// A zombie is still listed in its group; only a wait removes it, and
+	// the test makes none.
+	waitFor(t, "the engine to reap the retired guardian", func() bool {
+		p.retireChildren()
+		return len(groupMembersOf([]int{pid})[pid]) == 0
+	})
+	var ws syscall.WaitStatus
+	if got, err := syscall.Wait4(pid, &ws, syscall.WNOHANG, nil); !errors.Is(err, syscall.ECHILD) {
+		t.Fatalf("the retired guardian %d was still an unreaped child: wait4 gave %d, %v", pid, got, err)
+	}
 }
 
 // retire runs one look of the engine's watcher over g alone.

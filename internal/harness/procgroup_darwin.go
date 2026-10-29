@@ -36,6 +36,26 @@ func groupMembersOf(pgids []int) map[int][]groupMember {
 	return out
 }
 
+// procInfoOf reads what reaping needs of the process pid from
+// kern.proc.pid: its start time, as groupMembersOf gives it, its parent,
+// its group, and whether it is a zombie.
+func procInfoOf(pid int) (procInfo, bool) {
+	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || int(k.Proc.P_pid) != pid {
+		return procInfo{}, false
+	}
+	t := k.Proc.P_starttime
+	return procInfo{
+		start:  uint64(t.Sec)*1_000_000 + uint64(t.Usec),
+		ppid:   int(k.Eproc.Ppid),
+		pgid:   int(k.Eproc.Pgid),
+		zombie: k.Proc.P_stat == szomb,
+	}, true
+}
+
+// szomb is p_stat's value for a zombie (<sys/proc.h>).
+const szomb = 5
+
 // processHasGuard reports whether the process pid is the guardian of the
 // token: an argument of its is guardArg(token), from kern.procargs2, which
 // gives a process of the engine's user its executable's path and its

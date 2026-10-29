@@ -275,11 +275,33 @@ A fresh process's group is signalled as well, by its id. While a process is
 left in the group, the id is given to no other process; `awaitGroup`,
 which holds a fresh result until the group is empty (looking every 20 ms
 with signal 0, and reaping the group's members when the engine is their
-parent: PID 1, or a subreaper), marks it gone once it sees it empty, and it
+parent: PID 1, or a subreaper, each by its own pid with `reapMember`, the
+process's own pid excepted), marks it gone once it sees it empty, and it
 is not signalled again. The only window is the one poll between the group
 emptying and that look. When the engine runs as PID 1 of a container
 without reaping orphans otherwise, the reaping matters: a zombie stays in
 its group.
+
+The same holds for the child groups (`reap.go`; review round 5, finding
+1). Every guardian is an orphan from its start, and so is what a member
+leaves when it exits, so the engine, as PID 1 or a subreaper, is their
+parent. `childGroup.end` hands the members it killed to the package's
+reaper (`reapLater`), and so does `endGroup` for the harness's own group,
+the harness itself excepted (its `exec.Cmd` waits for it); a goroutine,
+which outlives the `Process`, reaps them as they exit, on the watcher's
+schedule and at each of its looks (`reapPass`). Before each step it lists
+the group again, and takes the listing only while a member it holds is
+still in the group afterwards: the group was then never empty, so its id
+was never reused, and a process forked as the kill landed is reaped too.
+`reapAdopted` reaps, in a group the engine still holds, a member seen at
+two looks that has exited, a descendant the engine adopted, so it does
+not stay in the group until the group ends. Every wait is
+`wait4(pid, WNOHANG)` for one member, made only while `readProc` shows the
+process with the start time the engine saw and the engine as its parent:
+another child's exit status is never taken, and `ECHILD` means the member
+is not the engine's. A member whose parent is another process is kept
+until that parent reaps it, or until the engine adopts it. `readProc` and
+`reapPID` are variables the tests replace, as are the group operations.
 
 ## Host mode
 
@@ -444,6 +466,19 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   all its children before it exits (`spawn-waitall`, this test binary run
   with `WL_WAIT_ALL`, looping on `wait4(-1)`) finishes in both modes, as
   outside the harness: a warm group's guardian is no child of it.
+- `reap_linux_test.go` re-runs the test binary as a child subreaper
+  (`prctl(PR_SET_CHILD_SUBREAPER)`, skipped where the kernel refuses it)
+  and runs the real Bun harness there, so the test process adopts what
+  the engine of PID 1 without an init would: repeated short spawns whose
+  shell leaves a daemon (`spawn-daemon`), a descendant that exits while
+  its group still runs (`spawn-shell`), a cancellation of a stalled step,
+  the process's end with a child group or a synchronous child, and a
+  fresh job's orphan. Each guardian and child the engine adopted is
+  reaped, the descendant before its group ends, and no zombie of the
+  test process is left. `childgroup_test.go` covers the reaping rules on
+  the fake process table (`TestReapChildGroups`), and the reviewer's probe
+  (`TestReviewOwnedGuardianReaped`): a real guardian, the test's own
+  child, is reaped once the watcher releases its group.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
   outcomes fixed before the call ends, late output, protocol violations, an

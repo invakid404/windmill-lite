@@ -966,7 +966,9 @@ func look(gs []*childGroup) (owned, guardOnly []bool) {
 // no other path, holding a look from before the kill, signals its id
 // again: the kill ends the guardian that kept the id reserved (review
 // round 4, finding 1). The kill follows the look at once; a group that
-// still has a member it had cannot be replaced in that instant. ended
+// still has a member it had cannot be replaced in that instant. The
+// members it killed go to the reaper, which reaps those the engine is the
+// parent of as they exit (reapLater; review round 5, finding 1). ended
 // reports whether the group is ended or given up.
 func (g *childGroup) end(release bool) (ended bool) {
 	g.mu.Lock()
@@ -974,7 +976,8 @@ func (g *childGroup) end(release bool) (ended bool) {
 	if g.seen == nil || !validGroupID(g.pgid) {
 		return true
 	}
-	owned, guardOnly := g.continuesLocked(groupMembers([]int{g.pgid})[g.pgid])
+	now := groupMembers([]int{g.pgid})[g.pgid]
+	owned, guardOnly := g.continuesLocked(now)
 	switch {
 	case !owned:
 		return true
@@ -983,7 +986,23 @@ func (g *childGroup) end(release bool) (ended bool) {
 	}
 	signalGroup(g.pgid)
 	g.seen, g.guard = nil, nil
+	reapLater(g.pgid, 0, now)
 	return true
+}
+
+// reapAdopted reaps the members of g, a group the engine still holds, that
+// it saw at two looks running, prev and its last, and that have exited
+// since with the engine as their parent: a descendant a member left, which
+// the engine adopted, does not stay a zombie in the group until the group
+// ends (reapMember; review round 5, finding 1).
+func (g *childGroup) reapAdopted(prev []groupMember) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, m := range g.seen {
+		if slices.Contains(prev, m) {
+			reapMember(g.pgid, m)
+		}
+	}
 }
 
 // killChildGroups kills each group, as the worker kills a job's group on a
@@ -1048,6 +1067,15 @@ func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 		}
 	}
 	p.mu.Unlock()
+	// The reaper's pass rides on the watcher's looks too, so a group the
+	// watcher released is reaped at its next look.
+	defer reapPass()
+	prev := make([][]groupMember, len(held))
+	for i, g := range held {
+		g.mu.Lock()
+		prev[i] = g.seen
+		g.mu.Unlock()
+	}
 	gone := map[*childGroup]bool{}
 	owned, guardOnly := look(held)
 	for i, g := range held {
@@ -1056,6 +1084,8 @@ func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 			gone[g] = true
 		case guardOnly[i] && g.end(true):
 			gone[g] = true
+		default:
+			g.reapAdopted(prev[i])
 		}
 	}
 	if len(gone) == 0 {
@@ -1195,10 +1225,11 @@ func (p *Process) awaitGroup() (drained bool) {
 			waiting = waiting || inv.state == invPending
 		}
 		p.mu.Unlock()
-		for {
-			var ws syscall.WaitStatus
-			if pid, err := syscall.Wait4(-p.pid, &ws, syscall.WNOHANG, nil); pid <= 0 || err != nil {
-				break
+		// Each member by its own pid (reapMember), never the group's id: a
+		// process that took the process's own pid is no orphan of its.
+		for _, m := range groupMembers([]int{p.pid})[p.pid] {
+			if m.pid != p.pid {
+				reapMember(p.pid, m)
 			}
 		}
 		empty := !groupAlive(p.pid)
@@ -1225,7 +1256,11 @@ func (p *Process) awaitGroup() (drained bool) {
 // (D9, WR-55).
 func (p *Process) endGroup() {
 	if p.group && !p.groupGone.Load() && groupAlive(p.pid) {
+		members := groupMembers([]int{p.pid})[p.pid]
 		syscall.Kill(-p.pid, syscall.SIGKILL)
+		// What it killed is reaped when the engine is its parent, the
+		// process itself excepted: its exec.Cmd waits for it.
+		reapLater(p.pid, p.pid, members)
 	}
 	p.groupGone.Store(true)
 }

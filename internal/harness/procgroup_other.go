@@ -18,3 +18,7 @@ func groupMembersOf(pgids []int) map[int][]groupMember {
 // processHasGuard reports no guardian where the engine cannot read a
 // process's arguments: ownership falls back to the members (continues).
 func processHasGuard(int, string) bool { return false }
+
+// procInfoOf reads nothing where the engine cannot read another process:
+// it reaps no member of a group (reapMember).
+func procInfoOf(int) (procInfo, bool) { return procInfo{}, false }
