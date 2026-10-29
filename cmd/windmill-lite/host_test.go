@@ -457,6 +457,49 @@ func TestHostScopesThroughACodebaseScript(t *testing.T) {
 	}
 }
 
+// F3h's host-mode case: a codebase script imports a host-provided module
+// outside the sync folder (testdata/hostlib/tenant.ts, in the codebases
+// entry ../hostlib), which the host contract lists by its path from the
+// sync root. The host registers its own instance under that key, and
+// sixteen concurrent runs, each submitted inside its own tenant scope of
+// the module, read it before and after awaits.
+func TestHostScopesThroughAnOutsideModule(t *testing.T) {
+	s := supervise(t, 30000)
+	type res struct {
+		i int
+		r runResult
+		e error
+	}
+	results := make(chan res, 16)
+	for i := range 16 {
+		go func() {
+			r, err := s.run("f/host/outside", fmt.Sprintf("tenant-%d", i), map[string]any{"delay": (i * 5) % 16}, nil)
+			results <- res{i, r, err}
+		}()
+	}
+	read := 0
+	for range 16 {
+		r := <-results
+		if r.e != nil || r.r.Status != "success" {
+			t.Fatalf("run %d: %+v, %v", r.i, r.r, r.e)
+		}
+		var got struct{ Tenant, Before string }
+		if err := json.Unmarshal(r.r.Result, &got); err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("tenant-%d", r.i); got.Tenant == want && got.Before == want {
+			read++
+		}
+	}
+	t.Logf("F3h in a compiled host on Bun 1.3.10: a codebase script read the host's store through a host-provided module outside the folder %d/16", read)
+	if read != 16 {
+		t.Fatalf("read %d/16", read)
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
 // W1's exit gate: "one detached rejection does not end the host" (ADR 0004,
 // the shared-process failure model, item 1). The step returns, the host
 // lives on and serves the next run, and the error is counted in health.
