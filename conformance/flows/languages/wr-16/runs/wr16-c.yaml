@@ -1,0 +1,8 @@
+# WR-16/c: the custom replace's string is the stream (both readings).
+spec: [WR-16/c]
+target: f/wl_wr16/wr16_c
+expect:
+  status: success
+  result: "x"
+  steps:
+    "m:s": {status: success, args: {}, result: "x"}

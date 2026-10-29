@@ -1,0 +1,8 @@
+# WR-47/e: the loader map is applied.
+spec: [WR-47/e]
+target: f/wl_cbx/loader
+expect:
+  status: success
+  result: hi
+  steps:
+    "m:s": {status: success, args: {}, result: hi}

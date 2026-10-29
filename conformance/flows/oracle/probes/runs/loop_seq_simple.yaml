@@ -1,0 +1,12 @@
+# probe loop_seq_simple: a one-step body collapses into flowscript leaves
+# whose args are {i, v}.
+spec: [OR-11, OR-28]
+target: f/wl_probe/loop_seq_simple
+expect:
+  status: success
+  result: [20, 41, 62]
+  steps:
+    "m:l": {status: success, result: [20, 41, 62]}
+    "m:l/i:0/m:x": {status: success, args: {v: 10, i: 0}, result: 20}
+    "m:l/i:1/m:x": {status: success, args: {v: 20, i: 1}, result: 41}
+    "m:l/i:2/m:x": {status: success, args: {v: 30, i: 2}, result: 62}

@@ -1,0 +1,10 @@
+# FX-12/a over HTTP: 422, the error with its own property under extra.
+spec: [FX-12/a, FX-36]
+target: f/wl_fx36h/extra
+submit: run_wait_result
+expect:
+  status: failure
+  result: {error: {name: Error, message: boom, stack: "<stack>", step_id: a, extra: {code: 7}}}
+  steps:
+    "m:a": {status: failure, args: {}, result: {error: {name: Error, message: boom, stack: "<stack>", step_id: a, extra: {code: 7}}}}
+  response: {status: 422, content_type: application/json, body: '{"error": {"name": "Error", "extra": {"code": 7}, "stack": "<stack>", "message": "boom", "step_id": "a"}}'}

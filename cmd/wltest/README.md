@@ -2,7 +2,8 @@
 
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
-E3a added expression files), `stub` (milestone E4a) and `check`, for step
+E3a added expression files, and E3e `--skip-unmet-workers` and
+`--listen-interval`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a). This README covers the `wltest` command in
@@ -54,13 +55,15 @@ The oracle runs in public CI; see
 | `--repeat N` | 1 | Run each run `N` times and require equal observations. |
 | `--regenerate-metadata` | off | Run `folder add-missing` and `generate-metadata` in each fixture's sync tree, in place, before pushing; CI then diffs the tree ([OR-8](../../docs/semantics/oracle.md#or-8)). A fixture with `oracle: {deploy: api}` is never regenerated: its tree is created through the API as written. A generated tree always gets them. |
 | `--workers N` | 1 | Worker containers, 1 or 2 ([OR-5](../../docs/semantics/oracle.md#or-5)). |
+| `--skip-unmet-workers` | off | Skip a fixture that needs more workers than `--workers`, reporting its runs as `skipped`, instead of refusing it ([OR-5/a](../../docs/semantics/conformance.md#or-5)): the oracle workflow's two-worker session records it. |
+| `--listen-interval N` | 1 | The oracle's `LISTEN_NEW_EVENTS_INTERVAL_SEC`, for the knob comparison of [OR-7/a](../../docs/semantics/conformance.md#or-7); the value is in every recording's provenance, which is never compared. |
 | `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must report exactly `1.767.0` (a pre-release such as `1.767.0-beta` is refused). |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
 | `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
-`expect_mismatch`, `failed` or `refused`, the fixture and the run, then any
+`expect_mismatch`, `failed`, `refused` or `skipped`, the fixture and the run, then any
 error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
 actual before expected). It exits 1 when a run failed, was refused, was
 unstable or did not match its `expect`, and in check mode also when a
@@ -267,17 +270,18 @@ a few at a time (`flows.go`):
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with effects (the effect sink), a script run
-(`kind: script`), a flow the compiler refuses as an unsupported feature,
-language or pinned hash, a script of another harness (L1), a
-flow the engine refuses at open (`engine.ErrUnsupported`, which names the
-milestone: waits, retries, containers, subflows, a preprocessor), and a
-flow that reads the platform, which needs the platform providers of PF2:
-its compiled program holds `variable(`, `resource(`, `flow_user_state(`,
-`$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or a script it
-reaches names a variable or resource of the fixture's `setup.yaml`. The
-fixture's other runs are checked. So is a run the oracle canceled on its
-own, with no `cancel_after_ms` (JE-2/a: its monitor of flows that hang
-between steps), which has no counterpart on windmill-lite.
+(`kind: script`), a run-and-wait run (`submit: run_wait_result`, whose
+response is the HTTP adapter's, F7b), a flow the compiler refuses as an
+unsupported feature, language or pinned hash, a script of another harness
+(L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
+names the milestone: waits, retries, containers, subflows, a preprocessor),
+and a flow that reads the platform, which needs the platform providers of
+PF2: its compiled program holds `variable(`, `resource(`,
+`flow_user_state(`, `$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or
+a script it reaches names a variable or resource of the fixture's
+`setup.yaml`. The fixture's other runs are checked. So is a run the oracle
+canceled on its own, with no `cancel_after_ms` (JE-2/a: its monitor of flows
+that hang between steps), which has no counterpart on windmill-lite.
 
 ### Expression files
 
@@ -326,7 +330,8 @@ Windmill v1.767.0's image).
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
-  adds itself there. A required run stays required. The test runs every
+  adds itself there; recording batch E3e listed the runs of its fixtures
+  that windmill-lite already passes. A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

@@ -1,0 +1,10 @@
+# probe args_vs_received (OR-22/a): the stored args keep the $var:
+# reference, and the step receives the variable, which setup.yaml created
+# after the push (OR-31/a's second half).
+spec: [OR-22/a, OR-31/a]
+target: f/wl_probe/args_vs_received
+expect:
+  status: success
+  result: secret-ish
+  steps:
+    "m:a": {status: success, args: {s: "$var:f/wl_probe/v"}, result: secret-ish}

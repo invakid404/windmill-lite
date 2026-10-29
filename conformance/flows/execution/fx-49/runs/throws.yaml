@@ -1,0 +1,12 @@
+# Q-FX-11's throwing variant: the second start phase's evaluation throws,
+# a chaining InternalError at that transition (FX-15) that fails the flow;
+# the loop is left canceled, its module in progress, with [1].
+spec: [FX-49, FX-15]
+cancel_after_ms: 20000
+target: f/wl_fx49/throws
+expect:
+  status: failure
+  result: {"error": {"name": "InternalError", "message": "Error: QuickJS evaluation error: Error: flip\n    at <anonymous> (eval_script:1:102)\n    at <anonymous> (eval_script:1:116)\n @worker_flow.rs:2451:11"}}
+  steps:
+    "m:l": {"status": "canceled", "module": "in_progress", "result": [1]}
+    "m:l/i:0/m:x": {"status": "success", "args": {"v": 1, "name": "throw"}, "result": 1}

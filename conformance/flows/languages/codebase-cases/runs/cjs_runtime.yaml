@@ -1,0 +1,9 @@
+# WR-47/a: CommonJS runs on Node, where Bun is undefined. windmill-lite runs
+# it on Bun (D13), so it does not reproduce this run.
+spec: [WR-47/a, WR-50/a]
+target: f/wl_cbx/cjs_runtime
+expect:
+  status: success
+  result: "undefined"
+  steps:
+    "m:s": {status: success, args: {}, result: "undefined"}

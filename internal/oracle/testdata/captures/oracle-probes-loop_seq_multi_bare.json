@@ -1,0 +1,59 @@
+{
+  "fixture": "conformance/flows/oracle/probes",
+  "run": "loop_seq_multi_bare",
+  "repeat": 0,
+  "workspace": "wl-e21b41-69",
+  "root": "9a51221e-7f60-41bd-8fd2-a4dcd641b830",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get/9a51221e-7f60-41bd-8fd2-a4dcd641b830?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-69\",\"id\":\"9a51221e-7f60-41bd-8fd2-a4dcd641b830\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:48:53.760310Z\",\"started_at\":\"2026-10-29T00:48:53.803439Z\",\"completed_at\":\"2026-10-29T00:48:53.826175Z\",\"duration_ms\":23,\"success\":false,\"script_hash\":\"000000000000012e\",\"script_path\":\"f/wl_probe/loop_seq_multi_bare\",\"args\":{},\"result\":[{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `iter.value`:\\nQuickJS evaluation error: Error: iter is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:39)\\n\"}}],\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"l\", \"job\": \"01a18521-9831-b97d-79e1-6fa44de5ee61\", \"type\": \"Failure\", \"flow_jobs\": [\"01a18521-9831-b97d-79e1-6fa44de5ee61\"], \"flow_jobs_success\": [false], \"flow_jobs_duration\": {\"started_at\": [\"2026-10-29T00:48:53.812202Z\"], \"duration_ms\": [11]}}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"l\",\"value\":{\"type\":\"forloopflow\",\"iterator\":{\"type\":\"javascript\",\"expr\":\"[\\\"a\\\", \\\"b\\\"]\"},\"modules\":[{\"id\":\"x1\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"v\":{\"type\":\"javascript\",\"expr\":\"iter.value\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}},{\"id\":\"x2\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"p\":{\"type\":\"javascript\",\"expr\":\"previous_result\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}],\"skip_failures\":false,\"parallel\":false}}]},\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/completed/get_result_maybe/9a51221e-7f60-41bd-8fd2-a4dcd641b830?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":[{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `iter.value`:\\nQuickJS evaluation error: Error: iter is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:39)\\n\"}}]}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/completed/get_result_maybe/01a18521-9831-b97d-79e1-6fa44de5ee61?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `iter.value`:\\nQuickJS evaluation error: Error: iter is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:39)\\n\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get/01a18521-9831-b97d-79e1-6fa44de5ee61?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-69\",\"id\":\"01a18521-9831-b97d-79e1-6fa44de5ee61\",\"parent_job\":\"9a51221e-7f60-41bd-8fd2-a4dcd641b830\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:48:53.807708Z\",\"started_at\":\"2026-10-29T00:48:53.812202Z\",\"completed_at\":\"2026-10-29T00:48:53.823160Z\",\"duration_ms\":11,\"success\":false,\"script_hash\":\"0000000000000129\",\"script_path\":\"f/wl_probe/loop_seq_multi_bare/loop-0\",\"args\":{\"iter\":{\"index\": 0, \"value\": \"a\"}},\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `iter.value`:\\nQuickJS evaluation error: Error: iter is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:39)\\n\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flownode\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"x1\", \"job\": \"01a18521-9838-4bf4-3d2d-7f1b7a793629\", \"type\": \"Failure\"}, {\"id\": \"x2\", \"type\": \"WaitingForPriorSteps\"}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":true,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"priority\":0,\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"x1\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"v\":{\"type\":\"javascript\",\"expr\":\"iter.value\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}},{\"id\":\"x2\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"p\":{\"type\":\"javascript\",\"expr\":\"previous_result\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get/01a18521-9838-4bf4-3d2d-7f1b7a793629?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-69\",\"id\":\"01a18521-9838-4bf4-3d2d-7f1b7a793629\",\"parent_job\":\"01a18521-9831-b97d-79e1-6fa44de5ee61\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:48:53.815808Z\",\"started_at\":\"2026-10-29T00:48:53.818528Z\",\"completed_at\":\"2026-10-29T00:48:53.820072Z\",\"duration_ms\":2,\"success\":false,\"script_hash\":\"0000000000000127\",\"script_path\":\"f/wl_probe/loop_seq_multi_bare/loop-0/x1\",\"args\":{},\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `iter.value`:\\nQuickJS evaluation error: Error: iter is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:39)\\n\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get_args/01a18521-9838-4bf4-3d2d-7f1b7a793629",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/completed/get_result_maybe/01a18521-9838-4bf4-3d2d-7f1b7a793629?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"Error during isolated evaluation of expression `iter.value`:\\nQuickJS evaluation error: Error: iter is not defined\\n    at \u003canonymous\u003e (eval_script:1:1)\\n    at \u003ceval\u003e (eval_script:1:39)\\n\"}}}"
+    }
+  ]
+}

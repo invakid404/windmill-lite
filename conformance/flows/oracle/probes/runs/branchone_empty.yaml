@@ -1,0 +1,10 @@
+# probe branchone_empty (OR-25/a): the chosen empty branch gives the next
+# step the JSON string "{}" twice.
+spec: [OR-25/a]
+target: f/wl_probe/branchone_empty
+expect:
+  status: success
+  result: {p: "{}", r: "{}"}
+  steps:
+    "m:br": {status: success, ran: false, branch_chosen: {type: branch, branch: 0}}
+    "m:after": {status: success, args: {p: "{}", r: "{}"}, result: {p: "{}", r: "{}"}}

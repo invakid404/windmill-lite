@@ -126,6 +126,10 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(code)
 		_, _ = io.WriteString(w, body)
 	}
+	if strings.HasSuffix(p, fakePushPath) {
+		write(200, "pushed") // the stub fixtures seed no variables
+		return
+	}
 	switch p {
 	case "/version":
 		write(200, OracleVersion)

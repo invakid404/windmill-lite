@@ -1,0 +1,49 @@
+summary: "JE-23: which of t's transforms is evaluated first"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: t
+            value:
+              type: rawscript
+              content: '!inline t.ts'
+              input_transforms:
+                aa:
+                  type: javascript
+                  expr: aa_first
+                b:
+                  type: javascript
+                  expr: b_first
+                zz:
+                  type: javascript
+                  expr: zz_first
+              lock: '!inline t.lock'
+              language: bun
+          - id: u
+            value:
+              type: rawscript
+              content: '!inline u.ts'
+              input_transforms: {}
+              lock: '!inline u.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: 'Array.from({ length: 16 }, (_, i) => i)'
+        parallel: false
+        skip_failures: true
+    - id: s
+      value:
+        type: rawscript
+        content: '!inline s.ts'
+        input_transforms:
+          seen:
+            type: javascript
+            expr: "new Set(results.l.map((r) => r.error.message.split('`')[1])).size > 1 ? 'varies' : results.l[0].error.message.split('`')[1]"
+        lock: '!inline s.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

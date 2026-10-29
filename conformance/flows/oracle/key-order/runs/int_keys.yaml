@@ -1,0 +1,10 @@
+# OR-24/b (Q-OR-12): JavaScript enumerates integer-index keys first, in the
+# object b receives; what the transform saw is recorded beside it.
+spec: [OR-24/b]
+target: f/wl_keys/int_keys
+expect:
+  status: success
+  result: {rk: ["2", "10", a], wk: ["2", "10", a]}
+  steps:
+    "m:a": {status: success, args: {}, result: {"2": 1, a: 2, "10": 3}}
+    "m:b": {status: success, args: {rk: ["2", "10", a], w: {"2": 1, a: 2, "10": 3}}, result: {rk: ["2", "10", a], wk: ["2", "10", a]}}

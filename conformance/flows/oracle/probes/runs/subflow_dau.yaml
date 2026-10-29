@@ -1,0 +1,14 @@
+# probe ee/subflow_delete_after_use (OR-21/a): delete_after_use on a step
+# of a subflow by path. The catalogue asks to record whether the nested
+# job's args and result are blanked; this expect is CE's default, that
+# they are not.
+spec: [OR-21/a]
+target: f/wl_probe/subflow_dau
+args: {x: 7}
+expect:
+  status: success
+  result: {p: {secret: 7}}
+  steps:
+    "m:c": {status: success, args: {x: 7}, result: {secret: 7}}
+    "m:c/m:a": {status: success, args: {x: 7}, result: {secret: 7}}
+    "m:b": {status: success, args: {p: {secret: 7}}, result: {p: {secret: 7}}}

@@ -1,0 +1,46 @@
+summary: 'probe key_order: flow_input keys, then producer and stored key order'
+value:
+  modules:
+    - id: a0
+      value:
+        type: rawscript
+        content: '!inline a0.ts'
+        input_transforms:
+          fi_keys:
+            type: javascript
+            expr: Object.keys(flow_input)
+          fi_whole:
+            type: javascript
+            expr: flow_input
+        lock: '!inline a0.lock'
+        language: bun
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          p_keys:
+            type: javascript
+            expr: Object.keys(previous_result)
+          p_whole:
+            type: javascript
+            expr: previous_result
+          r_keys:
+            type: javascript
+            expr: Object.keys(results.a)
+          r_whole:
+            type: javascript
+            expr: results.a
+        lock: '!inline b.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,11 @@
+# FX-36: the content type as given, with its charset parameter, and the
+# string result as the text body.
+spec: [FX-36]
+target: f/wl_fx36h/charset
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_content_type: 'text/plain; charset=iso-8859-1', result: hi}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_content_type: 'text/plain; charset=iso-8859-1', result: hi}}
+  response: {status: 200, content_type: 'text/plain; charset=iso-8859-1', body: hi}

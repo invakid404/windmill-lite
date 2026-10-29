@@ -1,0 +1,10 @@
+# FX-36/e: decoding fails, so the ordinary 200 with the whole object.
+spec: [FX-36/e]
+target: f/wl_fx36h/status_string
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_status_code: "201", result: 7}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_status_code: "201", result: 7}}
+  response: {status: 200, content_type: application/json, body: '{"result": 7, "windmill_status_code": "201"}'}

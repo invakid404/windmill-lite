@@ -1,0 +1,9 @@
+# WR-50/d: //nodejs takes the ESM bundle to Node. windmill-lite has no
+# Node (D13).
+spec: [WR-50/d]
+target: f/wl_cbx/node_esm
+expect:
+  status: success
+  result: ["undefined", "string"]
+  steps:
+    "m:s": {status: success, args: {}, result: ["undefined", "string"]}

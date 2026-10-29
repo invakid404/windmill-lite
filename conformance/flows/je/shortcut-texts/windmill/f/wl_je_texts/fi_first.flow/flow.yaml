@@ -1,0 +1,21 @@
+summary: 'JE-7 at the first module: timeout flow_input.o'
+value:
+  modules:
+    - id: q
+      value:
+        type: rawscript
+        content: '!inline q.ts'
+        input_transforms: {}
+        lock: '!inline q.lock'
+        language: bun
+      timeout:
+        type: javascript
+        expr: flow_input.o
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    o:
+      type: object
+  required:
+    - o

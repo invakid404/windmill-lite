@@ -1,0 +1,10 @@
+# probe stop_skip (OR-V2/a): the root is skipped, not failed, with result
+# 1; a is skipped; b does not run.
+spec: [OR-V2/a]
+target: f/wl_probe/stop_skip
+expect:
+  status: skipped
+  result: 1
+  steps:
+    "m:a": {status: success, args: {}, result: 1, skipped: true}
+    "m:b": {status: not_run, ran: false}

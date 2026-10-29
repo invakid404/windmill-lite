@@ -1,0 +1,10 @@
+# probe nul (OR-27/a): a and the root fail with the InternalErr of the
+# database's refusal, whose location is masked; b does not run.
+spec: [OR-27/a]
+target: f/wl_probe/nul
+expect:
+  status: failure
+  result: {error: {name: InternalErr, message: "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+  steps:
+    "m:a": {status: failure, args: {}, result: {error: {name: InternalErr, message: "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}}
+    "m:b": {status: not_run, ran: false}

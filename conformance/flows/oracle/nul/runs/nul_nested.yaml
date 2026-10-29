@@ -1,0 +1,10 @@
+# Q-OR-6 (nested): a NUL in a nested value fails the step at storage time
+# like OR-27/a's top-level string.
+spec: [OR-27/b]
+target: f/wl_probe/nul_nested
+expect:
+  status: failure
+  result: {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}
+  steps:
+    "m:a": {"status": "failure", "args": {}, "result": {"error": {"name": "InternalErr", "message": "Internal: Could not add completed job <job:m:a>: error returned from database: unsupported Unicode escape sequence <loc>"}}}
+    "m:b": {"status": "not_run", "ran": false}

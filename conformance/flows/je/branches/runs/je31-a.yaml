@@ -1,4 +1,4 @@
-spec: [JE-31/a]
+spec: [JE-31/a, OR-V2/e]
 target: f/wl_je_branches/je31_a
 claims:
   - at: /status

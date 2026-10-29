@@ -1,0 +1,8 @@
+# WR-49/a: the asset is unpacked next to main.js.
+spec: [WR-49/a]
+target: f/wl_cbx/asset
+expect:
+  status: success
+  result: asset
+  steps:
+    "m:s": {status: success, args: {}, result: asset}

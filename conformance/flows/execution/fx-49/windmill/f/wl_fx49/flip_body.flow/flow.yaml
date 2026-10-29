@@ -1,0 +1,38 @@
+summary: 'FX-49/a with a two-step body: each iteration is a child flow'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: script
+              input_transforms:
+                name:
+                  type: static
+                  value: skip
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_fx49/set
+          - id: y
+            value:
+              type: rawscript
+              content: '!inline y.ts'
+              input_transforms:
+                p:
+                  type: javascript
+                  expr: previous_result
+              lock: '!inline y.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1, 2, 3]'
+        parallel: false
+        skip_failures: false
+  skip_expr: variable('f/wl_fx49/skip') === 'yes'
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

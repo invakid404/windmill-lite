@@ -9,3 +9,26 @@ claims:
     equals: failure
   - at: /steps/m:c/result/error/name
     equals: ExecutionErr
+unit:
+  - spec: CF-19/b
+    site: m:b
+    input: x
+    expr: results.missing[2].z
+    context:
+      previous_id: a
+      previous_result: "1"
+    expect:
+      text: "null"
+    note: "the direct lookup of a step that does not exist answers null (JE-9)"
+  - spec: CF-19/b
+    site: m:c
+    input: x
+    expr: results.missing.y[2].z
+    context:
+      previous_id: b
+      previous_result: "null"
+    expect:
+      error:
+        prefix: "Error during isolated evaluation of expression `results.missing.y[2].z`:\n"
+        contains: ["QuickJS evaluation error: Error: cannot read property 'y' of null"]
+    note: "no direct lookup, so the engine reads results.missing as null and throws"

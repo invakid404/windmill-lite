@@ -1,0 +1,12 @@
+# OR-V9/d: loop_par with v bound to flow_input.iter.value gives the
+# recorded [10,20,30], from flowpreview iterations.
+spec: [OR-V9/d, OR-28]
+target: f/wl_probe/loop_par
+expect:
+  status: success
+  result: [10, 20, 30]
+  steps:
+    "m:l": {status: success, result: [10, 20, 30]}
+    "m:l/i:0/m:x": {status: success, args: {v: 1}, result: 10}
+    "m:l/i:1/m:x": {status: success, args: {v: 2}, result: 20}
+    "m:l/i:2/m:x": {status: success, args: {v: 3}, result: 30}

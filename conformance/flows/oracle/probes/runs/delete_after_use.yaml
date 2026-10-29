@@ -1,0 +1,11 @@
+# probe delete_after_use (OR-16/b, EE): on CE nothing is blanked, so a's
+# args and result are still there after the run.
+spec: [OR-16/b]
+target: f/wl_probe/delete_after_use
+args: {x: 7}
+expect:
+  status: success
+  result: {p: {secret: 7}}
+  steps:
+    "m:a": {status: success, args: {x: 7}, result: {secret: 7}}
+    "m:b": {status: success, args: {p: {secret: 7}}, result: {p: {secret: 7}}}

@@ -1,0 +1,15 @@
+# Recording batch E3e: FX-49 (later, contested; Q-FX-11). A flow-level
+# skip_expr is evaluated again at every start phase at cursor 0, here each
+# iteration of a sequential loop that is module 0. The loop's body sets the
+# variable the expression reads, through the REST API, so the answer flips
+# during the run: from false to true (FX-49/a, with a collapsed body and
+# with a two-step body), and from false to a throw (Q-FX-11's throwing
+# variant). setup.yaml resets the variables before every run (oracle.setup
+# each_run). Synthetic, written for this repository from
+# docs/semantics/conformance.md#fx-49.
+id: execution/fx-49
+spec: [FX-49, FX-22, FX-15]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, setup: each_run}

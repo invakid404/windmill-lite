@@ -1,0 +1,14 @@
+# Recording batch E3e: the key-order cases of OR-24 that recording batch
+# E3a left unrecorded (Q-OR-11, Q-OR-12): integer-index keys (OR-24/b),
+# the predecessor read again from storage on a retry (OR-24/c), and an
+# object the flow's preprocessor built (OR-24; the catalogue's case of a
+# script's own preprocessor, which runs only for a trigger, WR-11, stays
+# deferred).
+# Synthetic, written for this repository from
+# docs/semantics/conformance.md#or-24.
+id: oracle/key-order
+spec: [OR-24]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
