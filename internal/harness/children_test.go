@@ -109,6 +109,53 @@ func leftover(t *testing.T, pid int) {
 	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
 }
 
+// waitAll is this test binary run with WL_WAIT_ALL set: a program that
+// waits for all its children, as wait() and waitpid(-1) do, then prints
+// done. It has none of its own, so it waits for any the harness gave it.
+func waitAll() int {
+	for {
+		var ws syscall.WaitStatus
+		_, err := syscall.Wait4(-1, &ws, 0, nil)
+		if errors.Is(err, syscall.ECHILD) {
+			break
+		}
+		if err != nil && !errors.Is(err, syscall.EINTR) {
+			return 70
+		}
+	}
+	os.Stdout.WriteString("done\n")
+	return 0
+}
+
+// A program a step starts that waits for all its children before it exits
+// finishes as it does outside the harness, in both modes: in a warm
+// process the guardian of the program's group is no child of the program,
+// so the program does not wait for it (WR-55; review round 4, finding 2).
+func TestBunWaitAllChild(t *testing.T) {
+	// spec: WR-55
+	bin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := childArgs(t, map[string]any{"bin": bin})
+	check := func(t *testing.T, out engine.StepOutcome, err error) {
+		t.Helper()
+		if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `{"out":"done","code":0}` {
+			t.Fatalf("got %s %s, %v", out.Kind, out.Body.Producer(), err)
+		}
+	}
+	t.Run("fresh", func(t *testing.T) {
+		pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: childrenConfig(t)})
+		out, err := execute(t, pool, freshInvocation("spawn-waitall", args, newRecorder()), 10*time.Second)
+		check(t, out, err)
+	})
+	t.Run("warm", func(t *testing.T) {
+		p := spawn(t, childrenConfig(t))
+		out, err := execute(t, p, newInvocation("spawn-waitall", args, newRecorder()), 10*time.Second)
+		check(t, out, err)
+	})
+}
+
 // WR-55/a: a fresh process is its job's process and leads its group, so a
 // background child the step started in it holds the job open: the outcome
 // comes only once the child has exited, settled completed. A child that

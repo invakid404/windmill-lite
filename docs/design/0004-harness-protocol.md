@@ -306,10 +306,14 @@ microtask see none.
 
    A group's id is reused by the kernel once the group has ended, so the
    id alone does not name the group. The wrapper starts each grouped child
-   through a `/bin/sh -c` prologue: the shell, the group's leader, forks a
-   guardian into the group and then execs the step's command, which keeps
-   the shell's pid, its stdio and its place, so `child.pid`, the child's
-   streams and its exit status are the command's. The guardian closes
+   through a `/bin/sh -c` prologue: the shell, the group's leader, runs a
+   subshell that starts a guardian in the background, in the group, and
+   exits; the shell reaps the subshell and then execs the step's command,
+   which keeps the shell's pid, its stdio and its place, so `child.pid`,
+   the child's streams and its exit status are the command's. The
+   guardian's parent is gone before the command starts, so it is no child
+   of the command, and a command that waits for all its children
+   (`wait()`, `waitpid(-1)`) does not wait for it. The guardian closes
    descriptors 0 to 9, the ones a spawn's stdio and IPC pipes take (dash,
    Linux's `/bin/sh`, names none above 9), so it holds none of the
    child's pipes,
@@ -343,7 +347,11 @@ microtask see none.
    whose members all came and went between two looks (every 50 ms in its
    first second, every 250 ms after) is given up and left running, rather
    than risk another owner's processes. When only its guardian is left,
-   the engine forgets the group and then kills the guardian. The engine
+   the engine kills the guardian and forgets the group. Every kill of a
+   group, the release's included, looks at its members afresh under the
+   group's own lock and ends the group for good, so a group is killed
+   once, by whichever path comes first, and no path signals its id from
+   a look that another path's kill made out of date. The engine
    kills an invocation's announced groups when it abandons the invocation
    (its timeout or cancellation), at its settlement, when the process
    ends, a watchdog's kill included, and at once for a group announced

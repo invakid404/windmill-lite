@@ -764,7 +764,7 @@ test("the response of the fetch view is Bun's own: locking, disturbance, bodyUse
   }
 });
 
-test("a grouped child starts with its group's guardian, which holds none of its pipes; child.pid, its output and its exit are the command's; an unrunnable command fails as Bun fails it (WR-55, review round 3)", async () => {
+test("a grouped child starts with its group's guardian, which holds none of its pipes and is no child of the command; child.pid, its output and its exit are the command's; an unrunnable command fails as Bun fails it (WR-55, review rounds 3 and 4)", async () => {
   // spec: WR-55
   const cp = require("node:child_process");
   setChildGroups(true);
@@ -776,17 +776,32 @@ test("a grouped child starts with its group's guardian, which holds none of its 
   const c = context();
   const pids: number[] = [];
   try {
+    // The parent of each process in the command's group, read while the
+    // command runs: by then the guardian is in the group.
+    let parents: string[][] | undefined;
     const out = await invocations.run(c, async () => {
-      const child = cp.spawn("sh", ["-c", "echo $$; exit 3"], { stdio: ["ignore", "pipe", "ignore"] });
+      const child = cp.spawn("sh", ["-c", "echo $$; sleep 0.3; exit 3"], { stdio: ["ignore", "pipe", "ignore"] });
       pids.push(child.pid);
       let text = "";
-      child.stdout.on("data", (d: Buffer) => (text += d));
+      child.stdout.on("data", (d: Buffer) => {
+        text += d;
+        parents ??= String(cp.execFileSync("ps", ["-o", "pid=,ppid=,pgid=,command=", "-A"]))
+          .split("\n")
+          .map((l: string) => l.trim().split(/\s+/))
+          .filter((f: string[]) => f[2] === String(child.pid))
+          .map((f: string[]) => [f[1], f.slice(3).join(" ")]);
+      });
       // The pipe closes when the command exits: the guardian holds none of it.
       const code = await new Promise((resolve) => child.on("close", (code: number) => resolve(code)));
       return { text: text.trim(), code };
     });
     expect(out).toEqual({ text: String(pids[0]), code: 3 });
     expect(tokens.length).toBe(1);
+    // The guardian is no child of the command, so a command that waits for
+    // all its children does not wait for it (review round 4, finding 2).
+    const guardian = parents!.filter(([, cmd]) => cmd === `sleep 999999999.${tokens[0]}`);
+    expect(guardian.length).toBe(1);
+    expect(guardian[0][0]).not.toBe(String(pids[0]));
     expect(tokens[0]).toMatch(/^[0-9]{15}$/);
     // The guardian is left in the group, with the token in its environment.
     const members = String(cp.execFileSync("ps", ["-o", "pid=,pgid=,command=", "-A"]))

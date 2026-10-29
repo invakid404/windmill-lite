@@ -182,7 +182,12 @@ that took the id after the original ended has no guardian and shares no
 member, so no kill reaches it. `watchChildren` looks at each group every
 50 ms in its first second and every 250 ms after: it renews the members,
 drops the groups that no longer continue, and releases a group whose
-guardian is its only member, dropping it and then killing the guardian.
+guardian is its only member, killing the guardian and dropping the group.
+Every kill of a group, the release's, a cancellation's, a settlement's or
+the process's end's, goes through `childGroup.end`, which looks at the
+members afresh under the group's lock and ends the group for good: a
+group is killed once, by whichever path comes first, and no path signals
+its id from a look that another path's kill made out of date.
 The engine also kills an invocation's groups at its settlement
 (`settleLocked`), when the harness reported them left behind. A group
 without a guardian whose members all came and went between two looks is
@@ -435,7 +440,10 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   its event loop after it started a child (`stall`) has the child killed
   by the engine on its timeout, though the harness cannot handle the
   `cancel`, and with the process when the watchdog kills it; a synchronous
-  child call's child ends with the process too.
+  child call's child ends with the process too. A child that waits for
+  all its children before it exits (`spawn-waitall`, this test binary run
+  with `WL_WAIT_ALL`, looping on `wait4(-1)`) finishes in both modes, as
+  outside the harness: a warm group's guardian is no child of it.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
   outcomes fixed before the call ends, late output, protocol violations, an

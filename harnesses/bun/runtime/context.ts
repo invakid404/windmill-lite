@@ -938,10 +938,14 @@ export function setChildAnnouncer(fn: (id: string, pid: number, token?: string) 
 }
 
 /** The prologue that starts a grouped child with its group's guardian
- * (WR-55): /bin/sh, as the group's leader, forks a guardian into the group
- * and then execs the step's command, which keeps the shell's pid, stdio
- * and place, so child.pid, its streams and its exit status are the
- * command's. The guardian closes the descriptors a spawn gives a child (0
+ * (WR-55): /bin/sh, as the group's leader, runs a subshell that starts a
+ * guardian in the background, in the group, and exits; the shell reaps
+ * the subshell and then execs the step's command, which keeps the shell's
+ * pid, stdio and place, so child.pid, its streams and its exit status are
+ * the command's. The guardian's parent is gone before the command starts,
+ * so it is no child of the command: a command that waits for all its
+ * children (wait(), waitpid(-1)) does not wait for it (review round 4,
+ * finding 2). The guardian closes the descriptors a spawn gives a child (0
  * to 9), so it holds none of the child's pipes, and sleeps for 999999999.<token>
  * seconds: the token, digits, is in its arguments, by which the engine
  * knows it (macOS gives another process's arguments, not its
@@ -953,7 +957,7 @@ export function guardedCommand(token: string, cmd: string[]): string[] {
   // Descriptors 3 to 9 are the ones a spawn's extra stdio and IPC pipes
   // take; dash, Linux's /bin/sh, names no descriptor above 9.
   const script =
-    "{ exec </dev/null >/dev/null 2>&1 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-; " + `exec sleep 999999999.${token}; } & exec "$0" "$@"`;
+    "( exec </dev/null >/dev/null 2>&1 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-; " + `sleep 999999999.${token} & ); exec "$0" "$@"`;
   return ["/bin/sh", "-c", script, ...cmd];
 }
 

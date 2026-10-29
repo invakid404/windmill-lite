@@ -841,7 +841,7 @@ type childGroup struct {
 	since time.Time
 	mu    sync.Mutex
 	// seen are the members the engine last saw in the group, each with its
-	// start time; empty once the group is given up, for good.
+	// start time; nil once the group is ended (end) or given up, for good.
 	seen []groupMember
 	// guard is the guardian, once the engine has found it among the
 	// members.
@@ -912,6 +912,11 @@ func (g *childGroup) findGuard(now []groupMember) {
 func (g *childGroup) continues(now []groupMember) (owned, guardOnly bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	return g.continuesLocked(now)
+}
+
+// continuesLocked is continues with g.mu held.
+func (g *childGroup) continuesLocked(now []groupMember) (owned, guardOnly bool) {
 	if g.seen == nil {
 		return false, false
 	}
@@ -951,18 +956,42 @@ func look(gs []*childGroup) (owned, guardOnly []bool) {
 	return owned, guardOnly
 }
 
-// killChildGroups kills each group with SIGKILL, as the worker kills a
-// job's group on a timeout or a cancellation (WR-55, WR-37), when its id
-// can name a group (validGroupID) and it is still the group the step's
-// child started (continues). The kill follows the look at once; a group
-// that still has a member it had cannot be replaced in that instant.
+// end is the one kill of g's group, by whichever path comes first: a
+// cancellation, a settlement or the process's end (killChildGroups), or
+// the release of a group with only its guardian left (lookAtChildren). With
+// g.mu held, it looks at the group's members afresh and kills the group
+// with SIGKILL only when its id can name a group (validGroupID), it is
+// still the group the step's child started (continues) and, for a release,
+// only its guardian is left. A group it kills is ended for good, so that
+// no other path, holding a look from before the kill, signals its id
+// again: the kill ends the guardian that kept the id reserved (review
+// round 4, finding 1). The kill follows the look at once; a group that
+// still has a member it had cannot be replaced in that instant. ended
+// reports whether the group is ended or given up.
+func (g *childGroup) end(release bool) (ended bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.seen == nil || !validGroupID(g.pgid) {
+		return true
+	}
+	owned, guardOnly := g.continuesLocked(groupMembers([]int{g.pgid})[g.pgid])
+	switch {
+	case !owned:
+		return true
+	case release && !guardOnly:
+		return false
+	}
+	signalGroup(g.pgid)
+	g.seen, g.guard = nil, nil
+	return true
+}
+
+// killChildGroups kills each group, as the worker kills a job's group on a
+// timeout or a cancellation (WR-55, WR-37), while it is still the group the
+// step's child started (end).
 func killChildGroups(gs []*childGroup) {
-	gs = slices.DeleteFunc(slices.Clone(gs), func(g *childGroup) bool { return !validGroupID(g.pgid) })
-	owned, _ := look(gs)
-	for i, ok := range owned {
-		if ok {
-			signalGroup(gs[i].pgid)
-		}
+	for _, g := range gs {
+		g.end(false)
 	}
 }
 
@@ -1001,8 +1030,10 @@ func (p *Process) watchChildren() {
 // retireChildren looks at every child group the engine holds and drops
 // those that no longer continue: they ended, or none of the members it
 // last saw is left (continues); such a group is never signalled. It also
-// releases a group whose guardian is its only member: it drops the group
-// first, so nothing kills it afterwards, and then kills the guardian.
+// releases a group whose guardian is its only member: it kills the
+// guardian through end, which looks again under the group's lock, so a
+// look that a cancellation's kill of the same group overtook signals
+// nothing, and then drops the group.
 func (p *Process) retireChildren() { p.lookAtChildren(func(*childGroup) bool { return true }) }
 
 // lookAtChildren is retireChildren for the groups due says to look at.
@@ -1018,15 +1049,13 @@ func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 	}
 	p.mu.Unlock()
 	gone := map[*childGroup]bool{}
-	var release []*childGroup
 	owned, guardOnly := look(held)
 	for i, g := range held {
 		switch {
 		case !owned[i]:
 			gone[g] = true
-		case guardOnly[i] && validGroupID(g.pgid):
+		case guardOnly[i] && g.end(true):
 			gone[g] = true
-			release = append(release, g)
 		}
 	}
 	if len(gone) == 0 {
@@ -1037,9 +1066,6 @@ func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 		inv.children = slices.DeleteFunc(inv.children, func(g *childGroup) bool { return gone[g] })
 	}
 	p.mu.Unlock()
-	for _, g := range release {
-		signalGroup(g.pgid)
-	}
 }
 
 // settleLocked moves inv from the in-flight table to the recent ones,

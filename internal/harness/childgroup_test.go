@@ -22,6 +22,9 @@ type fakeProcs struct {
 	groups   map[int][]groupMember
 	guards   map[int]string // pid → the token in its environment
 	signaled []int
+	// hold, when set, runs once, in the next listing of members, after the
+	// listing is taken and before it is returned: it pauses whoever looks.
+	hold func()
 }
 
 func useFakeProcs(t *testing.T) *fakeProcs {
@@ -35,12 +38,17 @@ func useFakeProcs(t *testing.T) *fakeProcs {
 	}
 	groupMembers = func(pgids []int) map[int][]groupMember {
 		f.mu.Lock()
-		defer f.mu.Unlock()
 		out := map[int][]groupMember{}
 		for _, g := range pgids {
 			if ms := f.groups[g]; len(ms) > 0 {
 				out[g] = slices.Clone(ms)
 			}
+		}
+		hold := f.hold
+		f.hold = nil
+		f.mu.Unlock()
+		if hold != nil {
+			hold()
 		}
 		return out
 	}
@@ -210,6 +218,88 @@ func TestChildGroupGuardian(t *testing.T) {
 		killChildGroups([]*childGroup{g})
 		if got := f.took(); !slices.Equal(got, []int{4242}) {
 			t.Fatalf("signalled %v", got)
+		}
+	})
+}
+
+// The watcher's release of a group with only its guardian left and a
+// cancellation of the same group kill it once, whichever comes first, and
+// the release never acts on a look that is out of date (review round 4,
+// finding 1):
+//
+//   - the watcher looks and finds only the guardian, then a cancellation
+//     kills the group, which ends the guardian that kept the id reserved,
+//     and a replacement takes the id; the watcher, resuming with its look
+//     from before, signals nothing;
+//   - the same, with the group's owner changing between the look and the
+//     release without any kill of the engine's (the guardian killed from
+//     outside): the release looks again and signals nothing;
+//   - a cancellation that took the group before the watcher released it
+//     signals nothing afterwards.
+func TestChildGroupEndsOnce(t *testing.T) {
+	// spec: WR-55
+	f := useFakeProcs(t)
+	m := func(pid int, start uint64) groupMember { return groupMember{pid: pid, start: start} }
+	f.guards[6000] = "tk"
+	// guarded holds a group whose command has exited, so that only its
+	// guardian is left, in an invocation of p.
+	guarded := func() (*Process, *invocation) {
+		f.set(4242, m(4242, 1), m(6000, 2))
+		g, _ := newChildGroup(4242, "tk")
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		f.set(4242, m(6000, 2))
+		return &Process{invs: map[string]*invocation{"i": inv}}, inv
+	}
+	// pausedRetire starts the watcher's look and returns once it has its
+	// listing; resume lets it go on, and returns once it is done.
+	pausedRetire := func(p *Process) (resume func()) {
+		looked, goOn, retired := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		f.mu.Lock()
+		f.hold = func() { close(looked); <-goOn }
+		f.mu.Unlock()
+		go func() {
+			defer close(retired)
+			p.retireChildren()
+		}()
+		<-looked
+		return func() { close(goOn); <-retired }
+	}
+	take := func(p *Process, inv *invocation) []*childGroup {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return takeChildren(inv)
+	}
+	t.Run("a cancellation overtakes the release", func(t *testing.T) {
+		p, inv := guarded()
+		resume := pausedRetire(p)
+		killChildGroups(take(p, inv))
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("the cancellation signalled %v", got)
+		}
+		f.set(4242, m(4242, 9), m(7777, 10)) // the id's new owner
+		resume()
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("the release signalled the replacement: %v", got)
+		}
+	})
+	t.Run("the owner changes under the release's look", func(t *testing.T) {
+		p, inv := guarded()
+		resume := pausedRetire(p)
+		f.set(4242, m(4242, 9), m(7777, 10))
+		resume()
+		killChildGroups(take(p, inv))
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("the replacement was signalled: %v", got)
+		}
+	})
+	t.Run("a cancellation after the release", func(t *testing.T) {
+		p, inv := guarded()
+		gs := take(p, inv)
+		p.invs["i"].children = slices.Clone(gs) // the watcher still holds it
+		p.retireChildren()
+		killChildGroups(gs)
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v, want the release's kill alone", got)
 		}
 	})
 }

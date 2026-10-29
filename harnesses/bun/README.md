@@ -237,11 +237,13 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     tell the group from a later one given the same id. A `cancel` revokes
     `child` (`InvocationResources.revoke`), so those children, and any the
     call starts afterwards, are no longer counted. Each grouped child is
-    started through `guardedCommand`'s `/bin/sh -c` prologue, which forks
-    the group's guardian (`sleep 999999999.<token>`, with descriptors 0
-    to 9 closed) and execs the step's command, so `child.pid`, its
-    streams and its exit status are the command's; the token goes in the
-    `child` frame. A command that cannot be run as given, or an `argv0`
+    started through `guardedCommand`'s `/bin/sh -c` prologue, whose
+    subshell starts the group's guardian (`sleep 999999999.<token>`, with
+    descriptors 0 to 9 closed) and exits before the shell execs the
+    step's command, so `child.pid`, its streams and its exit status are
+    the command's, and the guardian is no child of the command, which
+    does not wait for it when it waits for all its children; the token
+    goes in the `child` frame. A command that cannot be run as given, or an `argv0`
     other than the command, is spawned without a guardian, as Bun spawns
     it. A guarded child counts as `child` while its own process runs: its
     guardian keeps the group, so what it left there after it exited is
