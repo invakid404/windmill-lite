@@ -1,12 +1,14 @@
 # internal/platform
 
-**Current state:** milestones PF1 to PF3 of
+**Current state:** milestones PF1 to PF3 and N4 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md): job identity,
 the part of the platform interface of
 [ADR 0007](../../docs/design/0007-platform-interface.md) that the engine and
 the facade share (PF1); the resource, variable and secret services with
-their local defaults and the interpolation walker (PF2); and the job
-registry, flow user state, object store and dispatcher services (PF3).
+their local defaults and the interpolation walker (PF2); the job
+registry, flow user state, object store and dispatcher services (PF3);
+and the result cache service of `cache_ttl` with its in-memory default
+(N4).
 This README covers `internal/platform` and its `testdata/`; the facade
 (the router, its transports, attribution, the 501 policy, and the routes
 that serve these services) is [internal/platform/facade](facade/README.md),
@@ -22,6 +24,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState` (PF3) |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
+| `results.go` | the `ResultCache` interface and `MemoryResults`, its local default (N4) |
 | `interpolate.go` | the walker: `RawResource`, `InterpolatedResource`, `ResourceExists`, `VariableExists`, `VariableValue`, `ResolveArgs`, `APIEnv` |
 | `json.go` | JSON values as Windmill's backend JSON library parses and writes them ([FX-42](../../docs/semantics/execution.md#fx-42) rules 2 and 9), `JSONString`, and `Reprint` and `FormatDouble`, which the engine writes a loop's result and serde's error texts with |
 | `errors.go` | `Error`: the variants of the API's error type, their statuses and displays (WA-42) |
@@ -83,13 +86,16 @@ random and unguessable.
 
 `Services` holds the services of ADR 0007's table: `Resources`,
 `Variables` and `Secrets`, and the host's `ValueResolver` chain (PF2);
-`Jobs`, `UserState`, `Objects` and `Dispatcher` (PF3). A nil field takes
-its default: no resources, no variables, `LocalSecrets`, no resolvers;
-for `Jobs` one `Registry` per `Services` (`Services.Registry`), and for
-`UserState` one `UserStates` per `Services` over whichever `Jobs` it
-holds, each made when first needed, so the facade and the engine that
-share a `*Services` share them; no object store, whose routes then answer
-501; and no dispatcher, so that no dispatch target is in the bundle. A
+`Jobs`, `UserState`, `Objects` and `Dispatcher` (PF3); and `Results`
+(N4), which only the engine uses. A nil field takes its default: no
+resources, no variables, `LocalSecrets`, no resolvers; for `Jobs` one
+`Registry` per `Services` (`Services.Registry`), and for `UserState` one
+`UserStates` per `Services` over whichever `Jobs` it holds, each made
+when first needed, so the facade and the engine that share a `*Services`
+share them; no object store, whose routes then answer 501; no
+dispatcher, so that no dispatch target is in the bundle; and for
+`Results` one `MemoryResults` per `Services` (`Services.ResultCache`),
+made when first needed. A
 nil `*Services` has nothing, so every read is a not-found and no job is
 kept. The facade answers its routes from it and the engine reads it and
 registers its runs with it ([internal/engine](../engine/README.md)); a
@@ -212,6 +218,28 @@ that is not a root of the bundle fails with `NotInBundleError`, whose text
 the 501 policy quotes (ADR 0001 §5a). The default, which runs a bundle's
 roots as separate runs of the same runtime, is `engine.Dispatcher`.
 
+## The result cache
+
+`ResultCache` (ADR 0007, milestone N4) keeps the results of the jobs that
+run with a `cache_ttl` ([FX-40](../../docs/semantics/execution.md#fx-40)):
+`Get(key, now)` answers a value stored under key that expires after now,
+and `Put(key, value, expires)` stores one, replacing what was there. The
+engine owns everything else (the key, which TTL applies, what a value
+holds and when a job stores), so a store keeps opaque bytes and compares
+expiries with the time the engine gives it, its run's clock (H10), never
+its own. A host puts a shared store behind it (D4: a cache per process
+unless the host plugs in a shared store). The local default,
+`MemoryResults`, keeps entries in memory, one per `Services`, with a heap
+of their expiries: every `Get` and `Put` drops, earliest first, each
+entry that expired by the latest time a `Get` gave, so it holds only
+entries still live then, whatever their number, and the heap, which
+keeps the older expiries of keys stored again until they come up, is
+rebuilt from the live entries once it has outgrown twice their number.
+A hit compares an entry's expiry with its own `Get`'s time; only the
+reclaiming uses the latest one, so with clocks that disagree (H10's
+record mode) an entry may go before its own run's clock reaches its
+expiry, a miss and never a stale hit.
+
 ## The interpolation walker
 
 One walker implements resolution for the three contracts of
@@ -280,6 +308,12 @@ One walker implements resolution for the three contracts of
   the directory, no temporary file left, concurrent writers and readers
   seeing only whole versions and ending on a writer's last, a failed
   `Put` leaving the committed version, and a foreign file refused.
+- `results_test.go` (N4) checks `MemoryResults`: a value until its expiry
+  and not at it, a replacing write, copies kept and returned, a burst of
+  expired entries reclaimed while a small working set goes on, a key
+  stored again many times keeping the heap bounded, the services' one
+  default and a host's cache, and concurrent writers and readers seeing
+  whole values.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's
   cases, each citing its catalogue case or finding: WA-10/a, WA-11/a,
   WA-12/a to WA-12/f, WA-42/b and /c, WA-V3/a and /b, JE-42/a to /h,

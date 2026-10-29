@@ -129,9 +129,10 @@ run, then each difference; `unsupported`, the fixture, the run and why it
 was not checked; and a summary. It exits 1 when a case or run failed or a
 file or fixture is invalid, and 2 for usage errors. Unsupported runs do not
 fail it. `--mode` is `warm` (the default) or `fresh` (milestone C3b); host
-mode is F3b's. Flow fixtures run in `warm` only: in `fresh` mode every
-flow run is unsupported, since the flow suite runs in `fresh` through `wl`
-(milestone F1). `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
+mode is F3b's. Flow fixtures run in either mode (milestone N4): in
+`fresh` mode each step gets a harness process of its own, as a step case
+does; the flow suite's gate (`TestFlowSuite`) runs them in `warm`, and
+F1's runs it through `wl` in both. `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
 `WL_NODE`, and empty skips the Node side of CommonJS codebase cases
 (below); the build refuses any Bun but the pin. `--repo` defaults to the
 nearest directory up from the working directory that holds `harnesses/bun`, whose build helper needs its
@@ -243,12 +244,15 @@ a few at a time (`flows.go`):
 2. **Run.** Each target flow's program gets an engine of its own
    (`engine.Engine`, milestone N1a), which invokes each step with its
    boundary, a native one included (C3n), and every run goes to one pool
-   of Bun harness processes per fixture, the `warm` configuration, through
-   the fixture's platform facade (milestone PF1): the pool's processes get
-   its non-listening origin as `BASE_URL` and intercept their fetches to
-   it, a native step reads the same origin as `BASE_URL` and
+   of Bun harness processes per fixture, in the checker's mode, through
+   the fixture's platform facade (milestone PF1): in `warm`, the pool's
+   processes get its non-listening origin as `BASE_URL` and intercept
+   their fetches to it, and in `fresh` (one process per invocation,
+   milestone N4) they reach its listening origin over loopback TCP; a
+   native step reads the same origin as `BASE_URL` and
    `BASE_INTERNAL_URL`, and its `Executor` attributes every call and
-   applies the 501 policy in `fail` mode. The facade and the engine read
+   applies the 501 policy in `fail` mode. The engines run in the same
+   module state (`engine.Config.ModuleState`). The facade and the engine read
    one set of platform services (milestone PF2, `providers.go`): the
    resources and variables of the fixture's sync folder, then those of its
    `setup.yaml`, which the oracle creates after the push and so replace
@@ -423,7 +427,7 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, PF2 (with PF1's fixture), N2, PF3 and NI:
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3 and NI:
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
@@ -437,6 +441,10 @@ Windmill v1.767.0's image).
   `<file>/<case>`), as well: each must load, and the log
   gives the counts of passing, failing and unsupported runs, and names the
   runs that pass without being required.
+- `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
+  seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
+  in `fresh` and in `warm`, since the result cache lives in the engine,
+  not in a harness process.
 - `TestFlowCheckerReportsDifferences` checks that a run whose result, job
   placeholder, recording or claim differs fails with its differences, that
   a flow the engine refuses is unsupported, that an inline step and a
