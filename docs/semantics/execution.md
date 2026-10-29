@@ -1020,6 +1020,11 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   rule now says so, with the consequence for a tolerated `wm_failure`
   step followed by an identity. New source-derived cases FX-13/b and
   FX-13/c.
+- **Revision 2026-10-29 (SC3 validation round 1, cross-reference):** a
+  pre-shaped manual failure is stored as its own JSON text, so it is
+  measured against `MAX_RESULT_SIZE_MB` like a successful result; an
+  oversized one ends as `ResultTooLarge`, not as the manual-failure object
+  ([OR-7](oracle.md#or-7), [OR-7/c](conformance.md#or-7)).
 
 <a id="fx-14"></a>
 ### FX-14 · An input-transform error fails that step; a retry runs with empty args
@@ -2526,7 +2531,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   https://www.windmill.dev/docs/flows/priority,
   https://www.windmill.dev/docs/flows/lifetime
 - **Conformance:** [FX-41/a–FX-41/c](conformance.md#fx-41)
-- **Revision 2026-10-29 (SC3, parent's re-check, chain N3a):** "OSS rejects
+- **Revision 2026-10-29 (SC3, source re-check of the CE build, chain N3a):** "OSS rejects
   it" is narrowed to a build without the `private` feature; the CE image
   compiles the closed-source runner module instead
   ([CF-25](control-flow.md#cf-25)). On `delete_after_use`: on CE the

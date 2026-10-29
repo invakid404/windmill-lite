@@ -48,13 +48,13 @@ behaviour each. Paths such as `f/demo/...` are invented.
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 1 | 0 | 0 |
 | [Flow execution](#execution) | 145 | 102 | 42 | 1 | 0 | 81 | 0 | 1 |
-| [Loops, branches and subflows](#control-flow) | 90 | 69 | 18 | 0 | 3 | 44 | 0 | 0 |
+| [Loops, branches and subflows](#control-flow) | 92 | 71 | 18 | 0 | 3 | 44 | 0 | 0 |
 | [Expressions](#expressions) | 193 | 130 | 63 | 0 | 0 | 167 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 199 | 127 | 72 | 0 | 0 | 27 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 203 | 127 | 76 | 0 | 0 | 27 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 105 | 55 | 45 | 5 | 0 | 0 | 0 | 6 |
-| [The oracle](#oracle) | 86 | 77 | 5 | 1 | 3 | 53 | 11 | 0 |
+| [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 53 | 11 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 970 | 692 | 265 | 7 | 6 | 373 | 11 | 7 |
+| **Total** | 978 | 694 | 270 | 8 | 6 | 373 | 11 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -3077,6 +3077,24 @@ Findings: [control-flow.md](control-flow.md).
     stored result `1`, the branch's last carried value, with no `error`
     member. (ii) `c` returns `1`; `d` reads `b` from storage and returns the
     stored `InternalError` object, which is the flow's successful result.
+- **CF-23/e** · source-derived · The parent's failure module gets the
+  carried value as `previous_result`, and `error` derived from it.
+  - **Given:** the one-step flow of CF-23/d (i) with a flow
+    `failure_module`: `failure: bun(p, e): return [p, e]`, `p =
+    "previous_result"`, `e = "error"`.
+  - **Expect:** the failure module returns
+    `[1, {"name": "UnknownError", "message": "Could not parse the error", "error": 1}]`:
+    `previous_result` is the carried `1`, and `error` follows
+    [JE-17](expressions.md#je-17)'s decision list for it (rule 3), not the
+    branch job's stored `InternalError`.
+- **CF-23/f** · source-derived · `retry_if` sees the carried value too.
+  - **Given:** `b` of CF-23/d (i) with `retry: {constant: {attempts: 1,
+    seconds: 0}}` and `retry_if: {expr: "result === 1 && previous_result
+    === 1 && error.name === 'UnknownError' && error.error === 1"}`.
+  - **Expect:** the predicate is true, so `b` is retried once: a second
+    branch job runs and aborts the same way, and the flow then fails with
+    the stored result `1`. Had the predicate seen the stored
+    `InternalError`, it would be false and no second branch job would run.
 
 <a id="cf-24"></a>
 ### CF-24 · Child job paths and step ids
@@ -3119,7 +3137,7 @@ Findings: [control-flow.md](control-flow.md).
     at pickup: `{"error": {"name": "Anyhow", "message": "Error: Error: failed to spawn flow module runners for job: <id>: Internal: Squashing flow loops is not available in OSS<loc><loc><loc>"}}`,
     `<id>` being the flow job's UUID ([CF-25](control-flow.md#cf-25)); the
     first iteration's job had already been queued.
-  - **Correction 2026-10-29 (SC3, parent's re-check):** the case holds for
+  - **Correction 2026-10-29 (SC3, source re-check):** the case holds for
     a build **without** the `private` feature (`features=oss`), not for the
     published CE image: the image is built with `private` and compiles the
     closed-source runner module in place of the stub that writes this
@@ -4723,6 +4741,12 @@ Each step returns `Object.keys` of the named input.
 - **WR-11/a** · source-derived · the preprocessor's output reaches `main` unhydrated, and the stored args are rewritten
   - **Given:** `export function preprocessor(event: any) { return { when: event.ts }; } export function main(when: Date) { return typeof when; }`, run with preprocessing and args `{"event":{"ts":"2024-01-01"}}`.
   - **Expect:** `"string"`. The job's stored args become `{"when":"2024-01-01"}`.
+- **WR-11/b** · source-derived · a flow step by path without a hash never applies the preprocessor
+  - **Given:** a deployed Bun script `f/demo/pre` with `export function preprocessor(event: any) { return { x: "pre" }; } export function main(x: string) { return x; }`; a flow with one `script` step `{path: "f/demo/pre"}` (no `hash`), `apply_preprocessor: true`, and `x = "orig"`.
+  - **Expect:** the step returns `"orig"`: the path is resolved with preprocessing skipped, so the module's flag has no effect.
+- **WR-11/c** · source-derived · a flow step pinned to a hash honours `apply_preprocessor`
+  - **Given:** the script of WR-11/b; the same step with `hash` set to the script's deployed hash and `apply_preprocessor: true`.
+  - **Expect:** the preprocessor runs on the step's args (`{"x":"orig"}`, read as named arguments); with `apply_preprocessor` absent the step returns `"orig"`.
 
 <a id="wr-12"></a>
 ### WR-12 · Entrypoint override, and the flow `preprocessor_module`
@@ -5565,6 +5589,12 @@ These cases test when a push deploys and which bytes then run, not how the bundl
 - **WR-54/e** · source-derived · array elements and object properties are named by their path, in parameter order
   - **Given:** `export function main(xs: number[], o: { k: string }) { return 1; }`; four runs: `xs` = `[1,"2"]` with `o` = `{}`; `xs` = `[1]` with `o` = `{}`; `xs` = `[1]` with `o` = `{"k":null}`; `xs` = `[1]` with `o` = `{"k":"v"}`.
   - **Expect:** ``Argument `xs[1]` should be a numeric value`` (the first parameter's rules run before the second's); `Missing field k in o`; `Argument o.k cannot be null`; `1`.
+- **WR-54/f** · source-derived · a stored-schema `type` array naming `array` cannot be built
+  - **Given:** a script created through the scripts API with content `// schema_validation` then `export function main(xs: string[] | null) { return xs; }` and the stored schema `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"xs":{"type":["array","null"],"items":{"type":"string"}}},"required":[]}`; run by path with `{"xs":["a"]}`.
+  - **Expect:** the job fails before the script runs; its message contains ``Couldn't create schema validator for script requiring schema validation: Array type should have field `items` ``. Any input fails the same way.
+- **WR-54/g** · source-derived · the same union written as `anyOf` builds
+  - **Given:** as WR-54/f with `xs` described by `{"anyOf":[{"type":"array","items":{"type":"string"}},{"type":"null"}]}`; runs with `{"xs":["a"]}` and `{"xs":[1]}`.
+  - **Expect:** `["a"]`; then ``execution error:\nProblem with arguments: Argument `xs` is not valid, failed matching to one of the expected types. Here is a list of possible errors:\n- Problem with arguments: Argument `xs[0]` should be a string\n- Problem with arguments: Argument `xs` should be null\n``.
 
 <a id="wr-55"></a>
 ### WR-55 · Processes a job leaves behind: its process group, the wait after it exits, and the kill
@@ -5903,14 +5933,31 @@ All four cases use flow `f/t/loop`, all Bun, where each body step returns
     (16 zero bytes in base64); then `GET …/variables/get_value/u/x/s`,
     `getVariable("u/x/s")`, and a Bun step with the static argument
     `x = "$var:u/x/s"`.
-  - **Expect:** the create succeeds. The read gives HTTP 500 with the body
-    `Internal: Error decrypting variable u/x/s: Internal: Could not decrypt value. The value may have been encrypted with a different key.<loc><loc>`;
-    `getVariable` throws `Variable not found at u/x/s or not visible to you: `
-    followed by that body; the step fails before its script runs with
-    ``execution error:\nNot found: Variable u/x/s not found for `x`: ``
-    followed by the body. The cause holds unless the instance's random
-    workspace key happens to leave valid padding (about one chance in 256),
-    which gives a UTF-8 message instead ([WA-11](client-api.md#wa-11)).
+  - **Expect:** the create succeeds. Decryption under the instance's random
+    workspace key then has three possible outcomes, and the case is an
+    observation that allows each:
+    1. almost always (the padding check fails): the read gives HTTP 500
+       with the body
+       `Internal: Error decrypting variable u/x/s: Internal: Could not decrypt value. The value may have been encrypted with a different key.<loc><loc>`;
+       `getVariable` throws `Variable not found at u/x/s or not visible to you: `
+       followed by that body; the step fails before its script runs with
+       ``execution error:\nNot found: Variable u/x/s not found for `x`: ``
+       followed by the body;
+    2. rarely (about one chance in 256, valid padding): the same three
+       failures with a UTF-8 message as the cause;
+    3. more rarely still (valid padding and valid UTF-8): the read
+       succeeds and returns the decrypted bytes as text, since nothing else
+       checks the plaintext.
+
+    A recording should therefore select its ciphertext: try `AAAAAAAAAAAAAAAAAAAAAA==`
+    and, if its read does not fail with the padding cause, other 16-byte
+    values (for example all `0x01`, then all `0x02`), recording which one
+    was kept. No stored ciphertext fails under every key, because the
+    shape check of WA-11/d admits only whole 16-byte blocks; the
+    key-independent failure is WA-11/d's `$vault:` value.
+  - **Correction 2026-10-29 (SC3 validation round 1):** the case said the
+    padding cause holds unless valid padding gives a UTF-8 message; it
+    missed outcome 3, in which the read succeeds.
 - **WA-11/d** · source-derived · later · the shape check on already-encrypted secrets
   - **Given:** `POST …/variables/create?already_encrypted=true` with
     `{"path":"u/x/p","value":<v>,"is_secret":true,"description":""}`, for
@@ -6691,6 +6738,9 @@ Findings: [oracle.md](oracle.md).
     `Unexpected error during job execution:\nResultTooLarge: Result of job`;
     the flow then fails as for any failed step. Optional
     ([Q-OR-14](oracle.md#q-or-14), answered from the source).
+- **OR-7/c** · source-derived · an oversized manual failure is refused too
+  - **Given:** `MAX_RESULT_SIZE_MB=3`; a Bun step returning `{"wm_failure": "m", "pad": <a string of 4.5 MiB>}`.
+  - **Expect:** the step fails with the `ResultTooLarge` error of OR-7/b (`… is too large: 4MB > MAX_RESULT_SIZE_MB=3MB.…`), not with the `ManualFailure` object; the oversized result is not stored.
   - **Correction 2026-10-29 (SC3):** the case left the error shape to be
     recorded; the source gives it ([OR-7](oracle.md#or-7)). `4MB` assumes a
     result text of at least 4 MiB and under 5 MiB, since the size is
@@ -7061,12 +7111,24 @@ schema:
     job, but the flow cleanup is `enterprise`-gated); the flow result is
     `{"secret":7}`.
 - **OR-21/c** · source-derived · out · the synchronous script route deletes on CE
-  - **Given:** the script of OR-21/b, run with
+  - **Given:** the script of OR-21/b (`delete_after_use: true` and no
+    `delete_after_secs`), run with
     `POST /api/w/{w}/jobs/run_wait_result/p/f/demo/dau` and the body
     `{"x":7}`; then read the job back (the completed-jobs list filtered by
     the script path, then its result, args and logs).
   - **Expect:** the response is `{"secret":7}`; afterwards the job's stored
     result is `{}`, its args `{}` and its logs `##DELETED##`.
+  - **Correction 2026-10-29 (SC3 validation round 1):** the setup now
+    names the absent `delete_after_secs`: an explicit value takes
+    precedence over the boolean ([OR-21](oracle.md#or-21), OR-21/d).
+- **OR-21/d** · source-derived · out · a positive `delete_after_secs` only schedules, and CE never runs the schedule
+  - **Given:** as OR-21/c, with the script created with
+    `"delete_after_use": true` and `"delete_after_secs": 3600`.
+  - **Expect:** the response is `{"secret":7}`; afterwards (and an hour
+    later) the job keeps result `{"secret":7}`, args `{"x":7}` and its
+    logs: the deletion is only written to the schedule, whose processing
+    is `enterprise`-gated. With `"delete_after_secs": 0` instead, the job is
+    blanked at once as in OR-21/c, whatever `delete_after_use` says.
 
 <a id="or-22"></a>
 ### OR-22 · Arguments as stored versus as received

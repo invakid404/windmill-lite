@@ -797,7 +797,12 @@ interface); `WA-Vn` findings were added during validation.
       (ciphertext under another key, or a length that is not a whole number
       of 16-byte blocks), the base64 decoder's message for a value that is
       not base64, or rarely a UTF-8 message when another key happens to leave
-      valid padding. The audit event is written first. An empty stored value
+      valid padding. More rarely still, ciphertext under another key decrypts
+      to valid padding **and** valid UTF-8, and the read then succeeds with
+      that text: nothing else checks the plaintext (magic-crypt 3.1.13
+      `src/traits.rs:75-90` decrypts, then converts to UTF-8). So no stored
+      ciphertext fails under every key; the shape check admits only whole
+      16-byte blocks. The audit event is written first. An empty stored value
       is not decrypted and reads as `""`. Every reader sees this body:
       the clients rewrap it as above, the expression helper `variable()`
       throws it ([JE-20](expressions.md#je-20)), and a leaf step's `$var:`
@@ -851,6 +856,11 @@ interface); `WA-Vn` findings were added during validation.
   texts for a secret that cannot be decrypted and the server's shape check
   on already-encrypted values, with new cases WA-11/c and WA-11/d (not yet
   recorded, [Q-WA-13](#q-wa-13)).
+- **Revision 2026-10-29 (SC3 validation round 1, finding 6):** the rule
+  and WA-11/c allowed only a padding or a UTF-8 failure for ciphertext
+  under another key. A key that leaves valid padding and valid UTF-8 makes
+  the read succeed, so WA-11/c is now an observation with three allowed
+  outcomes, and its recording selects a ciphertext that fails.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
@@ -2209,6 +2219,8 @@ interface); `WA-Vn` findings were added during validation.
   [WA-12/g, WA-12/h](conformance.md#wa-12) (an unusable `job_id`;
   `CUSTOM_INSTANCE_DB/`). Each is recordable from a Bun step that calls the
   API with its own token; WA-11/c's ciphertext is accepted whatever the
-  oracle's workspace key, and its expected cause holds unless that key
-  happens to leave valid padding (about one chance in 256 for a fixed
-  value), so the case compares the cause by its set of texts.
+  oracle's workspace key, but whether its read fails depends on that key
+  (validation round 1): almost always with the padding cause, rarely with a
+  UTF-8 cause, and more rarely the read succeeds. The recording therefore
+  selects a ciphertext whose read fails with the padding cause and records
+  which one it kept ([WA-11/c](conformance.md#wa-11)).

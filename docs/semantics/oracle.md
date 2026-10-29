@@ -530,7 +530,15 @@ validation. Open questions are `Q-OR-n`.
       ([FX-12](execution.md#fx-12)). A result above 2 MiB but within the
       limit is stored, and the log gains
       `Warning: Result of job <job id> is large: <n>MB.\nRecommended max size is 2MB.\nPrefer using external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill`.
-      An error result is never measured. The 2 MB limits on output and
+      An ordinary error result is never measured: the error the worker
+      wraps into `{"error": …}` counts as size 0. A **pre-shaped manual
+      failure** is the exception: a result carrying a string `wm_failure`
+      ([WR-17](languages.md#wr-17), [FX-13](execution.md#fx-13)) is stored
+      as its own JSON text with the `ManualFailure` error added, and that
+      text is measured like a successful result. So an oversized result
+      with `wm_failure` is refused too, and the job ends with the
+      `ResultTooLarge` error above instead of the manual-failure object
+      (OR-7/c). The 2 MB limits on output and
       results that the source also has apply to the multi-tenant cloud
       only;
     - `BASE_URL` sets `WM_BASE_URL` and resume URLs; keep it stable
@@ -551,7 +559,7 @@ validation. Open questions are `Q-OR-n`.
   (`MAX_RESULT_SIZE_MB`; an earlier `windmill-common/src/worker.rs:2215`
   pointer is withdrawn); `integration_tests/docker-compose.yml:37,64`;
   the oracle workflow's `workers2` session.
-- **Conformance:** [OR-7/a, OR-7/b](conformance.md#or-7)
+- **Conformance:** [OR-7/a–c](conformance.md#or-7)
 - **Revision 2026-10-29 (SC3, source re-check, Q-OR-14):** added what a
   refused result produces. The completion path measures the result before
   inserting it and returns a `ResultTooLarge` error, which the insert's
@@ -565,6 +573,17 @@ validation. Open questions are `Q-OR-n`.
   limits are `backend/windmill-worker/src/common.rs:417-425` and
   `backend/windmill-worker/src/handle_child.rs:367-371`. OR-7/b's
   expectation now gives the shape.
+- **Revision 2026-10-29 (SC3 validation round 1, finding 3):** the text
+  above said an error result is never measured. Only the wrapped error is
+  exempt (it reports size 0, `backend/windmill-queue/src/jobs.rs:675-697`).
+  A pre-shaped manual failure keeps its raw JSON text: the worker sends it
+  through `add_completed_job_pre_shaped_failure`
+  (`backend/windmill-worker/src/result_processor.rs:1584-1597`), which
+  forwards it to the ordinary completion (`backend/windmill-queue/src/jobs.rs:848-880`);
+  that completion checks the size whatever the status (`:1075-1077`), and
+  raw text reports its byte length (`:698-718`). The refusal's error then
+  takes the worker's ordinary error path (`result_processor.rs:720-739`),
+  as for an oversized success. New source-derived case OR-7/c.
 - **Revision 2026-10-29 (oracle, batch E3e):** OR-7/a was pending
   [Q-OR-18](#q-or-18). It is now checked live by every oracle run and has
   held. `MAX_RESULT_SIZE_MB` (OR-7/b, [Q-OR-14](#q-or-14)) is still
@@ -1486,10 +1505,17 @@ validation. Open questions are `Q-OR-n`.
       helper `handle_delete_after_completion` is called from synchronous API
       paths: the run-and-wait routes of a script by path
       (`POST` and `GET /api/w/{w}/jobs/run_wait_result/p/<path>`) and by hash
-      (`POST …/run_wait_result/h/<hash>`). For a script whose row has
-      `delete_after_use: true` they return the result as usual and then set
-      the job's stored args to `{}`, its result to `{}` and its logs to
-      `##DELETED##`, on CE too. No flow route calls it;
+      (`POST …/run_wait_result/h/<hash>`). They pass it the script row's
+      `delete_after_use` **and** `delete_after_secs`, and the seconds win
+      when set: `delete_after_secs: 0` deletes at once (whatever the
+      boolean says), a positive value schedules the deletion instead, and a
+      negative value disables it; only with `delete_after_secs` absent does
+      `delete_after_use: true` mean "at once". Deleting at once returns the
+      result as usual and then sets the job's stored args to `{}`, its
+      result to `{}` and its logs to `##DELETED##`, on CE too. A scheduled
+      deletion is only written to the deletion schedule: the monitor task
+      that carries it out is `enterprise`-gated, so on CE such a job is never
+      blanked. No flow route calls the helper;
     - flow-node debouncing is gated by the `private` feature, which the CE
       image contains;
     - some run endpoints (for example `run_wait_result_flow_by_version*`) call a
@@ -1523,7 +1549,7 @@ validation. Open questions are `Q-OR-n`.
   `:435-473`, back into `flow.yaml`); recorded by
   `conformance/flows/oracle/probes` runs `delete_after_use` and
   `subflow_dau` (oracle run 40794872025).
-- **Conformance:** [OR-21/a–c](conformance.md#or-21)
+- **Conformance:** [OR-21/a–d](conformance.md#or-21)
 - **Revision 2026-10-29 (oracle, batch E3e; source re-check):** OR-21/a was
   pending [Q-OR-18](#q-or-18). E3e recorded it: after a subflow by path
   ran, its step still had args `{"x":7}` and result `{"secret":7}`. The
@@ -1554,6 +1580,21 @@ validation. Open questions are `Q-OR-n`.
   nothing blanked on CE) and OR-21/c (the synchronous script route deletes,
   on CE), both source-derived; their recording is requested from batch
   E3f.
+- **Revision 2026-10-29 (SC3 validation round 1, finding 5):** the
+  synchronous routes' deletion was stated for every script with
+  `delete_after_use: true`. They also pass the row's `delete_after_secs`
+  (`backend/windmill-api/src/jobs.rs:5753`, `:5897`, `:5990-6008` read both
+  from the script row), and an explicit seconds value takes precedence
+  (`backend/windmill-common/src/jobs.rs:68-76`: zero is immediate, positive
+  is scheduled, negative disables; only absent seconds with a true boolean
+  is immediate), implemented by `backend/windmill-api-jobs/src/execution.rs:549-562`
+  and `backend/windmill-common/src/jobs.rs:47-64` (a scheduled deletion is
+  a row in `job_delete_schedule`). The task that processes that schedule
+  is compiled only with `enterprise` (`backend/src/monitor.rs:1530-1531`,
+  its call `:3379-3382`), so on CE a positive delay blanks nothing. The
+  scripts API stores both fields (`backend/windmill-api-scripts/src/scripts.rs:1568-1569`).
+  OR-21/c now names its setup (no `delete_after_secs`); new source-derived
+  case OR-21/d covers the positive delay.
 
 <a id="or-22"></a>
 ### OR-22 · Arguments as stored versus as received

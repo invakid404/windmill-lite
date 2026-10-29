@@ -649,7 +649,12 @@ Nothing here may commit the oracle's database credentials unmasked.
   (`q = "results.b"`). Observe `b`'s status entry and job, the branch
   job's stored result, each step's result and the flow's result.
   Expected: the branch job stores an `InternalError`; (i) fails with
-  result `1`; in (ii) `c` returns `1` and `d` the error object.
+  result `1`; in (ii) `c` returns `1` and `d` the error object. Also
+  [CF-23/e, CF-23/f](../semantics/conformance.md#cf-23): (i) with a
+  failure module returning `[previous_result, error]` (expected `[1,
+  {"name":"UnknownError","message":"Could not parse the error","error":1}]`),
+  and (i) with one retry whose `retry_if` is true only for the carried
+  value (expected a second branch job).
 - **Squash and `ai` parallelism on the CE image**
   ([CF-25](../semantics/control-flow.md#cf-25),
   [Q-CF-19](../semantics/control-flow.md#q-cf-19),
@@ -715,7 +720,9 @@ Nothing here may commit the oracle's database credentials unmasked.
 - **Secrets, `job_id` and `CUSTOM_INSTANCE_DB/` on the variable and
   resource routes** ([WA-11/c, WA-11/d, WA-12/g, WA-12/h](../semantics/conformance.md#wa-11),
   [Q-WA-13](../semantics/client-api.md#q-wa-13)). Create a secret with
-  `already_encrypted=true` and the value `AAAAAAAAAAAAAAAAAAAAAA==`; repeat
+  `already_encrypted=true` and the value `AAAAAAAAAAAAAAAAAAAAAA==` (if
+  its read does not fail with WA-11/c's padding cause under the oracle's
+  key, try other 16-byte values and record which one was kept); repeat
   the create with `hunter2`, `dGVzdA==` and `$vault:u/x/p` and record each
   status and body; read the secret with `getVariable`, as a static
   `$var:` argument, and read `u/x/p` (compare the cause against WA-11/c's
@@ -750,7 +757,11 @@ Nothing here may commit the oracle's database credentials unmasked.
   suffix. Inline steps that start with the line `// schema_validation`,
   given a wrong type, `null` for a required and for an optional
   parameter, a string outside a literal union, and a missing or `null`
-  array element and object property; record each error.
+  array element and object property; record each error. WR-54/f and
+  WR-54/g: a script created through the scripts API with a stored schema
+  whose property is `{"type":["array","null"],"items":…}` (expected: the
+  load fails for every input) and the same union as `anyOf` (expected to
+  build and validate).
 - **The rest of Q-WR-20** ([Q-WR-20](../semantics/languages.md#q-wr-20)):
   the inline-flow import base (WR-29/a, /b), the empty-result `InternalErr`
   (WR-V2/a), the `raw_unpinned` request during lock generation (WR-V9/a,
@@ -780,12 +791,18 @@ Nothing here may commit the oracle's database credentials unmasked.
   step by path to it and `x = 7`: expected unchanged args and result on CE.
   (c) The run-and-wait script route with `{"x":7}`: expected the response
   `{"secret":7}`, then the stored job with args `{}`, result `{}` and logs
-  `##DELETED##`.
+  `##DELETED##` (the script has no `delete_after_secs`). OR-21/d: the same
+  script created with `"delete_after_secs": 3600`; expected: nothing is
+  blanked on CE, now or later.
 - **A script's own preprocessor** ([OR-24/e](../semantics/conformance.md#or-24),
   [Q-OR-11](../semantics/oracle.md#q-or-11)). No trigger is needed: a Bun
   script with `preprocessor(event)` returning `{x: {bbb: 1, a: 2, cc: 3}}`
   and `main(x)` returning `Object.keys(x)`, run through the run-and-wait
-  script route (expected `["bbb","a","cc"]`), plus the stored args.
+  script route (expected `["bbb","a","cc"]`), plus the stored args. In a
+  flow ([WR-11/b, WR-11/c](../semantics/conformance.md#wr-11)): a step by
+  path without a hash and with `apply_preprocessor: true` (expected: the
+  preprocessor does not run), and the same step pinned to the script's
+  hash (expected: it runs).
 - **Incoming input refused at storage**
   ([FX-48/d](../semantics/conformance.md#fx-48),
   [FX-51/d, FX-51/e](../semantics/conformance.md#fx-51)). Run requests to
@@ -831,7 +848,10 @@ them run there):
   [Q-OR-14](../semantics/oracle.md#q-or-14) is answered from the source;
   this confirms it). `MAX_RESULT_SIZE_MB=3` and a Bun step returning about
   4.5 MiB. Expected a `ResultTooLarge` error with `… 4MB >
-  MAX_RESULT_SIZE_MB=3MB.`, no `step_id`, and no 30 s retry window.
+  MAX_RESULT_SIZE_MB=3MB.`, no `step_id`, and no 30 s retry window. Also
+  [OR-7/c](../semantics/conformance.md#or-7): the same payload with
+  `wm_failure: "m"` added, expected to end as `ResultTooLarge` too, not as
+  a `ManualFailure`.
 - **`DISABLE_FLOW_SCRIPT=true`**, optional
   ([OF-V5/b](../semantics/conformance.md#of-v5),
   [Q-OF-11](../semantics/openflow.md#q-of-11) is answered from the

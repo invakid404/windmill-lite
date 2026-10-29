@@ -1374,13 +1374,20 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        aborted flow's **last carried value**: the result of the inner step
        that completed just before the failing start, not the error. The
        module's status entry becomes `Failure` naming the child job, and
-       everything that uses the step's value in memory sees the carried
-       value: the parent's `retry_if`, its `continue_on_error` (the next
-       step's `previous_result`), its failure module's `previous_result`
-       and `error` ([FX-32](execution.md#fx-32), [FX-8](execution.md#fx-8)),
-       and, when the parent flow ends on this failure, the parent's own
-       stored result, which is then that value with a failure status and no
-       `error` member. Lookups that read storage see the error instead:
+       every in-memory use of the step's value receives the carried value
+       as `previous_result` (and, in `retry_if`, also as `result`): the
+       parent's `retry_if`, its `continue_on_error` (the next step's
+       `previous_result`), its failure module's `previous_result`
+       ([FX-32](execution.md#fx-32), [FX-8](execution.md#fx-8)), and, when
+       the parent flow ends on this failure, the parent's own stored
+       result, which is then that value with a failure status and no
+       `error` member. An `error` named in those expressions is **not** the
+       carried value: it is derived from `previous_result` by
+       [JE-17](expressions.md#je-17)'s decision list, so a carried `1` gives
+       `{"name": "UnknownError", "message": "Could not parse the error", "error": 1}`,
+       a falsy carried value `{"name": "UnknownError", "message": "No error found"}`,
+       and a carried object with a truthy `error` member that member
+       ([CF-23/e, CF-23/f](conformance.md#cf-23)). Lookups that read storage see the error instead:
        `results.<branchone id>` from a later step ([JE-18](expressions.md#je-18)
        step 2) and the direct lookup ([JE-19](expressions.md#je-19)) fetch
        the child job's stored `InternalError` object
@@ -1405,7 +1412,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-common/src/worker.rs:2228-2232`; test
   `backend/tests/worker.rs:5468` (an inner iterator error inside a while body
   fails the outer flow).
-- **Conformance:** [CF-23/a to CF-23/d](conformance.md#cf-23)
+- **Conformance:** [CF-23/a to CF-23/f](conformance.md#cf-23)
 - **Note:** the oracle recorded both forms (batch E3d,
   [CF-2/b](conformance.md#cf-2) and [CF-7/d](conformance.md#cf-7)). Route 1
   gave name `Anyhow` and `Error: <message> @worker.rs:3822:13`, where
@@ -1416,6 +1423,26 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   expression evaluation, therefore shows two prefixes and two suffixes at
   pickup ([JE-35](expressions.md#je-35)). The suffixes depend on the build;
   compare with them masked.
+- **Revision 2026-10-29 (SC3, source re-check, chain N3b, Q-CF-3 part 2):**
+  route 3's parent value is now traced: a `branchone` or subflow parent
+  takes the aborted child's last carried value, not the stored error,
+  while a loop or `branchall` re-reads storage. Evidence:
+  `backend/windmill-worker/src/worker_flow.rs:2086-2154` (the chaining
+  abort stores the `InternalError` and notifies the parent with the
+  carried result and a failure), `:1478-1488`, `:2039-2056` (aggregation
+  reads storage), `:1459-1474` (the scoped map), `:4703-4708`;
+  `backend/windmill-types/src/flow_status.rs:454-458`. New case CF-23/d.
+  Milestone N3b's provisional reading, the stored `InternalError`, is the
+  storage view only.
+- **Revision 2026-10-29 (SC3 validation round 1, finding 4):** the
+  revision above listed the failure module's `error` among the values that
+  equal the carried value. `error` is derived from `previous_result` by
+  [JE-17](expressions.md#je-17)'s rules
+  (`backend/windmill-jseval/src/lib.rs:494-526`), as the recordings of
+  JE-17/b and JE-17/c show for other carried values; the carried value is
+  `previous_result` (and `result` in `retry_if`). New source-derived cases
+  CF-23/e (a failure module reading both) and CF-23/f (a `retry_if` reading
+  both).
 
 <a id="cf-24"></a>
 ### CF-24 · Child job paths and step ids
@@ -1549,7 +1576,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   module with `sleep` or `suspend`). Added the exact conditions, the full
   error text per route and the masking caveat. New source-derived case
   CF-25/c.
-- **Revision 2026-10-29 (SC3, parent's re-check, chain N3a):** the earlier
+- **Revision 2026-10-29 (SC3, source re-check of the CE build, chain N3a):** the earlier
   text, and the revision just above, said that "CE" fails a squashed loop
   with the stub's message. That holds only for a build without the
   `private` feature. The published CE image is built with `private`, so the
@@ -2021,8 +2048,10 @@ These are proposals made while studying the behaviour. They bind nothing.
   value, not the error: its module becomes `Failure` naming the child job,
   every in-memory use of the step's value (the parent's `retry_if`,
   `continue_on_error`, failure module, and its own final result when it
-  ends on this failure) sees the carried value, and only storage lookups
-  of the step see the child's stored `InternalError`; a loop or
+  ends on this failure) receives the carried value as `previous_result`,
+  with any `error` derived from it by [JE-17](expressions.md#je-17)'s rules
+  rather than equal to it (corrected in validation round 1), and only
+  storage lookups of the step see the child's stored `InternalError`; a loop or
   `branchall` parent re-reads its children from storage, so its entry is
   the error ([CF-23](#cf-23) route 3, new
   [CF-23/d](conformance.md#cf-23)). Milestone N3b's provisional reading,
