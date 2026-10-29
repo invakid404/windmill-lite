@@ -7,7 +7,7 @@ note: >-
   encode one expectation each. Every catalogue
   case here is a flow case: the entry checks the texts a Value holds, and
   rest_in names where the route half is checked. FX-42/d, FX-42/e and
-  FX-42/h to FX-42/n are in deferred.yaml.
+  FX-42/h to FX-42/o are in deferred.yaml.
 cases:
   - spec: FX-42/a
     provenance: source-derived

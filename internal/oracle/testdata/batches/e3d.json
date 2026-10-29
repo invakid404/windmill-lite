@@ -1,5 +1,5 @@
 {
-  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason; CF-7/f, CF-12/g and FX-40/e to FX-40/l, which the reference added in its revision SC4, are requested from batch E3f. CF-6, CF-15 and the hash-pinned FX-40/d runs are deployed through the API (oracle.deploy api), so their trees reach the server as written. TestRecordingBatches enforces it.",
+  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason; CF-7/f, CF-12/g and FX-40/e to FX-40/m, which the reference added in its revision SC4, are requested from batch E3f. CF-6, CF-15 and the hash-pinned FX-40/d runs are deployed through the API (oracle.deploy api), so their trees reach the server as written. TestRecordingBatches enforces it.",
   "batch": "E3d",
   "findings": [
     "CF-2",
@@ -109,6 +109,11 @@
       "case": "FX-40/l",
       "milestone": "N4",
       "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). stop_after_if applies to a hit: both calls stop after a, the second with a's result from the cache, its new job logging the cache line. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/m",
+      "milestone": "N4",
+      "reason": "source-derived, added in the reference's revision SC4 (2026-10-29) by its validation round 1, and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A step with cache_ttl 0 hits an entry that a step with a positive TTL stored under the same key (the same kind, script hash and arguments; the step paths are not in the key), while an entry stored with TTL 0 has already expired, so two TTL-0 steps both run. windmill-lite differs today: a cache_ttl of 0 neither stores nor looks up (internal/engine, cache.go), and a step pinned to a script hash cannot run from a folder (fx-40-hash's runs stay unsupported); a follow-up of N4 implements the lookup"
     }
   ],
   "parts": [

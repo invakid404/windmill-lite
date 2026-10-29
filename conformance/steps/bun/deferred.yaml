@@ -24,14 +24,26 @@ deferred:
     expected_in: C3n (the native boundary mode, with wr-40.yaml)
   - spec: WR-40/h
     reason: >-
-      later: Node built-ins in a bunnative bundle, which Bun's browser
-      target inlines as a polyfill (node:buffer) or an empty object
-      (node:fs), with __dirname written as the build directory, while a
-      global Buffer stays undefined. The semantics reference added the
-      case on 2026-10-29 (SC4), and no recording holds it yet;
+      later: Node built-ins in a bunnative bundle built for Bun's browser
+      target: node:buffer is inlined as a polyfill and node:fs as an
+      empty object, __dirname is written as the build directory, and a
+      global Buffer stays undefined (other built-ins fail the build
+      unless spelt with node:, WR-40/i). The semantics reference added
+      the case on 2026-10-29 (SC4), and no recording holds it yet;
       docs/design/README.md requests one from a future batch E3f, in a
       session whose worker serves the nativets tag; no step case encodes
       it yet
+    expected_in: C3n (the native boundary mode, with wr-40.yaml)
+  - spec: WR-40/i
+    reason: >-
+      later: a Node built-in in a bunnative bundle whose spelling decides
+      the build: node:child_process becomes an empty object, while
+      child_process without node: and node:test fail the build, and so
+      the step, with WR-20's error for bun build. The semantics reference
+      added the case on 2026-10-29 (SC4 validation round 1), and no
+      recording holds it yet; docs/design/README.md requests one from a
+      future batch E3f, in a session whose worker serves the nativets
+      tag; no step case encodes it yet
     expected_in: C3n (the native boundary mode, with wr-40.yaml)
   - spec: WR-43/e
     reason: >-

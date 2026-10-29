@@ -4,7 +4,7 @@
 # scope it would be 0, which nothing enforces on a child flow (CF-27).
 spec: [CF-21/e, CF-27, FX-15]
 target: f/cf21/timeout_scope_flows
-note: "Corrected after recording: the prediction had the evaluator's text wrong (TypeError, one stack line); oracle run 40852609901 recorded the text windmill-lite's evaluator writes. The reading it discriminates, no iter in the timeout's scope, was confirmed."
+note: "Corrected after recording: the prediction had the evaluator's text wrong (TypeError, one stack line); oracle run 40852609901 recorded the text windmill-lite's evaluator writes. The reading it discriminates, a timeout scope without the iteration being created (the loop's flow input, which here holds no iter; CF-21/e, CF-21/f), was confirmed."
 expect:
   status: failure
   result: {error: {name: InternalError, message: "Error during evaluation of expression `flow_input.iter.index`:\nQuickJS evaluation error: Error: cannot read property 'index' of undefined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:50)\n"}}
