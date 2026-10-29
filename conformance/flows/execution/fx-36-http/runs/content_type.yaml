@@ -1,5 +1,5 @@
 # FX-36: with a content type the body is the nested string as text.
-spec: [FX-36]
+spec: [FX-36, FX-36/j]
 target: f/wl_fx36h/content_type
 submit: run_wait_result
 expect:

@@ -6,11 +6,13 @@
 # first: its name if the order is fixed (name order gives aa, jsonb order
 # b, the written order zz), or "varies" if the sixteen evaluations did not
 # all start with the same one, which a random order of three fails to show
-# with a probability near 1e-7. This flow is created through the API as
-# written (oracle.deploy api), with its transforms in the order zz, b, aa.
-# Each iteration's error is masked, because a random order changes it from
-# run to run; s's answer is compared. Synthetic, written for this
-# repository from docs/semantics/expressions.md#je-23.
+# with a probability near 1e-7, so the check is statistical (JE-23/e):
+# the order is not fixed and may change, but nothing guarantees it does.
+# This flow is created through the API as written (oracle.deploy api),
+# with its transforms in the order zz, b, aa. Each iteration's error is
+# masked, because the order may change it from run to run; s's answer is
+# compared. Synthetic, written for this repository from
+# docs/semantics/expressions.md#je-23.
 id: je/transform-order-api
 spec: [JE-23, JE-V5]
 scope: core

@@ -4,7 +4,7 @@ finding: WR-13
 scope: core
 cases:
   - spec: WR-13/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: standard serialisation plus the undefined replacer and the BigInt patch
     script: |
       export function main() { return { a: undefined, f() {}, n: 10n, d: new Date(Date.UTC(2024,0,2,3,4,5,6)), m: new Map([[1,2]]), u8: new Uint8Array([1,2]), x: [undefined, NaN, -0] }; }
@@ -12,7 +12,7 @@ cases:
       - args: '{}'
         expect: {status: success, result: {a: null, n: "10", d: "2024-01-02T03:04:05.006Z", m: {}, u8: {"0": 1, "1": 2}, x: [null, null, 0]}}
   - spec: WR-13/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: a top-level undefined becomes null
     script: |
       export function main() { return undefined; }

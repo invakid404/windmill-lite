@@ -16,6 +16,12 @@ deferred:
   - spec: WR-39/a
     reason: the script the wrapper scan selects is refused at load, so it never runs
     expected_in: A5 and C2a (conformance/build/wr-39.json, conformance/ir)
+  - spec: WR-40/g
+    reason: >-
+      later: the module-level this, null in a bunnative bundle (Bun's
+      bundler) and undefined in a nativets module; the semantics reference
+      added the case on 2026-10-29, and no step case encodes it yet
+    expected_in: C3n (the native boundary mode, with wr-40.yaml)
   - spec: WR-43/e
     reason: >-
       later: the native runtime fails a job whose entrypoint's promise never

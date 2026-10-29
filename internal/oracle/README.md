@@ -382,9 +382,11 @@ checks it on every CI run:
 | `contradictions` | catalogue claims the oracle contradicted, with the run, pointer and recorded value the run's `expect` holds instead |
 | `gates` | optional: for every run, `<fixture directory>/<run>`, the milestone whose exit gate runs it, which must need the batch merged; E3b's gates N1a, N1b, N2, NI, N3b, PF2 or F1 by the features each flow needs |
 
-Batch E3e's manifest has no `gates`, since only F7b needs E3e merged; it
+Batch E3e's manifest has no `gates`, since only F7b needs E3e merged. It
 defers to `none`, with the reason, what the oracle cannot record or the
-contract leaves out.
+contract leaves out, and to the milestone that checks it what no run of
+the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
+HTTP adapter, WR-28/f to C2a, and WR-50/c to C3n.
 
 Batch E3a was built beside these manifests and has none: most of its runs
 state partial `claims` rather than a whole `expect`, and half of its cases

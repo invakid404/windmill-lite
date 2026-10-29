@@ -1,5 +1,5 @@
-# Recording batch E3e: WR-28 (contested in its later dynamic-import
-# consequence; Q-WR-16). Path scripts import other workspace scripts by
+# Recording batch E3e: WR-28 (its later dynamic-import consequence,
+# Q-WR-16, now settled). Path scripts import other workspace scripts by
 # relative and absolute specifiers, which the worker's loader rewrites and
 # fetches from the workspace (WR-28/a, WR-28/b, the static core), and by
 # dynamic import() with and without a static import of the same or an

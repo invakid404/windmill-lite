@@ -20,7 +20,7 @@ finding: D13
 scope: core
 cases:
   - spec: WR-47/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: an absent format builds CommonJS, which Windmill runs on Node and windmill-lite on Bun
     note: >-
       The catalogue's expectation, "undefined", is Node's; on the Bun
@@ -34,7 +34,7 @@ cases:
         expect: {status: success, result: object}
         node: {expect: {status: success, result: undefined}}
   - spec: WR-49/a
-    provenance: source-derived
+    provenance: oracle-observed
     title: an asset is extracted beside the bundle, into the working directory, where the script reads it
     note: >-
       The spawned harness extracts the bundle's assets into its working

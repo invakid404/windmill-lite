@@ -1,5 +1,5 @@
 # FX-36: base64 transfer encoding decodes the string.
-spec: [FX-36]
+spec: [FX-36, FX-36/l]
 target: f/wl_fx36h/base64
 submit: run_wait_result
 expect:
