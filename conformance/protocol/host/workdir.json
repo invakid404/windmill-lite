@@ -1,0 +1,14 @@
+{
+  "note": "Host mode's working-directory checks (ADR 0004, the shared-process failure model, item 5; ADR 0009, the Bun host SDK). The host passes a directory, which must be a directory it can write and its own working directory. The host SDK checks it before it starts the engine (connect, a HostError with the code), and the engine checks it again in the handshake against the workdir of the host's hello (a welcome reject with the code). Each case runs in a fresh temporary directory holding cwd/ (the host's working directory, where the check runs), other/ (a second directory), link (a symbolic link to cwd/) and file (a regular file); missing does not exist. workdir is the path the host passes, relative to that directory, or \".\" as written. cwd_mode and other_mode, when set, are the octal modes of cwd/ and other/; a case with one is skipped as root, which writes through any mode. expect is the refusal's code, or null when the directory is usable.",
+  "design": "docs/design/0004-harness-protocol.md#the-shared-process-failure-model",
+  "cases": [
+    {"case": "cwd", "title": "the working directory, by its absolute path, is usable", "provenance": "policy", "workdir": "cwd", "expect": null},
+    {"case": "dot", "title": "the working directory, as a relative path, is usable", "provenance": "policy", "workdir": ".", "expect": null},
+    {"case": "link", "title": "a symbolic link to the working directory is usable: both are compared without links", "provenance": "policy", "workdir": "link", "expect": null},
+    {"case": "other", "title": "another writable directory is workdir_mismatch", "provenance": "policy", "workdir": "other", "expect": "workdir_mismatch"},
+    {"case": "read-only", "title": "the working directory, read-only, is workdir_not_writable", "provenance": "policy", "workdir": "cwd", "cwd_mode": "0500", "expect": "workdir_not_writable"},
+    {"case": "other-read-only", "title": "another directory that is read-only is workdir_not_writable: writability is checked first", "provenance": "policy", "workdir": "other", "other_mode": "0500", "expect": "workdir_not_writable"},
+    {"case": "missing", "title": "a directory that does not exist is workdir_not_writable", "provenance": "policy", "workdir": "missing", "expect": "workdir_not_writable"},
+    {"case": "file", "title": "a regular file is workdir_not_writable", "provenance": "policy", "workdir": "file", "expect": "workdir_not_writable"}
+  ]
+}

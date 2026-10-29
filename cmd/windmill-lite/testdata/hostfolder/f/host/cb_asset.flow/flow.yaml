@@ -1,0 +1,5 @@
+summary: A codebase script reads its asset, which the host extracted into its working directory
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/hostcb/cb_asset, input_transforms: {tag: {type: javascript, expr: flow_input.tag}}}

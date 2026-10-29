@@ -127,6 +127,15 @@ type Result struct {
 // could not start: the runtime is closed (ErrClosed), no such target, or
 // arguments that are not a JSON object or that cannot be stored.
 func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error) {
+	return rt.run(ctx, path, args, opts, nil, nil)
+}
+
+// run is Run with, for a flow run whose RunOptions.Hooks is nil, extra as
+// its engine hooks (host mode's static intercepts); settled, when not nil,
+// is called once the run has settled (ADR 0004 host mode item 5, H9's
+// onRunSettled): its outcome is decided and every invocation it started
+// has settled, which may be never, and never for a run that did not start.
+func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, opts RunOptions, extra engine.Hooks, settled func()) (*Result, error) {
 	if !rt.admit() {
 		return nil, ErrClosed
 	}
@@ -140,7 +149,17 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
-		res, err := rt.eng.RunScript(ctx, engine.ScriptRequest{ID: opts.ID, Path: path, Args: jsonval.FromProducer(args)})
+		req := engine.ScriptRequest{ID: opts.ID, Path: path, Args: jsonval.FromProducer(args)}
+		var s *engine.RunSettlement
+		if settled != nil {
+			// A script job has its own one invocation, which settles it.
+			s = engine.NewRunSettlement(settled)
+			req.Exec = settlingExec{inner: rt.exec, settle: s}
+		}
+		res, err := rt.eng.RunScript(ctx, req)
+		if s != nil && err == nil {
+			s.End()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -173,8 +192,17 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 	calls := rt.exec.begin(id)
 	defer rt.exec.end(id)
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services}
-	if h != nil {
+	switch {
+	case h != nil:
 		h.calls, req.Hooks = calls.taken, h
+	case extra != nil:
+		req.Hooks = extra
+	}
+	if settled != nil {
+		if req.Hooks == nil {
+			req.Hooks = engine.NoHooks{}
+		}
+		req.Hooks = settledHooks{Hooks: req.Hooks, settled: settled}
 	}
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
