@@ -1,0 +1,10 @@
+# FX-36: base64 transfer encoding decodes the string.
+spec: [FX-36]
+target: f/wl_fx36h/base64
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_content_type: text/plain, windmill_content_transfer_encoding: base64, result: aGk=}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_content_type: text/plain, windmill_content_transfer_encoding: base64, result: aGk=}}
+  response: {status: 200, content_type: text/plain, body: hi}

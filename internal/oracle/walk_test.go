@@ -164,7 +164,7 @@ func TestWalkCases(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			obs, err := Observe(w, nil, c.Compare)
+			obs, err := Observe(w, nil, nil, c.Compare)
 			if err != nil {
 				t.Fatal(err)
 			}

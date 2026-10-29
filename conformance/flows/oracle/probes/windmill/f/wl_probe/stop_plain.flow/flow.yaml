@@ -1,0 +1,22 @@
+summary: "probe stop_plain: a clean stop with skip_if_stopped false"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+      stop_after_if:
+        expr: result == 1
+        skip_if_stopped: false
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

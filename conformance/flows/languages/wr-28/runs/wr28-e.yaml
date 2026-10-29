@@ -1,0 +1,10 @@
+# WR-28/e, the validation's expectation: the static rewrite of ./helper
+# also rewrites the dynamic ./nested/./helper to ./nested/./helper.ts, which
+# is then fetched (as drafted: not rewritten, so it fails).
+spec: [WR-28/e]
+target: f/wl_wr28a/wr28_e
+expect:
+  status: success
+  result: [helper, nested]
+  steps:
+    "m:s": {status: success, args: {}, result: [helper, nested]}

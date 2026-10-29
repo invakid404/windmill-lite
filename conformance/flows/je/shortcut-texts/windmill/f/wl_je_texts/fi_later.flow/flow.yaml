@@ -1,0 +1,26 @@
+summary: "JE-7 after a step: timeout flow_input.o"
+value:
+  modules:
+    - id: p
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline p.ts'
+        input_transforms: {}
+    - id: q
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline q.ts'
+        input_transforms: {}
+      timeout:
+        type: javascript
+        expr: flow_input.o
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    o:
+      type: object
+  required:
+    - o

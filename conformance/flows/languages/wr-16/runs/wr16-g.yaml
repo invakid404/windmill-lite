@@ -1,0 +1,9 @@
+# WR-16/g, the validation's expectation: every printed line is classified
+# on its own, so the stream is ab (as drafted: a).
+spec: [WR-16/g]
+target: f/wl_wr16/wr16_g
+expect:
+  status: success
+  result: "ab"
+  steps:
+    "m:s": {status: success, args: {}, result: "ab"}

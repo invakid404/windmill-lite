@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -49,6 +50,47 @@ func (n *Normaliser) Value(raw json.RawMessage) (json.RawMessage, error) {
 	n.maskStacks(tree)
 	n.rewrite(tree)
 	return json.RawMessage(tree.raw()), nil
+}
+
+// Text normalises a text that is kept as written rather than as a JSON
+// value, such as an HTTP response body (Response): walked job ids become
+// placeholders, and wherever the text spells the stack of a runtime error
+// (OR-V3 clause a) as a JSON string, that string becomes the stack marker.
+// So a body that writes a failed step's error keeps its spelling, spaces
+// and member order included, without its volatile stack.
+func (n *Normaliser) Text(raw string) (string, error) {
+	if err := n.prepare(); err != nil {
+		return "", err
+	}
+	var stacks []string
+	for _, r := range n.runtime {
+		m, _ := r.(map[string]any)
+		e, _ := m["error"].(map[string]any)
+		if s, ok := e["stack"].(string); ok && s != "" {
+			stacks = append(stacks, jsonText(s))
+		}
+	}
+	// The longest first, so a stack that another one starts with cannot
+	// take part of it.
+	sort.Slice(stacks, func(i, j int) bool { return len(stacks[i]) > len(stacks[j]) })
+	var parts []TextPart
+	rest := raw
+	for {
+		at, which := -1, ""
+		for _, q := range stacks {
+			if i := strings.Index(rest, q); i >= 0 && (at < 0 || i < at) {
+				at, which = i, q
+			}
+		}
+		if at < 0 {
+			break
+		}
+		parts = append(parts, SplitJobIDs(rest[:at], n.IDs)...)
+		parts = append(parts, Literal(`"`), MarkerPart(MarkerStack), Literal(`"`))
+		rest = rest[at+len(which):]
+	}
+	parts = append(parts, SplitJobIDs(rest, n.IDs)...)
+	return EncodeText(parts), nil
 }
 
 func (n *Normaliser) prepare() error {

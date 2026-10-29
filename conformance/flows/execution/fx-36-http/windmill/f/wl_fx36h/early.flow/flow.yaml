@@ -1,0 +1,20 @@
+summary: "FX-37/a: run-and-wait returns early; the flow keeps running"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: {}
+  early_return: a
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

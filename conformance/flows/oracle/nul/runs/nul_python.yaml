@@ -1,0 +1,4 @@
+# Q-OR-6 (python): the catalogue sets no expectation; the run's expect is the
+# recorded observation.
+spec: [OR-27/b]
+target: f/wl_probe/nul_python

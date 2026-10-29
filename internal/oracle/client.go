@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -84,6 +85,29 @@ func (c *Capture) Handler() http.Handler {
 // do sends one request and returns the body of a response whose status is
 // in want.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any, want ...int) ([]byte, error) {
+	resp, err := c.send(ctx, method, path, query, body)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range want {
+		if resp.Status == w {
+			return resp.Body, nil
+		}
+	}
+	return resp.Body, &APIError{Method: method, Path: path, Status: resp.Status, Body: string(resp.Body)}
+}
+
+// HTTPResponse is a response whatever its status: what run-and-wait
+// answers is the observation, not a failure of the harness (FX-36).
+type HTTPResponse struct {
+	Status      int
+	ContentType string
+	Body        []byte
+}
+
+// send sends one request and returns its response, recording the exchange
+// when the client captures.
+func (c *Client) send(ctx context.Context, method, path string, query url.Values, body any) (HTTPResponse, error) {
 	u := strings.TrimSuffix(c.BaseURL, "/") + "/api" + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -96,14 +120,14 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		default:
 			data, err := json.Marshal(b)
 			if err != nil {
-				return nil, err
+				return HTTPResponse{}, err
 			}
 			rd = bytes.NewReader(data)
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, rd)
 	if err != nil {
-		return nil, err
+		return HTTPResponse{}, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -117,22 +141,18 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	}
 	resp, err := h.Do(req)
 	if err != nil {
-		return nil, err
+		return HTTPResponse{}, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return HTTPResponse{}, err
 	}
+	out := HTTPResponse{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: data}
 	if c.Capture != nil {
-		c.Capture.add(Exchange{Method: method, URL: req.URL.RequestURI(), Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: string(data)})
+		c.Capture.add(Exchange{Method: method, URL: req.URL.RequestURI(), Status: out.Status, ContentType: out.ContentType, Body: string(data)})
 	}
-	for _, w := range want {
-		if resp.StatusCode == w {
-			return data, nil
-		}
-	}
-	return data, &APIError{Method: method, Path: path, Status: resp.StatusCode, Body: string(data)}
+	return out, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, v any) error {
@@ -327,6 +347,17 @@ func (c *Client) RunScript(ctx context.Context, workspace, path string, args jso
 	return c.run(ctx, ws(workspace)+"/jobs/run/p/"+itemPath(path), args, jobID)
 }
 
+// RunWaitFlow submits a flow by path through the synchronous run-and-wait
+// endpoint and returns its HTTP response, whatever the status (FX-36,
+// FX-37, OR-10/b). The harness observes runs through RunFlow and the poll
+// (OR-10); this call exists to record the response itself. jobID
+// pre-assigns the root id, as for RunFlow, so the run can be walked and its
+// effects kept.
+func (c *Client) RunWaitFlow(ctx context.Context, workspace, path string, args json.RawMessage, jobID string) (HTTPResponse, error) {
+	q := url.Values{"job_id": {jobID}}
+	return c.send(ctx, http.MethodPost, ws(workspace)+"/jobs/run_wait_result/f/"+itemPath(path), q, args)
+}
+
 func (c *Client) run(ctx context.Context, path string, args json.RawMessage, jobID string) (string, error) {
 	var q url.Values
 	if jobID != "" {
@@ -434,6 +465,26 @@ func (c *Client) CreateVariable(ctx context.Context, workspace, path, value stri
 	body := map[string]any{"path": path, "value": value, "is_secret": secret, "description": description}
 	_, err := c.do(ctx, http.MethodPost, ws(workspace)+"/variables/create", nil, body, http.StatusOK, http.StatusCreated)
 	return err
+}
+
+// UpdateVariable sets an existing variable's value (oracle.setup each_run).
+func (c *Client) UpdateVariable(ctx context.Context, workspace, path, value string) error {
+	_, err := c.do(ctx, http.MethodPost, ws(workspace)+"/variables/update/"+itemPath(path), nil, map[string]any{"value": value}, http.StatusOK)
+	return err
+}
+
+// VariableExists reports whether GET /w/{ws}/variables/get/{path} answers
+// 200 (true) or 404 (false); any other status is an error (OR-31/b).
+func (c *Client) VariableExists(ctx context.Context, workspace, path string) (bool, error) {
+	_, err := c.do(ctx, http.MethodGet, ws(workspace)+"/variables/get/"+itemPath(path), nil, nil, http.StatusOK)
+	var api *APIError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &api) && api.Status == http.StatusNotFound:
+		return false, nil
+	}
+	return false, err
 }
 
 // CreateResource creates a resource (OR-31).

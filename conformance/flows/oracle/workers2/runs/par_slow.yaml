@@ -1,0 +1,11 @@
+# Q-OR-7: branch 1 completes first (the provenance's timings), and the
+# result is still in index order.
+spec: [OR-11]
+target: f/wl_w2/par_slow
+expect:
+  status: success
+  result: [0, 1]
+  steps:
+    "m:ba": {status: success, result: [0, 1]}
+    "m:ba/b:0/m:s0": {status: success, args: {}, result: 0}
+    "m:ba/b:1/m:s1": {status: success, args: {}, result: 1}

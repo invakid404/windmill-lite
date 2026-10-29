@@ -1,0 +1,4 @@
+# JE-7 after a step: the same read after module p.
+spec: [JE-7, JE-29, JE-44]
+target: f/wl_je_texts/fi_later
+args: {o: {b: 1, a: 2}}

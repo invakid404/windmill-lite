@@ -1,0 +1,12 @@
+summary: "WR-50/b: f/wl_cbx/cjs/node"
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_cbx/cjs/node
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

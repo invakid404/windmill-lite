@@ -24,6 +24,10 @@
     {
       "case": "OR-19/a",
       "by": "the oracle workflow itself: record --check on a clean checkout, failing on a changed observation and never on provenance"
+    },
+    {
+      "case": "OR-7/a",
+      "by": "the oracle workflow's second session: wltest record --check with --listen-interval 10 and two workers records the smoke fixture, whose committed recordings were made at 1 s with one worker, and fails unless every observation is unchanged"
     }
   ],
   "deferred": [
@@ -41,11 +45,6 @@
       "case": "OR-5/b",
       "milestone": "E3e",
       "reason": "the two-worker profile is in compose.yaml (workers2), but the blocking-child fixture is a later recording (Q-OR-18)"
-    },
-    {
-      "case": "OR-7/a",
-      "milestone": "E3e",
-      "reason": "a knob comparison of two recordings (Q-OR-18)"
     },
     {
       "case": "OR-7/b",

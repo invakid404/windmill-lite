@@ -64,7 +64,7 @@ func TestReplayRecordedCaptures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			obs, err := Observe(w, rc.Effects, f.Compare)
+			obs, err := Observe(w, rc.Effects, rc.HTTP(), f.Compare)
 			if err != nil {
 				t.Fatal(err)
 			}

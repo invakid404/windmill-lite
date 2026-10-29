@@ -1,0 +1,21 @@
+# Recording batch E3e: codebase scripts (SY-8), in the shape of E1's
+# languages/codebase fixture: entries of wmill.yaml's codebases, which the
+# pinned CLI bundles with esbuild when it pushes the tree, and which CE
+# standalone runs (WR-50/a's standalone half). Every script of the first
+# host is a codebase script, so these cases cover what its bundles rely on:
+# the default CommonJS format on Node and format esm on Bun (WR-47/a,
+# WR-47/b), esbuild's define, inject, loader and banner (WR-47/c to
+# WR-47/f), an asset next to main.js and a multi-file output (WR-49/a,
+# WR-49/b), the runtime that //native and //nodejs select and the Node
+# version (WR-50/b to WR-50/e), and, in both formats, a relative import
+# between codebase files and the step's environment (process.env on Node,
+# Bun.env on Bun). On windmill-lite a CommonJS bundle runs on Bun
+# (deviation D13), so the runs that report the runtime record Windmill's
+# Node, which windmill-lite does not reproduce. Synthetic, written for
+# this repository from docs/semantics/conformance.md#wr-47.
+id: languages/codebase-cases
+spec: [SY-8, WR-47, WR-49, WR-50]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

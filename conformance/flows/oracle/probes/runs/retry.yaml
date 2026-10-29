@@ -1,0 +1,11 @@
+# probe retry: the first attempt fails and is a failed retry, the second
+# succeeds with {"attempt":2}. The catalogue's counter is a sink counter;
+# here it is the variable f/wl_probe/attempt, reset before every run.
+spec: [OR-11]
+target: f/wl_probe/retry
+expect:
+  status: success
+  result: {attempt: 2}
+  steps:
+    "m:a": {status: success, args: {}, result: {attempt: 2}}
+    "m:a/r:0": {status: failure, args: {}, result: {error: {name: Error, message: attempt 1, stack: "<stack>", step_id: a}}}

@@ -1,0 +1,8 @@
+# WR-50/c's control: the same probe in the esm entry, on Bun.
+spec: [WR-50/c]
+target: f/wl_cbx/native_control
+expect:
+  status: success
+  result: ["object", "string"]
+  steps:
+    "m:s": {status: success, args: {}, result: ["object", "string"]}

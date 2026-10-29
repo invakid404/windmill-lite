@@ -1,0 +1,19 @@
+summary: "WR-47: f/wl_cbx/cjs/rel"
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_cbx/cjs/rel
+        input_transforms: 
+          x:
+            type: javascript
+            expr: flow_input.x
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    x:
+      type: number
+  required:
+    - x

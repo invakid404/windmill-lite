@@ -1,0 +1,31 @@
+summary: "JE-8 right after a loop: timeout results.l"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator:
+          type: javascript
+          expr: '[1]'
+        parallel: false
+        skip_failures: false
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              language: bun
+              content: '!inline x.ts'
+              input_transforms: {}
+    - id: q
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline q.ts'
+        input_transforms: {}
+      timeout:
+        type: javascript
+        expr: results.l
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,250 @@
+package oracle
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/conformance"
+)
+
+// The session options of recording batch E3e, against the fake oracle of
+// record_test.go: the run-and-wait submission, the setup policies, skipped
+// fixtures, the listen-interval knob and the pull read-back.
+
+// editFixture replaces old with new in a file of the rig's fixture, once.
+func editFixture(t *testing.T, rig *sessionRig, name, old, new string) {
+	t.Helper()
+	p := filepath.Join(rig.fixture, filepath.FromSlash(name))
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), old) {
+		t.Fatalf("%s lacks %q", name, old)
+	}
+	if err := os.WriteFile(p, []byte(strings.Replace(string(data), old, new, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFixtureFile(t *testing.T, rig *sessionRig, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(rig.fixture, filepath.FromSlash(name)), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSessionRecordsRunAndWait records two smoke runs submitted through
+// run-and-wait: each observation holds the response (200 with the result
+// on success, 422 with the error on failure) beside the walk, the failed
+// step's stack is masked inside the body text, which otherwise keeps its
+// spelling, the provenance has the response time, and an expect that
+// states the response is met.
+func TestSessionRecordsRunAndWait(t *testing.T) {
+	// spec: FX-36, FX-37, OR-10, OR-V3
+	rig := newRig(t)
+	writeFixtureFile(t, rig, "runs/wait_ok.yaml", `target: f/wl_smoke/two_step
+args: {x: 3}
+submit: run_wait_result
+expect:
+  status: success
+  result: "hi:6"
+  steps:
+    "m:a": {status: success, args: {x: 3}, result: {doubled: 6, seen: 3}}
+    "m:b": {status: success, args: {n: 6, tag: hi}, result: "hi:6"}
+  response: {status: 200, content_type: application/json, body: '"hi:6"'}
+`)
+	writeFixtureFile(t, rig, "runs/wait_fail.yaml", "target: f/wl_smoke/two_step\nargs: {x: 60}\nsubmit: run_wait_result\n")
+	rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("%s: %s %s %v", r.Run, r.Outcome, r.Error, r.Differences)
+		}
+	}
+	f := rig.load(t)
+	byName := map[string]conformance.Run{}
+	for _, r := range f.Runs {
+		byName[r.Name] = r
+	}
+	ok, fail := byName["wait_ok"].Recorded, byName["wait_fail"].Recorded
+	if ok == nil || fail == nil {
+		t.Fatal("a run-and-wait run has no recording")
+	}
+	if got := ok.Observation.Response; got == nil || *got != (conformance.Response{Status: 200, ContentType: "application/json", Body: `"hi:6"`}) {
+		t.Errorf("wait_ok response %+v", got)
+	}
+	want := `{"error":{"name":"Error","message":"too big: 120","stack":"<stack>","step_id":"b"}}`
+	if got := fail.Observation.Response; got == nil || got.Status != 422 || got.Body != want {
+		t.Errorf("wait_fail response %+v, want 422 with %s", got, want)
+	}
+	if byName["ok"].Recorded.Observation.Response != nil {
+		t.Error("an asynchronous run has a response")
+	}
+	var p Provenance
+	if err := json.Unmarshal(ok.Provenance, &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Timings.SubmitToResponseMS == nil {
+		t.Error("the provenance has no submit_to_response_ms")
+	}
+}
+
+// TestSessionSetupPolicies applies setup.yaml under each policy of
+// oracle.setup: after the push (the default), where each variable must
+// then be there; before the push, where the push must have removed it
+// (OR-31/a, OR-31/b); and after the push and again before every run. A
+// variable in the wrong state fails the fixture's runs with a refusal.
+func TestSessionSetupPolicies(t *testing.T) {
+	// spec: OR-31/a, OR-31/b
+	const setup = "variables:\n  - path: f/wl_smoke/v\n    value: seeded\n"
+	for _, c := range []struct {
+		name, policy string
+		keep, lose   bool
+		refusal      string
+		updates      int
+	}{
+		{name: "after_push", policy: ""},
+		{name: "after_push_lost", policy: "", lose: true, refusal: "setup_not_applied"},
+		{name: "before_push", policy: "before_push"},
+		{name: "before_push_survives", policy: "before_push", keep: true, refusal: "seed_survived_push"},
+		// Three runs (ok, fail, effects), two repetitions each.
+		{name: "each_run", policy: "each_run", updates: 6},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rig := newRig(t)
+			rig.oracle.keepVars, rig.oracle.loseVars = c.keep, c.lose
+			writeFixtureFile(t, rig, "setup.yaml", setup)
+			if c.policy != "" {
+				editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}", "oracle: {workers: 1, setup: "+c.policy+"}")
+			}
+			rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range rep.Runs {
+				switch {
+				case c.refusal == "" && r.Outcome != OutcomeNew:
+					t.Errorf("%s: %s %s", r.Run, r.Outcome, r.Error)
+				case c.refusal != "" && (r.Outcome != OutcomeFailed || !strings.Contains(r.Error, c.refusal)):
+					t.Errorf("%s: %s %s, want the refusal %s", r.Run, r.Outcome, r.Error, c.refusal)
+				}
+			}
+			if len(rig.oracle.updates) != c.updates {
+				t.Errorf("variable updates %v, want %d", rig.oracle.updates, c.updates)
+			}
+			for _, u := range rig.oracle.updates {
+				if !strings.HasSuffix(u, " f/wl_smoke/v=seeded") {
+					t.Errorf("update %q", u)
+				}
+			}
+		})
+	}
+}
+
+// TestSessionSkipsUnmetWorkers skips, under SkipUnmetWorkers, a fixture
+// that needs two workers on a one-worker session: its runs are reported
+// skipped, nothing is deployed, and nothing fails; without the option the
+// same fixture is refused (OR-5/a).
+func TestSessionSkipsUnmetWorkers(t *testing.T) {
+	// spec: OR-5/a, OR-5/b
+	for _, skip := range []bool{true, false} {
+		rig := newRig(t)
+		editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}", "oracle: {workers: 2}")
+		s := rig.session(20 * GiB)
+		s.SkipUnmetWorkers = skip
+		rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := OutcomeRefused
+		if skip {
+			want = OutcomeSkipped
+		}
+		for _, r := range rep.Runs {
+			if r.Outcome != want || r.Failed(true) == skip {
+				t.Errorf("skip %v: %s: %s (failed %v)", skip, r.Run, r.Outcome, r.Failed(true))
+			}
+		}
+		if rig.oracle.deleted != 0 || len(rig.oracle.workspaces) != 0 {
+			t.Errorf("skip %v: a workspace was created", skip)
+		}
+	}
+}
+
+// TestSessionListenInterval starts the oracle with the knob of OR-7/a set
+// through compose's variable, and records the value in provenance.
+func TestSessionListenInterval(t *testing.T) {
+	// spec: OR-7/a
+	rig := newRig(t)
+	s := rig.session(20 * GiB)
+	s.ListenInterval = 10
+	rep, err := s.Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("%s: %s %s", r.Run, r.Outcome, r.Error)
+		}
+	}
+	if !slices.Contains(rig.docker.upEnv, ListenIntervalVar+"=10") {
+		t.Errorf("compose up environment %v", rig.docker.upEnv)
+	}
+	for _, r := range rig.load(t).Runs {
+		var p Provenance
+		if err := json.Unmarshal(r.Recorded.Provenance, &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Env["LISTEN_NEW_EVENTS_INTERVAL_SEC"] != "10" {
+			t.Errorf("%s: provenance env %v", r.Name, p.Env)
+		}
+	}
+}
+
+// TestSessionPullsTheDeployedTree deploys the smoke fixture through the
+// API with oracle.pull: after the gate the CLI's sync pull writes the
+// workspace back once, and each run's deployment evidence holds the pulled
+// flow value (SY-6, CF-6).
+func TestSessionPullsTheDeployedTree(t *testing.T) {
+	// spec: SY-6/c, CF-6/b
+	rig := newRig(t)
+	tree := filepath.Join(rig.fixture, "windmill")
+	for _, p := range []string{"wmill-lock.yaml", "f/wl_smoke/double.script.lock"} {
+		if err := os.Remove(filepath.Join(tree, filepath.FromSlash(p))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFixtureFile(t, rig, "windmill/f/wl_smoke/double.script.yaml", "summary: double\n")
+	editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}", "oracle: {workers: 1, deploy: api, pull: true}")
+	rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeNew {
+			t.Errorf("%s: %s %s", r.Run, r.Outcome, r.Error)
+		}
+	}
+	if log, _ := os.ReadFile(rig.cliLog); strings.Count(string(log), " sync pull --yes") != 1 {
+		t.Errorf("CLI calls:\n%s", log)
+	}
+	for _, r := range rig.load(t).Runs {
+		var p Provenance
+		if err := json.Unmarshal(r.Recorded.Provenance, &p); err != nil {
+			t.Fatal(err)
+		}
+		var b bytes.Buffer
+		if p.Deployment == nil || json.Compact(&b, p.Deployment.Pulled) != nil || b.String() != `{"modules":[{"id":"a"},{"id":"b"}],"pulled":true}` {
+			t.Errorf("%s: pulled %s", r.Name, b.String())
+		}
+	}
+}

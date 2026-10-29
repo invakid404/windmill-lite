@@ -1,0 +1,12 @@
+# FX-49/a, the correction's expectation: the second start phase at
+# cursor 0 evaluates the expression again, finds it true and stops the
+# loop after its first iteration, and the flow completes normally with
+# [1]. As drafted, the expression would be evaluated three times.
+spec: [FX-49/a]
+target: f/wl_fx49/flip
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:l": {status: success, result: [1]}
+    "m:l/i:0/m:x": {status: success, args: {name: skip, v: 1}, result: 1}

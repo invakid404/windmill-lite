@@ -1,0 +1,37 @@
+defaultTs: bun
+includes: ["f/**"]
+codebases:
+  - relative_path: f/wl_cbx/cjs
+    includes: ["f/wl_cbx/cjs/**"]
+  - relative_path: f/wl_cbx/esm
+    includes: ["f/wl_cbx/esm/**"]
+    format: esm
+  - relative_path: f/wl_cbx/define
+    includes: ["f/wl_cbx/define/**"]
+    define: {"__MODE__": "\"lite\""}
+  - relative_path: f/wl_cbx/inject
+    includes: ["f/wl_cbx/inject/**"]
+    inject: ["shared/wl_cbx/shim.ts"]
+  - relative_path: f/wl_cbx/loader
+    includes: ["f/wl_cbx/loader/**"]
+    loader: {".txt": "text"}
+  - relative_path: f/wl_cbx/banner
+    includes: ["f/wl_cbx/banner/**"]
+    banner: {js: "globalThis.__banner = 1;"}
+  - relative_path: f/wl_cbx/asset
+    includes: ["f/wl_cbx/asset/**"]
+    assets: [{from: "shared/wl_cbx/data/a.txt", to: "data/a.txt"}]
+  - relative_path: f/wl_cbx/multi
+    includes: ["f/wl_cbx/multi/**"]
+    loader: {".bin": "file"}
+    assets: [{from: "shared/wl_cbx/data/a.txt", to: "a.txt"}]
+  - relative_path: f/wl_cbx/native
+    includes: ["f/wl_cbx/native/**"]
+    format: esm
+  - relative_path: f/wl_cbx/nodeesm
+    includes: ["f/wl_cbx/nodeesm/**"]
+    format: esm
+    assets: [{from: "shared/wl_cbx/pkg.json", to: "package.json"}]
+  - relative_path: f/wl_cbx/nodeesm_bare
+    includes: ["f/wl_cbx/nodeesm_bare/**"]
+    format: esm

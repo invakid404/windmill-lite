@@ -1,0 +1,13 @@
+summary: "OR-5/b: a step that waits for a script it starts"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

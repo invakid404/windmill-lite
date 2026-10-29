@@ -175,3 +175,38 @@ func TestStripLocations(t *testing.T) {
 		}
 	})
 }
+
+// TestNormaliseText normalises response bodies as text: the spelling is
+// kept (spaces, member order), walked job ids become placeholders, a
+// runtime error's stack becomes the marker where the body writes it as a
+// JSON string, and nothing else is touched: another stack, an unwalked id,
+// user text that looks like a marker (escaped, so the result stays
+// injective).
+func TestNormaliseText(t *testing.T) {
+	const job = "10000000-0000-4000-8000-000000000002"
+	stack := "Error: z\n    at main (/tmp/windmill/wk/" + job + "/main.ts:2:9)"
+	stackJSON, _ := json.Marshal(stack)
+	errJSON := `{"error":{"name":"Error","message":"z","stack":` + string(stackJSON) + `,"step_id":"a"}}`
+	n := &Normaliser{
+		IDs:           map[string]SitePath{job: SitePath{}.Child(Module("a"))},
+		RuntimeErrors: []json.RawMessage{json.RawMessage(errJSON)},
+	}
+	for _, c := range []struct{ name, raw, want string }{
+		{"spaced object", `{"a": 2, "b": 1}`, `{"a": 2, "b": 1}`},
+		{"unquoted string", `ok`, `ok`},
+		{"empty", ``, ``},
+		{"job id", `{"job": "` + job + `"}`, `{"job": "<job:m:a>"}`},
+		{"stack", `{"error": {"name": "Error", "message": "z", "stack": ` + string(stackJSON) + `, "step_id": "a"}}`, `{"error": {"name": "Error", "message": "z", "stack": "<stack>", "step_id": "a"}}`},
+		{"another stack", `{"stack": "Error: y\n    at x"}`, `{"stack": "Error: y\n    at x"}`},
+		{"unwalked id", `"20000000-0000-4000-8000-000000000009"`, `"20000000-0000-4000-8000-000000000009"`},
+		{"marker-like text", `"<stack>"`, `"<<stack>"`},
+	} {
+		got, err := n.Text(c.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}

@@ -1,0 +1,27 @@
+summary: "probe branchall_seq: a sequential branchall with an empty branch"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: false
+        branches:
+          - modules:
+              - id: b0
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline b0.ts'
+                  input_transforms: {}
+          - modules: []
+          - modules:
+              - id: b2
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline b2.ts'
+                  input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

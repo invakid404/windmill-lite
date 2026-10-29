@@ -1,0 +1,5 @@
+# WR-50/e (later): without a declared type the outcome depends on the
+# Node patch; the catalogue sets no expectation, and the run's is the
+# recorded observation.
+spec: [WR-50/e]
+target: f/wl_cbx/node_esm_bare

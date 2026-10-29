@@ -1,0 +1,4 @@
+# JE-8 right after a loop: results.l is the previous step's result, the
+# loop's aggregate.
+spec: [JE-8, JE-29, JE-44]
+target: f/wl_je_texts/loop_prev

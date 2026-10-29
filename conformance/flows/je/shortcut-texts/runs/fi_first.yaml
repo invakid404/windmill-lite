@@ -1,0 +1,5 @@
+# JE-7 at the first module: the flow input's text, quoted by the timeout's
+# parse error. The run's expect is the recorded observation.
+spec: [JE-7, JE-29, JE-44]
+target: f/wl_je_texts/fi_first
+args: {o: {b: 1, a: 2}}

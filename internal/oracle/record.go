@@ -61,6 +61,15 @@ type Session struct {
 	RepoRoot string
 	// Harness describes the harness build, for provenance.
 	Harness HarnessInfo
+	// SkipUnmetWorkers skips a fixture that needs more workers than the
+	// session has, reporting its runs as skipped, where the session would
+	// otherwise refuse them (OR-5/a): another session with enough workers
+	// records them.
+	SkipUnmetWorkers bool
+	// ListenInterval, when not zero, is the oracle's
+	// LISTEN_NEW_EVENTS_INTERVAL_SEC in place of OracleEnv's 1 (OR-7/a); it
+	// is in every recording's provenance, which is never compared.
+	ListenInterval int
 
 	// Test seams: the oracle's URL, the poll interval, the disk
 	// measurement and the settle delay of OR-30 step 6.
@@ -88,6 +97,9 @@ const (
 	OutcomeExpectMismatch = "expect_mismatch"
 	OutcomeFailed         = "failed"
 	OutcomeRefused        = "refused"
+	// OutcomeSkipped is a run of a fixture that needs more workers than
+	// the session has, under SkipUnmetWorkers.
+	OutcomeSkipped = "skipped"
 )
 
 // Report is the outcome of a session.
@@ -128,7 +140,7 @@ type RunReport struct {
 // a new or changed recording (OR-19).
 func (r RunReport) Failed(check bool) bool {
 	switch r.Outcome {
-	case OutcomeUnchanged:
+	case OutcomeUnchanged, OutcomeSkipped:
 		return false
 	case OutcomeNew, OutcomeChanged:
 		return check
@@ -215,6 +227,9 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 		return rep, err
 	}
 	compose := Compose{Docker: s.Docker, File: file, Workers: s.Workers, Env: []string{"WL_EFFECT_SINK=" + sinkURL}}
+	if s.ListenInterval != 0 {
+		compose.Env = append(compose.Env, fmt.Sprintf("%s=%d", ListenIntervalVar, s.ListenInterval))
+	}
 	s.logf("starting the oracle (%d worker container(s))", s.Workers)
 	// The watchdog covers the start as well as the session (OR-30 step 7);
 	// teardown runs whatever happened.
@@ -366,6 +381,9 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 	for k, v := range OracleEnv {
 		env[k] = v
 	}
+	if s.ListenInterval != 0 {
+		env["LISTEN_NEW_EVENTS_INTERVAL_SEC"] = fmt.Sprint(s.ListenInterval)
+	}
 	base := Provenance{
 		Oracle: OracleProvenance{
 			Version:       OracleVersion,
@@ -385,8 +403,12 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 	for i, f := range fixtures {
 		name := s.rel(f.Dir)
 		if need := f.Oracle.NeedWorkers(); need > s.Workers {
+			outcome := OutcomeRefused
+			if s.SkipUnmetWorkers {
+				outcome = OutcomeSkipped
+			}
 			for _, r := range f.Runs {
-				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeRefused, Error: ErrRequiresWorkers(need, s.Workers).Error()})
+				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: outcome, Error: ErrRequiresWorkers(need, s.Workers).Error()})
 			}
 			continue
 		}
@@ -511,10 +533,23 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 	} else if err := CopyTree(f.SyncTree(), copyDir); err != nil {
 		return nil, dep, err
 	}
+	// Seeded before the push, setup.yaml's variables must be gone after it
+	// (OR-31/a, OR-31/b); applied after it, they must be there.
+	before := f.Oracle.SetupPolicy() == conformance.SetupBeforePush
+	if before {
+		if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+			return nil, dep, err
+		}
+	}
 	if err := cli.Push(ctx, copyDir, t); err != nil {
 		return nil, dep, err
 	}
-	if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+	if !before {
+		if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+			return nil, dep, err
+		}
+	}
+	if err := CheckSetup(ctx, c, ws, f.Setup, !before); err != nil {
 		return nil, dep, err
 	}
 	stubbed := dep.Stubbed
@@ -544,6 +579,9 @@ func (s *Session) deployAPI(ctx context.Context, c *Client, cli CLI, f *conforma
 		return nil, dep, nil, err
 	}
 	if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+		return nil, dep, nil, err
+	}
+	if err := CheckSetup(ctx, c, ws, f.Setup, true); err != nil {
 		return nil, dep, nil, err
 	}
 	if dep, err = Gate(ctx, c, ws, s.pollInterval, 2*time.Minute); err != nil {
@@ -589,6 +627,38 @@ func (s *Session) deployAPI(ctx context.Context, c *Client, cli CLI, f *conforma
 		}
 		flows[p] = fd
 	}
+	if f.Oracle.Pull {
+		// sync pull writes the workspace's items as a sync tree into a
+		// directory that holds only the fixture's wmill.yaml (SY-6, CF-6).
+		pullDir := filepath.Join(tmp, "pull", ws)
+		if err := os.MkdirAll(pullDir, 0o755); err != nil {
+			return nil, dep, nil, err
+		}
+		conf, err := os.ReadFile(filepath.Join(f.SyncTree(), "wmill.yaml"))
+		if err != nil {
+			return nil, dep, nil, err
+		}
+		if err := os.WriteFile(filepath.Join(pullDir, "wmill.yaml"), conf, 0o644); err != nil {
+			return nil, dep, nil, err
+		}
+		if err := cli.Pull(ctx, pullDir, t); err != nil {
+			return nil, dep, nil, err
+		}
+		for p, fd := range flows {
+			data, err := os.ReadFile(filepath.Join(pullDir, filepath.FromSlash(p)+".flow", "flow.yaml"))
+			if err != nil {
+				return nil, dep, nil, fmt.Errorf("oracle: sync pull wrote no flow %s: %w", p, err)
+			}
+			j, err := yamlx.ToJSON(data)
+			if err != nil {
+				return nil, dep, nil, fmt.Errorf("oracle: the pulled flow %s: %w", p, err)
+			}
+			if fd.Pulled, err = flowValue(j); err != nil {
+				return nil, dep, nil, fmt.Errorf("oracle: the pulled flow %s: %w", p, err)
+			}
+			flows[p] = fd
+		}
+	}
 	return tree, dep, flows, nil
 }
 
@@ -627,6 +697,16 @@ func (s *Session) record(ctx context.Context, c *Client, ws string, f *conforman
 		for k := range batch {
 			if out[k] == nil {
 				live = append(live, k)
+			}
+		}
+		if f.Oracle.SetupPolicy() == conformance.SetupEachRun && len(live) > 0 {
+			// The fixture's runs change its variables (FX-49), so each
+			// run starts from setup.yaml's values.
+			if err := ResetSetup(ctx, c, ws, f.Setup); err != nil {
+				for _, k := range live {
+					fail(k, OutcomeFailed, err, nil)
+				}
+				continue
 			}
 		}
 		results := make([]executed, len(batch))
@@ -803,9 +883,29 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	submitted := time.Now()
 	var id string
 	var err error
-	if r.IsScript() {
+	var resp *HTTPResponse
+	var responded time.Duration
+	switch {
+	case r.IsScript():
 		id, err = c.RunScript(ctx, ws, r.Target, r.ArgsOrEmpty(), root)
-	} else {
+	case r.RunsAndWaits():
+		// Run-and-wait answers when the flow completes, or early at its
+		// early_return step while the flow runs on (FX-37); the poll
+		// below then waits for the flow itself.
+		waitCtx, cancel := context.WithTimeout(ctx, s.RunTimeout)
+		var hr HTTPResponse
+		hr, err = c.RunWaitFlow(waitCtx, ws, r.Target, r.ArgsOrEmpty(), root)
+		cancel()
+		responded = time.Since(submitted)
+		id, resp = root, &hr
+		if err != nil {
+			stop, done := context.WithTimeout(context.Background(), 30*time.Second)
+			if cerr := c.Cancel(stop, ws, root, "wltest: run-and-wait failed"); cerr == nil {
+				_ = WaitJob(stop, c, ws, root, s.pollInterval, false)
+			}
+			done()
+		}
+	default:
 		id, err = c.RunFlow(ctx, ws, r.Target, r.ArgsOrEmpty(), root)
 	}
 	if err != nil {
@@ -845,7 +945,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	wc.Capture = capture
 	w, err := (&Walker{Client: &wc, Workspace: ws, Tree: tree}).Walk(ctx, id, r.Target, r.IsScript())
 	if s.RawDir != "" {
-		if werr := s.writeRaw(f, r, rep, ws, root, effects, capture); werr != nil && err == nil {
+		if werr := s.writeRaw(f, r, rep, ws, root, effects, resp, capture); werr != nil && err == nil {
 			err = werr
 		}
 	}
@@ -860,13 +960,17 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 			effects = append(effects, call.Effect)
 		}
 	}
-	obs, err := Observe(w, effects, f.Compare)
+	obs, err := Observe(w, effects, resp, f.Compare)
 	if err != nil {
 		return obs, base, err
 	}
 	p := base
 	p.RecordedAt = time.Now().UTC().Format(time.RFC3339)
 	p.Timings = RunTimings{SubmitToCompleteMS: elapsed.Milliseconds(), Jobs: w.Timings}
+	if resp != nil {
+		ms := responded.Milliseconds()
+		p.Timings.SubmitToResponseMS = &ms
+	}
 	p.ForeignEffects = foreign
 	p.ForeignReplayCalls = replay.Foreign() - foreignReplays
 	return obs, p, nil
@@ -881,11 +985,24 @@ type RawCapture struct {
 	Workspace string            `json:"workspace"`
 	Root      string            `json:"root"`
 	Effects   []json.RawMessage `json:"effects"`
-	Exchanges []Exchange        `json:"exchanges"`
+	// Response is the run-and-wait response of a run submitted that way.
+	Response  *Exchange  `json:"response,omitempty"`
+	Exchanges []Exchange `json:"exchanges"`
 }
 
-func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, ws, root string, effects []json.RawMessage, c *Capture) error {
+// HTTP returns the captured run-and-wait response, or nil.
+func (rc RawCapture) HTTP() *HTTPResponse {
+	if rc.Response == nil {
+		return nil
+	}
+	return &HTTPResponse{Status: rc.Response.Status, ContentType: rc.Response.ContentType, Body: []byte(rc.Response.Body)}
+}
+
+func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, ws, root string, effects []json.RawMessage, resp *HTTPResponse, c *Capture) error {
 	rc := RawCapture{Fixture: s.rel(f.Dir), Run: r.Name, Repeat: rep, Workspace: ws, Root: root, Effects: effects, Exchanges: c.Exchanges}
+	if resp != nil {
+		rc.Response = &Exchange{Method: "POST", URL: "run_wait_result/f/" + r.Target, Status: resp.Status, ContentType: resp.ContentType, Body: string(resp.Body)}
+	}
 	if rc.Effects == nil {
 		rc.Effects = []json.RawMessage{}
 	}
@@ -900,14 +1017,25 @@ func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, w
 	return os.WriteFile(filepath.Join(s.RawDir, name), append(data, '\n'), 0o644)
 }
 
-// Observe normalises a walk and the run's effects into an observation
-// (OR-14, OR-15), then applies the fixture's stack and mask paths.
-func Observe(w *Walk, effects []json.RawMessage, spec conformance.CompareSpec) (conformance.Observation, error) {
+// Observe normalises a walk, the run's effects and, for a run submitted
+// through run-and-wait, its response into an observation (OR-14, OR-15),
+// then applies the fixture's stack and mask paths. The response keeps its
+// status, its content type without parameters and its body as text
+// (conformance.Normaliser.Text).
+func Observe(w *Walk, effects []json.RawMessage, resp *HTTPResponse, spec conformance.CompareSpec) (conformance.Observation, error) {
 	n := &conformance.Normaliser{IDs: w.IDs, RuntimeErrors: w.RuntimeErrors}
 	var err error
 	o := conformance.Observation{Status: w.Status}
 	if o.Result, err = n.Value(w.Result); err != nil {
 		return o, err
+	}
+	if resp != nil {
+		body, err := n.Text(string(resp.Body))
+		if err != nil {
+			return o, err
+		}
+		ct, _, _ := strings.Cut(resp.ContentType, ";")
+		o.Response = &conformance.Response{Status: resp.Status, ContentType: strings.TrimSpace(ct), Body: body}
 	}
 	if len(w.Sites) > 0 {
 		o.Steps = make(map[conformance.SitePath]conformance.StepObservation, len(w.Sites))
@@ -1027,7 +1155,11 @@ type HostInfo struct {
 
 // RunTimings are a run's raw timings (OR-17): never compared.
 type RunTimings struct {
-	SubmitToCompleteMS int64                `json:"submit_to_complete_ms"`
+	SubmitToCompleteMS int64 `json:"submit_to_complete_ms"`
+	// SubmitToResponseMS is how long the run-and-wait response took, for a
+	// run submitted that way: an early_return answers before the flow
+	// completes (FX-37/a).
+	SubmitToResponseMS *int64               `json:"submit_to_response_ms,omitempty"`
 	Jobs               map[string]JobTiming `json:"jobs"`
 }
 

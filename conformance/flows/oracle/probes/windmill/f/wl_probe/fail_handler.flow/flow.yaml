@@ -1,0 +1,29 @@
+summary: "probe fail_handler: a failure module that reports the error"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      language: bun
+      content: '!inline failure.ts'
+      input_transforms:
+        error:
+          type: javascript
+          expr: error
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

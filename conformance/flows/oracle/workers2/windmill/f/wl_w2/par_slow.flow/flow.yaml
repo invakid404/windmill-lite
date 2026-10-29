@@ -1,0 +1,26 @@
+summary: "Q-OR-7: a parallel branchall whose branch 0 is slow"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: true
+        branches:
+          - modules:
+              - id: s0
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline s0.ts'
+                  input_transforms: {}
+          - modules:
+              - id: s1
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline s1.ts'
+                  input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

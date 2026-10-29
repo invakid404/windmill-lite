@@ -1,0 +1,14 @@
+# Recording batch E3e: CF-6/b and SY-6/c, the pull round trip (Q-OF-1).
+# The flow is created through the API exactly as written (oracle.deploy
+# api): an identity module with an extra field and a loop without
+# skip_failures. After the deployment gate the CLI's sync pull reads it
+# back (oracle.pull), and each run's provenance holds the pulled value,
+# which TestRecordedDeploymentEvidence checks: the extra field survives
+# and skip_failures is filled in. Synthetic, written for this repository
+# from docs/semantics/conformance.md#cf-6.
+id: control-flow/pull
+spec: [CF-6, SY-6]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api, pull: true}

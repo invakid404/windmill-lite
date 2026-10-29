@@ -1,0 +1,17 @@
+summary: "probe retry: a constant retry, the first attempt failing"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+      retry:
+        constant:
+          attempts: 2
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

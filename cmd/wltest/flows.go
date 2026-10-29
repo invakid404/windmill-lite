@@ -192,6 +192,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
 				continue
+			case r.RunsAndWaits():
+				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
+				continue
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
 				continue

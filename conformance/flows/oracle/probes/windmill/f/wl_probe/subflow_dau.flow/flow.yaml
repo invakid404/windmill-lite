@@ -1,0 +1,28 @@
+summary: "probe ee/subflow_delete_after_use: delete_after_use inside a subflow by path"
+value:
+  modules:
+    - id: c
+      value:
+        type: flow
+        path: f/wl_probe/dau_child
+        input_transforms:
+          x:
+            type: javascript
+            expr: flow_input.x
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: 
+          p:
+            type: javascript
+            expr: "previous_result"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    x:
+      type: number
+  required:
+    - x

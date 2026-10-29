@@ -1,0 +1,25 @@
+summary: "probe nul: a Bun string result with U+0000"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: 
+          p:
+            type: javascript
+            expr: "previous_result"
+          r:
+            type: javascript
+            expr: "results.a"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

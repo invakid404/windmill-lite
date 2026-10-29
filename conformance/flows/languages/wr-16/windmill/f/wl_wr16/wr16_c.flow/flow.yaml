@@ -1,0 +1,13 @@
+summary: "WR-16/c: an inherited custom replace returning a string"
+value:
+  modules:
+    - id: s
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline s.ts'
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

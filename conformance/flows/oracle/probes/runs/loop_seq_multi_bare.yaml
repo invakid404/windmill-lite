@@ -1,0 +1,5 @@
+# OR-V9/b: the literal recipe's bare iter.value is no binding, so x1's
+# transform fails; the correction asks for the exact error, which the
+# recording holds (the catalogue sets no further expectation).
+spec: [OR-V9/b]
+target: f/wl_probe/loop_seq_multi_bare

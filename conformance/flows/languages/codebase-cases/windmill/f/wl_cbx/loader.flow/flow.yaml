@@ -1,0 +1,12 @@
+summary: "WR-47/e: f/wl_cbx/loader/text"
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_cbx/loader/text
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

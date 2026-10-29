@@ -1,0 +1,32 @@
+summary: "probe branchone_empty: an empty chosen branch, then its result"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: "true"
+            modules: []
+        default:
+          - id: def
+            value:
+              type: rawscript
+              language: bun
+              content: '!inline def.ts'
+              input_transforms: {}
+    - id: after
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline after.ts'
+        input_transforms: 
+          p:
+            type: javascript
+            expr: "previous_result"
+          r:
+            type: javascript
+            expr: "results.br"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

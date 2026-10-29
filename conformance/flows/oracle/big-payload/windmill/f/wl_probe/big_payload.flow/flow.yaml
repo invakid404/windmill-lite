@@ -1,0 +1,28 @@
+summary: "probe big_payload: a result too big for the generic endpoint"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: 
+          d:
+            type: javascript
+            expr: "results.a"
+    - id: c
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline c.ts'
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

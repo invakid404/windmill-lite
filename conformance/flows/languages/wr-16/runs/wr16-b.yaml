@@ -1,0 +1,4 @@
+# WR-16/b: the job fails with a TypeError (both readings); the message is
+# recorded.
+spec: [WR-16/b]
+target: f/wl_wr16/wr16_b

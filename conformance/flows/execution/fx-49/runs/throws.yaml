@@ -1,0 +1,6 @@
+# Q-FX-11's throwing variant: the second start phase's evaluation
+# throws, which FX-49 routes as a chaining error at that transition
+# (FX-15). The catalogue sets no expectation; this one is the recorded
+# observation.
+spec: [FX-49, FX-15]
+target: f/wl_fx49/throws

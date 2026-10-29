@@ -1,0 +1,14 @@
+# Recording batch E3e: the probe nul of the probe catalogue (OR-27/a) and
+# the other NUL positions of Q-OR-6 (OR-27/b): a NUL in an object key and
+# in a nested value of a Bun result, and in a Python result. The catalogue
+# sets no expectation for OR-27/b; those runs' expects are the recorded
+# observations. A flow argument holding a NUL is not run: the job API
+# refuses it before a job exists, which is not a run (deferred in
+# batches/e3e.json). Synthetic, written for this repository from
+# docs/semantics/oracle.md#probe-catalogue.
+id: oracle/nul
+spec: [OR-27]
+scope: core
+provenance: oracle-observed
+languages: [bun, python3]
+oracle: {workers: 1}

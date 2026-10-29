@@ -1,0 +1,24 @@
+summary: "CF-6/b and SY-6/c: what a pull writes back"
+value:
+  modules:
+    - id: i
+      value:
+        type: identity
+        extra: 7
+    - id: l
+      value:
+        type: forloopflow
+        iterator:
+          type: javascript
+          expr: '[1]'
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              language: bun
+              content: '!inline x.ts'
+              input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

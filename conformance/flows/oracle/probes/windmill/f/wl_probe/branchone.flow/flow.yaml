@@ -1,0 +1,38 @@
+summary: "probe branchone (OR-V9/c): predicates on flow_input.n"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - expr: "flow_input.n > 10"
+            modules:
+              - id: big
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline big.ts'
+                  input_transforms: {}
+          - expr: "flow_input.n > 0"
+            modules:
+              - id: pos
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline pos.ts'
+                  input_transforms: {}
+        default:
+          - id: def
+            value:
+              type: rawscript
+              language: bun
+              content: '!inline def.ts'
+              input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    n:
+      type: number
+  required:
+    - n

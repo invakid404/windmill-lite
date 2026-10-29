@@ -1,0 +1,24 @@
+summary: "probe while_simple: a while loop whose body stops it"
+value:
+  modules:
+    - id: w
+      value:
+        type: whileloopflow
+        skip_failures: false
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              language: bun
+              content: '!inline x.ts'
+              input_transforms: 
+                i:
+                  type: javascript
+                  expr: "flow_input.iter.index"
+            stop_after_if:
+              expr: result >= 2
+              skip_if_stopped: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

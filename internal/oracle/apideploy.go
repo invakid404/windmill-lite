@@ -35,13 +35,15 @@ type APIDeployment struct {
 // FlowDeployment is a recording's evidence of how an API-deployed fixture's
 // target flow reached the oracle: the value submitted, the value the API
 // answers once its dependency job has succeeded, and the value the CLI's
-// generate-metadata writes for the same source. It is provenance, never
-// compared (OR-V5).
+// generate-metadata writes for the same source, and, for a fixture with
+// oracle.pull, the value the CLI's sync pull writes back (SY-6, CF-6). It
+// is provenance, never compared (OR-V5).
 type FlowDeployment struct {
 	Method       string          `json:"method"`
 	Submitted    json.RawMessage `json:"submitted"`
 	Materialized json.RawMessage `json:"materialized"`
 	CLIGenerated json.RawMessage `json:"cli_generated"`
+	Pulled       json.RawMessage `json:"pulled,omitempty"`
 }
 
 // scriptMeta is the part of a <path>.script.yaml that an API deployment

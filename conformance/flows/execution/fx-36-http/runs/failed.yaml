@@ -1,0 +1,11 @@
+# FX-36/b: HTTP 422 with the failure value as the body; the stack
+# is masked inside the text.
+spec: [FX-36/b]
+target: f/wl_fx36h/failed
+submit: run_wait_result
+expect:
+  status: failure
+  result: {error: {name: Error, message: z, stack: "<stack>", step_id: a}}
+  steps:
+    "m:a": {status: failure, args: {}, result: {error: {name: Error, message: z, stack: "<stack>", step_id: a}}}
+  response: {status: 422, content_type: application/json, body: '{"error": {"message": "z", "name": "Error", "stack": "<stack>", "step_id": "a"}}'}

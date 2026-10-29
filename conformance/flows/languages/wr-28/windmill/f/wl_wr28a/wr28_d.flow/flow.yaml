@@ -1,0 +1,12 @@
+summary: "WR-28/d: f/wl_wr28a/dyn_only run by path"
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_wr28a/dyn_only
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

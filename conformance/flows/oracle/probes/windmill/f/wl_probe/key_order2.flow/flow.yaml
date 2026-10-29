@@ -1,0 +1,31 @@
+summary: "probe key_order2: an older result in jsonb order, the predecessor in producer order"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+    - id: m
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline m.ts'
+        input_transforms: {}
+    - id: b
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline b.ts'
+        input_transforms: 
+          r_keys:
+            type: javascript
+            expr: "Object.keys(results.a)"
+          p_keys:
+            type: javascript
+            expr: "Object.keys(previous_result)"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

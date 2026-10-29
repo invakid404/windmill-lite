@@ -1,0 +1,27 @@
+summary: "Q-OR-15: an empty middle branch under real parallelism"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: true
+        branches:
+          - modules:
+              - id: s0
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline s0.ts'
+                  input_transforms: {}
+          - modules: []
+          - modules:
+              - id: s2
+                value:
+                  type: rawscript
+                  language: bun
+                  content: '!inline s2.ts'
+                  input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

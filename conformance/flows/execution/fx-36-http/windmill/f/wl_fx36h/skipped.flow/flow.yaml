@@ -1,0 +1,16 @@
+summary: "FX-V3/a: a skipped flow answers 422"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline a.ts'
+        input_transforms: {}
+      stop_after_if:
+        expr: 'true'
+        skip_if_stopped: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

@@ -1,0 +1,9 @@
+# WR-50/c: //native runs the ESM bundle in the native runtime, whose
+# process has only env.
+spec: [WR-50/c]
+target: f/wl_cbx/native
+expect:
+  status: success
+  result: ["undefined", "undefined"]
+  steps:
+    "m:s": {status: success, args: {}, result: ["undefined", "undefined"]}

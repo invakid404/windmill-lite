@@ -1,0 +1,12 @@
+summary: "WR-47/d: f/wl_cbx/inject/inject"
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        path: f/wl_cbx/inject/inject
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

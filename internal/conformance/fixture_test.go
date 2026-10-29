@@ -3,6 +3,7 @@ package conformance
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -145,5 +146,60 @@ func TestLoadFixtureRejects(t *testing.T) {
 		if _, err := LoadFixture(write(t, files)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestFixtureOptionChecks loads fixtures that combine the E3e options
+// (oracle.setup, oracle.pull, a run's submit) and requires each invalid
+// combination to be refused with its reason.
+func TestFixtureOptionChecks(t *testing.T) {
+	const setup = "variables:\n  - path: f/x/v\n    value: v\n"
+	for _, c := range []struct {
+		name, oracle, setup, run, err string
+	}{
+		{name: "defaults", oracle: "{}", run: "target: f/x/y\n"},
+		{name: "before push", oracle: "{setup: before_push}", setup: setup, run: "target: f/x/y\n"},
+		{name: "each run", oracle: "{setup: each_run}", setup: setup, run: "target: f/x/y\n"},
+		{name: "each run without variables", oracle: "{setup: each_run}", run: "target: f/x/y\n", err: "needs variables"},
+		{name: "unknown policy", oracle: "{setup: sometimes}", setup: setup, run: "target: f/x/y\n", err: "is not after_push"},
+		{name: "before push through the API", oracle: "{deploy: api, setup: before_push}", setup: setup, run: "target: f/x/y\n", err: "only the CLI's push"},
+		{name: "pull", oracle: "{deploy: api, pull: true}", run: "target: f/x/y\n"},
+		{name: "pull through the CLI", oracle: "{pull: true}", run: "target: f/x/y\n", err: "oracle.pull needs oracle.deploy api"},
+		{name: "run and wait", oracle: "{}", run: "target: f/x/y\nsubmit: run_wait_result\n"},
+		{name: "run and wait a script", oracle: "{}", run: "target: f/x/y\nkind: script\nsubmit: run_wait_result\n", err: "runs a flow alone"},
+		{name: "run and wait in a group", oracle: "{}", run: "target: f/x/y\ngroup: g\nsubmit: run_wait_result\n", err: "runs a flow alone"},
+		{name: "run and wait canceled", oracle: "{}", run: "target: f/x/y\ncancel_after_ms: 5\nsubmit: run_wait_result\n", err: "runs a flow alone"},
+		{name: "unknown submit", oracle: "{}", run: "target: f/x/y\nsubmit: later\n", err: "is not run_wait_result"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range map[string]string{
+				FixtureFile:           "id: x\nspec: [OR-15]\nscope: core\nprovenance: source-derived\noracle: " + c.oracle + "\n",
+				"runs/r.yaml":         c.run,
+				"windmill/wmill.yaml": "includes: [\"f/**\"]\n",
+			} {
+				p := filepath.Join(dir, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.setup != "" {
+				if err := os.WriteFile(filepath.Join(dir, SetupFile), []byte(c.setup), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f, err := LoadFixture(dir)
+			switch {
+			case c.err == "" && err != nil:
+				t.Fatal(err)
+			case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
+				t.Fatalf("got %v, want an error with %q", err, c.err)
+			case c.err == "" && c.run == "target: f/x/y\nsubmit: run_wait_result\n" && !f.Runs[0].RunsAndWaits():
+				t.Fatal("the run does not run and wait")
+			}
+		})
 	}
 }

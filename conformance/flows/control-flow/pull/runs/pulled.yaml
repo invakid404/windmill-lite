@@ -1,0 +1,11 @@
+# The run itself: the identity passes the empty input on and the loop
+# runs its one iteration. What the pull wrote is in the provenance.
+spec: [CF-6/b, SY-6/c]
+target: f/wl_pull/pulled
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:i": {status: success, args: {previous_result: {}}, result: {}}
+    "m:l": {status: success, result: [1]}
+    "m:l/i:0/m:x": {status: success, args: {}, result: 1}

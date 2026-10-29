@@ -1,0 +1,21 @@
+# probe key_order with {"zz":1,"a":2,"mmm":3}: a0's transform sees the
+# flow input's keys in a random order per run (OR-23/a: compared as a
+# multiset), the object it receives has them in jsonb order (OR-13/a);
+# b's transforms see a's producer order and the objects b receives come in
+# jsonb order (OR-V4/a).
+spec: [OR-13/a, OR-23/a, OR-24, OR-V4/a]
+target: f/wl_probe/key_order
+args: {zz: 1, a: 2, mmm: 3}
+expect:
+  status: success
+  result: {p_keys: [bbb, a, cc], r_keys: [bbb, a, cc], p_whole_keys: [a, cc, bbb], r_whole_keys: [a, cc, bbb]}
+  steps:
+    "m:a0":
+      status: success
+      args: {fi_keys: [a, mmm, zz], fi_whole: {a: 2, zz: 1, mmm: 3}}
+      result: {fi_keys: [a, mmm, zz], fi_whole_keys: [a, zz, mmm]}
+    "m:a": {status: success, args: {}, result: {bbb: 1, a: 2, cc: 3}}
+    "m:b":
+      status: success
+      args: {p_keys: [bbb, a, cc], r_keys: [bbb, a, cc], p_whole: {bbb: 1, a: 2, cc: 3}, r_whole: {bbb: 1, a: 2, cc: 3}}
+      result: {p_keys: [bbb, a, cc], r_keys: [bbb, a, cc], p_whole_keys: [a, cc, bbb], r_whole_keys: [a, cc, bbb]}

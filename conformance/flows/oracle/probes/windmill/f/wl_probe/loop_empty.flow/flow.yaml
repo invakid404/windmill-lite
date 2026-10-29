@@ -1,0 +1,34 @@
+summary: "probe loop_empty: an empty loop, then its result"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator:
+          type: javascript
+          expr: "[]"
+        parallel: false
+        skip_failures: false
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              language: bun
+              content: '!inline x.ts'
+              input_transforms: {}
+    - id: after
+      value:
+        type: rawscript
+        language: bun
+        content: '!inline after.ts'
+        input_transforms: 
+          p:
+            type: javascript
+            expr: "previous_result"
+          r:
+            type: javascript
+            expr: "results.l"
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
