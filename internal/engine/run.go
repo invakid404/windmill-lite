@@ -969,6 +969,7 @@ func (r *run) invoke(ctx context.Context, m *ir.Module, site Site, entry string,
 		"WM_FLOW_STEP_ID":     m.ID,
 		"WM_JOB_PATH":         site.Script,
 	}
+	addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.latch.Set(HookLatchError(ctx, err))
 	}

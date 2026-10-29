@@ -725,3 +725,85 @@ func TestNativeGeneratedErrorsAreGenerated(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 }
+
+// pathScriptMeta is a path script's .script.yaml with the given extra
+// lines (envs) and an empty schema.
+func pathScriptMeta(lock, extra string) string {
+	return "summary: ''\ndescription: ''\nlock: '" + lock + "'\nkind: script\n" + extra +
+		"schema:\n  $schema: https://json-schema.org/draft/2020-12/schema\n  type: object\n  properties: {}\n  required: []\n"
+}
+
+// pathStep is a flow module that runs a path script with no inputs.
+func pathStep(id, path string) map[string]any {
+	return map[string]any{"id": id, "value": map[string]any{"type": "script", "path": path, "input_transforms": map[string]any{}}}
+}
+
+// A path script's own envs reach its Bun step under the variables the
+// worker sets later (WR-22, WA-2), here PATH and WM_FLOW_STEP_ID, and a
+// native step's process.env never has them (WR-45), through the real build
+// and harness.
+func TestScriptEnvsReachOnlyBunSteps(t *testing.T) {
+	bun := bunOrSkip(t)
+	const envs = "envs:\n  - FU5_A=from-envs\n  - PATH=/mine\n  - WM_FLOW_STEP_ID=mine\n"
+	step := func(result []any) map[string]any {
+		return map[string]any{"status": "success", "args": map[string]any{}, "result": result}
+	}
+	out, code := checkFixture(t, bun, "languages/script-envs", map[string]any{
+		"fixture.yaml": map[string]any{"id": "languages/script-envs", "spec": []string{"WR-22", "WR-45"}, "scope": "core",
+			"provenance": "source-derived", "languages": []string{"bun", "nativets"}, "oracle": map[string]any{"workers": 1}},
+		"runs/run.yaml": map[string]any{"spec": []string{"WR-22", "WR-45"}, "target": "f/wl_env/steps", "expect": map[string]any{
+			"status": "success", "result": []any{"unset", "native"},
+			"steps": map[string]any{
+				"m:bun":    step([]any{"from-envs", false, "bun"}),
+				"m:native": step([]any{"unset", "native"}),
+			},
+		}},
+		"windmill/f/wl_env/bun.ts":             "export async function main() { return [process.env.FU5_A ?? \"unset\", process.env.PATH === \"/mine\", process.env.WM_FLOW_STEP_ID]; }\n",
+		"windmill/f/wl_env/bun.script.yaml":    pathScriptMeta("!inline f/wl_env/bun.script.lock", envs),
+		"windmill/f/wl_env/bun.script.lock":    "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+		"windmill/f/wl_env/native.fetch.ts":    "export async function main() { return [process.env.FU5_A ?? \"unset\", process.env.WM_FLOW_STEP_ID]; }\n",
+		"windmill/f/wl_env/native.script.yaml": pathScriptMeta("", envs),
+		"windmill/f/wl_env/steps.flow/flow.yaml": map[string]any{"summary": "script envs", "value": map[string]any{"modules": []any{
+			pathStep("bun", "f/wl_env/bun"), pathStep("native", "f/wl_env/native"),
+		}}},
+	})
+	if code != 0 || !strings.Contains(out, "1 passed, 0 failed, 0 unsupported") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+}
+
+// WR-50/c as a flow step: an ESM codebase script whose source starts with
+// //native runs in the native runtime when a flow reaches it by path, and
+// its control, the same entry without the header, on Bun. The step suite's
+// wr-50.yaml checks the script alone; this checks the engine's path. On
+// the oracle such a job never completed (batch E3e), so the reference's
+// reading is what this holds.
+func TestNativeCodebaseFlowStep(t *testing.T) {
+	bun := bunOrSkip(t)
+	const probe = "export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version]; }\n"
+	step := func(result []any) map[string]any {
+		return map[string]any{"status": "success", "args": map[string]any{}, "result": result}
+	}
+	out, code := checkFixture(t, bun, "languages/native-codebase", map[string]any{
+		"fixture.yaml": map[string]any{"id": "languages/native-codebase", "spec": []string{"WR-50"}, "scope": "core",
+			"provenance": "source-derived", "languages": []string{"bun"}, "oracle": map[string]any{"workers": 1}},
+		"runs/run.yaml": map[string]any{"spec": []string{"WR-50/c"}, "target": "f/wl_cbn/steps", "expect": map[string]any{
+			"status": "success", "result": []any{"object", "string"},
+			"steps": map[string]any{
+				"m:native":  step([]any{"undefined", "undefined"}),
+				"m:control": step([]any{"object", "string"}),
+			},
+		}},
+		"windmill/wmill.yaml":                      "defaultTs: bun\ncodebases:\n  - relative_path: f/wl_cbn/cb\n    includes: [\"f/wl_cbn/cb/**\"]\n    format: esm\n",
+		"windmill/f/wl_cbn/cb/native.ts":           "//native\n" + probe,
+		"windmill/f/wl_cbn/cb/native.script.yaml":  pathScriptMeta("", ""),
+		"windmill/f/wl_cbn/cb/control.ts":          probe,
+		"windmill/f/wl_cbn/cb/control.script.yaml": pathScriptMeta("", ""),
+		"windmill/f/wl_cbn/steps.flow/flow.yaml": map[string]any{"summary": "WR-50/c", "value": map[string]any{"modules": []any{
+			pathStep("native", "f/wl_cbn/cb/native"), pathStep("control", "f/wl_cbn/cb/control"),
+		}}},
+	})
+	if code != 0 || !strings.Contains(out, "1 passed, 0 failed, 0 unsupported") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+}

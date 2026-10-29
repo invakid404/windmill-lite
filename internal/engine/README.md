@@ -216,7 +216,15 @@ another harness than Bun's, whose `bun` and `native` boundaries it runs
    (`Entrypoint`), H3 asks `BeforeFirstWrite` once per run before the
    first write-capable launch, H12 edits the environment, and the step
    runs through the `StepExecutor` with its timeout as a timer in the
-   engine. The timeout is the module's static one, else a path script's
+   engine. The environment is the reserved variables the engine sets
+   (`WM_WORKSPACE`, the job ids, `WM_FLOW_PATH`, `WM_FLOW_STEP_ID`,
+   `WM_JOB_PATH`) and, for a Bun step of a path script, its own `envs`
+   entries (`KEY=VALUE`) under them: a name the worker sets later, a
+   reserved variable or a common Bun variable such as `PATH` or
+   `BASE_URL`, is skipped, and a later entry wins
+   ([WR-22](../../docs/semantics/languages.md#wr-22),
+   [WA-2](../../docs/semantics/client-api.md#wa-2); `env.go`). A native
+   step gets no `envs` ([WR-45](../../docs/semantics/languages.md#wr-45)). The timeout is the module's static one, else a path script's
    own timeout metadata; a request strictly below the instance maximum is
    job-specific, zero included (no time at all); none, or one at or above
    the maximum, gives the maximum, instance-wide (FX-24, FX-25, WR-37).
