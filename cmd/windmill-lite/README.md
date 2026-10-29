@@ -120,8 +120,8 @@ which `verify` confirms against the release manifest, and a changed file
 fails verification. The build test needs the pinned Bun in `WL_BUN` and
 skips without it, unless `WL_REQUIRE_BUN` is set, as CI sets it.
 
-`host_test.go` runs host mode end to end, the host-mode half of W1's exit
-gate. `testdata/host/host.ts` is a Bun host that embeds the SDK, registers
+`host_test.go` runs host mode end to end: the host-mode half of W1's exit
+gate, and the host-mode gate of milestone C2b. `testdata/host/host.ts` is a Bun host that embeds the SDK, registers
 its instance of the host-provided module `testdata/host/scopes.ts` as
 `f/w1/scopes.ts`, and serves its callers over HTTP on a Unix socket. The
 test compiles it with `bun build --compile`, and its engine is the test
@@ -132,6 +132,7 @@ that only restarts the host when it exits runs it. The tests:
 | Test | What it shows |
 |---|---|
 | `TestHostScopesThroughAHostProvidedModule` | 16 concurrent runs, each in its own tenant scope, read their scope through the host-provided module 16 of 16 (H11); a separately bundled copy of the module reads nothing |
+| `TestHostScopesThroughACodebaseScript` | C2b's gate: `testdata/codebase/cb_scope.ts`, built by `bundle.BuildCodebase` as the CommonJS codebase script of a synthetic folder, its import of `f/w1/scopes.ts` resolved to the module's generated shim, and added with a one-step flow to a copy of the W1 layout, reads the host's scope in 16 of 16 concurrent runs on Bun's CommonJS loader (D12, D13), and reads `Bun.env` through the env rewrite |
 | `TestHostSurvivesADetachedRejection` | one detached rejection does not end the host; it is counted in health |
 | `TestHostNeverSettlingStep` | ADR 0004's never-settling-step test: after one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation; the host is never restarted |
 | `TestHostWatchdog` | ADR 0004's watchdog test: a step that spins forever, with a second run active; the engine kills the host within `killAfter` plus one second, naming both runs, the second run's caller sees the exit, and a run on the restarted host succeeds |

@@ -476,3 +476,56 @@ func TestCompactJSON(t *testing.T) {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
 }
+
+// A codebase script that fails to build fails only the flows that reach it
+// (c2b review 3, finding 5): the codebase build writes the metadata and
+// assets of every script that built, so an unrelated flow whose codebase
+// script reads its asset still runs and passes. A script whose asset
+// collides with one an earlier script took fails its own flow.
+func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
+	bun := bunOrSkip(t)
+	dir := filepath.Join(t.TempDir(), "flows", "c2b", "isolation")
+	flow := func(script string) string {
+		return "summary: t\nvalue:\n  modules:\n    - id: a\n      value:\n        type: script\n        path: f/t/" + script +
+			"\n        input_transforms: {}\nschema: {type: object, properties: {}}\n"
+	}
+	meta := "summary: ''\ndescription: ''\nkind: script\nschema: {type: object, properties: {}}\n"
+	writeTree(t, dir, map[string]string{
+		"fixture.yaml": "id: c2b/isolation\nspec: [WR-47]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
+		"windmill/wmill.yaml": "defaultTs: bun\ncodebases:\n" +
+			"  - relative_path: f/t\n    includes: [\"f/t/good.ts\", \"f/t/bad.ts\"]\n    assets: [{from: f/t/a.txt, to: data/a.txt}]\n" +
+			"  - relative_path: f/t\n    includes: [\"f/t/other.ts\"]\n    assets: [{from: f/t/another.txt, to: data/a.txt}]\n",
+		"windmill/f/t/a.txt":                    "asset",
+		"windmill/f/t/another.txt":              "another asset",
+		"windmill/f/t/good.ts":                  "import { readFileSync } from \"node:fs\";\nexport function main() { return readFileSync(\"data/a.txt\", \"utf8\"); }\n",
+		"windmill/f/t/bad.ts":                   "import { x } from \"./missing\";\nexport function main() { return x; }\n",
+		"windmill/f/t/other.ts":                 "export function main() { return 2; }\n",
+		"windmill/f/t/good.script.yaml":         meta,
+		"windmill/f/t/bad.script.yaml":          meta,
+		"windmill/f/t/other.script.yaml":        meta,
+		"windmill/f/t/goodflow.flow/flow.yaml":  flow("good"),
+		"windmill/f/t/badflow.flow/flow.yaml":   flow("bad"),
+		"windmill/f/t/otherflow.flow/flow.yaml": flow("other"),
+		"runs/bad.yaml":                         "target: f/t/badflow\nexpect: {status: success, result: 0}\n",
+		"runs/other.yaml":                       "target: f/t/otherflow\nexpect:\n  status: success\n  result: 2\n  steps:\n    \"m:a\": {status: success, args: {}, result: 2}\n",
+		"runs/good.yaml":                        "target: f/t/goodflow\nexpect:\n  status: success\n  result: asset\n  steps:\n    \"m:a\": {status: success, args: {}, result: asset}\n",
+	})
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), dir}, &stdout, &stderr)
+	out := stdout.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\n%s%s", code, out, stderr.String())
+	}
+	for _, want := range []string{
+		"pass " + dir + " good\n",
+		"fail " + dir + " bad\n",
+		"build: script f/t/bad: bundle_failed: ",
+		"fail " + dir + " other\n",
+		"build: script f/t/other: asset_collision: ",
+		"1 passed, 2 failed, 0 unsupported (mode warm)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}

@@ -34,7 +34,7 @@ cannot corrupt the protocol.
 
 | File | Contents |
 |---|---|
-| `runtime/main.ts` | Reads the bundle's digest, registers its host-provided modules, connects to fd 3, starts the runtime |
+| `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, connects to fd 3, starts the runtime |
 | `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/context.ts` | The per-invocation context: the environment view, the facade fetch, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
@@ -51,10 +51,23 @@ cannot corrupt the protocol.
   with the same.
 - **Invocations** run concurrently on the event loop, each inside its own
   `AsyncLocalStorage` context with its id, run, environment, abort signal
-  and resource registry. A script's module, `scripts/bun/<id>.mjs` in the
-  bundle, and its metadata, `<id>.meta.json`, are read once per process on
-  its first invocation, inside that invocation's context (warm module
-  state).
+  and resource registry. A script's metadata, `scripts/bun/<id>.meta.json`
+  in the bundle, and its module are read once per process on its first
+  invocation, inside that invocation's context (warm module state). The
+  module is `scripts/bun/<id>.mjs`, or, for a codebase script (metadata
+  `bundler: "esbuild"`, milestone C2b), `<id>.cjs` when it is CommonJS,
+  which Bun's CommonJS loader runs (D13). A codebase module loads from a
+  copy in the working directory, `.windmill-lite-<16 hex digits of the
+  id's SHA-256><ext>`, as Windmill places a codebase bundle as `main.js`
+  in the job directory beside its assets
+  ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
+  `__filename` and `import.meta`, and the relative paths its own `require`
+  resolves at run time, are the working directory's (`moduleFile`).
+- **Codebase assets.** A harness the engine spawned copies the bundle's
+  `assets/` into its working directory, at their paths there, before any
+  module loads (`extractAssets`; [ADR 0002](../../docs/design/0002-ir-and-loader.md),
+  decision 3; D10); one that fails to extract them fails the start (exit
+  code 4). In host mode the SDK extracts them (F3a).
 - **Host-provided modules.** A harness the engine spawned registers the
   bundle's copy of each, `scripts/bun/provided/<id>.mjs`, in the order of
   the manifest's `host_modules`, before it greets the engine
@@ -242,8 +255,14 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    function is missing` in the wrapper-catch shape
    ([WR-7](../../docs/semantics/languages.md#wr-7),
    [WR-12](../../docs/semantics/languages.md#wr-12)). An exported function
-   whose signature the bundle does not record is `escaped`: the bundle is
-   broken.
+   whose signature a Bun-built bundle does not record is `escaped`: the
+   bundle is broken, since the build signs every export of its output. A
+   codebase module's metadata cannot always sign every callable export
+   (CommonJS source has no static export list), so one it does not sign
+   gets an empty parameter list, as Windmill's parser gives a function it
+   does not find in the script's content
+   ([WR-6](../../docs/semantics/languages.md#wr-6),
+   [WR-7](../../docs/semantics/languages.md#wr-7)).
 4. **Binding** ([WR-6](../../docs/semantics/languages.md#wr-6)): with
    parameters, each one's value by name, read as destructuring reads it
    (a missing key gives `undefined`, `null` stays, extra keys are dropped,

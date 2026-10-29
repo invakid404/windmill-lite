@@ -16,14 +16,14 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Twenty-two milestones have landed. F4 gives the
+Twenty-three milestones have landed. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
 scripts and the folder's data) with a manifest that records the digest of
 every file and of every input, and whose own digest identifies the bundle;
 `verify` checks a bundle against a release manifest; `selfcheck` starts the
-expression engine. Nothing runs a built bundle yet. `build` runs eight earlier
+expression engine. Nothing runs a built bundle yet. `build` runs nine earlier
 milestones: the OpenFlow decoder in
 [internal/openflow](internal/openflow/README.md) (A3); the YAML dialect of
 the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2); the
@@ -34,7 +34,9 @@ types and interfaces under `internal/` that later milestones implement and
 code against; and C2a, the Bun side of the build (the same package and the
 [Bun build helper](harnesses/bun/build/README.md)), which bundles Bun
 scripts with Windmill's settings and records their signatures, annotations
-and workflow-as-code markers. `selfcheck` runs the QuickJS-ng expression
+and workflow-as-code markers; and C2b, which bundles codebase scripts as
+the `wmill` CLI does, with esbuild through its Go API, and carries their
+assets. `selfcheck` runs the QuickJS-ng expression
 engine of [internal/expr/quickjs](internal/expr/quickjs/README.md) (B1a).
 `host` serves W1, the walking skeleton: it runs one sequential flow end to
 end on the pinned Bun, in a spawned harness and in host mode, where a Bun
@@ -51,9 +53,11 @@ by the signature the build recorded, the result and error shapes,
 `process.exit` interception and the attribution of process-level errors.
 `wltest check` (C3a) runs the step cases of
 [conformance/steps](conformance/README.md) through the same harness, and
-(E1, N1a) the flow fixtures of [conformance/flows](conformance/README.md)
-and the expression cases, lifted into one-step flows, on N1a's engine core
-in [internal/engine](internal/engine/README.md), comparing each run with
+runs each CommonJS codebase bundle on Node as well, where Windmill runs
+it (C2b, deviation D13), and (E1, N1a) the flow fixtures of
+[conformance/flows](conformance/README.md) and the expression cases,
+lifted into one-step flows, on N1a's engine core in
+[internal/engine](internal/engine/README.md), comparing each run with
 what the oracle recorded. The engine core runs a compiled program's
 flows in sequence, with Windmill's decision list for input transforms, the
 `results` routes, `skip_if`, `mock`, identity steps and `stop_after_if`,
@@ -114,6 +118,10 @@ WL_BUN=/path/to/bun-1.3.10/bun WL_WINDMILL_CLIENT=/path/to/client \
   go test -race ./internal/harness ./internal/bundle ./internal/engine ./cmd/windmill-lite
 ```
 
+The step suite (`go test ./cmd/wltest`) also runs each CommonJS codebase
+bundle on Node, as Windmill does (deviation D13), when `WL_NODE` names a
+Node executable; CI uses Node 20, the major of Windmill v1.767.0's image.
+
 To build a bundle from the synthetic fixture folder and verify it:
 
 ```sh
@@ -128,7 +136,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | Path | What it covers |
 |---|---|
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command: `build` writes a bundle from a sync folder, `verify` checks one against a manifest, `selfcheck` starts the expression engine, `host` serves host mode for the Bun host SDK on the walking skeleton's layout and the engine core, `version` prints its version. |
-| [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has three verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, `stub`, which writes the stubbed copy of a sync tree, and `check`, which runs the step cases on windmill-lite's Bun harness, and the flow fixtures and the expression cases, as generated flows, on its engine core. |
+| [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has three verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, `stub`, which writes the stubbed copy of a sync tree, and `check`, which runs the step cases on windmill-lite's Bun harness (and CommonJS codebase bundles on Node too, D13), and the flow fixtures and the expression cases, as generated flows, on its engine core. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-15). |
@@ -140,10 +148,10 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture, expression-case and step-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator, with the location rule of comparisons with windmill-lite; stub mode's replay table and replay service. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; stub mode's generator and the locator that finds a stub's site in a running job tree; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
 | [internal/harness](internal/harness/README.md) | The engine side of the harness protocol: frames, spawned harness processes with the handshake, settlement and the watchdog, pools, platform calls, warnings, and host mode. It implements the step executor. |
-| [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base) and the Bun side of the build, which runs the Bun build helper. |
-| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment and facade fetch, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the per-invocation registry and the process scope, and a minimal host SDK. |
-| [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, and the export scan of host-provided modules. |
-| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases, the Bun step cases, the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, and E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
+| [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base), the Bun side of the build, which runs the Bun build helper, and codebase scripts, which esbuild bundles through its Go API as the `wmill` CLI does, with their assets and the CLI parity check. |
+| [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment and facade fetch, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the per-invocation registry and the process scope, codebase modules (CommonJS on Bun's CommonJS loader) and their assets in the working directory, and a minimal host SDK. |
+| [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, the export scan of host-provided modules, and the source parse of codebase scripts. |
+| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases (codebase scripts included), the Bun step cases (with D13's, Node against Bun), the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, and E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
@@ -161,8 +169,9 @@ and observed behaviour.
 [CI](.github/workflows/ci.yml) checks `gofmt`, runs `go mod tidy -diff`,
 `go vet ./...` and `go test -race ./...` (with Bun 1.3.10, the build
 helper's parser and `windmill-client@1.767.0` installed, so the harness,
-build and host-mode tests cannot skip; the tests include the image lint and
-the manifest guard), builds a fixture
+build and host-mode tests cannot skip, and Node 20, on which the step suite
+runs each CommonJS codebase bundle as Windmill does, deviation D13; the
+tests include the image lint and the manifest guard), builds a fixture
 bundle twice with `windmill-lite build` and compares the digests and the
 archives, prints a load measurement of the expression engine's pool and
 the expression budget gate (report only), and runs the unit tests of the helpers in `scripts/`, on Ubuntu and
@@ -175,6 +184,11 @@ expression pool's allocators (report only). The other,
 `jsonb (PostgreSQL)`, compares
 the canonicaliser with PostgreSQL in the oracle's pinned image. A separate
 job runs the Bun harness's own `bun test`, which is not a required check.
+The [codebase parity workflow](.github/workflows/parity.yml) runs the
+pinned `windmill-cli@1.767.0`, unmodified, as a tool: it pushes synthetic
+codebase scripts to a recording HTTP stub, and the bundles it uploads must
+equal windmill-lite's esbuild reproduction of them; it is not a required
+check, and its fallback, the settings comparison, runs in the Go jobs.
 The [oracle workflow](.github/workflows/oracle.yml) records the flow
 fixtures and the expression cases on the Windmill CE oracle nightly, on
 demand, and on pull requests that change the cases or the harness or carry

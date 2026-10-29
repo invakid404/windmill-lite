@@ -683,6 +683,96 @@
           }
         }
       }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-shim",
+      "provenance": "policy",
+      "title": "a codebase script's import of a host-provided module resolves to its shim, in CommonJS and in ES module output",
+      "note": "esbuild resolves the import (with or without the extension, as esbuild resolves it), and the plugin maps the file it resolves to onto the shim the scan generated, the same file the Bun build uses (ADR 0010). Neither bundle inlines the module: both read the one registered copy, which loads once.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n  - relative_path: f/esm\n    includes: [\"f/esm/**\"]\n    format: esm\n",
+          "f/shared/ctx.ts": "globalThis.wlCtxLoads = (globalThis.wlCtxLoads ?? 0) + 1;\nexport const tag = \"registered\";\nexport function loads() { return globalThis.wlCtxLoads; }\n",
+          "f/cb/use.ts": "import { loads, tag } from \"../shared/ctx\";\nexport function main() { return [tag, loads()]; }\n",
+          "f/esm/use.ts": "import { loads, tag } from \"../shared/ctx.ts\";\nexport function main() { return [tag, loads()]; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/use\n  - script: f/esm/use\nhost_modules: [f/shared/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/use": {
+            "format": "cjs",
+            "host_modules": [
+              "f/shared/ctx.ts"
+            ],
+            "bundle_contains": [
+              "windmill-lite:host/f/shared/ctx.ts",
+              "host-provided module not registered: f/shared/ctx.ts"
+            ],
+            "bundle_not_contains": [
+              "wlCtxLoads"
+            ]
+          },
+          "f/esm/use": {
+            "format": "esm",
+            "host_modules": [
+              "f/shared/ctx.ts"
+            ],
+            "bundle_not_contains": [
+              "wlCtxLoads"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "f/shared/ctx"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/use",
+              "result": [
+                "registered",
+                1
+              ]
+            },
+            {
+              "entry": "f/esm/use",
+              "result": [
+                "registered",
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-unregistered",
+      "provenance": "policy",
+      "title": "a codebase script whose host-provided module is not registered fails as it loads, with the shim's message",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n  - relative_path: f/esm\n    includes: [\"f/esm/**\"]\n    format: esm\n",
+          "f/shared/ctx.ts": "globalThis.wlCtxLoads = (globalThis.wlCtxLoads ?? 0) + 1;\nexport const tag = \"registered\";\nexport function loads() { return globalThis.wlCtxLoads; }\n",
+          "f/cb/use.ts": "import { loads, tag } from \"../shared/ctx\";\nexport function main() { return [tag, loads()]; }\n",
+          "f/esm/use.ts": "import { loads, tag } from \"../shared/ctx.ts\";\nexport function main() { return [tag, loads()]; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/use\nhost_modules: [f/shared/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/use",
+              "error": "host-provided module not registered: f/shared/ctx.ts"
+            }
+          ]
+        }
+      }
     }
   ]
 }

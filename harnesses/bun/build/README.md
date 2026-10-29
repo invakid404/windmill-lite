@@ -7,7 +7,8 @@ covers `harnesses/bun/build`. The Go build in
 does yet, and no `windmill-lite build` command exists (F4). It runs on the
 pinned Bun 1.3.10 ([WR-3](../../../docs/semantics/languages.md#wr-3)) and
 refuses another unless the caller allows it. Codebase scripts are not
-bundled here: they go through esbuild in Go (C2b).
+bundled here: esbuild bundles them in Go (C2b), and the helper only parses
+their sources (`parse`, below).
 
 ## Running
 
@@ -20,9 +21,17 @@ The helper has one dependency, `@babel/parser` (MIT), pinned with its own
 dependencies in `bun.lock`; it parses TypeScript for the signature parse.
 `node_modules/` is not committed.
 
-The request and response types are in `protocol.ts`. A request is `scan` or
-`build`; the Go side sends a scan first when the bundle has host-provided
-modules, writes their shims, then sends the build. A request it cannot serve
+The request and response types are in `protocol.ts`. A request is `scan`,
+`build` or `parse`; the Go side sends a scan first when the bundle has
+host-provided modules, writes their shims, then sends the build. `parse`
+(`Builder.parseEntry`) is for codebase scripts: for each entry it reports
+what its source records (annotations and bundler target, workflow-as-code
+markers, the packages it imports) and a signature for each export of its
+bundle, whose names the Go build reads from esbuild and sends as the
+entry's `exports` (without them, the source's own exports are scanned).
+As for any Bun script, a function the source declares gets its
+parameters and an export it does not declare gets none. It installs,
+bundles and writes nothing. A request it cannot serve
 at all (unreadable, another Bun) exits with code 2 and an `error` in the
 response. A problem with one script or module is reported against it, and
 the rest are still built.

@@ -342,7 +342,12 @@ Decisions:
    for the same fixture must match them after normalising paths. If the CLI
    needs more of a server than a stub can answer, the check compares the
    esbuild settings and the semantics request's answer instead, and says so
-   in the case.
+   in the case. Milestone C2b found that a stub suffices: `wmill script
+   push` asks for the user, the deployed script (a 404 makes it new) and one
+   multipart `create_snapshot`; the uploaded bundles equal windmill-lite's,
+   with no path to normalise, once a text upload's CRLF line breaks (the
+   form-data encoding's) are read as LF. The settings comparison runs too,
+   as the fallback where the CLI does not (`TestCLIOptionsFollowWR47`).
 
 Loader divergences from the CLI, each labelled in the loader's diagnostics:
 reject a script file with a dot before its script extension, and always use
