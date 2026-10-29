@@ -69,6 +69,11 @@ func attach(t *testing.T, cfg HostConfig, hello Hello) (*fakeHost, *Process, err
 				return
 			}
 			h.msgs <- m
+			if w, ok := m.(Welcome); ok && w.Reject != nil {
+				// A refused host exits, as the SDK's does.
+				hc.Close()
+				return
+			}
 		}
 	}()
 	t.Cleanup(func() { hc.Close() })
@@ -81,6 +86,14 @@ func attach(t *testing.T, cfg HostConfig, hello Hello) (*fakeHost, *Process, err
 	}
 	if cfg.getppid == nil {
 		cfg.getppid = func() int { return fakeHostPID }
+	}
+	if cfg.signal == nil {
+		// The fake host's pid is no process of the test's: nothing may
+		// signal it.
+		cfg.signal = func(pid int) error {
+			t.Errorf("signal to pid %d", pid)
+			return nil
+		}
 	}
 	type res struct {
 		p   *Process

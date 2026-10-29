@@ -1,0 +1,7 @@
+summary: A step that waits flow_input.ms, then a second step
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/sleep, input_transforms: {ms: {type: javascript, expr: flow_input.ms}}}
+    - id: b
+      value: {type: script, path: f/host/echo, input_transforms: {after: {type: javascript, expr: previous_result}}}

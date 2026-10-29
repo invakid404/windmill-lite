@@ -1,0 +1,6 @@
+summary: A step that never settles, with a step timeout of 1 s (FX-24, WR-37)
+value:
+  modules:
+    - id: a
+      timeout: 1
+      value: {type: script, path: f/host/never, input_transforms: {}}

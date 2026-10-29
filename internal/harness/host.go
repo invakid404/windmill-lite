@@ -7,7 +7,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,7 +21,10 @@ import (
 // The host started the engine with one end of a socketpair as file
 // descriptor 3 (HostConn), greets it like a spawned harness, and submits
 // runs with run frames. Runs execute in the host's process, so the engine
-// never taints, recycles or kills it, except through the watchdog.
+// never taints, recycles or kills it, except through the watchdog. The host
+// drains the engine with a drain frame (ADR 0004 host mode item 3): later
+// runs are answered RunDraining, and the engine says bye once the runs in
+// flight have ended.
 type HostConfig struct {
 	// Conn is the socket to the host; HostConn returns fd 3's.
 	Conn net.Conn
@@ -47,14 +52,32 @@ type HostConfig struct {
 	HandshakeTimeout time.Duration
 	RecentLate       int
 	Diagnostics      io.Writer
-	// Facade and Platform are as in ProcessConfig.
+	// Facade and Platform are as in ProcessConfig. A host was not spawned
+	// with the base environment, so each of its invocations carries the
+	// facade's origin as BASE_URL instead.
 	Facade   string
 	Platform PlatformHandler
+	// Workdir is the working directory the host passed to the engine,
+	// which must be a writable directory and the host's own working
+	// directory, the workdir of its hello (ADR 0004, the shared-process
+	// failure model, item 5); the handshake refuses the host otherwise,
+	// with RejectWorkdirNotWritable or RejectWorkdirMismatch
+	// (CheckWorkdir). Each invocation's args.json is written there
+	// (ArgsFile), as in a warm process's own directory. Empty skips the
+	// checks and writes no args.json.
+	Workdir string
+	// Refuse, when not nil, refuses the host in the handshake with this
+	// reason, whatever its hello says: the engine cannot serve it (the
+	// bundle did not open) and tells the host why before it exits. Run is
+	// then not needed.
+	Refuse *Reject
 	// Run serves one run the host submitted, on a goroutine of its own,
 	// and returns its outcome; the ID of what it returns is set from the
 	// request. ctx ends when the host cancels the run (with cause
 	// engine.CancelCanceled) or the connection ends. Invocations of the
-	// run go to p, which implements engine.StepExecutor.
+	// run go to p, which implements engine.StepExecutor. What it returns
+	// goes back as run_done; when its Settled closes, a run_settled
+	// follows.
 	Run func(ctx context.Context, p *Process, r RunRequest) RunDone
 
 	// getppid and signal stand in for the system calls in tests.
@@ -65,9 +88,87 @@ type HostConfig struct {
 // hostSide is what a Process in host mode keeps of its HostConfig.
 type hostSide struct {
 	run     func(ctx context.Context, p *Process, r RunRequest) RunDone
+	workdir string
+	// dir is workdir made absolute, the Process's dir once the handshake
+	// has checked it, set before the welcome lets the host submit a run.
+	dir     string
+	refuse  *Reject
 	getppid func() int
 	signal  func(pid int) error
+
+	// target signals the host once the handshake has named it (on Linux
+	// through a pidfd, parentTarget); guarded by targetMu, which close
+	// also takes.
+	targetMu sync.Mutex
+	target   hostTarget
+
+	// draining and byeSent are guarded by the Process's mu: the host sent
+	// drain, and the engine answered bye.
+	draining bool
+	byeSent  bool
 }
+
+// hostTarget sends SIGKILL to the host, and close releases what it holds.
+type hostTarget interface {
+	kill() error
+	close()
+}
+
+// killTarget signals a pid with kill(2).
+type killTarget int
+
+func (t killTarget) kill() error { return syscall.Kill(int(t), syscall.SIGKILL) }
+func (killTarget) close()        {}
+
+// funcTarget is the signal a test stands in, for a pid.
+type funcTarget struct {
+	pid    int
+	signal func(pid int) error
+}
+
+func (t funcTarget) kill() error { return t.signal(t.pid) }
+func (funcTarget) close()        {}
+
+// CheckWorkdir is host mode's working-directory check (ADR 0004, the
+// shared-process failure model, item 5): passed, the directory the host
+// passed to the engine, must be a directory the engine (the host's child,
+// with its user) can write, else RejectWorkdirNotWritable; and it must be
+// the host's working directory, cwd, once both are resolved to absolute
+// paths without symbolic links, else RejectWorkdirMismatch. A relative
+// passed is taken from the engine's own working directory. It returns nil
+// when the directory is usable. The host SDK checks the same before it
+// starts the engine; conformance/protocol/host holds the cases both sides
+// run.
+func CheckWorkdir(passed, cwd string) *Reject {
+	abs, err := filepath.Abs(passed)
+	if err == nil {
+		var fi os.FileInfo
+		if fi, err = os.Stat(abs); err == nil && !fi.IsDir() {
+			err = errors.New("not a directory")
+		}
+	}
+	if err == nil {
+		err = syscall.Access(abs, accessW)
+	}
+	if err != nil {
+		return &Reject{RejectWorkdirNotWritable, fmt.Sprintf("%s: %v", passed, err)}
+	}
+	if cwd == "" {
+		return &Reject{RejectWorkdirMismatch, fmt.Sprintf("%s: the host's hello names no working directory", passed)}
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return &Reject{RejectWorkdirNotWritable, fmt.Sprintf("%s: %v", passed, err)}
+	}
+	hostReal, err := filepath.EvalSymlinks(cwd)
+	if err != nil || hostReal != real {
+		return &Reject{RejectWorkdirMismatch, fmt.Sprintf("%s is not the host's working directory %s", passed, cwd)}
+	}
+	return nil
+}
+
+// accessW is access(2)'s W_OK.
+const accessW = 0x2
 
 // ErrHostLost is the error of an invocation in flight when the host's
 // connection ends (ADR 0004 host mode item 6, harness_lost): its run was
@@ -90,7 +191,9 @@ func HostConn() (net.Conn, error) {
 
 // HostChildren returns the side channel on which the host announces its
 // steps' child groups, file descriptor 4 (HostConfig.Children), or nil when
-// the host passed none.
+// the host passed none. Call it before HostConn: when the host passed no
+// file descriptor 4, HostConn's duplicate of file descriptor 3 may take
+// that number, which HostChildren would then take for the channel.
 func HostChildren() net.Conn {
 	var st syscall.Stat_t
 	if syscall.Fstat(4, &st) != nil {
@@ -140,7 +243,7 @@ const maxChildFrame = 4096
 // hello must name the engine's parent process, which is the process the
 // watchdog signals (ADR 0004 host mode item 4).
 func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
-	if cfg.Conn == nil || cfg.Run == nil {
+	if cfg.Conn == nil || (cfg.Run == nil && cfg.Refuse == nil) {
 		return nil, errors.New("harness: AttachHost needs Conn and Run")
 	}
 	p, timeout, err := newProcess(ProcessConfig{
@@ -162,14 +265,17 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		cfg.Conn.Close()
 		return nil, err
 	}
-	p.host = &hostSide{run: cfg.Run, getppid: cfg.getppid, signal: cfg.signal}
+	p.host = &hostSide{run: cfg.Run, workdir: cfg.Workdir, refuse: cfg.Refuse, getppid: cfg.getppid, signal: cfg.signal}
+	if cfg.Workdir != "" {
+		if p.host.dir, err = filepath.Abs(cfg.Workdir); err != nil {
+			cfg.Conn.Close()
+			return nil, err
+		}
+	}
 	// The host's own stdout and stderr are not the engine's to read.
 	p.stdio = &lineWriter{diag: p.diag, keep: 20}
 	if p.host.getppid == nil {
 		p.host.getppid = os.Getppid
-	}
-	if p.host.signal == nil {
-		p.host.signal = func(pid int) error { return syscall.Kill(pid, syscall.SIGKILL) }
 	}
 	// Host mode has no process of its own to wait for.
 	close(p.waitDone)
@@ -178,6 +284,7 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 	if err := p.handshake(ctx, timeout); err != nil {
 		return nil, err
 	}
+	p.openTarget()
 	if p.killAfter > 0 {
 		go p.watchdog()
 	}
@@ -188,7 +295,46 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 	return p, nil
 }
 
-// onRun starts a run the host submitted. It runs with p.mu held.
+// openTarget fixes what the watchdog signals: the handshake's pid, which
+// the handshake checked is the engine's parent, through a pidfd where the
+// system has one (parentTarget), opened now, while the host is known to
+// be that process.
+func (p *Process) openTarget() {
+	h := p.host
+	pid := p.Hello().PID
+	var t hostTarget
+	if h.signal != nil {
+		t = funcTarget{pid: pid, signal: h.signal}
+	} else {
+		t = parentTarget(pid, h.getppid)
+	}
+	h.targetMu.Lock()
+	h.target = t
+	h.targetMu.Unlock()
+}
+
+// kill sends SIGKILL to the host through its target.
+func (h *hostSide) kill() error {
+	h.targetMu.Lock()
+	defer h.targetMu.Unlock()
+	if h.target == nil {
+		return errors.New("harness: the host is not connected")
+	}
+	return h.target.kill()
+}
+
+// closeTarget releases the target; the host can no longer be signalled.
+func (h *hostSide) closeTarget() {
+	h.targetMu.Lock()
+	defer h.targetMu.Unlock()
+	if h.target != nil {
+		h.target.close()
+		h.target = nil
+	}
+}
+
+// onRun starts a run the host submitted. It runs with p.mu held. A run
+// that arrives while the host drains is answered RunDraining at once.
 func (p *Process) onRun(r RunRequest) error {
 	if p.host == nil {
 		return protoErr(CodeUnexpected, "run from a harness that is not in host mode")
@@ -196,20 +342,63 @@ func (p *Process) onRun(r RunRequest) error {
 	if _, dup := p.runs[r.ID]; dup {
 		return protoErr(CodeUnexpected, "run %q is already in flight", r.ID)
 	}
+	if p.host.draining {
+		p.conn.send(RunDone{ID: r.ID, Error: &RunError{Code: RunDraining, Message: "the engine is draining and starts no new runs"}})
+		return nil
+	}
 	ctx, cancel := context.WithCancelCause(p.life)
 	p.runs[r.ID] = cancel
 	go func() {
 		done := p.host.run(ctx, p, r)
 		done.ID = r.ID
-		p.mu.Lock()
-		delete(p.runs, r.ID)
-		p.mu.Unlock()
 		cancel(nil)
 		if err := p.conn.send(done); err != nil && !errors.Is(err, net.ErrClosed) {
 			p.diag.printf("run_done %q not sent: %v", r.ID, err)
 		}
+		// The run_done is queued before the run leaves the table, so a bye
+		// that its leaving lets out follows it.
+		p.mu.Lock()
+		delete(p.runs, r.ID)
+		p.maybeByeLocked()
+		p.mu.Unlock()
+		if done.Settled != nil {
+			select {
+			case <-done.Settled:
+				if err := p.conn.send(RunSettled{ID: r.ID}); err != nil && !errors.Is(err, net.ErrClosed) {
+					p.diag.printf("run_settled %q not sent: %v", r.ID, err)
+				}
+			case <-p.life.Done():
+			}
+		}
 	}()
 	return nil
+}
+
+// onHostDrain handles a host's drain (ADR 0004 host mode item 3): no new
+// run starts, and once the runs in flight have ended the engine answers
+// bye. It runs with p.mu held.
+func (p *Process) onHostDrain() error {
+	if p.host == nil {
+		return protoErr(CodeUnexpected, "drain from a harness that is not in host mode")
+	}
+	p.host.draining = true
+	p.maybeByeLocked()
+	return nil
+}
+
+// maybeByeLocked says bye to a draining host once no run is in flight.
+func (p *Process) maybeByeLocked() {
+	h := p.host
+	if !h.draining || h.byeSent || len(p.runs) > 0 {
+		return
+	}
+	h.byeSent = true
+	// Behind every run_done queued before it, whole: a host that exits on
+	// bye has each outcome by then, however large (ADR 0004 host mode
+	// item 3).
+	if err := p.conn.sendAfter(Bye{}, "run:"); err != nil && !errors.Is(err, net.ErrClosed) {
+		p.diag.printf("bye not sent: %v", err)
+	}
 }
 
 // hostDone ends host mode when the connection ends: the host exited,
@@ -230,6 +419,7 @@ func (p *Process) hostDone(err error) {
 		}
 	}
 	p.conn.close()
+	p.host.closeTarget()
 	p.endInvocations()
 	// The runs' contexts end first, with the cause: an Execute that is
 	// given its invocation's outcome next finds the cause already set, and
@@ -282,7 +472,7 @@ func (p *Process) killHost(silence time.Duration) {
 	} else {
 		p.diag.printf("watchdog: no frame from the host for %s (killAfter %s); sending SIGKILL to the host, pid %d, and exiting; in-flight runs: %s; invocations: %s",
 			silence.Round(time.Millisecond), p.killAfter, pid, orNone(runs), orNone(invs))
-		if err := p.host.signal(pid); err != nil {
+		if err := p.host.kill(); err != nil {
 			p.diag.printf("watchdog: SIGKILL to pid %d: %v", pid, err)
 		}
 	}

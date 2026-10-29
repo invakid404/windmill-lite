@@ -1,0 +1,6 @@
+summary: A step that runs on for flow_input.ms after its timeout of 1 s abandons it, so that the run settles after its outcome
+value:
+  modules:
+    - id: a
+      timeout: 1
+      value: {type: script, path: f/host/linger, input_transforms: {ms: {type: javascript, expr: flow_input.ms}}}

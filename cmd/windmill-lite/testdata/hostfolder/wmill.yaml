@@ -1,0 +1,10 @@
+defaultTs: bun
+includes:
+  - f/**
+codebases:
+  - relative_path: f/hostcb
+    includes:
+      - f/hostcb/**
+    assets:
+      - from: f/hostcb/greeting.txt
+        to: data/greeting.txt
