@@ -1,0 +1,34 @@
+summary: CF-24/b the job path of an inline body step
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: '!inline b.ts'
+              input_transforms: {}
+              lock: '!inline b.lock'
+              language: bun
+              path: f/cf24/custom
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              path: f/cf24/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

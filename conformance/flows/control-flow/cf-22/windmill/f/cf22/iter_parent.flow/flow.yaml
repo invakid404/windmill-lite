@@ -1,0 +1,41 @@
+summary: CF-22/a a retried non-collapsed iteration sees iter_parent
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                tag:
+                  type: static
+                  value: b
+                v:
+                  type: javascript
+                  expr: flow_input.iter_parent ?? null
+              path: f/cf22/flaky
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              path: f/cf22/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

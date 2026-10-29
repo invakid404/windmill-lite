@@ -1,0 +1,29 @@
+summary: FX-24/e a parallel loop's timeout is not enforced
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: script
+              input_transforms:
+                ms:
+                  type: static
+                  value: 3000
+              path: f/cf27/slow
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: true
+        skip_failures: false
+      timeout:
+        type: static
+        value: 1
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,17 @@
+# CF-22 rule 3: the re-entry of a retried collapsed loop pushes its first
+# body job from the last failed child job's stored input, the body
+# script's arguments {x: 1, y: "Z"}, plus iter: its transforms read no z,
+# so it gets y "none". The next iteration is pushed from the loop's own
+# flow input and gets y "Z".
+spec: [CF-22, Q-CF-7]
+target: f/cf22/collapsed_input
+args: {z: Z}
+note: "Corrected after recording: the prediction had every iteration of the retried loop start from the failed job's input; oracle run 40852609901 recorded that only the re-entry's first push does."
+expect:
+  status: success
+  result: [{x: 1, "y": none}, {x: 2, "y": Z}]
+  steps:
+    "m:l/r:0": {status: failure, args: {x: 1, "y": Z}, result: {error: {name: Error, stack: "<stack>", message: "first attempt", step_id: l}}}
+    "m:l": {status: success, result: [{x: 1, "y": none}, {x: 2, "y": Z}]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1, "y": none}, result: {x: 1, "y": none}}
+    "m:l/i:1/m:b": {status: success, args: {x: 2, "y": Z}, result: {x: 2, "y": Z}}

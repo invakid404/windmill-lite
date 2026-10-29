@@ -1,0 +1,11 @@
+# FX-24, FX-15 context 3: a negative timeout at the child flow's first
+# module fails the child at its pickup with the Anyhow error.
+spec: [FX-24, FX-15]
+target: f/cfwaits/body_timeout_negative_pickup
+expect:
+  status: failure
+  result: [{error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}]
+  steps:
+    "m:l": {status: failure, result: [{error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}]}
+    "m:l/i:0/m:b": {status: not_run, ran: false}
+    "m:l/i:0/m:c": {status: not_run}

@@ -429,7 +429,9 @@ func TestBranchHostSignals(t *testing.T) {
 	}
 	noRecord(t, tr, "m:n")
 
-	// A cancellation in a sequential branchall starts no further branch.
+	// A cancellation in a sequential branchall starts no further branch,
+	// and the branchall fails with the canceled branch's Canceled error
+	// (CF-28).
 	g = newGated()
 	g.hold = "/b:"
 	e = mustOpen(t, map[string]string{"f/t/main": flowOf(two(false))}, g)
@@ -439,7 +441,7 @@ func TestBranchHostSignals(t *testing.T) {
 	g.next(t)
 	cancel()
 	tr = <-out
-	if tr.Status != conformance.RunCanceled || len(g.started) != 1 || at(t, tr, "m:ba").Status != conformance.StepCanceled {
+	if ba := at(t, tr, "m:ba"); tr.Status != conformance.RunCanceled || len(g.started) != 1 || ba.Status != conformance.StepFailure || errorName(jsonval.FromProducer(arrayElems(t, ba.Result)[0])) != "Canceled" {
 		t.Fatalf("canceled: status %s, started %v", tr.Status, g.started)
 	}
 }

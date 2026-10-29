@@ -60,9 +60,10 @@ func (h helpers) FlowUserState(ctx context.Context, key string) (jsonval.Value, 
 // strings are the top-level flow job's. A failure leaves the unresolved
 // map, with a warning, and is not cached; a success becomes the flow's
 // cached map, which the predicates after a child completes read
-// (stopScope). The result is fr's, which only the goroutine that drives fr
-// touches.
+// (stopScope). The result is that of fr's flow, a collapsed iteration's its
+// loop's (owner), which only the goroutine that drives it touches.
 func (r *run) resolveEnv(ctx context.Context, fr *frame) {
+	fr = fr.owner()
 	if fr.envSrc.IsZero() {
 		return
 	}
@@ -81,10 +82,21 @@ func (r *run) resolveEnv(ctx context.Context, fr *frame) {
 // transition resolved it, or its scope's stored map before its first
 // module.
 func (r *run) envOf(fr *frame) jsonval.Value {
-	if !fr.env.IsZero() {
-		return fr.env
+	own := fr.owner()
+	if !own.env.IsZero() {
+		return own.env
 	}
-	return fr.envSrc
+	return own.envSrc
+}
+
+// cachedEnvOf is flow_env as the predicates evaluated after a module or a
+// child completes see it (JE-38): the flow's cached resolved map once one
+// exists, else envOf's.
+func (r *run) cachedEnvOf(fr *frame) jsonval.Value {
+	if own := fr.owner(); !own.envCached.IsZero() {
+		return own.envCached
+	}
+	return r.envOf(fr)
 }
 
 // resolveFailure is a leaf job's argument resolution that failed: the job

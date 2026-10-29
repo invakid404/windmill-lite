@@ -1,0 +1,13 @@
+# Milestone NI (ADR 0012): CF-24, child job paths and step ids.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-24. Every run is by
+# path after the deployment gate saw the flow's dependency job succeed
+# (the reference configuration of ADR 0001 section 1); the job kinds of the
+# root and of every child flow are in each recording's provenance
+# (timings.jobs).
+id: control-flow/cf-24
+spec: [CF-24, CF-24/a, CF-24/b, CF-24/d, CF-24/e]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

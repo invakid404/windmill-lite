@@ -1,0 +1,10 @@
+# CF-24/d: a by-path script in a collapsed body runs with the script's own
+# path.
+spec: [CF-24/d]
+target: f/cf24/d
+expect:
+  status: success
+  result: [f/cf24/body]
+  steps:
+    "m:l": {status: success, result: [f/cf24/body]}
+    "m:l/i:0/m:b": {status: success, args: {}, result: f/cf24/body}

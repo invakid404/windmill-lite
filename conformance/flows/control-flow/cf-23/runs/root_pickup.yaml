@@ -1,0 +1,12 @@
+# CF-23/a: route 1, the loop is the first module, so its iterator error is
+# a failure of the step, which the flow's failure module handles; its
+# result "handled" does not recover.
+spec: [CF-23/a]
+target: f/cf23/root_pickup
+args: {k: 1}
+expect:
+  status: failure
+  result: handled
+  steps:
+    "m:l": {status: failure, ran: false}
+    "s:failure": {status: success, args: {x: handled}, result: handled}

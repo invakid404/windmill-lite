@@ -8,8 +8,9 @@ cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a), with the for loops of milestone N3a, the
 while loops and branches of N3b, the platform providers of milestone PF2
-(`providers.go`), and the job registry, flow user state, object store and
-dispatcher of milestone PF3. This README covers the `wltest` command in
+(`providers.go`), the job registry, flow user state, object store and
+dispatcher of milestone PF3, and the containers' waits, retries and
+cancellation of milestone NI. This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -312,7 +313,19 @@ a few at a time (`flows.go`):
    placeholder of the site whose record names it, an attempt's own. The
    virtual `<id>-v` step of a final sleep is left out, as the walker leaves
    it ([OF-17](../../docs/semantics/openflow.md#of-17),
-   [OR-V7](../../docs/semantics/oracle.md#or-v7)).
+   [OR-V7](../../docs/semantics/oracle.md#or-v7)), a child flow's included
+   (`ChildFlow.Virtual`, milestone NI). A record or child flow the trace
+   marks superseded is left out too, since the walker no longer reaches it
+   (milestone NI): what a retried container's failed attempt ran besides
+   the job the attempt is recorded as, at `<container>/r:<k>` with a child
+   flow's modules below it
+   ([CF-22](../../docs/semantics/control-flow.md#cf-22)), which a later
+   module that lists the attempt (FX-29) shows again below its own
+   `r:<k>`, with everything below it, its modules' own attempts
+   included, as the walker walks the attempt's flow there; what a loop ran
+   before its `skip_if` held mid-loop
+   ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
+   iteration's job that was never pushed.
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location
@@ -356,9 +369,8 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: N2's waits and retries in or on a container, or a
-retry on a subflow step (NI), a container as the failure module (CF-30),
-caching, a preprocessor). The fixture's other runs are checked.
+names the milestone: a container as the failure module (CF-30), a
+retry on a subflow step (later), caching, a preprocessor). The fixture's other runs are checked.
 
 ### Expression files
 
@@ -409,7 +421,7 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, PF2 (with PF1's fixture), N2 and PF3:
+  N3c, PF2 (with PF1's fixture), N2, PF3 and NI:
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
@@ -456,6 +468,11 @@ Windmill v1.767.0's image).
   attempts with the attempt's own placeholder, a listed attempt with no
   record, and the virtual step left out; `TestCheckDelays` checks a run's
   `delays` on the trace's job times (milestone N2).
+  `TestObserveContainerAttempts` (milestone NI, end to end on the engine)
+  checks a retried loop's failed attempt, its child flow's modules below
+  `r:0`, the superseded first attempt left out, and a later module's copy
+  of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
+  the copy of a body module's carried-over attempt inside that subtree.
 
 ## Version
 
