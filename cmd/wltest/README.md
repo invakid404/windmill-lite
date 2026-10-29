@@ -130,8 +130,9 @@ run, then each difference; `unsupported`, the fixture, the run and why it
 was not checked; and a summary. It exits 1 when a case or run failed or a
 file or fixture is invalid, and 2 for usage errors. Unsupported runs do not
 fail it. `--mode` is `warm` (the default) or `fresh` (milestone C3b); host
-mode is F3b's. Flow fixtures run in either, through `wl` (milestone F1).
-`--bun` defaults to `WL_BUN`, then `bun`; `--node` to
+mode is F3b's. Flow fixtures run in either mode, through `wl` (milestone
+F1): in `fresh` each step gets a harness process of its own, as a step case
+does. `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
 `WL_NODE`, and empty skips the Node side of CommonJS codebase cases
 (below); the build refuses any Bun but the pin. `--repo` defaults to the
 nearest directory up from the working directory that holds `harnesses/bun`, whose build helper needs its
@@ -428,7 +429,7 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, PF2 (with PF1's fixture), N2, PF3, NI and F1:
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI and F1:
   every run the flow suite requires passes in `warm` and in `fresh`,
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API). `testdata/flowsuite.json` lists them in
@@ -444,6 +445,10 @@ Windmill v1.767.0's image).
   `<file>/<case>`), as well: each must load, and the log
   gives the counts of passing, failing and unsupported runs, and names the
   runs that pass without being required.
+- `TestCacheFixturesFreshAndWarm` is the rest of milestone N4's gate: the
+  seven runs of `conformance/flows/execution/fx-40` (FX-40/a to /d) pass
+  in `fresh` and in `warm`, since the result cache lives in the engine,
+  not in a harness process.
 - `TestFlowCheckerReportsDifferences` checks that a run whose result, job
   placeholder, recording or claim differs fails with its differences, that
   a flow the engine refuses is unsupported, that an inline step and a

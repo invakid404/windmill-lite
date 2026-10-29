@@ -70,6 +70,11 @@ type Options struct {
 	// in a bundle, so a host passes them here (a Variable with Secret).
 	Resources map[string]Resource
 	Variables map[string]Variable
+	// Results is the result cache that keeps the results of the jobs that
+	// run with a cache_ttl (FX-40, milestone N4), which a host can share
+	// between runtimes; nil means one in memory for the runtime's runs
+	// (D4).
+	Results ResultCache
 	// Diagnostics receives the harness processes' output that no step
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
 	Diagnostics io.Writer
@@ -95,6 +100,12 @@ type Variable struct {
 	Secret     bool
 	Ciphertext bool
 }
+
+// ResultCache is a store of cached job results (ADR 0007, N4): the engine
+// computes the keys, the expiries and the bytes it stores, and a store
+// keeps opaque bytes until their expiry, compared with the time a Get is
+// given, never its own clock.
+type ResultCache = platform.ResultCache
 
 // ErrUnsupported marks a bundle that uses a feature the engine does not
 // run yet; the error names the milestone of ADR 0012 that implements it.
@@ -239,7 +250,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if err != nil {
 		return nil, err
 	}
-	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects}
+	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
 	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Recorded: rt.exec.released}); err != nil {
 		return nil, err

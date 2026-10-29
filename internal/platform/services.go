@@ -212,7 +212,8 @@ func (c VariableChain) Variable(ctx context.Context, path string) (Variable, boo
 // Services are the platform services of ADR 0007: the resources,
 // variables and secrets of milestone PF2, with the host's value resolvers,
 // and the job registry, flow user state, object store and dispatcher of
-// milestone PF3. They are what the facade answers its routes from, and
+// milestone PF3, and the result cache of milestone N4, which only the
+// engine uses. They are what the facade answers its routes from, and
 // what the engine resolves a leaf's arguments, flow_env and the
 // expression helpers through and registers its runs with; a host gives
 // both the same *Services. A nil field takes its default: no resources,
@@ -220,8 +221,9 @@ func (c VariableChain) Variable(ctx context.Context, path string) (Variable, boo
 // Services, and for UserState one UserStates per Services over whichever
 // Jobs it holds, each made when first needed, so the facade and the
 // engine that share a *Services share them; no object store, whose calls
-// answer 501; and no dispatcher, so that no target is in the bundle. A
-// nil *Services has no registry either: it keeps no job. Services are
+// answer 501; no dispatcher, so that no target is in the bundle; and for
+// Results one MemoryResults per Services, made when first needed. A nil
+// *Services has no registry either: it keeps no job. Services are
 // safe for concurrent use when their services are; a field is set before
 // any run starts, and never after.
 type Services struct {
@@ -235,10 +237,29 @@ type Services struct {
 	Objects    ObjectStore
 	Dispatcher Dispatcher
 
-	localOnce  sync.Once
-	local      *Registry
-	statesOnce sync.Once
-	states     *UserStates
+	Results ResultCache
+
+	localOnce   sync.Once
+	local       *Registry
+	statesOnce  sync.Once
+	states      *UserStates
+	resultsOnce sync.Once
+	results     *MemoryResults
+}
+
+// ResultCache returns the result cache the engine keeps cache_ttl results
+// in (FX-40): Results, or the services' own MemoryResults, made when first
+// needed, so the runs of every engine that shares the *Services share it;
+// nil for a nil *Services.
+func (s *Services) ResultCache() ResultCache {
+	switch {
+	case s == nil:
+		return nil
+	case s.Results != nil:
+		return s.Results
+	}
+	s.resultsOnce.Do(func() { s.results = NewMemoryResults() })
+	return s.results
 }
 
 // Registry returns the services' own registry, the default of Jobs,

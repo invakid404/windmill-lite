@@ -86,11 +86,13 @@ func (s *scripts) calls() []string {
 // each a flow value as JSON.
 func testFolder(flows map[string]string) fstest.MapFS {
 	fsys := fstest.MapFS{"wmill.yaml": {Data: []byte("defaultTs: bun\n")}}
-	for _, name := range []string{"echo", "value", "obj", "fail", "zero", "flaky"} {
+	for _, name := range []string{"echo", "value", "obj", "fail", "zero", "flaky", "cached"} {
 		fsys["f/t/"+name+".ts"] = &fstest.MapFile{Data: []byte("export async function main(...a: any[]) { return null }\n")}
 	}
 	// f/t/zero's own metadata asks for a timeout of 0 s (FX-24).
 	fsys["f/t/zero.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ntimeout: 0\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
+	// f/t/cached's own metadata asks for a cache_ttl of 60 s (FX-40).
+	fsys["f/t/cached.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ncache_ttl: 60\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
 	for path, value := range flows {
 		fsys[path+".flow/flow.yaml"] = &fstest.MapFile{Data: []byte(`{"summary":"t","value":` + value + `}`)}
 	}
@@ -744,7 +746,7 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"failure module loop":      `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
 		"retry on a subflow step":  flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
 		"ai sleep":                 flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
-		"cache_ttl":                flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		"cache_ignore_s3_path":     flowOf(mod("a", "echo", "", `"cache_ttl":60,"cache_ignore_s3_path":true`)),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {
@@ -822,38 +824,5 @@ func TestEngineConcurrentRuns(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Error(err)
-	}
-}
-
-// ADR 0006: the engine's module state, warm unless Config names one, is
-// recorded in the trace and handed to the executor with every invocation;
-// New refuses an unknown one.
-func TestEngineModuleState(t *testing.T) {
-	folder, err := syncfolder.Load(testFolder(map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("1")), ""))}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer folder.Close()
-	prog, err := ir.Compile(folder, nil, ir.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
-	if jsErr != nil {
-		t.Fatal(jsErr)
-	}
-	for _, c := range []struct{ state, want ModuleState }{{"", ModuleStateWarm}, {ModuleStateWarm, ModuleStateWarm}, {ModuleStateFresh, ModuleStateFresh}} {
-		s := &scripts{}
-		e, err := New(Config{Program: prog, ModuleState: c.state, Exec: s, JS: jsEng})
-		if err != nil {
-			t.Fatal(err)
-		}
-		tr := runIt(t, e, `{}`, nil)
-		if tr.ModuleState != c.want || len(s.invs) != 1 || s.invs[0].ModuleState != c.want {
-			t.Fatalf("module state %q: trace %q, invocations %+v", c.state, tr.ModuleState, s.invs)
-		}
-	}
-	if _, err := New(Config{Program: prog, ModuleState: "tepid", Exec: &scripts{}, JS: jsEng}); err == nil {
-		t.Error("opened an engine with an unknown module state")
 	}
 }

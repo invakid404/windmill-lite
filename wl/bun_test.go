@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // bunOrSkip returns the Bun of WL_BUN, the pinned 1.3.10; without it the
@@ -39,7 +42,9 @@ const setScript = `export async function main(v: string) {
 `
 
 // buildBundle builds a real bundle (bundle.Build) of a folder with the
-// script f/t/set and the flow f/t/flow, which runs it on u/t/v.
+// script f/t/set and the flow f/t/flow, which runs it on u/t/v, and the
+// flow f/t/cached, whose inline step returns a random number with a
+// cache_ttl (FX-40: a path script's step would drop it).
 func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 	t.Helper()
 	repo, err := filepath.Abs("..")
@@ -51,6 +56,8 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"wmill.yaml":              "defaultTs: bun\n",
 		"f/t/set.ts":              setScript,
 		"f/t/flow.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/set","input_transforms":{"v":{"type":"static","value":"u/t/v"}}}}]}}`,
+		"f/t/cached.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","cache_ttl":600,"value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { return Math.random() }","input_transforms":{}}}]}}`,
 	} {
 		f := filepath.Join(folder, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
@@ -117,5 +124,44 @@ func TestRunOnBun(t *testing.T) {
 	}
 	if _, err := Open(out, Options{Bun: bun, HarnessRuntime: t.TempDir()}); err == nil {
 		t.Error("opened a bundle with another harness runtime")
+	}
+}
+
+// countingCache is a host's result cache that counts what it stores.
+type countingCache struct {
+	ResultCache
+	mu   sync.Mutex
+	puts int
+}
+
+func (c *countingCache) Put(ctx context.Context, key string, value []byte, expires time.Time) error {
+	c.mu.Lock()
+	c.puts++
+	c.mu.Unlock()
+	return c.ResultCache.Put(ctx, key, value, expires)
+}
+
+// A host's result cache (Options.Results, N4) keeps a cache_ttl step's
+// result for the runs of every runtime that shares it (FX-40, D4): a second
+// runtime of the bundle reads the first one's result, and stores nothing.
+func TestRunSharedResultCache(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	cache := &countingCache{ResultCache: platform.NewMemoryResults()}
+	var results []string
+	for range 2 {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: cache})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := rt.Run(context.Background(), "f/t/cached", nil, RunOptions{})
+		rt.Close()
+		if err != nil || res.Status != StatusSuccess {
+			t.Fatalf("%+v %v", res, err)
+		}
+		results = append(results, string(res.Result))
+	}
+	if results[0] != results[1] || cache.puts != 1 {
+		t.Fatalf("results %q, %d stores", results, cache.puts)
 	}
 }

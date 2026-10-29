@@ -21,7 +21,7 @@ compiling.
 
 | File | Contents |
 |---|---|
-| `wl.go` | `Options`, `Resource`, `Variable`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion` |
+| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion` |
 | `run.go` | `RunOptions`, `Result`, `Run`; the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
 
 ## Open
@@ -51,7 +51,10 @@ compiling.
    which replace them (a bundle never holds a secret, so secrets come only
    from the host; a `Variable` with `Ciphertext` is Windmill ciphertext
    windmill-lite never decrypts, JE-43); an object store under
-   `<data>/objects`; the job registry and flow user state; the facade
+   `<data>/objects`; the job registry and flow user state; the result
+   cache of `cache_ttl` (N4, FX-40), `Options.Results` (a `ResultCache`,
+   which a host can share between runtimes) or one in memory for the
+   runtime's runs; the facade
    (`internal/platform/facade`) that serves them to the steps; and the
    default dispatcher over the bundle's program, which runs a root a step
    dispatches as a run of its own (PF3). A step that updates a variable
@@ -124,6 +127,7 @@ the pinned Bun in `warm` and `fresh` mode: a step reads a host's variable
 and updates it through the job API, both calls are in the trace with the
 step's site and job, the next run reads the update, the script runs as a
 script job too, and a bundle with steps does not open without its harness
-runtime or with another. It needs
+runtime or with another; and two runtimes that share a host's result
+cache share a `cache_ttl` step's result, which the first stores once. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.

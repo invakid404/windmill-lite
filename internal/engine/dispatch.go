@@ -58,8 +58,9 @@ type ScriptResult struct {
 // step's are (JE-41, JE-42, WR-5), its job identity is a script job's at
 // its path (WA-4, WA-5: no flow fields, its own effective root) or the
 // one its parent links give it (ScriptRequest), and its timeout is the
-// script's own or the instance's (WR-37). An error means
-// it could not start: a path that is not a script root, or arguments that
+// script's own or the instance's (WR-37); under the script's own
+// cache_ttl, the result cache may answer it before it runs (FX-40). An
+// error means it could not start: a path that is not a script root, or arguments that
 // are not a JSON object or that the job API could not store.
 func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult, error) {
 	s := e.prog.Scripts[req.Path]
@@ -85,10 +86,6 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		id = newUUID()
 	}
 	args := jsonval.FromProducer(stored)
-	entry, _, err := Entrypoint(args)
-	if err != nil {
-		return ScriptResult{ID: id, Failed: true, Result: workerError("", err.Error())}, nil
-	}
 	boundary := Boundary(s.Boundary)
 	ident := platform.Identity{JobID: id, RootJobID: id, JobPath: s.Path, Token: platform.NewToken()}
 	if req.ParentJob != "" || req.RootJob != "" {
@@ -98,6 +95,30 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	env := ident.Env(e.host)
 	reserved := maps.Clone(env)
 	addScriptEnvs(env, s, boundary)
+	// FX-40: the script's own cache_ttl, under which the result cache may
+	// answer the job before it runs, and keeps its result when it
+	// succeeds. A hit is still a job with its identity, which the job
+	// registry knows as it knows one that ran (registerHit); a run
+	// canceled before it completes is killed, as one that ran is.
+	var key string
+	var ttl time.Duration
+	if s.Metadata != nil && s.Metadata.CacheTTL != nil && *s.Metadata.CacheTTL > 0 {
+		if k, ok := e.cacheKey(cacheKindScript, s.ID, args); ok {
+			key, ttl = k, time.Duration(*s.Metadata.CacheTTL)*time.Second
+			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
+				if ctx.Err() != nil {
+					reason, canceler := cancellationOf(ctx)
+					return ScriptResult{ID: id, Failed: true, Result: killedError("", reason, canceler)}, nil
+				}
+				e.registerHit(env)
+				return ScriptResult{ID: id, Result: c.value()}, nil
+			}
+		}
+	}
+	entry, _, err := Entrypoint(args)
+	if err != nil {
+		return ScriptResult{ID: id, Failed: true, Result: workerError("", err.Error())}, nil
+	}
 	resolved, err := e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+err.Error())}, nil
@@ -121,7 +142,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		Args:        resolved,
 		Env:         env,
 		Boundary:    boundary,
-		ModuleState: e.state,
+		ModuleState: e.moduleState,
 		Report:      NopReporter{},
 	})
 	switch {
@@ -138,6 +159,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		// FX-48 case 1: the completion insert refuses a value jsonb
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
+	}
+	if ttl > 0 && !st.Failed {
+		// A store that fails leaves the job's result as it is: the
+		// cache never fails a job.
+		_ = e.cachePut(ctx, key, time.Now(), ttl, st.Value, st.Origin, nil)
 	}
 	return ScriptResult{ID: id, Failed: st.Failed, Result: st.Value}, nil
 }

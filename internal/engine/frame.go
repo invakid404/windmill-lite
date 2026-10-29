@@ -37,6 +37,10 @@ type frame struct {
 	// started is when the frame's flow job started, which its failure
 	// module's started_at reads (FX-32, JE-35).
 	started time.Time
+	// cacheTTL is the flow-level cache_ttl of the frame's flow job, which
+	// only the root and a subflow by path have (FX-40): a body's child flow
+	// carries none. Zero for none.
+	cacheTTL time.Duration
 	// input is the flow's input, flow_input (JE-37); prev is its first
 	// module's previous_result, which is the input except in a collapsed
 	// iteration (CF-8, JE-36).

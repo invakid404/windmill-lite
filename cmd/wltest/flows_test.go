@@ -166,6 +166,44 @@ func TestFlowSuite(t *testing.T) {
 	}
 }
 
+// Milestone N4's gate (ADR 0012): the E3d FX-40 cases, the fixture
+// conformance/flows/execution/fx-40, pass on windmill-lite in fresh and in
+// warm mode, since the result cache lives in the engine, not in a harness
+// process (FX-40, D4). Every run of the fixture runs and passes in both.
+func TestCacheFixturesFreshAndWarm(t *testing.T) {
+	bun := bunOrSkip(t)
+	root := repo(t)
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	dir := filepath.Join(flowsDir, "execution", "fx-40")
+	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {
+		t.Run(mode, func(t *testing.T) {
+			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js}
+			n := 0
+			for _, fr := range fc.runFixtures(context.Background(), []string{dir}) {
+				if fr.err != nil {
+					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
+				}
+				for _, r := range fr.runs {
+					n++
+					switch {
+					case r.unsupported != "":
+						t.Errorf("run %s is unsupported: %s", r.run, r.unsupported)
+					case len(r.problems) > 0:
+						t.Errorf("run %s failed:\n  %s\nharness diagnostics:\n%s", r.run, strings.Join(r.problems, "\n  "), r.diag)
+					}
+				}
+			}
+			if n != 7 {
+				t.Fatalf("%d runs, want FX-40's 7", n)
+			}
+		})
+	}
+}
+
 func mustAbs(t *testing.T, p string) string {
 	t.Helper()
 	a, err := filepath.Abs(p)
@@ -213,7 +251,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"windmill/f/t/two.flow/flow.yaml":   flow(inline("a") + inline("b")),
 		"windmill/f/t/two.flow/a.ts":        "export async function main() { throw new Error(\"no\"); }\n",
 		"windmill/f/t/two.flow/b.ts":        "export async function main() { return 2; }\n",
-		"windmill/f/t/cache.flow/flow.yaml": flow(inline("a") + "      cache_ttl: 60\n"),
+		"windmill/f/t/cache.flow/flow.yaml": flow(inline("a") + "      cache_ttl: 60\n      cache_ignore_s3_path: true\n"),
 		"windmill/f/t/cache.flow/a.ts":      "export async function main() { return 1; }\n",
 		// Inline step a of f/t/same has the job path f/t/same/a, which is
 		// also the path of the script that step b runs (WR-29): two scripts,
@@ -247,7 +285,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"fail " + dir + " c_wrong_recording\n  /steps/m:b/args: (absent) != {}\n  /steps/m:b/ran: false != true\n  /steps/m:b/result: (absent) != 2\n  /steps/m:b/status: \"not_run\" != \"success\"\n",
 		"fail " + dir + " d_wrong_claim\n  /steps/m:b/status: \"not_run\" (want \"success\")\n",
 		`observed {"status":"success","result":"<job:m:a>",`,
-		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/cache: module \"a\": cache_ttl (N4)",
+		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/cache: module \"a\": cache_ignore_s3_path (later)",
 		"pass " + dir + " f_holds\n",
 		"pass " + dir + " g_same_job_path\n",
 		// A script that does not build fails only the runs of the flows

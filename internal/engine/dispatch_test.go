@@ -6,14 +6,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
-	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
-	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
 // waitResult polls a dispatched run until it has completed.
@@ -262,30 +259,29 @@ func TestDispatcherRecordsFollowTheirRoot(t *testing.T) {
 	}
 }
 
-// The engine refuses at open a script root it cannot run (ADR 0001 §3's
-// rule), naming the milestone: a script with its own cache_ttl (N4).
-func TestEngineRefusesUnsupportedRootScript(t *testing.T) {
-	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
-	if jsErr != nil {
-		t.Fatal(jsErr)
+// FX-40: a script root with its own cache_ttl runs as a script job whose
+// result the result cache keeps: a second run with the same arguments
+// gets the first one's result without running, and other arguments miss.
+func TestRunScriptCache(t *testing.T) {
+	x := &idSteps{}
+	e := openWithPlatform(t, map[string]string{}, x, &platform.Services{})
+	run := func(args string) ScriptResult {
+		t.Helper()
+		r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(args))})
+		if err != nil || r.Failed {
+			t.Fatalf("%+v %v", r, err)
+		}
+		return r
 	}
-	fsys := fstest.MapFS{
-		"wmill.yaml":             {Data: []byte("defaultTs: bun\n")},
-		"f/t/cached.ts":          {Data: []byte("export async function main() { return 1 }\n")},
-		"f/t/cached.script.yaml": {Data: []byte("summary: ''\ndescription: ''\nkind: script\ncache_ttl: 60\nschema:\n  type: object\n  properties: {}\n  required: []\n")},
-		"f/t/value.ts":           {Data: []byte("export async function main() { return 1 }\n")},
+	first := run(`{"v":1}`)
+	if again := run(`{"v":1}`); string(again.Result.Producer()) != string(first.Result.Producer()) || again.ID == first.ID {
+		t.Fatalf("a second run %+v, the first %+v", again, first)
 	}
-	folder, err := syncfolder.Load(fsys)
-	if err != nil {
-		t.Fatal(err)
+	if other := run(`{"v":2}`); string(other.Result.Producer()) == string(first.Result.Producer()) {
+		t.Fatal("other arguments hit the first run's entry")
 	}
-	defer folder.Close()
-	prog, err := ir.Compile(folder, nil, ir.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(Config{Program: prog, JS: jsEng}); !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "script f/t/cached: a script's own cache_ttl (N4)") {
-		t.Errorf("open: %v", err)
+	if n := len(x.calls()); n != 2 {
+		t.Fatalf("%d invocations, want 2", n)
 	}
 }
 

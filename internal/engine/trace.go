@@ -41,6 +41,10 @@ type Trace struct {
 	// MayHaveMutated is true once the first write-capable module launched
 	// (H3), in failed runs too.
 	MayHaveMutated bool
+	// Cached is true when the result cache answered the run's flow job,
+	// for a flow with a cache_ttl (FX-40): it succeeded with the cached
+	// result, and no module ran.
+	Cached bool
 
 	// Steps holds one record per site the run reached, in the order the
 	// engine recorded them; compare them by Site, never by position.
@@ -132,6 +136,10 @@ type StepRecord struct {
 	// Abandoned is true when the engine stopped waiting for the invocation
 	// (a timeout or a cancellation) while it was still running (D2).
 	Abandoned bool
+	// Cached is true when the result cache answered the site's job (FX-40):
+	// a leaf's, which ran no invocation, or a subflow step's flow job, which
+	// ran no module.
+	Cached bool
 	// Hooks names the hooks that changed what Windmill would have done at
 	// this site ("H1", "H2", "H7", "H8"), so a comparison with the oracle
 	// can account for them (ADR 0008).
