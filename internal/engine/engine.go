@@ -159,8 +159,8 @@ func supportedModule(m *ir.Module) error {
 		if l == nil {
 			return fmt.Errorf("a %s module with no leaf", m.Kind)
 		}
-		if l.Harness != ir.ClassBun || l.Boundary != ir.BoundaryBun {
-			return unsupported("a %s step in the %s boundary (C3n)", l.Harness, l.Boundary)
+		if l.Harness != ir.ClassBun || (l.Boundary != ir.BoundaryBun && l.Boundary != ir.BoundaryNative) {
+			return unsupported("a %s step in the %s boundary", l.Harness, l.Boundary)
 		}
 	case ir.KindIdentity:
 	case ir.KindSubflow:

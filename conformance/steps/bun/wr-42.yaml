@@ -1,0 +1,117 @@
+# WR-42: a native step's result is JSON.stringify(value ?? null) in its
+# isolate, with no replacer and no BigInt patch: undefined fields are
+# omitted, a top-level function is null, and a BigInt fails the job. Every
+# case runs once as nativets and once as a bun script whose first line is
+# //native.
+finding: WR-42
+scope: core
+cases:
+  - spec: WR-42/a
+    variant: nativets
+    provenance: source-derived
+    title: an undefined field is omitted (nativets)
+    note: The catalogue's next-step transform, results.a.hasOwnProperty("a"), reads this stored value; it gives false.
+    language: nativets
+    script: |
+      export function main() { return { a: undefined, b: 1, c: [undefined] }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {b: 1, c: [null]}}
+  - spec: WR-42/a
+    variant: bunnative
+    provenance: source-derived
+    title: an undefined field is omitted (bunnative)
+    script: |
+      //native
+      export function main() { return { a: undefined, b: 1, c: [undefined] }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {b: 1, c: [null]}}
+  - spec: WR-42/b
+    variant: nativets
+    provenance: source-derived
+    title: a top-level function becomes null (nativets)
+    language: nativets
+    script: |
+      export function main() { return () => 1; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: null}
+  - spec: WR-42/b
+    variant: bunnative
+    provenance: source-derived
+    title: a top-level function becomes null (bunnative)
+    script: |
+      //native
+      export function main() { return () => 1; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: null}
+  - spec: WR-42
+    variant: top-level-symbol
+    provenance: source-derived
+    title: a top-level symbol, undefined or null becomes null too
+    language: nativets
+    script: |
+      export function main(k: string) { return k === "s" ? Symbol("x") : k === "u" ? undefined : null; }
+    runs:
+      - args: '{"k":"s"}'
+        expect: {status: success, result: null}
+      - args: '{"k":"u"}'
+        expect: {status: success, result: null}
+      - args: '{"k":"n"}'
+        expect: {status: success, result: null}
+  - spec: WR-42/c
+    variant: nativets
+    provenance: source-derived
+    title: a BigInt fails the job with V8's TypeError (nativets)
+    language: nativets
+    script: |
+      export function main() { return { n: 10n }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError}}}
+  - spec: WR-42/c
+    variant: bunnative
+    provenance: source-derived
+    title: a BigInt fails the job with V8's TypeError (bunnative)
+    script: |
+      //native
+      export function main() { return { n: 10n }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: Do not know how to serialize a BigInt, stack: "<stack>", name: TypeError}}}
+  - spec: WR-42/d
+    variant: nativets
+    provenance: source-derived
+    title: toJSON is honoured, non-finite numbers are null, a Map is {} (nativets)
+    language: nativets
+    script: |
+      export function main() { return { d: new Date(Date.UTC(2024, 0, 2)), x: NaN, m: new Map([[1, 2]]) }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {d: "2024-01-02T00:00:00.000Z", x: null, m: {}}}
+  - spec: WR-42/d
+    variant: bunnative
+    provenance: source-derived
+    title: toJSON is honoured, non-finite numbers are null, a Map is {} (bunnative)
+    script: |
+      //native
+      export function main() { return { d: new Date(Date.UTC(2024, 0, 2)), x: NaN, m: new Map([[1, 2]]) }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {d: "2024-01-02T00:00:00.000Z", x: null, m: {}}}
+  - spec: WR-42
+    variant: cyclic
+    provenance: source-derived
+    title: a cyclic result fails with a TypeError
+    note: The message is V8's on Windmill (Q-WR-21); windmill-lite keeps JavaScriptCore's.
+    language: nativets
+    script: |
+      export function main() { const a: any = {}; a.self = a; return a; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/step_id, absent: true}

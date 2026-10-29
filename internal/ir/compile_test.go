@@ -295,3 +295,29 @@ func TestMarshalKeepsCharacters(t *testing.T) {
 		t.Errorf("verbatim value escaped:\n%s", b)
 	}
 }
+
+// A deploy relabels a Bun-family script from its native header, in both
+// directions; the language then decides the boundary (OF-15, SY-V3, WR-40).
+func TestDeployedLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		lang     openflow.Language
+		content  string
+		want     openflow.Language
+		boundary Boundary
+	}{
+		{openflow.LangBun, "//native\nexport function main() {}", openflow.LangBunNative, BoundaryNative},
+		{openflow.LangBunNative, "export function main() {}", openflow.LangBun, BoundaryBun},
+		{openflow.LangBun, " //native\nexport function main() {}", openflow.LangBun, BoundaryBun},
+		{openflow.LangNativeTS, "export function main() {}", openflow.LangNativeTS, BoundaryNative},
+		{openflow.LangNativeTS, "//native\n", openflow.LangNativeTS, BoundaryNative},
+	} {
+		got := DeployedLanguage(tc.lang, tc.content)
+		b, ok := BoundaryOf(got)
+		if got != tc.want || !ok || b != tc.boundary {
+			t.Errorf("DeployedLanguage(%s, %q) = %s (%s, %v), want %s (%s)", tc.lang, tc.content, got, b, ok, tc.want, tc.boundary)
+		}
+	}
+	if _, ok := BoundaryOf(openflow.Language("cobol")); ok {
+		t.Error("a language with no harness class has no boundary")
+	}
+}

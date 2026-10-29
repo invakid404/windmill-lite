@@ -166,6 +166,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
 			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
+			// The same facade origin as the step cases', so a native step
+			// reads the same BASE_URL and BASE_INTERNAL_URL in both (WR-45).
+			Facade: stepFacade,
 		},
 	})
 	if err != nil {
@@ -335,7 +338,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 				users[s.ID] = append(users[s.ID], run.Target)
 				continue
 			}
-			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock)}
+			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock), Language: string(s.Language)}
 			if s.Kind == ir.PathScript {
 				e.File = s.File
 			} else {
@@ -445,8 +448,10 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 	t.names = map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
 		s := prog.Scripts[id]
-		if s.Harness != ir.ClassBun || s.Boundary != ir.BoundaryBun {
-			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which is milestone C3n's", s.Path, s.Boundary, s.Harness)
+		// The Bun harness runs both its boundaries, and the engine invokes
+		// each step with its own (C3n); other harnesses are L1's.
+		if s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative) {
+			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which windmill-lite does not have yet", s.Path, s.Boundary, s.Harness)
 			return
 		}
 		t.reached = append(t.reached, s)

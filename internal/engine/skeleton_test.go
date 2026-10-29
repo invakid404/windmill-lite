@@ -409,3 +409,74 @@ func sameJSON(t *testing.T, what string, v jsonval.Value, want string) {
 		t.Fatalf("%s\n got %s\nwant %s (%v)", what, v, want, err)
 	}
 }
+
+// boundaries records the boundary each invocation came with, by script,
+// and succeeds with its arguments.
+type boundaries struct {
+	mu  sync.Mutex
+	got map[string]Boundary
+}
+
+func (b *boundaries) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	b.mu.Lock()
+	b.got[inv.Script] = inv.Boundary
+	b.mu.Unlock()
+	inv.Report.Settled(SettleCompleted)
+	return StepOutcome{Kind: OutcomeOK, Body: inv.Args}, nil
+}
+
+// The skeleton invokes each step with its boundary (C3n): an inline step's
+// by the compiler's rule, so a nativets step is native with or without the
+// //native header (WR-40's note, SC1) and a bun or bunnative one follows
+// its header; a path script's by its metadata in the bundle.
+func TestSkeletonBoundary(t *testing.T) {
+	dir, scripts := t.TempDir(), t.TempDir()
+	raw := func(id, lang, content string) string {
+		v, _ := json.Marshal(map[string]any{"id": id, "value": map[string]string{"type": "rawscript", "language": lang, "content": content}})
+		return string(v)
+	}
+	path := func(id, p string) string {
+		v, _ := json.Marshal(map[string]any{"id": id, "value": map[string]string{"type": "script", "path": p}})
+		return string(v)
+	}
+	modules := []string{
+		raw("bun", "bun", "export function main() {}"),
+		raw("bunheader", "bun", "//native\nexport function main() {}"),
+		raw("bunnative", "bunnative", "export function main() {}"),
+		raw("nativets", "nativets", "export function main() {}"),
+		raw("nativetsheader", "nativets", "//native\nexport function main() {}"),
+		path("pathnative", "f/lib/native"),
+		path("pathbun", "f/lib/plain"),
+	}
+	doc := `{"value":{"modules":[` + strings.Join(modules, ",") + `]}}`
+	if err := os.MkdirAll(filepath.Join(dir, "flows", "f"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "flows", "f", "x.flow.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for p, meta := range map[string]string{"f/lib/native": `{"boundary":"native"}`, "f/lib/plain": `{"boundary":"bun"}`} {
+		file := filepath.Join(scripts, "scripts", "bun", filepath.FromSlash(p)+".meta.json")
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(meta), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec := &boundaries{got: map[string]Boundary{}}
+	s := skeleton(t, exec, func(c *SkeletonConfig) { c.BundleDir, c.ScriptsDir = dir, scripts })
+	if tr := runFlow(t, s, "f/x", "{}", nil); tr.Status != conformance.RunSuccess {
+		t.Fatalf("status %s", tr.Status)
+	}
+	want := map[string]Boundary{
+		"f/x/bun": BoundaryBun, "f/x/bunheader": BoundaryNative, "f/x/bunnative": BoundaryBun,
+		"f/x/nativets": BoundaryNative, "f/x/nativetsheader": BoundaryNative,
+		"f/lib/native": BoundaryNative, "f/lib/plain": BoundaryBun,
+	}
+	for script, b := range want {
+		if exec.got[script] != b {
+			t.Errorf("%s invoked with %q, want %q", script, exec.got[script], b)
+		}
+	}
+}

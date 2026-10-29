@@ -182,6 +182,10 @@ type Warning struct {
 	// processes the settle-time fence revoked or left running (D9). It is
 	// nil for other warnings.
 	Left map[string]int
+	// Untracked counts, by kind, what the native boundary handed a native
+	// invocation but does not track, for a warning of code
+	// "native_untracked" (ADR 0001, D5). It is nil for other warnings.
+	Untracked map[string]int
 }
 
 // Span is one timed interval of a run (ADR 0011, run spans).

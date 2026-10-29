@@ -188,7 +188,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 				Settings: folder.Config.Codebases[s.Codebase.Index].Settings})
 			continue
 		}
-		e := BunScript{ID: id, Path: s.ImportBase, Lock: lockText(s.Lock)}
+		e := BunScript{ID: id, Path: s.ImportBase, Lock: lockText(s.Lock), Language: string(s.Language)}
 		if s.Kind == ir.PathScript {
 			e.File = s.File
 		} else {

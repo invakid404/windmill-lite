@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@babel/parser": "8.0.8"
+    "@babel/parser": "8.0.8",
+    "windmill-client": "1.326.0"
   },
   "overrides": {
     "@babel/helper-string-parser": "8.0.8",

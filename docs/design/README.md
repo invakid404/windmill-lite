@@ -26,7 +26,10 @@ in [harnesses/bun](../../harnesses/bun/README.md) and the step level of
 [cmd/wltest](../../cmd/wltest/README.md), milestone C3b the per-invocation
 log, `fetch` and child-process views, the settle-time fence that narrows D9
 of [0001](0001-equivalence-contract.md), and `fresh` mode of
-[0006](0006-module-state.md), milestone C2a the Bun side of the build of
+[0006](0006-module-state.md), milestone C3n the native boundary mode of
+D5 in [0001](0001-equivalence-contract.md) (each `nativets` and `//native`
+step in a realm of its own, behind a boundary to the web APIs that fails
+closed), milestone C2a the Bun side of the build of
 [0010](0010-packaging.md) in [internal/bundle](../../internal/bundle/README.md)
 and [harnesses/bun/build](../../harnesses/bun/build/README.md), milestone
 E2 the oracle harness of
@@ -192,6 +195,12 @@ do (FU4).
    so `undefined` properties are dropped (WR-42), the error shapes (WR-43),
    the timeout text and the heap and stack limits (WR-44), the environment,
    globals and `fetch` (WR-45), and streaming (WR-46). Gate S1 is met.
+   Milestone C3n implements them as the Bun harness's native mode
+   ([0001](0001-equivalence-contract.md) D5). One expectation cannot hold as
+   written: a `//native` bundle is built with Bun's syntax minification
+   ([WR-27](../semantics/languages.md#wr-27)), which writes
+   `throw new Error("x")` as `throw Error("x")`, so WR-43/c's source line for
+   that kind lacks `new`; please confirm the catalogue's reading.
 2. **Codebase bundling details**: the default `format` of a codebase entry,
    the esbuild version the pinned CLI uses, how `inject` and `customBundler`
    are handled, where `assets` land at run time, and the Node version that

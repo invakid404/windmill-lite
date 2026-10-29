@@ -1,0 +1,139 @@
+# WR-41: a fresh isolate per native job, and how its arguments bind: by
+# name from the parsed signature, each parsed with JSON.parse, never
+# hydrated. nativets always calls main; bunnative honours an entrypoint
+# override, and passes no arguments when that export has no parameters.
+# "Both kinds" cases run once as nativets and once as a bun script whose
+# first line is //native.
+finding: WR-41
+scope: core
+cases:
+  - spec: WR-41/a
+    variant: nativets
+    provenance: source-derived
+    title: a Date parameter is not hydrated (nativets)
+    language: nativets
+    script: |
+      export function main(d: Date) { return typeof d; }
+    runs:
+      - args: '{"d":"2024-01-02T03:04:05.000Z"}'
+        expect: {status: success, result: "string"}
+  - spec: WR-41/a
+    variant: bunnative
+    provenance: source-derived
+    title: a Date parameter is not hydrated (bunnative)
+    script: |
+      //native
+      export function main(d: Date) { return typeof d; }
+    runs:
+      - args: '{"d":"2024-01-02T03:04:05.000Z"}'
+        expect: {status: success, result: "string"}
+  - spec: WR-41/b
+    variant: nativets
+    provenance: source-derived
+    title: a missing argument takes its default, null stays null, extra keys are ignored (nativets)
+    language: nativets
+    script: |
+      export function main(a = 3, b: number | null = 5) { return [a, b]; }
+    runs:
+      - args: '{"b":null,"z":1}'
+        expect: {status: success, result: [3, null]}
+  - spec: WR-41/b
+    variant: bunnative
+    provenance: source-derived
+    title: a missing argument takes its default, null stays null, extra keys are ignored (bunnative)
+    script: |
+      //native
+      export function main(a = 3, b: number | null = 5) { return [a, b]; }
+    runs:
+      - args: '{"b":null,"z":1}'
+        expect: {status: success, result: [3, null]}
+  - spec: WR-41/c
+    variant: nativets
+    provenance: source-derived
+    title: every job gets a fresh isolate, even in a warm process (nativets)
+    language: nativets
+    script: |
+      let n = 0;
+      export function main() { n += 1; (globalThis as any).g = ((globalThis as any).g ?? 0) + 1; return [n, (globalThis as any).g]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [1, 1]}
+      - args: '{}'
+        expect: {status: success, result: [1, 1]}
+  - spec: WR-41/c
+    variant: bunnative
+    provenance: source-derived
+    title: every job gets a fresh isolate, even in a warm process (bunnative)
+    script: |
+      //native
+      let n = 0;
+      export function main() { n += 1; (globalThis as any).g = ((globalThis as any).g ?? 0) + 1; return [n, (globalThis as any).g]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [1, 1]}
+      - args: '{}'
+        expect: {status: success, result: [1, 1]}
+  - spec: WR-41/d
+    provenance: source-derived
+    title: nativets ignores the preprocessor entrypoint and runs main on the flow input
+    note: >-
+      The step half of the case: the flow's preprocessor step is invoked
+      with the entrypoint preprocessor (ADR 0004), which a nativets step
+      ignores. That the next step's transform then reads main's result is
+      the flow engine's (N1a and later).
+    language: nativets
+    script: |
+      export function preprocessor() { return { v: "pre" }; }
+      export function main() { return { v: "main" }; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"preprocessor"}'
+        expect: {status: success, result: {v: main}}
+  - spec: WR-41
+    variant: bunnative-override
+    provenance: source-derived
+    title: bunnative honours an entrypoint override, binding that export's parameters
+    script: |
+      //native
+      export function alternate(x: number, when: Date) { return ["alternate", x, typeof when]; }
+      export function main() { return "main"; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"alternate","x":2,"when":"2024-01-02T00:00:00.000Z"}'
+        expect: {status: success, result: [alternate, 2, string]}
+  - spec: WR-41
+    variant: override-no-parameters
+    provenance: source-derived
+    title: with an override and no parsed parameters no argument is passed, unlike Bun's WR-V1 fallback
+    script: |
+      //native
+      export const alternate = (...xs: unknown[]) => xs.length;
+      export function main() { return "main"; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"alternate","x":1,"y":2}'
+        expect: {status: success, result: 0}
+  - spec: WR-41
+    variant: missing-export
+    provenance: source-derived
+    title: the call goes through the module namespace, so a missing export fails with a TypeError
+    note: The message is V8's on Windmill; windmill-lite's is "<entry> is not a function".
+    script: |
+      //native
+      export function main() { return "main"; }
+    runs:
+      - args: '{"_ENTRYPOINT_OVERRIDE":"alternate"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/message, contains: [alternate]}
+          - {at: /result/error/step_id, absent: true}
+  - spec: WR-41
+    variant: json-values
+    provenance: source-derived
+    title: each argument is its JSON value in the realm, -0 and a __proto__ key included
+    language: nativets
+    script: |
+      export function main(o: any, z: number) {
+        return [Object.keys(o), Object.getPrototypeOf(o) === Object.prototype, Object.is(z, -0), Array.isArray(o.list)];
+      }
+    runs:
+      - args: '{"o":{"__proto__":1,"list":[1]},"z":-0}'
+        expect: {status: success, result: [[__proto__, list], true, true, true]}
