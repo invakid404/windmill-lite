@@ -1069,13 +1069,15 @@ func TestLoopHaltAfterOutcome(t *testing.T) {
 		{"clean stop ends the flow", flowOf(loopOf("l", []string{stopAt("")}, seq(false), "")), conformance.RunSuccess, 1},
 		{"parallel, held", flowOf(parallelLoopOf([]string{fail("")}, `1`, false)), conformance.RunHalted, 1},
 		{"parallel, nothing held", flowOf(parallelLoopOf([]string{fail("")}, "", false)), conformance.RunFailure, 2},
-		{"parallel, tolerated", flowOf(parallelLoopOf([]string{fail("")}, "", true), after), conformance.RunHalted, 2},
+		// Both iterations start at once, so the other may or may not have
+		// launched its step when the halt lands: its count is not checked.
+		{"parallel, tolerated", flowOf(parallelLoopOf([]string{fail("")}, "", true), after), conformance.RunHalted, -1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := &loopSteps{}
 			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, s)
 			tr := runIt(t, e, `{}`, haltAt{after: "m:l/i:0/m:b"})
-			if tr.Status != c.status || len(s.invs) != c.invocations {
+			if tr.Status != c.status || c.invocations >= 0 && len(s.invs) != c.invocations {
 				t.Fatalf("status %s, invocations %d, result %s", tr.Status, len(s.invs), tr.Result)
 			}
 		})
