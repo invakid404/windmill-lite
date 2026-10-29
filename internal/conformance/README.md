@@ -6,9 +6,9 @@ E2, the expression-case format, its lifting into generated flows, and the
 claims and unit cases of recording batch E3a, and the replay table and
 replay service of stub mode, milestone E4a, the step-case format and
 its comparison, milestone C3a, the location rule of comparisons with
-the oracle, milestone E1, which milestone N1b extended to FX-50's
-templates, and the run-and-wait response, the setup policies and the pull
-of recording batch E3e
+the oracle, milestone E1, which milestones N1b and N3a extended to the
+flow engine's templates, and the run-and-wait response, the setup policies
+and the pull of recording batch E3e
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
@@ -399,6 +399,7 @@ generated, these templates lose their suffixes:
 | the recognised internal error of item 3, `InternalErr` | its `<loc>` marker and the space before it |
 | a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup), whose message is Windmill's generic display ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | one ` @<file>.rs:<line>:<col>` or ` (<file>.rs:<line>)` per leading `Error: `, when the message ends in that many |
 | the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)), the same display | the same |
+| the error stop of a `stop_after_all_iters_if` that fails to evaluate ([CF-13](../../docs/semantics/control-flow.md#cf-13), milestone N3a), an `EarlyStopError` whose message quotes the expression and then gives its cause in that display | the cause's, the same way |
 
 So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
 `Error: <typed message><loc>` one, while a typed message with no prefix
@@ -406,7 +407,9 @@ So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
 suffixes than prefixes keep their text, and the comparison shows it. A
 pointer may name the error object or a failure value `{"error":…}`.
 Nothing else changes: user text is never stripped, since a pointer names
-only a value windmill-lite generated; the normaliser masks no location in
+only a value windmill-lite generated (a whole value, or an entry the trace
+points to inside a loop's array, milestone N3a), and an error stop's own
+`error_message` matches no template; the normaliser masks no location in
 it and escapes a literal `<loc>` (`<<loc>`). `TestStripLocations` holds
 ADR 0011's positive case (a generated `Internal:` error compares equal to
 the oracle's with its location) and its negative one (two user errors
