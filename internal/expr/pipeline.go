@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -25,6 +26,10 @@ const (
 	hostVariable      = "__wl_variable"
 	hostResource      = "__wl_resource"
 	hostFlowUserState = "__wl_flow_user_state"
+	// hostRebuild is a host string, bound only when needed: the JSON array
+	// of the bound context values that the context prelude rebuilds by
+	// assignment (JE-16).
+	hostRebuild = "__wl_rebuild"
 )
 
 var jsonNull = []byte("null")
@@ -69,7 +74,7 @@ func (p *Pipeline) Prepare(exprs ...*Expr) {
 		p.program(src)
 	}
 	for _, e := range exprs {
-		if e != nil && e.Mode != 0 {
+		if e != nil && e.Mode != 0 && e.RewritePanic == 0 {
 			p.program(programSource(e))
 		}
 	}
@@ -122,7 +127,9 @@ func (p *Pipeline) program(source string) (Program, error) {
 //
 // Otherwise the expression's program runs on the engine (see evaluate). A
 // failure is an *EvalError with Windmill's text; a context that ends during
-// the evaluation gives its cause instead.
+// the evaluation gives its cause instead. The engine's text is returned as
+// it is, without a check that it is JSON: the user's code can replace
+// JSON.stringify and so return any string (JE-15).
 func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, error) {
 	if err := context.Cause(ctx); err != nil {
 		return jsonval.Value{}, err
@@ -139,30 +146,36 @@ func (p *Pipeline) Eval(ctx context.Context, e *Expr, s *Scope) (jsonval.Value, 
 		}
 		return v, nil
 	}
-	out, err := p.evaluate(ctx, e, bind(e, s))
+	if e.RewritePanic != 0 {
+		return jsonval.Value{}, &EvalError{Message: rewritePanicMessage(e), Err: ErrRewritePanic}
+	}
+	in := bind(e, s)
+	if err := checkDepth(e, s, in); err != nil {
+		return jsonval.Value{}, err
+	}
+	out, err := p.evaluate(ctx, e, in)
 	if err != nil {
 		return jsonval.Value{}, err
 	}
 	return jsonval.FromProducer(out), nil
 }
 
-// evaluate runs e's program on the engine with the bindings in (ADR 0003):
+// evaluate runs e's program on the engine with the bindings in (ADR 0003),
+// once Eval has checked them for depth (JE-49):
 //
-//   - a bound context value nested deeper than 127 levels fails before
-//     any JavaScript runs (JE-49);
-//   - the preludes run first: the context values' parse and the helpers,
-//     then the results proxy when the lookup is bound, then error when the
-//     text mentions it (program.go);
+//   - the preludes run first: the context values' conversion and the
+//     helpers, then the results proxy when the lookup is bound, then error
+//     when the text mentions it (program.go);
 //   - a program that did not compile raises its SyntaxError (ADR 0003);
 //   - an error whose text contains "took too long" is tried again after a
 //     pause, up to three attempts in all (JE-2);
-//   - the engine's errors become Windmill's texts (JE-2, JE-3, JE-21), and
-//     a completion that is not JSON text, which only the user's code can
-//     cause, fails with windmill-lite's own.
+//   - the engine's errors become Windmill's texts (JE-2, JE-3, JE-21);
+//   - the serialisation's value is the result text as Windmill reads it
+//     back (JE-15): a string that is UTF-8 is kept as it is, JSON or not,
+//     and anything else, a value that is not a string or a string with an
+//     unpaired surrogate, which only a replaced JSON.stringify can give,
+//     reads as null.
 func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, error) {
-	if err := checkDepth(in); err != nil {
-		return nil, err
-	}
 	srcs := []string{preludeContext}
 	if slices.ContainsFunc(in.Funcs, func(f HostFunc) bool { return f.Name == hostResults }) {
 		srcs = append(srcs, preludeResults)
@@ -183,13 +196,10 @@ func (p *Pipeline) evaluate(ctx context.Context, e *Expr, in Input) ([]byte, err
 	}
 	for attempt := 1; ; attempt++ {
 		out, err := p.engine.Eval(ctx, prog, in)
-		// Only the user's code can make the text something other than one
-		// JSON value; the check is syntax only, jsonb's rejections are the
-		// storage boundary's.
-		if err == nil && !validJSON(out) {
-			err = ErrNotJSON
-		}
-		if err == nil {
+		switch {
+		case errors.Is(err, ErrNotString), err == nil && !utf8.Valid(out):
+			return jsonNull, nil
+		case err == nil:
 			return out, nil
 		}
 		err = windmillError(e, p.limits, err)
@@ -290,7 +300,9 @@ func (s *Scope) context(name string) (jsonval.Value, bool) {
 //     one; flow_env, when mentioned: the flow env, or {};
 //   - the results lookup, when the text mentions results and the scope has
 //     a results context;
-//   - the helpers, always.
+//   - the helpers, always;
+//   - hostRebuild, naming the bound values that can hold a __proto__ key,
+//     when there is one (JE-16).
 //
 // The error helper's value is derived from previous_result by a prelude
 // (program.go), so error binds no host value of its own.
@@ -321,6 +333,15 @@ func bind(e *Expr, s *Scope) Input {
 				}
 			}
 		}
+	}
+	var rebuild []string
+	for _, hs := range in.Strings {
+		if mayHoldProto(hs.Text) {
+			rebuild = append(rebuild, hs.Name)
+		}
+	}
+	if rebuild != nil {
+		in.Strings = append(in.Strings, HostString{hostRebuild, []byte(mustJSON(rebuild))})
 	}
 	in.Funcs = append(in.Funcs,
 		HostFunc{hostVariable, b.variable},

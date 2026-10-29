@@ -1,0 +1,35 @@
+{
+  "finding": "JE-52",
+  "cases": [
+    {
+      "spec": "JE-52/a",
+      "provenance": "source-derived",
+      "title": "an error message with an unpaired surrogate is dropped (O5)",
+      "note": "the backslash is in the expression's text, so the engine decodes the escape; the stack follows Error: at once",
+      "site": "input_transform",
+      "text": "(() => { throw new Error(\"bad \\ud83d\") })()",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"error": "QuickJS evaluation error: Error:\n    at <anonymous> (eval_script:1:46)\n    at <anonymous> (eval_script:1:66)\n    at <eval> (eval_script:1:72)\n"}}
+    },
+    {
+      "spec": "JE-52",
+      "variant": "result-escaped",
+      "provenance": "source-derived",
+      "title": "a result carries an unpaired surrogate escaped, with lowercase hex",
+      "site": "input_transform",
+      "text": "\"\\ud83d\"",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "\"\\ud83d\""}}
+    },
+    {
+      "spec": "JE-52",
+      "variant": "pair-kept",
+      "provenance": "source-derived",
+      "title": "a valid surrogate pair is written as the character",
+      "site": "input_transform",
+      "text": "\"\\ud83d\\ude00\"",
+      "context": {"previous_id": ""},
+      "expect": {"route": "engine", "engine": {"text": "\"😀\""}}
+    }
+  ]
+}

@@ -40,8 +40,39 @@ func elements(text []byte) (items [][]byte, ok bool) {
 //	invalid type: map, expected a sequence at line 1 column 0
 //	invalid type: floating point `1.5`, expected u16 at line 1 column 3
 func serdeError(text []byte, expected string) string {
+	if msg, ok := serdeSyntax(text); ok {
+		return msg
+	}
 	unexp, pos := serdeUnexpected(text)
 	return "invalid type: " + unexp + ", expected " + expected + serdePosition(text, pos)
+}
+
+// serdeSyntax is serde_json's error for a text that does not start with a
+// JSON value, which an evaluation returns when the user's code replaces
+// JSON.stringify (JE-15, Q-JE-14): the end of the text, a character no
+// value starts with, or a broken true, false or null, where the reader
+// stops after the first character that differs. Reading: serde_json's
+// other syntax errors, for a value that starts well and breaks later, are
+// not reproduced.
+func serdeSyntax(text []byte) (string, bool) {
+	t := bytes.TrimLeft(text, " \t\r\n")
+	p := len(text) - len(t)
+	if len(t) == 0 {
+		return "EOF while parsing a value" + serdePosition(text, p), true
+	}
+	ident := map[byte]string{'t': "true", 'f': "false", 'n': "null"}[t[0]]
+	if ident == "" && strings.IndexByte(`{["-0123456789`, t[0]) < 0 {
+		return "expected value" + serdePosition(text, p+1), true
+	}
+	for j := 1; j < len(ident); j++ {
+		if j == len(t) {
+			return "EOF while parsing a value" + serdePosition(text, p+j), true
+		}
+		if t[j] != ident[j] {
+			return "expected ident" + serdePosition(text, p+j+1), true
+		}
+	}
+	return "", false
 }
 
 // parseU16 decodes text as serde_json decodes a u16 (JE-V1): an integer

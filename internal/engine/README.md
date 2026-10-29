@@ -378,7 +378,12 @@ its own.
   `later`, [Q-CF-6](../../docs/semantics/control-flow.md#q-cf-6)); the
   text of P after a loop is the compact array with numbers re-printed
   ([JE-44](../../docs/semantics/expressions.md#je-44)), written with
-  FX-42's exponent spellings (`1e+21`).
+  FX-42's exponent spellings (`1e+21`); an iterator or `parallelism` whose
+  text is not JSON (a replaced `JSON.stringify`,
+  [JE-15](../../docs/semantics/expressions.md#je-15)) fails with serde_json's
+  syntax error for an empty text, a character no value starts with, or a
+  broken `true`, `false` or `null` (``expected ident at line 1 column 2``),
+  and serde_json's other syntax errors are not reproduced.
 
 **For loops (N3a, `loop.go`).** A loop module that runs is a container: no
 arguments, no H1 or H2, a record whose status is the loop's own and whose

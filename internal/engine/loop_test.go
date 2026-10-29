@@ -379,6 +379,8 @@ func TestLoopIterator(t *testing.T) {
 		{static(`true`), prefix + "invalid type: boolean `true`, expected a sequence at line 1 column 4"},
 		{static(`null`), prefix + "invalid type: null, expected a sequence at line 1 column 4"},
 		{`{"type":"ai"}`, "AI input transform not supported for iterator"},
+		// A replaced JSON.stringify returns text that is not JSON (JE-15).
+		{js(`(JSON.stringify = () => "nope", [1])`), prefix + "expected ident at line 1 column 2"},
 	} {
 		e := mustOpen(t, map[string]string{"f/t/main": flowOf(first, loop(c.iterator))}, &loopSteps{})
 		tr := runIt(t, e, args, nil)
@@ -1079,6 +1081,11 @@ func TestSerdeTexts(t *testing.T) {
 		`1e3`:     "invalid type: floating point `1000.0`, expected a sequence at line 1 column 3",
 		`"é"`:     `invalid type: string "é", expected a sequence at line 1 column 4`,
 		`false`:   "invalid type: boolean `false`, expected a sequence at line 1 column 5",
+		// Text that is not JSON, which a replaced JSON.stringify returns.
+		`hello`: "expected value at line 1 column 1",
+		`nope`:  "expected ident at line 1 column 2",
+		`tru`:   "EOF while parsing a value at line 1 column 3",
+		` `:     "EOF while parsing a value at line 1 column 1",
 	} {
 		if got := serdeError([]byte(in), "a sequence"); got != want {
 			t.Errorf("serdeError(%q) = %q, want %q", in, got, want)

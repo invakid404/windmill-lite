@@ -74,6 +74,55 @@
       "site": "input_transform",
       "text": "variable(results.a)",
       "expect": {"binds": ["result", "results"], "code": "(await variable((await results.a)))"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "non-ascii-early",
+      "provenance": "source-derived",
+      "title": "past a two-byte character the inserted ) lands a byte early, inside the string",
+      "note": "the position is counted in characters and applied as a byte offset (JE-11, corrected 2026-10-28, request 8); the code leaves a parenthesis open, so the source does not compile; not yet recorded (Q-JE-13)",
+      "site": "input_transform",
+      "text": "variable(\"é\")",
+      "expect": {"code": "(await variable(\"é)\")"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "non-ascii-panic",
+      "provenance": "source-derived",
+      "title": "where the ) would land inside a character, Windmill's evaluator panics",
+      "note": "variable(\"éé\") is 15 bytes and 13 characters; byte 13 is inside the second é (JE-11); what the panic does to Windmill's job is not traced (Q-JE-13), and windmill-lite fails the evaluation with its own text",
+      "site": "input_transform",
+      "text": "variable(\"éé\")",
+      "expect": {"rewrite_panic": 13}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "non-ascii-before-call",
+      "provenance": "source-derived",
+      "title": "a character before the call moves the ) too",
+      "note": "reading: the count runs from the start of the text, which the reference's \"ASCII up to the insertion point\" says; a count from the call's start would give the exact position here (Q-JE-13 records only calls at the start)",
+      "site": "input_transform",
+      "text": "\"é\" + variable(\"x\")",
+      "expect": {"code": "\"é\" + (await variable(\"x)\")"}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "non-ascii-after-call",
+      "provenance": "source-derived",
+      "title": "text that is ASCII up to the insertion point is rewritten exactly",
+      "site": "input_transform",
+      "text": "variable(\"x\") + \"é\"",
+      "expect": {"code": "(await variable(\"x\")) + \"é\""}
+    },
+    {
+      "spec": "JE-11",
+      "variant": "non-ascii-unbalanced",
+      "provenance": "source-derived",
+      "title": "an unclosed call's ) at the end of the text is counted in characters too",
+      "note": "reading: the rule's character count applies to the end of the text as well (Q-JE-13)",
+      "site": "input_transform",
+      "text": "\"variable(é\"",
+      "expect": {"code": "\"(await variable(é)\""}
     }
   ]
 }

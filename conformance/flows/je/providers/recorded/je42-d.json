@@ -13,7 +13,8 @@
         },
         "result": [
           "<masked>",
-          "s"
+          "s",
+          true
         ]
       },
       "m:z": {
@@ -34,12 +35,12 @@
       "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
       "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
       "cli": "windmill-cli@1.767.0",
-      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.851.0 is available. Run `wmill upgrade` to update."
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.0 is available. Run `wmill upgrade` to update."
     },
     "harness": {
       "name": "wltest",
-      "version": "v0.0.0-20261028122124-26f0815a80f0",
-      "revision": "26f0815a80f02157e8983b953fbcd0ce89af2700",
+      "version": "v0.0.0-20261029005752-966d597e2c3d",
+      "revision": "966d597e2c3de35844fa0a703087f4b53e02929b",
       "go": "go1.27.3"
     },
     "host": {
@@ -47,41 +48,41 @@
       "arch": "amd64",
       "docker_arch": "amd64",
       "ci": "github-actions",
-      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40687124625"
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40797438387"
     },
-    "recorded_at": "2026-10-28T12:24:05Z",
+    "recorded_at": "2026-10-29T01:04:50Z",
     "workers": 1,
     "env": {
       "BASE_URL": "http://localhost:8000",
       "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
       "MODE": "standalone",
       "WHITELIST_ENVS": "WL_EFFECT_SINK",
-      "WL_EFFECT_SINK": "http://host.docker.internal:34331"
+      "WL_EFFECT_SINK": "http://host.docker.internal:38317"
     },
     "repeats": 2,
     "timings": {
-      "submit_to_complete_ms": 205,
+      "submit_to_complete_ms": 207,
       "jobs": {
         "": {
           "kind": "flow",
-          "created_at": "2026-10-28T12:24:05.292180Z",
-          "started_at": "2026-10-28T12:24:05.329299Z",
-          "completed_at": "2026-10-28T12:24:05.422687Z",
-          "duration_ms": 93
+          "created_at": "2026-10-29T01:04:50.504507Z",
+          "started_at": "2026-10-29T01:04:50.542544Z",
+          "completed_at": "2026-10-29T01:04:50.649612Z",
+          "duration_ms": 107
         },
         "m:d": {
           "kind": "script",
-          "created_at": "2026-10-28T12:24:05.330563Z",
-          "started_at": "2026-10-28T12:24:05.332810Z",
-          "completed_at": "2026-10-28T12:24:05.350844Z",
-          "duration_ms": 16
+          "created_at": "2026-10-29T01:04:50.546203Z",
+          "started_at": "2026-10-29T01:04:50.548193Z",
+          "completed_at": "2026-10-29T01:04:50.573103Z",
+          "duration_ms": 23
         },
         "m:z": {
           "kind": "script",
-          "created_at": "2026-10-28T12:24:05.353299Z",
-          "started_at": "2026-10-28T12:24:05.403924Z",
-          "completed_at": "2026-10-28T12:24:05.420386Z",
-          "duration_ms": 14
+          "created_at": "2026-10-29T01:04:50.576349Z",
+          "started_at": "2026-10-29T01:04:50.626071Z",
+          "completed_at": "2026-10-29T01:04:50.646310Z",
+          "duration_ms": 18
         }
       }
     }
