@@ -142,6 +142,10 @@ type scope struct {
 	failureSlot bool
 	// preprocessorSlot is true for the preprocessor module itself.
 	preprocessorSlot bool
+	// slot is true in the failure and preprocessor slots, inside the
+	// containers that fill them too: a deploy keeps them as raw module
+	// values, where it reduces the module lists to stored nodes (WR-29).
+	slot bool
 }
 
 // flow compiles the flow at p. Its document is read with its inline
@@ -182,12 +186,12 @@ func (c *compiler) flow(p string) {
 	out.Modules = fc.list(v.Modules, sc)
 	if m := v.FailureModule; m != nil {
 		s := sc
-		s.failureSlot = true
+		s.failureSlot, s.slot = true, true
 		out.FailureModule = fc.module(m, conformance.FailureSlot(), s)
 	}
 	if m := v.PreprocessorModule; m != nil {
 		s := sc
-		s.preprocessorSlot = true
+		s.preprocessorSlot, s.slot = true, true
 		out.PreprocessorModule = fc.module(m, conformance.PreprocessorSlot(), s)
 	}
 	c.prog.Flows[p] = out

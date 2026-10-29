@@ -14,7 +14,8 @@ import (
 const ConfigFile = "wmill.yaml"
 
 // Config is what windmill-lite reads from wmill.yaml (SY-13). Keys it does
-// not use are ignored; the keys it uses are type-checked.
+// not use are ignored; the keys it uses are type-checked. Without a
+// wmill.yaml every key has its absent value.
 type Config struct {
 	// DefaultTs is the language of a `.ts` script: bun (the default) or
 	// deno (SY-3).
@@ -72,6 +73,16 @@ func parseConfig(src []byte) (*Config, []string, error) {
 	f, err := parseMapping(ConfigFile, ErrConfig, src)
 	if err != nil {
 		return nil, nil, err
+	}
+	switch jsonMode, err := f.boolean("json"); {
+	case err != nil:
+		return nil, nil, err
+	case jsonMode:
+		// The walk then drops every .yaml file but flow.yaml (SY-6, SY-18),
+		// and windmill-lite reads none of the .json metadata.
+		n := f.get("json")
+		return nil, nil, &Error{Kind: ErrUnsupported, File: ConfigFile, Line: n.Line, Column: n.Column,
+			Msg: "unsupported: JSON mode (wmill.yaml sets json: true; SY-13, SY-18)"}
 	}
 	c := &Config{DefaultTs: openflow.LangBun}
 	var warnings []string
@@ -173,10 +184,10 @@ func parseCodebases(f fields) ([]Codebase, error) {
 		if rel != nil {
 			cb.RelativePath = *rel
 		}
-		if cb.Includes, err = e.strings("includes"); err != nil {
+		if cb.Includes, err = e.stringOrList("includes"); err != nil {
 			return nil, err
 		}
-		if cb.Excludes, err = e.strings("excludes"); err != nil {
+		if cb.Excludes, err = e.stringOrList("excludes"); err != nil {
 			return nil, err
 		}
 		if cb.includes, err = compileGlobs(e, "includes", cb.Includes); err != nil {
@@ -237,6 +248,22 @@ func (c *Config) pathFilter(p string) string {
 		return "no extraIncludes glob of wmill.yaml matches it"
 	}
 	return ""
+}
+
+// skips reports whether a skip switch drops the items of a kind (SY-13).
+// skipSecrets depends on the file's content; Variable applies it.
+func (c *Config) skips(k ItemKind) bool {
+	switch k {
+	case KindScript:
+		return c.SkipScripts
+	case KindFlow:
+		return c.SkipFlows
+	case KindResource:
+		return c.SkipResources
+	case KindVariable:
+		return c.SkipVariables
+	}
+	return c.SkipResourceTypes
 }
 
 func anyMatch(gs []*glob, p string) bool {

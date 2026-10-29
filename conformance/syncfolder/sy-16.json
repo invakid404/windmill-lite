@@ -1,0 +1,115 @@
+{
+  "finding": "SY-16",
+  "cases": [
+    {
+      "spec": "SY-16/a",
+      "variant": "*.ts f/a/x.ts",
+      "provenance": "source-derived",
+      "title": "includes *.ts against f/a/x.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['*.ts']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": []
+        },
+        "filtered": {
+          "script": [
+            "f/a/x"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-16/a",
+      "variant": "f/** f/a/x.ts",
+      "provenance": "source-derived",
+      "title": "includes f/** against f/a/x.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "filtered": {
+          "script": []
+        }
+      }
+    },
+    {
+      "spec": "SY-16/a",
+      "variant": "f/** f/a/.x.ts",
+      "provenance": "source-derived",
+      "title": "includes f/** against f/a/.x.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/**']\n",
+          "f/a/.x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": []
+        },
+        "filtered": {
+          "script": [
+            "f/a/"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-16/a",
+      "variant": "F/** f/a/x.ts",
+      "provenance": "source-derived",
+      "title": "includes F/** against f/a/x.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['F/**']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": []
+        },
+        "filtered": {
+          "script": [
+            "f/a/x"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-16/a",
+      "variant": "f/{a,b}/*.ts f/b/y.ts",
+      "provenance": "source-derived",
+      "title": "includes f/{a,b}/*.ts against f/b/y.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/{a,b}/*.ts']\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/b/y"
+          ]
+        },
+        "filtered": {
+          "script": []
+        }
+      }
+    }
+  ]
+}

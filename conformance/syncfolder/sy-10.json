@@ -32,6 +32,105 @@
       }
     },
     {
+      "spec": "SY-10/b",
+      "provenance": "source-derived",
+      "title": "a resource without value",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/cfg.resource.yaml": "resource_type: x\ndescription: d\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource": [
+            "f/a/cfg"
+          ]
+        },
+        "items": {
+          "resource": {
+            "f/a/cfg": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "TypeError",
+                  "Cannot read properties of undefined (reading 'content')"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "invalid_metadata",
+          "contains": [
+            "reading 'content'"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-10",
+      "provenance": "source-derived",
+      "title": "a resource whose value is null",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/cfg.resource.yaml": "resource_type: x\nvalue: null\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "resource": {
+            "f/a/cfg": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "Cannot read properties of null (reading 'content')"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-10",
+      "provenance": "source-derived",
+      "title": "values other than null are sent as written, and resource_type is required",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/n.resource.yaml": "resource_type: x\nvalue: 3\n",
+          "f/a/s.resource.yaml": "resource_type: x\nvalue: plain\n",
+          "f/a/t.resource.yaml": "value: {a: 1}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "resource": {
+            "f/a/n": {
+              "at": {
+                "/value": 3
+              }
+            },
+            "f/a/s": {
+              "at": {
+                "/value": "plain"
+              }
+            },
+            "f/a/t": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "no resource_type"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "spec": "SY-10",
       "provenance": "source-derived",
       "title": "references in values stay literal",
