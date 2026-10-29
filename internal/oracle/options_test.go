@@ -209,6 +209,31 @@ func TestSessionSkipsUnmetWorkers(t *testing.T) {
 	}
 }
 
+// TestSessionSkipsProvidedSites skips a fixture with host-provided sites
+// (milestone F2a): windmill-lite replaces them with the host's providers,
+// while the oracle would run their real targets, so its runs are reported
+// skipped, nothing is deployed, and nothing fails.
+func TestSessionSkipsProvidedSites(t *testing.T) {
+	rig := newRig(t)
+	editFixture(t, rig, "fixture.yaml", "oracle: {workers: 1}",
+		"oracle: {workers: 1}\nprovided:\n  - {selector: {flow: f/x/y, module: a}, static: 1, mandatory: true}")
+	rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Runs) != len(rig.load(t).Runs) {
+		t.Fatalf("%d run reports for %d runs", len(rep.Runs), len(rig.load(t).Runs))
+	}
+	for _, r := range rep.Runs {
+		if r.Outcome != OutcomeSkipped || r.Failed(true) || !strings.Contains(r.Error, "fixture_has_provided_sites") {
+			t.Errorf("%s: %s %s", r.Run, r.Outcome, r.Error)
+		}
+	}
+	if rig.oracle.deleted != 0 || len(rig.oracle.workspaces) != 0 {
+		t.Error("a workspace was created")
+	}
+}
+
 // TestSessionListenInterval starts the oracle with the knob of OR-7/a set
 // through compose's variable, and records the value in provenance.
 func TestSessionListenInterval(t *testing.T) {

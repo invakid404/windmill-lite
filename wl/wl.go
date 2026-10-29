@@ -82,6 +82,11 @@ type Options struct {
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
 	ExpressionSlots int
+	// Providers are the named providers of the bundle's host-provided
+	// sites (ADR 0002, ADR 0008), by the names the host contract gives
+	// them. Open fails with ErrMissingProvider when the contract names one
+	// that is not here; a static provided site needs none.
+	Providers map[string]Provider
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -146,6 +151,8 @@ type Runtime struct {
 	host      *harness.Process // host mode's connection (Options.Host)
 	hostProc  atomic.Pointer[harness.Process]
 	exec      *recorder
+	prog      *ir.Program
+	store     *platform.Store
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
 
@@ -290,6 +297,10 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if err != nil {
 		return nil, err
 	}
+	rt.prog = prog
+	if err := checkProviders(prog, opts.Providers); err != nil {
+		return nil, err
+	}
 	rt.state = rt.manifest.ModuleState
 	if opts.ModuleState != "" {
 		rt.state = engine.ModuleState(opts.ModuleState)
@@ -318,6 +329,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if err != nil {
 		return nil, err
 	}
+	rt.store = store
 	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
 	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released}); err != nil {
@@ -338,7 +350,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.js, err = quickjs.New(quickjs.Options{Slots: opts.ExpressionSlots}); err != nil {
 		return nil, err
 	}
-	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, Exec: rt.exec, JS: rt.js, Platform: rt.services}); err != nil {
+	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: provide(opts.Providers)}); err != nil {
 		return nil, err
 	}
 	// The default dispatcher runs the bundle's roots as runs of their own

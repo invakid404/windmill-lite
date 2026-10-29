@@ -44,8 +44,16 @@ var testFlows = map[string]string{
 // variables in its data/, built by engine version, and returns it.
 func writeTestBundle(t *testing.T, version string, variables map[string]string, edit func(m *bundle.Manifest)) string {
 	t.Helper()
+	return writeBundleOf(t, testFlows, nil, version, variables, edit)
+}
+
+// writeBundleOf is writeTestBundle for the given flows, compiled with the
+// host contract (YAML or JSON) when it is not nil, which the manifest then
+// records.
+func writeBundleOf(t *testing.T, flows map[string]string, contract []byte, version string, variables map[string]string, edit func(m *bundle.Manifest)) string {
+	t.Helper()
 	fsys := fstest.MapFS{"wmill.yaml": {Data: []byte("defaultTs: bun\n")}}
-	for p, v := range testFlows {
+	for p, v := range flows {
 		fsys[p+".flow/flow.yaml"] = &fstest.MapFile{Data: []byte(`{"summary":"t","value":` + v + `}`)}
 	}
 	folder, err := syncfolder.Load(fsys)
@@ -53,7 +61,13 @@ func writeTestBundle(t *testing.T, version string, variables map[string]string, 
 		t.Fatal(err)
 	}
 	defer folder.Close()
-	prog, err := ir.Compile(folder, nil, ir.Options{})
+	var c *ir.Contract
+	if contract != nil {
+		if c, err = ir.ParseContract(contract); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prog, err := ir.Compile(folder, c, ir.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +105,9 @@ func writeTestBundle(t *testing.T, version string, variables map[string]string, 
 			t.Fatal(err)
 		}
 		m.Files[p] = bundle.Digest(data)
+	}
+	if c != nil {
+		m.Contract = prog.Contract
 	}
 	if edit != nil {
 		edit(m)

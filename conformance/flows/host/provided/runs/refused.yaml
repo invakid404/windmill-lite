@@ -1,0 +1,12 @@
+# A static provided value that the site's own stop_after_if stops on: the
+# flow stops after the site, with its value as the result, and the next
+# step does not run (FX-19).
+spec: [FX-19]
+target: f/wl_provided/refused
+args: {key: k2}
+expect:
+  status: success
+  result: {granted: false}
+  steps:
+    "m:wait": {status: success, args: {key: k2}, result: {granted: false}}
+    "m:work": {status: not_run, ran: false}

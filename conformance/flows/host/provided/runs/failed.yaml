@@ -1,0 +1,12 @@
+# A provider's error fails the site as a failed job would (FX-12): with no
+# continue_on_error or retry, the flow fails with the error value, and the
+# next step does not run.
+spec: [FX-12]
+target: f/wl_provided/failed
+args: {key: k4}
+expect:
+  status: failure
+  result: {error: {name: PermitDenied, message: no permit}}
+  steps:
+    "m:wait": {status: failure, args: {key: k4}, result: {error: {name: PermitDenied, message: no permit}}}
+    "m:work": {status: not_run, ran: false}

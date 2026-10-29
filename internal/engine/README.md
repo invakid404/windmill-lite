@@ -42,6 +42,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span`, `PlatformCall` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md); the platform calls of a run's steps, which wl fills from the facade's records, since the engine does not see the facade). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `provided.go` | `ProvideFunc`, `ErrProviderDeclined`: a mandatory host-provided site's launch ([ADR 0008](../../docs/design/0008-host-hooks.md), below) | wl (F2a) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `cache.go` | The `cache_ttl` result cache (N4, below): the key, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
@@ -73,8 +74,10 @@ and `halted`. Traces, hooks and observations therefore share one vocabulary.
   - H10 (clock and randomness) reaches it as `RunRequest.Clock` and
     `RunRequest.Jitter` (N2, below);
   - H11 (host scopes) lives in the Bun harness.
-- **Left for later milestones:** H13 (per-run platform providers) arrives
-  with the platform milestones.
+- **H13** (per-run platform providers) reaches the engine as
+  `RunRequest.Platform`, below.
+- **Hosts** get these seams as Go callbacks with selectors through `wl`
+  (F2a): wl's `Hooks` implements this interface over them.
 
 ## Precedence
 
@@ -226,8 +229,7 @@ bodies run raw with a suffixed copy of it
 ([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
 only); `cache_ignore_s3_path` (`later`), since the object store keeps no
 ETag to hash an S3 object's argument with
-([FX-40](../../docs/semantics/execution.md#fx-40)); host-provided
-sites (F2a); a step of another harness than Bun's, whose `bun` and
+([FX-40](../../docs/semantics/execution.md#fx-40)); a step of another harness than Bun's, whose `bun` and
 `native` boundaries it runs (L1); an `ai`
 parallelism, whose error the reference does not give; a preprocessor,
 `skip_expr` and an `ai` sleep or timeout (`later`).
@@ -262,7 +264,8 @@ parallelism, whose error the reference does not give; a preprocessor,
    which H1 may answer for like any launch. An identity job's result is
    its stored arguments' `previous_result`, or `{}`
    ([FX-16](../../docs/semantics/execution.md#fx-16)), and it is never
-   timed ([FX-24](../../docs/semantics/execution.md#fx-24)). A leaf is
+   timed ([FX-24](../../docs/semantics/execution.md#fx-24)). A host-provided
+   site's provider answers its launch in place of H1 (below). A leaf is
    offered to H1 (`Intercept`), then its entrypoint is chosen
    (`Entrypoint`), H3 asks `BeforeFirstWrite` once per run before the
    first write-capable launch, H12 edits the environment, and the step
@@ -895,6 +898,34 @@ so every read is a not-found. A host gives the facade the same services.
   API's read gives it: the value stored at key for the run's root, JSON
   `null` for a missing key ([WA-14](../../docs/semantics/client-api.md#wa-14)).
 
+**Host-provided sites (F2a, `provided.go`).** A `Provided` module, a
+mandatory host-provided call site of the host contract
+([ADR 0002](../../docs/design/0002-ir-and-loader.md)), whose target the
+compiler left opaque, runs as a leaf whose job is answered by its
+provider ([ADR 0008](../../docs/design/0008-host-hooks.md)): its input
+transforms, `skip_if`, `mock`, H2, timeout and the storage boundary as
+for a leaf, then at its launch a static site's value, verbatim, or
+`Config.Provide`'s outcome for the named provider, with the site's stored
+arguments, once per attempt. The completion phase applies to it as to a
+job's: `stop_after_if`, retry, `continue_on_error`, the results routes. A
+provider that declines, or a named site with no `Provide`, latches the
+run with `ErrProviderDeclined` (`provider_declined`), and a provider's
+error latches it with that error. Its record has `Ran` set, no job, and
+`provided` among its hooks; failures it produces are of origin `host`. It
+keeps the call-site identity of the step it replaces: hooks see a provided
+script step's path, or an inline step's `<flow path>/<module id>`, as its
+`Site.Script`, so script selectors name it.
+
+**Per-run platform providers (H13, `RunRequest.Platform`).** A run given
+its own services reads its resources, variables, secrets and value
+resolvers from them: its argument resolution, `flow_env` and expression
+helpers, and its invocations carry them to the facade
+(`Invocation.Platform`), which answers the steps' resource and variable
+reads from them. They share the engine's job registry, flow user state,
+object store, dispatcher and result cache
+(`platform.Services.WithProviders`); the engine registers runs and child
+flows with its own, and the runs the dispatcher starts read its own.
+
 **The job registry and dispatch (PF3, `engine.go`, `dispatch.go`).**
 
 - **Each run is a flow job** of the job registry
@@ -903,6 +934,13 @@ so every read is a not-found. A host gives the facade the same services.
   flow user state find it; the facade registers the steps' jobs. Its user
   state is discarded when the run ends
   ([internal/platform](../platform/README.md#the-job-registry-and-flow-user-state)).
+- **Each child flow is a flow job** of the run's tree while it runs
+  (F2a, `runList`): a loop iteration's, a branch's and a subflow's, with
+  its runnable path (`<path>/forloop-<k>`, `<path>/branchone-<n>`, the
+  subflow's path), whether or not one of its steps has registered; a
+  collapsed iteration runs as a job of its loop's flow and registers
+  nothing. A dispatch whose `parent_job` names one runs with its path as
+  `WM_FLOW_PATH` (WA-15).
 - **`RunScript`** runs a root script of the program as a script job: its
   arguments stored and resolved as a step's are, its entrypoint and its
   own `envs` as a step's, its timeout its own or the instance's (WR-37),
@@ -1072,7 +1110,13 @@ script root's own `cache_ttl`.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or
-`//native`. `dispatch_test.go` (PF3) covers the dispatcher: a script
+`//native`. `provided_test.go` (F2a) covers host-provided sites (a named
+and a static provider, the provider's arguments, the site's
+`stop_after_if`, its retry around a failing provider, a declining
+provider, a provider's error, no `Provide`) and child flows in the job
+registry (a loop iteration's, a branch's and a subflow's flow job with
+its path, and a dispatch from inside an iteration that gets its path).
+`dispatch_test.go` (PF3) covers the dispatcher: a script
 root and a flow root run as separate runs, a failure's value, the
 arguments resolved and stored, the script job's identity on its own and
 with a dispatch's links (as the oracle recorded it), the refusals of a

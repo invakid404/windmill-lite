@@ -1,0 +1,35 @@
+summary: A step behind a semaphore wait (refused)
+value:
+  modules:
+    - id: wait
+      value:
+        type: flow
+        input_transforms:
+          key:
+            type: javascript
+            expr: flow_input.key
+        path: f/wl_provided/semaphore
+      stop_after_if:
+        expr: result.granted === false
+        skip_if_stopped: false
+    - id: work
+      value:
+        type: rawscript
+        content: '!inline work.ts'
+        input_transforms:
+          key:
+            type: javascript
+            expr: flow_input.key
+          ticket:
+            type: javascript
+            expr: results.wait.ticket
+        lock: '!inline work.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    key:
+      type: string
+  required:
+    - key

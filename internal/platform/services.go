@@ -209,6 +209,66 @@ func (c VariableChain) Variable(ctx context.Context, path string) (Variable, boo
 	return Variable{}, false, nil
 }
 
+// UpdateVariable updates the variable at path in the first service of the
+// chain that has it, the one a read answers from (WA-11). That service
+// must be a VariableUpdater; otherwise the variable is read-only
+// (ErrReadOnlyVariables).
+func (c VariableChain) UpdateVariable(ctx context.Context, path string, value *string, secret *bool) (bool, error) {
+	for _, r := range c {
+		_, ok, err := r.Variable(ctx, path)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			continue
+		}
+		u, can := r.(VariableUpdater)
+		if !can {
+			return false, ErrReadOnlyVariables
+		}
+		return u.UpdateVariable(ctx, path, value, secret)
+	}
+	return false, nil
+}
+
+// Providers are the platform providers a run may choose for itself (H13,
+// ADR 0008): its resources, variables, secrets and value resolvers, for
+// example a resource resolver per tenant. A nil field keeps the services'.
+type Providers struct {
+	Resources Resources
+	Variables Variables
+	Secrets   Secrets
+	Resolvers []ValueResolver
+}
+
+// WithProviders returns services that answer with p's providers in place of
+// s's, where p sets them, and share s's job registry, flow user state,
+// object store, dispatcher and result cache: a run that chose its own
+// providers (H13) is still one of the runtime's runs, whose jobs s's
+// registry knows. Fields of s set later are not seen.
+func (s *Services) WithProviders(p Providers) *Services {
+	if s == nil {
+		s = &Services{}
+	}
+	v := &Services{
+		Resources: s.Resources, Variables: s.Variables, Secrets: s.Secrets, Resolvers: s.Resolvers,
+		Jobs: s.jobs(), UserState: s.userState(), Objects: s.Objects, Dispatcher: s.Dispatcher, Results: s.ResultCache(),
+	}
+	if p.Resources != nil {
+		v.Resources = p.Resources
+	}
+	if p.Variables != nil {
+		v.Variables = p.Variables
+	}
+	if p.Secrets != nil {
+		v.Secrets = p.Secrets
+	}
+	if p.Resolvers != nil {
+		v.Resolvers = p.Resolvers
+	}
+	return v
+}
+
 // Services are the platform services of ADR 0007: the resources,
 // variables and secrets of milestone PF2, with the host's value resolvers,
 // and the job registry, flow user state, object store and dispatcher of

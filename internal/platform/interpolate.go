@@ -130,6 +130,8 @@ func (s *Services) UpdateVariable(ctx context.Context, path string, value *strin
 	}
 	found, err := u.UpdateVariable(ctx, path, value, secret)
 	switch {
+	case errors.Is(err, ErrReadOnlyVariables):
+		return ErrReadOnlyVariables
 	case err != nil:
 		return internal("%v", err)
 	case !found:

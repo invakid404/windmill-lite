@@ -67,7 +67,7 @@ func (r *run) resolveEnv(ctx context.Context, fr *frame) {
 	if fr.envSrc.IsZero() {
 		return
 	}
-	v, err := r.e.platform.ResolveArgs(ctx, fr.envSrc, r.flowJobEnv, platform.APIEnv(r.flowJobEnv))
+	v, err := r.platform.ResolveArgs(ctx, fr.envSrc, r.flowJobEnv, platform.APIEnv(r.flowJobEnv))
 	if err != nil {
 		fr.env = fr.envSrc
 		r.mu.Lock()
