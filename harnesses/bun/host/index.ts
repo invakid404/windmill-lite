@@ -12,11 +12,11 @@
 // A step's bundle reaches them through a shim that takes each export from
 // the registry.
 
-import { spawn } from "node:child_process";
 import { accessSync, constants, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join } from "node:path";
-import { exitProcess } from "../runtime/context.ts";
+import { exitProcess, realStderr } from "../runtime/context.ts";
 import { type HostHealth, Runtime } from "../runtime/runtime.ts";
 
 /** The process-wide registry of host-provided modules: module path to the
@@ -115,7 +115,9 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // Before any step module loads: a step that imports a host-provided
   // module takes it from the registry when it loads.
   register(o.hostModules);
-  const diag = o.diag ?? ((line: string) => process.stderr.write(line + "\n"));
+  // The host's stderr as Bun has it: a step's context must never take a
+  // diagnostic into the step's log.
+  const diag = o.diag ?? ((line: string) => realStderr(line + "\n"));
   let manifest: Uint8Array;
   try {
     manifest = await Bun.file(join(o.bundle, "manifest.json")).bytes();
@@ -125,6 +127,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const digest = "sha256:" + new Bun.CryptoHasher("sha256").update(manifest).digest("hex");
   const killAfter = o.watchdog?.killAfter ?? 30000;
   // The extra "pipe" is a socketpair on Bun 1.3.10: the child's fd 3.
+  // Through require, not a named import: a named import of a builtin fixes
+  // its ESM bindings for every later importer, so a step's named import of
+  // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
+  const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
   const child = spawn(o.engine, [...(o.engineArgs ?? []), "host", "--bundle", o.bundle, "--kill-after", `${killAfter}ms`], {
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });

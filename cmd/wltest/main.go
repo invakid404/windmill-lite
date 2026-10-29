@@ -54,10 +54,11 @@ recordings with provenance. Run wltest record -h for its flags.
 stub copies a sync tree to <dir> with every Bun script body replaced by a
 replay stub (ADR 0011).
 check runs step-case files (conformance/steps) on windmill-lite's Bun
-harness and compares each step's stored value with the case's, and runs
-flow fixtures (conformance/flows) on windmill-lite and compares each run's
-observation with its expect or recording. Run wltest check -h for its
-flags. diff is not implemented yet.
+harness, in warm mode or with --mode fresh in one process per run, and
+compares each step's stored value with the case's, and runs flow fixtures
+(conformance/flows) on windmill-lite, in warm mode, and compares each
+run's observation with its expect or recording. Run wltest check -h for
+its flags. diff is not implemented yet.
 `
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {

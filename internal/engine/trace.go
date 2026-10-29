@@ -41,7 +41,8 @@ type Trace struct {
 	// engine recorded them; compare them by Site, never by position.
 	Steps []StepRecord
 	// Warnings are the run's warnings: unattributed process-level errors
-	// (D9) and those that hooks appended (H9).
+	// and the work invocations left behind when they settled (D9), and
+	// those that hooks appended (H9).
 	Warnings []Warning
 	// Deviations lists the deviations that depend on a run-time setting the
 	// host chose, by id (D2's watchdog, D15's cap, the H7 rule), as ADR 0001
@@ -170,6 +171,11 @@ const (
 type Warning struct {
 	Code    string
 	Message string
+	// Left counts, by kind, what an invocation still had when it settled,
+	// for a warning of code "left_behind": the timers, requests and child
+	// processes the settle-time fence revoked or left running (D9). It is
+	// nil for other warnings.
+	Left map[string]int
 }
 
 // Span is one timed interval of a run (ADR 0011, run spans).
