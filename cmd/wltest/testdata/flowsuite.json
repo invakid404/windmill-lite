@@ -11,8 +11,6 @@
     "conformance/exprs/je-1.yaml/je-1-c": "N1a",
     "conformance/exprs/je-1.yaml/je-1-d": "N1a",
     "conformance/exprs/je-1.yaml/je-1-e": "N1a",
-    "conformance/exprs/je-1.yaml/je-1-math-exp-log": "N1a",
-    "conformance/exprs/je-1.yaml/je-1-math-pow-roots": "N1a",
     "conformance/exprs/je-1.yaml/je-1-present-built-ins": "N1a",
     "conformance/exprs/je-10.yaml/je-10-a": "N1a",
     "conformance/exprs/je-10.yaml/je-10-b": "N1a",

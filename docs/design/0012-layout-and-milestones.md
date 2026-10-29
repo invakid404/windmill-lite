@@ -217,9 +217,11 @@ waits on an external gate except R1.
   `wltest check` runs as the one-step flows `wltest record` lifts them
   into and compares with their recordings (B2a's row asks for the same
   fixtures "end to end in N1a's gate"); `flowsuite.json` keys such a run
-  `<file>/<case>`. Seven of the 69 expression cases are not required:
-  two transcendental `Math` cases of JE-1 differ by D16 on a C library
-  other than glibc and JE-48/a by D17, as at unit level; JE-2/a recorded
+  `<file>/<case>`. Nine of the 69 expression cases are not required: the
+  four transcendental `Math` cases of JE-1 can differ in their last digit
+  with the C library (D16), on either CI runner (pow-roots on the Linux
+  runner's glibc, hyperbolic and trig on macOS), and JE-48/a by D17, as at
+  unit level, where B2b holds them; JE-2/a recorded
   the oracle's own cancellation of a hanging flow; JE-11/a reads a
   variable (PF2); and JE-24/b and /d fail the root at its first pickup,
   whose recorded messages carry Rust locations that ADR 0011's location

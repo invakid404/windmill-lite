@@ -232,10 +232,11 @@ expression as its input `x` (or as its `skip_if`), compared with the case's
 recording and claims. `check` takes such a file explicitly, and finds them
 in the directories it is given, as `record` does. The unit-level checks of
 the same cases are `go test ./internal/expr`'s (milestones B2a and B2b).
-Cases that differ by a named deviation fail here as they do there: the
-transcendental `Math` cases of JE-1 by their last digit on a C library
-other than glibc (D16), and JE-48/a, which does not overflow the 1 MiB
-stack (D17).
+Cases that differ by a named deviation fail here as they do there, and
+the flow suite does not require them: the transcendental `Math` cases of
+JE-1, whose last digit depends on the C library (D16: the Linux runner's
+glibc and macOS each differ from Windmill's image on some of them), and
+JE-48/a, which does not overflow the 1 MiB stack (D17).
 
 ### Tests
 
