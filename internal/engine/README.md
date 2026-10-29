@@ -31,6 +31,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
+| `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `serde.go` | the flows a run executes (the root and its loops' child flows), their results scopes, and for loops (below); the texts of Windmill's JSON library | N3a; N3b and N3c run their containers on frames |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
@@ -110,7 +111,7 @@ stores for a Bun step, which is also what the flow sees of a failed one.
 | Outcome | Stored | Origin |
 |---|---|---|
 | `ok` | the result's producer text; an object whose top-level `wm_failure` is a string fails, kept as it is with `"error": {"name": "ManualFailure", "message": <wm_failure>}` put in, in place of an `error` member or else last (`ManualFailure`, [WR-17](../../docs/semantics/languages.md#wr-17), [FX-13](../../docs/semantics/execution.md#fx-13)); a `null` marker marks nothing, and a `wm_failure` that is not a string or a `wm_labels` that is not `null` or an array of strings (a `null` element included) disables both | — or user |
-| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user, or the outcome's `Origin` when set: `facade` for the facade's `UnsupportedPlatformCall` ([ADR 0007](../../docs/design/0007-platform-interface.md), the 501 policy) |
+| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user, or the outcome's `Origin` when set: `facade` for the facade's `UnsupportedPlatformCall` ([ADR 0007](../../docs/design/0007-platform-interface.md), the 501 policy), `harness` for the errors the harness generates in place of the worker's ([WR-37](../../docs/semantics/languages.md#wr-37)'s signature error; a native job's transpile and load failures and `//proxy` refusal, [WR-43](../../docs/semantics/languages.md#wr-43)), which the `result` frame names |
 | `escaped`, by a signal | `execution error:\nprocess terminated by signal: <signal>`, `ExecutionErr`, `step_id` ([WR-4](../../docs/semantics/languages.md#wr-4), [WR-37](../../docs/semantics/languages.md#wr-37)) | harness |
 | `escaped`, by an exit | `exit code for "bun run": <code>, last log lines:\n<tail>`, `ExecutionErr`, `step_id`, `exit_code` ([WR-20](../../docs/semantics/languages.md#wr-20)) | harness |
 | `empty` | `Internal: Result of job is invalid json (empty)`, `InternalErr`, no `step_id` ([WR-V2](../../docs/semantics/languages.md#wr-v2)), and no Rust location (D14) | harness |
@@ -244,7 +245,14 @@ parallelism, whose error the reference does not give; a preprocessor and
    configuration of `Config.Host` and `Config.Workspace`. A step in a loop
    body takes its child flow's job id, innermost scope and path, or its
    collapsed loop's step id and `<flow path>/loop-<i>` job path (For loops,
-   below).
+   below). A Bun step of a path script also gets the script's own `envs`
+   entries (`KEY=VALUE`) under them: a name the worker sets later (a
+   reserved variable, or a common Bun variable such as `PATH` or
+   `BASE_URL`) or one already set is skipped, and a later entry wins
+   ([WR-22](../../docs/semantics/languages.md#wr-22),
+   [WA-2](../../docs/semantics/client-api.md#wa-2); `env.go`). A native
+   step gets no `envs` ([WR-45](../../docs/semantics/languages.md#wr-45)),
+   milestone FU5.
 5. **`stop_after_if`** after a success, except on the failure module, and
    on an identity job classified skipped: any identity job of a module
    with a `skip_if`, whatever the predicate answered, and whether it ran or
@@ -579,16 +587,17 @@ holds the resources, variables and secrets a run reads; nil means none,
 so every read is a not-found. A host gives the facade the same services.
 
 - **A leaf's arguments** are resolved when its job is picked up, after its
-  job identity and H12 and before the step runs
+  job identity, its script's `envs` and H12, before the step runs
   ([JE-41](../../docs/semantics/expressions.md#je-41),
   [JE-42](../../docs/semantics/expressions.md#je-42),
   [WR-5](../../docs/semantics/languages.md#wr-5)): worker argument
-  resolution of the stored arguments, `$<NAME>` reading the job's
-  variables as its process sees them, and a `$res:` reading the resource
-  with the job's stored fields (`platform.APIEnv` of its identity before
-  H12, [WA-V3](../../docs/semantics/client-api.md#wa-v3)). The step gets
-  the resolved arguments, which the trace records as `ResolvedArgs`, and
-  the job keeps the stored ones (`RecordedArgs`,
+  resolution of the stored arguments, with the job's reserved variables
+  (its job identity, without the script's `envs` or H12's changes), which
+  `$<NAME>` strings read, and a `$res:` reading the resource with the
+  job's stored fields (`platform.APIEnv`,
+  [WA-V3](../../docs/semantics/client-api.md#wa-v3)). The step gets the
+  resolved arguments, which the trace records as `ResolvedArgs`, and the
+  job keeps the stored ones (`RecordedArgs`,
   [JE-V3](../../docs/semantics/expressions.md#je-v3)). Expressions see the
   markers, whatever produced them. A failure fails the job before it runs,
   with the worker's execution error, origin `engine`:
@@ -634,13 +643,17 @@ start errors, an iterator jsonb refuses, chaining errors in a child flow,
 the hooks inside loops, the host signals across parallel iterations,
 halt-after in nested loops and after each kind of iteration outcome, the
 provenance of generated errors in nested arrays and in an included
-result, concurrent runs, and serde's texts. `providers_test.go` (PF2)
-covers the resolved arguments (O2 and O3, whatever produced them, `$WM_*`
-from the process in an argument and from the stored fields in a
-resource, a secret), a resolution failure and the run's settlement after
-it, `flow_env` resolved per transition and its unresolved fallback with
-its warnings, the helpers and a helper's failure, and an engine with no
-platform. The flow fixtures run the engine on the real Bun harness
+result, concurrent runs, and serde's texts. `env_test.go` (FU5,
+`TestScriptEnvs`) checks a path script's `envs` in a Bun step's
+environment, a later entry winning and every name the worker sets later
+skipped, and none in a native step's, `nativets` or `//native`.
+`providers_test.go` (PF2) covers the resolved arguments (O2 and O3,
+whatever produced them, `$WM_*` from the reserved variables in an argument
+and from the stored fields in a resource, a secret), a resolution failure
+and the run's settlement after it, `flow_env` resolved per transition and
+its unresolved fallback with its warnings, the helpers and a helper's
+failure, and an engine with no platform. The flow
+fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
 milestones N1a, N1b, N3a and PF2).
 

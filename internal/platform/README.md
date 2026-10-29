@@ -143,8 +143,8 @@ One walker implements resolution for the three contracts of
 - **Contract (c)** walks a top-level argument only when its text holds
   `$var:`, `$jsonvar:`, `$res:` or `$encrypted:` anywhere; any other
   argument is kept as it is. A nested `$res:` starts a depth counter of its
-  own. `$<NAME>` reads the job's reserved variables as its process sees
-  them. Its failures name the innermost object key, or the argument:
+  own. `$<NAME>` reads the job's reserved variables (the engine passes its
+  job identity's). Its failures name the innermost object key, or the argument:
   ``Variable <p> not found for `<name>`: <cause>`` and ``Resource <p> not
   found for `<name>`: <cause>``, the cause the API's error text, and the
   internal errors of an invalid `$res:` path, a `$jsonvar:` that is not

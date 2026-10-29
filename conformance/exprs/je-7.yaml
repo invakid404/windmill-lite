@@ -24,7 +24,9 @@ cases:
     provenance: oracle-observed
     title: bracket form
     expr: 'flow_input["a"]'
-    expect: {value: '{"b":"nested"}'}
+    # The shortcut answers the member as PostgreSQL prints the stored jsonb
+    # (JE-7, JE-44's table), spaced; the argument stores it as jsonb again.
+    expect: {value: '{"b":"nested"}', text: '{"b": "nested"}'}
   - spec: JE-7/e
     provenance: oracle-observed
     title: a missing direct key gives null, and x is present

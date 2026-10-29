@@ -40,14 +40,13 @@ var locSuffix = regexp.MustCompile(` @[^ @]+:[0-9]+:[0-9]+$`)
 // " (<file>.rs:<line>)" that some not-found messages end in.
 var trailingLoc = regexp.MustCompile(`(?: @[^ @]+\.rs:[0-9]+:[0-9]+| \([^ ()]+\.rs:[0-9]+\))$`)
 
-// resolveErrPrefix begins the message of a job whose argument resolution
-// failed with an internal error (JE-42, WR-5): the execution envelope
-// around Windmill's located internal error.
-const resolveErrPrefix = "execution error:\nInternal: "
-
 // anyhowPrefix is the prefix each conversion into Windmill's Anyhow error
 // kind puts before a message, with a location suffix after it (FX-50).
 const anyhowPrefix = "Error: "
+
+// executionErrPrefix begins the message of the worker's execution error
+// (WR-37, WR-43).
+const executionErrPrefix = "execution error:\n"
 
 // Value normalises one raw JSON value.
 func (n *Normaliser) Value(raw json.RawMessage) (json.RawMessage, error) {
@@ -368,10 +367,6 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 //   - the recognised internal error of OR-27 (InternalErr, "Internal:
 //     Could not add completed job …"), whose location the normaliser
 //     masked: the marker and the space before it go;
-//   - a job that failed before its script ran because its arguments did
-//     not resolve (JE-42, WR-5, FX-51/c), ExecutionErr, whose message is
-//     the execution envelope around an internal error with its location:
-//     "execution error:\nInternal: …<loc>" loses its one suffix;
 //   - a chaining error of FX-15 and FX-50, named InternalError (a later
 //     transition) or Anyhow (a pickup), whose message is Windmill's
 //     generic error display: one "Error: " prefix per conversion, and one
@@ -380,13 +375,17 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 //     display;
 //   - the error stop of a stop_after_all_iters_if that fails to evaluate
 //     (CF-13, JE-27), an EarlyStopError whose message quotes the
-//     expression and then gives its cause in the same display.
+//     expression and then gives its cause in the same display;
+//   - the worker's execution error (ExecutionErr) of a native transpile or
+//     load failure (WR-43, "execution error:\nError: …") or of an internal
+//     error (WR-37, "execution error:\nInternal: …"), which ends in one
+//     location suffix: one trailing suffix goes.
 //
-// For the last three, a message (or the cause) that begins with n
-// "Error: " prefixes loses its last n suffixes, and only when it ends in n
-// of them. The value at a
-// pointer is the error object, or an object whose error member is it (or,
-// for FX-21, is the string), as a stored failure value is. Nothing else is
+// For the chaining errors, the stop string and the error stop, a message
+// (or the cause) that begins with n "Error: " prefixes loses its last n
+// suffixes, and only when it ends in n of them. The value at a pointer is
+// the error object, or an object whose error member is it (or, for FX-21,
+// is the string), as a stored failure value is. Nothing else is
 // stripped: the normaliser never masks a location in a user's message, and
 // a pointer that does not resolve, or names another value, is skipped.
 func StripLocations(o Observation, at []string) (Observation, error) {
@@ -444,7 +443,7 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 				}
 			}
 		case "ExecutionErr":
-			if s := msg.str(); strings.HasPrefix(s, resolveErrPrefix) {
+			if s := msg.str(); strings.HasPrefix(s, executionErrPrefix+"Error: ") || strings.HasPrefix(s, executionErrPrefix+"Internal: ") {
 				if loc := trailingLoc.FindStringIndex(s); loc != nil {
 					*msg = jnode{kind: kindString, text: quote(s[:loc[0]])}
 				}

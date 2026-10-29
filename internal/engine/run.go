@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -1090,9 +1091,12 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
 	}.Env(r.e.host)
-	// $WM_* strings in a resource an argument reads are the job's stored
-	// fields, not its process's, nor what H12 makes of them (WA-V3).
-	apiEnv := platform.APIEnv(inv.Env)
+	// The job's reserved variables, which its argument resolution reads
+	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
+	// strings in a resource an argument names; neither the script's own
+	// envs nor H12's changes are among them.
+	reserved := maps.Clone(inv.Env)
+	addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.Latch(HookLatchError(ctx, err))
 	}
@@ -1100,9 +1104,8 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
 	}
 	// The worker resolves the arguments once it has picked the job up,
-	// before the script runs (JE-41, JE-42, WR-5); $<NAME> strings read
-	// the job's reserved variables as its process sees them.
-	resolved, err := r.e.platform.ResolveArgs(ctx, args, inv.Env, apiEnv)
+	// before the script runs (JE-41, JE-42, WR-5).
+	resolved, err := r.e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
 		return StepOutcome{}, inv.ID, jsonval.Value{}, &resolveFailure{err}
 	}

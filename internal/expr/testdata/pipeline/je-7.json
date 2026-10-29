@@ -93,6 +93,27 @@
     },
     {
       "spec": "JE-7",
+      "variant": "stored-member-first",
+      "provenance": "oracle-observed",
+      "title": "at the first module, a member read from the stored flow input answers jsonb's spaced text",
+      "note": "batch E3e recorded it (request 8, Q-JE-13): the timeout's parse error quotes {\"a\": 2, \"b\": 1} for o submitted as {\"b\":1,\"a\":2}; TestUnitCasesMatchRecordings ties the text to that quote",
+      "recorded": {"fixture": "je/shortcut-texts", "run": "fi_first", "at": "m:q", "input": "timeout"},
+      "site": "timeout",
+      "text": "flow_input.o",
+      "expect": {"shortcut": {"flow_key": {"env": false, "key": "o"}}, "route": "flow_key", "text": "{\"a\": 2, \"b\": 1}"}
+    },
+    {
+      "spec": "JE-7",
+      "variant": "stored-member-later",
+      "provenance": "oracle-observed",
+      "title": "after a step, the same member answers the same spaced text",
+      "recorded": {"fixture": "je/shortcut-texts", "run": "fi_later", "at": "m:q", "input": "timeout"},
+      "site": "timeout",
+      "text": "flow_input.o",
+      "expect": {"route": "flow_key", "text": "{\"a\": 2, \"b\": 1}"}
+    },
+    {
+      "spec": "JE-7",
       "variant": "flow-env-dot",
       "provenance": "source-derived",
       "title": "flow_env.<key> reads the flow env",

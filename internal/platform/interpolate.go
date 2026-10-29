@@ -290,9 +290,9 @@ func APIEnv(env map[string]string) map[string]string {
 // the variable parsed as JSON, the resource's interpolated value (a read
 // of contract (b) with apiEnv, the job's APIEnv), or the decrypted
 // $encrypted: value; a string $<NAME> becomes env[NAME], the job's
-// reserved variables as its process sees them, when env has it; and
-// nothing a substitution produced is walked again. The members keep their
-// order. flow_env is resolved the same way (JE-38).
+// reserved variables, when env has it; and nothing a substitution produced
+// is walked again. The members keep their order. flow_env is resolved the
+// same way (JE-38).
 //
 // The error is an *Error, which fails the job before its script runs:
 // “Variable <p> not found for `<name>`: <cause>“, “Resource <p> not

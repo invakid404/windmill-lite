@@ -1,0 +1,65 @@
+{
+  "finding": "WR-48",
+  "scope": "later",
+  "note": "Which customBundler values count as set (WR-48): JavaScript-truthy ones. An unset one leaves the bundle to esbuild with the entry's other settings (WR-47, bundle.BuildCodebase). A set one fails the compile, before any build (unsupported_feature, 0001 §5a; conformance/ir/wr-48.json), since windmill-lite does not run the command (WR-48/a, deferred).",
+  "cases": [
+    {
+      "spec": "WR-48/b",
+      "provenance": "source-derived",
+      "title": "a falsy customBundler counts as unset",
+      "note": "WR-48/a's fixture with customBundler: false: esbuild builds f/cb/custom.ts, so the source's own main runs, not the script the command would print. The command's file is emit.txt where the catalogue says emit.sh: a .sh file in a sync folder is a Bash script, which this release has no harness for.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    customBundler: false\n    define: {\"__X__\": \"1\"}\n",
+          "f/cb/emit.txt": "echo 'exports.main = () => typeof __X__;'\n",
+          "f/cb/custom.ts": "export function main() { return \"source\"; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/custom": {
+            "format": "cjs"
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/custom",
+              "result": "source"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WR-48",
+      "variant": "zero",
+      "provenance": "source-derived",
+      "title": "customBundler: 0 counts as unset too",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    customBundler: 0\n    define: {\"__X__\": \"1\"}\n",
+          "f/cb/emit.txt": "echo 'exports.main = () => typeof __X__;'\n",
+          "f/cb/custom.ts": "export function main() { return \"source\"; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/custom": {
+            "format": "cjs"
+          }
+        },
+        "run": {
+          "calls": [
+            {
+              "entry": "f/cb/custom",
+              "result": "source"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

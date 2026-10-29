@@ -325,11 +325,12 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     (`platform.APIEnv`: its stored root, `""` for a step directly in a
     top-level flow); a job the facade does not know of answers 501, as the
     root lookup does, until PF3's job registry. The engine passes a step's
-    stored fields directly, taken before H12 changes its environment.
+    stored fields directly.
   - **Argument resolution** happens at the job's pickup, after its job
-    identity and H12, before the step runs; a failure fails the job with
-    the worker's execution error. `$<NAME>` reads the job's variables as
-    its process sees them, H12's changes included.
+    identity, its script's `envs` and H12, before the step runs; a failure
+    fails the job with the worker's execution error. `$<NAME>` reads the
+    job's reserved variables, its job identity, which neither the
+    script's `envs` nor H12 change.
   - **`flow_env`** is resolved on every transition, into the frame that
     starts the module, so the iterations of a parallel loop share no
     state; reading, a child flow's `$WM_*` strings are the top-level flow
