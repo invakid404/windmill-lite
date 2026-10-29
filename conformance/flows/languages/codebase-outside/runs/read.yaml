@@ -1,0 +1,10 @@
+# The bundle carries the imported module, and the asset is extracted next
+# to main.js.
+spec: [WR-47, WR-49/a]
+target: f/wl_cbo/outside
+args: {name: n-1}
+expect:
+  status: success
+  result: {label: "label:n-1", note: "outside the root\n"}
+  steps:
+    "m:s": {status: success, args: {name: n-1}, result: {label: "label:n-1", note: "outside the root\n"}}

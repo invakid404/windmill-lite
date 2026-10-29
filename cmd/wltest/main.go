@@ -235,7 +235,9 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 // stub writes the stubbed copy of a sync tree (ADR 0011 stub mode). Its
 // metadata still describes the original: run the CLI's generate-metadata
-// in the copy before pushing it, as record does for stub fixtures.
+// in the copied tree before pushing it, as record does for stub fixtures.
+// When the tree's codebase entries name paths outside it, the copied tree
+// is below <dir>, with those paths beside it (oracle.Layout).
 func stub(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("stub", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -259,7 +261,18 @@ func stub(args []string, stdout, stderr io.Writer) int {
 	for _, f := range rep.Files {
 		fmt.Fprintln(stdout, "stubbed", f)
 	}
-	fmt.Fprintf(stderr, "wltest: run %s generate-metadata in %s before pushing it\n", oracle.CLIPackage, *out)
+	for _, o := range rep.Outside {
+		fmt.Fprintln(stdout, "carried", o)
+	}
+	for _, d := range rep.Dirs {
+		fmt.Fprintln(stdout, "made", d)
+	}
+	tree := *out
+	if rep.Root != "." {
+		fmt.Fprintln(stdout, "tree", rep.Root)
+		tree = filepath.Join(*out, filepath.FromSlash(rep.Root))
+	}
+	fmt.Fprintf(stderr, "wltest: run %s generate-metadata in %s before pushing it\n", oracle.CLIPackage, tree)
 	return 0
 }
 

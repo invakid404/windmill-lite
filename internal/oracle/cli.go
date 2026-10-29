@@ -164,8 +164,18 @@ func (c CLI) Pull(ctx context.Context, dir string, t Target) error {
 
 // CopyTree copies the regular files and directories below src into dst,
 // which must not exist. The harness pushes from a copy, so the push cannot
-// change the checkout.
+// change the checkout; it copies a sync tree with CopyLayout, which also
+// carries what the tree's codebase entries name outside it.
 func CopyTree(src, dst string) error {
+	return copyPath(src, dst)
+}
+
+// copyPath copies src, a regular file or a directory with the regular
+// files and directories below it, to dst, making dst's parent directories.
+func copyPath(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

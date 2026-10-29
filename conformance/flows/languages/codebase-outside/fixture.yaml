@@ -1,0 +1,17 @@
+# A codebase entry that reaches outside the sync root (SY-8): its
+# relative_path is ../shared, its script imports a module from ../shared/lib,
+# and its asset is read from ../shared/lib/assets/note.txt, each resolved
+# against the root, the CLI's working directory (WR-47, WR-49). wltest record
+# pushes a copy laid out with those paths beside the copied tree
+# (oracle.Layout), so wmill.yaml stays as written and the CLI digests the
+# files under relative_path, bundles the import and uploads the asset as it
+# would from the original; the worker extracts the asset next to main.js
+# (WR-49/a, WR-50). wltest check builds the original. On windmill-lite the
+# CommonJS bundle runs on Bun (deviation D13). Synthetic, written for this
+# repository.
+id: languages/codebase-outside
+spec: [SY-8, WR-47, WR-49, WR-50]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
