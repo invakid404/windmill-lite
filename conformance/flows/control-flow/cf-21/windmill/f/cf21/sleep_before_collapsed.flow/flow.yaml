@@ -1,4 +1,4 @@
-summary: "CF-21 the sleep before a collapsed loop"
+summary: CF-21 the sleep before a collapsed loop
 value:
   modules:
     - id: a
@@ -32,7 +32,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

@@ -140,6 +140,7 @@ func (r *run) snapshot() *Trace {
 	t.Children = make([]ChildFlow, len(r.trace.Children))
 	for i, c := range r.trace.Children {
 		c.Modules = append([]string(nil), c.Modules...)
+		c.Virtual = append([]bool(nil), c.Virtual...)
 		t.Children[i] = c
 	}
 	t.Warnings = append([]Warning(nil), r.trace.Warnings...)
@@ -263,6 +264,10 @@ type outcome struct {
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
 	chain string
+	// failedChild and lastChild are, for a container, its last child job
+	// that failed and its last child job, which a retry of the container
+	// starts from and records as the failed attempt (CF-22).
+	failedChild, lastChild *childJob
 }
 
 // pendingHalt is a halt-after (H8) decided at the module whose trace
@@ -428,6 +433,9 @@ type flowEnd struct {
 	nested    []string
 	// chain is set when a collapsed iteration's push failed (outcome.chain).
 	chain string
+	// args are a collapsed iteration's body job's stored arguments, the
+	// input of its job (CF-22 rule 3).
+	args jsonval.Value
 }
 
 // run runs the flow and records its outcome.
@@ -475,12 +483,19 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		// (FX-15 context 2); the previous module's sleep applies to a
 		// module's first start (FX-23).
 		b := begin{first: i == 0}
+		if i == 0 {
+			// The sleep before the flow's container delays its first job
+			// (CF-21).
+			b.due = fr.due
+		}
 		if i > 0 && fr.modules[i-1].Sleep != nil {
 			b.sleep, b.sleepSite = fr.modules[i-1].Sleep, fr.sites[i-1]
 		}
 		o, idx, st, ok := r.complete(ctx, fr, i, prev, prevID, b)
 		if !ok {
-			return flowEnd{status: st}
+			// A collapsed iteration's job keeps its result, the killed
+			// step's when a cancellation ended it (CF-28).
+			return flowEnd{status: st, result: o.carried, origin: o.origin}
 		}
 		if o.end == endHalted {
 			return flowEnd{status: conformance.RunHalted}
@@ -518,7 +533,7 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		}
 		canceled := ctx.Err() != nil
 		stop := o.end == endStopped || o.end == endStoppedSkipped || o.end == endErrorStop || o.end == endFailedStop
-		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain,
+		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain, args: o.rec.RecordedArgs,
 			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
 			errorStop: stop && d.status == conformance.RunFailure}
 		// haltAfter (H8): when the flow starts its next module, the run halts
@@ -720,13 +735,9 @@ func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, att
 	}
 	delay, _ := retryDelay(m.Retry, fr.failCount, r.jitter)
 	site := fr.sites[i].Child(conformance.Attempt(len(fr.failed)))
-	// An attempt's site is not a module: it has no module status and
-	// carries nothing on (StepRecord).
-	r.mu.Lock()
-	rec := &r.trace.Steps[idx]
-	rec.Site, rec.FailedRetries, rec.Module, rec.Carried, rec.CarriedOrigin, rec.CarriedNested = site, nil, "", jsonval.Value{}, OriginNone, nil
-	r.mu.Unlock()
-	fr.failed = append(fr.failed, site)
+	if r.attempt(fr, i, o, idx, site) {
+		fr.failed = append(fr.failed, site)
+	}
 	fr.failCount++
 	args := o.rec.RecordedArgs
 	if args.IsZero() {
@@ -735,8 +746,125 @@ func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, att
 		// with an empty map, as after a failed transform (JE-V2).
 		args = jsonObj
 	}
-	return begin{attempt: attempt + 1, reuse: &args, due: r.clock.Now().Add(delay)}, r.restored(fr, i, o.carried), true, nil
+	b := begin{attempt: attempt + 1, reuse: &args, due: r.clock.Now().Add(delay)}
+	if o.failedChild != nil && isLoop(m.Kind) {
+		b.base = o.failedChild.input
+	}
+	return b, r.restored(fr, i, o.carried), true, nil
 }
+
+// attempt records the failed attempt o of the module at cursor i of fr,
+// whose record is idx, at site, as Windmill's job tree keeps it for the
+// walker (FX-27, OR-11), and reports whether there is such a site: the
+// module's job, whose status lists it. An attempt's site is not a module:
+// it has no module status and carries nothing on (StepRecord). A
+// container's job is its last child job that failed, else its last child
+// job (CF-22, recorded by the cf-22 fixture): a child flow's record, with
+// its modules below the attempt's site, or a collapsed iteration's body
+// job's; what else the attempt ran is superseded. A branchall has no job
+// of its own, so its attempt has no site; a container that failed before
+// any child, and a leaf, keep their own record there.
+func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.SitePath) bool {
+	m := fr.moduleAt(i)
+	j := o.failedChild
+	if j == nil {
+		j = o.lastChild
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec := &r.trace.Steps[idx]
+	switch {
+	case m.Kind == ir.KindBranchAll:
+		rec.Superseded = true
+		r.supersedeLocked(fr.sites[i], conformance.SitePath{}, conformance.SitePath{})
+		return false
+	case isContainer(m.Kind) && j != nil && !j.flow:
+		rec.Superseded = true
+		r.supersedeLocked(fr.sites[i], j.site, site)
+		return true
+	case isContainer(m.Kind) && j != nil:
+		r.supersedeLocked(fr.sites[i], j.site, site)
+		*rec = StepRecord{Site: site, Attempt: rec.Attempt, Ran: true, Status: flowStepStatus(j.end.status), Start: rec.Start, Duration: rec.Duration,
+			RecordedArgs: j.input, ResolvedArgs: j.input, Result: j.end.result, ResultOrigin: j.end.origin, ResultNested: j.end.nested, Late: rec.Late}
+		return true
+	}
+	rec.Site, rec.FailedRetries, rec.Module, rec.Carried, rec.CarriedOrigin, rec.CarriedNested = site, nil, "", jsonval.Value{}, OriginNone, nil
+	return true
+}
+
+// flowStepStatus is the status of a child flow's job that ended as st.
+func flowStepStatus(st conformance.RunStatus) conformance.StepStatus {
+	switch st {
+	case conformance.RunSuccess:
+		return conformance.StepSuccess
+	case conformance.RunSkipped:
+		return conformance.StepSkipped
+	case conformance.RunFailure:
+		return conformance.StepFailure
+	}
+	return conformance.StepCanceled
+}
+
+// supersede marks what the trace holds below prefix superseded
+// (StepRecord.Superseded), except a retried module's attempts there; when
+// keep is not empty, its records and child flow move below to instead,
+// keep's own record to to itself.
+func (r *run) supersede(prefix, keep, to conformance.SitePath) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.supersedeLocked(prefix, keep, to)
+}
+
+func (r *run) supersedeLocked(prefix, keep, to conformance.SitePath) {
+	move := func(p conformance.SitePath) (conformance.SitePath, bool) {
+		if keep.IsRoot() {
+			return p, false
+		}
+		k := keep.String()
+		switch t := p.String(); {
+		case t == k:
+			return to, true
+		case strings.HasPrefix(t, k+"/"):
+			if q, err := conformance.ParseSitePath(to.String() + t[len(k):]); err == nil {
+				return q, true
+			}
+		}
+		return p, false
+	}
+	below := func(p conformance.SitePath) bool {
+		rest, ok := strings.CutPrefix(p.String(), prefix.String()+"/")
+		// A retried module's earlier attempts stay where they are.
+		return ok && !strings.HasPrefix(rest, "r:")
+	}
+	for k := range r.trace.Steps {
+		rec := &r.trace.Steps[k]
+		if rec.Superseded || !below(rec.Site) {
+			continue
+		}
+		var moved bool
+		if rec.Site, moved = move(rec.Site); !moved {
+			rec.Superseded = true
+			continue
+		}
+		for n, at := range rec.FailedRetries {
+			rec.FailedRetries[n], _ = move(at)
+		}
+	}
+	for k := range r.trace.Children {
+		c := &r.trace.Children[k]
+		if c.Superseded || !below(c.Site) {
+			continue
+		}
+		var moved bool
+		if c.Site, moved = move(c.Site); !moved {
+			c.Superseded = true
+		}
+	}
+}
+
+// isLoop reports whether modules of kind k are loops, whose children's
+// inputs a retry takes from a failed child (CF-22 rule 3).
+func isLoop(k ir.Kind) bool { return k == ir.KindForLoop || k == ir.KindWhileLoop }
 
 // restored is previous_result as a retry restores it (FX-6, JE-36 rule 3):
 // at the first module, the flow's input (or its first module's
@@ -776,10 +904,15 @@ type begin struct {
 	sleepSite conformance.SitePath
 	// attempt counts the module's retries before this start; reuse is the
 	// failed attempt's recorded arguments, which a retry runs with (start
-	// step 8 rule 2, FX-27), and due the retry's scheduled time (FX-26).
+	// step 8 rule 2, FX-27), and due the retry's scheduled time (FX-26), or
+	// the time before which a flow's first job may not start, the sleep
+	// before its container (CF-21). base is, for a retried loop, the stored
+	// input of its last failed child job, from which its children's inputs
+	// come (CF-22 rule 3).
 	attempt int
 	reuse   *jsonval.Value
 	due     time.Time
+	base    jsonval.Value
 }
 
 // complete runs one attempt of the module at cursor i of fr, started as b,
@@ -925,7 +1058,8 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// A container that runs launches no job of its own: no arguments, no
 	// H2 and no H1 (CF-1).
 	if isContainer(m.Kind) && !skipped && (m.Mock == nil || !m.Mock.Enabled) {
-		return r.container(ctx, fr, i, prev, prevID, o)
+		b.due = due
+		return r.container(ctx, fr, i, prev, prevID, o, b)
 	}
 
 	// Start step 8: the arguments, by the first rule that applies (FX-2).
@@ -1599,7 +1733,14 @@ func (r *run) moduleTimeout(ctx context.Context, fr *frame, m *ir.Module, site c
 		// expr) asks for none.
 		return nil, nil
 	}
-	v, err := r.evaluate(ctx, fr, t.Expr, site, r.timeoutScope(fr, prev, prevID))
+	scope := r.timeoutScope(fr, prev, prevID)
+	if fr.collapsed != nil {
+		// A collapsed loop's timeout is evaluated for each body job in the
+		// loop's own scope, its flow input without iter (CF-21, recorded by
+		// cf-21/timeout_scope_collapsed).
+		scope = r.timeoutScope(fr.parent, fr.loopPrev, fr.loopPrevID)
+	}
+	v, err := r.evaluate(ctx, fr, t.Expr, site, scope)
 	if err != nil {
 		return nil, evaluationFailure(t.Expr, err)
 	}

@@ -1,4 +1,4 @@
-summary: "CF-23/b an iterator error while chaining"
+summary: CF-23/b an iterator error while chaining
 value:
   modules:
     - id: a
@@ -44,7 +44,7 @@ value:
           value: handled
       path: f/cf23/echo
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

@@ -63,7 +63,7 @@ type Trace struct {
 // Step returns the record of the site at p.
 func (t *Trace) Step(p conformance.SitePath) (StepRecord, bool) {
 	for _, s := range t.Steps {
-		if s.Site == p {
+		if s.Site == p && !s.Superseded {
 			return s, true
 		}
 	}
@@ -76,6 +76,12 @@ func (t *Trace) Step(p conformance.SitePath) (StepRecord, bool) {
 // module's attempts after a tolerated failure (FX-29).
 type StepRecord struct {
 	Site conformance.SitePath
+	// Superseded marks a record that Windmill's job tree no longer reaches
+	// (milestone NI): what a container's failed attempt ran besides the job
+	// its retry records (CF-22), what a sequential loop ran before its
+	// skip_if held mid-loop (CF-21), and the job a collapsed iteration
+	// never pushed. Trace.Step and observations leave it out.
+	Superseded bool
 	// Attempt is the module's attempt the record is of: 0 for its first
 	// run, n for its nth retry.
 	Attempt int
@@ -170,8 +176,14 @@ type ChildFlow struct {
 	// WM_FLOW_JOB_ID (WA-6).
 	ID string
 	// Modules are the ids of the child's modules, in order: a module with
-	// no record in Steps never got a job (OR-11).
+	// no record in Steps never got a job (OR-11). Virtual marks, in the same
+	// order, the virtual `<id>-v` identity of a body whose last module has
+	// a sleep (OF-17, CF-26), which the oracle's walker leaves out (OR-V7).
 	Modules []string
+	Virtual []bool
+	// Superseded marks a child flow that Windmill's job tree no longer
+	// reaches, as StepRecord.Superseded does a record.
+	Superseded bool
 }
 
 // Origin is who produced an error value (ADR 0001 §2). Only errors that

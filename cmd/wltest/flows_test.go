@@ -486,6 +486,44 @@ func TestCompareRun(t *testing.T) {
 	}
 }
 
+// A run's derived pointers name values a step copied from an error
+// windmill-lite generated (FX-15/b): the location rule reaches them by its
+// templates only, so a user's message with a location still differs, and
+// nothing is stripped where the run names no pointer.
+func TestCompareRunDerived(t *testing.T) {
+	obs := func(m string) conformance.Observation {
+		t.Helper()
+		var o conformance.Observation
+		if err := json.Unmarshal([]byte(`{"status":"failure","result":{"m":`+m+`},"steps":{"s:failure":{"status":"success","args":{},"result":{"m":`+m+`}}}}`), &o); err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	derived := []string{"/result/m", "/steps/s:failure/result/m"}
+	for _, c := range []struct {
+		name, got, want string
+		derived         []string
+		problems        int
+	}{
+		{"a generated display", `"Error: Timeout value cannot be negative"`, `"Error: Timeout value cannot be negative @worker.rs:3822:13"`, derived, 0},
+		{"no derived pointer", `"Error: Timeout value cannot be negative"`, `"Error: Timeout value cannot be negative @worker.rs:3822:13"`, nil, 2},
+		{"a user's message", `"boom"`, `"boom @a.rs:1:2"`, derived, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			want := obs(c.want)
+			var lines []string
+			for _, p := range compareRun(&conformance.Fixture{}, conformance.Run{Expect: &want, Derived: c.derived}, obs(c.got), nil) {
+				if !strings.HasPrefix(p, "observed ") {
+					lines = append(lines, p)
+				}
+			}
+			if len(lines) != c.problems {
+				t.Fatalf("problems %q, want %d", lines, c.problems)
+			}
+		})
+	}
+}
+
 // A child flow's modules are sites below its iteration's, a module it
 // has no record of is not_run, and its id is its iteration's site (OR-11);
 // a module with no result shows no carried (FX-15 context 2); a carried

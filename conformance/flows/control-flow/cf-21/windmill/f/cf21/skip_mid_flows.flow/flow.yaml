@@ -1,4 +1,4 @@
-summary: "CF-21 skip_if mid-loop over child flows"
+summary: CF-21 skip_if mid-loop over child flows
 value:
   modules:
     - id: a
@@ -38,9 +38,9 @@ value:
         parallel: false
         skip_failures: false
       skip_if:
-        expr: "previous_result == 2"
+        expr: previous_result == 2
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

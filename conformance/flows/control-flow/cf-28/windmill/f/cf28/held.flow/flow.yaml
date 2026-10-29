@@ -1,4 +1,4 @@
-summary: "CF-28/a cancelling the root reaches held iterations"
+summary: CF-28/a cancelling the root reaches held iterations
 value:
   modules:
     - id: l
@@ -28,12 +28,12 @@ value:
             - 2
             - 3
         parallel: true
-        skip_failures: false
         parallelism:
           type: static
           value: 1
+        skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

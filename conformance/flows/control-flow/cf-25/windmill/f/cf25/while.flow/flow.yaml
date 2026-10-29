@@ -1,4 +1,4 @@
-summary: "CF-25 a squashed while loop"
+summary: CF-25 a squashed while loop
 value:
   modules:
     - id: a
@@ -32,10 +32,10 @@ value:
         skip_failures: false
         squash: true
       stop_after_if:
-        expr: "true"
+        expr: 'true'
         skip_if_stopped: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

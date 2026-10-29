@@ -1,0 +1,28 @@
+{
+  "about": "Milestone NI of ADR 0012, the integration slice of N1b, N2 and N3: the catalogue cases of CF-21 to CF-28 and FX-24/d and /e, recorded on the CE oracle by the fixtures below, which NI wrote and whose runs its exit gate runs on windmill-lite, with control-flow/waits, N2's waits and retries inside containers. Each case is recorded by a run or deferred with a milestone and a reason. CF-23/a and /b put a failure module beside a container, which windmill-lite runs from milestone N3c; ADR 0012's NI bullet says who requires them. TestRecordingBatches enforces it.",
+  "batch": "NI",
+  "findings": ["CF-21", "CF-22", "CF-23", "CF-24", "CF-25", "CF-26", "CF-27", "CF-28"],
+  "cases": ["FX-24/d", "FX-24/e"],
+  "fixtures": [
+    "conformance/flows/control-flow/cf-21",
+    "conformance/flows/control-flow/cf-22",
+    "conformance/flows/control-flow/cf-23",
+    "conformance/flows/control-flow/cf-24",
+    "conformance/flows/control-flow/cf-25",
+    "conformance/flows/control-flow/cf-26",
+    "conformance/flows/control-flow/cf-27",
+    "conformance/flows/control-flow/cf-28",
+    "conformance/flows/control-flow/waits"
+  ],
+  "deferred": [
+    {"case": "CF-23/c", "milestone": "N3c", "reason": "the catalogue gives it as CF-V3/a, a child flow failing at its pickup, which N3c's row covers with the CF-V cases"},
+    {"case": "CF-24/c", "milestone": "none", "reason": "a raw flow payload: windmill-lite never runs raw submissions (ADR 0001 sections 1 and 6); the harness runs deployed flows by path only"},
+    {"case": "CF-25/b", "milestone": "none", "reason": "the Enterprise Edition's squash (EE): the reference establishes no expectation (Q-CF-11), and the oracle is the Community Edition"},
+    {"case": "CF-27/d", "milestone": "none", "reason": "a raw submission, which does not collapse (CF-V5): windmill-lite never runs raw submissions (ADR 0001 sections 1 and 6)"}
+  ],
+  "parts": [
+    {"case": "FX-24/d", "part": "the same flow as a preview, which does not collapse and so is not timed", "milestone": "none", "reason": "a preview is a raw submission, outside the reference configuration (ADR 0001 sections 1 and 6); the deployed half is recorded"}
+  ],
+  "prefixes": [],
+  "contradictions": []
+}

@@ -3,6 +3,10 @@
 # never got a job: its entry is a Failure with a nil job.
 spec: [FX-15/b]
 target: f/wl_fx15/root_pickup
+# The failure module copies the generated error, whose message ends in
+# Windmill's location suffix (FX-50), into its arguments and its result,
+# where ADR 0011's location rule reaches it only through derived (D14).
+derived: [/result/m, /steps/s:failure/args/e, /steps/s:failure/result/m, /steps/s:failure/carried/m]
 expect:
   status: failure
   result: {n: Anyhow, m: "Error: Timeout value cannot be negative @worker.rs:3822:13"}

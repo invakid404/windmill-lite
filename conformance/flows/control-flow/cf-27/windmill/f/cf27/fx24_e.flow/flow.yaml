@@ -1,4 +1,4 @@
-summary: "FX-24/e a parallel loop's timeout is not enforced"
+summary: FX-24/e a parallel loop's timeout is not enforced
 value:
   modules:
     - id: l
@@ -23,7 +23,7 @@ value:
         type: static
         value: 1
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

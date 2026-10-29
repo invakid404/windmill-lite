@@ -1,4 +1,4 @@
-summary: "CF-26/a the virtual identity keeps the body result"
+summary: CF-26/a the virtual identity keeps the body result
 value:
   modules:
     - id: l
@@ -11,7 +11,7 @@ value:
               input_transforms:
                 x:
                   type: javascript
-                  expr: "flow_input.iter.value * 10"
+                  expr: flow_input.iter.value * 10
               path: f/cf26/echo
             sleep:
               type: static
@@ -24,7 +24,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

@@ -1,4 +1,4 @@
-summary: "a retried module in a body fails again"
+summary: a retried module in a body fails again
 value:
   modules:
     - id: l
@@ -11,7 +11,7 @@ value:
               input_transforms:
                 msg:
                   type: static
-                  value: "no"
+                  value: no
               path: f/cfwaits/fail
             retry:
               constant:
@@ -32,7 +32,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

@@ -232,6 +232,13 @@ type Run struct {
 	// Delays are lower bounds on the time between two of the run's jobs,
 	// checked against the recording's provenance like Claims.
 	Delays []Delay `json:"delays,omitempty"`
+	// Derived points to values of the observation that a step copied from
+	// an error windmill-lite generates, such as a failure module returning
+	// its error's message (FX-15/b): ADR 0011's location rule reaches them
+	// as it reaches the errors the trace says windmill-lite generated, by
+	// its templates only (StripLocations). The flow's author names them,
+	// since no trace can follow a value through a user's script.
+	Derived []string `json:"derived,omitempty"`
 	// Unit restates the run's expressions at unit level, with the context
 	// each evaluation sees (UnitCase).
 	Unit []UnitCase `json:"unit,omitempty"`
@@ -557,6 +564,11 @@ func (r *Run) check() error {
 	for _, d := range r.Delays {
 		if err := d.check(); err != nil {
 			return err
+		}
+	}
+	for _, p := range r.Derived {
+		if _, err := SplitPointer(p); err != nil {
+			return fmt.Errorf("derived: %w", err)
 		}
 	}
 	for i := range r.Unit {

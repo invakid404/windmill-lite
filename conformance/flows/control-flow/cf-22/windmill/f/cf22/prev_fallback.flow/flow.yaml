@@ -1,4 +1,4 @@
-summary: "CF-22 a retry restores previous_result"
+summary: CF-22 a retry restores previous_result
 value:
   modules:
     - id: a
@@ -7,7 +7,7 @@ value:
         input_transforms:
           msg:
             type: static
-            value: "a fails"
+            value: a fails
         path: f/cf22/fail
       continue_on_error: true
     - id: l
@@ -36,7 +36,7 @@ value:
           attempts: 1
           seconds: 0
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

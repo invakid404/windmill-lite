@@ -1,4 +1,4 @@
-summary: "CF-25 an empty squashed loop"
+summary: CF-25 an empty squashed loop
 value:
   modules:
     - id: a
@@ -36,7 +36,7 @@ value:
         skip_failures: false
         squash: true
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

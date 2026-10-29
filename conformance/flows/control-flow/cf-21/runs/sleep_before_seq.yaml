@@ -1,7 +1,6 @@
-# CF-21: the sleep of the step before a sequential loop of child flows applies once, before its
-# first child: iteration 0's first job starts at least 2 s after a's job
-# ended. Whether the other iterations wait too is in the recording's
-# provenance.
+# CF-21: the sleep of the step before a sequential loop of child flows delays its
+# first child only: iteration 0's first job starts at least 2 s after a's
+# job ended, and iteration 1 follows at once (the recording's provenance).
 spec: [CF-21, FX-23]
 target: f/cf21/sleep_before_seq
 delays:

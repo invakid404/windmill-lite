@@ -1,4 +1,4 @@
-summary: "a collapsed loop's negative timeout at the root's pickup"
+summary: a collapsed loop's negative timeout at the root's pickup
 value:
   modules:
     - id: l
@@ -21,9 +21,9 @@ value:
         skip_failures: false
       timeout:
         type: javascript
-        expr: "-1"
+        expr: '-1'
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

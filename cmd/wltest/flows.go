@@ -614,8 +614,10 @@ func siteRecord(t *engine.Trace, site string) (engine.StepRecord, bool) {
 // recording holds neither carried nor resolved_args, so they are compared
 // only with an expect. On the reference's side, the location suffix of an
 // internal error is stripped where windmill-lite generated the value
-// (ADR 0011, Location suffixes).
+// (ADR 0011, Location suffixes), and where the run says a step copied such
+// a value (Run.Derived).
 func compareRun(f *conformance.Fixture, r conformance.Run, got conformance.Observation, generated []string) []string {
+	generated = append(slices.Clip(generated), r.Derived...)
 	opts := f.Compare.Options()
 	var want conformance.Observation
 	switch {

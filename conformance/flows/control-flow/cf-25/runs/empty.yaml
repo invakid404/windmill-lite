@@ -1,9 +1,10 @@
-# CF-25: an empty loop starts no runners, so squash has no effect.
-spec: [CF-25]
+# CF-25: an empty squashed loop starts no child and returns [] (CF-29).
+spec: [CF-25, CF-29]
 target: f/cf25/empty
+note: "Corrected after recording: the prediction left out that an empty loop ran no child (ran false)."
 expect:
   status: success
   result: []
   steps:
     "m:a": {status: success, args: {x: 1}, result: 1}
-    "m:l": {status: success, result: []}
+    "m:l": {status: success, ran: false, result: []}

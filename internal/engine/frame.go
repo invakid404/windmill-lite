@@ -40,11 +40,21 @@ type frame struct {
 	// it at its pickup (FX-15 context 3), where the root's fails that
 	// module (context 2).
 	child bool
+	// due is the time before which the flow's first job may not start: the
+	// sleep of the module before its container, which delays the
+	// container's first child only (CF-21); zero for none.
+	due time.Time
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
 	collapsed *ir.Module
 	iter      int
 	parent    *frame
+	// loopPrev and loopPrevID are, for a collapsed iteration, its loop's
+	// own previous_result and preceding id: the scope in which the loop's
+	// timeout is evaluated for each body job it pushes (CF-21, recorded by
+	// cf-21/timeout_scope_collapsed).
+	loopPrev   jsonval.Value
+	loopPrevID string
 	// nodes is the frame's scope of the result-by-node-id map (JE-19).
 	nodes *nodeScope
 	// jobs holds, per module (the failure module last), the stored result

@@ -1,4 +1,4 @@
-summary: "a sleep between two body modules"
+summary: a sleep between two body modules
 value:
   modules:
     - id: l
@@ -31,7 +31,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

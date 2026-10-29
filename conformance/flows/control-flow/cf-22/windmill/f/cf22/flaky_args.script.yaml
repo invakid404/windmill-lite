@@ -3,17 +3,17 @@ description: ''
 lock: '!inline f/cf22/flaky_args.script.lock'
 kind: script
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties:
     x:
       type: ''
       description: ''
       default: null
-    "y":
+    y:
       type: ''
       description: ''
       default: null
   required:
     - x
-    - "y"
+    - y

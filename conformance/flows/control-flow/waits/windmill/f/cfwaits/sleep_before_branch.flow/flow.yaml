@@ -1,4 +1,4 @@
-summary: "the sleep before a branchone"
+summary: the sleep before a branchone
 value:
   modules:
     - id: a
@@ -26,7 +26,7 @@ value:
                   value: 1
               path: f/cfwaits/echo
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

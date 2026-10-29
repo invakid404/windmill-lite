@@ -1,4 +1,4 @@
-summary: "CF-22 a retried collapsed loop's body inputs"
+summary: CF-22 a retried collapsed loop's body inputs
 value:
   modules:
     - id: l
@@ -12,9 +12,9 @@ value:
                 x:
                   type: javascript
                   expr: flow_input.iter.value
-                "y":
+                y:
                   type: javascript
-                  expr: "flow_input.z ?? \"none\""
+                  expr: flow_input.z ?? "none"
               path: f/cf22/flaky_args
         iterator:
           type: static
@@ -28,7 +28,7 @@ value:
           attempts: 1
           seconds: 0
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

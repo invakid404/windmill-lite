@@ -1,4 +1,4 @@
-summary: "CF-23/a an iterator error at the root's pickup"
+summary: CF-23/a an iterator error at the root's pickup
 value:
   modules:
     - id: l
@@ -36,7 +36,7 @@ value:
           value: handled
       path: f/cf23/echo
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

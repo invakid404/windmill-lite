@@ -1,11 +1,11 @@
-# CF-21: the sleep of the step before a parallel loop applies once, before its
-# first child: iteration 0's first job starts at least 2 s after a's job
-# ended. Whether the other iterations wait too is in the recording's
-# provenance.
+# CF-21: the sleep of the step before a parallel loop delays the loop's
+# first push, which holds every child: both iterations' first jobs start
+# at least 2 s after a's job ended.
 spec: [CF-21, FX-23]
 target: f/cf21/sleep_before_par
 delays:
   - {from: "m:a", to: "m:l/i:0/m:b", at_least_ms: 2000}
+  - {from: "m:a", to: "m:l/i:1/m:b", at_least_ms: 2000}
 expect:
   status: success
   result: [1, 2]

@@ -1,4 +1,4 @@
-summary: "CF-21 a loop's timeout per child, collapsed"
+summary: CF-21 a loop's timeout per child, collapsed
 value:
   modules:
     - id: a
@@ -29,9 +29,9 @@ value:
         skip_failures: false
       timeout:
         type: javascript
-        expr: "flow_input.iter.index + 10"
+        expr: flow_input.iter.index + 10
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

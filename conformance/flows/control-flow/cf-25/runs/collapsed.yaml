@@ -1,9 +1,11 @@
-# CF-25: a squashed loop whose body would collapse.
+# CF-25: a squashed loop whose body collapses runs collapsed.
 spec: [CF-25]
 target: f/cf25/collapsed
+note: "Corrected after recording: the prediction, from CF-25, was the failure Squashing flow loops is not available in OSS."
 expect:
-  status: failure
-  result: {error: {name: InternalError, message: "Squashing flow loops is not available in OSS"}}
+  status: success
+  result: [1]
   steps:
     "m:a": {status: success, args: {x: 1}, result: 1}
-    "m:l": {status: not_run, ran: false}
+    "m:l": {status: success, result: [1]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}

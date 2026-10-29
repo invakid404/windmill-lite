@@ -5,11 +5,14 @@
 # returns it.
 spec: [CF-22/a]
 target: f/cf22/iter_parent
+note: "Corrected after recording: the failed attempt's job at m:l/r:0 is the failed iteration's child flow, and oracle run 40852609901 walked its modules below it, which the prediction left out."
 expect:
   status: success
   result: [{index: 0, value: 1}]
   steps:
     "m:l/r:0": {status: failure, args: {iter: {index: 0, value: 1}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b}}}
+    "m:l/r:0/m:b": {status: failure, args: {tag: b, v: null}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b}}}
+    "m:l/r:0/m:c": {status: not_run, ran: false}
     "m:l": {status: success, result: [{index: 0, value: 1}]}
     "m:l/i:0/m:b": {status: success, args: {tag: b, v: {index: 0, value: 1}}, result: {index: 0, value: 1}}
     "m:l/i:0/m:c": {status: success, args: {x: {index: 0, value: 1}}, result: {index: 0, value: 1}}

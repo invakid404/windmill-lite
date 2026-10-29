@@ -1,4 +1,4 @@
-summary: "CF-21 a parallel loop's skip_if"
+summary: CF-21 a parallel loop's skip_if
 value:
   modules:
     - id: a
@@ -30,9 +30,9 @@ value:
         parallel: true
         skip_failures: false
       skip_if:
-        expr: "previous_result != 0"
+        expr: previous_result != 0
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

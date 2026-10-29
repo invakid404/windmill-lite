@@ -1,4 +1,4 @@
-summary: "CF-21/a a loop's skip_if is re-evaluated mid-loop"
+summary: CF-21/a a loop's skip_if is re-evaluated mid-loop
 value:
   modules:
     - id: a
@@ -30,9 +30,9 @@ value:
         parallel: false
         skip_failures: false
       skip_if:
-        expr: "previous_result == 2"
+        expr: previous_result == 2
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

@@ -28,7 +28,7 @@ var jsonObjectString = jsonval.FromProducer([]byte(`"{}"`))
 // completion; o is its outcome so far. The chosen branch's result is the
 // module's, and its stop_after_if, evaluated with it, is an ordinary stop of
 // the flow (CF-14).
-func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome) outcome {
+func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	m := fr.modules[i]
 	site := fr.sites[i]
 	// The predicates are evaluated once, in order, each as Boolean(<expr>)
@@ -78,17 +78,38 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	if st, ended := r.iterationEnded(ctx); ended {
 		return branchInterrupted(o, false, st)
 	}
+	// The module's timeout is evaluated for the child it pushes, and the
+	// sleep before it delays that child (CF-21).
+	if text, err := r.childTimeout(ctx, fr, i, prev, prevID); err != nil {
+		if ctx.Err() != nil {
+			return branchInterrupted(o, false, conformance.RunCanceled)
+		}
+		return r.chaining(fr, i, o, text)
+	}
 	c, text := r.branchFrame(fr, i, seg, body, path, false)
 	if c == nil {
 		return r.chaining(fr, i, o, text)
 	}
+	c.due = b.due
 	r.addChild(c)
 	e := r.runList(ctx, c)
 	// The branch's completion refreshes its flow's ping (JE-2).
 	r.ping(fr)
 	if ended(e.status) {
-		return branchInterrupted(o, true, r.endedStatus(ctx, e.status))
+		st := r.endedStatus(ctx, e.status)
+		if st == conformance.RunCanceled {
+			// A canceled branch's flow fails with the Canceled error, which
+			// fails the module (CF-28).
+			v := canceledError(cancellationOf(ctx))
+			o.rec.Ran, o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultOrigin = true, conformance.StepFailure, conformance.ModuleFailure, v, OriginEngine
+			o.end = endInterrupted
+			return o
+		}
+		return branchInterrupted(o, true, st)
 	}
+	// The branch's flow is the module's job, which a retry records as its
+	// failed attempt (CF-22).
+	o.lastChild = &childJob{site: c.site, flow: true, input: c.input, end: e}
 	r.recordJob(fr, i, e.result)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.rec.ResultOrigin, o.rec.ResultNested, o.rec.CarriedNested = e.result, e.result, e.origin, e.nested, e.nested
@@ -135,22 +156,22 @@ func branchOneEnd(e flowEnd) moduleEnd {
 // array of its branches' results in branch order, and its stop_after_if is
 // not evaluated; a branchall with no branches is an empty container, whose
 // stop_after_if is (CF-15, CF-29).
-func (r *run) branchAll(ctx context.Context, fr *frame, i int, o outcome) outcome {
-	b := fr.modules[i].BranchAll
+func (r *run) branchAll(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
+	ba := fr.modules[i].BranchAll
 	switch {
-	case len(b.Branches) == 0:
+	case len(ba.Branches) == 0:
 		return r.emptyContainer(ctx, fr, i, o)
-	case b.Parallel:
-		return r.parallelBranches(ctx, fr, i, o)
+	case ba.Parallel:
+		return r.parallelBranches(ctx, fr, i, prev, prevID, o, b)
 	}
-	return r.sequentialBranches(ctx, fr, i, o)
+	return r.sequentialBranches(ctx, fr, i, prev, prevID, o, b)
 }
 
 // sequentialBranches runs a sequential branchall's branches in order
 // (CF-15): after a failed branch the next starts only when that branch's
 // skip_failure is true, otherwise the module fails with the results so far.
 // A stop in a branch propagates (sequentialStop).
-func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcome) outcome {
+func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	bs := fr.modules[i].BranchAll.Branches
 	var it iterations
 	failed := false
@@ -158,19 +179,33 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcom
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, k > 0, st)
 		}
+		// The module's timeout is evaluated for each child it pushes (CF-21).
+		// A failure, or the push of the branch's child flow failing, is a
+		// chaining error of the module's flow, at its pickup only for the
+		// first branch of a module that is its first module.
+		if text, err := r.childTimeout(ctx, fr, i, prev, prevID); err != nil {
+			if ctx.Err() != nil {
+				return r.loopInterrupted(o, &it, k > 0, conformance.RunCanceled)
+			}
+			return r.chainingAt(fr, k == 0 && i == 0, o, text)
+		}
 		c, text := r.branchFrame(fr, i, conformance.Branch(k), br.Modules, fr.path+"/branchall-"+strconv.Itoa(k), false)
 		if c == nil {
-			// The push of the branch's child flow failed: a chaining error of
-			// the module's flow, at its pickup only for the first branch of a
-			// module that is its first module.
 			return r.chainingAt(fr, k == 0 && i == 0, o, text)
+		}
+		if k == 0 {
+			c.due = b.due
 		}
 		r.addChild(c)
 		e := r.runList(ctx, c)
 		// The branch's completion refreshes its flow's ping (JE-2).
 		r.ping(fr)
 		if ended(e.status) {
-			return r.loopInterrupted(o, &it, true, r.endedStatus(ctx, e.status))
+			st := r.endedStatus(ctx, e.status)
+			if st == conformance.RunCanceled {
+				it.add(canceledChild(ctx, nil))
+			}
+			return r.loopInterrupted(o, &it, true, st)
 		}
 		it.add(e)
 		if e.stopped || e.errorStop {
@@ -225,7 +260,7 @@ func (r *run) sequentialStop(fr *frame, i int, o outcome, it *iterations, end mo
 // every branch has (CF-15). There is no fail-fast (Windmill's continue-all,
 // decisions Q-18): the module fails with the full array when a branch whose
 // skip_failure is false failed, and a stop ends only its own branch (CF-12).
-func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome) outcome {
+func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	m := fr.modules[i]
 	bs := m.BranchAll.Branches
 	n := len(bs)
@@ -235,13 +270,23 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
 	// Every branch is created at once, each with an rng of its own drawn in
-	// branch order, so a seed still fixes every order.
+	// branch order, so a seed still fixes every order, and the module's
+	// timeout evaluated for it (CF-21). The sleep before the module delays
+	// every branch, all pushed at once, as for a parallel loop.
 	children := make([]*frame, n)
 	for k, br := range bs {
+		if text, err := r.childTimeout(ctx, fr, i, prev, prevID); err != nil {
+			if ctx.Err() != nil {
+				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
+				return o
+			}
+			return r.chaining(fr, i, o, text)
+		}
 		c, text := r.branchFrame(fr, i, conformance.Branch(k), br.Modules, fr.path+"/branchall-"+strconv.Itoa(k), true)
 		if c == nil {
 			return r.chaining(fr, i, o, text)
 		}
+		c.due = b.due
 		children[k] = c
 	}
 	for _, c := range children {
@@ -272,9 +317,21 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 	}
 	var it iterations
 	failed := false
-	for k, e := range ends[:started] {
+	for _, e := range ends[:started] {
 		if ended(e.status) && stopped == "" {
 			stopped = e.status
+		}
+	}
+	canceled := stopped != "" && r.endedStatus(ctx, stopped) == conformance.RunCanceled
+	for k, e := range ends {
+		switch {
+		case canceled && (k >= started || ended(e.status)):
+			// The cancellation reaches every branch, which fails with the
+			// Canceled error (CF-28).
+			it.add(canceledChild(ctx, nil))
+			continue
+		case k >= started:
+			continue
 		}
 		it.add(e)
 		if e.status == conformance.RunFailure && !bs[k].SkipFailure {
@@ -282,7 +339,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 		}
 	}
 	if stopped != "" {
-		return r.loopInterrupted(o, &it, started > 0, r.endedStatus(ctx, stopped))
+		return r.loopInterrupted(o, &it, started > 0 || canceled, r.endedStatus(ctx, stopped))
 	}
 	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
 }

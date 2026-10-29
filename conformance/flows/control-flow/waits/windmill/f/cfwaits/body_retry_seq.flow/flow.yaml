@@ -1,4 +1,4 @@
-summary: "a retried module in a seq loop's body"
+summary: a retried module in a seq loop's body
 value:
   modules:
     - id: l
@@ -11,7 +11,7 @@ value:
               input_transforms:
                 tag:
                   type: javascript
-                  expr: "\"b\" + flow_input.iter.index"
+                  expr: '"b" + flow_input.iter.index'
                 v:
                   type: javascript
                   expr: flow_input.iter.value
@@ -36,7 +36,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

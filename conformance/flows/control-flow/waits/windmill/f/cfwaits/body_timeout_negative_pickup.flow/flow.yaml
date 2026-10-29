@@ -1,4 +1,4 @@
-summary: "a negative timeout at a child flow's pickup"
+summary: a negative timeout at a child flow's pickup
 value:
   modules:
     - id: l
@@ -15,7 +15,7 @@ value:
               path: f/cfwaits/echo
             timeout:
               type: javascript
-              expr: "-1"
+              expr: '-1'
           - id: c
             value:
               type: script
@@ -31,7 +31,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

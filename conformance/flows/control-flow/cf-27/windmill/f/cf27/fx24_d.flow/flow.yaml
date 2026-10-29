@@ -1,4 +1,4 @@
-summary: "FX-24/d a collapsed loop applies its timeout per iteration"
+summary: FX-24/d a collapsed loop applies its timeout per iteration
 value:
   modules:
     - id: l
@@ -26,7 +26,7 @@ value:
         type: static
         value: 1
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

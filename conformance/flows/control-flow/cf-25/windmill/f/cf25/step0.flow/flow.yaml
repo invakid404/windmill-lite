@@ -1,4 +1,4 @@
-summary: "CF-25 a squashed loop at the root's pickup"
+summary: CF-25 a squashed loop at the root's pickup
 value:
   modules:
     - id: l
@@ -29,7 +29,7 @@ value:
         skip_failures: false
         squash: true
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

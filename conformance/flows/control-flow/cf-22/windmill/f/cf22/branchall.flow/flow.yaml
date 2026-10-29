@@ -1,4 +1,4 @@
-summary: "CF-22 retry on a branchall"
+summary: CF-22 retry on a branchall
 value:
   modules:
     - id: ba
@@ -17,6 +17,8 @@ value:
                       type: static
                       value: 0
                   path: f/cf22/flaky
+            expr: ''
+            parallel: true
             skip_failure: false
           - modules:
               - id: b1
@@ -27,6 +29,8 @@ value:
                       type: static
                       value: 1
                   path: f/cf22/echo
+            expr: ''
+            parallel: true
             skip_failure: false
         parallel: true
       retry:
@@ -34,7 +38,7 @@ value:
           attempts: 1
           seconds: 0
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

@@ -1,4 +1,4 @@
-summary: "CF-27/c child flows are not timed"
+summary: CF-27/c child flows are not timed
 value:
   modules:
     - id: l
@@ -32,7 +32,7 @@ value:
         type: static
         value: 1
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

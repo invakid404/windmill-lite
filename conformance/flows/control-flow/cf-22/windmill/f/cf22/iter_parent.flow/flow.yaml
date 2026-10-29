@@ -1,4 +1,4 @@
-summary: "CF-22/a a retried non-collapsed iteration sees iter_parent"
+summary: CF-22/a a retried non-collapsed iteration sees iter_parent
 value:
   modules:
     - id: l
@@ -14,7 +14,7 @@ value:
                   value: b
                 v:
                   type: javascript
-                  expr: "flow_input.iter_parent ?? null"
+                  expr: flow_input.iter_parent ?? null
               path: f/cf22/flaky
           - id: c
             value:
@@ -35,7 +35,7 @@ value:
           attempts: 1
           seconds: 0
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

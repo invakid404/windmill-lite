@@ -1,4 +1,4 @@
-summary: "CF-24/a the job path of an inline body step"
+summary: CF-24/a the job path of an inline body step
 value:
   modules:
     - id: l
@@ -8,9 +8,9 @@ value:
           - id: b
             value:
               type: rawscript
-              content: "!inline b.ts"
+              content: '!inline b.ts'
               input_transforms: {}
-              lock: "!inline b.lock"
+              lock: '!inline b.lock'
               language: bun
           - id: c
             value:
@@ -27,7 +27,7 @@ value:
         parallel: false
         skip_failures: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []

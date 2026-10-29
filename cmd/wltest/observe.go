@@ -21,7 +21,7 @@ import (
 //     so it is not_run, as the walker reads a flow_status entry without one;
 //     virtual marks the generated `<id>-v` step of a final sleep (OF-17),
 //     which the walker leaves out of the projection (OR-V7), and so does
-//     this;
+//     this, a child flow's included (ChildFlow.Virtual, CF-26);
 //   - jobs maps the id of every invocation the run made, which steps see as
 //     WM_JOB_ID, to its site, and a record's own job (StepRecord.Job)
 //     overrides it, so a retried attempt's job is named by its attempt's
@@ -40,7 +40,10 @@ import (
 //     with no job (FX-15 context 2) carries its error to what follows it,
 //     where the observation shows it;
 //   - a failed site whose job ran is a runtime error for stack masking
-//     (OR-V3 clause a), as a failed leaf that executed a script is.
+//     (OR-V3 clause a), as a failed leaf that executed a script is;
+//   - a superseded record or child flow, which Windmill's job tree no
+//     longer reaches (a container's failed attempt, a loop skipped
+//     mid-loop, a collapsed job never pushed; milestone NI), is left out.
 //
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's
@@ -52,8 +55,12 @@ import (
 // strips a location suffix (conformance.StripLocations), and nowhere else.
 func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
+	var children []engine.ChildFlow
 	for _, c := range t.Children {
-		ids[c.ID] = c.Site
+		if !c.Superseded {
+			children = append(children, c)
+			ids[c.ID] = c.Site
+		}
 	}
 	for id, site := range jobs {
 		ids[id] = site
@@ -65,8 +72,21 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 			hidden[conformance.SitePath{}.Child(segs[i])] = true
 		}
 	}
+	for _, c := range children {
+		csegs := conformance.ModuleSegments(c.Modules)
+		for i, v := range c.Virtual {
+			if v {
+				hidden[c.Site.Child(csegs[i])] = true
+			}
+		}
+	}
 	records := map[conformance.SitePath]engine.StepRecord{}
+	var live []engine.StepRecord
 	for _, rec := range t.Steps {
+		if rec.Superseded {
+			continue
+		}
+		live = append(live, rec)
 		records[rec.Site] = rec
 		if rec.Job != "" {
 			ids[rec.Job] = rec.Site
@@ -91,7 +111,7 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 
 	steps := map[conformance.SitePath]conformance.StepObservation{}
 	var expanded []engine.StepRecord
-	for _, rec := range t.Steps {
+	for _, rec := range live {
 		if hidden[rec.Site] {
 			continue
 		}
@@ -169,7 +189,7 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		segs = append(segs, conformance.FailureSlot())
 	}
 	notRun(conformance.SitePath{}, segs)
-	for _, c := range t.Children {
+	for _, c := range children {
 		notRun(c.Site, conformance.ModuleSegments(c.Modules))
 	}
 	if t.ResultOrigin.Generated() {

@@ -1,4 +1,4 @@
-summary: "CF-21 skip_if mid-loop in a while loop"
+summary: CF-21 skip_if mid-loop in a while loop
 value:
   modules:
     - id: a
@@ -19,16 +19,16 @@ value:
               input_transforms:
                 x:
                   type: javascript
-                  expr: "flow_input.iter.index + 1"
+                  expr: flow_input.iter.index + 1
               path: f/cf21/echo
         skip_failures: false
       skip_if:
-        expr: "previous_result == 2"
+        expr: previous_result == 2
       stop_after_if:
-        expr: "result >= 5"
+        expr: result >= 5
         skip_if_stopped: false
 schema:
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties: {}
   required: []
