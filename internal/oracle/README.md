@@ -15,8 +15,11 @@ the fixtures of the recording batches, E3c's and E3b's under
 under [conformance/flows/control-flow](../../conformance/flows/control-flow),
 the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
 see [Stub mode](#stub-mode)), milestone E1's first fixtures under
-`conformance/flows/languages` and `conformance/flows/client-api`, and the
-expression cases of batch E3a, which
+`conformance/flows/languages` and `conformance/flows/client-api`, the
+fixtures of recording batch E3e (among them the probe catalogue under
+`conformance/flows/oracle`, and its two-worker fixture, which the
+workflow's second session records), and the expression cases of batch
+E3a, which
 `wltest record` lifts into generated flows
 ([conformance](../../conformance/README.md#expression-cases)). E3c extended
 the session and the walker (below), E3b the walker and the batch test, E3d
@@ -132,7 +135,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `compose.yaml` | The oracle's compose file, embedded. A test checks it against the pins, the hygiene rules and `OracleEnv`. |
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
-| `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `Capture` records exchanges for replay. |
+| `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
 | `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml` (`ApplySetup`, `CheckSetup`, `ResetSetup`), the deployment gate and the deployed-module check. |

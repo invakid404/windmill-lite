@@ -2,7 +2,8 @@
 
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
-E3a added expression files), `stub` (milestone E4a) and `check`, for step
+E3a added expression files, and E3e `--skip-unmet-workers` and
+`--listen-interval`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a). This README covers the `wltest` command in
@@ -296,7 +297,8 @@ Windmill v1.767.0's image).
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
-  adds itself there. A required run stays required. The test runs every
+  adds itself there; recording batch E3e listed the runs of its fixtures
+  that windmill-lite already passes. A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

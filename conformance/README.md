@@ -9,8 +9,10 @@ context-free expression cases in `exprs/`. `wltest record` records the flow fixt
 on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
 recording batches E3c (flow execution errors), E3b (flow execution core)
 and E3d (loops, branches and the result cache), the stub-mode acceptance
-cases, and those of recording batch E3a (the expression cases of the JE
-catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
+cases, those of recording batch E3a (the expression cases of the JE
+catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
+HTTP responses, the contested `later` cases, codebase scripts, and the
+probe catalogue rebuilt as fixtures). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
 engine core (milestones E1 and N1a), which runs sequential flows of Bun
 steps; it also runs the expression cases end to end, as the generated

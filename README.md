@@ -70,7 +70,7 @@ too. Its expressions run on the expression pipeline in
 shortcuts (B2a), which the compiler now runs for every expression, run on
 QuickJS-ng with Windmill's program around each expression, its
 serialisation and its error texts (B2b), held to every expression that
-batch E3a recorded. The last six are the oracle's: E2, the oracle
+batch E3a recorded. The last seven are the oracle's: E2, the oracle
 harness ([internal/oracle](internal/oracle/README.md), `wltest record`),
 which records synthetic flow fixtures on an unmodified Windmill CE image in
 public CI; recording batch E3c, which recorded the reference's
@@ -85,7 +85,10 @@ replay service), which runs a flow with every script body replaced by a
 stub that takes its outcome from a table; and recording batch E3a, which
 recorded the expression cases of the reference's JE findings and the
 `results` lookup cases CF-19 and CF-V6
-([conformance](conformance/README.md)) and settled another.
+([conformance](conformance/README.md)) and settled another; and recording
+batch E3e, which recorded what the others left: FX-36's HTTP responses,
+the contested `later` cases, codebase scripts in CommonJS and ESM, and the
+reference's probe catalogue rebuilt as executable fixtures.
 
 windmill-lite is not affiliated with Windmill Labs. It is released into the
 public domain under the [Unlicense](LICENSE), except for vendored files that
@@ -154,7 +157,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/bundle](internal/bundle/README.md) | The bundle: the build of a sync folder, the bundle format and its `.wlb` archive, the manifest and the bundle digest, verification; the build parts both bundlers share (the env rewrite, the shim generator for host-provided modules, an inline script's import base), the Bun side of the build, which runs the Bun build helper, and codebase scripts, which esbuild bundles through its Go API as the `wmill` CLI does, with their assets and the CLI parity check. |
 | [harnesses/bun](harnesses/bun/README.md) | The Bun harness on Bun 1.3.10: the runtime side of the protocol, with the per-invocation environment, log and `fetch` views and child-process wrapping, the step runner with Windmill's wrapper rules, the `process.exit` interception, the attribution of process-level errors, the settle-time fence on the per-invocation registry and the process scope, `fresh` mode, codebase modules (CommonJS on Bun's CommonJS loader) and their assets in the working directory, and a minimal host SDK. |
 | [harnesses/bun/build](harnesses/bun/build/README.md) | The Bun build helper: bundling with Windmill's settings and import rules, the signature parse, annotations, workflow-as-code detection, the export scan of host-provided modules, and the source parse of codebase scripts. |
-| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases (codebase scripts included), the Bun step cases (with D13's, Node against Bun), the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, and E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
+| [conformance](conformance/README.md) | The shared conformance cases: the OpenFlow decode cases, the stored-form (jsonb) cases, the sync-folder load cases, the compile cases, the harness protocol cases, the Bun build cases (codebase scripts included), the Bun step cases (with D13's, Node against Bun), the flow fixtures the oracle records (the smoke fixture, recording batches E3c's and E3b's flow-execution fixtures, E3d's control-flow fixtures, the stub-mode acceptance cases, and the JE, CF-19 and CF-V6 fixtures of batch E3a, E1's first fixtures of the languages and client-api areas, among them a codebase-script fixture, and batch E3e's remaining recordings) and the context-free expression cases, with their recordings, which `wltest check` runs end to end on the engine core. |
 | [scripts](scripts/README.md) | Repository tooling for acknowledging Renovate dependency bumps automatically; installed, awaiting activation (a repository secret). |
 | [docs/semantics](docs/semantics/README.md) | The Windmill `v1.767.0` semantics reference: findings by area, the conformance catalogue, the oracle harness design, and the licence map. |
 | [docs/design](docs/design/README.md) | The design: decision records for the equivalence contract, the IR and loader, where semantics live, the harness protocol, JSON boundaries, module state, the platform interface, host hooks and adapters, packaging, differential testing, and the package layout with its milestones. |
@@ -195,7 +198,8 @@ check, and its fallback, the settings comparison, runs in the Go jobs.
 The [oracle workflow](.github/workflows/oracle.yml) records the flow
 fixtures and the expression cases on the Windmill CE oracle nightly, on
 demand, and on pull requests that change the cases or the harness or carry
-the `oracle` label. The
+the `oracle` label, in two sessions: one worker for every fixture, and two
+workers for the fixtures that need them. The
 [Memoria gate](.github/workflows/memoria.yml) fails while any README has an
 unacknowledged change in its scope.
 [Renovate](renovate.json) keeps dependencies and action pins current.
