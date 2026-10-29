@@ -332,9 +332,10 @@ against the same workspace. A run's provenance holds its target flow's, as
 ## Recording batches
 
 A recording batch is one of milestones E3a to E3e of
-[ADR 0012](../../docs/design/0012-layout-and-milestones.md).
-`testdata/batches/<batch>.json` holds one, and `TestRecordingBatches`
-checks it on every CI run:
+[ADR 0012](../../docs/design/0012-layout-and-milestones.md), or an engine
+milestone that records its own fixtures, as N2 records FX-23 to FX-29
+(`n2.json`). `testdata/batches/<batch>.json` holds one, and
+`TestRecordingBatches` checks it on every CI run:
 
 | Field | Meaning |
 |---|---|

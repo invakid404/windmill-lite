@@ -6,7 +6,7 @@
 id: execution/fx-27
 spec: [FX-27, FX-27/a, JE-V2]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
 compare:

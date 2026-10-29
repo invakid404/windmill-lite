@@ -1,13 +1,18 @@
 # FX-28/c: the same without a failure module: the flow fails with the
-# string error.
-spec: [FX-28/c, FX-21]
+# string error, its two prefixes and two location suffixes as in FX-28/b.
+spec: [FX-28/c, FX-21, FX-50]
 target: f/wl_fx28/throw_no_handler
 expect:
   status: failure
-  result: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
+  result: {error: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}
   steps:
     "m:a":
       status: failure
       args: {msg: x}
       result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
-      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
+      carried: {error: "Error: Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11 @worker_flow.rs:1710:32"}
+note: >-
+  Corrected after recording. The prediction had FX-21's string, one
+  "Error: " prefix and one location suffix; oracle run 40818457347 recorded
+  a second prefix and a second suffix, @worker_flow.rs:1710:32, the
+  completion's conversion of retry_if's error.

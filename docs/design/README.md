@@ -59,7 +59,12 @@ the expression cases on it. Milestone N1b adds the engine's errors:
 `continue_on_error`, the failure module and recovery, chaining errors, the
 error shapes, the final result and the cancellation outcome, with the
 location rule of [0011](0011-differential-testing.md) extended to the
-chaining errors' suffixes.
+chaining errors' suffixes. Milestone N2 adds the engine's waits and time:
+`sleep`, the step timeout and its messages, retries with their arithmetic,
+jitter and argument reuse, deadlines (the monitor of flows that hang
+between steps, the pre-write deadline of [0008](0008-host-hooks.md)'s H4)
+and the clock of H10, with its fixtures `fx-23` to `fx-29` recorded on the
+oracle.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

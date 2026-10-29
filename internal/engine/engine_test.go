@@ -32,7 +32,9 @@ import (
 //   - f/t/obj returns {"zz":1,"b":2,"aaa":3}, in that key order;
 //   - f/t/fail throws an Error named by its argument name, "Error" by
 //     default;
-//   - f/t/zero, whose metadata asks for a timeout of 0 s, is not run here.
+//   - f/t/zero, whose metadata asks for a timeout of 0 s, is not run here;
+//   - f/t/flaky fails once per site and run, then returns its arguments
+//     (retry_test.go's flaky executor).
 type scripts struct {
 	mu   sync.Mutex
 	invs []Invocation
@@ -84,7 +86,7 @@ func (s *scripts) calls() []string {
 // each a flow value as JSON.
 func testFolder(flows map[string]string) fstest.MapFS {
 	fsys := fstest.MapFS{"wmill.yaml": {Data: []byte("defaultTs: bun\n")}}
-	for _, name := range []string{"echo", "value", "obj", "fail", "zero"} {
+	for _, name := range []string{"echo", "value", "obj", "fail", "zero", "flaky"} {
 		fsys["f/t/"+name+".ts"] = &fstest.MapFile{Data: []byte("export async function main(...a: any[]) { return null }\n")}
 	}
 	// f/t/zero's own metadata asks for a timeout of 0 s (FX-24).

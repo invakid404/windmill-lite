@@ -11,6 +11,6 @@
 id: execution/fx-24
 spec: [FX-24, FX-24/a, FX-24/b, FX-24/c, FX-24/f, FX-25, JE-29, FX-15]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}

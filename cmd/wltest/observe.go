@@ -86,13 +86,13 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		}
 		expanded = append(expanded, rec)
 		for k, at := range rec.FailedRetries {
-			site := rec.Site.Child(conformance.Attempt(k))
-			if site == at {
-				continue
-			}
 			src, ok := records[at]
 			if !ok {
 				return o, nil, fmt.Errorf("site %s lists the failed attempt %s, which has no record", rec.Site, at)
+			}
+			site := rec.Site.Child(conformance.Attempt(k))
+			if site == at {
+				continue
 			}
 			// The walker meets the attempt's job again here: a copy whose
 			// pointers are its own.

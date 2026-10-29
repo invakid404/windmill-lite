@@ -6,8 +6,8 @@ queue, no job per step, and no worker pickup.
 
 **Current state:** first implementation milestones. The engine core runs
 flows of Bun steps in sequence from a compiled program, with their failure
-modules; containers, waits, retries and the platform providers come in the
-next milestones. The repository holds
+modules, sleeps, timeouts and retries; containers and the platform
+providers come in the next milestones. The repository holds
 a Go module, the `windmill-lite` command, which builds and verifies bundles
 and serves the walking skeleton's host mode but does not run bundles yet,
 CI, a
@@ -16,7 +16,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Twenty-six milestones have landed. F4 gives the
+Twenty-seven milestones have landed. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
@@ -68,8 +68,11 @@ program's flows in sequence, with Windmill's decision list for input
 transforms, the `results` routes, `skip_if`, `mock`, identity steps and
 `stop_after_if`, and K1's host-hook seams, and (N1b) its errors:
 `continue_on_error`, the failure module and recovery, chaining errors,
-the error shapes and the cancellation outcome; `host` runs its flows on it
-too. Its expressions run on the expression pipeline in
+the error shapes and the cancellation outcome, and (N2) its waits and
+time: `sleep`, the step timeout and its texts, retries with Windmill's
+16-bit delay arithmetic, jitter and argument reuse, the monitor of flows
+that hang between steps, the pre-write deadline and an injectable clock;
+`host` runs its flows on it too. Its expressions run on the expression pipeline in
 [internal/expr](internal/expr/README.md), whose textual stages and
 shortcuts (B2a), which the compiler now runs for every expression, run on
 QuickJS-ng with Windmill's program around each expression, its

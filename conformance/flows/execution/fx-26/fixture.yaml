@@ -7,6 +7,6 @@
 id: execution/fx-26
 spec: [FX-26, FX-26/a, FX-26/b]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}

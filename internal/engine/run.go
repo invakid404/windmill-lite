@@ -478,7 +478,7 @@ func (r *run) decideRetry(ctx context.Context, i int, o *outcome, idx int, last 
 			r.endBy(ctx, conformance.RunCanceled)
 			return decision{}, false
 		case err != nil:
-			r.unrecoverable(o, idx, predicateText(err))
+			r.unrecoverable(o, idx, retryIfText(err))
 		case allowed && o.end == endErrorStop && !hasFailure:
 			// The cursor does not advance, and with no failure module the
 			// stop ends the flow, failed (FX-19).
@@ -492,6 +492,13 @@ func (r *run) decideRetry(ctx context.Context, i int, o *outcome, idx int, last 
 	}
 	return r.decide(m, *o, last), true
 }
+
+// retryIfText is the error of a retry_if that throws while the completion
+// is decided (FX-28): the predicate's text converted once more into the
+// generic error, so two "Error: " prefixes, where Windmill also writes two
+// location suffixes (FX-50, recorded by fx-28/throw_no_handler) and
+// windmill-lite none (D14).
+func retryIfText(err error) string { return "Error: " + predicateText(err) }
 
 // unrecoverable re-processes the completion of o, whose record is idx, as
 // an unrecoverable failure whose error is text, a string (FX-28, as
@@ -632,7 +639,7 @@ func (r *run) failure(ctx context.Context, prev jsonval.Value, prevID string, co
 				r.endBy(ctx, conformance.RunCanceled)
 				return
 			}
-			r.unrecoverable(&o, idx, predicateText(err))
+			r.unrecoverable(&o, idx, retryIfText(err))
 			break
 		}
 		if !allowed {
@@ -902,13 +909,14 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	// Start step 10: the job is pushed, scheduled for when a sleep or a
 	// retry delay ends; it waits for that time on the run's clock (FX-23,
 	// FX-26). A cancellation makes the queued job due at once, and it
-	// fails without running with the Canceled error (FX-38).
+	// fails without running with the Canceled error, a failure and not a
+	// canceled job (FX-38, recorded by fx-23/canceled_sleep).
 	if !due.IsZero() {
 		if err := r.wait(ctx, site.Path, due); err != nil {
 			reason, canceler := cancellationOf(ctx)
 			v := canceledError(reason, canceler)
 			o.rec.Ran, o.rec.Start = true, r.clock.Now()
-			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepCanceled, conformance.ModuleFailure, v, v, OriginEngine
+			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginEngine
 			o.end, o.carried, o.origin = endInterrupted, v, OriginEngine
 			r.recordJob(i, v)
 			return o

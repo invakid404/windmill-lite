@@ -7,7 +7,9 @@ entrypoint's selection (milestone C3a), and the engine core of milestone
 N1a, which runs a compiled program's flows sequentially, with the errors
 of milestone N1b: `continue_on_error`, the failure module and recovery,
 the error shapes, chaining errors, the final result and the cancellation
-outcome. This README
+outcome, and the waits and time of milestone N2: `sleep`, the step
+timeout and its messages, retries with their arithmetic, jitter and
+argument reuse, deadlines and the clock. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -24,9 +26,10 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `ManualFailure`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below); `TimeoutError`, a step's timeout text by boundary (C3n) | C3a, N1b; the step-case runner (`wltest check`) and the engine call them |
 | `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
+| `waits.go` | H10's `Jitter`, `SeededJitter` and `RecordClock`; the values of `sleep` and `timeout` and the retry schedule (below) | N2 calls them; F2b exposes the clock and the jitter to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives. A record's `ResultOrigin` and `CarriedOrigin` say who produced its result and, when the engine set it apart, its carried value | N1a fills it; wl returns it |
-| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
 Site identities are `conformance.SitePath` values. Run statuses are
@@ -43,12 +46,14 @@ and `halted`. Traces, hooks and observations therefore share one vocabulary.
 - **First latch wins.** `Latch` (H5, reached through `Run.Latch`) keeps the
   first error latched and drops later ones, and is safe for concurrent use.
 - **Not hooks in this interface:**
-  - H4 (cancellation and budgets) reaches the engine as the run's context
-    and its deadlines;
+  - H4 (cancellation and budgets) reaches the engine as the run's context,
+    whose deadline is the hard one, and `RunRequest.PreWriteDeadline`
+    (N2, below);
+  - H10 (clock and randomness) reaches it as `RunRequest.Clock` and
+    `RunRequest.Jitter` (N2, below);
   - H11 (host scopes) lives in the Bun harness.
-- **Left for later milestones:**
-  - H13 (per-run platform providers) arrives with the platform milestones;
-  - the retry-jitter source of H10 arrives with the retry arithmetic (N2).
+- **Left for later milestones:** H13 (per-run platform providers) arrives
+  with the platform milestones.
 
 ## Precedence
 
@@ -175,38 +180,48 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a, N1b).** A flow's top-level modules in sequence:
+**What it runs (N1a, N1b, N2).** A flow's top-level modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
-`skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, a static
-`timeout` or none, `continue_on_error`, a failure module of those kinds,
-`flow_env` and `early_return` (which changes only the synchronous HTTP
-response, [FX-37](../../docs/semantics/execution.md#fx-37)). `New`
+`skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
+a static or javascript `timeout`, `retry` and `retry_if`,
+`continue_on_error`, a failure module of those kinds, `flow_env`,
+`early_return` (which changes only the synchronous HTTP response,
+[FX-37](../../docs/semantics/execution.md#fx-37)) and a flow's own
+`timeout`, which nothing enforces: a flow job bypasses every executor
+timer ([FX-24](../../docs/semantics/execution.md#fx-24), path 4). `New`
 refuses everything else with `ErrUnsupported`, naming the milestone that
 implements it, for a top-level module and the failure module alike:
-`sleep`, a javascript or negative `timeout`, a retry with attempts or
-`retry_if`, a flow timeout (N2); loops and branches (N3a, N3b); subflows
-by path (N3c); `cache_ttl` (N4); host-provided sites (F2a); a step of
-another harness than Bun's, whose `bun` and `native` boundaries it runs
-(L1); a preprocessor and `skip_expr` (`later`).
+loops and branches (N3a, N3b); subflows by path (N3c); `cache_ttl` (N4);
+host-provided sites (F2a); a step of another harness than Bun's, whose
+`bun` and `native` boundaries it runs (L1); a preprocessor, `skip_expr`
+and an `ai` sleep or timeout (`later`).
 
 **One module** follows [FX-2](../../docs/semantics/execution.md#fx-2):
 
-1. **Host start checks** (`Start`): the latch, cancellation, `haltBefore`.
-   Then `OnModuleStart` (H6).
-2. **`skip_if`** ([FX-17](../../docs/semantics/execution.md#fx-17),
+1. **Host start checks** (`Start`): the latch, cancellation, `haltBefore`
+   (at a module's first attempt only). Then `OnModuleStart` (H6), for
+   every attempt.
+2. **The previous module's `sleep`**, at the module's first attempt (N2,
+   below), which sets when its job may start.
+3. **`skip_if`** ([FX-17](../../docs/semantics/execution.md#fx-17),
    [JE-25](../../docs/semantics/expressions.md#je-25)), a predicate whose
    value must be JSON `true` or `false`
    ([JE-24](../../docs/semantics/expressions.md#je-24)).
-3. **Arguments**, by the first rule that applies: `mock` (`{previous_result:
+4. **Arguments**, by the first rule that applies: `mock` (`{previous_result:
    <value or null>}`, [FX-18](../../docs/semantics/execution.md#fx-18)),
-   `pass_flow_input_directly` (the flow input), an identity or skipped
-   module (`{previous_result: P}`), else the input transforms
-   ([FX-7](../../docs/semantics/execution.md#fx-7)). A module that
+   a retry's reused arguments (N2, below), `pass_flow_input_directly` (the
+   flow input), an identity or skipped module (`{previous_result: P}`),
+   else the input transforms
+   ([FX-7](../../docs/semantics/execution.md#fx-7)), whose failure still
+   launches the job, with `{}`, to fail without running. A module that
    launches its own job, a leaf or an identity module, has its arguments
-   go through H2; a module that `skip_if` or `mock` answered does not
-   ([ADR 0008](../../docs/design/0008-host-hooks.md)). Every module's
-   arguments go through the storage boundary.
-4. **Launch.** A mocked or skipped module is replaced by an identity job,
+   go through H2; a module that `skip_if` or `mock` answered, a retry and
+   a failed transform do not
+   ([ADR 0008](../../docs/design/0008-host-hooks.md)). Then the module's
+   own `timeout` is evaluated, for every module (N2, below), and every
+   module's arguments go through the storage boundary.
+5. **Launch**, once the scheduled time of a sleep or a retry delay has
+   passed (N2, below). A mocked or skipped module is replaced by an identity job,
    which no hook sees. An `identity` module launches its own identity job,
    which H1 may answer for like any launch. An identity job's result is
    its stored arguments' `previous_result`, or `{}`
@@ -216,14 +231,14 @@ another harness than Bun's, whose `bun` and `native` boundaries it runs
    (`Entrypoint`), H3 asks `BeforeFirstWrite` once per run before the
    first write-capable launch, H12 edits the environment, and the step
    runs through the `StepExecutor` with its timeout as a timer in the
-   engine. The timeout is the module's static one, else a path script's
-   own timeout metadata; a request strictly below the instance maximum is
-   job-specific, zero included (no time at all); none, or one at or above
-   the maximum, gives the maximum, instance-wide (FX-24, FX-25, WR-37).
-   `StoreOutcome` maps the outcome, H1's included; a leaf's result or
-   failure value that jsonb refuses fails its job instead (FX-48 case 1,
-   below).
-5. **`stop_after_if`** after a success, except on the failure module, and
+   engine. The timeout is the module's own, static or evaluated, else a
+   path script's own timeout metadata; a request strictly below the
+   instance maximum is job-specific, zero included (no time at all); none,
+   or one at or above the maximum, gives the maximum, instance-wide
+   (FX-24, FX-25, WR-37). `StoreOutcome` maps the outcome, H1's included;
+   a leaf's result or failure value that jsonb refuses fails its job
+   instead (FX-48 case 1, below).
+6. **`stop_after_if`** after a success, except on the failure module, and
    on an identity job classified skipped: any identity job of a module
    with a `skip_if`, whatever the predicate answered, and whether it ran or
    H1 answered for it ([FX-17](../../docs/semantics/execution.md#fx-17),
@@ -237,16 +252,17 @@ another harness than Bun's, whose `bun` and `native` boundaries it runs
    ([FX-V2](../../docs/semantics/execution.md#fx-v2)). A throwing
    predicate fails the module unrecoverably
    ([FX-21](../../docs/semantics/execution.md#fx-21)).
-6. **`OnModuleEnd`** (H6), then the host completion checks (`Completion`):
+7. **`OnModuleEnd`** (H6), then the host completion checks (`Completion`):
    the latch, cancellation (except for an error stop in a flow with a
    failure module, below), a fatal error name (H7, which latches a
    `FatalError` and records `H7` in the trace's deviations), then
-   Windmill's continue decision (below). Last, `AfterContinue` applies
-   `haltAfter` when the flow would go on, never on the way to the failure
-   module.
+   Windmill's continue decision (below), with its retries. Last,
+   `AfterContinue` applies `haltAfter` when the flow would go on, never on
+   the way to the failure module, and never while a retry is due.
 
 **The continue decision** (N1b; [FX-2](../../docs/semantics/execution.md#fx-2)
-completion steps 3, 7 and 8, in a flow with no retry, which is N2's).
+completion steps 3, 7 and 8, when no retry is due; the retries are N2's,
+below).
 `continue_on_error` tolerates a failure unless it is unrecoverable
 ([FX-44](../../docs/semantics/execution.md#fx-44)):
 
@@ -346,10 +362,13 @@ module:
 | input transform | P, unbound | `params` `{}`, `resume` `null`, `resumes` `[]`, `approvers` `[]` | the previous module's | yes |
 | `skip_if` | P, P | `resume`, `resumes`, `approvers` | the previous module's | yes |
 | `stop_after_if` | the module's own result, twice | — | empty | only when the text holds `results.`, `results[` or `results?.` |
+| `sleep` (N2) | the sleeping module's own result, twice | — | empty | no: `results` is not defined |
+| `timeout` (N2) | P, P | — | the previous module's | yes |
+| `retry_if` (N2) | the failed attempt's value, twice, and `error` its error | — | empty | no |
 
 Every site has `flow_input`; `flow_env` is the flow's own, in its stored
 form ([JE-38](../../docs/semantics/expressions.md#je-38)), at
-`stop_after_if` only when the text names it. No site has helpers yet:
+`stop_after_if` and `retry_if` only when the text names it. No site has helpers yet:
 `variable()`, `resource()` and `flow_user_state()` reject with
 [JE-20](../../docs/semantics/expressions.md#je-20)'s "not available"
 texts until the platform providers (PF2).
@@ -377,7 +396,12 @@ the step's success value, not the `EarlyStopError`
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
 | the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
 | a job's result or failure value that jsonb refuses | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-48 case 1, OR-27 |
-| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above) | FX-38 |
+| the run is canceled | the run's `Canceled` error, and the killed step's `ExecutionErr` (above); a job still waiting for a sleep or a retry delay fails without running, with the run's `Canceled` error | FX-38 |
+| a sleep's value is not a delay (N2) | a chaining error (always a later transition): `Expected an integer, found: <n>` for a negative integer, `Expected an integer, found: <debug form>` (`String("1")`, `Null`, `Array [Number(1)]`) for anything else, `Expected a number value, had error instead: ExecutionErr("Error during evaluation of expression `<text>`:\n<evaluator text>")`, a debug form with its newline escaped, for a failed evaluation | FX-23, JE-28, FX-15 |
+| a timeout's value fails (N2) | a chaining error: `Timeout value cannot be negative`; `Error parsing result as i32: <serde_json's error, with its position>. Value was: <the evaluator's text as it is>`; `Error during evaluation of expression `<text>`:\n<evaluator text>` | FX-24, JE-29, FX-15 |
+| `retry_if` throws while the completion is decided (N2) | the module fails unrecoverably with the string `{"error": "Error: <text>"}`, as for `stop_after_if` but converted once more, so two `Error: ` prefixes (and on Windmill two location suffixes) | FX-28, FX-21, FX-50 |
+| `retry_if` throws at re-entry (N2) | a chaining error of a later transition: the flow fails at once with `{"error": {"message": <text>, "name": "InternalError"}}` | FX-28, FX-15 |
+| a transition outlives the monitor (N2) | the run is canceled by `monitor` (below) | JE-2 |
 
 A predicate's `<text>` is `Error: <evaluator text>` for a failed
 evaluation, or `Expected a boolean value, found: "<value's JSON>"`
@@ -409,6 +433,7 @@ write (D14).
   which runs no job, is checked for `wm_failure` but not for storage.
 - A canceled step's killed text and the run's `Canceled` error take the
   same reason and canceler, Windmill's defaults included.
+- N2's readings are listed with its section, below.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -424,10 +449,149 @@ skipped or chaining one, no stop), the recovery table, the error-stop
 matrix with and without tolerance and a failure module, the unrecoverable
 stop, chaining errors with a failure module, the storage failures, the
 cancellation outcome and its orderings (an empty flow's included), the
-hooks with a failure module, and the identity job's text. The flow
-fixtures run the engine on the real Bun harness
+hooks with a failure module, and the identity job's text.
+`waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
+below. The flow fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), milestone N1a's
 exit gate).
+
+## Waits and time
+
+Milestone N2 ([FX-23](../../docs/semantics/execution.md#fx-23) to
+[FX-29](../../docs/semantics/execution.md#fx-29),
+[JE-28](../../docs/semantics/expressions.md#je-28),
+[JE-29](../../docs/semantics/expressions.md#je-29),
+[JE-32](../../docs/semantics/expressions.md#je-32),
+[JE-V2](../../docs/semantics/expressions.md#je-v2),
+[JE-2](../../docs/semantics/expressions.md#je-2); H4 and H10 of
+[ADR 0008](../../docs/design/0008-host-hooks.md)).
+
+**Sleep** (start step 5). A module's `sleep` is read when the next module
+starts its first attempt, never on a retry and never before the failure
+module: a static value as written, a javascript one evaluated with the
+sleeping module's own result. `sleepDelay` reads it as Windmill does: a
+JSON integer that fits in 64 unsigned bits is seconds; any other number
+(a fraction, an exponent, negative zero, a larger integer) is milliseconds,
+value × 1000 truncated, a negative one 0. The next module's `skip_if`,
+arguments and timeout are evaluated at once; only its job waits, until
+the scheduled time, so a skipped, mocked or identity module waits too. A
+final module's sleep is applied by the virtual `<id>-v` identity the
+compiler appends ([OF-17](../../docs/semantics/openflow.md#of-17)).
+
+**Timeout** (start step 9). Every module evaluates its own `timeout`,
+identity and skipped modules included, though only a leaf's job is timed
+(FX-24): static, an i32 or null (OF-V2); javascript, whose value must
+deserialise as an i32 (`timeoutResult` and `parseI32` write serde_json's
+texts). Its failures are chaining errors, as are a sleep's.
+
+**Retries.** A module with a `retry` is retried, by the decision list of
+FX-2, the same in the failure module with its own `retry`:
+
+- `decideRetry` is the completion phase: a failure, or an error stop under
+  `continue_on_error`, evaluates `retry_if` and then the attempts left; a
+  throw makes the failure unrecoverable (FX-28). A retry due re-enters the
+  module, except after an error stop with no failure module, which ends
+  the flow (FX-19). An error stop that the module does not tolerate, in a
+  flow with a failure module, re-enters a module with a `retry` without
+  evaluating it.
+- `reenter` is start step 6: `retry_if` again (a throw is now a chaining
+  error of a later transition), then the attempts; a retry due moves the
+  failed attempt's record to `<site>/r:<k>`, raises the counter, and
+  starts the next attempt with the failed attempt's recorded arguments
+  (JE-V2: transforms are not evaluated again, a pre-run error is not
+  copied, H2 does not see them again), after the delay. Its
+  `previous_result` is restored (FX-6, JE-36): the flow input at the first
+  module; the preceding module's stored result in jsonb's printed form
+  when that module's status is Success; otherwise the JSON string `"{}"`;
+  the failure module keeps its own failed attempt's value (FX-32). With no
+  retry due, the continue decision proceeds as if none had been.
+- `retryDelay` is FX-26's schedule in unsigned 16-bit arithmetic: the
+  constant phase, then the exponential phase, seconds^(n+1) saturating at
+  65535, times the multiplier wrapping modulo 65536, jittered when
+  `random_factor` is positive, all capped at 21600 s.
+- The retry state is flow-wide (FX-27, FX-29): a counter and the list of
+  failed attempts. Every module's Success or Failure status lists the
+  list (`StepRecord.FailedRetries`), so after a tolerated failure the next
+  module lists an earlier module's attempts, and an attempt's site counts
+  its place in that list; a Success clears both. Starting a failure module
+  with its own `retry` resets the counter.
+- A chaining error at the root's first pickup fails the first module
+  (FX-15 context 2) and can be retried; a retry's re-entry is a later
+  transition, so the same failure then fails the flow.
+
+**Waiting** happens on the run's clock (`RunRequest.Clock`, H10), a timer
+on the run's context, so a cancellation or a deadline cuts it short; the
+queued job then fails without running, with the run's `Canceled` error
+(FX-38): a failed job, not a canceled one, as the oracle recorded. Each
+requested wait is a `SpanWait` span. `RecordClock` records
+waits instead of sleeping them and runs ahead by them; a run whose clock
+is not `RealClock` records `H10` among its trace's deviations. The jitter
+draws come from `RunRequest.Jitter`, or from a source seeded with the
+run's seed, so a fixed seed fixes them.
+
+**Deadlines.** The run's context carries the hard deadline (H4).
+`RunRequest.PreWriteDeadline` ends the run canceled, with
+`ErrPreWriteDeadline` as its context's cause and Windmill's default
+reason and canceler, when it passes before the first write-capable
+module launched (H3); after that launch it no longer applies. A flow's
+own `timeout` is accepted and not enforced (FX-24, path 4).
+
+**The monitor of flows that hang between steps** (JE-2). Windmill's
+server cancels a flow job whose transition, the work between two jobs,
+outlives `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s). The engine counts the
+time each transition spends evaluating expressions, against
+`Config.TransitionTimeout` (zero means 60 s, negative disables it), and
+past it cancels the run with canceler `monitor` and a reason that begins
+as Windmill's (`Flow <id> was cancelled because it was hanging in between
+2 steps. Last ping: <time>`, without the URL and worker details). Hooks
+and waits do not count: Windmill has no hooks, and runs a sleep or a
+retry delay as a scheduled job. So a runaway expression, whose three
+20 s attempts and two 5 s pauses take 70 s, ends the run canceled at
+60 s, as on the oracle (JE-2/a).
+
+**The trace.** A failed attempt's record moves to `<site>/r:<k>`; it has
+no module status and carries nothing on. Each record's `Attempt` is the
+module's attempt it is of, `Job` its leaf job's id, and `Start` and
+`Duration` time its job, from its launch after any wait to its outcome,
+which is what `wltest check` reads a run's `delays` from.
+
+**Readings where the reference is silent**, each pinned by a test or a
+fixture recorded on the oracle:
+
+- A retry draws its jitter once, at re-entry; the completion phase checks
+  only `retry_if` and the attempts left.
+- A failure with no job, the root's first-pickup chaining error, is
+  retried with an empty argument map, as a failed transform's retry is.
+- Re-entry that finds no retry due after the completion found one (a
+  `retry_if` that changed its answer) proceeds with the continue decision
+  as if no retry had been due.
+- The failure module's counter reset leaves the list of failed attempts.
+- A sleep's or timeout's value that is not JSON (B2b's readback can return
+  such text) fails with serde_json's message for the commonest cases.
+- A sleep beyond about 292 years waits that long, where Windmill's
+  scheduled time would overflow.
+- serde_json's `Value` debug form writes an object's members in insertion
+  order (the backend's `preserve_order`, JE-44).
+
+**Tests.** `waits_test.go` checks the values of `sleep` and `timeout`
+(every case of JE-28's and JE-29's texts, with serde_json's positions),
+FX-26's schedule (FX-26/a to /e, the wrap in the jitter's product, the
+saturating sum, the factor's bounds), the seeded jitter, the ryu float
+form and the recording clock. `retry_test.go` runs flows: argument reuse
+and the attempt records, the flow-wide counter and list (FX-29/a and /b,
+and an attempt whose site counts an earlier module's), FX-26/a to /e and
+the jitter through the engine on the recording clock, `retry_if` (false,
+true, its scope, a throw with and without a failure module, a throw at
+re-entry), the error stops with a retry, the failure module's retry and
+its counter reset, the restored `previous_result` from storage and the
+`"{}"` fallback, sleeps (each value, after a skip and a tolerated
+failure, the final module's, not on a retry, not before the failure
+module, its chaining errors) and a canceled sleep, the timeouts' values
+and contexts (every module evaluates its own, the root's Anyhow and its
+retry, a failed transform with a negative timeout, the evaluated value
+timing the leaf), the monitor (a runaway expression, one transition at a
+time, two evaluations in one transition, disabled) and the pre-write
+deadline.
 
 ## The walking skeleton
 
