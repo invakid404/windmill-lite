@@ -943,14 +943,25 @@ an engine with none keeps one of its own, per process, D4)
   has a job id of its own, `Cached` set, its arguments as stored and no
   invocation, and its `stop_after_if` applies as after any success; a
   subflow's child flow is listed with no module run; a root run's trace
-  is `Cached`, with no step.
+  is `Cached`, with no step. A leaf's or a script root's hit is still a
+  job, with the identity it would have run with, which the job registry
+  knows while its root lives, as the facade's executor registers a job
+  that ran (ADR 0007, PF3). A flow job's hit is its start and completion
+  at once, so the host's checks of both apply around the lookup (ADR
+  0008, H4, H5; FX-38): a latch, the cancellation (a passed pre-write
+  deadline's included) or a halt there before the lookup, or arriving
+  during it, ends the flow as it would any other, never with the cached
+  result; a canceled script root's hit is killed, as its job would be.
 - **A store** follows a job that succeeded: a leaf's result, until now
   plus the TTL on the run's clock (H10). A flow job stores its final
   result when the job that ended it succeeded, before and whatever the
   recover check decides (`flowEnd.lastJobOK`), so a failed flow whose
   failure module's job succeeded caches that module's result, which the
   next call returns as a success (FX-40/b). An intercepted (H1) outcome is
-  never stored.
+  never stored. A flow job's store comes before its completion, so a
+  latch or the cancellation arriving during it still ends the flow; a
+  leaf's lookup and store happen inside its module, before the host's
+  completion checks of every module.
 - **A store's failure** is a miss, and a `result_cache_unavailable`
   warning in the trace; it never fails the run.
 
@@ -1018,8 +1029,12 @@ after its failure module's success and none after a failure, a failing
 failure module or a tolerated failure at its last module; the root
 flow's own cache; a host store shared across engines of one bundle and
 not across bundles, and a failing one; H1 bypassing the cache; and the
-engine's module state. `dispatch_test.go`'s `TestRunScriptCache` covers
-a script root's own `cache_ttl`.
+engine's module state; the host's checks around a flow job's cache I/O
+(a canceled run, a passed pre-write deadline, the cancellation during a
+host store's Get or Put); and the registration of a hit's job, a leaf's
+and a dispatched script root's, known while its root lives and
+forgotten with it. `dispatch_test.go`'s `TestRunScriptCache` covers a
+script root's own `cache_ttl`.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or

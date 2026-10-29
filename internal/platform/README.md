@@ -229,11 +229,16 @@ holds and when a job stores), so a store keeps opaque bytes and compares
 expiries with the time the engine gives it, its run's clock (H10), never
 its own. A host puts a shared store behind it (D4: a cache per process
 unless the host plugs in a shared store). The local default,
-`MemoryResults`, keeps entries in memory, one per `Services`; a `Get`
-drops the expired entry it finds, and once the cache has doubled since
-its last sweep a `Put` drops every entry expired by the latest time a
-`Get` gave, so it holds at most about twice what is live and never grows
-without bound.
+`MemoryResults`, keeps entries in memory, one per `Services`, with a heap
+of their expiries: every `Get` and `Put` drops, earliest first, each
+entry that expired by the latest time a `Get` gave, so it holds only
+entries still live then, whatever their number, and the heap, which
+keeps the older expiries of keys stored again until they come up, is
+rebuilt from the live entries once it has outgrown twice their number.
+A hit compares an entry's expiry with its own `Get`'s time; only the
+reclaiming uses the latest one, so with clocks that disagree (H10's
+record mode) an entry may go before its own run's clock reaches its
+expiry, a miss and never a stale hit.
 
 ## The interpolation walker
 
@@ -304,9 +309,11 @@ One walker implements resolution for the three contracts of
   seeing only whole versions and ending on a writer's last, a failed
   `Put` leaving the committed version, and a foreign file refused.
 - `results_test.go` (N4) checks `MemoryResults`: a value until its expiry
-  and not at it, a replacing write, copies kept and returned, the sweep
-  that keeps only live entries, the services' one default and a host's
-  cache, and concurrent writers and readers seeing whole values.
+  and not at it, a replacing write, copies kept and returned, a burst of
+  expired entries reclaimed while a small working set goes on, a key
+  stored again many times keeping the heap bounded, the services' one
+  default and a host's cache, and concurrent writers and readers seeing
+  whole values.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's
   cases, each citing its catalogue case or finding: WA-10/a, WA-11/a,
   WA-12/a to WA-12/f, WA-42/b and /c, WA-V3/a and /b, JE-42/a to /h,

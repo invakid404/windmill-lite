@@ -447,7 +447,14 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     nil one is one `platform.MemoryResults` per `Services`, made when first
     needed, so every engine that shares a `*Services` shares it (D4's
     process scope), and an engine with no services keeps its own. The
-    default drops expired entries as it goes, so it stays bounded.
+    default keeps a heap of expiries and drops, on every call, each entry
+    that expired by the latest time a caller gave, so it holds only live
+    entries whatever their number.
+  - **A hit is a job.** A leaf's or a script root's hit gets the identity
+    it would have run with and is registered in the job registry, known
+    while its root lives, as a job that ran is. A flow job's hit goes
+    through the host's start and completion checks (0008, H4, H5), so a
+    cached result never turns a canceled run into a successful one.
   - **The key** is a SHA-256 over the bundle's digest, the job's kind, its
     runnable (an inline step's inventory id, a path script's path, a
     flow's path) and its arguments in sorted key order, each as its name
