@@ -1,0 +1,38 @@
+summary: "CF-22 a loop whose retry is spent"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                msg:
+                  type: static
+                  value: "no"
+              path: f/cf22/fail
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 1
+              path: f/cf22/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

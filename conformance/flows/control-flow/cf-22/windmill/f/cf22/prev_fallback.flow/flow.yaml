@@ -1,0 +1,42 @@
+summary: "CF-22 a retry restores previous_result"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          msg:
+            type: static
+            value: "a fails"
+        path: f/cf22/fail
+      continue_on_error: true
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                tag:
+                  type: static
+                  value: b
+                v:
+                  type: javascript
+                  expr: previous_result
+              path: f/cf22/flaky
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

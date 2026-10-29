@@ -1,0 +1,37 @@
+summary: "CF-21 a loop's timeout per child, collapsed"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 0
+        path: f/cf21/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/cf21/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+      timeout:
+        type: javascript
+        expr: "flow_input.iter.index + 10"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

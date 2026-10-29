@@ -1,0 +1,41 @@
+summary: "CF-25 a squashed while loop"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/cf25/echo
+    - id: l
+      value:
+        type: whileloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.index
+              path: f/cf25/echo
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              path: f/cf25/echo
+        skip_failures: false
+        squash: true
+      stop_after_if:
+        expr: "true"
+        skip_if_stopped: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

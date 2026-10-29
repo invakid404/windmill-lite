@@ -1,0 +1,9 @@
+# CF-25: a while loop is a sequential loop, so a squashed one fails too.
+spec: [CF-25]
+target: f/cf25/while
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Squashing flow loops is not available in OSS"}}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:l": {status: not_run, ran: false}

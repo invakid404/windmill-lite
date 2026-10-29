@@ -1,0 +1,12 @@
+# CF-22 rule 1: a failed branchall with a retry runs every branch again
+# after the backoff; branch 0 then succeeds.
+spec: [CF-22, CF-15]
+target: f/cf22/branchall
+expect:
+  status: success
+  result: [0, 1]
+  steps:
+    "m:ba/r:0": {status: failure, args: {}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b0", step_id: b0}}}
+    "m:ba": {status: success, result: [0, 1]}
+    "m:ba/b:0/m:b0": {status: success, args: {tag: b0, v: 0}, result: 0}
+    "m:ba/b:1/m:b1": {status: success, args: {x: 1}, result: 1}

@@ -1,0 +1,11 @@
+# CF-27/b: with skip_failures both body jobs time out and the loop
+# succeeds.
+spec: [CF-27/b]
+target: f/cf27/b
+expect:
+  status: success
+  result: [{error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}, {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}]
+  steps:
+    "m:l": {status: success, result: [{error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}, {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}]}
+    "m:l/i:0/m:b": {status: failure, args: {ms: 3000}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}}
+    "m:l/i:1/m:b": {status: failure, args: {ms: 3000}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: l}}}

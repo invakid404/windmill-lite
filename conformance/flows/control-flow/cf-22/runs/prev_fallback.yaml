@@ -1,0 +1,12 @@
+# CF-22 rule 2: on a retry, previous_result is restored from storage; the
+# step before the loop failed (tolerated), so it is the JSON string "{}".
+spec: [CF-22, FX-6]
+target: f/cf22/prev_fallback
+expect:
+  status: success
+  result: ["{}"]
+  steps:
+    "m:a": {status: failure, args: {msg: "a fails"}, result: {error: {name: Error, stack: "<stack>", message: "a fails", step_id: a}}}
+    "m:l/r:0": {status: failure, args: {tag: b, v: {error: {name: Error, stack: "<stack>", message: "a fails", step_id: a}}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: l}}}
+    "m:l": {status: success, result: ["{}"]}
+    "m:l/i:0/m:b": {status: success, args: {tag: b, v: "{}"}, result: "{}"}

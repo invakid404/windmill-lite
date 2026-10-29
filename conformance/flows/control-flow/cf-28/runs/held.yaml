@@ -1,0 +1,16 @@
+# CF-28/a: parallelism 1 holds iterations 1 and 2 while iteration 0's step
+# sleeps 30 s; cancelling the root 8 s after submission marks them, and they
+# complete as cancelled without running body code. The root ends with the
+# Canceled error.
+spec: [CF-28/a]
+target: f/cf28/held
+cancel_after_ms: 8000
+expect:
+  status: canceled
+  result: {error: {message: "Job canceled: wltest: cancel_after_ms by admin", name: Canceled, reason: "wltest: cancel_after_ms", canceler: admin}}
+  steps:
+    "m:l/i:0/m:c": {status: not_run}
+    "m:l/i:1/m:b": {status: not_run}
+    "m:l/i:1/m:c": {status: not_run}
+    "m:l/i:2/m:b": {status: not_run}
+    "m:l/i:2/m:c": {status: not_run}

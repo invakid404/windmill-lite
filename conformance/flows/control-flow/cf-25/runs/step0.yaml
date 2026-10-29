@@ -1,0 +1,9 @@
+# CF-25: the same loop as the first module, at the root's pickup (CF-23
+# route 1).
+spec: [CF-25]
+target: f/cf25/step0
+expect:
+  status: failure
+  result: {error: {name: Anyhow, message: "Error: Squashing flow loops is not available in OSS @worker.rs:3822:13"}}
+  steps:
+    "m:l": {status: failure, ran: false}

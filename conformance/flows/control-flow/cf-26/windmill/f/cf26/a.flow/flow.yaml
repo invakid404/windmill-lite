@@ -1,0 +1,30 @@
+summary: "CF-26/a the virtual identity keeps the body result"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: "flow_input.iter.value * 10"
+              path: f/cf26/echo
+            sleep:
+              type: static
+              value: 0
+        iterator:
+          type: static
+          value:
+            - 1
+            - 2
+        parallel: false
+        skip_failures: false
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

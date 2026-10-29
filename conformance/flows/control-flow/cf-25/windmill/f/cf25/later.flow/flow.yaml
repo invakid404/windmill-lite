@@ -1,0 +1,43 @@
+summary: "CF-25/a CE rejects a squashed loop"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/cf25/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/cf25/echo
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              path: f/cf25/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+        squash: true
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

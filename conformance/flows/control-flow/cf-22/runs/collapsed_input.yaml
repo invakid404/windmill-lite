@@ -1,0 +1,15 @@
+# CF-22 rule 3: a retried collapsed loop takes its children's input from
+# the last failed child job's stored input, the body script's arguments
+# {x: 1, y: "Z"}, plus iter: the body's transforms then read no z, and
+# every iteration gets y "none".
+spec: [CF-22, Q-CF-7]
+target: f/cf22/collapsed_input
+args: {z: Z}
+expect:
+  status: success
+  result: [{x: 1, "y": none}, {x: 2, "y": none}]
+  steps:
+    "m:l/r:0": {status: failure, args: {x: 1, "y": Z}, result: {error: {name: Error, stack: "<stack>", message: "first attempt", step_id: l}}}
+    "m:l": {status: success, result: [{x: 1, "y": none}, {x: 2, "y": none}]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1, "y": none}, result: {x: 1, "y": none}}
+    "m:l/i:1/m:b": {status: success, args: {x: 2, "y": none}, result: {x: 2, "y": none}}

@@ -1,0 +1,12 @@
+# CF-21/a (Q-CF-6): the collapsed top-level loop re-evaluates its skip_if
+# before every iteration, with the previous iteration's result as
+# previous_result; before iteration 2 it sees 2, and the loop step ends as a
+# skipped identity whose result is 2, the partial array lost.
+spec: [CF-21/a]
+target: f/cf21/skip_mid
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: success, args: {previous_result: 2}, result: 2, skipped: true}

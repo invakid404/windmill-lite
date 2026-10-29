@@ -1,0 +1,9 @@
+# CF-25: an empty loop starts no runners, so squash has no effect.
+spec: [CF-25]
+target: f/cf25/empty
+expect:
+  status: success
+  result: []
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:l": {status: success, result: []}

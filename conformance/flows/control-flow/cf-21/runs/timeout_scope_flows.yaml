@@ -1,0 +1,12 @@
+# CF-21: a container's timeout is evaluated per child pushed, in step
+# scope: the loop's flow input, which has no iter, so this one throws, a
+# chaining error of a later transition (FX-15 context 1). With iter in
+# scope it would be 0, which nothing enforces on a child flow (CF-27).
+spec: [CF-21, CF-27, FX-15]
+target: f/cf21/timeout_scope_flows
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error during evaluation of expression `flow_input.iter.index`:\nQuickJS evaluation error: TypeError: cannot read property 'index' of undefined\n    at <eval> (eval_script:1:44)\n"}}
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: not_run, ran: false}

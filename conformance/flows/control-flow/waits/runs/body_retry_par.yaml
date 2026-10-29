@@ -1,0 +1,16 @@
+# FX-26, FX-27: b fails on its first attempt in each iteration and its
+# retry reuses its arguments; each child flow keeps its own retry state, so
+# iteration 1's attempt is not iteration 0's (parallel loop).
+spec: [FX-26, FX-27, CF-1]
+target: f/cfwaits/body_retry_par
+expect:
+  status: success
+  result: [1, 2]
+  steps:
+    "m:l": {status: success, result: [1, 2]}
+    "m:l/i:0/m:b/r:0": {status: failure, args: {tag: b0, v: 1}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b0", step_id: b}}}
+    "m:l/i:0/m:b": {status: success, args: {tag: b0, v: 1}, result: 1}
+    "m:l/i:0/m:c": {status: success, args: {x: 1}, result: 1}
+    "m:l/i:1/m:b/r:0": {status: failure, args: {tag: b1, v: 2}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b1", step_id: b}}}
+    "m:l/i:1/m:b": {status: success, args: {tag: b1, v: 2}, result: 2}
+    "m:l/i:1/m:c": {status: success, args: {x: 2}, result: 2}

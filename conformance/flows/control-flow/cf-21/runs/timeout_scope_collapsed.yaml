@@ -1,0 +1,12 @@
+# CF-21, CF-27: a collapsed loop's timeout is evaluated again for each body
+# job, with the iteration's flow input, iter included, so this one is 10 s
+# and the step runs.
+spec: [CF-21, CF-27]
+target: f/cf21/timeout_scope_collapsed
+expect:
+  status: success
+  result: [1]
+  steps:
+    "m:a": {status: success, args: {x: 0}, result: 0}
+    "m:l": {status: success, result: [1]}
+    "m:l/i:0/m:b": {status: success, args: {x: 1}, result: 1}

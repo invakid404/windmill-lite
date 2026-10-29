@@ -1,0 +1,32 @@
+summary: "FX-24/d a collapsed loop applies its timeout per iteration"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: script
+              input_transforms:
+                ms:
+                  type: static
+                  value: 3000
+              path: f/cf27/slow
+            timeout:
+              type: static
+              value: 10
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+      timeout:
+        type: static
+        value: 1
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

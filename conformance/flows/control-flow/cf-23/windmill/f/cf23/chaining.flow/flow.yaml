@@ -1,0 +1,50 @@
+summary: "CF-23/b an iterator error while chaining"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/cf23/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/cf23/echo
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: javascript
+                  expr: results.b
+              path: f/cf23/echo
+        iterator:
+          type: javascript
+          expr: flow_input
+        parallel: false
+        skip_failures: false
+  failure_module:
+    id: failure
+    value:
+      type: script
+      input_transforms:
+        x:
+          type: static
+          value: handled
+      path: f/cf23/echo
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

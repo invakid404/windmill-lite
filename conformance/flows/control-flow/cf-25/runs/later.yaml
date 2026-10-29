@@ -1,0 +1,10 @@
+# CF-25/a: CE fails a squashed sequential loop when it starts its runners;
+# the loop starts right after a, a later transition (CF-23 route 3).
+spec: [CF-25/a]
+target: f/cf25/later
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Squashing flow loops is not available in OSS"}}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:l": {status: not_run, ran: false}

@@ -1,0 +1,45 @@
+summary: "a loop's negative timeout at a later transition"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/cfwaits/echo
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: b
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 1
+              path: f/cfwaits/echo
+          - id: c
+            value:
+              type: script
+              input_transforms:
+                x:
+                  type: static
+                  value: 2
+              path: f/cfwaits/echo
+        iterator:
+          type: static
+          value:
+            - 1
+        parallel: false
+        skip_failures: false
+      timeout:
+        type: javascript
+        expr: "-1"
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []

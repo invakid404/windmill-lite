@@ -1,0 +1,15 @@
+# CF-22/a (Q-CF-7): b fails on its first attempt, so iteration 0 and the
+# loop fail, and the loop's retry runs it again from scratch. The child's
+# input comes from the last failed child job's stored input, which already
+# holds iter, so the new iteration sees it moved to iter_parent: b then
+# returns it.
+spec: [CF-22/a]
+target: f/cf22/iter_parent
+expect:
+  status: success
+  result: [{index: 0, value: 1}]
+  steps:
+    "m:l/r:0": {status: failure, args: {iter: {index: 0, value: 1}}, result: {error: {name: Error, stack: "<stack>", message: "first attempt of b", step_id: b}}}
+    "m:l": {status: success, result: [{index: 0, value: 1}]}
+    "m:l/i:0/m:b": {status: success, args: {tag: b, v: {index: 0, value: 1}}, result: {index: 0, value: 1}}
+    "m:l/i:0/m:c": {status: success, args: {x: {index: 0, value: 1}}, result: {index: 0, value: 1}}
