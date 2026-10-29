@@ -1,6 +1,6 @@
 # CF-25: a squashed while loop runs as an ordinary while loop; its
 # stop_after_if breaks it after the first iteration.
-spec: [CF-25]
+spec: [CF-25/d]
 target: f/cf25/while
 note: "Corrected after recording: the prediction, from CF-25, was the failure Squashing flow loops is not available in OSS."
 expect:

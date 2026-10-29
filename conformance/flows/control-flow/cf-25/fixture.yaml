@@ -6,9 +6,9 @@
 # root and of every child flow are in each recording's provenance
 # (timings.jobs).
 id: control-flow/cf-25
-spec: [CF-25, CF-25/a]
+spec: [CF-25, CF-25/d]
 scope: later
 provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
-note: "Every run was predicted to fail with CF-25's text, as the catalogue says, wherever the loop starts runners; oracle run 40852609901 recorded each squashed loop running as if it were not squashed, its job's stored flow keeping squash: true (the raw capture's raw_flow). batches/ni.json lists the contradiction."
+note: "Every run was predicted to fail with CF-25's text, as the catalogue then said, wherever the loop starts runners; the oracle recorded each squashed loop running as if it were not squashed, its job's stored flow keeping squash: true (the raw capture's raw_flow): oracle run 40857510216 for step0, later, while, collapsed and empty, and 40852609901 for parallel. The catalogue records this as CF-25/d; CF-25/a describes a build without the private feature, outside the reference configuration, and batches/ni.json defers it."

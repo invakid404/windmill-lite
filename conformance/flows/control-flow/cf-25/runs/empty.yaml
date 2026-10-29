@@ -1,5 +1,5 @@
 # CF-25: an empty squashed loop starts no child and returns [] (CF-29).
-spec: [CF-25, CF-29]
+spec: [CF-25/d, CF-29]
 target: f/cf25/empty
 note: "Corrected after recording: the prediction left out that an empty loop ran no child (ran false)."
 expect:

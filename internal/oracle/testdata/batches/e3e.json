@@ -142,7 +142,7 @@
     {
       "case": "OR-24/e",
       "milestone": "none",
-      "reason": "a script's own preprocessor runs only for a trigger (WR-11, later), which the harness does not fire, and no milestone of ADR 0012 implements script preprocessors; oracle/key-order run pre_keys records the flow-preprocessor variant instead"
+      "reason": "a script's own preprocessor (WR-11, later), which no run of this batch records; oracle/key-order run pre_keys records the flow-preprocessor variant instead. The reference's revision SC3 corrected the case: a plain run of the script through the run API requests the preprocessor too, not only a trigger, so the harness can record it, and docs/design/README.md requests the recording from batch E3f; no milestone of ADR 0012 implements script preprocessors"
     },
     {
       "case": "JE-19/e",

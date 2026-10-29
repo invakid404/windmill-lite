@@ -200,8 +200,11 @@ deferred:
   - spec: WA-11/c
     reason: >-
       a secret created as ciphertext under another key (variables/create
-      with already_encrypted=true) fails every read with CE's decryption
-      error. The create is a variable write, which windmill-lite does
+      with already_encrypted=true) almost always fails every read with
+      CE's decryption error; the case, corrected in the reference's
+      validation round 1, also allows a UTF-8 cause and, more rarely, a
+      read that returns the decrypted bytes. The create is a variable
+      write, which windmill-lite does
       not implement (501, as for WA-11/b), and its secrets come from the
       host: the local layer holds no workspace key and fails ciphertext
       with windmill-lite's own secret_unavailable text (ADR 0007,
