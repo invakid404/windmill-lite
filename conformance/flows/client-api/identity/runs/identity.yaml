@@ -4,7 +4,7 @@
 # own token answers the flow's job, its effective root (WA-V1), as
 # WM_ROOT_JOB_ID is. Step b, a path script: its job path is its own path
 # (WA-4), its state path still the flow step's (WA-5), and its root the
-# flow's.
+# flow's. The oracle recorded it as written (oracle run 40805963567).
 spec: [WA-5/a, WA-2/a, WA-V1, OR-14]
 target: f/wl_pf1_id/identity
 expect:
