@@ -91,7 +91,7 @@ step without failing the others.
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
-| `child` | harness → engine | `id` (the invocation), `pid` (from 2 to 2^31 − 1, so that a negated kill target never narrows to `0`, `-1` or another pid) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on, on the socket of a spawned harness or on a host's child channel (fd 4); the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
+| `child` | harness → engine | `id` (the invocation), `pid` (from 2 to 2^31 − 1, so that a negated kill target never narrows to `0`, `-1` or another pid), `token` (the group's guardian's, when it has one: letters, digits and dashes, at most 64) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on, on the socket of a spawned harness or on a host's child channel (fd 4); the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
@@ -211,11 +211,13 @@ microtask see none.
      refused with a `TypeError`.
    - Its child processes still running in a warm or host process, each the
      leader of a process group of its own that stands for the job's group
-     (item 7), are killed with their groups, together with whatever they
-     started there, even after the child itself exited
+     (item 7), are killed with their groups by the engine, which owns
+     them, when it handles the frame that settles the invocation, together
+     with whatever they started there, even after the child itself exited
      ([WR-55](../semantics/languages.md#wr-55)).
    - A handle that its queued code creates after settlement is cleared at
-     once, and a child it starts then is killed at once.
+     once, and a child it starts then is announced and killed by the
+     engine at once.
 
    Just before the frame that settles the invocation, a `warning` with
    code `left_behind` reports what the fence is about to revoke. Its
@@ -302,6 +304,22 @@ microtask see none.
    group. A child the step started detached where Bun honours it registers
    as `detached` and is never killed.
 
+   A group's id is reused by the kernel once the group has ended, so the
+   id alone does not name the group. The wrapper starts each grouped child
+   through a `/bin/sh -c` prologue: the shell, the group's leader, forks a
+   guardian into the group and then execs the step's command, which keeps
+   the shell's pid, its stdio and its place, so `child.pid`, the child's
+   streams and its exit status are the command's. The guardian closes
+   descriptors 0 to 9, the ones a spawn's stdio and IPC pipes take (dash,
+   Linux's `/bin/sh`, names none above 9), so it holds none of the
+   child's pipes,
+   and sleeps for `999999999.<token>` seconds, with a random token the
+   `child` frame carries. While it lives, the kernel cannot give the
+   group's id to another process. A command that cannot be run as given
+   (no executable at that path, or none PATH finds), or a spawn with an
+   `argv0` of its own, is started without a guardian, so it fails or runs
+   exactly as Bun runs it.
+
    The engine owns those groups, since the harness's event loop, which the
    step can block, cannot be relied on to kill them. Before the step's
    code goes on, the harness announces each group in a `child` frame,
@@ -310,16 +328,26 @@ microtask see none.
    own), and by a host on a channel of its own, the engine's fd 4, since a
    host's socket may hold bytes it has not written yet, which a
    synchronous write would overtake, and a step can back that socket up
-   and then block the loop. The engine holds each group with its leader's
-   start time and kills a group only while it is the original (its leader,
-   or with the leader gone the members the leader left, which keep the id
-   from being reused); every 250 ms it retires the groups that ended or
-   whose id a later process took, so a recycled id is never killed. The engine kills an invocation's announced groups when it abandons
-   the invocation (its timeout or cancellation, which also sends `cancel`,
-   on which the harness revokes them and kills at once any child the call
-   starts afterwards) and when the process ends, a watchdog's kill
-   included; settlement kills what is left in the harness (item 4), and
-   the engine forgets them. Every process the engine spawns leads a
+   and then block the loop. The engine alone signals those groups; the
+   harness only counts them for the `left_behind` warning, a guarded child
+   while its own process runs. The engine holds each group with the
+   members it last saw in it, pid and start time, and finds the guardian
+   among them by the token in its arguments. It signals a group only while
+   it is the original: while the guardian is among its members, or, for a
+   group without one, while a member it saw before is still there, the
+   same process, since a group's id is not given to a new process while
+   the group has a member. A group that took the id after the original
+   ended has no process with the token and shares no member with it, so
+   it is never signalled; the only instant left open is between a look at
+   the members and the signal that follows it. A group without a guardian
+   whose members all came and went between two looks (every 50 ms in its
+   first second, every 250 ms after) is given up and left running, rather
+   than risk another owner's processes. When only its guardian is left,
+   the engine forgets the group and then kills the guardian. The engine
+   kills an invocation's announced groups when it abandons the invocation
+   (its timeout or cancellation), at its settlement, when the process
+   ends, a watchdog's kill included, and at once for a group announced
+   after any of these. Every process the engine spawns leads a
    process group of its own, which its kill and its end reach. A
    synchronous call's child gets no group of its own, because its pid is
    known only once it has exited, too late to announce: it stays in the
@@ -896,10 +924,13 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     group empties by itself. Killing at settlement where Windmill would
     wait is the reading recorded as an open question in the
     [README](README.md). A host announces its groups on a channel of its
-    own (fd 4), a group is held with its leader's start time and retired
-    once it ends, and a `child` frame's pid is checked against the
-    kernel's 32-bit range, so no kill can reach a recycled id or a special
-    target.
+    own (fd 4). The engine alone signals a child group, the harness only
+    reporting it: each group starts with a guardian that keeps its id
+    reserved, the engine holds a group with the members it last saw and
+    signals it only while the guardian or such a member is still there, and
+    a `child` frame's pid is checked against the kernel's 32-bit range, so
+    no kill reaches a group that took a child's id after its own ended or
+    a special target.
     Each child is now registered once: before, one started through
     `node:child_process` was counted twice, by its own wrapper and by
     `Bun.spawn`'s.

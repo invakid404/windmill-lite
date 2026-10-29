@@ -7,54 +7,57 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
 )
 
 // fakeProcs stands in for the kernel's process table in the child-group
-// tests: each pid's start time, the groups that have a member, and the
-// groups signalled. No real signal is sent.
+// tests: each group's members, with their start times, and the groups
+// signalled. No real signal is sent.
 type fakeProcs struct {
 	mu       sync.Mutex
-	start    map[int]uint64
-	groups   map[int]bool
+	groups   map[int][]groupMember
+	guards   map[int]string // pid → the token in its environment
 	signaled []int
 }
 
 func useFakeProcs(t *testing.T) *fakeProcs {
 	t.Helper()
-	f := &fakeProcs{start: map[int]uint64{}, groups: map[int]bool{}}
-	ps, ga, sg := procStart, childGroupAlive, signalGroup
-	procStart = func(pid int) (uint64, bool) {
+	f := &fakeProcs{groups: map[int][]groupMember{}, guards: map[int]string{}}
+	gm, ig, sg := groupMembers, isGuard, signalGroup
+	isGuard = func(pid int, token string) bool {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		s, ok := f.start[pid]
-		return s, ok
+		return f.guards[pid] == token
 	}
-	childGroupAlive = func(pgid int) bool {
+	groupMembers = func(pgids []int) map[int][]groupMember {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		return f.groups[pgid]
+		out := map[int][]groupMember{}
+		for _, g := range pgids {
+			if ms := f.groups[g]; len(ms) > 0 {
+				out[g] = slices.Clone(ms)
+			}
+		}
+		return out
 	}
 	signalGroup = func(pgid int) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.signaled = append(f.signaled, pgid)
 	}
-	t.Cleanup(func() { procStart, childGroupAlive, signalGroup = ps, ga, sg })
+	t.Cleanup(func() { groupMembers, isGuard, signalGroup = gm, ig, sg })
 	return f
 }
 
-func (f *fakeProcs) set(pid int, start uint64, group bool) {
+// set makes the members of group pgid ms, each a pid and its start time.
+func (f *fakeProcs) set(pgid int, ms ...groupMember) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if start == 0 {
-		delete(f.start, pid)
-	} else {
-		f.start[pid] = start
-	}
-	f.groups[pid] = group
+	f.groups[pgid] = ms
 }
 
 func (f *fakeProcs) took() []int {
@@ -65,94 +68,181 @@ func (f *fakeProcs) took() []int {
 	return out
 }
 
-// A child group is identified by its leader's start time, read as the
-// engine learns of it, so a kill reaches the original group only: a
-// recycled id is never signalled, while what the original leader started
-// is killed after the leader exited. An id that cannot name a group is
-// never signalled (review round 2, findings 2 and 3).
+// The engine kills a child group only while it is the group the step's
+// child started: while a member it last saw is still there, the same
+// process. So what the leader started is killed after the leader exited,
+// and a group that took the id after the original ended is never
+// signalled, whether its own leader is alive or already gone (review
+// round 2, finding 3; round 3, finding 1). Ids that cannot name a group
+// are never signalled (round 2, finding 2).
 func TestChildGroupIdentity(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
-	f.set(100, 5, true)
-	g, ok := newChildGroup(100)
-	if !ok || g != (childGroup{pgid: 100, start: 5}) {
-		t.Fatalf("newChildGroup: %+v %v", g, ok)
+	m := func(pid int, start uint64) groupMember { return groupMember{pid: pid, start: start} }
+	kill := func(g *childGroup) []int {
+		killChildGroups([]*childGroup{g})
+		return f.took()
 	}
-	killChildGroups([]childGroup{g})
-	if got := f.took(); !slices.Equal(got, []int{100}) {
-		t.Fatalf("the live original: signalled %v", got)
-	}
-	// The leader exited; what it started still holds the group.
-	f.set(100, 0, true)
-	killChildGroups([]childGroup{g})
-	if got := f.took(); !slices.Equal(got, []int{100}) {
-		t.Fatalf("the original's descendants: signalled %v", got)
-	}
-	// The group ended and a later process took the id, as a group leader.
-	f.set(100, 9, true)
-	killChildGroups([]childGroup{g})
-	if got := f.took(); len(got) != 0 {
-		t.Fatalf("a recycled id was signalled: %v", got)
-	}
-	// The group ended: nothing to kill.
-	f.set(100, 0, false)
-	killChildGroups([]childGroup{g})
-	if got := f.took(); len(got) != 0 {
-		t.Fatalf("an ended group was signalled: %v", got)
-	}
-	// A leader that exited before the engine learned of the group leaves
-	// the group to its descendants; any later process with the id is not
-	// the original.
-	f.set(200, 0, true)
-	g2, ok := newChildGroup(200)
-	if !ok || g2 != (childGroup{pgid: 200}) {
-		t.Fatalf("newChildGroup of a group without its leader: %+v %v", g2, ok)
-	}
-	killChildGroups([]childGroup{g2})
-	if got := f.took(); !slices.Equal(got, []int{200}) {
-		t.Fatalf("the leaderless original: signalled %v", got)
-	}
-	f.set(200, 7, true)
-	killChildGroups([]childGroup{g2})
-	if got := f.took(); len(got) != 0 {
-		t.Fatalf("a process that took a leaderless group's id was signalled: %v", got)
-	}
-	// A group that ended before the engine learned of it is not held.
-	f.set(300, 0, false)
-	if _, ok := newChildGroup(300); ok {
-		t.Fatal("an ended group was taken")
-	}
-	// Ids that would narrow to another target, or name no group, are
-	// never signalled, whatever the probes say.
-	for _, pgid := range []int{0, 1, -1, 1 << 31, 1<<32 + 1, 1 << 32, 1<<32 + 4242} {
-		f.set(pgid, 3, true)
-		killChildGroups([]childGroup{{pgid: pgid, start: 3}})
-	}
-	if got := f.took(); len(got) != 0 {
-		t.Fatalf("invalid ids were signalled: %v", got)
-	}
+	t.Run("the original, its leader alive", func(t *testing.T) {
+		f.set(4242, m(4242, 1))
+		g, ok := newChildGroup(4242, "")
+		if !ok || !slices.Equal(kill(g), []int{4242}) {
+			t.Fatal("the live original was not signalled")
+		}
+	})
+	t.Run("the original's descendants, after the leader exited", func(t *testing.T) {
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "")
+		f.set(4242, m(4242, 1), m(5000, 3)) // the leader started 5000
+		retire(t, g)
+		f.set(4242, m(5000, 3)) // the leader exited
+		if got := kill(g); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("the descendants: signalled %v", got)
+		}
+	})
+	t.Run("a group that ended", func(t *testing.T) {
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "")
+		f.set(4242)
+		if got := kill(g); len(got) != 0 {
+			t.Fatalf("an ended group was signalled: %v", got)
+		}
+	})
+	t.Run("a replacement with its leader alive", func(t *testing.T) {
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "")
+		f.set(4242, m(4242, 2))
+		if got := kill(g); len(got) != 0 {
+			t.Fatalf("a replacement was signalled: %v", got)
+		}
+	})
+	t.Run("a replacement whose leader already exited", func(t *testing.T) {
+		// The review's sequence: the original (4242, started at 1) ends; a
+		// new group takes the id (4242, started at 2) and its leader exits,
+		// leaving a member of its own, all between two looks.
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "")
+		f.set(4242, m(7777, 9))
+		p := &Process{invs: map[string]*invocation{"i": {id: "i", children: []*childGroup{g}}}}
+		p.retireChildren()
+		killChildGroups(takeChildren(p.invs["i"]))
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("a leaderless replacement was signalled: %v", got)
+		}
+	})
+	t.Run("once given up, for good", func(t *testing.T) {
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "")
+		f.set(4242, m(8000, 5)) // everything it saw is gone
+		kill(g)
+		f.set(4242, m(4242, 1)) // even the old members back cannot revive it
+		if got := kill(g); len(got) != 0 {
+			t.Fatalf("a given-up group was signalled: %v", got)
+		}
+	})
+	t.Run("a group that ended before the engine learned of it", func(t *testing.T) {
+		f.set(300)
+		if _, ok := newChildGroup(300, ""); ok {
+			t.Fatal("an ended group was taken")
+		}
+	})
+	t.Run("ids that cannot name a group", func(t *testing.T) {
+		for _, pgid := range []int{0, 1, -1, 1 << 31, 1<<32 + 1, 1 << 32, 1<<32 + 4242} {
+			f.set(pgid, m(pgid, 3))
+			killChildGroups([]*childGroup{{pgid: pgid, seen: []groupMember{m(pgid, 3)}}})
+		}
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("invalid ids were signalled: %v", got)
+		}
+	})
 }
 
-// The engine retires the child groups that are no longer the steps': one
-// that ended, and one whose id a later process took, so that cancelling
-// the invocation afterwards cannot signal the id's new owner; one that
-// outlived its leader is kept (review round 2, finding 3).
+// A group started with its guardian stays the original while the guardian
+// lives, whatever its other members do: what a child left when it exited
+// is killed though the engine never saw it beside the child, a group with
+// only its guardian left is released (dropped, then its guardian killed),
+// and a group that took the id has no guardian, so it is never signalled
+// (review round 3, finding 1).
+func TestChildGroupGuardian(t *testing.T) {
+	// spec: WR-55
+	f := useFakeProcs(t)
+	m := func(pid int, start uint64) groupMember { return groupMember{pid: pid, start: start} }
+	f.guards[6000] = "tk"
+	t.Run("a handoff the engine never saw", func(t *testing.T) {
+		// The engine learned of the group before the shell forked its
+		// guardian; the shell then started a daemon and exited.
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "tk")
+		f.set(4242, m(6000, 2), m(5000, 3))
+		killChildGroups([]*childGroup{g})
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+	})
+	t.Run("only the guardian left: released", func(t *testing.T) {
+		f.set(4242, m(4242, 1), m(6000, 2))
+		g, _ := newChildGroup(4242, "tk")
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		p := &Process{invs: map[string]*invocation{"i": inv}}
+		f.set(4242, m(6000, 2))
+		p.retireChildren()
+		if got := f.took(); !slices.Equal(got, []int{4242}) || len(inv.children) != 0 {
+			t.Fatalf("signalled %v, held %d", got, len(inv.children))
+		}
+		killChildGroups(takeChildren(inv))
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("a released group was signalled again: %v", got)
+		}
+	})
+	t.Run("a replacement has no guardian", func(t *testing.T) {
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "tk")
+		f.set(4242, m(4242, 9), m(7777, 10))
+		killChildGroups([]*childGroup{g})
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("a replacement was signalled: %v", got)
+		}
+	})
+	t.Run("a guardian killed: the members carry on", func(t *testing.T) {
+		f.set(4242, m(4242, 1), m(6000, 2), m(5000, 3))
+		g, _ := newChildGroup(4242, "tk")
+		f.set(4242, m(5000, 3))
+		killChildGroups([]*childGroup{g})
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+	})
+}
+
+// retire runs one look of the engine's watcher over g alone.
+func retire(t *testing.T, g *childGroup) {
+	t.Helper()
+	p := &Process{invs: map[string]*invocation{"i": {id: "i", children: []*childGroup{g}}}}
+	p.retireChildren()
+}
+
+// The engine retires the child groups that no longer continue: one that
+// ended, and one whose id a later group took, so that cancelling the
+// invocation afterwards cannot signal the id's new owner; a group that
+// outlived its leader is kept, and its members renewed (review round 2,
+// finding 3).
 func TestRetireChildren(t *testing.T) {
 	// spec: WR-55
 	f := useFakeProcs(t)
-	f.set(10, 1, true) // live original
-	f.set(11, 2, true) // will end
-	f.set(12, 3, true) // will be recycled
-	f.set(13, 4, true) // its leader will exit, descendants stay
+	m := func(pid int, start uint64) groupMember { return groupMember{pid: pid, start: start} }
+	f.set(10, m(10, 1))
+	f.set(11, m(11, 2))
+	f.set(12, m(12, 3))
+	f.set(13, m(13, 4), m(14, 5))
 	inv := &invocation{id: "i"}
 	for _, pid := range []int{10, 11, 12, 13} {
-		g, _ := newChildGroup(pid)
+		g, _ := newChildGroup(pid, "")
 		inv.children = append(inv.children, g)
 	}
 	p := &Process{invs: map[string]*invocation{"i": inv}}
-	f.set(11, 0, false)
-	f.set(12, 8, true)
-	f.set(13, 0, true)
+	f.set(11)           // ended
+	f.set(12, m(12, 8)) // replaced
+	f.set(13, m(14, 5)) // its leader exited, a descendant stays
 	p.retireChildren()
 	var kept []int
 	for _, g := range inv.children {
@@ -167,20 +257,38 @@ func TestRetireChildren(t *testing.T) {
 	}
 }
 
-// processStart reads a live process's start time, the same each time, and
-// none for a process that has exited and been reaped.
-func TestProcessStart(t *testing.T) {
-	a, ok := processStart(os.Getpid())
-	b, ok2 := processStart(os.Getpid())
-	if !ok || !ok2 || a == 0 || a != b {
-		t.Fatalf("the test's own start: %d %v, %d %v", a, ok, b, ok2)
-	}
-	cmd := exec.Command("true")
-	if err := cmd.Run(); err != nil {
+// processHasGuard finds a guardian's token in a real sleeping process's
+// arguments, as the harness starts it, and no other token.
+func TestGuardianToken(t *testing.T) {
+	cmd := exec.Command("sleep", guardArg("012345678901234"))
+	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if s, ok := processStart(cmd.Process.Pid); ok {
-		t.Fatalf("an exited process reads as started at %d", s)
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	pid := cmd.Process.Pid
+	if !processHasGuard(pid, "012345678901234") || processHasGuard(pid, "01234567890123") || processHasGuard(os.Getpid(), "012345678901234") {
+		t.Fatal("the guardian's token is not told apart")
+	}
+}
+
+// groupMembersOf lists a real process group's members with their start
+// times, the same each time, and nothing once the group has ended.
+func TestGroupMembersOf(t *testing.T) {
+	cmd := exec.Command("sleep", "5")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	a, b := groupMembersOf([]int{pid})[pid], groupMembersOf([]int{pid})[pid]
+	if len(a) != 1 || a[0].pid != pid || a[0].start == 0 || !slices.Equal(a, b) {
+		t.Fatalf("members %v, then %v", a, b)
+	}
+	cmd.Process.Kill()
+	cmd.Wait()
+	if ms := groupMembersOf([]int{pid})[pid]; len(ms) != 0 {
+		t.Fatalf("an ended group lists %v", ms)
 	}
 }
 
@@ -197,7 +305,7 @@ func TestBunWarmRetiresEndedChildren(t *testing.T) {
 	defer cancel(nil)
 	go p.Execute(ctx, inv)
 	pid := readPID(t, pidFile)
-	held := func() []childGroup {
+	held := func() []*childGroup {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if e := p.invs[inv.ID]; e != nil {
@@ -206,10 +314,30 @@ func TestBunWarmRetiresEndedChildren(t *testing.T) {
 		return nil
 	}
 	waitFor(t, "the engine to hold the child's group", func() bool { return len(held()) == 1 })
-	if g := held()[0]; g.pgid != pid || g.start == 0 {
+	if g := held()[0]; g.pgid != pid || len(g.seen) == 0 {
 		t.Fatalf("held %+v for the child %d", g, pid)
 	}
 	waitFor(t, "the child to exit", func() bool { return gone(pid) })
+	// Only the guardian is left: the engine forgets the group, then ends it.
 	waitFor(t, "the engine to retire the ended group", func() bool { return len(held()) == 0 })
+	waitFor(t, "the guardian to be released", func() bool { return len(groupMembersOf([]int{pid})[pid]) == 0 })
 	cancel(engine.CancelTimeout)
+}
+
+// A shell that backgrounds a daemon and exits at once hands its group to
+// the daemon, which the engine may never have seen beside it. The group's
+// guardian keeps it the original, so the settlement's kill reaches the
+// daemon, and then nothing is left in the group (review round 3,
+// finding 1).
+func TestBunWarmGuardedHandoff(t *testing.T) {
+	// spec: WR-55
+	p := spawn(t, childrenConfig(t))
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	out, err := execute(t, p, newInvocation("spawn-daemon", childArgs(t, map[string]any{"seconds": 30, "pidFile": pidFile}), newRecorder()), 10*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	daemon := childPID(t, out.Body.Producer())
+	leftover(t, daemon)
+	waitFor(t, "the engine to kill the daemon the shell left", func() bool { return ended(daemon) })
 }

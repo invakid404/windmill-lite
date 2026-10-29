@@ -163,17 +163,29 @@ forgets an invocation's groups at its settlement, which killed them in
 the harness. A group id outside 2 to 2^31 − 1, which a negated kill target
 would narrow to another target (`0`, `-1`, another pid), is refused by the
 codec and again before any signal (`validGroupID`), and so is the
-harness's own pid. A group is held with its identity, its leader's start
-time as the engine learns of it (`processStart`: `/proc/<pid>/stat` on
-Linux, `kern.proc.pid` on macOS), and a kill checks it (`childGroup.ours`):
-a process that has the id must be that leader; with no such process, the
-group's members are what the leader started, since the kernel does not
-give a group's id to a new process while the group has a member. Every
-250 ms `watchChildren` retires the groups that ended or whose id a later
-process took, so a long invocation that reaped a child cannot have a
-recycled id killed when it is cancelled. The process operations are
-variables the tests replace, so no test sends a real signal to a fake
-id.
+harness's own pid. The engine alone signals a child group (the harness
+only reports it), and only while it is still the child's (`childGroup`):
+each group is held with the members the engine last saw in it, pid and
+start time (`groupMembersOf`: one pass over `/proc` on Linux,
+`kern.proc.pgrp` on macOS), and with the token of its guardian, the
+process the harness starts in the group so that its id stays reserved,
+which the engine finds among the members by its arguments
+(`processHasGuard`: `/proc/<pid>/cmdline` on Linux, `kern.procargs2` on
+macOS, which gives another process's arguments but not its environment).
+`continues` takes the group for the original while the guardian is among
+its members, or, without one, while a member seen before is still there;
+otherwise the group is given up for good and never signalled. A group
+that took the id after the original ended has no guardian and shares no
+member, so no kill reaches it. `watchChildren` looks at each group every
+50 ms in its first second and every 250 ms after: it renews the members,
+drops the groups that no longer continue, and releases a group whose
+guardian is its only member, dropping it and then killing the guardian.
+The engine also kills an invocation's groups at its settlement
+(`settleLocked`), when the harness reported them left behind. A group
+without a guardian whose members all came and went between two looks is
+given up and left running. The process operations are variables the
+tests replace (`groupMembers`, `isGuard`, `signalGroup`), so no test
+sends a real signal to a fake id.
 When a warm process ends, `endGroup` kills what is left in its own group:
 what the steps' synchronous child calls started, which gets no group of
 its own.

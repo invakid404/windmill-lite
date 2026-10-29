@@ -51,7 +51,7 @@ const FIELDS: Record<string, readonly string[]> = {
   cancel: ["id", "reason"],
   log: ["id", "lines"],
   warning: ["id", "code", "message", "left", "untracked"],
-  child: ["id", "pid"],
+  child: ["id", "pid", "token"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
@@ -273,6 +273,8 @@ export function decode(payload: Uint8Array): Message {
       // process (-1) nor the caller's own group (0), nor beyond the
       // kernel's signed 32-bit pid, which would narrow to another target.
       if (m.pid <= 1 || m.pid > 2147483647) throw new ProtocolError("bad_field", `child pid ${m.pid}`);
+      // The token of the group's guardian: letters, digits and dashes.
+      if (m.token != null && (typeof m.token !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(m.token))) throw new ProtocolError("bad_field", "child token");
       break;
     case "platform":
     case "platform_reply":

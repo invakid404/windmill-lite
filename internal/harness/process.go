@@ -295,7 +295,7 @@ type invocation struct {
 	// the engine kills when the invocation is abandoned or the process
 	// ends; childrenKilled is set once it has, after which one announced
 	// later is killed at once. Guarded by Process.mu.
-	children       []childGroup
+	children       []*childGroup
 	childrenKilled bool
 }
 
@@ -695,8 +695,7 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 			calls = append(calls, inv.fixed)
 		}
 		if r.Settled {
-			p.settleLocked(inv)
-			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) })
+			calls = append(calls, p.settleLocked(inv), func() { inv.report.Settled(engine.SettleCompleted) })
 		} else {
 			inv.state = invFixed
 		}
@@ -706,8 +705,7 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 		calls := []func(){func() { inv.report.Late(l) }}
 		if r.Settled {
 			p.abandoned--
-			p.settleLocked(inv)
-			calls = append(calls, p.notifyFunc(), func() { inv.report.Settled(engine.SettleCompleted) })
+			calls = append(calls, p.settleLocked(inv), p.notifyFunc(), func() { inv.report.Settled(engine.SettleCompleted) })
 		}
 		return inv, calls, nil
 	default:
@@ -727,8 +725,7 @@ func (p *Process) onLate(l Late) (*invocation, []func(), error) {
 				p.abandoned--
 				calls = append(calls, p.notifyFunc())
 			}
-			calls = append(calls, func() { inv.report.Settled(engine.SettleCompleted) })
-			p.settleLocked(inv)
+			calls = append(calls, p.settleLocked(inv), func() { inv.report.Settled(engine.SettleCompleted) })
 		}
 		return inv, calls, nil
 	}
@@ -776,17 +773,18 @@ func (p *Process) onWarning(w Warning) (*invocation, []func()) {
 
 // onChild records a child process group an invocation announced (WR-55),
 // with p.mu held, and returns the groups to kill now: the group itself
-// when the invocation was already abandoned, has settled (its settlement
-// killed its children, so one its queued code starts afterwards dies at
-// once, D9) or the process is being killed. One for an invocation the
-// process never ran is dropped, and so is one that names the process
-// itself, which its end kills, or a group that has already ended.
-func (p *Process) onChild(c Child) []childGroup {
+// when the process or the host's connection is ending, the invocation was
+// abandoned, or it has settled (its settlement killed its children, so one
+// its queued code starts afterwards dies at once, D9). One for an
+// invocation the process never ran is dropped, and so is one that names
+// the process itself, which its end kills, or a group that has already
+// ended.
+func (p *Process) onChild(c Child) []*childGroup {
 	if c.PID == p.pid {
 		p.diag.printf("dropped a child frame for invocation %q that names the harness itself", c.ID)
 		return nil
 	}
-	g, ok := newChildGroup(c.PID)
+	g, ok := newChildGroup(c.PID, c.Token)
 	inv := p.invs[c.ID]
 	switch {
 	case !ok:
@@ -794,15 +792,15 @@ func (p *Process) onChild(c Child) []childGroup {
 	case p.killReason != "" || p.ending:
 		// The process or the host's connection is ending, its invocations
 		// with it; a host's side channel may still deliver this.
-		return []childGroup{g}
+		return []*childGroup{g}
 	case inv == nil:
 		if _, ok := p.recent.get(c.ID); ok {
-			return []childGroup{g}
+			return []*childGroup{g}
 		}
 		p.diag.printf("dropped a child frame for invocation %q, which is not in flight", c.ID)
 		return nil
 	case inv.childrenKilled:
-		return []childGroup{g}
+		return []*childGroup{g}
 	}
 	inv.children = append(inv.children, g)
 	return nil
@@ -810,120 +808,224 @@ func (p *Process) onChild(c Child) []childGroup {
 
 // takeChildren returns inv's announced child groups and marks them killed,
 // with p.mu held: a group it announces afterwards is killed at once.
-func takeChildren(inv *invocation) []childGroup {
+func takeChildren(inv *invocation) []*childGroup {
 	gs := inv.children
 	inv.children, inv.childrenKilled = nil, true
 	return gs
 }
 
-// childGroup is a process group a step's child leads (a Child frame), with
-// what identifies it beyond its numeric id, which the kernel gives to
-// another process once the group has ended.
-type childGroup struct {
-	pgid int
-	// start is when the group's leader started (procStart), read as the
-	// engine learned of the group, or 0 when the leader had already
-	// exited, leaving the group to what it started.
+// groupMember is one process of a process group: its pid, and when it
+// started, which tells it from a later process given the same pid.
+type groupMember struct {
+	pid   int
 	start uint64
 }
 
-// The process operations on child groups, replaced in tests so that no
-// real signal is sent: a process's start time, whether a group has a
-// member, and the group's kill.
-var (
-	procStart       = processStart
-	childGroupAlive = groupAlive
-	signalGroup     = func(pgid int) { syscall.Kill(-pgid, syscall.SIGKILL) }
-)
-
-// newChildGroup identifies the group that pid leads, as the engine learns
-// of it, right after the child started: its leader's start time, or none
-// when the leader has exited and only what it started holds the group. ok
-// is false when no process is left in the group: there is nothing to own.
-func newChildGroup(pid int) (g childGroup, ok bool) {
-	if start, alive := procStart(pid); alive {
-		return childGroup{pgid: pid, start: start}, true
-	}
-	if !childGroupAlive(pid) {
-		return childGroup{}, false
-	}
-	return childGroup{pgid: pid}, true
+// childGroup is a process group a step's child leads (a Child frame). The
+// engine alone kills it: on the invocation's abandonment, at its
+// settlement and when the process ends (the harness only reports it). Its
+// numeric id is not enough to name it, since the kernel gives the id to
+// another process once the group has ended. The harness starts the child
+// with a guardian in its group, a process that does nothing, with the
+// group's token in its arguments (guardArg): while it lives the id cannot be given
+// to another process, so the group is the original whatever its other
+// members do, and once it is the only member left the engine releases the
+// group. Without a guardian the group is held with the members the engine
+// last saw in it (continues).
+type childGroup struct {
+	pgid int
+	// token is the guardian's (Child.Token), or "" for an unguarded group.
+	token string
+	// since is when the engine learned of the group, which sets how often
+	// it is looked at (childWatchYoung).
+	since time.Time
+	mu    sync.Mutex
+	// seen are the members the engine last saw in the group, each with its
+	// start time; empty once the group is given up, for good.
+	seen []groupMember
+	// guard is the guardian, once the engine has found it among the
+	// members.
+	guard *groupMember
 }
 
-// ours reports whether g's id still names the group the step's child
-// started, so that a kill reaches nothing else:
-//   - no process is left in a group of that id: there is nothing to kill;
-//   - a process has the id: it must be the recorded leader, which started
-//     when it did. Any other took the id after the original group ended,
-//     and may lead a group of its own; and when the leader had already
-//     exited as the engine learned of the group, any process with the id
-//     is such a later one;
-//   - no process has the id, but the group has members: the leader exited
-//     and what it started holds the group. The kernel gives neither the id
-//     nor the group's id to a new process while the group has a member, so
-//     they are the original's, unless the group ended and a new group took
-//     the id and lost its own leader since retireChildren last looked,
-//     within one childWatch.
+// guardArg is a guardian's sleep operand, its token after the point: the
+// argument by which the engine knows it.
+func guardArg(token string) string { return "999999999." + token }
+
+// The process operations on child groups, replaced in tests so that no
+// real signal is sent: the members of groups, whether a process is a
+// group's guardian, and a group's kill.
+var (
+	groupMembers = groupMembersOf
+	isGuard      = processHasGuard
+	signalGroup  = func(pgid int) { syscall.Kill(-pgid, syscall.SIGKILL) }
+)
+
+// newChildGroup holds the group that pid leads, as the engine learns of it,
+// right after the child started, with the members it has then and the
+// guardian's token, if any. ok is false when it has no member: there is
+// nothing to own.
+func newChildGroup(pid int, token string) (g *childGroup, ok bool) {
+	g = &childGroup{pgid: pid, token: token, since: time.Now()}
+	now := groupMembers([]int{pid})[pid]
+	if len(now) == 0 {
+		return nil, false
+	}
+	g.seen = now
+	g.findGuard(now)
+	return g, true
+}
+
+// findGuard looks for the guardian among now, with g.mu held or g not yet
+// shared, until it is found.
+func (g *childGroup) findGuard(now []groupMember) {
+	if g.token == "" || g.guard != nil {
+		return
+	}
+	for _, m := range now {
+		if isGuard(m.pid, g.token) {
+			g.guard = &m
+			return
+		}
+	}
+}
+
+// continues reports whether the group of g's id is still the group the
+// step's child started, given its members now, and if so remembers them;
+// guardOnly is set when the guardian is its only member, so nothing of the
+// step is left in it.
 //
-// A kill follows the look at once; only the instant between them is open.
-func (g childGroup) ours() bool {
-	if !childGroupAlive(g.pgid) {
-		return false
+//   - While the guardian is among them (found by its token, then known by
+//     its pid and start time), it is: the group's id cannot be given to a
+//     new process while the group has a member, and the guardian, which
+//     the harness started in the group, has been one throughout. A group
+//     that took the id after the original ended has no process with the
+//     token.
+//   - Without a guardian (none was started, or it was killed), it is when
+//     one of the members the engine last saw is still among them, the same
+//     process: a group that kept one member throughout is the same group,
+//     and a replacement shares no member with it. When none is left, which
+//     a group whose members all came and went between two looks shares
+//     with a replacement, the group is given up for good: it is left
+//     running rather than risk killing another owner's processes.
+func (g *childGroup) continues(now []groupMember) (owned, guardOnly bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.seen == nil {
+		return false, false
 	}
-	if start, alive := procStart(g.pgid); alive {
-		return g.start != 0 && start == g.start
+	g.findGuard(now)
+	if g.guard != nil {
+		if slices.Contains(now, *g.guard) {
+			g.seen = now
+			return true, len(now) == 1
+		}
+		g.guard = nil
 	}
-	return true
+	for _, m := range now {
+		if slices.Contains(g.seen, m) {
+			g.seen = now
+			return true, false
+		}
+	}
+	g.seen = nil
+	return false, false
+}
+
+// look returns, for each of gs, whether it continues and whether only its
+// guardian is left (continues), from one listing of the groups' members.
+func look(gs []*childGroup) (owned, guardOnly []bool) {
+	if len(gs) == 0 {
+		return nil, nil
+	}
+	ids := make([]int, len(gs))
+	for i, g := range gs {
+		ids[i] = g.pgid
+	}
+	members := groupMembers(ids)
+	owned, guardOnly = make([]bool, len(gs)), make([]bool, len(gs))
+	for i, g := range gs {
+		owned[i], guardOnly[i] = g.continues(members[g.pgid])
+	}
+	return owned, guardOnly
 }
 
 // killChildGroups kills each group with SIGKILL, as the worker kills a
 // job's group on a timeout or a cancellation (WR-55, WR-37), when its id
 // can name a group (validGroupID) and it is still the group the step's
-// child started (ours).
-func killChildGroups(gs []childGroup) {
-	for _, g := range gs {
-		if validGroupID(g.pgid) && g.ours() {
-			signalGroup(g.pgid)
+// child started (continues). The kill follows the look at once; a group
+// that still has a member it had cannot be replaced in that instant.
+func killChildGroups(gs []*childGroup) {
+	gs = slices.DeleteFunc(slices.Clone(gs), func(g *childGroup) bool { return !validGroupID(g.pgid) })
+	owned, _ := look(gs)
+	for i, ok := range owned {
+		if ok {
+			signalGroup(gs[i].pgid)
 		}
 	}
 }
 
-// childWatch is how often the engine looks at the child groups it holds
-// (retireChildren).
-var childWatch = 250 * time.Millisecond
+// How often the engine looks at the child groups it holds
+// (retireChildren): every childWatchYoung during a group's first
+// childYoung, when a child that starts something and exits is most likely
+// to turn its group's members over, and every childWatch after that.
+var (
+	childWatchYoung = 50 * time.Millisecond
+	childYoung      = time.Second
+	childWatch      = 250 * time.Millisecond
+)
 
-// watchChildren retires the child groups that are no longer the steps',
-// every childWatch, until the process's life ends.
+// watchChildren keeps the child groups the engine holds up to date until
+// the process's life ends: each look renews a group's members, so that a
+// group that outlives its leader stays owned through its members'
+// turnover, and retires a group that ended or was given up.
 func (p *Process) watchChildren() {
-	t := time.NewTicker(childWatch)
+	t := time.NewTicker(childWatchYoung)
 	defer t.Stop()
+	last := time.Now()
 	for {
 		select {
 		case <-p.life.Done():
 			return
-		case <-t.C:
-			p.retireChildren()
+		case now := <-t.C:
+			all := now.Sub(last) >= childWatch
+			if all {
+				last = now
+			}
+			p.lookAtChildren(func(g *childGroup) bool { return all || now.Sub(g.since) < childYoung })
 		}
 	}
 }
 
-// retireChildren drops the child groups that are no longer the steps'
-// (ours is false): those that ended, and those whose id a later process
-// took. The engine holds a group's id only while it is the original's, so
-// a later kill cannot reach a process that took the id, whatever the
-// harness's event loop did; a group that outlived its leader is kept
-// while what the leader started holds it.
-func (p *Process) retireChildren() {
+// retireChildren looks at every child group the engine holds and drops
+// those that no longer continue: they ended, or none of the members it
+// last saw is left (continues); such a group is never signalled. It also
+// releases a group whose guardian is its only member: it drops the group
+// first, so nothing kills it afterwards, and then kills the guardian.
+func (p *Process) retireChildren() { p.lookAtChildren(func(*childGroup) bool { return true }) }
+
+// lookAtChildren is retireChildren for the groups due says to look at.
+func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 	p.mu.Lock()
-	var held []childGroup
+	var held []*childGroup
 	for _, inv := range p.invs {
-		held = append(held, inv.children...)
+		for _, g := range inv.children {
+			if due(g) {
+				held = append(held, g)
+			}
+		}
 	}
 	p.mu.Unlock()
-	gone := map[childGroup]bool{}
-	for _, g := range held {
-		if !g.ours() {
+	gone := map[*childGroup]bool{}
+	var release []*childGroup
+	owned, guardOnly := look(held)
+	for i, g := range held {
+		switch {
+		case !owned[i]:
 			gone[g] = true
+		case guardOnly[i] && validGroupID(g.pgid):
+			gone[g] = true
+			release = append(release, g)
 		}
 	}
 	if len(gone) == 0 {
@@ -931,19 +1033,24 @@ func (p *Process) retireChildren() {
 	}
 	p.mu.Lock()
 	for _, inv := range p.invs {
-		inv.children = slices.DeleteFunc(inv.children, func(g childGroup) bool { return gone[g] })
+		inv.children = slices.DeleteFunc(inv.children, func(g *childGroup) bool { return gone[g] })
 	}
 	p.mu.Unlock()
+	for _, g := range release {
+		signalGroup(g.pgid)
+	}
 }
 
 // settleLocked moves inv from the in-flight table to the recent ones,
-// which keep receiving late output of work it left running. Its settlement
-// killed its children's groups in the harness (the D9 fence), so the
-// engine forgets them.
-func (p *Process) settleLocked(inv *invocation) {
+// which keep receiving late output of work it left running, and returns
+// the call that kills its children's groups: its settlement is the D9
+// fence's, and the engine kills what the harness reported left behind
+// (WR-55), which the caller queues before the Reporter hears Settled.
+func (p *Process) settleLocked(inv *invocation) func() {
 	delete(p.invs, inv.id)
-	inv.children = nil
+	kill := takeChildren(inv)
 	p.recent.add(inv.id, inv)
+	return func() { killChildGroups(kill) }
 }
 
 func (p *Process) notifyFunc() func() {
@@ -1128,7 +1235,7 @@ func (p *Process) failInvocations(result func(*invocation) execResult) {
 	p.invs = map[string]*invocation{}
 	p.recent = recentInvocations{limit: p.recent.limit}
 	p.inFlight, p.abandoned = 0, 0
-	var kill []childGroup
+	var kill []*childGroup
 	for _, inv := range invs {
 		kill = append(kill, takeChildren(inv)...)
 	}
@@ -1345,7 +1452,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 			fixed()
 		}
 	}, p.notifyFunc(), func() { close(freed) })
-	var kill []childGroup
+	var kill []*childGroup
 	if !fresh {
 		p.conn.send(Cancel{ID: inv.ID, Reason: string(reason)})
 		// Windmill kills the job's process group on a timeout or a

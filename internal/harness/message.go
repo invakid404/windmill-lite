@@ -199,6 +199,23 @@ type Child struct {
 	// PID is the child's pid, its process group's id: from 2 to the
 	// largest pid the kernel's signed 32-bit type holds (validGroupID).
 	PID int
+	// Token, when the harness started the child with its group's guardian,
+	// is the token in the guardian's arguments (guardArg), by which the
+	// engine knows it: letters, digits and dashes, at most 64.
+	Token string
+}
+
+// validToken reports whether t can be a guardian's token.
+func validToken(t string) bool {
+	if len(t) == 0 || len(t) > 64 {
+		return false
+	}
+	for _, c := range t {
+		if !(c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // validGroupID reports whether pid can name a process group of its own
@@ -504,6 +521,9 @@ func (m Child) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeChild)
 	e.str("id", m.ID)
 	e.int("pid", int64(m.PID))
+	if m.Token != "" {
+		e.str("token", m.Token)
+	}
 	return e.end()
 }
 
@@ -752,8 +772,15 @@ func Decode(payload []byte) (Message, error) {
 		m = w
 	case TypeChild:
 		c := Child{ID: d.str("id"), PID: d.int("pid")}
-		if derr == nil && !validGroupID(c.PID) {
+		if d.present("token") {
+			c.Token = d.str("token")
+		}
+		switch {
+		case derr != nil:
+		case !validGroupID(c.PID):
 			d.fail(CodeBadField, "child pid %d", c.PID)
+		case d.present("token") && !validToken(c.Token):
+			d.fail(CodeBadField, "child token")
 		}
 		m = c
 	case TypePlatform:

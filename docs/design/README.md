@@ -171,6 +171,7 @@ each record):
 | Which child-process calls see a replaced `process.env` on Bun 1.3.10 (milestone C3b) | `child_process.spawn`, `exec` and `Bun.$` read it at the call; `spawnSync`, `execSync` and `Bun.spawn`/`Bun.spawnSync` pass the process's own environment, so the harness gives every call made in an invocation an explicit one | 0004 |
 | Patching `node:timers` and `node:child_process` on Bun 1.3.10 (milestone C3b) | assignments to the CommonJS object before a module's first import of the builtin reach its named ESM imports; `module.syncBuiltinESMExports()` does not update a namespace imported earlier | 0004 |
 | Which child-process calls honour `detached` on Bun 1.3.10 (milestone FU6) | `spawn`, `fork`, `Bun.spawn` and `Bun.spawnSync` start a detached child in a new session and group; `exec`, `execFile`, `spawnSync`, `execSync` and `execFileSync` ignore it, leaving the child in the caller's group. Every `node:child_process` function starts its child through the global `Bun.spawn` or `Bun.spawnSync`, once, passing `detached` on only from `spawn` and `fork`; `Bun.$` uses neither; `process.kill(-pgid, …)` signals a group | 0004 |
+| What the engine can read of another process of its user (milestone FU6) | on macOS `kern.procargs2` gives its executable's path and arguments but not its environment, and `ps -E` shows none either; Linux's `/proc/<pid>/cmdline` and `environ` give both. So a child group's guardian carries its token in its arguments, `sleep 999999999.<token>`, which macOS `sleep` accepts (it refuses `2147483647.<digits>`) | 0004 |
 | `process._getActiveHandles()` on Bun 1.3.10 with a pending timeout and interval (milestone C3a) | an empty list, so leaks are counted in the harness's own per-invocation registry | 0004 |
 | The host-mode watchdog (milestone W1), `killAfter` 1 s, a step that spins forever | the host was killed 1.00 s after the step's run was sent; the restarted host served the next run | 0004 |
 | Per-step latency of the walking skeleton (milestone W1), a one-step flow with one javascript transform, 300 sequential runs on Bun 1.3.10, engine built without the race detector | spawned warm harness: 56 µs p50, 120 µs p95 per run (invoke to result 31 µs p50); host mode in a compiled host, timed around `run`: 78 µs p50, 126 µs p95 | 0003, 0004 |
@@ -667,9 +668,11 @@ follow SC2's answers (FU6).
     cut off. The engine owns the children's groups (the harness announces
     each in a `child` frame, a host on a channel of its own), so a step
     that blocks the event loop, or backs up a host's socket first, cannot
-    keep them past its timeout or the process's end; it holds each with
-    its leader's start time and retires it once it ends, so a recycled id
-    is never killed. A synchronous child
+    keep them past its timeout or the process's end. The engine alone
+    signals them: each group starts with a guardian that keeps its id
+    reserved, and the engine signals a group only while the guardian, or
+    for an unguarded group a member it saw before, is still in it, so no
+    kill reaches a group that took the id after the child's ended. A synchronous child
     call gets no group of its own (its pid comes too late to announce): it
     stays in the harness's group, which the end of the process kills, and
     what it leaves running is not attributed. Should a warm process hold

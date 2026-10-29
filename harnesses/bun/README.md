@@ -230,10 +230,22 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     the engine even if the step then blocks the event loop, and the engine
     kills the group on the invocation's timeout or cancellation and when
     the process ends (a host, whose transport has no synchronous write,
-    writes it on its own channel instead, described under host mode). A
-    `cancel` revokes `child` here too: the
-    invocation's groups are killed at once, and any it starts afterwards
-    at once (`InvocationResources.revoke`). Settlement kills what is left.
+    writes it on its own channel instead, described under host mode). The
+    engine alone signals the group, at the invocation's abandonment, its
+    settlement and the process's end, and only while it is still the
+    child's; the harness never signals a child's group, since it cannot
+    tell the group from a later one given the same id. A `cancel` revokes
+    `child` (`InvocationResources.revoke`), so those children, and any the
+    call starts afterwards, are no longer counted. Each grouped child is
+    started through `guardedCommand`'s `/bin/sh -c` prologue, which forks
+    the group's guardian (`sleep 999999999.<token>`, with descriptors 0
+    to 9 closed) and execs the step's command, so `child.pid`, its
+    streams and its exit status are the command's; the token goes in the
+    `child` frame. A command that cannot be run as given, or an `argv0`
+    other than the command, is spawned without a guardian, as Bun spawns
+    it. A guarded child counts as `child` while its own process runs: its
+    guardian keeps the group, so what it left there after it exited is
+    killed with the group but not counted.
     A synchronous call (`Bun.spawnSync`, and so `spawnSync`, `execSync`
     and `execFileSync`) gets no group: its child's pid is known only once
     it has exited, too late to announce, so it stays in the harness's

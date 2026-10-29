@@ -345,7 +345,7 @@ export class Runtime {
     // invocation's children groups of their own, which it announces to the
     // engine (WR-55).
     setChildGroups(this.mode !== "fresh");
-    setChildAnnouncer((id, pid) => this.announceChild(id, pid));
+    setChildAnnouncer((id, pid, token) => this.announceChild(id, pid, token));
     this.facade = c.facade;
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
@@ -784,20 +784,20 @@ export class Runtime {
    * frame) and writes it at once, on the host's child channel (children)
    * or through the synchronous transport (the spawned harness's), so it
    * reaches the engine whatever the step's code does next, a blocked event
-   * loop or a backed-up socket included; the engine
-   * then kills the group on the invocation's timeout or cancellation and
-   * when the process ends (WR-55). A failure is written to the
+   * loop or a backed-up socket included; the engine then kills the group
+   * on the invocation's timeout or cancellation, at its settlement and when
+   * the process ends (WR-55). A failure is written to the
    * diagnostics, and the spawn goes on. */
-  private announceChild(id: string, pid: number) {
+  private announceChild(id: string, pid: number, token?: string) {
     if (this.closing()) return;
     try {
       // A host's socket may hold bytes it has not written yet, which a
       // synchronous write would overtake: its own channel takes the frame.
       if (this.opts.children) {
-        this.opts.children(frame(encode({ t: "child", id, pid })));
+        this.opts.children(frame(encode({ t: "child", id, pid, token })));
         return;
       }
-      this.sender.send({ t: "child", id, pid });
+      this.sender.send({ t: "child", id, pid, token });
       const writeSync = this.opts.transport.writeSync;
       if (writeSync) this.sender.flushFramesSync((b) => writeSync(b));
     } catch (e) {
@@ -808,8 +808,9 @@ export class Runtime {
   /** Abandons a running invocation. A cancel that crossed the result of an
    * invocation whose outcome is already fixed changes nothing. The cancel
    * is the engine's timeout or cancellation, which kills the job's process
-   * group on Windmill (WR-55, WR-37): the invocation's children are killed
-   * now, and any it starts later at once; the call itself goes on (D9).
+   * group on Windmill (WR-55, WR-37): the engine kills the invocation's
+   * announced children, and any it announces later at once, so the
+   * harness stops counting them; the call itself goes on (D9).
    * windmill-lite has no log limit, WR-37's third trigger. */
   private cancel(m: Message) {
     const inv = this.invocations.get(m.id);
