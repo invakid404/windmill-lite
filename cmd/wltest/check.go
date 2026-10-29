@@ -405,9 +405,16 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 	// The case's own platform facade (ADR 0007, milestone PF1), in its
 	// default fail mode: a warm process reaches it through the intercepted
 	// fetch, at an origin where nothing listens; a fresh one over TCP. It
-	// serves the case's setup (milestone PF2).
+	// serves the case's setup (milestone PF2), and an object store in a
+	// directory of the case's own (milestone PF3); it has no dispatcher, so
+	// no dispatch target is in the bundle.
 	calls := &callLog{byInv: map[string][]facade.Record{}}
-	services, err := platformOf(nil, c.Setup, "")
+	objects, err := os.MkdirTemp("", "wltest-objects-")
+	if err != nil {
+		return []string{"objects: " + err.Error()}, ""
+	}
+	defer os.RemoveAll(objects)
+	services, err := platformOf(nil, c.Setup, "", objects)
 	if err != nil {
 		return []string{"setup: " + err.Error()}, ""
 	}
@@ -441,6 +448,13 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 		}
 	}
 	runID := newUUID()
+	if c.ModuleID() != "" {
+		// A flow step's runs are steps of the flow run runID, a live flow
+		// job of the job registry while the case runs, so their flow user
+		// state lives from one run to the next (milestone PF3).
+		end := services.JobRegistry().Begin(platform.Job{ID: runID, Kind: platform.JobFlow, Root: runID, Path: conformance.StepFolder + "/flow"})
+		defer end()
+	}
 	var problems []string
 	recs := make([]*stepRecorder, len(c.Runs))
 	for i := range c.Runs {
@@ -824,13 +838,14 @@ func writeJobFile(job, name string, data []byte) error {
 }
 
 // jobEnv is the invocation's job variables (WR-22, ADR 0007's job
-// identity): those of a flow step, of the flow StepFolder/flow, or of a
-// script job when the case runs outside a flow, whose flow variables are
-// empty; then the case's own.
+// identity): those of a flow step, of the flow StepFolder/flow, the run
+// runID, or of a script job when the case runs outside a flow, whose flow
+// variables are empty and which is its own effective root (WA-4, WA-V1);
+// then the case's own.
 func jobEnv(c *conformance.StepCase, step, invID, runID string) map[string]string {
-	id := platform.Identity{JobID: invID, RootJobID: runID, StepID: step, JobPath: c.ScriptPath(), Token: platform.NewToken()}
+	id := platform.Identity{JobID: invID, RootJobID: invID, StepID: step, JobPath: c.ScriptPath(), Token: platform.NewToken()}
 	if step != "" {
-		id.FlowJobID, id.RootFlowJobID, id.FlowPath = runID, runID, conformance.StepFolder+"/flow"
+		id.FlowJobID, id.RootFlowJobID, id.RootJobID, id.FlowPath = runID, runID, runID, conformance.StepFolder+"/flow"
 	}
 	env := id.Env(platform.Host{Workspace: "wl_step"})
 	for k, v := range c.Env {

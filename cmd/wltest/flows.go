@@ -214,6 +214,22 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 	}
 
+	if t := b.targets[rootsTarget]; t != nil && t.unsupported == "" && t.problem == "" {
+		// The default dispatcher (milestone PF3) runs the fixture's other
+		// roots, through the facade's executor so that their calls are
+		// attributed, on the pool; it is in the services before any run
+		// starts, and closes before the pool does.
+		if e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform}); err == nil {
+			d := engine.NewDispatcher(e, fac.Executor(pool))
+			b.platform.Dispatcher = d
+			defer func() {
+				cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				d.Close(cctx)
+			}()
+		}
+	}
+
 	byName := map[string]int{}
 	for i, r := range f.Runs {
 		byName[r.Name] = i
@@ -326,26 +342,14 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 	defer folder.Close()
 
 	b := &fixtureBundle{out: filepath.Join(work, "bundle"), targets: map[string]*target{}}
-	if b.platform, err = platformOf(folder, f.Setup, f.Oracle.SetupPolicy()); err != nil {
+	if b.platform, err = platformOf(folder, f.Setup, f.Oracle.SetupPolicy(), filepath.Join(work, "objects")); err != nil {
 		return nil, err
 	}
 	entries := map[string]bundle.BunScript{}
 	codebase := map[string]bundle.CodebaseScript{}
 	users := map[string][]string{} // inventory id → the targets that reach it
-	for _, run := range f.Runs {
-		if run.IsScript() || b.targets[run.Target] != nil {
-			continue
-		}
-		t := &target{}
-		b.targets[run.Target] = t
-		b.order = append(b.order, run.Target)
-		fc.compile(folder, run.Target, t)
-		if t.unsupported == "" && t.problem == "" && needsFlowUserState(t) {
-			t.unsupported = flowUserStateNote
-		}
-		if t.unsupported != "" || t.problem != "" {
-			continue
-		}
+	// add puts the scripts t reaches into the bundle's entries.
+	add := func(key string, t *target) {
 		for _, s := range t.reached {
 			if s.Bundling == ir.BundlingCodebase {
 				// One inventory id is one script, and its file one entry.
@@ -353,7 +357,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 					codebase[s.ID] = bundle.CodebaseScript{ID: s.ID, Path: s.Path, File: s.File,
 						Settings: folder.Config.Codebases[s.Codebase.Index].Settings}
 				}
-				users[s.ID] = append(users[s.ID], run.Target)
+				users[s.ID] = append(users[s.ID], key)
 				continue
 			}
 			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock), Language: string(s.Language)}
@@ -369,7 +373,40 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 				break
 			}
 			entries[s.ID] = e
-			users[s.ID] = append(users[s.ID], run.Target)
+			users[s.ID] = append(users[s.ID], key)
+		}
+	}
+	for _, run := range f.Runs {
+		if run.IsScript() || b.targets[run.Target] != nil {
+			continue
+		}
+		t := &target{}
+		b.targets[run.Target] = t
+		b.order = append(b.order, run.Target)
+		fc.compile(folder, run.Target, t)
+		if t.unsupported != "" || t.problem != "" {
+			continue
+		}
+		add(run.Target, t)
+	}
+	if len(f.Roots) > 0 {
+		// The bundle's other roots (the targets its steps dispatch, which
+		// a host contract lists, ADR 0002), compiled together as the
+		// default dispatcher's program (milestone PF3); a problem of
+		// theirs fails no run, only the dispatches that would reach them.
+		t := &target{}
+		b.targets[rootsTarget] = t
+		flows := folder.Paths(syncfolder.KindFlow)
+		var roots []ir.Root
+		for _, p := range f.Roots {
+			if slices.Contains(flows, p) {
+				roots = append(roots, ir.Root{Flow: p})
+			} else {
+				roots = append(roots, ir.Root{Script: p})
+			}
+		}
+		if fc.compileRoots(folder, roots, t) {
+			add(rootsTarget, t)
 		}
 	}
 
@@ -428,20 +465,43 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 	return b, nil
 }
 
+// rootsTarget keys the default dispatcher's program among a fixture's
+// targets: no run's target, since a path has no parenthesis.
+const rootsTarget = "(roots)"
+
 // compile compiles one target flow, with it as the only root, into t: its
 // program, its module ids and the scripts it reaches. A feature the
 // compiler or this runner refuses makes t unsupported; a compile error is
 // t's problem.
 func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target) {
-	contract, err := json.Marshal(ir.Contract{Roots: []ir.Root{{Flow: path}}})
+	if !fc.compileRoots(folder, []ir.Root{{Flow: path}}, t) {
+		return
+	}
+	fl := t.prog.Flows[path]
+	if fl == nil {
+		t.problem = "compile: no flow " + path
+		return
+	}
+	for _, m := range fl.Modules {
+		t.modules = append(t.modules, m.ID)
+		t.virtual = append(t.virtual, m.Virtual)
+	}
+	t.failure = fl.FailureModule != nil
+}
+
+// compileRoots compiles the folder with roots as its contract's roots into
+// t: its program and the scripts it reaches. It reports whether t has
+// neither a problem nor a reason to be unsupported.
+func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, t *target) bool {
+	contract, err := json.Marshal(ir.Contract{Roots: roots})
 	if err != nil {
 		t.problem = err.Error()
-		return
+		return false
 	}
 	c, err := ir.ParseContract(contract)
 	if err != nil {
 		t.problem = err.Error()
-		return
+		return false
 	}
 	prog, err := ir.Compile(folder, c, ir.Options{})
 	if err != nil {
@@ -451,19 +511,9 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 		} else {
 			t.problem = "compile: " + err.Error()
 		}
-		return
-	}
-	fl := prog.Flows[path]
-	if fl == nil {
-		t.problem = "compile: no flow " + path
-		return
+		return false
 	}
 	t.prog = prog
-	for _, m := range fl.Modules {
-		t.modules = append(t.modules, m.ID)
-		t.virtual = append(t.virtual, m.Virtual)
-	}
-	t.failure = fl.FailureModule != nil
 	t.names = map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
 		s := prog.Scripts[id]
@@ -471,7 +521,7 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 		// each step with its own (C3n); other harnesses are L1's.
 		if s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative) {
 			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which windmill-lite does not have yet", s.Path, s.Boundary, s.Harness)
-			return
+			return false
 		}
 		t.reached = append(t.reached, s)
 		t.names[id] = s.Path
@@ -479,19 +529,7 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 			t.names[id] = fmt.Sprintf("%s (inline step %s of %s)", id, s.Module, s.Flow)
 		}
 	}
-}
-
-// flowUserStateNote is why a run whose flow reads flow user state is not
-// checked.
-const flowUserStateNote = "the flow reads flow user state, which needs the flow user state of milestone PF3"
-
-// needsFlowUserState reports whether t's flow reads flow user state
-// through the expression helper flow_user_state() (JE-20), which needs
-// milestone PF3: its compiled program holds the helper's text. A script
-// that reads it through the client gets a 501, which fails its step.
-func needsFlowUserState(t *target) bool {
-	prog, err := t.prog.MarshalIndent()
-	return err != nil || strings.Contains(string(prog), "flow_user_state(")
+	return true
 }
 
 // folderScripts maps every TypeScript script of the folder to its file: the

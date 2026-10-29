@@ -1,0 +1,17 @@
+# Milestone PF3's fixture for WA-6 (with WA-5 inside bodies): the runnable
+# paths a step in a loop or branch body sees, recorded on the oracle and
+# run by wltest check on windmill-lite. Each body step returns
+# WM_FLOW_PATH, the catalogue's observable, with WM_JOB_PATH,
+# WM_STATE_PATH and WM_FLOW_STEP_ID, which follow from it (WA-5, WA-6,
+# FX-46). A simple sequential body runs directly under the flow (WA-6/a);
+# a retry makes it run as a sub-flow per iteration (WA-6/b); a parallel
+# body always does (WA-6/c); a branchone runs its chosen branch as a
+# sub-flow numbered from the default branch (WA-6/d). Synthetic, written
+# for this repository from docs/semantics/client-api.md and
+# docs/semantics/conformance.md.
+id: client-api/flow-path
+spec: [WA-6/a, WA-6/b, WA-6/c, WA-6/d, WA-5, FX-46, OR-14]
+scope: later
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

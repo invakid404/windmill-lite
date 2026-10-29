@@ -226,7 +226,10 @@ func TestTransportsAgree(t *testing.T) {
 // whose status is 501, statusText the facade's, message the generator's
 // "Not Implemented" and body the 501's (WA-41/a). In fail mode the step
 // fails with UnsupportedPlatformCall though the script returned normally,
-// in both transports; in observe mode the stock behaviour stands.
+// in both transports; in observe mode the stock behaviour stands. Since
+// milestone PF3 serves dispatch and flow user state, WA-V5's recording
+// facade is had by answering those two routes 501 here, as the facade
+// answers a route it does not serve.
 func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 	r := newBunRig(t)
 	const observed = `{"async":"Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}","state":null,"strict":"Error setting flow user state at k: Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}","token":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: POST /w/{ws}/oidc/token/{audience}"},"job":{"name":"ApiError","status":501,"statusText":"Not Implemented","message":"Not Implemented","body":"Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}"}}`
@@ -239,6 +242,9 @@ func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 		}{{PolicyObserve, engine.OutcomeOK, observed}, {PolicyFail, engine.OutcomeError, failed}} {
 			t.Run(string(mode)+" "+string(c.policy), func(t *testing.T) {
 				f := newFacade(t, Config{Policy: c.policy})
+				unserved := func(_ context.Context, c *Call) Reply { return text(501, UnsupportedPrefix+c.Route.Name()) }
+				f.Handle("runScriptByPath", unserved)
+				f.Handle("setFlowUserState", unserved)
 				x := f.Executor(r.pool(t, f, mode))
 				id := r.identity("f/t/policy", "a")
 				out, err := x.Execute(r.ctx(t), r.invocation(id, "attr/unsupported", `{}`, mode))
@@ -403,8 +409,11 @@ func newBunRig(t *testing.T) *bunRig {
 	for name, src := range bunSteps {
 		write("scripts/bun/attr/"+name+".mjs", src)
 		params := `[]`
-		if name == "client" {
+		switch name {
+		case "client":
 			params = `[{"name":"runs","date":false}]`
+		case "userstate":
+			params = `[{"name":"op","date":false}]`
 		}
 		write("scripts/bun/attr/"+name+".meta.json", `{"signatures":{"main":{"params":`+params+`}}}`)
 	}

@@ -1,0 +1,13 @@
+summary: PF3 a dispatched flow's job identity
+value:
+  modules:
+    - id: p
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_pf3_disp/probe
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

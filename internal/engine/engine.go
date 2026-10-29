@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	crand "crypto/rand"
 	"encoding/binary"
@@ -81,10 +82,13 @@ type Config struct {
 	// Windmill's default of 60 s; a negative value disables the monitor, as
 	// DISABLE_ZOMBIE_JOBS_MONITORING does.
 	TransitionTimeout time.Duration
-	// Platform holds the resources, variables and secrets that runs read
-	// (ADR 0007, milestone PF2): through a leaf's argument resolution,
-	// flow_env and the expression helpers. nil means none, so every read
-	// is a not-found. A host gives the facade the same services.
+	// Platform holds the platform services runs use (ADR 0007): the
+	// resources, variables and secrets read through a leaf's argument
+	// resolution, flow_env and the expression helpers (milestone PF2), and
+	// the job registry each run is registered with and the flow user state
+	// flow_user_state() reads (milestone PF3). nil means none, so every
+	// read is a not-found and no run is registered. A host gives the
+	// facade the same services.
 	Platform *platform.Services
 }
 
@@ -108,6 +112,11 @@ func New(cfg Config) (*Engine, error) {
 	}
 	if e.cap == 0 {
 		e.cap = 604800 * time.Second
+	}
+	for _, path := range cfg.Program.Roots.Scripts {
+		if err := supportedRootScript(cfg.Program.Scripts[path]); err != nil {
+			return nil, fmt.Errorf("engine: script %s: %w", path, err)
+		}
 	}
 	switch t := cfg.TransitionTimeout; {
 	case t == 0:
@@ -376,6 +385,21 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 	return nil
 }
 
+// supportedRootScript checks a script root, which the default dispatcher
+// runs as a script job (RunScript): a Bun step in either boundary, without
+// its own cache_ttl.
+func supportedRootScript(s *ir.Script) error {
+	switch {
+	case s == nil:
+		return errors.New("not in the program's inventory")
+	case s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative):
+		return unsupported("a %s script in the %s boundary", s.Harness, s.Boundary)
+	case s.Metadata != nil && s.Metadata.CacheTTL != nil:
+		return unsupported("a script's own cache_ttl (N4)")
+	}
+	return nil
+}
+
 // supportedLoop checks a for loop: its body, and the fields the engine
 // runs.
 func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
@@ -427,6 +451,15 @@ type RunRequest struct {
 	// Exec runs the run's steps; nil means Config.Exec. In host mode it is
 	// the host's connection.
 	Exec StepExecutor
+	// ParentJob and RootJob are the parent_job and root_job of a dispatch
+	// tracked in its parent (WA-15), "" when absent, and ParentPath the
+	// parent job's runnable path. As the oracle recorded for a flow that
+	// runFlow dispatched (fixture client-api/dispatch, run identity), the
+	// effective root of the run's jobs is then the first of RootJob,
+	// ParentJob and the run that is set, so they share that run's flow
+	// user state, and RootJob, when set, is the innermost scope of the
+	// run's own steps; the run's own job has ParentJob for its parent.
+	ParentJob, RootJob, ParentPath string
 	// Seed seeds the run's shuffles of unspecified orders: the top-level
 	// keys of the flow input and of every argument map, and the order input
 	// transforms are evaluated in (ADR 0001 §2, FX-42, JE-V5), and the
@@ -509,6 +542,8 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
+	r.rootID = cmp.Or(req.RootJob, req.ParentJob, id)
+	r.root.scope = cmp.Or(req.RootJob, id)
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
 	r.root.envSrc = flowEnv(f)
 	if _, real := clock.(RealClock); !real {
@@ -528,9 +563,16 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	}
 	// The flow job's reserved variables, which flow_env's resolution reads
 	// (JE-38), a subflow's included: a top-level flow, with no parent, its
-	// own effective root, at the flow's path.
-	r.flowJobEnv = platform.Identity{JobID: id, RootJobID: id, JobPath: f.Path, Token: platform.NewToken()}.Env(e.host)
+	// own effective root, at the flow's path; or a dispatched one's, with
+	// the links its dispatch sent.
+	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken()}.Env(e.host)
+	// The run is a flow job of the job registry while it runs, in its
+	// effective root's tree, so that its steps' root lookups, reads with
+	// a job id and flow user state find it (ADR 0007, D3, WA-14); its user
+	// state is discarded when its tree is.
+	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path})
 	r.run(ctx)
+	endJob()
 	// H9: OnRunEnd sees the outcome first; its warnings are part of the
 	// returned trace and of the one OnRunSettled receives, possibly at once
 	// from End when no invocation was abandoned.
