@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -259,4 +261,82 @@ func TestHooksOnBun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// H9's traces carry the run's platform calls as the returned trace does
+// (ADR 0008): the trace OnRunEnd gets and the one OnRunSettled gets hold
+// the step's read and update, the calls as of the run's end, in warm and
+// fresh mode, and so do they for a run canceled while its step waits,
+// which settles once its abandoned invocation does (fresh mode, where the
+// cancellation ends the step's process).
+func TestRunEndKeepsCalls(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	check := func(t *testing.T, mode, first string, cancelAfterUpdate bool) {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode, Variables: map[string]Variable{"u/t/v": {Value: first}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		ended := make(chan []PlatformCall, 1)
+		settled := make(chan []PlatformCall, 1)
+		h := &Hooks{
+			OnRunEnd: func(_ context.Context, tr *Trace) []Warning {
+				ended <- tr.PlatformCalls
+				return nil
+			},
+			OnRunSettled: func(tr *Trace) { settled <- tr.PlatformCalls },
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan *Result, 1)
+		go func() {
+			res, err := rt.Run(ctx, "f/t/flow", nil, RunOptions{Hooks: h})
+			if err != nil {
+				t.Error(err)
+			}
+			done <- res
+		}()
+		if cancelAfterUpdate {
+			deadline := time.After(10 * time.Second)
+			for {
+				if v, _ := rt.services.VariableValue(context.Background(), "u/t/v"); v == "second" {
+					break
+				}
+				select {
+				case <-deadline:
+					t.Fatal("the step never updated the variable")
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+		}
+		res := <-done
+		if res == nil {
+			t.Fatal("no result")
+		}
+		var settledCalls []PlatformCall
+		select {
+		case settledCalls = <-settled:
+		case <-time.After(15 * time.Second):
+			t.Fatal("the run never settled")
+		}
+		endCalls := <-ended
+		routes := func(cs []PlatformCall) string {
+			var b strings.Builder
+			for _, c := range cs {
+				b.WriteString(c.Route + " " + strconv.Itoa(c.Status) + ";")
+			}
+			return b.String()
+		}
+		want := "GET /w/{ws}/variables/get_value/{path} 200;POST /w/{ws}/variables/update/{path} 200;"
+		if got := routes(res.Trace.PlatformCalls); got != want || routes(endCalls) != want || routes(settledCalls) != want {
+			t.Fatalf("%s: returned %q, OnRunEnd %q, OnRunSettled %q", res.Status, got, routes(endCalls), routes(settledCalls))
+		}
+	}
+	for _, mode := range []string{ModuleStateWarm, ModuleStateFresh} {
+		t.Run(mode, func(t *testing.T) { check(t, mode, "first", false) })
+	}
+	t.Run("fresh canceled", func(t *testing.T) { check(t, ModuleStateFresh, "slow", true) })
 }

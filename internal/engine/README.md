@@ -899,7 +899,10 @@ job's: `stop_after_if`, retry, `continue_on_error`, the results routes. A
 provider that declines, or a named site with no `Provide`, latches the
 run with `ErrProviderDeclined` (`provider_declined`), and a provider's
 error latches it with that error. Its record has `Ran` set, no job, and
-`provided` among its hooks; failures it produces are of origin `host`.
+`provided` among its hooks; failures it produces are of origin `host`. It
+keeps the call-site identity of the step it replaces: hooks see a provided
+script step's path, or an inline step's `<flow path>/<module id>`, as its
+`Site.Script`, so script selectors name it.
 
 **Per-run platform providers (H13, `RunRequest.Platform`).** A run given
 its own services reads its resources, variables, secrets and value

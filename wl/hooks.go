@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -185,7 +186,7 @@ func (o Outcome) step() (engine.StepOutcome, error) {
 
 // engineHooks adapts h to the engine's hooks for a run of prog, checking
 // every selector first.
-func engineHooks(h *Hooks, prog *ir.Program) (engine.Hooks, error) {
+func engineHooks(h *Hooks, prog *ir.Program) (*hooks, error) {
 	if h == nil {
 		return nil, nil
 	}
@@ -227,7 +228,7 @@ func engineHooks(h *Hooks, prog *ir.Program) (engine.Hooks, error) {
 			return nil, err
 		}
 	}
-	return hooks{h}, nil
+	return &hooks{h: h}, nil
 }
 
 // checkSelector checks a selector's form.
@@ -351,12 +352,43 @@ func matches(s Selector, site Site) bool {
 	return true
 }
 
-// hooks is the engine's view of a run's Hooks.
-type hooks struct{ h *Hooks }
+// hooks is the engine's view of a run's Hooks. calls gives the run's
+// platform calls so far, which the engine's trace does not hold (the
+// runtime collects them): the trace OnRunEnd gets carries them as of the
+// run's end, and so do the trace OnRunSettled gets and the one Run
+// returns, so all three agree.
+type hooks struct {
+	h     *Hooks
+	calls func() []PlatformCall
 
-var _ engine.Hooks = hooks{}
+	mu    sync.Mutex
+	ended bool
+	end   []PlatformCall
+}
 
-func (x hooks) Intercept(ctx context.Context, r engine.Run, s engine.Site, args jsonval.Value) (engine.StepOutcome, bool, error) {
+var _ engine.Hooks = (*hooks)(nil)
+
+// endCalls are the run's platform calls as of its end, taken once.
+func (x *hooks) endCalls() []PlatformCall {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if !x.ended {
+		x.ended = true
+		if x.calls != nil {
+			x.end = x.calls()
+		}
+	}
+	return slices.Clone(x.end)
+}
+
+// withCalls is a copy of t with the run's platform calls as of its end.
+func (x *hooks) withCalls(t *engine.Trace) *engine.Trace {
+	c := *t
+	c.PlatformCalls = x.endCalls()
+	return &c
+}
+
+func (x *hooks) Intercept(ctx context.Context, r engine.Run, s engine.Site, args jsonval.Value) (engine.StepOutcome, bool, error) {
 	for _, in := range x.h.Intercept {
 		if !matches(in.Selector, s) {
 			continue
@@ -375,7 +407,7 @@ func (x hooks) Intercept(ctx context.Context, r engine.Run, s engine.Site, args 
 	return engine.StepOutcome{}, false, nil
 }
 
-func (x hooks) RewriteArgs(ctx context.Context, r engine.Run, s engine.Site, args jsonval.Value) (jsonval.Value, error) {
+func (x *hooks) RewriteArgs(ctx context.Context, r engine.Run, s engine.Site, args jsonval.Value) (jsonval.Value, error) {
 	for _, rw := range x.h.RewriteArgs {
 		if !matches(rw.Selector, s) {
 			continue
@@ -392,50 +424,51 @@ func (x hooks) RewriteArgs(ctx context.Context, r engine.Run, s engine.Site, arg
 	return args, nil
 }
 
-func (hooks) WriteCapable(engine.Site) bool { return false }
+func (*hooks) WriteCapable(engine.Site) bool { return false }
 
-func (hooks) BeforeFirstWrite(context.Context, engine.Run, engine.Site) error { return nil }
+func (*hooks) BeforeFirstWrite(context.Context, engine.Run, engine.Site) error { return nil }
 
-func (hooks) FatalErrorName(string) bool { return false }
+func (*hooks) FatalErrorName(string) bool { return false }
 
-func (x hooks) HaltBefore(s engine.Site) bool { return anyMatch(x.h.HaltBefore, s) }
+func (x *hooks) HaltBefore(s engine.Site) bool { return anyMatch(x.h.HaltBefore, s) }
 
-func (x hooks) HaltAfter(s engine.Site) bool { return anyMatch(x.h.HaltAfter, s) }
+func (x *hooks) HaltAfter(s engine.Site) bool { return anyMatch(x.h.HaltAfter, s) }
 
 func anyMatch(sels []Selector, s engine.Site) bool {
 	return slices.ContainsFunc(sels, func(sel Selector) bool { return matches(sel, s) })
 }
 
-func (x hooks) OnModuleStart(ctx context.Context, r engine.Run, s engine.Site) error {
+func (x *hooks) OnModuleStart(ctx context.Context, r engine.Run, s engine.Site) error {
 	if x.h.OnModuleStart == nil {
 		return nil
 	}
 	return x.h.OnModuleStart(ctx, r, s)
 }
 
-func (x hooks) OnModuleEnd(ctx context.Context, r engine.Run, s engine.Site, rec engine.StepRecord) error {
+func (x *hooks) OnModuleEnd(ctx context.Context, r engine.Run, s engine.Site, rec engine.StepRecord) error {
 	if x.h.OnModuleEnd == nil {
 		return nil
 	}
 	return x.h.OnModuleEnd(ctx, r, s, rec)
 }
 
-func (x hooks) InvocationEnv(ctx context.Context, r engine.Run, s engine.Site, env map[string]string) error {
+func (x *hooks) InvocationEnv(ctx context.Context, r engine.Run, s engine.Site, env map[string]string) error {
 	if x.h.InvocationEnv == nil {
 		return nil
 	}
 	return x.h.InvocationEnv(ctx, r, s, env)
 }
 
-func (x hooks) OnRunEnd(ctx context.Context, t *engine.Trace) []engine.Warning {
+func (x *hooks) OnRunEnd(ctx context.Context, t *engine.Trace) []engine.Warning {
 	if x.h.OnRunEnd == nil {
+		x.endCalls()
 		return nil
 	}
-	return x.h.OnRunEnd(ctx, t)
+	return x.h.OnRunEnd(ctx, x.withCalls(t))
 }
 
-func (x hooks) OnRunSettled(t *engine.Trace) {
+func (x *hooks) OnRunSettled(t *engine.Trace) {
 	if x.h.OnRunSettled != nil {
-		x.h.OnRunSettled(t)
+		x.h.OnRunSettled(x.withCalls(t))
 	}
 }

@@ -172,11 +172,20 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 	}
 	calls := rt.exec.begin(id)
 	defer rt.exec.end(id)
-	tr, err := rt.eng.Run(ctx, engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Hooks: h, Platform: services})
+	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services}
+	if h != nil {
+		h.calls, req.Hooks = calls.taken, h
+	}
+	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	tr.PlatformCalls = calls.taken()
+	if h != nil {
+		// The calls as of the run's end, which the H9 callbacks saw.
+		tr.PlatformCalls = h.endCalls()
+	} else {
+		tr.PlatformCalls = calls.taken()
+	}
 	return &Result{
 		ID:             tr.RunID,
 		Status:         string(tr.Status),

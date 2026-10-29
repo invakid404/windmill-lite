@@ -124,15 +124,26 @@ func (r *run) signal() { r.wakeOnce.Do(func() { close(r.wake) }) }
 // belong to the enclosing flow, so Flow is the flow whose module lists
 // hold the module (the run's, or a subflow's by path, ADR 0008), and
 // Script is the leaf's static path, <flow path>/<module id> for an inline
-// script.
+// script, a host-provided script step's included.
 func (r *run) site(fr *frame, i int) Site {
 	m := fr.moduleAt(i)
 	s := Site{Path: fr.sites[i], Flow: fr.def.Path, Module: m.ID}
-	if m.Leaf != nil {
+	switch {
+	case m.Leaf != nil:
 		if sc := r.e.prog.Scripts[m.Leaf.Script]; sc != nil {
 			s.Script = sc.Path
 		} else {
 			s.Script = m.Leaf.Script
+		}
+	case m.Provided != nil:
+		// A host-provided site keeps the call-site identity of the step it
+		// replaces (ADR 0002): its script's path, or an inline script's
+		// <flow path>/<module id>; a provided flow step has none.
+		switch m.Provided.Target.Kind {
+		case ir.KindScript:
+			s.Script = m.Provided.Target.Path
+		case ir.KindRawScript:
+			s.Script = fr.def.Path + "/" + m.ID
 		}
 	}
 	return s

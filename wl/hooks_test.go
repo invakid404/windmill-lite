@@ -332,3 +332,66 @@ func TestRunPlatform(t *testing.T) {
 		}
 	}
 }
+
+// A host-provided site keeps the call-site identity of the step it
+// replaces (ADR 0002, ADR 0008): a script selector names a provided path
+// script by its path and a provided inline script by <flow path>/<module
+// id>, so H2 rewrites what the provider gets, HaltBefore stops before the
+// provider runs and HaltAfter once its value is final. An optional H1 on
+// the site does not apply: the mandatory provider answers it.
+func TestHooksOnProvidedScripts(t *testing.T) {
+	for _, c := range []struct{ kind, value, script string }{
+		{"script", `{"type":"script","path":"f/opaque/work","input_transforms":{"v":{"type":"static","value":"original"}}}`, "f/opaque/work"},
+		{"rawscript", `{"type":"rawscript","language":"bun","content":"export function main(v) { return v }","input_transforms":{"v":{"type":"static","value":"original"}}}`, "f/q/main/work"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			flows := map[string]string{"f/q/main": `{"modules":[{"id":"work","value":` + c.value + `},{"id":"tail","value":{"type":"identity"}}]}`}
+			contract := []byte(`{"roots":[{"flow":"f/q/main"}],"provided":[{"selector":{"flow":"f/q/main","module":"work"},"provider":"work","mandatory":true}]}`)
+			var mu sync.Mutex
+			var got []string
+			rt, err := Open(writeBundleOf(t, flows, contract, Version(), nil, nil), Options{Providers: map[string]Provider{"work": func(_ context.Context, call Call) (Outcome, bool, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				got = append(got, call.Site.Script+" "+string(call.Args))
+				return Outcome{Result: call.Args}, true, nil
+			}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			sel := Selector{Script: c.script}
+			run := func(h *Hooks) *Result {
+				t.Helper()
+				mu.Lock()
+				got = nil
+				mu.Unlock()
+				res, err := rt.Run(context.Background(), "f/q/main", nil, RunOptions{Hooks: h})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return res
+			}
+			ran := func(res *Result, id string) bool {
+				_, ok := res.Trace.Step(conformance.SitePath{}.Child(conformance.Module(id)))
+				return ok
+			}
+
+			if res := run(&Hooks{HaltBefore: []Selector{sel}}); res.Status != StatusHalted || len(got) != 0 {
+				t.Errorf("HaltBefore: %s, provider calls %q", res.Status, got)
+			}
+			if res := run(&Hooks{HaltAfter: []Selector{sel}}); res.Status != StatusHalted || len(got) != 1 || ran(res, "tail") {
+				t.Errorf("HaltAfter: %s, provider calls %q, tail ran %v", res.Status, got, ran(res, "tail"))
+			}
+			res := run(&Hooks{RewriteArgs: []ArgRewriter{{Selector: sel, Func: func(context.Context, Call) (json.RawMessage, error) {
+				return json.RawMessage(`{"v":"rewritten"}`), nil
+			}}}})
+			if res.Status != StatusSuccess || string(res.Result) != `{"v":"rewritten"}` || len(got) != 1 || got[0] != c.script+` {"v":"rewritten"}` {
+				t.Errorf("H2: %s %s, provider calls %q", res.Status, res.Result, got)
+			}
+			res = run(&Hooks{Intercept: []Interceptor{{Selector: sel, Static: json.RawMessage(`"intercepted"`)}}})
+			if res.Status != StatusSuccess || string(res.Result) != `{"v":"original"}` || len(got) != 1 {
+				t.Errorf("H1 on a provided site: %s %s, provider calls %q", res.Status, res.Result, got)
+			}
+		})
+	}
+}

@@ -141,14 +141,15 @@ called from several goroutines at once (a parallel loop's iterations).
 | H2 | `RewriteArgs` | rewrites the arguments of a matching site whose module launches its own job, every matching rewriter in order; the record keeps both and lists `H2` |
 | H6 | `OnModuleStart`, `OnModuleEnd` | observe every module, nested ones and iterations included, the end with the site's record |
 | H8 | `HaltBefore`, `HaltAfter` | end the run halted before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module |
-| H9 | `OnRunEnd`, `OnRunSettled` | the run's end, whose warnings join the run's, and its settlement, once its abandoned invocations have settled |
+| H9 | `OnRunEnd`, `OnRunSettled` | the run's end, whose warnings join the run's, and its settlement, once its abandoned invocations have settled; both traces carry the run's platform calls as of its end, as the returned trace does |
 | H12 | `InvocationEnv` | sets or deletes variables of each invocation's job environment before it runs |
 
 **Selectors** (`Selector`, the host contract's selector type) name call
 sites: `{Flow, Module}` names the module with that id in any module list
 of the flow (container bodies belong to their enclosing flow), and
 `{Script}` every call of a script, a script step by its path and an inline
-step by `<flow path>/<module id>`. A module selector may add `Occurrence`,
+step by `<flow path>/<module id>`, a host-provided site that replaces such
+a step included. A module selector may add `Occurrence`,
 required for an id repeated in one module list (otherwise
 `ErrAmbiguousSelector` before the run starts), and `Iterations` or
 `Branches`, which match within those iterations or branches of the
@@ -215,7 +216,9 @@ an interception narrowed to one iteration, the selector checks
 of ADR 0002's provided-site policy case (the provider's value from the
 site's arguments, with the site's `stop_after_if`; `missing_provider`;
 `provider_declined`; a provider's error), and H13's variables and
-resolver. `bun_test.go` builds a real
+resolver; and a script selector on a provided path script and inline
+script, whose H2 reaches the provider and whose halts stop before and
+after it, while an optional H1 does not apply. `bun_test.go` builds a real
 bundle with `bundle.Build` and runs it on
 the pinned Bun in `warm` and `fresh` mode: a step reads a host's variable
 and updates it through the job API, both calls are in the trace with the
@@ -227,6 +230,8 @@ a run canceled while its step waits, after the step read and updated the
 variable, keeps both calls in its trace, in `warm` and `fresh`; and, in
 both, an `InvocationEnv` hook's variable in the step's environment (H12)
 and a run's own variable read and updated through the job API (H13), the
-runtime's left as it was. It needs
+runtime's left as it was; and the same platform calls in the returned
+trace and in the traces `OnRunEnd` and `OnRunSettled` get, for a run
+canceled while its step waits too. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
