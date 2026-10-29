@@ -18,7 +18,8 @@
     {"case": "FX-24/g", "milestone": "later", "reason": "an in-process executor's timeout (later); the native boundary's text is C3n's (WR-44)"},
     {"case": "FX-26/c", "milestone": "N2", "reason": "a first delay of 9464 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"},
     {"case": "FX-26/d", "milestone": "N2", "reason": "a delay of 21600 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"},
-    {"case": "FX-26/e", "milestone": "N2", "reason": "a second delay of 21600 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"}
+    {"case": "FX-26/e", "milestone": "N2", "reason": "a second delay of 21600 s: the recording would wait hours, and the walker does not capture a queued job's scheduled time; checked at unit level on the recording clock"},
+    {"case": "FX-26/f", "milestone": "N2", "reason": "source-derived in the reference's revision of 2026-10-29 (SC3): the jitter's distribution, a delay of 6 to 14 s whose single values are not reproducible, and the walker does not capture a queued job's scheduled time; docs/design/README.md requests a recording that samples it about 20 times from a future batch E3f. N2's unit tests check the arithmetic (internal/engine TestRetryDelay: p drawn from [0, 50), up or down) and the default jitter's range and both signs (TestSeededJitter)"}
   ],
   "parts": [],
   "prefixes": [],

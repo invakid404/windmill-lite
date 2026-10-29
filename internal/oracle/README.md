@@ -394,7 +394,7 @@ Batch E3e's manifest has no `gates`, since only F7b needs E3e merged. It
 defers to `none`, with the reason, what the oracle cannot record or the
 contract leaves out, and to the milestone that checks it what no run of
 the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
-HTTP adapter, WR-28/f to C2a, and WR-50/c to C3n.
+HTTP adapter, WR-28/f to C2a, and WR-50/c and WR-50/f to C3n.
 
 Batch E3a was built beside these manifests and has none: most of its runs
 state partial `claims` rather than a whole `expect`, and half of its cases

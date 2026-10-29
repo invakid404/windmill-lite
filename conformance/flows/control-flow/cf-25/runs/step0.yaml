@@ -1,5 +1,5 @@
-# CF-25: the same loop as the first module: it runs too.
-spec: [CF-25]
+# CF-25: the same loop as the first module: it succeeds too.
+spec: [CF-25/d]
 target: f/cf25/step0
 note: "Corrected after recording: the prediction, from CF-25, was the failure Squashing flow loops is not available in OSS."
 expect:
