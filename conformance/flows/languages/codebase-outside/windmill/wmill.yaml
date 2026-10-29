@@ -1,0 +1,6 @@
+defaultTs: bun
+includes: ["f/**"]
+codebases:
+  - relative_path: ../shared
+    includes: ["f/wl_cbo/**"]
+    assets: [{from: ../shared/lib/assets/note.txt, to: note.txt}]
