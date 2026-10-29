@@ -411,3 +411,146 @@ func TestEngineModuleState(t *testing.T) {
 		t.Fatal("an unknown module state was accepted")
 	}
 }
+
+// cancelCache is a host result cache that cancels the run's context
+// during its Get or its Put, as a host store whose call outlives the
+// run's cancellation would.
+type cancelCache struct {
+	platform.ResultCache
+	cancel context.CancelFunc
+	onPut  bool
+}
+
+func (c cancelCache) Get(ctx context.Context, key string, now time.Time) ([]byte, bool, error) {
+	b, ok, err := c.ResultCache.Get(ctx, key, now)
+	if !c.onPut {
+		c.cancel()
+	}
+	return b, ok, err
+}
+
+func (c cancelCache) Put(ctx context.Context, key string, b []byte, expires time.Time) error {
+	if c.onPut {
+		c.cancel()
+	}
+	return c.ResultCache.Put(ctx, key, b, expires)
+}
+
+// ADR 0008 H4 and H5, FX-38: a flow job the result cache answers still
+// goes through the host's start and completion checks, so a cached result
+// never turns a canceled run into a successful one: neither with the
+// cancellation already there, nor with a passed pre-write deadline, nor
+// with the cancellation arriving during the store's Get, or during its
+// Put after the flow's own last completion check.
+func TestCacheHostChecks(t *testing.T) {
+	flow := map[string]string{"f/t/main": withTTL(flowOf(mod("a", "value", inputs("v", static("1")), "")), 60)}
+	run := func(e *Engine, ctx context.Context, deadline time.Time) *Trace {
+		t.Helper()
+		tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), PreWriteDeadline: deadline})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tr
+	}
+	e := mustOpen(t, flow, &scripts{})
+	runIt(t, e, `{}`, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if tr := run(e, ctx, time.Time{}); tr.Status != conformance.RunCanceled || tr.Cached {
+		t.Fatalf("a canceled run: %s, cached %v", tr.Status, tr.Cached)
+	}
+	if tr := run(e, context.Background(), time.Now().Add(-time.Second)); tr.Status != conformance.RunCanceled || tr.Cached {
+		t.Fatalf("a passed pre-write deadline: %s, cached %v", tr.Status, tr.Cached)
+	}
+	if tr := runIt(t, e, `{}`, nil); tr.Status != conformance.RunSuccess || !tr.Cached {
+		t.Fatalf("the entry is gone: %s, cached %v", tr.Status, tr.Cached)
+	}
+	for _, onPut := range []bool{false, true} {
+		e := mustOpen(t, flow, &scripts{})
+		if !onPut {
+			runIt(t, e, `{}`, nil)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		e.results = cancelCache{ResultCache: e.results, cancel: cancel, onPut: onPut}
+		tr := run(e, ctx, time.Time{})
+		cancel()
+		if tr.Status != conformance.RunCanceled || tr.Cached {
+			t.Fatalf("canceled during the Put %v: %s, cached %v", onPut, tr.Status, tr.Cached)
+		}
+	}
+}
+
+// ADR 0007 (PF3), FX-40: a job the result cache completes is still a job,
+// which the job registry knows while its root lives, with its identity,
+// as it knows one that ran; once the root has ended, both are forgotten.
+// Here the run's jobs share an outer root that a dispatch tracked in its
+// parent gives them, which lives on after the run.
+func TestCacheHitRegistersJob(t *testing.T) {
+	p := &platform.Services{}
+	end := p.JobRegistry().Begin(platform.Job{ID: "outer", Kind: platform.JobFlow, Root: "outer"})
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "cached", inputs("v", static("1")), ""))}, &idSteps{}, p)
+	var jobs []string
+	for range 2 {
+		tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), ParentJob: "outer", RootJob: "outer"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		jobs = append(jobs, at(t, tr, "m:a").Job)
+	}
+	// The first job ran through an executor that registers nothing, as the
+	// facade's would; the hit registers its own.
+	if root, known := p.RootJob(jobs[1]); !known || root != "outer" {
+		t.Fatalf("the hit's job %s: root %q, known %v", jobs[1], root, known)
+	}
+	if env, ok := p.JobEnv(jobs[1]); !ok || env["WM_FLOW_STEP_ID"] != "a" || env["WM_JOB_PATH"] != "f/t/cached" {
+		t.Fatalf("the hit's job variables %v (%v)", env, ok)
+	}
+	end()
+	if _, known := p.RootJob(jobs[1]); known {
+		t.Fatal("the hit's job outlived its root")
+	}
+
+	// A script root's hit, dispatched tracked in its parent, is known as
+	// the cold run's job is, through the executor that registers it.
+	p = &platform.Services{}
+	end = p.JobRegistry().Begin(platform.Job{ID: "parent", Kind: platform.JobFlow, Root: "parent"})
+	e = openWithPlatform(t, map[string]string{}, registering{p: p, inner: &idSteps{}}, p)
+	var ids []string
+	for range 2 {
+		r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`)), ParentJob: "parent", RootJob: "parent"})
+		if err != nil || r.Failed {
+			t.Fatalf("%+v %v", r, err)
+		}
+		ids = append(ids, r.ID)
+	}
+	for _, id := range ids {
+		if root, known := p.RootJob(id); !known || root != "parent" {
+			t.Fatalf("job %s: root %q, known %v", id, root, known)
+		}
+	}
+	end()
+	for _, id := range ids {
+		if _, known := p.RootJob(id); known {
+			t.Fatalf("job %s outlived its root", id)
+		}
+	}
+	// A canceled run's hit is killed, as a canceled run's job is.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if r, err := e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`))}); err != nil || !r.Failed {
+		t.Fatalf("a canceled hit: %+v %v", r, err)
+	}
+}
+
+// registering registers each invocation's job for as long as it runs, as
+// the facade's executor does (facade.Register).
+type registering struct {
+	p     *platform.Services
+	inner StepExecutor
+}
+
+func (x registering) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	end := x.p.JobRegistry().Begin(platform.Job{ID: inv.ID, Kind: platform.JobScript, Root: inv.Env["WM_ROOT_JOB_ID"], Path: inv.Env["WM_JOB_PATH"], Env: inv.Env})
+	defer end()
+	return x.inner.Execute(ctx, inv)
+}

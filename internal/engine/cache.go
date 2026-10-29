@@ -202,17 +202,30 @@ func (r *run) leafCache(fr *frame, m *ir.Module, args jsonval.Value) (string, ti
 // answers, at site (FX-40): the job completes successfully at once with
 // the cached result, logging that it was skipped, without running, so
 // nothing is invoked and no argument is resolved; the module's own
-// stop_after_if then applies as after any success. The job has an id of
-// its own, which nothing sees.
+// stop_after_if then applies as after any success. The job has an id and
+// an identity of its own, and the job registry knows it as it knows every
+// job of the run's tree while its root lives (ADR 0007, PF3), so a root
+// lookup by its id answers as for a job that ran.
 func (r *run) cachedJob(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, c cacheEntry) outcome {
 	v := c.value()
 	o.rec.Ran, o.rec.Job, o.rec.Cached = true, newUUID(), true
+	r.e.registerHit(r.jobEnv(fr, i, o.rec.Job))
 	r.ended(fr, &o)
 	r.recordJob(fr, i, v)
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, v, v
 	o.rec.ResultOrigin, o.rec.ResultNested, o.rec.CarriedNested = c.Origin, c.Nested, c.Nested
 	o.carried, o.origin, o.nested = v, c.Origin, c.Nested
 	return r.stop(ctx, fr, i, site, o)
+}
+
+// registerHit registers the script job of identity env, which the result
+// cache completed without running, in the job registry, and ends it at
+// once: a job that ran is registered by the facade's executor for as long
+// as it runs (facade.Register), with the same fields, and is then known
+// while its root lives (ADR 0007, PF3).
+func (e *Engine) registerHit(env map[string]string) {
+	end := e.platform.JobRegistry().Begin(platform.Job{ID: env["WM_JOB_ID"], Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env})
+	end()
 }
 
 // flowTTL is the TTL of a flow job of f, its flow-level cache_ttl: the

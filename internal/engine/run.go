@@ -492,15 +492,50 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 	}
 	key, ok := r.e.cacheKey(cacheKindFlow, fr.def.Path, fr.input)
 	if ok {
+		// A hit is the flow job's start and completion at once, so the
+		// host's checks of both apply (ADR 0008, H4, H5; FX-38): a latch,
+		// the cancellation (a passed pre-write deadline's included) or a
+		// halt that is there before the lookup ends the flow without it,
+		// and one that arrives during the lookup still ends it, so a cached
+		// result never turns a canceled run into a successful one.
+		if st, end := r.hostEnd(ctx, true); end {
+			return flowEnd{status: st}
+		}
 		if c, hit := r.lookup(ctx, key); hit {
+			if st, end := r.hostEnd(ctx, false); end {
+				return flowEnd{status: st}
+			}
 			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, lastJobOK: true, cached: true}
 		}
 	}
 	e := r.runModules(ctx, fr)
 	if ok && e.lastJobOK && !ended(e.status) {
 		r.store(ctx, key, fr.cacheTTL, e.result, e.origin, e.nested)
+		// The store comes before the flow job's completion, so a latch or
+		// the cancellation that arrives while it runs ends the flow too.
+		if st, end := r.hostEnd(ctx, false); end {
+			return flowEnd{status: st}
+		}
 	}
 	return e
+}
+
+// hostEnd applies the host's checks around a flow job's cache I/O, with
+// no module of its own: the start checks (Start) when start says so, and
+// a halt decided elsewhere, else the completion checks (Completion), the
+// latch and then the cancel flag. It returns the status the run ends with
+// and true when one of them ends it.
+func (r *run) hostEnd(ctx context.Context, start bool) (conformance.RunStatus, bool) {
+	if !start {
+		return Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status()
+	}
+	if st, end := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
+		return st, true
+	}
+	if r.halted.Load() {
+		return conformance.RunHalted, true
+	}
+	return "", false
 }
 
 // runModules runs a frame's modules in order (FX-2): the start checks of
@@ -1399,6 +1434,25 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	return r.stop(ctx, fr, i, site.Path, o)
 }
 
+// jobEnv is the job identity of module i of fr's leaf job id, as its
+// reserved variables (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs
+// in is its parent (a child flow, or the loop's flow for a collapsed
+// iteration), with that flow's innermost scope and runnable path, under
+// the run as its effective root.
+func (r *run) jobEnv(fr *frame, i int, id string) map[string]string {
+	in := fr.owner()
+	return platform.Identity{
+		JobID:         id,
+		FlowJobID:     in.id,
+		RootFlowJobID: in.scope,
+		RootJobID:     r.rootID,
+		FlowPath:      in.path,
+		StepID:        fr.stepID(i),
+		JobPath:       r.jobPath(fr, i),
+		Token:         platform.NewToken(),
+	}.Env(r.e.host)
+}
+
 // The states of a pre-write deadline (run.preWrite).
 const (
 	preWriteArmed int32 = iota
@@ -1959,7 +2013,6 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 // ADR 0007): its job id, its innermost scope and its runnable path.
 func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
-	in := fr.owner()
 	inv := Invocation{
 		ID:          newUUID(),
 		Run:         r.id,
@@ -1970,20 +2023,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		Boundary:    Boundary(m.Leaf.Boundary),
 		ModuleState: r.e.moduleState,
 	}
-	// Job identity (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs in
-	// is its parent (a child flow, or the loop's flow for a collapsed
-	// iteration), with that flow's innermost scope and runnable path, under
-	// the run as its effective root.
-	inv.Env = platform.Identity{
-		JobID:         inv.ID,
-		FlowJobID:     in.id,
-		RootFlowJobID: in.scope,
-		RootJobID:     r.rootID,
-		FlowPath:      in.path,
-		StepID:        fr.stepID(i),
-		JobPath:       r.jobPath(fr, i),
-		Token:         platform.NewToken(),
-	}.Env(r.e.host)
+	inv.Env = r.jobEnv(fr, i, inv.ID)
 	// The job's reserved variables, which its argument resolution reads
 	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
 	// strings in a resource an argument names; neither the script's own

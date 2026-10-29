@@ -86,23 +86,6 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		id = newUUID()
 	}
 	args := jsonval.FromProducer(stored)
-	// FX-40: the script's own cache_ttl, under which the result cache may
-	// answer the job before it runs, and keeps its result when it
-	// succeeds.
-	var key string
-	var ttl time.Duration
-	if s.Metadata != nil && s.Metadata.CacheTTL != nil && *s.Metadata.CacheTTL > 0 {
-		if k, ok := e.cacheKey(cacheKindScript, s.ID, args); ok {
-			key, ttl = k, time.Duration(*s.Metadata.CacheTTL)*time.Second
-			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
-				return ScriptResult{ID: id, Result: c.value()}, nil
-			}
-		}
-	}
-	entry, _, err := Entrypoint(args)
-	if err != nil {
-		return ScriptResult{ID: id, Failed: true, Result: workerError("", err.Error())}, nil
-	}
 	boundary := Boundary(s.Boundary)
 	ident := platform.Identity{JobID: id, RootJobID: id, JobPath: s.Path, Token: platform.NewToken()}
 	if req.ParentJob != "" || req.RootJob != "" {
@@ -112,6 +95,30 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	env := ident.Env(e.host)
 	reserved := maps.Clone(env)
 	addScriptEnvs(env, s, boundary)
+	// FX-40: the script's own cache_ttl, under which the result cache may
+	// answer the job before it runs, and keeps its result when it
+	// succeeds. A hit is still a job with its identity, which the job
+	// registry knows as it knows one that ran (registerHit); a run
+	// canceled before it completes is killed, as one that ran is.
+	var key string
+	var ttl time.Duration
+	if s.Metadata != nil && s.Metadata.CacheTTL != nil && *s.Metadata.CacheTTL > 0 {
+		if k, ok := e.cacheKey(cacheKindScript, s.ID, args); ok {
+			key, ttl = k, time.Duration(*s.Metadata.CacheTTL)*time.Second
+			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
+				if ctx.Err() != nil {
+					reason, canceler := cancellationOf(ctx)
+					return ScriptResult{ID: id, Failed: true, Result: killedError("", reason, canceler)}, nil
+				}
+				e.registerHit(env)
+				return ScriptResult{ID: id, Result: c.value()}, nil
+			}
+		}
+	}
+	entry, _, err := Entrypoint(args)
+	if err != nil {
+		return ScriptResult{ID: id, Failed: true, Result: workerError("", err.Error())}, nil
+	}
 	resolved, err := e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+err.Error())}, nil
