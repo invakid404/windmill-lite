@@ -505,8 +505,10 @@ their root jobs were not in flight together.
   one outcome per job, in run order. `conformance.CheckReplay` holds each
   call to the walk: its site is the job's walked site without attempt
   segments, and its attempt is the job's place among the jobs walked at
-  that site, ordered by the flow step's attempt, then by the inner
-  module's own. A retry on a loop or branch step stays refused: its
+  that site that execute a script or called, ordered by the flow step's
+  attempt, then by the inner module's own. An identity job, such as a
+  step skipped in an earlier attempt, takes no place, since it never
+  calls (`stub/subflow_retry` run `skipped`). A retry on a loop or branch step stays refused: its
   failed attempt is walked as its last failed child alone, without the
   child's `i:` or `b:` segment (CF-22).
 

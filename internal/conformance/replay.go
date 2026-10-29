@@ -392,7 +392,8 @@ func (s *ReplayService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //   - every call was resolved where the observation puts its job
 //     (replay_site_mismatch): its site is the job's walked site without
 //     attempt segments, and its attempt is the job's place among the jobs
-//     walked at that site, in walk order. For a module's own attempts,
+//     walked at that site that execute a script or called, in walk order,
+//     so that an identity job (a skipped step's) takes no place. For a module's own attempts,
 //     that puts a failed attempt k at <site>/r:<k> and the module's last
 //     job at <site> itself, with k the number of failed attempts before
 //     it. Below a retried flow step (milestone N5), each attempt's
@@ -408,10 +409,23 @@ func CheckReplay(calls []ReplayCall, walked map[string]SitePath, scripts []strin
 		job string
 		key []int
 	}
+	// The replay service counts the jobs that call it, so a site's jobs are
+	// ranked among the jobs that execute a script, and those that called:
+	// an identity job (a skipped or mocked step) or a flow job never calls
+	// and takes no place.
+	ranked := map[string]bool{}
+	for _, id := range scripts {
+		ranked[id] = true
+	}
+	for _, c := range calls {
+		ranked[c.Job] = true
+	}
 	at := map[SitePath][]place{}
-	for job, w := range walked {
-		base, key := attemptKey(w)
-		at[base] = append(at[base], place{job, key})
+	for job := range ranked {
+		if w, ok := walked[job]; ok {
+			base, key := attemptKey(w)
+			at[base] = append(at[base], place{job, key})
+		}
 	}
 	order := map[string]int{}
 	for _, ps := range at {

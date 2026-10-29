@@ -27,7 +27,7 @@ func TestStubTreeOfTheFixtures(t *testing.T) {
 		"retry_loop": {"f/wl_stub/retry_loop.flow/call.ts"},
 		"scopes":     {"f/wl_stub/members.flow/lookup.ts", "f/wl_stub/notify.flow/post.ts"},
 		// A retried flow step is accepted (milestone N5).
-		"subflow_retry": {"f/wl_stub_sr/order.flow/confirm.ts", "f/wl_stub_sr/reserve.flow/check.ts", "f/wl_stub_sr/reserve.flow/hold.ts"},
+		"subflow_retry": {"f/wl_stub_sr/order.flow/confirm.ts", "f/wl_stub_sr/prepare.flow/prep.ts", "f/wl_stub_sr/prepare.flow/tail.ts", "f/wl_stub_sr/prepare.flow/x.ts", "f/wl_stub_sr/reserve.flow/check.ts", "f/wl_stub_sr/reserve.flow/hold.ts"},
 	}
 	for name, files := range want {
 		t.Run(name, func(t *testing.T) {

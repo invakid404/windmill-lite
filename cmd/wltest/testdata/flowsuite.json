@@ -455,6 +455,7 @@
     "conformance/flows/stub/scopes/alone": "E4b",
     "conformance/flows/stub/scopes/r": "E4b",
     "conformance/flows/stub/scopes/t": "E4b",
-    "conformance/flows/stub/subflow_retry/ok": "N5"
+    "conformance/flows/stub/subflow_retry/ok": "N5",
+    "conformance/flows/stub/subflow_retry/skipped": "N5"
   }
 }

@@ -471,3 +471,38 @@ func TestCheckReplayAcrossFlowStepAttempts(t *testing.T) {
 		}
 	}
 }
+
+// The replay service counts the jobs that call it, so an identity job
+// walked at a site, a step skipped in an earlier attempt of a retried flow
+// step (FX-17), takes no place among that site's jobs: the job that runs
+// the step in the next attempt is its attempt 0.
+func TestCheckReplaySkipsIdentityJobs(t *testing.T) {
+	site := func(s string) SitePath {
+		p, err := ParseSitePath(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	walked := map[string]SitePath{
+		"R": {}, "s0": site("m:a/r:0"), "s1": site("m:a"),
+		"p0": site("m:a/r:0/m:prep"), "identity": site("m:a/r:0/m:x"), "t0": site("m:a/r:0/m:tail"),
+		"p1": site("m:a/m:prep"), "x": site("m:a/m:x"), "t1": site("m:a/m:tail"),
+	}
+	scripts := []string{"p0", "t0", "p1", "x", "t1"}
+	call := func(job, s string, attempt int) ReplayCall {
+		return ReplayCall{Job: job, Site: site(s), Attempt: attempt}
+	}
+	calls := []ReplayCall{
+		call("p0", "m:a/m:prep", 0), call("t0", "m:a/m:tail", 0),
+		call("p1", "m:a/m:prep", 1), call("x", "m:a/m:x", 0), call("t1", "m:a/m:tail", 1),
+	}
+	if err := CheckReplay(calls, walked, scripts); err != nil {
+		t.Fatal(err)
+	}
+	// The script job counted as the step's second job is still refused.
+	calls[3] = call("x", "m:a/m:x", 1)
+	if err := CheckReplay(calls, walked, scripts); err == nil || !strings.Contains(err.Error(), `"job":"x","resolved":"m:a/m:x","attempt":1`) {
+		t.Errorf("x counted after the identity job: %v", err)
+	}
+}

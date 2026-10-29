@@ -1,0 +1,67 @@
+# The first subflow's plan skips x, whose identity job never calls, and its
+# tail fails, so the step's retry runs the subflow again; this time the plan
+# keeps x, which runs and calls for the first time: its attempt 0, since an
+# identity job takes no place in a site's count (FX-17, ADR 0011).
+target: f/wl_stub_sr/skip
+args: {order: o-4}
+replay:
+  "m:prepare/m:prep":
+    - {result: {skip: true}}
+    - {result: {skip: false}}
+  "m:prepare/m:x": {result: {extra: done}}
+  "m:prepare/m:tail":
+    - {error: {message: "not ready"}}
+    - {result: {order: o-4, ready: true}}
+expect:
+  status: success
+  result: {order: o-4, ready: true}
+  steps:
+    "m:prepare/r:0": {status: failure, args: {order: o-4}, result: {error: {name: Error, message: "not ready", stack: "<stack>", step_id: tail}}}
+    "m:prepare/r:0/m:prep": {status: success, args: {order: o-4}, result: {skip: true}}
+    "m:prepare/r:0/m:x": {status: success, skipped: true, args: {previous_result: {skip: true}}, result: {skip: true}}
+    "m:prepare/r:0/m:tail": {status: failure, args: {order: o-4}, result: {error: {name: Error, message: "not ready", stack: "<stack>", step_id: tail}}}
+    "m:prepare": {status: success, args: {order: o-4}, result: {order: o-4, ready: true}}
+    "m:prepare/m:prep": {status: success, args: {order: o-4}, result: {skip: false}}
+    "m:prepare/m:x": {status: success, args: {order: o-4}, result: {extra: done}}
+    "m:prepare/m:tail": {status: success, args: {order: o-4}, result: {order: o-4, ready: true}}
+  effects:
+    - site: "m:prepare/m:prep"
+      attempt: 0
+      step: prep
+      job: "<job:m:prepare/r:0/m:prep>"
+      flow: "<job:m:prepare/r:0>"
+      root_flow: "<job:m:prepare/r:0>"
+      root: "<job:>"
+      args: [o-4]
+    - site: "m:prepare/m:tail"
+      attempt: 0
+      step: tail
+      job: "<job:m:prepare/r:0/m:tail>"
+      flow: "<job:m:prepare/r:0>"
+      root_flow: "<job:m:prepare/r:0>"
+      root: "<job:>"
+      args: [o-4]
+    - site: "m:prepare/m:prep"
+      attempt: 1
+      step: prep
+      job: "<job:m:prepare/m:prep>"
+      flow: "<job:m:prepare>"
+      root_flow: "<job:m:prepare>"
+      root: "<job:>"
+      args: [o-4]
+    - site: "m:prepare/m:x"
+      attempt: 0
+      step: x
+      job: "<job:m:prepare/m:x>"
+      flow: "<job:m:prepare>"
+      root_flow: "<job:m:prepare>"
+      root: "<job:>"
+      args: [o-4]
+    - site: "m:prepare/m:tail"
+      attempt: 1
+      step: tail
+      job: "<job:m:prepare/m:tail>"
+      flow: "<job:m:prepare>"
+      root_flow: "<job:m:prepare>"
+      root: "<job:>"
+      args: [o-4]

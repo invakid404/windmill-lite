@@ -3,9 +3,11 @@
 # the caller's retry runs the subflow again. Each stubbed step is answered
 # from the run's replay table, which addresses a subflow step at its site
 # without the caller's attempt: the replay service counts its jobs across
-# the attempts. Synthetic, written for this repository.
+# the attempts. Run skipped has a subflow step skipped on the first attempt
+# and run on the second: its identity job never calls and takes no place in
+# the step's count. Synthetic, written for this repository.
 id: stub/subflow_retry
-spec: [OR-11, CF-17, FX-26, FX-27]
+spec: [OR-11, CF-17, FX-17, FX-26, FX-27]
 scope: core
 provenance: oracle-observed
 languages: [bun]

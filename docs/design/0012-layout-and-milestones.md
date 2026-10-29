@@ -573,7 +573,9 @@ waits on an external gate except R1.
   refused there. The replay service resolves a subflow's step at its
   site without the caller's attempt and counts its jobs across the
   attempts, which `conformance.CheckReplay` holds to the walk's order
-  (ADR 0011). `stub/subflow_retry` records it. No catalogue case gates
+  among the jobs that execute a script, so that a skipped step's
+  identity job takes no place (ADR 0011). `stub/subflow_retry` records
+  both, with a step skipped on the first attempt in its run `skipped`. No catalogue case gates
   N5, so it has no recording-batch manifest; `flowsuite.json` requires
   its runs.
 
