@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/wl"
 )
 
 // A group of runs (OR-15) is one test of concurrent outer runs: its runs
@@ -121,30 +121,21 @@ func (g *runGroup) conclude(runs []string, failed func(run string) bool) error {
 	return nil
 }
 
-// runHooks are one run's hooks in wltest check: the effect server's, which
-// set the invocation environment (runEffects), and its group's, which hold
-// its first module until the group's other runs are in flight. Both use
-// seams host hooks expose (H12, H6; milestone F2a).
-type runHooks struct {
-	engine.NoHooks
-	fx  *runEffects
-	grp *groupMember
-}
-
-var _ engine.Hooks = (*runHooks)(nil)
-
-// InvocationEnv applies the effect server's environment.
-func (h *runHooks) InvocationEnv(ctx context.Context, r engine.Run, s engine.Site, env map[string]string) error {
-	if h.fx == nil {
-		return nil
+// runHooks are one run's host hooks in wltest check (wl.Hooks, ADR 0008):
+// the effect server's, which set the invocation environment (H12,
+// runEffects), and its group's, which hold its first module until the
+// group's other runs are in flight (H6). They are the Go callbacks a host
+// gives a run, so the runner takes no path a host does not have.
+func runHooks(fx *runEffects, grp *groupMember) *wl.Hooks {
+	h := &wl.Hooks{}
+	if fx != nil {
+		h.InvocationEnv = fx.InvocationEnv
 	}
-	return h.fx.InvocationEnv(ctx, r, s, env)
-}
-
-// OnModuleStart holds the run's first module for its group.
-func (h *runHooks) OnModuleStart(ctx context.Context, _ engine.Run, _ engine.Site) error {
-	if h.grp != nil {
-		h.grp.inFlight(ctx)
+	if grp != nil {
+		h.OnModuleStart = func(ctx context.Context, _ wl.RunHandle, _ wl.Site) error {
+			grp.inFlight(ctx)
+			return nil
+		}
 	}
-	return nil
+	return h
 }

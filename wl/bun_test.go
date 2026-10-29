@@ -45,6 +45,7 @@ const setScript = `export async function main(v: string) {
 
 // buildBundle builds a real bundle (bundle.Build) of a folder with the
 // script f/t/set and the flow f/t/flow, which runs it on u/t/v, and the
+// flow f/t/env, whose inline step returns its WL_TENANT variable, and the
 // flow f/t/cached, whose inline step returns a random number with a
 // cache_ttl (FX-40: a path script's step would drop it).
 func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
@@ -60,6 +61,8 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"f/t/flow.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/set","input_transforms":{"v":{"type":"static","value":"u/t/v"}}}}]}}`,
 		"f/t/cached.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","cache_ttl":600,"value":{"type":"rawscript","language":"bun",` +
 			`"content":"export async function main() { return Math.random() }","input_transforms":{}}}]}}`,
+		"f/t/env.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { return process.env.WL_TENANT ?? null }","input_transforms":{}}}]}}`,
 	} {
 		f := filepath.Join(folder, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
@@ -216,6 +219,43 @@ func TestRunCanceledKeepsCalls(t *testing.T) {
 			if len(calls) != 2 || calls[0].Route != "GET /w/{ws}/variables/get_value/{path}" || calls[1].Route != "POST /w/{ws}/variables/update/{path}" ||
 				calls[1].Status != 200 || calls[1].Site.String() != "m:a" || calls[1].Job == "" {
 				t.Fatalf("platform calls %+v", calls)
+			}
+		})
+	}
+}
+
+// H12 and H13 on the Bun harness, in warm and fresh mode: the variable an
+// InvocationEnv hook sets is in the step's environment; a run's own
+// variable is what its step reads through the job API, and its update
+// changes the run's variable, not the runtime's.
+func TestHooksOnBun(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	for _, mode := range []string{ModuleStateWarm, ModuleStateFresh} {
+		t.Run(mode, func(t *testing.T) {
+			rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode, Variables: map[string]Variable{"u/t/v": {Value: "first"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			h := &Hooks{InvocationEnv: func(_ context.Context, _ RunHandle, s Site, env map[string]string) error {
+				env["WL_TENANT"] = "tenant-" + s.Module
+				return nil
+			}}
+			res, err := rt.Run(context.Background(), "f/t/env", nil, RunOptions{Hooks: h})
+			if err != nil || res.Status != StatusSuccess || string(res.Result) != `"tenant-a"` {
+				t.Fatalf("H12: %+v %v", res, err)
+			}
+			if res, err := rt.Run(context.Background(), "f/t/env", nil, RunOptions{}); err != nil || string(res.Result) != `null` {
+				t.Fatalf("a run without the hook: %+v %v", res, err)
+			}
+			p := &RunPlatform{Variables: map[string]Variable{"u/t/v": {Value: "run-own"}}}
+			res, err = rt.Run(context.Background(), "f/t/flow", nil, RunOptions{Platform: p})
+			if err != nil || res.Status != StatusSuccess || string(res.Result) != `"run-own"` {
+				t.Fatalf("H13: %+v %v", res, err)
+			}
+			if v, err := rt.services.VariableValue(context.Background(), "u/t/v"); err != nil || v != "first" {
+				t.Fatalf("the runtime's variable after the run's update: %q %v", v, err)
 			}
 		})
 	}

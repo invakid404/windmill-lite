@@ -52,7 +52,18 @@ type Fixture struct {
 	// wltest check compiles them as the roots of the default dispatcher's
 	// program; the oracle, which runs the whole workspace, ignores them.
 	Roots []string `json:"roots,omitempty"`
-	Note  string   `json:"note,omitempty"`
+	// Provided are the mandatory host-provided call sites of the bundle's
+	// host contract on windmill-lite (ADR 0002, ADR 0008), each written as
+	// the contract writes its provided entries: a selector, a static value
+	// or a provider's name, and mandatory: true. wltest check builds the
+	// bundle with them; the oracle, which runs the real targets, ignores
+	// them, so a fixture with provided sites holds expects, not
+	// recordings, of what windmill-lite does with the host's values.
+	Provided []json.RawMessage `json:"provided,omitempty"`
+	// Providers are the named providers wltest check registers for the
+	// provided sites, by the names the entries give them.
+	Providers map[string]FixtureProvider `json:"providers,omitempty"`
+	Note      string                     `json:"note,omitempty"`
 
 	// Setup is setup.yaml, or nil when the fixture has none.
 	Setup *Setup `json:"-"`
@@ -470,10 +481,29 @@ func decodeYAMLFile(path string, v any) error {
 	return nil
 }
 
+// FixtureProvider is a named provider of a fixture (Fixture.Providers):
+// it answers every call of its provided sites with Result, fails them with
+// Error, the error object a failed job's result holds under "error", or
+// declines, which fails the run closed (provider_declined). Exactly one is
+// set.
+type FixtureProvider struct {
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   json.RawMessage `json:"error,omitempty"`
+	Decline bool            `json:"decline,omitempty"`
+}
+
 var (
 	validScopes      = map[string]bool{"core": true, "later": true, "out": true, "EE": true}
 	validProvenances = map[string]bool{"source-derived": true, "oracle-observed": true, "disputed": true, "policy": true}
 )
+
+// btoi is 1 for true.
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 func (f *Fixture) check() error {
 	if f.ID == "" {
@@ -520,6 +550,17 @@ func (f *Fixture) check() error {
 	case "", "loose", "strict":
 	default:
 		return fmt.Errorf("compare.key_order %q is not loose or strict", f.Compare.KeyOrder)
+	}
+	for name, p := range f.Providers {
+		if n := btoi(p.Result != nil) + btoi(p.Error != nil) + btoi(p.Decline); n != 1 {
+			return fmt.Errorf("providers.%s: give exactly one of result, error and decline", name)
+		}
+		if p.Error != nil && !bytes.HasPrefix(bytes.TrimSpace(p.Error), []byte("{")) {
+			return fmt.Errorf("providers.%s.error: the error value must be an object", name)
+		}
+	}
+	if len(f.Providers) > 0 && len(f.Provided) == 0 {
+		return errors.New("providers without provided sites")
 	}
 	if f.Compare.Mode == "subset" && f.Compare.KeyOrder == "strict" {
 		return errors.New("compare.mode subset cannot be combined with key_order strict: a subset has no member order to compare")

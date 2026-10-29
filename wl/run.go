@@ -6,11 +6,13 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
 )
 
@@ -40,6 +42,11 @@ const (
 	StatusFailure  = string(conformance.RunFailure)
 	StatusCanceled = string(conformance.RunCanceled)
 	StatusSkipped  = string(conformance.RunSkipped)
+	// StatusLatched and StatusHalted are decided by the host, never
+	// Windmill: a run that latched an error (H5), and one a halt ended
+	// (H8).
+	StatusLatched = string(conformance.RunLatched)
+	StatusHalted  = string(conformance.RunHalted)
 )
 
 // Target kinds, RunOptions.Kind.
@@ -61,11 +68,32 @@ type RunOptions struct {
 	// Seed fixes the run's shuffles of the orders Windmill leaves
 	// unspecified (ADR 0001 §2) and its retry jitter; zero draws one.
 	Seed uint64
-	// Hooks are the flow run's host hooks (ADR 0008); nil means none. They
-	// are the engine's hook interface, which only this module's own tools
-	// (wltest check's effect sink, stub replay and run groups) implement
-	// until milestone F2a gives hosts Go callbacks for them.
-	Hooks engine.Hooks
+	// Hooks are the flow run's host hooks as Go callbacks (ADR 0008: H1,
+	// H2, H6, H8, H9, H12); nil means none. Their selectors are checked
+	// before the run starts.
+	Hooks *Hooks
+	// Platform, when set, is the flow run's own platform providers (H13),
+	// which a host chooses from its run data, for example per tenant;
+	// nil means the runtime's.
+	Platform *RunPlatform
+}
+
+// RunPlatform is a run's own platform providers (H13, ADR 0008). The run's
+// argument resolution, flow_env, expression helpers and its steps' API
+// reads answer from them; its job registry, flow user state, object store
+// and result cache stay the runtime's. The runs a step dispatches read
+// the runtime's providers.
+type RunPlatform struct {
+	// Resources and Variables replace the runtime's at the same paths for
+	// this run only. A step's variable update (WA-11) changes the run's
+	// own variable, or the runtime's where the run has none.
+	Resources map[string]Resource
+	Variables map[string]Variable
+	// Resolve, when set, is the run's host secret layer (ADR 0007): after
+	// interpolation, each resource value, nested ones included, and each
+	// secret's plaintext, as a JSON string, pass through it; it returns
+	// the value to use, JSON. A raw resource read does not.
+	Resolve func(ctx context.Context, path string, resource bool, value json.RawMessage) (json.RawMessage, error)
 }
 
 // Result is how a run ended.
@@ -85,6 +113,10 @@ type Result struct {
 	Trace *Trace
 	// Warnings are the run's warnings.
 	Warnings []Warning
+	// Latched is the error a hook, a provider or the engine latched on a
+	// run whose Status is StatusLatched (H5), such as ErrProviderDeclined;
+	// nil otherwise.
+	Latched error
 }
 
 // Run runs the flow or script at path with args, a JSON object, and
@@ -128,9 +160,19 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 	if id == "" {
 		id = newUUID()
 	}
+	h, err := engineHooks(opts.Hooks, rt.prog)
+	if err != nil {
+		return nil, err
+	}
+	var services *platform.Services
+	if opts.Platform != nil {
+		if services, err = rt.runServices(opts.Platform); err != nil {
+			return nil, err
+		}
+	}
 	calls := rt.exec.begin(id)
 	defer rt.exec.end(id)
-	tr, err := rt.eng.Run(ctx, engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Hooks: opts.Hooks})
+	tr, err := rt.eng.Run(ctx, engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Hooks: h, Platform: services})
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +184,41 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 		MayHaveMutated: tr.MayHaveMutated,
 		Trace:          tr,
 		Warnings:       tr.Warnings,
+		Latched:        tr.Latched,
 	}, nil
+}
+
+// runServices are the services of a run with its own providers (H13): its
+// resources and variables over the runtime's, and its resolver.
+func (rt *Runtime) runServices(p *RunPlatform) (*platform.Services, error) {
+	store := platform.NewStore()
+	for path, r := range p.Resources {
+		if err := store.SetResource(path, platform.Resource{Type: r.Type, Value: r.Value}); err != nil {
+			return nil, fmt.Errorf("wl: RunPlatform.Resources[%s]: %w", path, err)
+		}
+	}
+	for path, v := range p.Variables {
+		store.SetVariable(path, platform.Variable{Value: v.Value, IsSecret: v.Secret, Encrypted: v.Ciphertext})
+	}
+	providers := platform.Providers{Resources: platform.ResourceChain{store, rt.store}, Variables: platform.VariableChain{store, rt.store}}
+	if p.Resolve != nil {
+		providers.Resolvers = append(slices.Clone(rt.services.Resolvers), resolver(p.Resolve))
+	}
+	return rt.services.WithProviders(providers), nil
+}
+
+// resolver is a RunPlatform's Resolve as a value resolver.
+type resolver func(ctx context.Context, path string, resource bool, value json.RawMessage) (json.RawMessage, error)
+
+func (f resolver) ResolveValue(ctx context.Context, path string, resource bool, v jsonval.Value) (jsonval.Value, error) {
+	out, err := f(ctx, path, resource, v.Producer())
+	if err != nil {
+		return jsonval.Value{}, err
+	}
+	if !json.Valid(out) {
+		return jsonval.Value{}, fmt.Errorf("wl: the resolver returned a value for %s that is not JSON", path)
+	}
+	return jsonval.FromProducer(out), nil
 }
 
 // newUUID returns a random (version 4) UUID, a job id.
