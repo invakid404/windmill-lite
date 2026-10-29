@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/invakid404/windmill-lite/internal/openflow"
 	"github.com/invakid404/windmill-lite/internal/yamlx"
@@ -31,11 +30,14 @@ type Script struct {
 	// Lock is the lock text, nil when the metadata has no lock (SY-5).
 	Lock *string `json:"lock"`
 	// LockFile is the file the lock was read from, "" when it was written
-	// in the metadata or the referenced file is missing.
+	// in the metadata or the referenced file is missing or unreadable.
 	LockFile string `json:"lock_file,omitempty"`
 	// Codebase is the codebases entry that selects the script, nil when
 	// none does (SY-8).
 	Codebase *Codebase `json:"codebase"`
+	// Warnings are what the CLI warns about while it pushes the script: a
+	// lock reference whose file is missing or unreadable (SY-5, SY-19).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ScriptMetadata holds the `.script.yaml` keys windmill-lite uses (SY-4).
@@ -45,7 +47,9 @@ type ScriptMetadata struct {
 	Summary     string `json:"summary"`
 	Description string `json:"description"`
 	// Schema is the JSON Schema of main's arguments, verbatim; nil when a
-	// metadata file has none, and `{}` when there is no metadata file.
+	// metadata file has none. It is nil too without a metadata file: the
+	// push then infers the schema from main's parameters (SY-4), which the
+	// loader does not do.
 	Schema                 json.RawMessage `json:"schema"`
 	Kind                   ScriptKind      `json:"kind"`
 	Envs                   []string        `json:"envs"`
@@ -58,10 +62,6 @@ type ScriptMetadata struct {
 	// metadata file.
 	Raw json.RawMessage `json:"raw"`
 }
-
-// emptySchema is the schema of a script without metadata. SY-4 says only
-// "an empty schema"; this is the empty JSON Schema.
-const emptySchema = "{}"
 
 // ScriptKind is a script's `kind` (SY-4).
 type ScriptKind string
@@ -107,12 +107,15 @@ var languageSuffixes = []struct {
 	{".r", openflow.LangRLang},
 }
 
-// scriptExtensions are the extensions of script source files, as export
-// writes them; a bare `.sql` is one too, so that it fails with SY-3's
-// dialect hint rather than being ignored.
+// scriptExtensions are the extensions of script source files (SY-18): the
+// last extensions `.ts`, `.py`, `.go`, `.sh`, `.sql`, `.gql`, `.ps1`,
+// `.js`, `.php`, `.rs`, `.cs`, `.nu`, `.java`, `.rb` and `.r`, and the name
+// ending `.playbook.yml`, with SY-3's multi-part ones so that the logical
+// path drops them whole. A bare `.sql` fails with SY-3's dialect hint and a
+// `.js` file with the CLI's type error, rather than being ignored.
 var scriptExtensions = []string{
 	".py", ".fetch.ts", ".bun.ts", ".deno.ts", ".ts", ".go", ".my.sql", ".bq.sql", ".odb.sql",
-	".duckdb.sql", ".sf.sql", ".ms.sql", ".pg.sql", ".sql", ".gql", ".sh", ".ps1", ".php", ".rs",
+	".duckdb.sql", ".sf.sql", ".ms.sql", ".pg.sql", ".sql", ".gql", ".sh", ".ps1", ".js", ".php", ".rs",
 	".cs", ".playbook.yml", ".nu", ".java", ".rb", ".r",
 }
 
@@ -168,6 +171,11 @@ func (f *Folder) Script(p string) (*Script, error) {
 	}
 	item := "script " + p
 	s := &Script{Path: p, File: e.file}
+	if strings.HasSuffix(e.file, ".js") {
+		// A source by its extension (SY-18), but no push type matches it.
+		return nil, &Error{Kind: ErrLanguage, Item: item, File: e.file,
+			Msg: fmt.Sprintf("The item %s has an unrecognized type ending script", e.file)}
+	}
 	lang, err := inferLanguage(path.Base(e.file), f.Config.DefaultTs)
 	if err != nil {
 		le := err.(*Error)
@@ -190,47 +198,52 @@ func (f *Folder) Script(p string) (*Script, error) {
 	return s, nil
 }
 
-// readText reads a source file, which must be valid UTF-8.
+// readText reads a source file through the decoder (SY-19); a refused
+// file fails the push. It must be valid UTF-8.
 func (f *Folder) readText(file, item string) (string, error) {
-	data, found, err := f.readFile(file)
-	if err != nil {
-		return "", err.(*Error).withItem(item)
-	}
-	if !found {
+	data, found, refused, err := f.readDecoded(file)
+	switch {
+	case err != nil:
+		return "", err.withItem(item)
+	case !found:
 		return "", &Error{Kind: ErrIO, Item: item, File: file, Msg: "the file is missing"}
+	case refused != nil:
+		return "", refused.withItem(item)
 	}
 	return checkText(data, file, item)
-}
-
-func checkText(data []byte, file, item string) (string, error) {
-	if !utf8.Valid(data) {
-		return "", &Error{Kind: ErrText, Item: item, File: file, Msg: "the file is not valid UTF-8"}
-	}
-	return string(data), nil
 }
 
 func (f *Folder) readMetadata(s *Script, file string) *Error {
 	md := &s.Metadata
 	md.Kind = ScriptKindScript
 	if file == "" {
-		// The CLI's defaults for a script without metadata (SY-4): empty
-		// summary and description, kind script, an empty schema, and the
-		// lock from <p>.script.lock.
-		md.Schema = json.RawMessage(emptySchema)
-		lock, lockFile, err := f.readLockFile(s.Path + ".script.lock")
+		// A script without metadata (SY-4). The push gives it a default
+		// file (empty summary and description, kind script, and the lock
+		// `!inline <p>.script.lock`), then regenerates the schema from
+		// main's parameters and the lock, which windmill-lite does not do:
+		// the schema stays nil, and the lock is <p>.script.lock as the
+		// default file names it.
+		lock, lockFile, warning, err := f.readLockFile(s.Path + ".script.lock")
 		if err != nil {
 			return err
 		}
 		s.Lock, s.LockFile = &lock, lockFile
+		if warning != "" {
+			s.Warnings = append(s.Warnings, warning)
+		}
 		return nil
 	}
 	s.MetadataFile = file
-	data, found, err := f.readFile(file)
-	if err != nil {
-		return err.(*Error)
-	}
-	if !found {
+	data, found, refused, rerr := f.readDecoded(file)
+	switch {
+	case rerr != nil:
+		return rerr
+	case !found:
 		return &Error{Kind: ErrIO, File: file, Msg: "the file is missing"}
+	case refused != nil:
+		// The CLI then tries the __mod metadata files, which a flat
+		// script does not have here (SY-2), and fails.
+		return refused
 	}
 	m, err := parseMapping(file, ErrMetadata, data)
 	if err != nil {
@@ -282,31 +295,20 @@ func (f *Folder) readMetadata(s *Script, file string) *Error {
 	return f.readLock(s, m)
 }
 
-// readLock reads `lock` (SY-5): a `!inline <file>` reference relative to
-// the sync root, whose file is the lock (a missing file is an empty lock);
-// any other string, as written; a list of strings, joined with `\n`; or
-// absent.
+// readLock reads `lock` (SY-5): a list of strings is joined with `\n`
+// first; then a string that starts with exactly `!inline ` is a reference
+// to the file named by its second space-separated token, relative to the
+// sync root, and any other string is the lock as written. A missing or
+// unreadable file is the empty lock, with the CLI's warning.
 func (f *Folder) readLock(s *Script, m fields) *Error {
 	n := m.get("lock")
 	if n == nil {
 		return nil
 	}
+	var lock string
 	switch n.Kind {
 	case yamlx.String:
-		if name, ok := inlineLockFile(n.Text); ok {
-			p, err := rootPath(m.file, name)
-			if err != nil {
-				return err
-			}
-			lock, lockFile, err := f.readLockFile(p)
-			if err != nil {
-				return err
-			}
-			s.Lock, s.LockFile = &lock, lockFile
-			return nil
-		}
-		lock := n.Text
-		s.Lock = &lock
+		lock = n.Text
 	case yamlx.Sequence:
 		lines := make([]string, 0, len(n.Items))
 		for _, it := range n.Items {
@@ -315,29 +317,63 @@ func (f *Folder) readLock(s *Script, m fields) *Error {
 			}
 			lines = append(lines, it.Text)
 		}
-		lock := strings.Join(lines, "\n")
-		s.Lock = &lock
+		lock = strings.Join(lines, "\n")
 	default:
 		return m.wrong(n, "lock", "a string or a list of strings")
+	}
+	name, ok := scriptLockFile(lock)
+	if !ok {
+		s.Lock = &lock
+		return nil
+	}
+	p, err := rootPath(m.file, name)
+	if err != nil {
+		return err
+	}
+	lock, lockFile, warning, err := f.readLockFile(p)
+	if err != nil {
+		return err
+	}
+	if warning == "" && lockFile == "" {
+		warning = fmt.Sprintf("Error reading inline path: %s, the file is missing", p)
+	}
+	s.Lock, s.LockFile = &lock, lockFile
+	if warning != "" {
+		s.Warnings = append(s.Warnings, warning)
 	}
 	return nil
 }
 
-// readLockFile reads a lock file; a missing file is the empty lock (SY-5,
-// SY-7). lockFile is "" when the file is missing.
-func (f *Folder) readLockFile(p string) (lock, lockFile string, err *Error) {
-	data, found, rerr := f.readFile(p)
-	if rerr != nil {
-		return "", "", rerr.(*Error)
+// scriptLockFile recognises a `.script.yaml` lock reference (SY-5): a
+// string that starts with exactly `!inline ` (with the space), without the
+// leading white space a flow's inline lock may have (SY-V1). The file is
+// its second space-separated token.
+func scriptLockFile(s string) (string, bool) {
+	if !strings.HasPrefix(s, "!inline ") {
+		return "", false
 	}
-	if !found {
-		return "", "", nil
+	return secondToken(s)
+}
+
+// readLockFile reads a lock file through the decoder; a missing file is
+// the empty lock (SY-5, SY-7), and lockFile is then "". So is a file that
+// cannot be read, the decoder's refusal included, and warning is then the
+// CLI's warning (SY-5, SY-19), unless readReference fails the push.
+func (f *Folder) readLockFile(p string) (lock, lockFile, warning string, err *Error) {
+	data, found, unreadable, err := f.readReference(p)
+	switch {
+	case err != nil:
+		return "", "", "", err
+	case unreadable != nil:
+		return "", "", fmt.Sprintf("Error reading inline path: %s, %s", p, unreadable.Msg), nil
+	case !found:
+		return "", "", "", nil
 	}
 	text, terr := checkText(data, p, "")
 	if terr != nil {
-		return "", "", terr.(*Error)
+		return "", "", "", terr.(*Error)
 	}
-	return text, p, nil
+	return text, p, "", nil
 }
 
 // rootPath resolves a reference relative to the sync root. A reference

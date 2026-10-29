@@ -333,10 +333,17 @@
         "start": "repo"
       },
       "expect": {
-        "load": {
-          "kind": "wmill_yaml_not_found"
+        "root": "repo",
+        "warnings": [
+          "No wmill.yaml found. Use 'wmill init' to bootstrap it."
+        ],
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
         }
-      }
+      },
+      "note": "with no wmill.yaml up to the git root, the CLI warns and runs from the working directory with no settings (SY-13)"
     },
     {
       "spec": "SY-1",

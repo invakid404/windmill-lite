@@ -135,6 +135,58 @@
       }
     },
     {
+      "spec": "SY-7/f",
+      "provenance": "source-derived",
+      "title": "the fallback for a reference without a dot",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline helper'\n        input_transforms: {}\n",
+          "f/x.flow/a.": "export function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export function main() { return 1 }\n",
+                "/inline/0/content_file": "f/x.flow/a.",
+                "/inline/0/warnings": [
+                  "Script file helper not found"
+                ]
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-7",
+      "provenance": "source-derived",
+      "title": "the fallback counts the first dot of the whole reference",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline sub.d/a.ts'\n        input_transforms: {}\n",
+          "f/x.flow/a.d/a.ts": "export function main() { return 'fallback' }\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/x": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export function main() { return 'fallback' }\n",
+                "/inline/0/content_file": "f/x.flow/a.d/a.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "spec": "SY-7",
       "provenance": "source-derived",
       "title": "the fallback name <module id>.<after the first dot>",
@@ -152,7 +204,10 @@
               "at": {
                 "/flow/value/modules/0/value/content": "export async function main() {\n  return 'inline';\n}\n",
                 "/flow/value/modules/0/value/lock": "",
-                "/inline/0/content_file": "f/x.flow/a.inline_script.ts"
+                "/inline/0/content_file": "f/x.flow/a.inline_script.ts",
+                "/inline/0/warnings": [
+                  "Script file renamed.inline_script.ts not found"
+                ]
               }
             }
           }

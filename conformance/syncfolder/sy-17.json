@@ -1,0 +1,234 @@
+{
+  "finding": "SY-17",
+  "cases": [
+    {
+      "spec": "SY-17/a",
+      "variant": "ts",
+      "provenance": "source-derived",
+      "title": "which files select a script and a flow: **/*.ts",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/*.ts']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: s\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ],
+          "flow": [
+            "f/a/fl"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/summary": "s",
+                "/metadata_file": "f/a/x.script.yaml"
+              }
+            }
+          },
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/file": "f/a/fl.flow/flow.yaml",
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 1;\n}\n"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-17/a",
+      "variant": "yaml",
+      "provenance": "source-derived",
+      "title": "which files select a script and a flow: **/*.yaml",
+      "note": "x.script.yaml passes but never selects its script",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/*.yaml']\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: s\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [],
+          "flow": [
+            "f/a/fl"
+          ]
+        },
+        "filtered": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 1;\n}\n"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-17/b",
+      "provenance": "source-derived",
+      "title": "a new lock file selects nothing",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/*.lock']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/fl.flow/a.inline_script.lock": "{}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": []
+        },
+        "filtered": {
+          "flow": [
+            "f/a/fl"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "error": {
+                "kind": "filtered",
+                "contains": [
+                  "no file of the flow folder passes the path filter"
+                ]
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-17/c",
+      "provenance": "source-derived",
+      "title": "an unreferenced file in the folder selects the flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/extra.yaml']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/fl.flow/extra.yaml": "{}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/fl"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export async function main() {\n  return 1;\n}\n",
+                "/inline/0/content_file": "f/a/fl.flow/a.inline_script.ts"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-17",
+      "provenance": "source-derived",
+      "title": "a new metadata file in the folder selects nothing",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/extra.script.yaml']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.inline_script.ts'\n        lock: '!inline a.inline_script.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/fl.flow/extra.script.yaml": "{}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": []
+        },
+        "filtered": {
+          "flow": [
+            "f/a/fl"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-17",
+      "provenance": "source-derived",
+      "title": "a file in a subfolder selects the flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['f/a/fl.flow/sub/**']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline sub/a.ts'\n        input_transforms: {}\n",
+          "f/a/fl.flow/sub/a.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/fl"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/inline/0/content_file": "f/a/fl.flow/sub/a.ts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-17",
+      "provenance": "source-derived",
+      "title": "a resource is selected by its .resource.yaml, a script by its source",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/*.json', '**/*.script.yaml']\n",
+          "f/a/r.resource.yaml": "resource_type: x\nvalue: 1\n",
+          "f/a/r.resource.file.json": "{}\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/x.script.yaml": "summary: s\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "resource": [],
+          "script": []
+        },
+        "filtered": {
+          "resource": [
+            "f/a/r"
+          ],
+          "script": [
+            "f/a/x"
+          ]
+        }
+      }
+    }
+  ]
+}

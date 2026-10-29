@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/openflow"
@@ -198,11 +200,14 @@ func (fc *flowCompiler) rawScript(m *openflow.Module, v *openflow.RawScript, sit
 		LockFile: files.LockFile,
 	}
 	// The import base is the step's runnable path, collapsed to
-	// `<flow path>/flow` inside container bodies, or the rawscript's own
-	// `path` when it sets one (WR-29).
+	// `<flow path>/flow` inside container bodies (WR-29). A rawscript's
+	// own `path` replaces it only in the failure and preprocessor slots,
+	// which a deploy keeps as raw module values; it drops the field from
+	// the inline scripts of the module lists, which then run from the
+	// default base.
 	switch {
-	case v.Path != nil && *v.Path != "":
-		e.ImportBase = *v.Path
+	case sc.slot && v.Path != nil && *v.Path != "":
+		e.ImportBase = CollapseBodies(*v.Path)
 	case sc.preprocessorSlot:
 		e.ImportBase = sc.flow + "/preprocessor"
 	case sc.nested:
@@ -216,6 +221,23 @@ func (fc *flowCompiler) rawScript(m *openflow.Module, v *openflow.RawScript, sit
 	fc.prog.Scripts[e.ID] = e
 	leaf.Harness, leaf.Boundary = e.Harness, e.Boundary
 	return leaf
+}
+
+// bodySegment matches a path segment that names a nested flow body (WR-29).
+var bodySegment = regexp.MustCompile(`^(branchone|branchall|forloop|loop)-[0-9]+$`)
+
+// CollapseBodies is the import base of a runnable path (WR-29): a path with
+// a nested-body segment (`branchone-N`, `branchall-N`, `forloop-N`,
+// `loop-N`) is collapsed to `<prefix>/flow`, so its imports resolve beside
+// the prefix; any other path is its own import base.
+func CollapseBodies(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		if bodySegment.MatchString(s) {
+			return strings.Join(append(segs[:i:i], "flow"), "/")
+		}
+	}
+	return p
 }
 
 // finish fills the harness, annotations, bundling and dependency set of an

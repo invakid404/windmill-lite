@@ -384,9 +384,11 @@ directory (`TestBuildIsReproducible`).
 
 `ImportBase(flowPath, moduleID, explicitPath)` is an inline script's import
 base ([WR-29](../../docs/semantics/languages.md#wr-29)): `<flowPath>/<moduleID>`
-at any nesting, or the explicit `path`, with a nested-body segment
-(`forloop-0` and the like) collapsed to `<prefix>/flow`. A path script's
-import base is its own path.
+at any nesting, or the explicit `path` where a deployed flow keeps it (the
+failure and preprocessor slots; [internal/ir](../ir/README.md) decides, and
+`Build` takes `Script.ImportBase` from it), with a nested-body segment
+(`forloop-0` and the like) collapsed to `<prefix>/flow` by
+`ir.CollapseBodies`. A path script's import base is its own path.
 
 ## Tests
 

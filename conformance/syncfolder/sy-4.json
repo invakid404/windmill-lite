@@ -40,6 +40,46 @@
       }
     },
     {
+      "spec": "SY-4/b",
+      "provenance": "source-derived",
+      "part": "load",
+      "note": "the loader writes nothing into the tree, and it does not infer a schema: it leaves the schema unset rather than substituting the skeleton or {}. The push infers {n: number, required [n]} from main's parameters; nothing in windmill-lite infers it yet (an open question of FU4). No lock file: the lock is empty",
+      "title": "a script without metadata on push",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export async function main(n: number) { return n }\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/schema": null,
+                "/metadata/summary": "",
+                "/metadata/description": "",
+                "/metadata/kind": "script",
+                "/lock": "",
+                "/language": "bun"
+              },
+              "absent": [
+                "/metadata_file",
+                "/lock_file",
+                "/warnings"
+              ]
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
       "spec": "SY-4",
       "provenance": "source-derived",
       "title": "no metadata file gets the CLI's defaults",
@@ -58,17 +98,19 @@
                 "/metadata/summary": "",
                 "/metadata/description": "",
                 "/metadata/kind": "script",
-                "/metadata/schema": {},
+                "/metadata/schema": null,
                 "/lock": "lock\n",
                 "/lock_file": "f/a/x.script.lock"
               },
               "absent": [
-                "/metadata_file"
+                "/metadata_file",
+                "/warnings"
               ]
             }
           }
         }
-      }
+      },
+      "note": "the push regenerates the default metadata: the schema from main's parameters, which the loader leaves unset, and the lock, which windmill-lite never generates, so it reads <p>.script.lock as the default file names it"
     },
     {
       "spec": "SY-4",

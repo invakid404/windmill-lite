@@ -11,7 +11,9 @@ func TestImportBase(t *testing.T) {
 		{"f/a/fl", "s", "", "f/a/fl/s"},
 		{"f/a/fl", "preprocessor", "", "f/a/fl/preprocessor"},
 		{"f/a/fl", "failure", "", "f/a/fl/failure"},
-		{"f/a/fl", "s", "f/elsewhere/entry", "f/elsewhere/entry"},
+		// A slot's explicit path, which a deployed flow keeps; internal/ir
+		// passes none for a module list's inline script.
+		{"f/a/fl", "failure", "f/elsewhere/entry", "f/elsewhere/entry"},
 		// Windmill names a step inside a body with the body's segment; the
 		// collapse gives it the flow's directory, as at top level.
 		{"f/a/fl", "s", "f/a/fl/forloop-0/s", "f/a/fl/flow"},

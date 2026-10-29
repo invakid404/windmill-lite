@@ -150,7 +150,7 @@ Every path script and inline script the roots reach has one `Script` entry:
 | `Lock` | the lock text, byte for byte, or null |
 | `Bundling` | `bundled`; `nobundling` for a `//nobundling` script, which the build bundles all the same (D7); `codebase`; `transpiled` for `nativets` ([WR-27](../../docs/semantics/languages.md#wr-27), [WR-40](../../docs/semantics/languages.md#wr-40)) |
 | `Codebase` | the entry that selects a codebase script, and its format: `esm` only when the entry says so, otherwise `cjs` ([WR-47](../../docs/semantics/languages.md#wr-47)) |
-| `ImportBase` | what relative imports resolve against, as a file ([WR-29](../../docs/semantics/languages.md#wr-29)): a path script's path; for an inline step `<flow path>/<module id>` at top level and in the failure slot, `<flow path>/preprocessor` for the preprocessor, `<flow path>/flow` in a body, or the rawscript's own `path` |
+| `ImportBase` | what relative imports resolve against, as a file ([WR-29](../../docs/semantics/languages.md#wr-29)): a path script's path; for an inline step `<flow path>/<module id>` at top level and in the failure slot, `<flow path>/preprocessor` for the preprocessor, `<flow path>/flow` in a body, or, in the failure and preprocessor slots and the containers filling them, the rawscript's own `path`, collapsed at a body segment (`ir.CollapseBodies`); a deploy drops that `path` from the module lists |
 | `Annotations` | the recognised header flags of a Bun-family script ([WR-31](../../docs/semantics/languages.md#wr-31)) |
 | `Schema`, `Metadata` | a path script's `.script.yaml` schema, and its `envs`, `timeout`, `cache_ttl` and `has_preprocessor` |
 | `DependencySet` | the dependency part of the harness pool key ([0004](../../docs/design/0004-harness-protocol.md)): `bundled`, `lock:sha256:<hex>` for a nobundling script, `codebase:<index>` |
@@ -228,8 +228,9 @@ and last the provided sites that matched no site or more than one.
 A5 took each as the smallest reading consistent with the reference and the
 design, which did not settle them then. The reference's revision of
 2026-10-28 settles most of them: it states the first three, and it differs
-from the compiler's reading of the import base, `schema_validation` and
-`customBundler`. The compiler still takes the readings below.
+from the compiler's readings of `schema_validation` and `customBundler`,
+which the compiler still takes. It differed on the import base too, which
+the compiler now follows.
 
 - **Collapse in the preprocessor's bodies.** A deploy does not reduce the
   preprocessor module to stored nodes
@@ -244,12 +245,13 @@ from the compiler's reading of the import base, `schema_validation` and
 - **The virtual step** is added for a final `sleep` of any transform type,
   and not after the failure or preprocessor module, which are slots
   ([CF-30](../../docs/semantics/control-flow.md#cf-30)).
-- **The import base** of an inline step with an explicit `path` is that path
-  as written, at any depth. [WR-29](../../docs/semantics/languages.md#wr-29)
-  now differs for module lists: a deployed flow drops the field from the
-  inline scripts of its module lists and their container bodies, so the
-  default base applies there; its failure and preprocessor slots stay raw
-  and keep it, as the compiler does (WR-29/c).
+- **The import base** of an inline step with an explicit `path` follows
+  [WR-29](../../docs/semantics/languages.md#wr-29): a deployed flow drops the
+  field from the inline scripts of its module lists and their container
+  bodies, so the default base applies there; its failure and preprocessor
+  slots stay raw and keep it, collapsed at a nested-body segment as a
+  runnable path is (WR-29/b, WR-29/c). A5 read the explicit `path` as the
+  base everywhere.
 - **`schema_validation`** is read as a header annotation key by the rule of
   [WR-31](../../docs/semantics/languages.md#wr-31).
   [WR-54](../../docs/semantics/languages.md#wr-54) now differs: the line has

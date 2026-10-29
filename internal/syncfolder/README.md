@@ -10,7 +10,7 @@ step 1 of the loader pipeline of
 `wmill.yaml`, maps files to Windmill paths, applies the filters, and reads
 scripts, flows, resources, resource types and variables
 ([SY-1](../../docs/semantics/openflow.md#sy-1) to
-[SY-15](../../docs/semantics/openflow.md#sy-15),
+[SY-19](../../docs/semantics/openflow.md#sy-19),
 [SY-V1](../../docs/semantics/openflow.md#sy-v1) to
 [SY-V4](../../docs/semantics/openflow.md#sy-v4)).
 
@@ -30,27 +30,31 @@ flowchart LR
   index -->|Check| all[every item]
 ```
 
-`Open` and `Load` fail only when the folder as a whole cannot be read: no
-`wmill.yaml`, an invalid `wmill.yaml`, or an I/O error during the walk.
-Everything about one item is checked when that item is read, so a build that
-reads only what its roots reach fails only for those items, as 0002's host
-contract requires. Problems found by the walk (two files for one path, a
-dotted script path, a flow folder in the wrong style) also appear in
-`Warnings`. `Check` reads every item that is not filtered out and joins the
-errors, which refuses what `wmill sync push` refuses.
+`Open` and `Load` fail only when the folder as a whole cannot be read: an
+invalid `wmill.yaml`, a tree pulled in JSON mode, or an I/O error during the
+walk. Without a `wmill.yaml` they warn as the CLI does and use every setting's
+absent value ([SY-13](../../docs/semantics/openflow.md#sy-13)). Everything
+about one item is checked when that item is read, so a build that reads only
+what its roots reach fails only for those items, as 0002's host contract
+requires. Problems found by the walk (two files for one path, a dotted script
+path, a flow folder in the wrong style) also appear in `Warnings`. `Check`
+does what `wmill sync push` does: it reads the first bytes of every file the
+CLI's walk reads, and fails on a file the CLI's decoder refuses before any
+item ([SY-19](../../docs/semantics/openflow.md#sy-19)); then it reads every
+item that is not filtered out and joins the errors.
 
 ## API
 
 | Name | What it does |
 |---|---|
-| `Find(dir)` | The sync root: the nearest directory from `dir` upwards that holds `wmill.yaml`. The search stops after the git root (a directory holding `.git`, file or directory) or the file system root. |
+| `Find(dir)` | The sync root: the nearest directory from `dir` upwards that holds `wmill.yaml`. The search stops after the git root (a directory holding `.git`, file or directory) or the file system root; with no `wmill.yaml` up to there, the root is `dir` (SY-13). |
 | `Open(dir)` | `Find`, then the walk over an `os.Root`, so no read leaves the root, symbolic links included. Close the folder when done. |
-| `Load(fsys)` | The walk over any `fs.FS` whose root holds `wmill.yaml`. |
+| `Load(fsys)` | The walk over any `fs.FS`, with the `wmill.yaml` at its root, or none. |
 | `(*Folder).Script`, `Flow`, `Resource`, `Variable`, `ResourceType` | Read one item by Windmill path (a resource type by name). |
 | `(*Folder).Target(from, module)` | Read the target of a `script` or `flow` step of flow `from`; errors name the step (SY-15). |
 | `(*Folder).FlowDocument`, `InlineScript`, `TargetDocument` | Read a flow, or a flow step's target, with its `!inline` references unresolved, then resolve one rawscript at a time by the rules `Flow` applies. The compiler uses them so that a host-provided inline step's files are never read (0002, host contract). |
 | `(*Folder).Paths(kind)`, `Filtered(kind)` | The sorted paths of the items of a kind that are kept, or filtered out. |
-| `(*Folder).Check()` | Read every kept item and join the errors. |
+| `(*Folder).Check()` | Fail on the files of the walk that the decoder refuses, or read every kept item and join the errors. |
 | `(*Folder).FS()` | The folder's file system, for builders that read further files. |
 | `Folder.Config`, `Skipped`, `Warnings` | `wmill.yaml` as read, the files recognised and not loaded, and diagnostics. |
 | `HasNativeAnnotation(src)` | The `native` header annotation of TypeScript source (SY-V3), which the compiler also applies to rawscripts. |
@@ -59,22 +63,35 @@ errors, which refuses what `wmill sync push` refuses.
 
 Reads go to the files each time, and may run concurrently. The record types
 (`Script`, `Flow`, …) marshal to the JSON the conformance cases address.
+`Script.Warnings` and `InlineScript.Warnings` hold what the CLI warns about
+while it reads an item's files.
 
 ## The walk
 
-The root is the directory of `wmill.yaml`. Items live under `u/`, `f/` and
+The root is the directory of `wmill.yaml`, or the start directory when
+there is none. Items live under `u/`, `f/` and
 `g/`; directories whose name starts with `.` and `node_modules` are skipped,
 and a symbolic link to a directory is not followed. Under the item
-directories:
+directories, each file is classified by the first rule that matches
+([SY-18](../../docs/semantics/openflow.md#sy-18)):
 
 | File or folder | Item |
 |---|---|
-| `P.flow/` (`P__flow/` with `nonDottedPaths: true`), holding `flow.yaml` | flow `P` |
-| a script source, `P.<ext>` for an extension of SY-3, and `P.script.yaml` | script `P` |
+| any file inside `P.flow/` (`P__flow/` with `nonDottedPaths: true`), at any depth | flow `P`, without the one marker that ends the name: `report__flow.flow/` is flow `report__flow` |
+| `P.<ext>`, for a last extension `.ts`, `.py`, `.go`, `.sh`, `.sql`, `.gql`, `.ps1`, `.js`, `.php`, `.rs`, `.cs`, `.nu`, `.java`, `.rb` or `.r`, or a name ending `.playbook.yml` | script `P` (its source) |
+| `P.script.yaml`, `P.script.lock` | script `P` (its metadata and lock) |
 | `P.resource.yaml`, `P.variable.yaml` | resource or variable `P` |
 | `<name>.resource-type.yaml`, at the root only | resource type `name` |
-| `P.script.lock` and the files inside a flow folder | read through the item that refers to them |
-| `*.resource.file.*`, `*.fileset/` | the data of file and fileset resources, which are refused (below), so never read |
+| `*.resource.file.*`, `*.fileset/` | the data of file and fileset resources, which are refused (below); `Check` reads only the first bytes of a `*.resource.file.*` the walk keeps |
+
+The CLI's walk keeps a file only when the text after its last dot is one of
+`yaml`, `go`, `sh`, `ts`, `py`, `sql`, `gql`, `ps1`, `php`, `js`, `lock`,
+`rs`, `cs`, `yml`, `nu`, `java`, `rb` or `r` (resource content files aside),
+so a `README.md` in a flow folder is not a flow file. `.json` files are
+dropped too, since windmill-lite reads YAML mode only: a `*.resource.json`,
+`*.variable.json` or `*.resource-type.json` gets a warning and is not an
+item. A script's `P.script.json` is still paired with it, and refused as
+JSON-mode metadata. A `wmill.yaml` that sets `json: true` is refused.
 
 Schedules, triggers, native triggers, folder metadata, apps, raw apps, users,
 groups, settings, the encryption key, workspace dependency files, datatable
@@ -99,16 +116,28 @@ there; windmill-lite refuses the file instead (`dotted_path`), and a lookup of
 the uncut path says why.
 
 **Two files for one path** of a kind are an error naming both (`duplicate_path`):
-two sources (`x.ts` and `x.py`, or `x.ts` and `x.test.ts`), a `.flow` and a
-`__flow` folder, a YAML and a JSON file.
+two sources (`x.ts` and `x.py`, or `x.ts` and `x.test.ts`), or a `.flow` and a
+`__flow` folder.
 
 ## Filters
 
 The skip switches (`skipScripts`, `skipFlows`, `skipResources`,
 `skipVariables`, `skipResourceTypes`, and `skipSecrets` for secret variables)
 and the path filter of [SY-13](../../docs/semantics/openflow.md#sy-13) and
-[SY-V2](../../docs/semantics/openflow.md#sy-v2) apply to each item's main
-file: a script's source, a flow's `flow.yaml`, a resource or variable file.
+[SY-V2](../../docs/semantics/openflow.md#sy-v2) apply to each file on its own
+([SY-17](../../docs/semantics/openflow.md#sy-17)). A file that passes pushes
+its whole item, whose other files are read whatever the filter says. A
+windmill-lite build is a fresh deploy, so every file is new, and a new file
+selects its item as follows:
+
+| Item | The files that select it |
+|---|---|
+| script | its source |
+| flow | any file of its folder that the walk keeps, except metadata (`*.script.yaml`), lock (`*.lock`) and resource content files: `flow.yaml`, an inline script, or a file the flow never refers to |
+| resource, variable, resource type | its file |
+
+A flow folder that has no such file at all is not a flow, with a warning.
+
 The path filter is active only when `includes` or `excludes` has entries; a
 file then passes when `includes` is absent or one of its globs matches, no
 `excludes` glob matches, and `extraIncludes` is absent, empty, or has a glob
@@ -117,7 +146,9 @@ the path filter. A filtered item is reported as `filtered`, with the rule.
 Whether a variable is a secret is known only once it is read, so `Paths`
 lists a secret under `skipSecrets` and reading it reports `filtered`.
 
-**Globs** are minimatch globs with default options. `glob.go` implements the
+**Globs** are minimatch globs with default options, matched against the
+file's path relative to the root
+([SY-16](../../docs/semantics/openflow.md#sy-16)). `glob.go` implements the
 syntax on which minimatch 9 and 10 agree: `*`, `?`, classes with `!` or `^`
 and ranges, `\` escapes, `**` segments, brace lists and sequences, a leading
 `!` (negation) and `#` (a comment, which matches nothing). A segment that
@@ -154,25 +185,33 @@ when it exceeds the distance between the ends, as minimatch does even for
 
 - **Language** comes from the file name by SY-3's ordered suffix tests, with
   `defaultTs` (bun when `wmill.yaml` sets none, with a warning). A bare
-  `.sql` fails with a dialect hint (`unknown_language`). A script whose name
-  gives bun and whose source carries the `native` annotation is `bunnative`
+  `.sql` fails with a dialect hint and a `.js` source with the CLI's
+  `The item <file> has an unrecognized type ending script`
+  (`unknown_language`). A script whose name gives bun and whose source
+  carries the `native` annotation is `bunnative`
   ([SY-V3](../../docs/semantics/openflow.md#sy-v3)).
 - **Metadata** ([SY-4](../../docs/semantics/openflow.md#sy-4)): `summary`,
   `description`, `schema` (verbatim), `kind`, `envs`, `timeout`, `cache_ttl`,
   `delete_after_secs`, `restart_unless_cancelled` and `has_preprocessor` are
   type-checked; the whole file is also kept as JSON. Other keys are ignored. A
-  script without metadata gets the CLI's defaults: empty summary and
-  description, kind `script`, the empty schema `{}`, and its lock from
-  `P.script.lock`. A metadata file without `schema` has none (`null`).
-- **Lock** ([SY-5](../../docs/semantics/openflow.md#sy-5)): an `!inline
-  <file>` reference relative to the root, whose missing file is the empty
-  lock; any other string as written; a list of strings joined with `\n`; or
-  absent (nil).
+  metadata file without `schema` has none (`null`). A script without metadata
+  gets the CLI's default file on push, whose schema and lock the push then
+  regenerates: the schema from `main`'s parameters, which the loader does
+  not infer, so it stays `null`, and the lock, which windmill-lite never
+  generates, so the lock is `P.script.lock` as the default file names it.
+- **Lock** ([SY-5](../../docs/semantics/openflow.md#sy-5)): a list of strings
+  is joined with `\n` first. A string that starts with exactly `!inline `
+  is a reference to the file named by its second space-separated token,
+  relative to the root; a missing or unreadable file is the empty lock, with
+  the CLI's warning `Error reading inline path: <file>, …`. Any other string,
+  ` !inline …` with its leading space included, is the lock as written; an
+  absent lock is nil.
 - **Codebase** ([SY-8](../../docs/semantics/openflow.md#sy-8)): only a script
   whose name gives bun is matched against `codebases`, in order; an entry
-  without `includes` selects every script, otherwise an include must match,
-  and a matching exclude passes to the next entry. The entry's settings are
-  kept as JSON for the bundler.
+  without `includes` selects every script, `includes: []` none, otherwise an
+  include must match, and a matching exclude passes to the next entry. A
+  single string in `includes` or `excludes` is a one-element list. The
+  entry's settings are kept as JSON for the bundler.
 
 ## Flows
 
@@ -189,7 +228,8 @@ resolved ([SY-7](../../docs/semantics/openflow.md#sy-7),
 2. The file is the second space-separated token of the string, joined to the
    flow folder (`..` resolved, a leading `/` not special).
 3. A missing content file is tried again as `<module id>.` plus everything
-   after the first dot of the name. Every content file still missing is
+   after the first dot of the reference, nothing when it has none, with the
+   CLI's `Script file <file> not found`. Every content file still missing is
    reported at once (`missing_inline_file`).
 4. A lock is a reference when, after JavaScript's leading white space, it
    starts with `!inline `; its token comes from the untrimmed string, so
@@ -201,25 +241,52 @@ resolved ([SY-7](../../docs/semantics/openflow.md#sy-7),
 
 A resource has `resource_type`, `description` and its `value` as the JSON the
 CLI sends, with `$var:` and `$res:` strings kept
-([SY-10](../../docs/semantics/openflow.md#sy-10)). File and fileset resources
-(`value.content: '!inline …'`, `value: '!inline_fileset …'`) are `later`
-scope and fail with `unsupported_feature`. A variable has a string `value`,
-`is_secret` and `description`; `Encrypted` marks a secret whose value is
-ciphertext, which it is unless `wmill.yaml` sets `plainSecrets`
-([SY-11](../../docs/semantics/openflow.md#sy-11)). Resolving secrets is the
-platform's job (milestone PF2).
+([SY-10](../../docs/semantics/openflow.md#sy-10)). A resource without `value`,
+or whose `value` is null, fails as the CLI's push does, with its `TypeError`;
+one without `resource_type` fails as the server refuses it. File and fileset
+resources (`value.content: '!inline …'`, `value: '!inline_fileset …'`) are
+`later` scope and fail with `unsupported_feature`. A variable has a string
+`value`, `is_secret` and `description`, all three required: the server
+refuses a new variable without one, naming the first missing as
+``missing field `value` `` and so on
+([SY-11](../../docs/semantics/openflow.md#sy-11)). `Encrypted` marks a
+secret whose value is ciphertext, which it is unless `wmill.yaml` sets
+`plainSecrets`. Resolving secrets is the platform's job (milestone PF2).
+
+## Text files
+
+Every text file goes through the CLI's decoder
+([SY-19](../../docs/semantics/openflow.md#sy-19)): a leading UTF-8 byte order
+mark is removed, and a leading UTF-16 or UTF-32 one is refused with
+`File <file> is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.`
+(`invalid_text`). What a refusal does depends on how the file is reached:
+
+| The refused file | Outcome |
+|---|---|
+| one the CLI's walk reads: kept, and passing the filter | `Check` fails before any item, and reading the item it belongs to fails |
+| `wmill.yaml` | `Open` and `Load` fail, inside `YAML syntax error in wmill.yaml` |
+| a script's source or metadata, `flow.yaml`, a resource, variable or resource-type file | reading the item fails |
+| a script lock reference the walk does not read | the empty lock, with a warning in `Script.Warnings` |
+| a flow's inline content file the walk does not read | read as missing, so the fallback name is tried |
+| a flow's inline lock file the walk does not read | the empty lock, with a warning in `InlineScript.Warnings` |
+
+The last three rows hold for a file that cannot be read for any other
+reason too, such as its permissions, as the CLI's reference readers catch
+every failure (SY-5, SY-7). The exception is a read through a symbolic
+link that fails for a reason other than permissions: reads never follow a
+link out of the root, so it fails the item.
 
 ## Errors
 
 | `Kind` | When |
 |---|---|
-| `wmill_yaml_not_found`, `invalid_config`, `unsupported_glob`, `io` | the folder cannot be read (`Open`, `Load`), or a file cannot |
+| `invalid_config`, `unsupported_glob`, `io` | the folder cannot be read (`Open`, `Load`), or a file cannot |
 | `yaml` | a file is not YAML that yamlx reads; the wrapped `*yamlx.Error` says whether the CLI rejects it too |
 | `not_in_folder`, `filtered`, `hub_path` | the folder cannot supply the item or step target (SY-15) |
 | `duplicate_path`, `dotted_path`, `flow_layout`, `missing_source` | the walk's problems with an item |
-| `unknown_language`, `invalid_metadata`, `invalid_flow`, `invalid_text` | an item's files |
+| `unknown_language`, `invalid_metadata`, `invalid_flow`, `invalid_text` | an item's files; `invalid_text` also for a refused `wmill.yaml` |
 | `missing_inline_file`, `path_escape` | inline and lock references |
-| `unsupported_feature` | `unsupported: <feature>`: multi-file (`__mod`) scripts, JSON-mode files, file and fileset resources |
+| `unsupported_feature` | `unsupported: <feature>`: multi-file (`__mod`) scripts, JSON mode and JSON-mode metadata, file and fileset resources |
 
 ## Divergences and restrictions
 
@@ -233,36 +300,32 @@ restrictions of [0001](../../docs/design/0001-equivalence-contract.md) §5a:
   ([SY-V4](../../docs/semantics/openflow.md#sy-v4));
 - `!inline` references, and script lock references, that leave the root are
   refused (`path_escape`); an absolute script lock reference is refused too,
-  and reads through `Open` never follow a link out of the root;
-- script, inline and lock files must be UTF-8 (`invalid_text`);
+  and reads through `Open` never follow a link out of the root, so a lock
+  or inline reference whose read fails through a link fails, where the CLI
+  would read the target;
+- script, inline and lock files must be UTF-8 (`invalid_text`), where the
+  CLI reads an invalid sequence as U+FFFD;
+- a tree pulled in JSON mode (`json: true`) is refused;
 - globs outside the syntax above, and `wmill.yaml` values of the wrong type,
   are refused.
 
 ## Readings the reference does not settle
 
-Each is the smallest reading consistent with the reference; the milestone's
-pull request lists them as open questions.
+The reference's revision of 2026-10-28 settled the readings A4 took, and
+this package follows it (SY-4, SY-5, SY-7, SY-8, SY-10, SY-11, SY-13, SY-16
+to SY-19). What it still leaves open, each the smallest reading consistent
+with it:
 
-- **Glob version and options.** The reference says minimatch, not which
-  version or options. The glob cases were observed on minimatch 10.2.6 and
-  agree with 9.0.9; default options are assumed.
-- **Which file an item is filtered by.** The CLI filters files; this package
-  filters each item by its main file and reads the item's other files
-  whatever the filter says.
-- **The walk's extension list** is not enumerated in the reference. Script
-  sources are the extensions of SY-3 plus a bare `.sql`; other files are
-  ignored.
-- **No `wmill.yaml`** is an error rather than defaults.
-- **A codebase entry with `includes: []`** selects nothing, as an empty
-  filter list does; the reference says only that an entry with no `includes`
-  selects every script.
-- **The content fallback for a name without a dot** is not tried.
-- **Script lock references** use the inline-lock rule of SY-V1 (leading white
-  space, then the second token).
-- **Text files** keep a byte order mark as U+FEFF.
-- **The empty schema** of a script without metadata is `{}`; SY-4 does not
-  give its text.
-- **Variables and resources** without `value` read as `""` and `null`.
+- **The schema of a script without metadata** is `null`: the push infers it
+  from `main`'s parameters, which nothing in windmill-lite does yet.
+- **The walk's read** covers the files of the items this package loads.
+  Files it lists in `Skipped` are not read, so their encoding is not
+  checked, and a file the walk keeps that cannot be read at all is reported
+  by reading its item, not by `Check`'s first pass.
+- **Wording.** The warning for a missing script lock file and for a refused
+  inline lock file, and the error for a null variable field, are
+  windmill-lite's; the reference gives the CLI's text only where these
+  messages quote it.
 - Per-workspace overrides are recognised and skipped, never applied
   (SY-12 `later`).
 
@@ -294,8 +357,8 @@ pull request lists them as open questions.
   backtracking one.
 - `native_test.go` covers the annotation's spelling and position rules, for
   `native` and for other keys.
-- `syncfolder_test.go` covers root discovery, symbolic links, configuration
-  errors, error text, `Check`, duplicate and JSON-mode data files,
-  concurrent reads, lock-reference white space, names that are not
-  UTF-8, and the two-step reading of `FlowDocument`, `InlineScript` and
-  `TargetDocument`.
+- `syncfolder_test.go` covers root discovery, with and without
+  `wmill.yaml`, symbolic links, configuration errors, error text, `Check`,
+  `.json` data files and overrides, concurrent reads, lock-reference white
+  space, names that are not UTF-8, and the two-step reading of
+  `FlowDocument`, `InlineScript` and `TargetDocument`.
