@@ -35,6 +35,8 @@ func TestStoreOutcome(t *testing.T) {
 			true, `{"error":{"message":"execution error:\nprocess terminated by signal: SIGKILL","name":"ExecutionErr","step_id":"a"}}`, OriginHarness},
 		{"empty is InternalErr with no step_id (WR-V2)", StepOutcome{Kind: OutcomeEmpty}, "a",
 			true, `{"error":{"message":"Internal: Result of job is invalid json (empty)","name":"InternalErr"}}`, OriginHarness},
+		{"an error the harness generated keeps its origin (WR-43, D14)", StepOutcome{Kind: OutcomeError, Body: text(`{"message":"execution error:\nProxy is an EE feature","name":"ExecutionErr","step_id":"a"}`), Origin: OriginHarness}, "a",
+			true, `{"error":{"message":"execution error:\nProxy is an EE feature","name":"ExecutionErr","step_id":"a"}}`, OriginHarness},
 		{"ok with a string wm_failure fails (WR-17, FX-13)", StepOutcome{Kind: OutcomeOK, Body: text(`{"wm_failure":"bad input","x":1}`)}, "a",
 			true, `{"wm_failure":"bad input","x":1,"error":{"name":"ManualFailure","message":"bad input"}}`, OriginUser},
 	} {

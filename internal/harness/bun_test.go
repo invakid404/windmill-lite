@@ -322,40 +322,53 @@ func TestBunWorkAfterTheResultIsLate(t *testing.T) {
 // The handlers never throw, whatever the error (c3a review 1, finding 2): a
 // rejection whose text is longer than max_message still fails nothing, and
 // the co-resident invocation's warning carries as much of it as fits.
+//
+// The warning quotes the error's stack, which Bun 1.3.10 builds without the
+// message when a garbage collection formats it before anything has read
+// it; under load that happened in about 2% of runs (FU5). The gc variant
+// forces that collection, so every run takes that path, and the harness
+// puts the message back (describe in runtime.ts).
 func TestBunLongUnattributedErrorUnderASmallMessageLimit(t *testing.T) {
-	cfg, _ := bunConfig(t)
-	cfg.MaxMessage = 1024
-	p := spawn(t, cfg)
-	bystander := newRecorder()
-	done := make(chan engine.StepOutcome, 1)
-	go func() {
-		out, _ := execute(t, p, newInvocation("sleep", `{"ms":400}`, bystander), 5*time.Second)
-		done <- out
-	}()
-	time.Sleep(50 * time.Millisecond)
-	ctx, cancel := context.WithCancelCause(context.Background())
-	defer cancel(nil)
-	go p.Execute(ctx, newInvocation("detached-reject", `{"ms":20,"size":5000}`, newRecorder()))
-	if out := <-done; out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "400" {
-		t.Fatalf("bystander: %+v", out)
-	}
-	if got := bystander.log(); got != "warning unattributed_error; settled completed" {
-		t.Fatalf("bystander's reporter calls %q", got)
-	}
-	bystander.mu.Lock()
-	w := bystander.warnings
-	bystander.mu.Unlock()
-	if len(w) != 1 || !strings.HasPrefix(w[0].Message, "unhandledRejection: Error: xxxx") || !strings.HasSuffix(w[0].Message, "…") || len(w[0].Message) > 1024 {
-		t.Fatalf("warning %+v", w)
-	}
-	h, err := p.Ping(context.Background())
-	if err != nil || h.Errors != 1 {
-		t.Fatalf("health %+v, %v; want the one unattributed error", h, err)
-	}
-	select {
-	case <-p.Done():
-		t.Fatalf("the process ended: %v", p.ExitStatus())
-	default:
+	for _, tc := range []struct{ name, args string }{
+		{"rejected at once", `{"ms":20,"size":5000}`},
+		{"stack built by a collection", `{"ms":20,"size":5000,"gc":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _ := bunConfig(t)
+			cfg.MaxMessage = 1024
+			p := spawn(t, cfg)
+			bystander := newRecorder()
+			done := make(chan engine.StepOutcome, 1)
+			go func() {
+				out, _ := execute(t, p, newInvocation("sleep", `{"ms":400}`, bystander), 5*time.Second)
+				done <- out
+			}()
+			time.Sleep(50 * time.Millisecond)
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			go p.Execute(ctx, newInvocation("detached-reject", tc.args, newRecorder()))
+			if out := <-done; out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "400" {
+				t.Fatalf("bystander: %+v", out)
+			}
+			if got := bystander.log(); got != "warning unattributed_error; settled completed" {
+				t.Fatalf("bystander's reporter calls %q", got)
+			}
+			bystander.mu.Lock()
+			w := bystander.warnings
+			bystander.mu.Unlock()
+			if len(w) != 1 || !strings.HasPrefix(w[0].Message, "unhandledRejection: Error: xxxx") || !strings.HasSuffix(w[0].Message, "…") || len(w[0].Message) > 1024 {
+				t.Fatalf("warning %+v", w)
+			}
+			h, err := p.Ping(context.Background())
+			if err != nil || h.Errors != 1 {
+				t.Fatalf("health %+v, %v; want the one unattributed error", h, err)
+			}
+			select {
+			case <-p.Done():
+				t.Fatalf("the process ended: %v", p.ExitStatus())
+			default:
+			}
+		})
 	}
 }
 

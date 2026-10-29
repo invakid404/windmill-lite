@@ -1627,6 +1627,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
 	}.Env(r.e.host)
+	addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.Latch(HookLatchError(ctx, err))
 	}

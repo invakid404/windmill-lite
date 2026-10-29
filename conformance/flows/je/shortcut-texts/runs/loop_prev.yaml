@@ -10,3 +10,14 @@ expect:
     "m:l": {"status": "success", "result": [{"a": 2, "b": 1}]}
     "m:l/i:0/m:x": {"status": "success", "args": {}, "result": {"a": 2, "b": 1}}
     "m:q": {"status": "not_run", "ran": false}
+unit:
+  - spec: JE-8
+    site: m:q
+    input: timeout
+    expr: results.l
+    context:
+      previous_id: l
+      previous_result: "[{\"a\":2,\"b\":1}]"
+    expect:
+      text: "[{\"a\":2,\"b\":1}]"
+    note: "previous_result after a loop is the compact array the worker writes from the stored child results, keys in jsonb order (JE-44's table); the shortcut returns it verbatim"

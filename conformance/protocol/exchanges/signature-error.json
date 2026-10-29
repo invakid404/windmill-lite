@@ -1,6 +1,6 @@
 {
   "case": "signature-error",
-  "title": "an entrypoint whose recorded signature did not parse fails the step before its module loads, with the worker's execution error (WR-7, WR-37)",
+  "title": "an entrypoint whose recorded signature did not parse fails the step before its module loads, with the worker's execution error, which the harness generated (WR-7, WR-37)",
   "provenance": "policy",
   "relies_on": [
     "WR-7",
@@ -65,6 +65,7 @@
           "name": "ExecutionErr",
           "step_id": "a"
         },
+        "origin": "harness",
         "settled": true
       }
     },

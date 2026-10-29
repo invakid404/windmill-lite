@@ -359,7 +359,14 @@ Windmill v1.767.0's image).
   `TestNativeFlowSteps` runs a flow's three kinds of native step (nativets
   with and without `//native`, bun with it) through the real build and
   harness, checking each one's boundary and its `BASE_URL` and
-  `BASE_INTERNAL_URL`.
+  `BASE_INTERNAL_URL`. Milestone FU5 added three such flows:
+  `TestNativeGeneratedErrorsAreGenerated` (a native load failure and a
+  transpile failure are recorded as generated, so the oracle's location
+  suffix is stripped from them, D14), `TestScriptEnvsReachOnlyBunSteps` (a path script's `envs` reach
+  its Bun step under `PATH` and the reserved variables, and never a native
+  step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
+  through a flow: a `//native` ESM codebase script runs natively, its
+  control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a and
   N2: every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
@@ -367,7 +374,8 @@ Windmill v1.767.0's image).
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there; recording batch E3e listed the runs of its fixtures
-  that windmill-lite already passes. A required run stays required. The test runs every
+  that windmill-lite already passes, and FU5 the `oracle/nul` runs that
+  N1b's engine passes. A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log

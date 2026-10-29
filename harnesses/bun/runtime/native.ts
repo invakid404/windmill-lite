@@ -55,8 +55,11 @@ export type NativeForm = {
 };
 
 /** How a native invocation ended: the result's JSON text, or the error
- * object's, which the engine stores as {"error": …} (WR-21). */
-export type NativeResult = { ok: string } | { error: string };
+ * object's, which the engine stores as {"error": …} (WR-21). generated
+ * marks an error the harness writes in place of the worker's (WR-43's
+ * transpile and load failures, a signature that did not parse, //proxy),
+ * not the script's exception. */
+export type NativeResult = { ok: string } | { error: string; generated?: true };
 
 /** The invocation a native job belongs to. */
 export type NativeInvocation = {
@@ -730,17 +733,17 @@ export class Native {
     const form = (meta as { native: NativeForm }).native;
     // nativets always calls main (WR-41).
     const entry = form.kind === "nativets" ? "main" : inv.entry;
-    if (form.transpile_error !== undefined) return { error: signatureErrorText(`Error: ${form.transpile_error}`, stepId) };
+    if (form.transpile_error !== undefined) return { error: signatureErrorText(`Error: ${form.transpile_error}`, stepId), generated: true };
     const sig = signatureOf(meta, entry);
-    if (sig?.error !== undefined) return { error: signatureErrorText(sig.error, stepId) };
+    if (sig?.error !== undefined) return { error: signatureErrorText(sig.error, stepId), generated: true };
     // A proxy is an Enterprise Edition feature (WR-45).
-    if (form.proxy !== undefined) return { error: signatureErrorText("Proxy is an EE feature", stepId) };
+    if (form.proxy !== undefined) return { error: signatureErrorText("Proxy is an EE feature", stepId), generated: true };
     const job = this.open(inv, form, context);
     let ns: Record<string, unknown>;
     try {
       ns = await job.load(join("scripts", "bun", ...inv.script.split("/")) + ".native.js", form, SCRIPT_URL);
     } catch (e) {
-      if (e instanceof LoadFailure) return { error: signatureErrorText(`Error: failed to load module: ${e.message}`, stepId) };
+      if (e instanceof LoadFailure) return { error: signatureErrorText(`Error: failed to load module: ${e.message}`, stepId), generated: true };
       return { error: job.errorText(e) };
     }
     try {

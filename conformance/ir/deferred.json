@@ -20,6 +20,11 @@
       "spec": "CF-V5/b",
       "reason": "a raw-flow preview request; windmill-lite has no preview mode (0001 §1)",
       "expected_in": "not applicable"
+    },
+    {
+      "spec": "WR-48/a",
+      "reason": "later: a set customBundler runs a shell command whose output is the bundle; windmill-lite refuses such an entry (unsupported_feature, sy-8.json's custom-bundler case and this directory's wr-48.json, 0001 §5a)",
+      "expected_in": "a later milestone that runs customBundler commands (L1)"
     }
   ]
 }
