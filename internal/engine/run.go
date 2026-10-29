@@ -693,6 +693,11 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		o.rec.Ran = true
 		var resolved jsonval.Value
 		out, job, resolved, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
+		if !resolved.IsZero() {
+			// The script got the resolved arguments, however its job ended
+			// (O3, JE-V3).
+			o.rec.ResolvedArgs = resolved
+		}
 		var rf *resolveFailure
 		switch {
 		case errors.Is(err, errNotLaunched):
@@ -727,7 +732,6 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			r.recordJob(fr, i, res.rec.Result)
 			return res
 		}
-		o.rec.ResolvedArgs = resolved
 	}
 	st := StoreOutcome(out, fr.stepID(i))
 	if _, err := st.Value.Stored(); err != nil && job != "" {

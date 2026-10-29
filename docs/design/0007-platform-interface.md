@@ -340,7 +340,10 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **The arguments file.** FX-42/h observes the resolver's spelling
     through `args.json` (WR-5), so the harness writes it into the step's
     working directory before each invocation, the latest invocation's in a
-    warm process (D10).
+    warm process (D10), without the worker's internal keys `_MODULES` and
+    `_TEMP_SCRIPT_REFS`; the script's parameters bind from the same text.
+    A job's resolved arguments are its trace's O3 however the job then
+    ends.
   - **Not yet:** the writes (`createResource`, `updateResourceValue`,
     `createVariable`, `updateVariable`) and so `setState` are `later` and
     answer 501; a secret's plaintext is not registered for log masking

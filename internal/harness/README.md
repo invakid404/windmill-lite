@@ -179,11 +179,15 @@ left running (D9).
 
 **The arguments file** ([WR-5](../../docs/semantics/languages.md#wr-5),
 milestone PF2). Before it sends an invocation, a spawned process writes
-the invocation's arguments, as the script receives them (after the
-engine's `$var:` and `$res:` resolution), to `args.json` (`ArgsFile`) in
-its working directory, as Windmill's worker writes them into a job's
-directory: written beside it and renamed over it, so a script never reads
-it half written. A fresh process's file is its one invocation's; a warm
+the invocation's arguments (after the engine's `$var:` and `$res:`
+resolution) to `args.json` (`ArgsFile`) in its working directory, as
+Windmill's worker writes them into a job's directory: without the
+worker's internal keys `_MODULES` and `_TEMP_SCRIPT_REFS`, every other
+member, underscore keys included, kept as its raw text in its place
+(`scriptArgs`, `args.go`), written beside the file and renamed over it,
+so a script never reads it half written. Windmill's wrapper binds the
+script's parameters from that file, so the invoke frame carries the same
+text. A fresh process's file is its one invocation's; a warm
 process's working directory is every invocation's (D10), so its file is
 the latest invocation's. A host-mode connection has no working directory
 of its own and writes none (F3a).
@@ -353,9 +357,14 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   death before any Reporter does.
 - `conn_test.go` checks the writer's ordering rules and the exchange
   matcher.
+- `args_test.go` checks `scriptArgs`: the two internal keys dropped, a key
+  written with an escape included, every other member's raw text and
+  place kept, and arguments with nothing to drop, or that are not an
+  object, unchanged.
 - The arguments file is checked end to end by the step case
   `conformance/steps/bun/wr-5.yaml` (two runs of one warm process, and
-  fresh processes) and by FX-42/h's run `args_file`
+  fresh processes; the internal keys absent from the file and from the
+  script's parameters) and by FX-42/h's run `args_file`
   ([cmd/wltest](../../cmd/wltest/README.md)).
 
 The Bun tests need the pinned Bun: set `WL_BUN` to its executable, and

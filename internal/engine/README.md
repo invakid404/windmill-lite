@@ -596,8 +596,9 @@ so every read is a not-found. A host gives the facade the same services.
   `$<NAME>` strings read, and a `$res:` reading the resource with the
   job's stored fields (`platform.APIEnv`,
   [WA-V3](../../docs/semantics/client-api.md#wa-v3)). The step gets the
-  resolved arguments, which the trace records as `ResolvedArgs`, and the
-  job keeps the stored ones (`RecordedArgs`,
+  resolved arguments, which the trace records as `ResolvedArgs` however
+  its job then ends (a timeout, a cancellation or an executor's error
+  included), and the job keeps the stored ones (`RecordedArgs`,
   [JE-V3](../../docs/semantics/expressions.md#je-v3)). Expressions see the
   markers, whatever produced them. A failure fails the job before it runs,
   with the worker's execution error, origin `engine`:
@@ -649,8 +650,9 @@ environment, a later entry winning and every name the worker sets later
 skipped, and none in a native step's, `nativets` or `//native`.
 `providers_test.go` (PF2) covers the resolved arguments (O2 and O3,
 whatever produced them, `$WM_*` from the reserved variables in an argument
-and from the stored fields in a resource, a secret), a resolution failure
-and the run's settlement after it, `flow_env` resolved per transition and
+and from the stored fields in a resource, a secret), O3 after a timeout, a
+cancellation and an executor's error, a resolution failure (whose O3 stays
+its O2) and the run's settlement after it, `flow_env` resolved per transition and
 its unresolved fallback with its warnings, the helpers and a helper's
 failure, and an engine with no platform. The flow
 fixtures run the engine on the real Bun harness

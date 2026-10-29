@@ -599,7 +599,9 @@ reads its own arguments from `args.json` in its working directory, which
 the harness writes before each invocation
 ([WR-5](../docs/semantics/languages.md#wr-5)): run after run of one warm
 process, whose directory is every invocation's (D10), and in each fresh
-process. WR-5's catalogue cases need the engine's argument resolution and
+process; and that the file holds no `_MODULES` or `_TEMP_SCRIPT_REFS`
+while every other member keeps its text and place, as the script's
+parameters see it too. WR-5's catalogue cases need the engine's argument resolution and
 are checked at the flow level.
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -186,4 +187,80 @@ func TestEngineWithoutPlatform(t *testing.T) {
 	if tr.Status != conformance.RunFailure || !strings.Contains(string(tr.Result.Producer()), "Variable u/t/v not found for `x`") {
 		t.Fatalf("%s %s", tr.Status, tr.Result)
 	}
+}
+
+// failingExec receives one invocation and ends it with an execution
+// error: the step's timeout or the run's cancellation, which it waits for
+// (cancel, when set, cancels the run first), or err at once.
+type failingExec struct {
+	err    error
+	cancel context.CancelFunc
+	got    Invocation
+}
+
+func (x *failingExec) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	x.got = inv
+	defer inv.Report.Settled(SettleProcessExited)
+	if x.err != nil {
+		return StepOutcome{}, x.err
+	}
+	if x.cancel != nil {
+		x.cancel()
+	}
+	<-ctx.Done()
+	return StepOutcome{}, context.Cause(ctx)
+}
+
+// JE-V3, ADR 0005 item 5 (pf2 review 1, P2-2): a job whose arguments
+// resolved records them as O3 however its execution ends, after a timeout,
+// a cancellation or an executor's error, as the executor received them,
+// while O2 keeps the markers; a job whose resolution failed has no
+// resolved arguments, and its O3 stays its O2.
+func TestEngineResolvedArgsOnExecutionError(t *testing.T) {
+	const recorded, resolved = `{"v":"$var:u/t/v"}`, `{"v":"s3cr3t"}`
+	in := inputs("v", static(`"$var:u/t/v"`))
+	for _, c := range []struct {
+		name   string
+		script string // f/t/zero's own metadata asks for a timeout of 0 s
+		err    error
+		cancel bool
+		status conformance.StepStatus
+		result string
+	}{
+		{"timeout", "zero", nil, false, conformance.StepFailure, "job process terminated due to timeout"},
+		{"cancellation", "echo", nil, true, conformance.StepCanceled, "job process terminated due to cancelled by"},
+		{"executor error", "echo", errors.New("synthetic transport failure"), false, conformance.StepFailure, "synthetic transport failure"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			x := &failingExec{err: c.err}
+			if c.cancel {
+				x.cancel = cancel
+			}
+			e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", c.script, in, ""))}, x, testServices(t))
+			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := tr.Steps[0]
+			if rec.Status != c.status || !strings.Contains(string(rec.Result.Producer()), c.result) {
+				t.Fatalf("%s %s, want %s with %q", rec.Status, rec.Result, c.status, c.result)
+			}
+			sameJSON(t, "the executor's arguments", x.got.Args, resolved)
+			sameJSON(t, "O2", rec.RecordedArgs, recorded)
+			sameJSON(t, "O3", rec.ResolvedArgs, resolved)
+		})
+	}
+	t.Run("resolution failure", func(t *testing.T) {
+		x := &failingExec{err: errors.New("never called")}
+		e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", inputs("v", static(`"$var:u/t/missing"`)), ""))}, x, testServices(t))
+		tr := runIt(t, e, `{}`, nil)
+		rec := tr.Steps[0]
+		if rec.Status != conformance.StepFailure || !x.got.Args.IsZero() {
+			t.Fatalf("%s %s, the executor got %s", rec.Status, rec.Result, x.got.Args)
+		}
+		sameJSON(t, "O2", rec.RecordedArgs, `{"v":"$var:u/t/missing"}`)
+		sameJSON(t, "O3", rec.ResolvedArgs, `{"v":"$var:u/t/missing"}`)
+	})
 }
