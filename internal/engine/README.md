@@ -17,9 +17,9 @@ time of milestone N2: `sleep`, the step timeout and its messages, retries
 with their arithmetic, jitter and argument reuse, deadlines and the clock,
 (milestone PF3) each run's place in the job registry, the helper
 `flow_user_state()`, a root script's run as a script job and the default
-dispatcher, the integration of milestone NI: N2's waits and retries,
+dispatcher, the integration of milestone NI (N2's waits and retries,
 the cancellation and failures inside containers, and the evaluation timing
-of container-level fields, and the `cache_ttl` result cache of milestone
+of container-level fields), and the `cache_ttl` result cache of milestone
 N4. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
