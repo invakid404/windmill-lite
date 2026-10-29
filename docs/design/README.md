@@ -70,7 +70,11 @@ adds subflows by path, each a child flow with its own results scope,
 failure module and `flow_env`, and the failure module's copy in every
 container body, with the location rule of
 [0011](0011-differential-testing.md) extended to the copies of a
-generated error and the not-found location a run declares. Milestone PF1 is the
+generated error and the not-found location a run declares. Milestone N4
+adds the `cache_ttl` result cache: a store behind the result cache
+service of [0007](0007-platform-interface.md), which a host may replace
+and whose default is in memory, keyed and timed by the rules of FX-40.
+Milestone PF1 is the
 platform facade of [0007](0007-platform-interface.md) in
 [internal/platform/facade](../../internal/platform/facade/README.md): the
 router behind the stock client, attribution over the intercepted `fetch`

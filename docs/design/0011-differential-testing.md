@@ -467,7 +467,7 @@ their root jobs were not in flight together.
 
 - Milestone E4b runs the stub acceptance cases on windmill-lite, and
   they match both their `expect`s and the oracle's recordings, effects
-  included. `wltest check` serves the oracle's effect sink and replay
+  included, in `fresh` and in `warm`. `wltest check` serves the oracle's effect sink and replay
   service on loopback for every fixture that declares effects or stub
   mode. Each invocation gets `WL_EFFECT_SINK` through the engine's
   invocation-environment hook (H12), the seam host hooks expose. That

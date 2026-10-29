@@ -326,6 +326,31 @@ waits on an external gate except R1.
   second session (two workers, OR-5), records what the reference leaves
   out of a dispatched job: its identity, which the engine reproduces.
 
+- N4 runs `cache_ttl` on the result cache of
+  [0007](0007-platform-interface.md): `platform.ResultCache`, a host's
+  store or the services' in-memory default (D4), in which the engine
+  looks a job up before it runs and stores its result when it succeeds
+  (`internal/engine/cache.go`). The TTL follows FX-40's matrix: an inline
+  step's module, a collapsed iteration's loop, a path script's own, a
+  subflow's or the root's flow-level `cache_ttl`, and a script root's own
+  for its script job. The key leaves out any path that differs between
+  jobs, so a collapsed loop's iterations share an entry (FX-40/d).
+  "The E3d FX-40 cases" in its row are read as `execution/fx-40`'s seven
+  runs (FX-40/a to /d), which pass in `warm` (the flow suite) and in
+  `fresh` (`TestCacheFixturesFreshAndWarm`). For that, `wltest check` now
+  runs flow fixtures in `fresh` too, on a pool of one process per
+  invocation, with the engine's new `Config.ModuleState`; the flow suite
+  through `wl` in both modes stays F1's. `execution/fx-40-hash`'s two
+  runs stay unsupported: the compiler refuses a hash-pinned script, which
+  a folder cannot supply, so the IR has no hash-pinned row of the matrix
+  to run. A flow job stores its result when the job that ended it
+  succeeded, which is FX-40/b's rule; for the cases no recording settles,
+  its text decides: a flow ended by an error stop stores, since that
+  step's job succeeded, and one that a tolerated failure at its last
+  module ends successfully does not, since that job failed. S3-aware
+  argument hashing needs an object's ETag, which the object store does
+  not keep, so `cache_ignore_s3_path` is refused (`later`).
+
 - N3c runs subflows by path as child flows at their step's site
   (`internal/engine/subflow.go`), each its own results scope (whose
   lookups still walk up, Q-CF-12 matched), its own innermost flow scope

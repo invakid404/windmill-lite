@@ -25,8 +25,9 @@ const stubDir = "../../conformance/flows/stub"
 // answering from each run's table, and every run matches both its expect
 // and the oracle's recording of it, effects included: where each stub
 // call resolved, its attempt, the job, flow, root flow and root ids the
-// step saw, and the arguments it received. TestFlowSuite requires the same
-// runs against their expects.
+// step saw, and the arguments it received. They run in fresh mode, one
+// harness process per invocation as on Windmill, and in warm mode.
+// TestFlowSuite requires the same runs against their expects, in warm.
 func TestStubCasesMatchTheOracle(t *testing.T) {
 	bun := bunOrSkip(t)
 	js, err := quickjs.New(quickjs.Options{})
@@ -34,7 +35,6 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer js.Close()
-	fc := &flowChecker{bun: bun, repo: repo(t), mode: conformance.ModeWarm, js: js}
 	dirs, err := findFixtures([]string{stubDir})
 	if err != nil {
 		t.Fatal(err)
@@ -43,43 +43,46 @@ func TestStubCasesMatchTheOracle(t *testing.T) {
 		t.Fatalf("%d stub fixtures under %s, want the four of E4a and E4b's codebase fixture", len(dirs), stubDir)
 	}
 	runs := 0
-	for _, dir := range dirs {
-		for _, against := range []string{"expect", "recording"} {
-			f, err := conformance.LoadFixture(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !f.Stub || !f.Oracle.Effects {
-				t.Errorf("%s: not a stub fixture with effects", dir)
-				continue
-			}
-			recorded := true
-			for i, r := range f.Runs {
-				if r.Recorded == nil || len(r.Recorded.Observation.Effects) == 0 {
-					t.Errorf("%s/%s: no recording with effects", dir, r.Name)
-					recorded = false
+	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {
+		fc := &flowChecker{bun: bun, repo: repo(t), mode: mode, js: js}
+		for _, dir := range dirs {
+			for _, against := range []string{"expect", "recording"} {
+				f, err := conformance.LoadFixture(dir)
+				if err != nil {
+					t.Fatal(err)
 				}
-				if against == "recording" {
-					f.Runs[i].Expect = nil
+				if !f.Stub || !f.Oracle.Effects {
+					t.Errorf("%s: not a stub fixture with effects", dir)
+					continue
 				}
-			}
-			if !recorded {
-				continue
-			}
-			for _, res := range fc.runFixture(context.Background(), f) {
-				switch {
-				case res.unsupported != "":
-					t.Errorf("%s/%s against its %s: unsupported: %s", dir, res.run, against, res.unsupported)
-				case len(res.problems) > 0:
-					t.Errorf("%s/%s against its %s:\n  %s\n%s", dir, res.run, against, strings.Join(res.problems, "\n  "), res.diag)
+				recorded := true
+				for i, r := range f.Runs {
+					if r.Recorded == nil || len(r.Recorded.Observation.Effects) == 0 {
+						t.Errorf("%s/%s: no recording with effects", dir, r.Name)
+						recorded = false
+					}
+					if against == "recording" {
+						f.Runs[i].Expect = nil
+					}
 				}
-				if against == "expect" {
-					runs++
+				if !recorded {
+					continue
+				}
+				for _, res := range fc.runFixture(context.Background(), f) {
+					switch {
+					case res.unsupported != "":
+						t.Errorf("%s/%s against its %s, %s: unsupported: %s", dir, res.run, against, mode, res.unsupported)
+					case len(res.problems) > 0:
+						t.Errorf("%s/%s against its %s, %s:\n  %s\n%s", dir, res.run, against, mode, strings.Join(res.problems, "\n  "), res.diag)
+					}
+					if against == "expect" && mode == conformance.ModeWarm {
+						runs++
+					}
 				}
 			}
 		}
 	}
-	t.Logf("stub acceptance cases: %d runs of %d fixtures match their expects and the oracle's recordings", runs, len(dirs))
+	t.Logf("stub acceptance cases: %d runs of %d fixtures match their expects and the oracle's recordings, in fresh and in warm", runs, len(dirs))
 }
 
 // Stub mode fails a run whose table lacks an attempt the run makes
