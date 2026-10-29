@@ -35,6 +35,8 @@ func TestStoreOutcome(t *testing.T) {
 			true, `{"error":{"message":"execution error:\nprocess terminated by signal: SIGKILL","name":"ExecutionErr","step_id":"a"}}`, OriginHarness},
 		{"empty is InternalErr with no step_id (WR-V2)", StepOutcome{Kind: OutcomeEmpty}, "a",
 			true, `{"error":{"message":"Internal: Result of job is invalid json (empty)","name":"InternalErr"}}`, OriginHarness},
+		{"ok with a string wm_failure fails (WR-17, FX-13)", StepOutcome{Kind: OutcomeOK, Body: text(`{"wm_failure":"bad input","x":1}`)}, "a",
+			true, `{"wm_failure":"bad input","x":1,"error":{"name":"ManualFailure","message":"bad input"}}`, OriginUser},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := StoreOutcome(tc.out, tc.step)
@@ -42,6 +44,34 @@ func TestStoreOutcome(t *testing.T) {
 				t.Fatalf("got failed=%v %s (%s); want failed=%v %s (%s)", s.Failed, s.Value.Producer(), s.Origin, tc.failed, tc.want, tc.origin)
 			}
 		})
+	}
+}
+
+// WR-17, FX-13: a successful result that marks itself failed with a
+// string wm_failure becomes a pre-shaped ManualFailure, its other members
+// kept; a null marker marks nothing, and a marker of the wrong type
+// disables both.
+func TestManualFailure(t *testing.T) {
+	for result, want := range map[string]string{
+		`{"wm_failure":"bad input","x":1}`:          `{"wm_failure":"bad input","x":1,"error":{"name":"ManualFailure","message":"bad input"}}`,
+		`{"x":1,"error":"old","wm_failure":"n<o>"}`: `{"x":1,"error":{"name":"ManualFailure","message":"n<o>"},"wm_failure":"n<o>"}`,
+		`{"wm_failure":"x","wm_labels":["a"]}`:      `{"wm_failure":"x","wm_labels":["a"],"error":{"name":"ManualFailure","message":"x"}}`,
+		`{"wm_failure":"x","wm_labels":null}`:       `{"wm_failure":"x","wm_labels":null,"error":{"name":"ManualFailure","message":"x"}}`,
+		`{"wm_failure":true}`:                       "",
+		`{"wm_failure":"x","wm_labels":"a"}`:        "",
+		`{"wm_failure":"x","wm_labels":[1]}`:        "",
+		`{"wm_failure":"x","wm_labels":[null]}`:     "",
+		`{"wm_failure":"x","wm_labels":["a",null]}`: "",
+		`{"wm_failure":"x","wm_labels":[]}`:         `{"wm_failure":"x","wm_labels":[],"error":{"name":"ManualFailure","message":"x"}}`,
+		`{"wm_failure":null,"x":1}`:                 "",
+		`{"x":1}`:                                   "",
+		`["wm_failure"]`:                            "",
+		`"wm_failure"`:                              "",
+	} {
+		v, failed := ManualFailure([]byte(result))
+		if failed != (want != "") || failed && string(v.Producer()) != want {
+			t.Errorf("%s: failed %v, %s; want %s", result, failed, v.Producer(), want)
+		}
 	}
 }
 

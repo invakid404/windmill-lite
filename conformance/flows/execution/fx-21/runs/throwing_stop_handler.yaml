@@ -7,6 +7,16 @@ expect:
   status: failure
   result: H
   steps:
-    "m:a": {status: success, module: failure, args: {}, result: 1}
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: 1
+      # FX-21: the completion is redone as a failure carrying the string
+      # error, while the job keeps its result (FX-V2); the oracle exposes
+      # no carried value, so the recording cannot show it. windmill-lite
+      # writes no location: ADR 0011's rule strips the <loc> of FX-21/a's
+      # template where windmill-lite generated the value.
+      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
     "m:b": {status: not_run}
     "s:failure": {status: success, args: {}, result: H}

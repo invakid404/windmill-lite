@@ -254,7 +254,8 @@ func TestSkeletonFailureValues(t *testing.T) {
 }
 
 // H4: canceling the run abandons the step in flight; the run ends canceled
-// with no result, and settles once that invocation has.
+// with the Canceled error, Windmill's defaults naming no reason and no
+// canceler (FX-38), and settles once that invocation has.
 func TestSkeletonCancel(t *testing.T) {
 	settled := make(chan *Trace, 1)
 	hooks := &settleHook{ch: settled}
@@ -265,9 +266,10 @@ func TestSkeletonCancel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr.Status != conformance.RunCanceled || !tr.Result.IsZero() {
-		t.Fatalf("status %s, result %s", tr.Status, tr.Result)
+	if tr.Status != conformance.RunCanceled || tr.ResultOrigin != OriginEngine {
+		t.Fatalf("status %s, origin %q", tr.Status, tr.ResultOrigin)
 	}
+	sameJSON(t, "the result", tr.Result, `{"error":{"message":"Job canceled: no reason given by unknown","name":"Canceled","reason":"no reason given","canceler":"unknown"}}`)
 	if a := step(t, tr, "a"); !a.Abandoned || a.Status != conformance.StepCanceled {
 		t.Fatalf("step %+v", a)
 	}

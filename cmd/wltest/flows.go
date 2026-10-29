@@ -23,6 +23,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/oracle"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
@@ -265,6 +266,7 @@ type target struct {
 	// prog is the flow's program, compiled with the flow as its only root.
 	prog    *ir.Program
 	modules []string // the module ids of the flow, in order
+	failure bool     // the flow has a failure module
 	// reached are the scripts the flow reaches, and names how a problem
 	// names each, by inventory id.
 	reached []*ir.Script
@@ -442,6 +444,7 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 	for _, m := range fl.Modules {
 		t.modules = append(t.modules, m.ID)
 	}
+	t.failure = fl.FailureModule != nil
 	t.names = map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
 		s := prog.Scripts[id]
@@ -556,12 +559,18 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// runOne runs one run on the engine and compares its observation.
+// runOne runs one run on the engine and compares its observation. A run's
+// cancel_after_ms cancels it with the reason and the canceler the oracle's
+// cancellation names (FX-38).
 func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool *harness.Pool, t *target) []string {
-	rctx, cancel := context.WithTimeout(ctx, flowRunTimeout)
+	cctx, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
+	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)
 	defer cancel()
 	if r.CancelAfterMS != nil {
-		stop := time.AfterFunc(time.Duration(*r.CancelAfterMS)*time.Millisecond, cancel)
+		stop := time.AfterFunc(time.Duration(*r.CancelAfterMS)*time.Millisecond, func() {
+			cancelRun(&engine.Cancellation{Reason: oracle.CancelAfterReason, Canceler: oracle.CancelAfterCanceler})
+		})
 		defer stop.Stop()
 	}
 	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
@@ -577,7 +586,7 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, exec.ids(), f.Compare)
+	got, generated, err := observeTrace(tr, t.modules, t.failure, exec.ids(), f.Compare)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}

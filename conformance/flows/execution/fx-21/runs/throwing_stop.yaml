@@ -8,7 +8,17 @@ expect:
   status: failure
   result: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
   steps:
-    "m:a": {status: success, module: failure, args: {}, result: 1}
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: 1
+      # FX-21: the completion is redone as a failure carrying the string
+      # error, while the job keeps its result (FX-V2); the oracle exposes
+      # no carried value, so the recording cannot show it. windmill-lite
+      # writes no location: ADR 0011's rule strips the <loc> of FX-21/a's
+      # template where windmill-lite generated the value.
+      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
     "m:b": {status: not_run}
 note: >-
   Corrected after recording. The prediction guessed the string as 'Error:
@@ -16,7 +26,6 @@ note: >-
   oracle's string is FX-21's 'Error: QuickJS evaluation error: ...
   @<location>' with the name Error, the engine's stack, and Windmill's Rust
   location at the end. The difference surfaced in oracle run 40685013818 and
-  is recorded by run 40686049913. FX-21/a's catalogue entry has no <loc>
-  template, so the comparison rule of ADR 0011, which strips the oracle's
-  location only where a template carries <loc>, cannot strip it yet:
-  windmill-lite cannot match this recording until the reference adds one.
+  is recorded by run 40686049913. FX-21/a's catalogue entry now writes the
+  location as <loc>, and the comparison rule of ADR 0011 strips it where
+  windmill-lite generated the value (milestone N1b), which writes none.

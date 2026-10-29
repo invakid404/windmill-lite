@@ -5,10 +5,11 @@
 // Engine runs the flows of a compiled program (ir.Program): milestone N1a's
 // engine core runs a flow's top-level modules in sequence, with input
 // transforms, the results routes of expressions, skip_if, mock, identity,
-// stop_after_if and a static step timeout. Later milestones add the
-// failure machinery (N1b), waits and retries (N2), containers (N3) and
-// subflows (N3c); until then New refuses what they implement, with
-// ErrUnsupported.
+// stop_after_if and a static step timeout, and milestone N1b's failure
+// machinery: continue_on_error, the failure module and recovery, chaining
+// errors and the cancellation outcome. Later milestones add waits and
+// retries (N2), containers (N3) and subflows (N3c); until then New refuses
+// what they implement, with ErrUnsupported.
 //
 // The contracts it is built against (milestone K1):
 //

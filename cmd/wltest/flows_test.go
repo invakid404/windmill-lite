@@ -282,7 +282,7 @@ func TestObserveTrace(t *testing.T) {
 			},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestObserveTrace(t *testing.T) {
 		{Site: site("a"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, ResultOrigin: engine.OriginHarness,
 			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`{"error":{"name":"InternalErr","message":"m"}}`), Carried: v(`{"error":{"name":"InternalErr","message":"m"}}`)},
 	}}
-	got, generated, err = observeTrace(tr, []string{"a"}, nil, conformance.CompareSpec{})
+	got, generated, err = observeTrace(tr, []string{"a"}, false, nil, conformance.CompareSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestCarriedLocation(t *testing.T) {
 		{"carried is another value", trace(engine.OriginEngine, other), expect(withLoc(msg + " here")), false, []string{"/steps/m:a/carried/error/message"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, conformance.CompareSpec{})
+			got, generated, err := observeTrace(c.trace, []string{"a"}, false, nil, conformance.CompareSpec{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -464,6 +464,45 @@ func TestCarriedLocation(t *testing.T) {
 				t.Fatalf("differences at %q, want %q", differs, c.differs)
 			}
 		})
+	}
+}
+
+// N1b: a flow with a failure module has the site s:failure, not_run when
+// it never ran, as the oracle's walker reads the flow's failure_module
+// entry. A carried value the engine set apart from the job's result (an
+// error stop's, FX-21's string, a chaining error with no job) has its own
+// origin, so the location rule reaches it: FX-21/a's string loses its
+// <loc> there, while the job's user result next to it keeps its text.
+func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	const text = `Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n`
+	str := `{"error":"` + text + `"}`
+	tr := &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(str), ResultOrigin: engine.OriginEngine, Steps: []engine.StepRecord{{
+		Site: conformance.SitePath{}.Child(conformance.Module("a")), Status: conformance.StepSuccess, Module: conformance.ModuleFailure, Ran: true,
+		RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`1`), Carried: v(str), CarriedOrigin: engine.OriginEngine,
+	}}}
+	got, generated, err := observeTrace(tr, []string{"a", "b"}, true, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := got.Steps[conformance.SitePath{}.Child(conformance.FailureSlot())]; f.Status != conformance.StepNotRun {
+		t.Fatalf("s:failure %+v", f)
+	}
+	if want := []string{"/steps/m:a/carried", "/result"}; !slices.Equal(generated, want) {
+		t.Fatalf("generated %q, want %q", generated, want)
+	}
+	withLoc := `{"error":"` + text + ` @worker_flow.rs:2451:11"}`
+	var expect conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"failure","result":`+withLoc+`,"steps":{"m:a":{"status":"success","module":"failure","args":{},"result":1,"carried":`+withLoc+`},"m:b":{"status":"not_run"},"s:failure":{"status":"not_run"}}}`), &expect); err != nil {
+		t.Fatal(err)
+	}
+	if p := compareRun(&conformance.Fixture{}, conformance.Run{Expect: &expect}, got, generated); len(p) != 0 {
+		t.Fatalf("problems %q", p)
+	}
+	// Without a failure module there is no s:failure site.
+	got, _, err = observeTrace(tr, []string{"a", "b"}, false, nil, conformance.CompareSpec{})
+	if _, ok := got.Steps[conformance.SitePath{}.Child(conformance.FailureSlot())]; err != nil || ok {
+		t.Fatalf("s:failure without a failure module (%v)", err)
 	}
 }
 
