@@ -1,0 +1,10 @@
+# FX-36/d: the status code and an empty body.
+spec: [FX-36/d]
+target: f/wl_fx36h/status_only
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_status_code: 200}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_status_code: 200}}
+  response: {status: 200, body: ''}

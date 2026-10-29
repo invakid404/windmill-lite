@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/platform/facade"
 )
 
 const (
@@ -578,7 +579,13 @@ cases:
 		t.Fatalf("build: %v %v", err, problems)
 	}
 	var diag syncBuffer
-	p, err := sc.spawn(ctx, out, digest, &diag)
+	calls := &callLog{byInv: map[string][]facade.Record{}}
+	fac, err := facade.New(facade.Config{Recorded: calls.store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fac.Close()
+	p, err := sc.spawn(ctx, out, digest, &diag, fac)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +601,7 @@ cases:
 		go func() {
 			defer wg.Done()
 			c := &f.Cases[i]
-			got[i], _ = sc.runOne(ctx, p, c, &c.Runs[0], caseID(f, c), newUUID())
+			got[i], _ = sc.runOne(ctx, fac.Executor(p), calls, c, &c.Runs[0], caseID(f, c), newUUID())
 		}()
 	}
 	wg.Wait()
@@ -611,8 +618,8 @@ cases:
 // A flow's native steps run through the real build and harness with their
 // boundary and the native environment: a nativets step without a //native
 // line, one with it, and a bun step with it are each native (no Bun) and
-// read BASE_URL and BASE_INTERNAL_URL as the facade origin the step cases
-// get, and only the nativets ones declare the job variables as bare names
+// read BASE_URL and BASE_INTERNAL_URL as the fixture's facade origin, a
+// loopback one (milestone PF1), and only the nativets ones declare the job variables as bare names
 // (WR-40's note, SC1; WR-45/a; c3n review r3, finding 6).
 func TestNativeFlowSteps(t *testing.T) {
 	bun := bunOrSkip(t)
@@ -621,7 +628,7 @@ func TestNativeFlowSteps(t *testing.T) {
 		return map[string]any{
 			"type":             "rawscript",
 			"language":         lang,
-			"content":          header + "export function main() { return [typeof Bun, process.env.BASE_URL, process.env.BASE_URL === process.env.BASE_INTERNAL_URL, typeof BASE_URL, typeof WM_WORKSPACE]; }",
+			"content":          header + "export function main() { return [typeof Bun, /^http:\\/\\/127\\.0\\.0\\.1:[0-9]+$/.test(process.env.BASE_URL), process.env.BASE_URL === process.env.BASE_INTERNAL_URL, typeof BASE_URL, typeof WM_WORKSPACE]; }",
 			"input_transforms": map[string]any{},
 		}
 	}
@@ -630,8 +637,8 @@ func TestNativeFlowSteps(t *testing.T) {
 		map[string]any{"id": "nativetsheader", "value": script("nativets", "//native\n")},
 		map[string]any{"id": "bunheader", "value": script("bun", "//native\n")},
 	}}}
-	nativets := []any{"undefined", stepFacade, true, "string", "string"}
-	bunnative := []any{"undefined", stepFacade, true, "string", "undefined"}
+	nativets := []any{"undefined", true, true, "string", "string"}
+	bunnative := []any{"undefined", true, true, "string", "undefined"}
 	step := func(result []any) map[string]any {
 		return map[string]any{"status": "success", "args": map[string]any{}, "result": result}
 	}

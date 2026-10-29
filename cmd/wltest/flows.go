@@ -24,6 +24,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/oracle"
+	"github.com/invakid404/windmill-lite/internal/platform/facade"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
@@ -162,15 +163,24 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		return failRuns(results, "build: "+err.Error())
 	}
 	var diag syncBuffer
+	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
+	// pool reaches it through the intercepted fetch, at an origin where
+	// nothing listens, and every step's calls are attributed to it.
+	fac, err := facade.New(facade.Config{})
+	if err != nil {
+		return failRuns(results, "facade: "+err.Error())
+	}
+	defer fac.Close()
 	path, args := harness.BunCommand(fc.bun, filepath.Join(fc.repo, "harnesses", "bun", "runtime", "main.ts"), b.out)
 	pool, err := harness.NewPool(harness.PoolConfig{
 		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: engine.ModuleStateWarm},
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
 			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
-			// The same facade origin as the step cases', so a native step
-			// reads the same BASE_URL and BASE_INTERNAL_URL in both (WR-45).
-			Facade: stepFacade,
+			// The same kind of origin as a warm step case's, so a native step
+			// reads the facade's origin as BASE_URL and BASE_INTERNAL_URL in
+			// both (WR-45).
+			Facade: fac.WarmOrigin(), Platform: fac.Platform(),
 		},
 	})
 	if err != nil {
@@ -214,6 +224,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
 				continue
+			case r.RunsAndWaits():
+				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
+				continue
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
 				continue
@@ -228,7 +241,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, engines[r.Target], pool, t)
+				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t)
 			}()
 		}
 		wg.Wait()
@@ -561,7 +574,7 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 // runOne runs one run on the engine and compares its observation. A run's
 // cancel_after_ms cancels it with the reason and the canceler the oracle's
 // cancellation names (FX-38).
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool *harness.Pool, t *target) []string {
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target) []string {
 	cctx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)

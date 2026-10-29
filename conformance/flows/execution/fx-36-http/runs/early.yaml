@@ -1,0 +1,13 @@
+# FX-37/a: run-and-wait answers a's 1 while b still sleeps; the flow
+# then completes with 2. That the response came first is checked on
+# the recording's timings (TestRecordedEarlyReturn).
+spec: [FX-37/a]
+target: f/wl_fx36h/early
+submit: run_wait_result
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: success, args: {}, result: 2}
+  response: {status: 200, content_type: application/json, body: '1'}

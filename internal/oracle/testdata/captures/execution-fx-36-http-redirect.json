@@ -1,0 +1,52 @@
+{
+  "fixture": "conformance/flows/execution/fx-36-http",
+  "run": "redirect",
+  "repeat": 0,
+  "workspace": "wl-3a973d-38",
+  "root": "65ccfc1b-9297-48fc-9eda-65fa95182c0f",
+  "effects": [],
+  "response": {
+    "method": "POST",
+    "url": "run_wait_result/f/f/wl_fx36h/redirect",
+    "status": 302,
+    "content_type": "application/json",
+    "body": "\"moved\""
+  },
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/get/65ccfc1b-9297-48fc-9eda-65fa95182c0f?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-3a973d-38\",\"id\":\"65ccfc1b-9297-48fc-9eda-65fa95182c0f\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T02:45:19.188884Z\",\"started_at\":\"2026-10-29T02:45:19.199125Z\",\"completed_at\":\"2026-10-29T02:45:19.233228Z\",\"duration_ms\":34,\"success\":true,\"script_hash\":\"0000000000000070\",\"script_path\":\"f/wl_fx36h/redirect\",\"args\":{},\"result\":{\"result\": \"moved\", \"windmill_headers\": {\"Location\": \"/elsewhere\"}, \"windmill_status_code\": 302},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a1858c-2ee2-4415-6186-dd38c3875e00\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-ed50305106bf-JDttT\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/completed/get_result_maybe/65ccfc1b-9297-48fc-9eda-65fa95182c0f?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"result\": \"moved\", \"windmill_headers\": {\"Location\": \"/elsewhere\"}, \"windmill_status_code\": 302}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/get/01a1858c-2ee2-4415-6186-dd38c3875e00?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-3a973d-38\",\"id\":\"01a1858c-2ee2-4415-6186-dd38c3875e00\",\"parent_job\":\"65ccfc1b-9297-48fc-9eda-65fa95182c0f\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T02:45:19.201732Z\",\"started_at\":\"2026-10-29T02:45:19.204715Z\",\"completed_at\":\"2026-10-29T02:45:19.229192Z\",\"duration_ms\":21,\"success\":true,\"script_hash\":\"00000000000000b1\",\"script_path\":\"f/wl_fx36h/redirect/a\",\"args\":{},\"result\":{\"result\": \"moved\", \"windmill_headers\": {\"Location\": \"/elsewhere\"}, \"windmill_status_code\": 302},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":10252,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-ed50305106bf-JDttT\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/get_args/01a1858c-2ee2-4415-6186-dd38c3875e00",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/completed/get_result_maybe/01a1858c-2ee2-4415-6186-dd38c3875e00?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"result\": \"moved\", \"windmill_headers\": {\"Location\": \"/elsewhere\"}, \"windmill_status_code\": 302}}"
+    }
+  ]
+}

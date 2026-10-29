@@ -1,0 +1,11 @@
+# FX-36/a: HTTP 200 with the stored object as the body, in jsonb's text
+# output.
+spec: [FX-36/a]
+target: f/wl_fx36h/object
+submit: run_wait_result
+expect:
+  status: success
+  result: {b: 1, a: 2}
+  steps:
+    "m:a": {status: success, args: {}, result: {b: 1, a: 2}}
+  response: {status: 200, content_type: application/json, body: '{"a": 2, "b": 1}'}

@@ -9,8 +9,10 @@ context-free expression cases in `exprs/`. `wltest record` records the flow fixt
 on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
 recording batches E3c (flow execution errors), E3b (flow execution core)
 and E3d (loops, branches and the result cache), the stub-mode acceptance
-cases, and those of recording batch E3a (the expression cases of the JE
-catalogue, and CF-19 and CF-V6). This README covers `conformance/`.
+cases, those of recording batch E3a (the expression cases of the JE
+catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
+HTTP responses, the contested `later` cases, codebase scripts, and the
+probe catalogue rebuilt as fixtures). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
 engine core (milestones E1, N1a and N1b), which runs sequential flows of
 Bun steps and their failure modules; it also runs the expression cases
@@ -94,6 +96,19 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/languages/bun-results` | Milestone E1: a Bun step's outcome in a sequential flow. Run `serialise`: [WR-13](../docs/semantics/languages.md#wr-13)/a's value as stored, what the next step sees of a key that held `undefined` ([WR-14](../docs/semantics/languages.md#wr-14)), and WR-13/b's `null` as the flow's result. Run `thrown_string`: [FX-47](../docs/semantics/execution.md#fx-47)/a. Run `timeout`: [WR-37](../docs/semantics/languages.md#wr-37)/a and [FX-24](../docs/semantics/execution.md#fx-24)/a. After each failure the next module is `not_run` ([OR-11](../docs/semantics/oracle.md#or-11)). |
 | `flows/languages/codebase` | Milestone E1's codebase-script fixture: a flow of two path steps that are codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)), one in an `esm` entry and one in an entry with no `format`, CommonJS ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)). The CLI bundles them with esbuild on the oracle, and `wltest check` with esbuild too, as milestone C2b builds codebase scripts (`bundle.BuildCodebase`); the CommonJS one runs on Bun's CommonJS loader (D13). The scripts are self-contained. |
 | `flows/client-api/job-env` | Milestone E1: the contextual variables of inline and path steps ([WA-4](../docs/semantics/client-api.md#wa-4)/a, [FX-45](../docs/semantics/execution.md#fx-45)/a, [WR-22](../docs/semantics/languages.md#wr-22)), with each step's job ids normalised to placeholders ([OR-14](../docs/semantics/oracle.md#or-14)): its own job, and the root flow as the parent, the innermost flow scope and the effective root of a step directly in the flow ([WA-V1](../docs/semantics/client-api.md#wa-v1)). |
+| `flows/client-api/identity` | Milestone PF1: the job identity of an inline step and a path script in a flow: the state path ([WA-5](../docs/semantics/client-api.md#wa-5)/a), the base URL variables ([WA-2](../docs/semantics/client-api.md#wa-2)/a), the token, and the root that a lookup with the step's own token answers by fetch at `BASE_URL` (the call `getRootJobId` makes, [WA-14](../docs/semantics/client-api.md#wa-14), WA-V1), which on windmill-lite the platform facade answers. |
+| `flows/execution/fx-36-http` | Batch E3e: [FX-36](../docs/semantics/execution.md#fx-36)'s HTTP part (`later`), every run submitted through run-and-wait (`submit: run_wait_result`), so its observation holds the HTTP response beside the walk: FX-36/a–g, an array result ([Q-FX-12](../docs/semantics/execution.md#q-fx-12), decoded positionally), a content type with and without a parameter, base64 transfer encoding to text and to bytes that are not UTF-8, a redirect status, FX-12/a over HTTP, FX-V3/a's skipped flow, and FX-37/a's early response. Gates F7b. |
+| `flows/execution/fx-49` | Batch E3e: [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11), `later`): a flow-level `skip_expr` that the loop at module 0 flips from false to true, with a collapsed and a two-step body, and to a throw. `setup.yaml` resets the variable before every run (`oracle.setup: each_run`). |
+| `flows/execution/fx-10-c` | Batch E3e: FX-10/c, `results[""]` inside a step's own `stop_after_if`, which the reference added after E3b. |
+| `flows/languages/wr-16` | Batch E3e: [WR-16](../docs/semantics/languages.md#wr-16) ([Q-WR-15](../docs/semantics/languages.md#q-wr-15), `later`): result streaming, WR-16/a–g, each one inline step. |
+| `flows/languages/wr-28` | Batch E3e: [WR-28](../docs/semantics/languages.md#wr-28) ([Q-WR-16](../docs/semantics/languages.md#q-wr-16)): static and dynamic imports of workspace scripts, WR-28/a–e, each a flow running the importing script by path. Created through the API in path order (`oracle: {deploy: api}`), so each imported script exists before the script that imports it. |
+| `flows/languages/codebase-cases` | Batch E3e: codebase scripts in the shape of `flows/languages/codebase`, one `wmill.yaml` entry per case: CommonJS on Node and ESM on Bun ([WR-47](../docs/semantics/languages.md#wr-47)/a–b), esbuild's `define`, `inject`, `loader` and `banner` (WR-47/c–f), assets and a multi-file output ([WR-49](../docs/semantics/languages.md#wr-49)/a–b), the runtime `//native` and `//nodejs` select and the Node version ([WR-50](../docs/semantics/languages.md#wr-50)/b–e), and in both formats a relative import and the step's environment. The runs that report Node are deviation D13 on windmill-lite. |
+| `flows/oracle/probes` | Batch E3e: the [probe catalogue](../docs/semantics/oracle.md#probe-catalogue) rebuilt as executable fixtures with every binding written out ([Q-OR-16](../docs/semantics/oracle.md#q-or-16), [OR-V9](../docs/semantics/oracle.md#or-v9)/a–d), and its OR cases (key order, loops, branches, retries, failure modules, stops, `skip_if`, `$var:`, effects, `delete_after_use`, a subflow's `delete_after_use`, `sleep`, response metadata asynchronously and through run-and-wait, the environment). |
+| `flows/oracle/big-payload`, `nul`, `seeded`, `key-order` | Batch E3e: the probes `big_payload` ([OR-V1](../docs/semantics/oracle.md#or-v1)) and `nul` with the other NUL positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)); a variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31)/a, OR-12/d; `oracle.setup: before_push`); the key-order cases of [OR-24](../docs/semantics/oracle.md#or-24) that E3a left. |
+| `flows/oracle/workers2` | Batch E3e: the two-worker profile ([OR-5](../docs/semantics/oracle.md#or-5)/b): a step that waits for a script it starts, and parallel bodies whose index 0 is slow ([Q-OR-7](../docs/semantics/oracle.md#q-or-7), [Q-OR-15](../docs/semantics/oracle.md#q-or-15)). Recorded by the oracle workflow's two-worker session. |
+| `flows/control-flow/pull` | Batch E3e: CF-6/b and SY-6/c, a flow created through the API as written and read back with the CLI's `sync pull` (`oracle: {deploy: api, pull: true}`); the pulled value is in each recording's provenance. |
+| `flows/je/shortcut-texts` | Batch E3e: B2a's request 8, the text the JE-7 and JE-8 shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error. |
+| `flows/je/transform-order`, `transform-order-api` | Batch E3e: the evaluation order of a step's input transforms ([JE-23](../docs/semantics/expressions.md#je-23)), with the transforms in the CLI's name order and, created through the API, as written. |
 
 `internal/oracle/testdata/batches/<batch>.json` names each batch's
 findings, fixtures and the cases it defers, and `TestRecordingBatches`
@@ -115,7 +130,7 @@ container's defaults into `flow.yaml` (`skip_failures` and `parallel` on a
 loop, `parallel` on a `branchall`, and `skip_failure`, `parallel` and `expr`
 on each branch), so a field left out of such a tree never reaches the
 oracle absent. A fixture with `oracle: {deploy: api}` (`cf-6`, `cf-15`,
-`fx-40-hash`) is instead created through the REST API exactly as written
+`fx-40-hash`, `pull`, `wr-28`, `transform-order-api`) is instead created through the REST API exactly as written
 and never regenerated, so its tree holds no generated metadata; each of its
 recordings' provenance holds the target flow's submitted value, the value
 the API answers after the dependency job, and what `generate-metadata`
@@ -544,18 +559,19 @@ cases:
 | `language` | `bun` (the default), `bunnative` or `nativets`; a deploy relabels `bun` and `bunnative` from the script's `//native` header, and `bunnative` and `nativets` run with the native boundary ([WR-40](../docs/semantics/languages.md#wr-40)). The catalogue's "both kinds" are two cases: `language: nativets`, and a script whose first line is `//native` |
 | `timeout` | the step's static timeout in seconds: when it passes, the run is abandoned and its observation is the engine's timeout error for the step's boundary ([WR-37](../docs/semantics/languages.md#wr-37), [WR-44](../docs/semantics/languages.md#wr-44)) |
 | `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` |
-| `env` | job variables that add to or replace the core `WM_*` ones |
+| `env` | job variables that add to or replace those of the job identity ([internal/platform](../internal/platform/README.md)) |
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
 | `codebase` | makes the script a codebase script, bundled by esbuild (C2b): the settings of its `codebases` entry as `wmill.yaml` gives them (`format`, `define`, `inject`, `loader`, `banner`, `external`, `assets`) |
 | `files` | other files of the folder, by path from the sync root, that a codebase build reads: modules it imports, inject files, asset sources |
 | `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared) unless `keep_stack` is set, for a case that states the stack in claims; `unordered` arrays; `strict_key_order` |
-| `deviation` | the deviation whose two readings the case's `by_mode` gives |
+| `deviation` | the deviation whose two readings the case's `by_mode` gives, or `5a` for the restriction of ADR 0001 §5a that a warm process reaches the platform only through `fetch` (`wa-31.yaml`) |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
 | `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |
 | `runs[].late`, `settled` | what the invocation reports after its outcome (`kind`, `final`, `body`), up to the end of the case, so a late report of work it left running after it settled counts too, compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
 | `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9): `unattributed_error`; `left_behind`, which reports what it still had when it settled; and `native_untracked`, which reports what the native boundary handed it but does not track (D5); none when absent |
 | `runs[].left` | the counts of the `left_behind` warning by kind (`timeout`, `interval`, `immediate`, `fetch`, `child`), compared when given |
 | `runs[].untracked` | the counts of the `native_untracked` warning by kind (a class name, or `function <name>`), compared when given |
+| `runs[].calls` | the platform calls the facade recorded against the invocation, in order, each `<status> <METHOD> <route template>` (`501 POST /w/{ws}/jobs/run/p/{path}`), or the path as sent where no route matched; `[]` for none; compared when given. A call refused by the kernel, or with a token the facade does not know, is never listed (milestone PF1) |
 | `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own |
 | `runs[].node` | for a CommonJS codebase case: what the same bundle shows on Node (`expect`, `claims`) where it differs from the run's own check (D13); without it, the run's own `expect` and `claims` must hold on Node too |
 

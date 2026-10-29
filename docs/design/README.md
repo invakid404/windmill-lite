@@ -38,8 +38,10 @@ E2 the oracle harness of
 E3c, E3b and E3d recorded the flow-execution error cases, its core and the
 control-flow cases and settled contested rules of
 [0001](0001-equivalence-contract.md) §6, recording batch E3a the JE
-expression cases and CF-19 and CF-V6, which settled another, and milestone
-E4a its stub mode. Milestone F4 implements the bundle of
+expression cases and CF-19 and CF-V6, which settled another, recording
+batch E3e the remaining recordings (FX-36's HTTP part, the contested
+`later` rows, the probe catalogue rebuilt as fixtures, codebase scripts),
+and milestone E4a its stub mode. Milestone F4 implements the bundle of
 [0010](0010-packaging.md) (the build, the manifest and the bundle digest,
 `verify`) in [internal/bundle](../../internal/bundle/README.md) and
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md), and put the
@@ -59,12 +61,17 @@ the expression cases on it. Milestone N1b adds the engine's errors:
 `continue_on_error`, the failure module and recovery, chaining errors, the
 error shapes, the final result and the cancellation outcome, with the
 location rule of [0011](0011-differential-testing.md) extended to the
-chaining errors' suffixes. Milestone N2 adds the engine's waits and time:
-`sleep`, the step timeout and its messages, retries with their arithmetic,
-jitter and argument reuse, deadlines (the monitor of flows that hang
-between steps, the pre-write deadline of [0008](0008-host-hooks.md)'s H4)
-and the clock of H10, with its fixtures `fx-23` to `fx-29` recorded on the
-oracle.
+chaining errors' suffixes. Milestone PF1 is the platform facade of
+[0007](0007-platform-interface.md) in
+[internal/platform/facade](../../internal/platform/facade/README.md): the
+router behind the stock client, attribution over the intercepted `fetch`
+and loopback TCP, the 501 policy, and job identity in
+[internal/platform](../../internal/platform/README.md). Milestone N2 adds
+the engine's waits and time: `sleep`, the step timeout and its messages,
+retries with their arithmetic, jitter and argument reuse, deadlines (the
+monitor of flows that hang between steps, the pre-write deadline of
+[0008](0008-host-hooks.md)'s H4) and the clock of H10, with its fixtures
+`fx-23` to `fx-29` recorded on the oracle.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
@@ -171,7 +178,11 @@ E3d recorded CF-12 and FX-40 as reading (b), the default each already had
 (request 6 below). E3a has recorded the CF-19 / CF-V6 dispute
 ([Q-CF-16](../semantics/control-flow.md#q-cf-16)): the direct lookup is
 line-anchored, the stated default (request 7 below). 0001 §6 gives the
-results, and the reference now records them (requests 5 to 7 below).
+results, and the reference now records them (requests 5 to 7 below). E3e
+recorded the contested `later` rows, FX-49 (Q-FX-11), FX-36's array result
+(Q-FX-12) and WR-16 and WR-28 (Q-WR-15, Q-WR-16), each for its stated
+default, and rebuilt the probe catalogue (Q-OR-16); the reference has yet
+to record those (request 10 below).
 
 ## Requests to the semantics team
 
@@ -405,12 +416,16 @@ do (FU4).
    `flow_input` member is `jsonb`'s spaced text, and a `previous_result`
    after a loop or `branchall` is compact text printed again.
    [Q-JE-13](../semantics/expressions.md#q-je-13) asks for the two oracle
-   runs. Milestone FU3 follows the answers: the pipeline cases restate the
-   E3a cases with the texts the worker holds, `expr.Scope` and
-   [0005](0005-json-step-boundaries.md)'s routing table give those texts,
-   and JE-11's rewrite places its parenthesis at a character count applied
-   as a byte offset, failing the evaluation where Windmill's evaluator
-   panics ([0001](0001-equivalence-contract.md) §6).
+   runs. Recording batch E3e made them
+   (`conformance/flows/je/shortcut-texts`), and they agree with the
+   correction: `flow_input.o` quotes `{"a": 2, "b": 1}`, at the first
+   module and after one, and `results.l` right after a loop quotes
+   `[{"a":2,"b":1}]` (request 10). Milestone FU3 follows the answers: the
+   pipeline cases restate the E3a cases with the texts the worker holds,
+   `expr.Scope` and [0005](0005-json-step-boundaries.md)'s routing table
+   give those texts, and JE-11's rewrite places its parenthesis at a
+   character count applied as a byte offset, failing the evaluation where
+   Windmill's evaluator panics ([0001](0001-equivalence-contract.md) §6).
 9. **The expression program's unstated details** (milestone B2b). Each is
    decided by the reading named here and pinned by a test in
    `internal/expr`; [internal/expr](../../internal/expr/README.md) says
@@ -486,6 +501,74 @@ do (FU4).
       `1e+21`, `1.2345678901234568e+29`) but not where the notation turns
       from decimal to exponent, nor how small numbers are written. The loop
       milestones need it.
+
+10. **Fold in recording batch E3e.** E3e recorded on the oracle what its
+    manifest, `internal/oracle/testdata/batches/e3e.json`, lists, with
+    fixtures under `conformance/flows` (the batch is in
+    [internal/oracle](../../internal/oracle/README.md#recording-batches)).
+    Please mark the recorded cases `oracle-observed` and close what they
+    settle:
+    - [Q-FX-11](../semantics/execution.md#q-fx-11): FX-49/a gives the
+      correction's outcome, loop result `[1]` and a normal completion, with
+      a collapsed and a two-step body; the throwing variant fails the flow
+      with a chaining `InternalError` and leaves the loop canceled, its
+      module in progress.
+    - [Q-FX-12](../semantics/execution.md#q-fx-12): run-and-wait decodes an
+      array result positionally (`[201, null, null, null, 7]` gives HTTP
+      201 with the body `7`). FX-36/b's body is jsonb's text output, its
+      members in jsonb order (`name`, `stack`, `message`, `step_id`), not
+      the order the case writes them in; FX-36/a, /c–/g and FX-V3/a hold as
+      written, and `early_return` answers while the flow runs on (FX-37/a).
+    - [Q-WR-15](../semantics/languages.md#q-wr-15) and
+      [Q-WR-16](../semantics/languages.md#q-wr-16): the corrected readings
+      (WR-16/f `"7"`, WR-16/g `"ab"`; WR-28/e fetches the rewritten dynamic
+      specifier). WR-28/d's script cannot even be deployed: its dependency
+      job takes the dynamic `./helper` for an npm package named `.`, so the
+      failure comes at deploy time, not when the import runs.
+    - [Q-WR-24](../semantics/languages.md#q-wr-24): the image runs
+      CommonJS bundles on Node v20.20.2, so an ESM bundle sent to Node
+      without a declared type loads (WR-50/b, WR-50/e). A `//native`
+      codebase script's job never completed on CE standalone, canceled or
+      not (WR-50/c), which the reference may want to say. WR-49/b gives
+      `[true,false]` as stated.
+    - [Q-OR-16](../semantics/oracle.md#q-or-16): the catalogue rebuilt as
+      `conformance/flows/oracle/probes` reproduces every recorded result
+      with its bindings written out, and the bare `iter.value` fails with
+      `iter is not defined` (OR-V9/b).
+    - [Q-OR-6](../semantics/oracle.md#q-or-6): a NUL in an object key or a
+      nested value of a Bun result fails like OR-27/a; a Python result's
+      NUL is stored as the text ` null ` and does not fail.
+    - [Q-OR-7](../semantics/oracle.md#q-or-7) and
+      [Q-OR-15](../semantics/oracle.md#q-or-15): on two workers a slow
+      index-0 body completes after the next one, while results and an empty
+      branch's index stay in index order.
+    - [Q-OR-11](../semantics/oracle.md#q-or-11) (a) and
+      [Q-OR-12](../semantics/oracle.md#q-or-12): a retry's `skip_if` sees
+      the predecessor in jsonb order (OR-24/c), and integer-index keys come
+      first on both sides (OR-24/b). For (c), an object the *flow's*
+      preprocessor built is read back in jsonb order (`a, cc, bbb`), not
+      the preprocessor's; a script's own preprocessor, which OR-24/e names,
+      runs only for a trigger and was not recorded.
+    - [Q-OR-18](../semantics/oracle.md#q-or-18): OR-5/b completes on two
+      workers, OR-7/a's knob leaves the smoke observations unchanged (the
+      workflow's second session checks it every time), a subflow step's
+      `delete_after_use` blanks nothing on CE (OR-21/a), and a variable
+      seeded before a push answers 404 after it (OR-31/b, checked by every
+      session).
+    - [JE-23](../semantics/expressions.md#je-23) and
+      [JE-V5](../semantics/expressions.md#je-v5): which of a step's
+      transforms is evaluated first varies from one evaluation to the next,
+      whether the flow writes them in the CLI's name order or otherwise
+      (`conformance/flows/je/transform-order`, `transform-order-api`). This
+      answers milestone E1's question about the CLI's sorting: the order in
+      `flow.yaml` does not decide it.
+    - [Q-JE-13](../semantics/expressions.md#q-je-13): request 8's two runs,
+      as above, which agree with the corrected JE-6 to JE-8.
+    Cases E3e could not record are deferred in its manifest with the reason:
+    a restarted run (JE-19/e) and a preview (JE-36/d) are outside the
+    contract, a cap of two needs three workers (JE-V1/a), and the CLI's
+    push-and-version decisions for codebase scripts (WR-49/c–g) are a
+    deploy pipeline windmill-lite does not reproduce.
 
 ## Changing the design
 

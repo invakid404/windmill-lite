@@ -1,0 +1,9 @@
+# WR-49/b (later, medium): with a second output file the tar holds the
+# outputs and not the assets.
+spec: [WR-49/b]
+target: f/wl_cbx/multi
+expect:
+  status: success
+  result: [true, false]
+  steps:
+    "m:s": {status: success, args: {}, result: [true, false]}

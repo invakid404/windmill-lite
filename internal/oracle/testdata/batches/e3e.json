@@ -1,0 +1,175 @@
+{
+  "about": "Recording batch E3e of ADR 0012, the remaining recordings: FX-36's HTTP part and FX-37/a's early response through run-and-wait (gating F7b), the contested later cases (FX-49, Q-FX-11; FX-36, Q-FX-12; WR-16, Q-WR-15; WR-28, Q-WR-16), the probe catalogue rebuilt as executable fixtures (Q-OR-16, OR-V9) with the OR cases earlier batches left to E3e, codebase scripts in CommonJS and ESM (WR-47, WR-49, WR-50), FX-10/c, the pull round trip (CF-6/b, SY-6/c), and the cases recording batch E3a deferred here. No milestone of ADR 0012 but F7b needs E3e merged, so the batch has no gates; the later milestones that implement FX-49, WR-16 and WR-28 belong to L1. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. TestRecordingBatches enforces it.",
+  "batch": "E3e",
+  "findings": [
+    "FX-36",
+    "FX-37",
+    "FX-49",
+    "FX-V3",
+    "WR-16",
+    "WR-28",
+    "WR-47",
+    "WR-49",
+    "WR-50",
+    "OR-27",
+    "OR-V1",
+    "OR-V9"
+  ],
+  "cases": [
+    "FX-10/c",
+    "FX-12/a",
+    "CF-6/b",
+    "SY-6/c",
+    "OR-2/a",
+    "OR-5/b",
+    "OR-10/a",
+    "OR-10/b",
+    "OR-11/b",
+    "OR-12/b",
+    "OR-12/c",
+    "OR-12/d",
+    "OR-13/a",
+    "OR-16/a",
+    "OR-16/b",
+    "OR-17/a",
+    "OR-21/a",
+    "OR-22/a",
+    "OR-23/a",
+    "OR-24/a",
+    "OR-24/b",
+    "OR-24/c",
+    "OR-24/d",
+    "OR-24/e",
+    "OR-25/a",
+    "OR-26/a",
+    "OR-26/b",
+    "OR-29/a",
+    "OR-31/a",
+    "OR-V2/a",
+    "OR-V2/b",
+    "OR-V2/c",
+    "OR-V2/d",
+    "OR-V4/a",
+    "JE-19/e",
+    "JE-36/d",
+    "JE-V1/a"
+  ],
+  "fixtures": [
+    "conformance/flows/control-flow/pull",
+    "conformance/flows/execution/fx-10-c",
+    "conformance/flows/execution/fx-36-http",
+    "conformance/flows/execution/fx-49",
+    "conformance/flows/je/shortcut-texts",
+    "conformance/flows/je/transform-order",
+    "conformance/flows/je/transform-order-api",
+    "conformance/flows/languages/codebase-cases",
+    "conformance/flows/languages/wr-16",
+    "conformance/flows/languages/wr-28",
+    "conformance/flows/oracle/big-payload",
+    "conformance/flows/oracle/key-order",
+    "conformance/flows/oracle/nul",
+    "conformance/flows/oracle/probes",
+    "conformance/flows/oracle/seeded",
+    "conformance/flows/oracle/workers2"
+  ],
+  "deferred": [
+    {
+      "case": "WR-28/d",
+      "milestone": "none",
+      "reason": "its script, whose only import of ./helper is dynamic, cannot be deployed on the oracle: the dependency job takes the specifier for an npm package named \".\" and fails (bun install: Package \".\" with tag \"latest\" not found; oracle run 40798097155), so there is no deployed script to run; the later milestone that reproduces dynamic imports belongs to L1"
+    },
+    {
+      "case": "WR-50/c",
+      "milestone": "C3n",
+      "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no observation exists; C3n checks the native runtime from the reference's native cases"
+    },
+    {
+      "case": "WR-49/c",
+      "milestone": "none",
+      "reason": "when a push deploys a codebase script and which bundle then runs is the CLI's and the server's deploy pipeline, which needs a session that pushes, changes the tree and pushes again; windmill-lite builds each bundle from the folder it loads, so no milestone reproduces it"
+    },
+    {
+      "case": "WR-49/d",
+      "milestone": "none",
+      "reason": "the deploy pipeline's digest, as for WR-49/c"
+    },
+    {
+      "case": "WR-49/e",
+      "milestone": "none",
+      "reason": "the deploy pipeline's selection, as for WR-49/c"
+    },
+    {
+      "case": "WR-49/f",
+      "milestone": "none",
+      "reason": "a direct script push, as for WR-49/c"
+    },
+    {
+      "case": "WR-49/g",
+      "milestone": "none",
+      "reason": "a no-op snapshot request, as for WR-49/c"
+    },
+    {
+      "case": "OR-24/e",
+      "milestone": "none",
+      "reason": "a script's own preprocessor runs only for a trigger (WR-11, later), which the harness does not fire, and no milestone of ADR 0012 implements script preprocessors; oracle/key-order run pre_keys records the flow-preprocessor variant instead"
+    },
+    {
+      "case": "JE-19/e",
+      "milestone": "none",
+      "reason": "a restarted run: windmill-lite has no restart (ADR 0001 section 1), so the case is outside the equivalence contract and the harness drives no restart"
+    },
+    {
+      "case": "JE-36/d",
+      "milestone": "none",
+      "reason": "its deployed half is E3a's (flows/je/branches, je36-d); the preview half is outside the contract, since windmill-lite has no preview mode (ADR 0001 section 1)"
+    },
+    {
+      "case": "JE-V1/a",
+      "milestone": "none",
+      "reason": "that the expression is accepted is E3a's (flows/je/loops, je-v1-a); telling a cap of two from none needs three workers, beyond the oracle's two (OR-5)"
+    }
+  ],
+  "parts": [
+    {
+      "case": "WR-50/a",
+      "part": "the split CE deployment (MODE=server and MODE=worker), whose push fails with codebase is an EE feature",
+      "milestone": "none",
+      "reason": "the oracle is CE in standalone mode only (OR-4); the standalone half is recorded"
+    },
+    {
+      "case": "OR-27/b",
+      "part": "a flow argument holding a NUL",
+      "milestone": "none",
+      "reason": "the job API refuses such arguments before a job exists, which is a refused submission, not a run the harness can record"
+    },
+    {
+      "case": "OR-16/b",
+      "part": "the step's log line is kept",
+      "milestone": "none",
+      "reason": "logs are not part of an observation (ADR 0001 section 7, Q-WA-9)"
+    },
+    {
+      "case": "OR-V1/a",
+      "part": "the generic job endpoint answers WINDMILL_TOO_BIG",
+      "milestone": "none",
+      "reason": "the harness reads payloads only from the dedicated endpoints (OR-V1), so the generic endpoint's substitute is in the raw capture, not the observation"
+    }
+  ],
+  "prefixes": [
+    {
+      "case": "WR-50/b",
+      "run": "conformance/flows/languages/codebase-cases/node_version",
+      "pointer": "/result",
+      "prefix": "v20."
+    }
+  ],
+  "contradictions": [
+    {
+      "case": "FX-36/b",
+      "catalogue": "HTTP 422 with body {\"error\": {\"message\": \"z\", \"name\": \"Error\", \"stack\": <any>, \"step_id\": \"a\"}}",
+      "run": "conformance/flows/execution/fx-36-http/failed",
+      "pointer": "/response/body",
+      "observed": "{\"error\": {\"name\": \"Error\", \"stack\": \"<stack>\", \"message\": \"z\", \"step_id\": \"a\"}}"
+    }
+  ]
+}

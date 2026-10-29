@@ -1,0 +1,9 @@
+# probe composite (OR-10/a): the asynchronous path keeps the response
+# metadata in the flow's result.
+spec: [OR-10/a]
+target: f/wl_probe/composite
+expect:
+  status: success
+  result: {windmill_status_code: 201, result: {a: 1}}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_status_code: 201, result: {a: 1}}}

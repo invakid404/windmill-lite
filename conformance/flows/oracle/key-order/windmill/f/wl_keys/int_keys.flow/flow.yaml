@@ -1,0 +1,27 @@
+summary: 'OR-24/b: integer-index keys'
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: b
+      value:
+        type: rawscript
+        content: '!inline b.ts'
+        input_transforms:
+          rk:
+            type: javascript
+            expr: Object.keys(results.a)
+          w:
+            type: javascript
+            expr: results.a
+        lock: '!inline b.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

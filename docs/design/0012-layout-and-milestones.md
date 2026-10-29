@@ -32,7 +32,7 @@ internal/expr/              expression pipeline: shortcuts, rewrites, binding, s
 internal/expr/quickjs/      vendored quickjs-ng source, the native (cgo) backend, the pool (0003)
 internal/engine/            the flow interpreter: run state, decision list, containers, waits, hooks (0003, 0008)
 internal/harness/           the Go side of the protocol: frames, processes, pools (0004)
-internal/platform/          service interfaces, local defaults, interpolation walker (0007)
+internal/platform/          job identity, service interfaces, local defaults, interpolation walker (0007)
 internal/platform/facade/   the HTTP router behind the client and the fetch interception (0007)
 internal/platform/remote/   hybrid dispatch to a real Windmill; waits for a human decision (0007)
 internal/bundle/            bundle format, build orchestration, manifest, identity, verify (0010)
@@ -171,6 +171,10 @@ waits on an external gate except R1.
   neither of which depends on the other gates the first milestone that needs
   both: NI for N1b with N2, and F1 for N2 with PF2, where E3a's JE-V2/b is.
   A milestone's exit gate includes the runs a manifest assigns to it.
+- Milestone PF1 put job identity, which the engine and the facade share,
+  in `internal/platform` beside the service interfaces PF2 and PF3 add;
+  the facade's route table is generated from the Apache-2.0 schema that
+  E2 vendored in `internal/oracle/openapi`, so the schema is vendored once.
 - `conformance/protocol/` holds the harness protocol's golden frames and
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against
@@ -276,6 +280,22 @@ waits on an external gate except R1.
   left to N1b's location rule, are N1b's. The failure module runs with its
   own id at the top level; its copy inside an inline body (FX-34) comes
   with bodies, in N3c.
+
+- E3e, the last recording batch, holds what the earlier batches left to it
+  and the contested `later` rows of [0001](0001-equivalence-contract.md)
+  §6: FX-36's HTTP part with FX-37/a's early response, for which the
+  harness gained a run-and-wait submission and gates F7b; FX-49, WR-16 and
+  WR-28, whose implementing milestones belong to L1; the probe catalogue
+  rebuilt as executable fixtures (Q-OR-16); codebase scripts in CommonJS
+  and ESM; FX-10/c, which the reference added after E3b; and the pull
+  read-back of CF-6/b and SY-6/c. Its manifest,
+  [`internal/oracle/testdata/batches/e3e.json`](../../internal/oracle/testdata/batches/e3e.json),
+  has no `gates`: only F7b needs E3e merged. Cases outside the equivalence
+  contract (a restart, a preview, the CLI's push-and-version decisions for
+  codebase scripts) and a concurrency count that needs three workers are
+  deferred to `none`, with the reason. The oracle workflow runs a second
+  session with two workers, for the fixtures that need them and for the
+  smoke fixture under another `LISTEN_NEW_EVENTS_INTERVAL_SEC`.
 
 - N2 gave the engine Windmill's waits and time: `sleep` (FX-23,
   JE-28), the step timeout evaluated for every module with the texts of

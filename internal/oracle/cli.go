@@ -155,6 +155,13 @@ func (c CLI) Push(ctx context.Context, tree string, t Target) error {
 	return c.run(ctx, tree, c.args(t, "sync", "push", "--yes"))
 }
 
+// Pull runs `sync pull --yes` in dir, which holds only a wmill.yaml: the
+// CLI writes the workspace's items there as a sync tree, the round trip of
+// SY-6 and CF-6 (oracle.pull).
+func (c CLI) Pull(ctx context.Context, dir string, t Target) error {
+	return c.run(ctx, dir, c.args(t, "sync", "pull", "--yes"))
+}
+
 // CopyTree copies the regular files and directories below src into dst,
 // which must not exist. The harness pushes from a copy, so the push cannot
 // change the checkout.

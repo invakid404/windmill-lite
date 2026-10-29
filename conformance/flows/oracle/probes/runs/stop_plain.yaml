@@ -1,0 +1,9 @@
+# probe stop_plain (OR-V2/b): the root succeeds with 1; b does not run.
+spec: [OR-V2/b]
+target: f/wl_probe/stop_plain
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {}, result: 1}
+    "m:b": {status: not_run, ran: false}

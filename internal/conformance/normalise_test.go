@@ -207,3 +207,97 @@ func TestStripLocations(t *testing.T) {
 		}
 	})
 }
+
+// TestNormaliseText normalises response bodies as text: the spelling is
+// kept (spaces, member order), walked job ids become placeholders, a
+// runtime error's stack becomes the marker where the body writes it as a
+// JSON string, and nothing else is touched: another stack, an unwalked id,
+// user text that looks like a marker (escaped, so the result stays
+// injective).
+func TestNormaliseText(t *testing.T) {
+	const job = "10000000-0000-4000-8000-000000000002"
+	stack := "Error: z\n    at main (/tmp/windmill/wk/" + job + "/main.ts:2:9)"
+	stackJSON, _ := json.Marshal(stack)
+	errJSON := `{"error":{"name":"Error","message":"z","stack":` + string(stackJSON) + `,"step_id":"a"}}`
+	n := &Normaliser{
+		IDs:           map[string]SitePath{job: SitePath{}.Child(Module("a"))},
+		RuntimeErrors: []json.RawMessage{json.RawMessage(errJSON)},
+	}
+	for _, c := range []struct{ name, raw, want string }{
+		{"spaced object", `{"a": 2, "b": 1}`, `{"a": 2, "b": 1}`},
+		{"unquoted string", `ok`, `ok`},
+		{"empty", ``, ``},
+		{"job id", `{"job": "` + job + `"}`, `{"job": "<job:m:a>"}`},
+		{"stack", `{"error": {"name": "Error", "message": "z", "stack": ` + string(stackJSON) + `, "step_id": "a"}}`, `{"error": {"name": "Error", "message": "z", "stack": "<stack>", "step_id": "a"}}`},
+		{"another stack", `{"stack": "Error: y\n    at x"}`, `{"stack": "Error: y\n    at x"}`},
+		{"unwalked id", `"20000000-0000-4000-8000-000000000009"`, `"20000000-0000-4000-8000-000000000009"`},
+		{"marker-like text", `"<stack>"`, `"<<stack>"`},
+		{"the stack alone, as a string", string(stackJSON), strings.Replace(string(stackJSON), job, "<job:m:a>", 1)},
+		{"the inner error", `{"name": "Error", "message": "z", "stack": ` + string(stackJSON) + `, "step_id": "a"}`, `{"name": "Error", "message": "z", "stack": "<stack>", "step_id": "a"}`},
+		{"the error in an array", `[1, {"step_id": "a", "error": {"stack": ` + string(stackJSON) + `, "step_id": "a", "message": "z", "name": "Error"}}]`, `[1, {"step_id": "a", "error": {"stack": "<stack>", "step_id": "a", "message": "z", "name": "Error"}}]`},
+	} {
+		got, err := n.Text(c.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestNormaliseTextKeepsHandlerData keeps a handler's own data as written
+// although it holds a runtime error's stack string: only an object
+// deep-equal to the runtime error, or to its inner error, has its stack
+// masked, as Value masks it (OR-V3 clause a, and clause d's handler data).
+func TestNormaliseTextKeepsHandlerData(t *testing.T) {
+	n := &Normaliser{RuntimeErrors: []json.RawMessage{json.RawMessage(`{"error":{"name":"Error","message":"boom","stack":"trace-A"}}`)}}
+	for _, raw := range []string{
+		`{"note": "trace-A", "error": {"name": "UserData", "stack": "trace-A"}}`,
+		`{"error": {"name": "Error", "message": "boom", "stack": "trace-A", "handled": true}}`,
+		`{"saw": {"name": "Error", "message": "boom!", "stack": "trace-A"}}`,
+		`"trace-A"`,
+		`trace-A, not JSON`,
+	} {
+		got, err := n.Text(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != raw {
+			t.Errorf("handler data changed: got %s, want %s", got, raw)
+		}
+	}
+	for raw, want := range map[string]string{
+		`{"error": {"name": "Error", "message": "boom", "stack": "trace-A"}}`:                `{"error": {"name": "Error", "message": "boom", "stack": "<stack>"}}`,
+		`{"saw": {"stack": "trace-A", "name": "Error", "message": "boom"}}`:                  `{"saw": {"stack": "<stack>", "name": "Error", "message": "boom"}}`,
+		`{"note": "trace-A", "e": {"name": "Error", "message": "boom", "stack": "trace-A"}}`: `{"note": "trace-A", "e": {"name": "Error", "message": "boom", "stack": "<stack>"}}`,
+	} {
+		got, err := n.Text(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+}
+
+// TestResponseBytes reads a text and a base64 body back, and refuses an
+// unknown encoding.
+func TestResponseBytes(t *testing.T) {
+	for _, c := range []struct {
+		r    Response
+		want []byte
+	}{
+		{Response{Body: "hi"}, []byte("hi")},
+		{Response{Encoding: BodyBase64, Body: "/wD+"}, []byte{0xff, 0x00, 0xfe}},
+	} {
+		got, err := c.r.Bytes()
+		if err != nil || string(got) != string(c.want) {
+			t.Errorf("%+v: %x %v, want %x", c.r, got, err, c.want)
+		}
+	}
+	if _, err := (Response{Encoding: "hex", Body: "ff"}).Bytes(); err == nil {
+		t.Error("an unknown encoding was accepted")
+	}
+}

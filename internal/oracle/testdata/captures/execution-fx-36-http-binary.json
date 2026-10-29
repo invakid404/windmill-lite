@@ -1,0 +1,53 @@
+{
+  "fixture": "conformance/flows/execution/fx-36-http",
+  "run": "binary",
+  "repeat": 0,
+  "workspace": "wl-3a973d-38",
+  "root": "dc4a9425-9cf8-4a82-9058-8774c683a066",
+  "effects": [],
+  "response": {
+    "method": "POST",
+    "url": "run_wait_result/f/f/wl_fx36h/binary",
+    "status": 200,
+    "content_type": "application/octet-stream",
+    "encoding": "base64",
+    "body": "/wD+"
+  },
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/get/dc4a9425-9cf8-4a82-9058-8774c683a066?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-3a973d-38\",\"id\":\"dc4a9425-9cf8-4a82-9058-8774c683a066\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T02:45:12.973484Z\",\"started_at\":\"2026-10-29T02:45:12.996327Z\",\"completed_at\":\"2026-10-29T02:45:13.034801Z\",\"duration_ms\":38,\"success\":true,\"script_hash\":\"0000000000000068\",\"script_path\":\"f/wl_fx36h/binary\",\"args\":{},\"result\":{\"result\": \"/wD+\", \"windmill_content_type\": \"application/octet-stream\", \"windmill_content_transfer_encoding\": \"base64\"},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 1, \"modules\": [{\"id\": \"a\", \"job\": \"01a1858c-16a8-c863-034b-589aa0942bb2\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"a\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-ed50305106bf-JDttT\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/completed/get_result_maybe/dc4a9425-9cf8-4a82-9058-8774c683a066?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"result\": \"/wD+\", \"windmill_content_type\": \"application/octet-stream\", \"windmill_content_transfer_encoding\": \"base64\"}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/get/01a1858c-16a8-c863-034b-589aa0942bb2?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-3a973d-38\",\"id\":\"01a1858c-16a8-c863-034b-589aa0942bb2\",\"parent_job\":\"dc4a9425-9cf8-4a82-9058-8774c683a066\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T02:45:12.999492Z\",\"started_at\":\"2026-10-29T02:45:13.003039Z\",\"completed_at\":\"2026-10-29T02:45:13.029336Z\",\"duration_ms\":23,\"success\":true,\"script_hash\":\"00000000000000a8\",\"script_path\":\"f/wl_fx36h/binary/a\",\"args\":{},\"result\":{\"result\": \"/wD+\", \"windmill_content_type\": \"application/octet-stream\", \"windmill_content_transfer_encoding\": \"base64\"},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":19352,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-ed50305106bf-JDttT\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/get_args/01a1858c-16a8-c863-034b-589aa0942bb2",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-3a973d-38/jobs_u/completed/get_result_maybe/01a1858c-16a8-c863-034b-589aa0942bb2?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"result\": \"/wD+\", \"windmill_content_type\": \"application/octet-stream\", \"windmill_content_transfer_encoding\": \"base64\"}}"
+    }
+  ]
+}

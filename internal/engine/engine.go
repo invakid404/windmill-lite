@@ -16,6 +16,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // Engine runs the flows of one compiled program (ir.Program, ADR 0002):
@@ -37,12 +38,12 @@ import (
 // An Engine is safe for concurrent use: runs share nothing but the program,
 // the expression pipeline and the step executor.
 type Engine struct {
-	prog      *ir.Program
-	bundle    string
-	exec      StepExecutor
-	eval      expr.Evaluator
-	workspace string
-	cap       time.Duration
+	prog   *ir.Program
+	bundle string
+	exec   StepExecutor
+	eval   expr.Evaluator
+	host   platform.Host
+	cap    time.Duration
 	// transition is the longest a flow may spend between two jobs
 	// evaluating expressions before the monitor cancels it (JE-2); zero
 	// disables the monitor.
@@ -61,8 +62,12 @@ type Config struct {
 	// JS is the engine the program's expressions run on, when no shortcut
 	// answers them; New compiles their programs on it (expr.Pipeline).
 	JS expr.Engine
-	// Workspace is WM_WORKSPACE; empty means "windmill-lite".
+	// Workspace is WM_WORKSPACE; empty means Host's, else "windmill-lite".
 	Workspace string
+	// Host is the rest of the job environment's host configuration
+	// (WM_EMAIL, WM_USERNAME, WM_PERMISSIONED_AS, WM_BASE_URL); zero fields
+	// take platform.DefaultHost's.
+	Host platform.Host
 	// InstanceTimeout is the instance's maximum job duration (WR-37); zero
 	// means Windmill's self-hosted default of 604800 s.
 	InstanceTimeout time.Duration
@@ -89,9 +94,9 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.JS == nil {
 		return nil, errors.New("engine: no expression engine")
 	}
-	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, workspace: cfg.Workspace, cap: cfg.InstanceTimeout}
-	if e.workspace == "" {
-		e.workspace = "windmill-lite"
+	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout}
+	if cfg.Workspace != "" {
+		e.host.Workspace = cfg.Workspace
 	}
 	if e.cap == 0 {
 		e.cap = 604800 * time.Second

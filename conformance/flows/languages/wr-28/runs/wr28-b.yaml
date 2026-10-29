@@ -1,0 +1,8 @@
+# WR-28/b: the explicit .ts absolute import loads f/wl_wr28b/util.
+spec: [WR-28/b]
+target: f/wl_wr28d/wr28_b
+expect:
+  status: success
+  result: k
+  steps:
+    "m:s": {status: success, args: {}, result: k}

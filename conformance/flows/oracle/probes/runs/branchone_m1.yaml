@@ -1,0 +1,11 @@
+# OR-V9/c: branchone with flow_input.n = -1 takes {type: default}; the body is a
+# flowpreview child whose args are the flow args.
+spec: [OR-V9/c, OR-28]
+target: f/wl_probe/branchone
+args: {n: -1}
+expect:
+  status: success
+  result: default
+  steps:
+    "m:br": {status: success, result: default, branch_chosen: {type: default}}
+    "m:br/b:default/m:def": {status: success, args: {}, result: default}

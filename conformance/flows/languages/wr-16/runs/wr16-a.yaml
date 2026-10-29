@@ -1,0 +1,8 @@
+# WR-16/a: the joined stream, with its real newline, is the result (both readings).
+spec: [WR-16/a]
+target: f/wl_wr16/wr16_a
+expect:
+  status: success
+  result: "a\nbc"
+  steps:
+    "m:s": {status: success, args: {}, result: "a\nbc"}

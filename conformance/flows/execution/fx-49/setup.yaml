@@ -1,0 +1,7 @@
+variables:
+  - path: f/wl_fx49/skip
+    value: "no"
+    description: FX-49/a's flag; the loop's first iteration sets it to yes
+  - path: f/wl_fx49/throw
+    value: "no"
+    description: the throwing variant's flag; the first iteration sets it to yes

@@ -1,0 +1,15 @@
+# Recording batch E3e: B2a's request 8 (JE-6 to JE-8 with JE-44): which
+# text a shortcut answers for a value read from the database, its compact
+# producer form or jsonb's spaced text output. timeout is a site whose
+# i32 parse error quotes the value (JE-29), as in E3a's
+# je/shortcuts je8-order-timeout runs. The discriminators are the flow
+# input (JE-7, at the first module and after one) and the previous step's
+# result after a loop, whose aggregate comes from storage (JE-8, OR-24/d).
+# Synthetic, written for this repository from
+# docs/semantics/expressions.md#je-7.
+id: je/shortcut-texts
+spec: [JE-7, JE-8, JE-29, JE-44]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,13 @@
+# OR-24/c (Q-OR-11 a): on the retry b's skip_if sees the predecessor read
+# back from storage, in jsonb order, so its diagnostic names
+# ["a","cc","bbb"]; the throwing skip_if then fails the flow with a
+# chaining InternalError.
+spec: [OR-24/c]
+target: f/wl_keys/retry_keys
+expect:
+  status: failure
+  result: {"error": {"name": "InternalError", "message": "Error: QuickJS evaluation error: Error: keys [\"a\",\"cc\",\"bbb\"]\n    at <anonymous> (eval_script:1:149)\n    at <anonymous> (eval_script:1:168)\n    at <eval> (eval_script:1:175)\n @worker_flow.rs:2451:11"}}
+  steps:
+    "m:a": {"status": "success", "args": {}, "result": {"a": 2, "cc": 3, "bbb": 1}}
+    "m:b": {"status": "failure", "args": {}, "result": {"error": {"name": "Error", "stack": "<stack>", "message": "b fails", "step_id": "b"}}}
+    "m:b/r:0": {"status": "failure", "args": {}, "result": {"error": {"name": "Error", "stack": "<stack>", "message": "b fails", "step_id": "b"}}}

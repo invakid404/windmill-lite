@@ -1,0 +1,8 @@
+# WR-47/c: define is applied.
+spec: [WR-47/c]
+target: f/wl_cbx/define
+expect:
+  status: success
+  result: lite
+  steps:
+    "m:s": {status: success, args: {}, result: lite}

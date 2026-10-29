@@ -116,7 +116,12 @@ type qwa4Facade struct {
 	calls map[string]qwa4Call
 }
 
-func (f *qwa4Facade) handle(_ context.Context, req PlatformRequest) PlatformReply {
+func (f *qwa4Facade) handle(req PlatformRequest) func(context.Context) PlatformReply {
+	rep := f.answer(req)
+	return func(context.Context) PlatformReply { return rep }
+}
+
+func (f *qwa4Facade) answer(req PlatformRequest) PlatformReply {
 	u, err := url.Parse(req.URL)
 	// /api/w/<workspace>/jobs_u/get_root_job_id/<id>
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/api/w/"), "/")

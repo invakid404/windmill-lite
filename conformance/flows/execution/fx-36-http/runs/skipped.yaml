@@ -1,0 +1,11 @@
+# FX-V3/a: the stored status skipped counts as failure: 422 with the
+# result 3.
+spec: [FX-V3/a]
+target: f/wl_fx36h/skipped
+submit: run_wait_result
+expect:
+  status: skipped
+  result: 3
+  steps:
+    "m:a": {status: success, args: {}, result: 3, skipped: true}
+  response: {status: 422, content_type: application/json, body: '3'}

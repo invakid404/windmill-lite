@@ -29,6 +29,8 @@ import (
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/openflow"
+	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/platform/facade"
 )
 
 // check runs step-case files (the step level of ADR 0003) and flow
@@ -217,12 +219,6 @@ const (
 	lateWindow = 200 * time.Millisecond
 )
 
-// stepFacade is the platform facade's origin the harness is given, for step
-// cases and flow fixtures alike, which a native step reads as BASE_URL and
-// BASE_INTERNAL_URL (WR-45). Nothing listens there, and the checker answers
-// no platform call (a 501).
-const stepFacade = "http://127.0.0.1:9"
-
 // language returns the language a deploy records for a case's script, and
 // the boundary it runs with: bun, or native for bunnative and nativets
 // (ADR 0002, WR-40).
@@ -406,7 +402,16 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 // the D9 fence must stop, is seen.
 func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out, digest, id string) ([]string, string) {
 	var diag syncBuffer
-	spawn := func() (*harness.Process, error) { return sc.spawn(ctx, out, digest, &diag) }
+	// The case's own platform facade (ADR 0007, milestone PF1), in its
+	// default fail mode: a warm process reaches it through the intercepted
+	// fetch, at an origin where nothing listens; a fresh one over TCP.
+	calls := &callLog{byInv: map[string][]facade.Record{}}
+	f, err := facade.New(facade.Config{Recorded: calls.store})
+	if err != nil {
+		return []string{"facade: " + err.Error()}, ""
+	}
+	defer f.Close()
+	spawn := func() (*harness.Process, error) { return sc.spawn(ctx, out, digest, &diag, f) }
 	// end drains a warm process; a fresh one ends by itself, and is killed
 	// if it has not within the grace.
 	end := func(p *harness.Process) {
@@ -443,7 +448,7 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 			}
 		}
 		var prs []string
-		prs, recs[i] = sc.runOne(ctx, p, c, &c.Runs[i], id, runID)
+		prs, recs[i] = sc.runOne(ctx, f.Executor(p), calls, c, &c.Runs[i], id, runID)
 		if warm == nil {
 			end(p)
 		}
@@ -470,8 +475,15 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 }
 
 // spawn starts a harness process on the bundle in out, in the checker's
-// module state, with the step facade's origin (stepFacade).
-func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Writer) (*harness.Process, error) {
+// module state, with f's origin for that mode (milestone PF1): a warm
+// process intercepts its fetches to an origin where nothing listens, and a
+// fresh one reaches the listening origin over TCP. A native step reads the
+// same origin as BASE_URL and BASE_INTERNAL_URL (WR-45).
+func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Writer, f *facade.Facade) (*harness.Process, error) {
+	origin := f.WarmOrigin()
+	if sc.mode == conformance.ModeFresh {
+		origin = f.FreshOrigin()
+	}
 	path, args := harness.BunCommand(sc.bun, filepath.Join(sc.repo, "harnesses", "bun", "runtime", "main.ts"), out)
 	return harness.Spawn(ctx, harness.ProcessConfig{
 		Path:          path,
@@ -482,14 +494,15 @@ func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Wr
 		ModuleState:   engine.ModuleState(sc.mode),
 		EngineVersion: "wltest-check",
 		Diagnostics:   diag,
-		Facade:        stepFacade,
+		Facade:        origin,
+		Platform:      f.Platform(),
 	})
 }
 
 // runOne runs one invocation and checks what it produced up to its
 // settlement; it returns the recorder, which keeps receiving the run's
 // late reports.
-func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *conformance.StepCase, r *conformance.StepRun, script, runID string) ([]string, *stepRecorder) {
+func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls *callLog, c *conformance.StepCase, r *conformance.StepRun, script, runID string) ([]string, *stepRecorder) {
 	rec := newStepRecorder()
 	args := jsonval.FromProducer([]byte(r.Args))
 	entry, _, err := engine.Entrypoint(args)
@@ -578,7 +591,43 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 			problems = append(problems, fmt.Sprintf("untracked %v, want %v", got, k.Untracked))
 		}
 	}
+	if k.Calls != nil {
+		// The facade hands over the record once the invocation has settled
+		// and its outcome is decided, both of which have happened here.
+		if got := calls.describe(invID); !slices.Equal(got, k.Calls) {
+			problems = append(problems, fmt.Sprintf("platform calls %q, want %q", got, k.Calls))
+		}
+	}
 	return problems, rec
+}
+
+// callLog keeps the platform calls the facade recorded, by invocation.
+type callLog struct {
+	mu    sync.Mutex
+	byInv map[string][]facade.Record
+}
+
+func (l *callLog) store(inv string, calls []facade.Record) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.byInv[inv] = calls
+}
+
+// describe gives an invocation's calls as a step case states them:
+// "<status> <METHOD> <route template>", or the path as sent where no
+// route of the API matched.
+func (l *callLog) describe(inv string) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := []string{}
+	for _, r := range l.byInv[inv] {
+		name := r.Route
+		if name == "" {
+			name = r.Method + " " + strings.TrimPrefix(r.Path, "/api")
+		}
+		out = append(out, fmt.Sprintf("%d %s", r.Status, name))
+	}
+	return out
 }
 
 // hasCommonJS reports whether a step file has a case that also runs on
@@ -769,25 +818,16 @@ func writeJobFile(job, name string, data []byte) error {
 	return os.WriteFile(p, data, 0o644)
 }
 
-// jobEnv is the invocation's job variables (WR-22): the core WM_* ones of
-// a flow step, or of a script job when the case runs outside a flow, whose
-// flow variables are empty; then the case's own.
+// jobEnv is the invocation's job variables (WR-22, ADR 0007's job
+// identity): those of a flow step, of the flow StepFolder/flow, or of a
+// script job when the case runs outside a flow, whose flow variables are
+// empty; then the case's own.
 func jobEnv(c *conformance.StepCase, step, invID, runID string) map[string]string {
-	env := map[string]string{
-		"WM_WORKSPACE":        "wl_step",
-		"WM_JOB_ID":           invID,
-		"WM_ROOT_JOB_ID":      runID,
-		"WM_FLOW_JOB_ID":      "",
-		"WM_ROOT_FLOW_JOB_ID": "",
-		"WM_FLOW_PATH":        "",
-		"WM_FLOW_STEP_ID":     step,
-		"WM_JOB_PATH":         c.ScriptPath(),
-	}
+	id := platform.Identity{JobID: invID, RootJobID: runID, StepID: step, JobPath: c.ScriptPath(), Token: platform.NewToken()}
 	if step != "" {
-		env["WM_FLOW_JOB_ID"] = runID
-		env["WM_ROOT_FLOW_JOB_ID"] = runID
-		env["WM_FLOW_PATH"] = conformance.StepFolder + "/flow"
+		id.FlowJobID, id.RootFlowJobID, id.FlowPath = runID, runID, conformance.StepFolder+"/flow"
 	}
+	env := id.Env(platform.Host{Workspace: "wl_step"})
 	for k, v := range c.Env {
 		env[k] = v
 	}

@@ -1,0 +1,26 @@
+summary: 'Q-OR-7: a parallel loop whose iteration 0 is slow'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms:
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline x.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[0, 1]'
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

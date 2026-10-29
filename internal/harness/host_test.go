@@ -396,18 +396,27 @@ func TestHostGoneBeforeHello(t *testing.T) {
 }
 
 // One bad answer of a platform handler must not end the harness and every
-// invocation in it: a status no Response can carry, or a panic, becomes a
-// 502 the step's client sees.
+// invocation in it: a status no Response can carry, or a panic in either
+// part of the handler, becomes a 502 the step's client sees.
 func TestPlatformAnswerGuardsTheHarness(t *testing.T) {
 	req := PlatformRequest{ID: "p1", Inv: "i"}
+	answer := func(rep PlatformReply) PlatformHandler {
+		return func(PlatformRequest) func(context.Context) PlatformReply {
+			return func(context.Context) PlatformReply { return rep }
+		}
+	}
 	for name, h := range map[string]PlatformHandler{
-		"zero reply":  func(context.Context, PlatformRequest) PlatformReply { return PlatformReply{} },
-		"status 101":  func(context.Context, PlatformRequest) PlatformReply { return PlatformReply{Status: 101} },
-		"panic":       func(context.Context, PlatformRequest) PlatformReply { panic("boom") },
+		"zero reply": answer(PlatformReply{}),
+		"status 101": answer(PlatformReply{Status: 101}),
+		"panic":      func(PlatformRequest) func(context.Context) PlatformReply { panic("boom") },
+		"panic later": func(PlatformRequest) func(context.Context) PlatformReply {
+			return func(context.Context) PlatformReply { panic("boom") }
+		},
+		"no answer":   func(PlatformRequest) func(context.Context) PlatformReply { return nil },
 		"no handler":  nil,
-		"good answer": func(context.Context, PlatformRequest) PlatformReply { return PlatformReply{Status: 204} },
+		"good answer": answer(PlatformReply{Status: 204}),
 	} {
-		rep := platformAnswer(context.Background(), h, req)
+		rep := platformAnswer(context.Background(), platformAccept(h, req), req)
 		want := 502
 		switch name {
 		case "no handler":

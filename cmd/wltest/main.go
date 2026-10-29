@@ -98,10 +98,12 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	dataRoot := fs.String("docker-data-root", "", "directory whose filesystem the disk preflight measures (default: docker's data root)")
 	sinkListen := fs.String("sink-listen", "0.0.0.0:0", "listen address of the effect sink")
 	runTimeout := fs.Duration("run-timeout", 5*time.Minute, "timeout of one run; less than 60s is raised to 60s, and a timed-out run is canceled")
+	skipUnmet := fs.Bool("skip-unmet-workers", false, "skip fixtures that need more workers than --workers, reporting their runs as skipped, instead of refusing them")
+	listen := fs.Int("listen-interval", 0, "the oracle's LISTEN_NEW_EVENTS_INTERVAL_SEC (default 1), for the knob comparison of OR-7/a")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() == 0 || *workers < 1 || *workers > 2 || *repeat < 1 {
+	if fs.NArg() == 0 || *workers < 1 || *workers > 2 || *repeat < 1 || *listen < 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
@@ -191,6 +193,8 @@ func record(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		RawDir:             *raw,
 		RepoRoot:           root,
 		Harness:            harnessInfo(),
+		SkipUnmetWorkers:   *skipUnmet,
+		ListenInterval:     *listen,
 	}
 	rep, runErr := s.Run(ctx, fixtures)
 	if *report != "" {

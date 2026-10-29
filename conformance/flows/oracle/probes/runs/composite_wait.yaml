@@ -1,0 +1,11 @@
+# probe composite through run-and-wait (OR-10/b): HTTP 201, JSON, the
+# nested result as the body.
+spec: [OR-10/b]
+target: f/wl_probe/composite
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_status_code: 201, result: {a: 1}}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_status_code: 201, result: {a: 1}}}
+  response: {status: 201, content_type: application/json, body: '{"a": 1}'}
