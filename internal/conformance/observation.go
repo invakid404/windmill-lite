@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 )
@@ -28,15 +29,34 @@ type Observation struct {
 }
 
 // Response is the HTTP response of the run-and-wait endpoint (FX-36,
-// FX-37, OR-10/b): the status, the content type and the body as text. The
-// body keeps its exact spelling, because the endpoint writes a stored
-// result in jsonb's text output, with spaces ({"a": 2, "b": 1}), and
-// unquotes a string under a content type; only job ids and masked stacks
-// are rewritten in it (Normaliser.Text).
+// FX-37, OR-10/b): the status, the Content-Type header as sent, parameters
+// included, and the body. A body that is UTF-8 is kept as text with its
+// exact spelling, because the endpoint writes a stored result in jsonb's
+// text output, with spaces ({"a": 2, "b": 1}), and unquotes a string under
+// a content type; only job ids and the stacks of runtime errors are
+// rewritten in it (Normaliser.Text). Any other body, such as the bytes a
+// base64 transfer encoding decodes to, is kept losslessly: Encoding is
+// BodyBase64 and Body its standard base64 text, compared as written.
 type Response struct {
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type,omitempty"`
+	Encoding    string `json:"encoding,omitempty"`
 	Body        string `json:"body"`
+}
+
+// BodyBase64 is Response.Encoding for a body that is not UTF-8.
+const BodyBase64 = "base64"
+
+// Bytes returns the body's bytes: Body itself for a text body, or Body
+// decoded for a base64 one.
+func (r Response) Bytes() ([]byte, error) {
+	switch r.Encoding {
+	case "":
+		return []byte(r.Body), nil
+	case BodyBase64:
+		return base64.StdEncoding.DecodeString(r.Body)
+	}
+	return nil, fmt.Errorf("conformance: response body encoding %q is not %s", r.Encoding, BodyBase64)
 }
 
 // StepObservation is the observation of one site. It holds OR-15's step

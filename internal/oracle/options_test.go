@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -272,5 +275,108 @@ func TestSessionPullsTheDeployedTree(t *testing.T) {
 		if p.Deployment == nil || json.Compact(&b, p.Deployment.Pulled) != nil || b.String() != `{"modules":[{"id":"a"},{"id":"b"}],"pulled":true}` {
 			t.Errorf("%s: pulled %s", r.Name, b.String())
 		}
+	}
+}
+
+// TestRunWaitKeepsARedirect returns a run-and-wait redirect as the oracle
+// sent it: a 3xx status that response metadata asks for (FX-36) is the
+// observation, so it is never followed, and the caller's HTTP client is
+// not changed to get there.
+func TestRunWaitKeepsARedirect(t *testing.T) {
+	// spec: FX-36
+	var destination int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/destination" {
+			destination++
+			_, _ = io.WriteString(w, "destination")
+			return
+		}
+		w.Header().Set("Location", "/destination")
+		w.WriteHeader(http.StatusFound)
+		_, _ = io.WriteString(w, "original")
+	}))
+	defer srv.Close()
+	own := &http.Client{}
+	for _, h := range []*http.Client{nil, own} {
+		c := &Client{BaseURL: srv.URL, HTTP: h}
+		got, err := c.RunWaitFlow(context.Background(), "ws", "f/x/y", json.RawMessage(`{}`), "00000000-0000-4000-8000-000000000001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != http.StatusFound || string(got.Body) != "original" {
+			t.Errorf("got %d %q, want 302 original", got.Status, got.Body)
+		}
+	}
+	if destination != 0 {
+		t.Errorf("the redirect was followed %d times", destination)
+	}
+	if own.CheckRedirect != nil {
+		t.Error("the caller's HTTP client was changed")
+	}
+	// Other calls still follow redirects.
+	got, err := (&Client{BaseURL: srv.URL}).send(context.Background(), http.MethodGet, "/x", nil, nil)
+	if err != nil || got.Status != http.StatusOK || string(got.Body) != "destination" {
+		t.Errorf("send: %d %q %v", got.Status, got.Body, err)
+	}
+}
+
+// TestObserveKeepsTheResponse keeps the Content-Type header as sent,
+// parameters included, and a body that is not UTF-8 losslessly, as base64,
+// through an observation's JSON and a raw capture, whose replay serves the
+// same bytes.
+func TestObserveKeepsTheResponse(t *testing.T) {
+	// spec: FX-36
+	w := &Walk{Status: conformance.RunSuccess, Result: json.RawMessage(`null`)}
+	ct := "text/plain; charset=iso-8859-1"
+	o, err := Observe(w, nil, &HTTPResponse{Status: 200, ContentType: ct, Body: []byte("h\xe9")}, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Response.ContentType != ct {
+		t.Errorf("content type %q, want %q", o.Response.ContentType, ct)
+	}
+	raw := []byte{0xff, 0x00, 0xfe}
+	o, err = Observe(w, nil, &HTTPResponse{Status: 200, ContentType: "application/octet-stream", Body: raw}, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded conformance.Observation
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loaded.Response.Bytes()
+	if err != nil || !bytes.Equal(got, raw) || loaded.Response.Encoding != conformance.BodyBase64 {
+		t.Fatalf("observation round trip: %x %q %v, want %x", got, loaded.Response.Encoding, err, raw)
+	}
+	other, _ := Observe(w, nil, &HTTPResponse{Status: 200, ContentType: "application/octet-stream", Body: []byte{0xff, 0x01, 0xfe}}, conformance.CompareSpec{})
+	if diffs, err := conformance.Compare(other, o, conformance.CompareOptions{}); err != nil || len(diffs) == 0 {
+		t.Errorf("two binary bodies compare equal: %v %v", diffs, err)
+	}
+
+	// A raw capture keeps the bytes, and its replay serves them.
+	b, enc := exchangeBody(raw)
+	rc := RawCapture{Response: &Exchange{Status: 200, ContentType: "application/octet-stream", Encoding: enc, Body: b},
+		Exchanges: []Exchange{{Method: "GET", URL: "/api/blob", Status: 200, ContentType: "application/octet-stream", Encoding: enc, Body: b}}}
+	data, err = json.Marshal(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back RawCapture
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := back.HTTP()
+	if err != nil || !bytes.Equal(resp.Body, raw) {
+		t.Fatalf("raw capture round trip: %x %v", resp.Body, err)
+	}
+	srv := httptest.NewServer((&Capture{Exchanges: back.Exchanges}).Handler())
+	defer srv.Close()
+	served, err := (&Client{BaseURL: srv.URL}).send(context.Background(), http.MethodGet, "/blob", nil, nil)
+	if err != nil || !bytes.Equal(served.Body, raw) {
+		t.Errorf("replay served %x %v, want %x", served.Body, err, raw)
 	}
 }

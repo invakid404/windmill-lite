@@ -1,0 +1,11 @@
+# FX-36: the decoded status 302 and the result as the JSON body; the
+# harness records the redirect and does not follow it.
+spec: [FX-36]
+target: f/wl_fx36h/redirect
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_status_code: 302, windmill_headers: {Location: /elsewhere}, result: moved}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_status_code: 302, windmill_headers: {Location: /elsewhere}, result: moved}}
+  response: {status: 302, content_type: application/json, body: '"moved"'}

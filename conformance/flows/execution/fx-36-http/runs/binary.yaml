@@ -1,0 +1,11 @@
+# FX-36: base64 transfer encoding decodes "/wD+" to the bytes ff 00 fe,
+# which the observation keeps losslessly as base64 (encoding: base64).
+spec: [FX-36]
+target: f/wl_fx36h/binary
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_content_type: application/octet-stream, windmill_content_transfer_encoding: base64, result: /wD+}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_content_type: application/octet-stream, windmill_content_transfer_encoding: base64, result: /wD+}}
+  response: {status: 200, content_type: application/octet-stream, encoding: base64, body: /wD+}

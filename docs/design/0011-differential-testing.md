@@ -401,10 +401,13 @@ their root jobs were not in flight together.
 - Recording batch E3e added four harness options, each recorded by its
   fixtures. A run may be submitted through the synchronous run-and-wait
   endpoint (`submit: run_wait_result`, item 3): the run is still polled to
-  completion and walked, and the observation gains a `response` (status, content type, body as text), so
-  FX-36's HTTP part and `early_return` (FX-37/a) are recorded for the HTTP
-  adapter. The body is text because its spelling is what a client sees;
-  the normaliser rewrites only job ids and runtime stacks in it. A fixture
+  completion and walked, and the observation gains a `response` (status,
+  the Content-Type as sent, and the body: text when it is UTF-8, else
+  base64), so FX-36's HTTP part and `early_return` (FX-37/a) are recorded
+  for the HTTP adapter. The body is text because its spelling is what a
+  client sees; the normaliser rewrites only job ids in it, and the stack of
+  a runtime error where the body holds that error's object. A redirect is
+  recorded, never followed. A fixture
   may apply `setup.yaml` before the push, which must then remove what it
   seeded, or before every run (`oracle.setup`), and every session reads
   `setup.yaml`'s variables back after the push (OR-31/b). An API-deployed

@@ -61,14 +61,16 @@ Encoding and decoding put every step in canonical form:
   comparator expands the absences and then applies the fixture's policy.
 
 A run submitted through run-and-wait (`submit: run_wait_result`) also has a
-`response`: `{status, content_type, body}`, the HTTP status, the content
-type without parameters, and the body as text
+`response`: `{status, content_type, encoding, body}`, the HTTP status, the
+Content-Type header as sent, parameters included, and the body
 ([FX-36](../../docs/semantics/execution.md#fx-36),
 [FX-37](../../docs/semantics/execution.md#fx-37),
 [OR-10/b](../../docs/semantics/conformance.md#or-10)). The body is text, not
 a value, because its spelling is what an HTTP client sees: jsonb's text
 output with spaces, or a string result unquoted under a content type. Every
-other run has no `response`.
+other run has no `response`. A body that is not UTF-8 (base64 transfer
+encoding can decode to any bytes) is kept losslessly instead: `encoding` is
+`base64` and `body` its base64 text, which `Response.Bytes` decodes.
 
 Steps whose fields contradict each other are rejected, as is a module
 status on an attempt, iteration or branch site that differs from the one
@@ -365,10 +367,13 @@ number text and duplicate elements:
 `testdata/normalise/cases.json` holds the cases.
 
 `Normaliser.Text` normalises a text kept as written, a run-and-wait body:
-walked job ids become placeholders, and wherever the text writes a runtime
-error's stack as a JSON string, that string becomes `"<stack>"`; spacing,
-member order and every other character stay. `TestNormaliseText` holds its
-cases.
+walked job ids become placeholders, and, when the text is a JSON value, a
+stack is masked exactly where `Value` would mask it: in an object deep-equal
+to a runtime error, or to its inner error, only that `stack` string's span
+becomes `"<stack>"`. The same string anywhere else, a handler's own data
+among it, stays, and so do spacing, member order and every other
+character. `TestNormaliseText` and `TestNormaliseTextKeepsHandlerData` hold
+its cases.
 
 ### Location suffixes
 

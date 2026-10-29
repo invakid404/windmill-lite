@@ -3,6 +3,7 @@ package oracle
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"unicode/utf8"
+
+	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
 // Client calls the oracle's REST API: the endpoints of the Apache-2.0
@@ -54,7 +58,24 @@ type Exchange struct {
 	URL         string `json:"url"`
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type"`
-	Body        string `json:"body"`
+	// Encoding is empty when Body is the body's text, or
+	// conformance.BodyBase64 when the body is not UTF-8 and Body is its
+	// base64 text, so a capture keeps every byte.
+	Encoding string `json:"encoding,omitempty"`
+	Body     string `json:"body"`
+}
+
+// exchangeBody returns the Body and Encoding that keep data losslessly.
+func exchangeBody(data []byte) (body, encoding string) {
+	if utf8.Valid(data) {
+		return string(data), ""
+	}
+	return base64.StdEncoding.EncodeToString(data), conformance.BodyBase64
+}
+
+// Bytes returns the exchange's body bytes.
+func (e Exchange) Bytes() ([]byte, error) {
+	return conformance.Response{Encoding: e.Encoding, Body: e.Body}.Bytes()
 }
 
 func (c *Capture) add(e Exchange) {
@@ -76,9 +97,14 @@ func (c *Capture) Handler() http.Handler {
 			http.Error(w, "not captured: "+r.Method+" "+r.URL.RequestURI(), http.StatusNotFound)
 			return
 		}
+		body, err := e.Bytes()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", e.ContentType)
 		w.WriteHeader(e.Status)
-		_, _ = io.WriteString(w, e.Body)
+		_, _ = w.Write(body)
 	})
 }
 
@@ -108,6 +134,12 @@ type HTTPResponse struct {
 // send sends one request and returns its response, recording the exchange
 // when the client captures.
 func (c *Client) send(ctx context.Context, method, path string, query url.Values, body any) (HTTPResponse, error) {
+	return c.sendRedirects(ctx, method, path, query, body, true)
+}
+
+// sendRedirects is send; with follow false a redirect response is returned
+// as it is, not followed, through a copy of the client's HTTP client.
+func (c *Client) sendRedirects(ctx context.Context, method, path string, query url.Values, body any, follow bool) (HTTPResponse, error) {
 	u := strings.TrimSuffix(c.BaseURL, "/") + "/api" + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -139,6 +171,11 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 	if h == nil {
 		h = http.DefaultClient
 	}
+	if !follow {
+		cp := *h
+		cp.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		h = &cp
+	}
 	resp, err := h.Do(req)
 	if err != nil {
 		return HTTPResponse{}, err
@@ -150,7 +187,8 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 	}
 	out := HTTPResponse{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: data}
 	if c.Capture != nil {
-		c.Capture.add(Exchange{Method: method, URL: req.URL.RequestURI(), Status: out.Status, ContentType: out.ContentType, Body: string(data)})
+		b, enc := exchangeBody(data)
+		c.Capture.add(Exchange{Method: method, URL: req.URL.RequestURI(), Status: out.Status, ContentType: out.ContentType, Encoding: enc, Body: b})
 	}
 	return out, nil
 }
@@ -350,12 +388,13 @@ func (c *Client) RunScript(ctx context.Context, workspace, path string, args jso
 // RunWaitFlow submits a flow by path through the synchronous run-and-wait
 // endpoint and returns its HTTP response, whatever the status (FX-36,
 // FX-37, OR-10/b). The harness observes runs through RunFlow and the poll
-// (OR-10); this call exists to record the response itself. jobID
-// pre-assigns the root id, as for RunFlow, so the run can be walked and its
-// effects kept.
+// (OR-10); this call exists to record the response itself, so a redirect
+// that response metadata asks for (a 3xx status with a Location header) is
+// returned, never followed. jobID pre-assigns the root id, as for RunFlow,
+// so the run can be walked and its effects kept.
 func (c *Client) RunWaitFlow(ctx context.Context, workspace, path string, args json.RawMessage, jobID string) (HTTPResponse, error) {
 	q := url.Values{"job_id": {jobID}}
-	return c.send(ctx, http.MethodPost, ws(workspace)+"/jobs/run_wait_result/f/"+itemPath(path), q, args)
+	return c.sendRedirects(ctx, http.MethodPost, ws(workspace)+"/jobs/run_wait_result/f/"+itemPath(path), q, args, false)
 }
 
 func (c *Client) run(ctx context.Context, path string, args json.RawMessage, jobID string) (string, error) {

@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/yamlx"
@@ -1013,17 +1015,22 @@ type RawCapture struct {
 }
 
 // HTTP returns the captured run-and-wait response, or nil.
-func (rc RawCapture) HTTP() *HTTPResponse {
+func (rc RawCapture) HTTP() (*HTTPResponse, error) {
 	if rc.Response == nil {
-		return nil
+		return nil, nil
 	}
-	return &HTTPResponse{Status: rc.Response.Status, ContentType: rc.Response.ContentType, Body: []byte(rc.Response.Body)}
+	body, err := rc.Response.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return &HTTPResponse{Status: rc.Response.Status, ContentType: rc.Response.ContentType, Body: body}, nil
 }
 
 func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, ws, root string, effects []json.RawMessage, resp *HTTPResponse, c *Capture) error {
 	rc := RawCapture{Fixture: s.rel(f.Dir), Run: r.Name, Repeat: rep, Workspace: ws, Root: root, Effects: effects, Exchanges: c.Exchanges}
 	if resp != nil {
-		rc.Response = &Exchange{Method: "POST", URL: "run_wait_result/f/" + r.Target, Status: resp.Status, ContentType: resp.ContentType, Body: string(resp.Body)}
+		b, enc := exchangeBody(resp.Body)
+		rc.Response = &Exchange{Method: "POST", URL: "run_wait_result/f/" + r.Target, Status: resp.Status, ContentType: resp.ContentType, Encoding: enc, Body: b}
 	}
 	if rc.Effects == nil {
 		rc.Effects = []json.RawMessage{}
@@ -1042,8 +1049,9 @@ func (s *Session) writeRaw(f *conformance.Fixture, r conformance.Run, rep int, w
 // Observe normalises a walk, the run's effects and, for a run submitted
 // through run-and-wait, its response into an observation (OR-14, OR-15),
 // then applies the fixture's stack and mask paths. The response keeps its
-// status, its content type without parameters and its body as text
-// (conformance.Normaliser.Text).
+// status, its Content-Type header as sent, parameters included, and its
+// body: as normalised text when it is UTF-8 (conformance.Normaliser.Text),
+// else losslessly as base64.
 func Observe(w *Walk, effects []json.RawMessage, resp *HTTPResponse, spec conformance.CompareSpec) (conformance.Observation, error) {
 	n := &conformance.Normaliser{IDs: w.IDs, RuntimeErrors: w.RuntimeErrors}
 	var err error
@@ -1052,12 +1060,15 @@ func Observe(w *Walk, effects []json.RawMessage, resp *HTTPResponse, spec confor
 		return o, err
 	}
 	if resp != nil {
-		body, err := n.Text(string(resp.Body))
-		if err != nil {
-			return o, err
+		o.Response = &conformance.Response{Status: resp.Status, ContentType: resp.ContentType}
+		if utf8.Valid(resp.Body) {
+			if o.Response.Body, err = n.Text(string(resp.Body)); err != nil {
+				return o, err
+			}
+		} else {
+			o.Response.Encoding = conformance.BodyBase64
+			o.Response.Body = base64.StdEncoding.EncodeToString(resp.Body)
 		}
-		ct, _, _ := strings.Cut(resp.ContentType, ";")
-		o.Response = &conformance.Response{Status: resp.Status, ContentType: strings.TrimSpace(ct), Body: body}
 	}
 	if len(w.Sites) > 0 {
 		o.Steps = make(map[conformance.SitePath]conformance.StepObservation, len(w.Sites))
