@@ -447,8 +447,8 @@ dispatcher's runs get no run hooks and so no `WL_EFFECT_SINK`; a script run
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: a container as the failure module (CF-30), a
-retry on a subflow step (later), caching, a preprocessor). The fixture's other runs are checked.
+names the milestone: a container as the failure module (CF-30),
+caching, a preprocessor). The fixture's other runs are checked.
 
 ### Expression files
 
@@ -499,7 +499,7 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1 and F2a:
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a and N5:
   every run the flow suite requires passes in `warm` and in `fresh`,
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
   with a variable that the step updates through the job API; F2a, whose
@@ -561,11 +561,16 @@ Windmill v1.767.0's image).
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
   the copy of a body module's carried-over attempt inside that subtree.
+- `TestSubflowRetryFixturesFreshAndWarm` is milestone N5's gate. Every
+  run of `control-flow/subflow-retry` (a retry on a flow step, and on a
+  while loop and a branchone) matches its recording in `fresh` and in
+  `warm`.
 - `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
   ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
   inside a loop, a collapsed body, nested loops, a named subflow and a
   parallel loop, and two concurrent outer runs), plus E4b's retry inside
-  a loop on codebase scripts (`stub/codebase`), on windmill-lite. Each run
+  a loop on codebase scripts (`stub/codebase`) and N5's retried flow step
+  (`stub/subflow_retry`), on windmill-lite. Each run
   must match its `expect` and, with the `expect` dropped, the oracle's
   recording, effects included, in `fresh` and in `warm`. A run without a
   recording fails the test without stopping it. Its group, `scopes` runs

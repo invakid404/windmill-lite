@@ -235,9 +235,14 @@ in which an executed script would keep its real body: another language, the
 step whose target is a hub path or not in the tree, a script step pinned by
 hash (it runs that deployed version, not the stub pushed at its path,
 [OF-14](../../docs/semantics/openflow.md#of-14)), a `flowscript` step, an
-AI-agent step, a retry on a subflow, loop or branch step (a failed attempt's inner steps
-are walked under `r:<k>`, which a table does not address), and a source
-`StubSource` refuses. The output must not lie inside the tree, which is
+AI-agent step, a retry on a loop or branch step (a failed attempt is
+walked as its last failed child alone, under `r:<k>` without the child's
+`i:` or `b:` segment, so none of its calls matches the site the replay
+service resolved, and a loop's other children are not walked), and a
+source `StubSource` refuses. A retry on a flow step is
+accepted (milestone N5): each attempt's subflow is walked whole below the
+step's `r:<k>`, and the replay service counts its steps' jobs across the
+attempts. The output must not lie inside the tree, which is
 decided by file identity (`os.SameFile` against each existing ancestor of
 the output, links resolved), so a symbolic link, another letter case on a
 case-insensitive file system or any other alias of the tree counts; a copy
@@ -460,7 +465,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestStubIsolationOnBun` | stubs on the pinned Bun with `fetch` recorded: a default that would call a service or name a dropped binding never runs, and a parameter or destructured binding named `Array` cannot reach the stub's code; the replay call is the only request. Each original runs through the same driver first, to show the recorder sees what a default does | — |
 | `TestStubTreeKeepsItsOutputOutsideTheTree`, `TestStubTreeRefusesACaseAlias` | an output inside the tree, directly, through a symbolic link, or through another letter case where the file system makes it the same directory, is refused with the tree unchanged (where the spellings are two directories, the stub is written); a failed copy removes its output and the parents it made | — |
 | `TestExportListsOnBun` | the scanner accepts a script exactly when importing it on the pinned Bun gives a callable `main` (export lists, type-only entries, aliases), and every accepted script's stub exports one too | — |
-| `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
+| `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, a retried named subflow (its current attempt's steps at the step's site, without `r:`; milestone N5), an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
 | `TestCheckReplay`, `TestCheckOverlap` | each failure of `checkReplay`; a group's root jobs in flight together | — |
 | `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes E4a's four stub fixtures (`collapsed`, `nested`, `retry_loop`, `scopes`) job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; runs `r` and `t` run together and keep apart (the fake starts a group's runs once all of them are submitted, as the oracle's runs outlast the gap between submissions, so a slow machine cannot finish one first; a session that submits them one after the other still gets `group_not_concurrent`); `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |

@@ -1,0 +1,37 @@
+summary: N5 a retried subflow step in a parallel loop
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: a
+            value:
+              type: flow
+              input_transforms:
+                fails:
+                  type: static
+                  value: 1
+                tag:
+                  type: javascript
+                  expr: "'par-' + flow_input.iter.value"
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/cfsr/child
+            retry:
+              constant:
+                attempts: 1
+                seconds: 0
+        iterator:
+          type: javascript
+          expr: flow_input.items
+        parallel: true
+        skip_failures: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    items:
+      type: array
+  required: []

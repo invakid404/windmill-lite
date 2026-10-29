@@ -226,10 +226,8 @@ a top-level module, a container body's and the failure module alike:
 a container as the failure module, whose
 bodies run raw with a suffixed copy of it
 ([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
-only); a retry on a subflow step, whose attempts' subflows would go
-below the attempt's site, which no case of NI covers (`later`);
-`cache_ignore_s3_path` (`later`), since the object store keeps no ETag to
-hash an S3 object's argument with
+only); `cache_ignore_s3_path` (`later`), since the object store keeps no
+ETag to hash an S3 object's argument with
 ([FX-40](../../docs/semantics/execution.md#fx-40)); a step of another harness than Bun's, whose `bun` and
 `native` boundaries it runs (L1); an `ai`
 parallelism, whose error the reference does not give; a preprocessor,
@@ -804,10 +802,23 @@ the child's id as its job.
   subflow's first module fails it at its pickup, bypassing its failure
   module ([CF-V3](../../docs/semantics/control-flow.md#cf-v3), FX-15
   context 3).
-- **Refused.** A retry with attempts or `retry_if` on a subflow step,
-  whose attempts' subflows belong under the attempt's site
-  ([ADR 0011](../../docs/design/0011-differential-testing.md)): N3c left
-  it to NI, whose cases do not cover it, so it is `later`.
+- **Retried (milestone N5).** A flow step with `retry` runs its subflow
+  again when it fails, as any step is retried
+  ([FX-26](../../docs/semantics/execution.md#fx-26),
+  [FX-27](../../docs/semantics/execution.md#fx-27)): a new child flow,
+  whose input is the failed attempt's recorded arguments, after the
+  retry's delay. The failed attempt's job is its subflow's. It moves to
+  the step's `r:<k>`, with the subflow's records and child flows below
+  it, its own retried modules' attempts included, where the walker meets
+  them (`attempt`, recorded by `conformance/flows/control-flow/subflow-retry`).
+  The step's status lists the attempts, which a failure module, or the
+  step after a tolerated failure, lists again (FX-29), and the step's
+  result is its last subflow's. A flow step whose input transform throws
+  still launches its subflow's job, which fails before any module of it
+  runs ([FX-14](../../docs/semantics/execution.md#fx-14)): the trace lists
+  that child flow with nothing run, so its modules are `not_run`, at the
+  step's site or, retried, at its `r:<k>`, and the retry runs the subflow
+  with an empty input. `subflow_retry_test.go` covers it.
 
 **Failure modules in bodies (N3c).** In a flow with a failure module,
 every loop iteration and branch runs as a child flow carrying a copy of
@@ -1067,7 +1078,14 @@ input, results scope and job identity, a body inside one under a
 caller's loop, the caller's results and `flow_env` it reads, every
 outcome (a failure, a tolerated one, both failure modules, a recovered
 one, each kind of stop), a pickup error, the hooks, `same_worker`, the
-executor check through a subflow, and concurrent runs. `bodies_test.go`
+executor check through a subflow, and concurrent runs.
+`subflow_retry_test.go` (N5) covers a retried flow step: the failed
+attempt's child flow and modules at `r:<k>`, the retry's arguments and
+each attempt's flow id, running out of retries (plain, under
+`continue_on_error`, with a failure module), a child's own retried step,
+a retried flow step and a retried loop inside a retried subflow, in
+sequential and parallel loops, and an input transform that throws.
+`bodies_test.go`
 (N3c) covers failure modules in bodies: the copy per failed iteration,
 its scope and id, no second run with or without `skip_failures` and
 through a clean stop of a failed inner loop under a loop, a `branchone`

@@ -1,0 +1,4 @@
+# CF-17, FX-26: a's subflow fails on both attempts; the flow fails with
+# the second.
+target: f/cfsr/exhausted
+args: {v: 7}

@@ -1,0 +1,37 @@
+summary: N5 a retried subflow step that runs out of retries under continue_on_error
+value:
+  modules:
+    - id: a
+      value:
+        type: flow
+        input_transforms:
+          fails:
+            type: static
+            value: 5
+          tag:
+            type: javascript
+            expr: "'exhausted_continue'"
+          v:
+            type: javascript
+            expr: flow_input.v
+        path: f/cfsr/child
+      continue_on_error: true
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: results.a
+        path: f/cfsr/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v:
+      type: ''
+  required: []

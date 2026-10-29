@@ -1,0 +1,283 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      {
+        "v": "p",
+        "tag": "par-p",
+        "flow": "<job:m:l/i:0/m:a>",
+        "attempt": 1,
+        "root_flow": "<job:m:l/i:0/m:a>"
+      },
+      {
+        "v": "q",
+        "tag": "par-q",
+        "flow": "<job:m:l/i:1/m:a>",
+        "attempt": 1,
+        "root_flow": "<job:m:l/i:1/m:a>"
+      }
+    ],
+    "steps": {
+      "m:l": {
+        "status": "success",
+        "result": [
+          {
+            "v": "p",
+            "tag": "par-p",
+            "flow": "<job:m:l/i:0/m:a>",
+            "attempt": 1,
+            "root_flow": "<job:m:l/i:0/m:a>"
+          },
+          {
+            "v": "q",
+            "tag": "par-q",
+            "flow": "<job:m:l/i:1/m:a>",
+            "attempt": 1,
+            "root_flow": "<job:m:l/i:1/m:a>"
+          }
+        ]
+      },
+      "m:l/i:0/m:a": {
+        "status": "success",
+        "args": {
+          "v": "p",
+          "tag": "par-p",
+          "fails": 1
+        },
+        "result": {
+          "v": "p",
+          "tag": "par-p",
+          "flow": "<job:m:l/i:0/m:a>",
+          "attempt": 1,
+          "root_flow": "<job:m:l/i:0/m:a>"
+        }
+      },
+      "m:l/i:0/m:a/m:x": {
+        "status": "success",
+        "args": {
+          "v": "p",
+          "tag": "par-p",
+          "fails": 1
+        },
+        "result": {
+          "v": "p",
+          "tag": "par-p",
+          "flow": "<job:m:l/i:0/m:a>",
+          "attempt": 1,
+          "root_flow": "<job:m:l/i:0/m:a>"
+        }
+      },
+      "m:l/i:0/m:a/r:0": {
+        "status": "failure",
+        "args": {
+          "v": "p",
+          "tag": "par-p",
+          "fails": 1
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "attempt 0 of par-p",
+            "step_id": "x"
+          }
+        }
+      },
+      "m:l/i:0/m:a/r:0/m:x": {
+        "status": "failure",
+        "args": {
+          "v": "p",
+          "tag": "par-p",
+          "fails": 1
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "attempt 0 of par-p",
+            "step_id": "x"
+          }
+        }
+      },
+      "m:l/i:1/m:a": {
+        "status": "success",
+        "args": {
+          "v": "q",
+          "tag": "par-q",
+          "fails": 1
+        },
+        "result": {
+          "v": "q",
+          "tag": "par-q",
+          "flow": "<job:m:l/i:1/m:a>",
+          "attempt": 1,
+          "root_flow": "<job:m:l/i:1/m:a>"
+        }
+      },
+      "m:l/i:1/m:a/m:x": {
+        "status": "success",
+        "args": {
+          "v": "q",
+          "tag": "par-q",
+          "fails": 1
+        },
+        "result": {
+          "v": "q",
+          "tag": "par-q",
+          "flow": "<job:m:l/i:1/m:a>",
+          "attempt": 1,
+          "root_flow": "<job:m:l/i:1/m:a>"
+        }
+      },
+      "m:l/i:1/m:a/r:0": {
+        "status": "failure",
+        "args": {
+          "v": "q",
+          "tag": "par-q",
+          "fails": 1
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "attempt 0 of par-q",
+            "step_id": "x"
+          }
+        }
+      },
+      "m:l/i:1/m:a/r:0/m:x": {
+        "status": "failure",
+        "args": {
+          "v": "q",
+          "tag": "par-q",
+          "fails": 1
+        },
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "message": "attempt 0 of par-q",
+            "step_id": "x"
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.1 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029165132-bc186c4cb8f7",
+      "revision": "bc186c4cb8f7d73ed4136d0935419def3b8b7950",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40915682847"
+    },
+    "recorded_at": "2026-10-29T16:58:00Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:40217"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 412,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T16:58:00.195913Z",
+          "started_at": "2026-10-29T16:58:00.220556Z",
+          "completed_at": "2026-10-29T16:58:00.418116Z",
+          "duration_ms": 198
+        },
+        "m:l/i:0": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T16:58:00.223503Z",
+          "started_at": "2026-10-29T16:58:00.231219Z",
+          "completed_at": "2026-10-29T16:58:00.374024Z",
+          "duration_ms": 143
+        },
+        "m:l/i:0/m:a": {
+          "kind": "flow",
+          "created_at": "2026-10-29T16:58:00.306163Z",
+          "started_at": "2026-10-29T16:58:00.324706Z",
+          "completed_at": "2026-10-29T16:58:00.368846Z",
+          "duration_ms": 44
+        },
+        "m:l/i:0/m:a/m:x": {
+          "kind": "script",
+          "created_at": "2026-10-29T16:58:00.330199Z",
+          "started_at": "2026-10-29T16:58:00.332894Z",
+          "completed_at": "2026-10-29T16:58:00.362457Z",
+          "duration_ms": 27
+        },
+        "m:l/i:0/m:a/r:0": {
+          "kind": "flow",
+          "created_at": "2026-10-29T16:58:00.235386Z",
+          "started_at": "2026-10-29T16:58:00.247559Z",
+          "completed_at": "2026-10-29T16:58:00.297809Z",
+          "duration_ms": 50
+        },
+        "m:l/i:0/m:a/r:0/m:x": {
+          "kind": "script",
+          "created_at": "2026-10-29T16:58:00.250605Z",
+          "started_at": "2026-10-29T16:58:00.261455Z",
+          "completed_at": "2026-10-29T16:58:00.291325Z",
+          "duration_ms": 30
+        },
+        "m:l/i:1": {
+          "kind": "flownode",
+          "created_at": "2026-10-29T16:58:00.223503Z",
+          "started_at": "2026-10-29T16:58:00.238601Z",
+          "completed_at": "2026-10-29T16:58:00.411236Z",
+          "duration_ms": 173
+        },
+        "m:l/i:1/m:a": {
+          "kind": "flow",
+          "created_at": "2026-10-29T16:58:00.337042Z",
+          "started_at": "2026-10-29T16:58:00.362728Z",
+          "completed_at": "2026-10-29T16:58:00.406343Z",
+          "duration_ms": 44
+        },
+        "m:l/i:1/m:a/m:x": {
+          "kind": "script",
+          "created_at": "2026-10-29T16:58:00.368078Z",
+          "started_at": "2026-10-29T16:58:00.371429Z",
+          "completed_at": "2026-10-29T16:58:00.402289Z",
+          "duration_ms": 27
+        },
+        "m:l/i:1/m:a/r:0": {
+          "kind": "flow",
+          "created_at": "2026-10-29T16:58:00.244406Z",
+          "started_at": "2026-10-29T16:58:00.253503Z",
+          "completed_at": "2026-10-29T16:58:00.328328Z",
+          "duration_ms": 75
+        },
+        "m:l/i:1/m:a/r:0/m:x": {
+          "kind": "script",
+          "created_at": "2026-10-29T16:58:00.257899Z",
+          "started_at": "2026-10-29T16:58:00.291584Z",
+          "completed_at": "2026-10-29T16:58:00.324405Z",
+          "duration_ms": 33
+        }
+      }
+    }
+  }
+}

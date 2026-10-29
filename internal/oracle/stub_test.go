@@ -26,6 +26,8 @@ func TestStubTreeOfTheFixtures(t *testing.T) {
 		"nested":     {"f/wl_stub/nested.flow/read.ts", "f/wl_stub/nested.flow/write.ts"},
 		"retry_loop": {"f/wl_stub/retry_loop.flow/call.ts"},
 		"scopes":     {"f/wl_stub/members.flow/lookup.ts", "f/wl_stub/notify.flow/post.ts"},
+		// A retried flow step is accepted (milestone N5).
+		"subflow_retry": {"f/wl_stub_sr/order.flow/confirm.ts", "f/wl_stub_sr/prepare.flow/prep.ts", "f/wl_stub_sr/prepare.flow/tail.ts", "f/wl_stub_sr/prepare.flow/x.ts", "f/wl_stub_sr/reserve.flow/check.ts", "f/wl_stub_sr/reserve.flow/hold.ts"},
 	}
 	for name, files := range want {
 		t.Run(name, func(t *testing.T) {
@@ -115,7 +117,8 @@ func TestStubTreeRefuses(t *testing.T) {
 		{"a subflow outside the tree", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: flow\n        path: f/elsewhere/w\n        input_transforms: {}\n")}, "f/elsewhere/w"},
 		{"a script step pinned by hash", map[string]string{"f/x/a.ts": okScript, "f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: script\n        path: f/x/a\n        hash: '0000000000000001'\n        input_transforms: {}\n")}, "pinned by hash"},
 		{"a flowscript step", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: s\n      value:\n        type: flowscript\n        id: 42\n        input_transforms: {}\n")}, "flowscript step"},
-		{"a retried loop", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules: []\n      retry: {constant: {attempts: 1, seconds: 0}}\n")}, "a retry on a subflow, loop or branch step"},
+		{"a retried loop", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules: []\n      retry: {constant: {attempts: 1, seconds: 0}}\n")}, "a retry on a loop or branch step"},
+		{"a retried branchone", map[string]string{"f/x/w.flow/flow.yaml": flowYAML("    - id: b\n      value:\n        type: branchone\n        branches: []\n        default: []\n      retry: {constant: {attempts: 1, seconds: 0}}\n")}, "a retry on a loop or branch step"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
