@@ -87,7 +87,7 @@ func casePluginInput(f *conformance.PluginFile) []map[string]any {
 
 // pluginOutcome is a run's outcome as a case checks it.
 func pluginOutcome(res *Result) conformance.PluginOutcome {
-	o := conformance.PluginOutcome{Status: res.Status, Result: res.Result, Ran: map[string]bool{}}
+	o := conformance.PluginOutcome{Status: res.Status, MayHaveMutated: res.MayHaveMutated, Result: res.Result, Ran: map[string]bool{}}
 	if res.Latched != nil {
 		o.Latched = res.Latched.Error()
 	}
@@ -223,11 +223,21 @@ func newGoCasePlugin(f *conformance.PluginFile) *goCasePlugin {
 		for _, m := range c.Hooks.HaltAfter {
 			g.hooks.HaltAfter = append(g.hooks.HaltAfter, sel(m))
 		}
+		for _, m := range c.Hooks.WriteCapable {
+			g.hooks.WriteCapable = append(g.hooks.WriteCapable, sel(m))
+		}
+		g.hooks.FatalErrorNames = append(g.hooks.FatalErrorNames, c.Hooks.FatalErrorNames...)
 		for name, a := range c.Hooks.Providers {
 			g.providers[name] = func(context.Context, Call) (Outcome, bool, error) {
 				return answer(a.Result, a.Failed, a.Decline, a.Throw, a.DelayMS)
 			}
 		}
+	}
+	g.hooks.BeforeFirstWrite = func(_ context.Context, _ RunHandle, s Site) error {
+		if reason, ok := strings.CutPrefix(byFlow[s.Flow].FirstWrite, "veto: "); ok {
+			return errors.New(reason)
+		}
+		return nil
 	}
 	g.hooks.OnModuleStart = func(_ context.Context, r RunHandle, s Site) error {
 		g.mu.Lock()

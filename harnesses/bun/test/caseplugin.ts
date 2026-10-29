@@ -15,6 +15,9 @@ export type CaseSpec = {
   rewrite_args?: { module: string; args: Record<string, unknown> }[];
   halt_before?: string[];
   halt_after?: string[];
+  write_capable?: string[];
+  first_write?: string;
+  fatal_error_names?: string[];
   around?: { module: string; throw?: "before" | "after" }[];
   observe?: boolean;
   env?: Record<string, string>;
@@ -41,11 +44,13 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[]): Plugin 
     if (a.failed !== undefined) return { result: a.failed, failed: true };
     return { result: a.result ?? null };
   };
-  const p: Required<Pick<Plugin, "intercept" | "rewriteArgs" | "haltBefore" | "haltAfter" | "around" | "providers">> = {
+  const p: Required<Pick<Plugin, "intercept" | "rewriteArgs" | "haltBefore" | "haltAfter" | "writeCapable" | "fatalErrorNames" | "around" | "providers">> = {
     intercept: [],
     rewriteArgs: [],
     haltBefore: [],
     haltAfter: [],
+    writeCapable: [],
+    fatalErrorNames: [],
     around: [],
     providers: {},
   };
@@ -59,6 +64,8 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[]): Plugin 
     for (const x of s.rewrite_args ?? []) p.rewriteArgs.push({ selector: sel(x.module), fn: () => x.args });
     for (const m of s.halt_before ?? []) p.haltBefore.push(sel(m));
     for (const m of s.halt_after ?? []) p.haltAfter.push(sel(m));
+    for (const m of s.write_capable ?? []) p.writeCapable.push(sel(m));
+    p.fatalErrorNames.push(...(s.fatal_error_names ?? []));
     for (const x of s.around ?? []) {
       p.around.push({
         selector: sel(x.module),
@@ -75,6 +82,10 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[]): Plugin 
   }
   return {
     ...p,
+    beforeFirstWrite: ({ site }) => {
+      const w = byFlow.get(site.flow)?.first_write ?? "approve";
+      if (w.startsWith("veto: ")) throw new Error(w.slice("veto: ".length));
+    },
     onModuleStart: ({ run, site }) => {
       runFlow.set(run, site.flow);
       if (byFlow.get(site.flow)?.observe) log(run, `start:${site.path}`);

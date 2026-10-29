@@ -63,7 +63,12 @@ type PluginSpec struct {
 	} `json:"rewrite_args"`
 	HaltBefore []string `json:"halt_before"`
 	HaltAfter  []string `json:"halt_after"`
-	Around     []struct {
+	// WriteCapable are module ids (H3); FirstWrite is what
+	// beforeFirstWrite does: "approve", or "veto: <reason>".
+	WriteCapable    []string `json:"write_capable"`
+	FirstWrite      string   `json:"first_write"`
+	FatalErrorNames []string `json:"fatal_error_names"`
+	Around          []struct {
 		Module string `json:"module"`
 		Throw  string `json:"throw"`
 	} `json:"around"`
@@ -85,12 +90,13 @@ type PluginSpec struct {
 
 // PluginExpect is what a case expects of its run.
 type PluginExpect struct {
-	Status   string          `json:"status"`
-	Result   json.RawMessage `json:"result"`
-	Latched  string          `json:"latched"`
-	Log      []string        `json:"log"`
-	Warnings []string        `json:"warnings"`
-	NotRan   []string        `json:"not_ran"`
+	Status         string          `json:"status"`
+	MayHaveMutated *bool           `json:"may_have_mutated"`
+	Result         json.RawMessage `json:"result"`
+	Latched        string          `json:"latched"`
+	Log            []string        `json:"log"`
+	Warnings       []string        `json:"warnings"`
+	NotRan         []string        `json:"not_ran"`
 }
 
 // PluginLog is the code of the warning in which a case plugin's onRunEnd
@@ -185,10 +191,11 @@ func (f *PluginFile) Contract() []byte {
 // PluginOutcome is what a case's run gave: its status, result (stored),
 // latched error, warnings and the sites that ran a job.
 type PluginOutcome struct {
-	Status   string
-	Result   json.RawMessage
-	Latched  string
-	Warnings []struct{ Code, Message string }
+	Status         string
+	MayHaveMutated bool
+	Result         json.RawMessage
+	Latched        string
+	Warnings       []struct{ Code, Message string }
 	// Ran holds, for each site the trace has a record of, whether a job
 	// ran for it.
 	Ran map[string]bool
@@ -201,6 +208,9 @@ func (c PluginCase) Check(o PluginOutcome) []string {
 	e := c.Expect
 	if o.Status != e.Status {
 		diffs = append(diffs, fmt.Sprintf("status %s, want %s", o.Status, e.Status))
+	}
+	if e.MayHaveMutated != nil && o.MayHaveMutated != *e.MayHaveMutated {
+		diffs = append(diffs, fmt.Sprintf("may_have_mutated %v, want %v", o.MayHaveMutated, *e.MayHaveMutated))
 	}
 	if e.Result != nil {
 		if ok, _ := jsonEqualText(o.Result, e.Result); !ok {

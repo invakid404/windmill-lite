@@ -21,6 +21,9 @@
 #   intercept: [{module, result | failed (an error value) | decline | static | throw}]
 #   rewrite_args: [{module, args}]
 #   halt_before / halt_after: [module ids]
+#   write_capable: [module ids] (H3); first_write: approve, or
+#     "veto: <reason>", which beforeFirstWrite throws
+#   fatal_error_names: [names] (H7), the plugin's for every case's run
 #   around: [{module, throw: before | after}]: logs around-before:<site>
 #     and around-after:<site>:<outcome> (TypeScript only)
 #   observe: true: logs start:<site> and end:<site>:<status> (H6)
@@ -31,7 +34,7 @@
 # Every plugin also answers onRunEnd (H9) with the warning plugin_log,
 # whose message is its log of the run, as JSON.
 # provided: the case's host-provided sites: [{module, provider}].
-# expect: status; result (the run's result); latched (a text the latched
+# expect: status; may_have_mutated; result (the run's result); latched (a text the latched
 # error contains); log; warnings (codes besides plugin_log); not_ran
 # (sites with no job).
 # go: false runs a case only through the TypeScript plugin.
@@ -129,6 +132,36 @@ cases:
         - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
     plugin: {halt_after: [a]}
     expect: {status: halted, not_ran: ["m:b"]}
+
+  - id: h3_approve
+    spec: [H3]
+    title: the first-write signal approves the first write-capable step, and the run may have mutated
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 2}}}}
+    plugin: {write_capable: [b], first_write: approve}
+    expect: {status: success, may_have_mutated: true, result: {x: 2, y: null, tenant: null}}
+
+  - id: h3_veto
+    spec: [H3, H5]
+    title: a veto of the first write latches the run before the write-capable step runs
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 2}}}}
+    plugin: {write_capable: [b], first_write: "veto: a read-only run"}
+    expect: {status: latched, may_have_mutated: false, latched: a read-only run, not_ran: ["m:b"]}
+
+  - id: h7_fatal
+    spec: [H7, H5]
+    title: a fatal error name latches the run past continue_on_error
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+        - {id: b, value: {type: identity}}
+    plugin: {fatal_error_names: [HostFatal], intercept: [{module: a, failed: {name: HostFatal, message: stop}}]}
+    expect: {status: latched, latched: HostFatal, not_ran: ["m:b"]}
 
   - id: h9_warnings
     spec: [H9]

@@ -1096,7 +1096,7 @@ func TestHostPluginCases(t *testing.T) {
 			if err != nil || r.Refused != "" {
 				t.Fatalf("%+v, %v", r, err)
 			}
-			o := conformance.PluginOutcome{Status: r.Status, Result: r.Result, Latched: r.Latched}
+			o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched}
 			scope := ""
 			for _, w := range r.Warnings {
 				o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})

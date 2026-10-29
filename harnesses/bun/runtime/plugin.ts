@@ -81,6 +81,14 @@ export type Plugin = {
   /** H8: halts before or after the modules the selectors match. */
   haltBefore?: Selector[];
   haltAfter?: Selector[];
+  /** H3: the write-capable sites; before the first of them launches in a
+   * run, beforeFirstWrite is called once, and a throw vetoes the write,
+   * which latches the run. */
+  writeCapable?: Selector[];
+  beforeFirstWrite?: (e: { run: string; site: Site }) => MaybePromise<void>;
+  /** H7: error names that latch the run instead of reaching retry,
+   * continue_on_error, skip_failures or skip_failure. */
+  fatalErrorNames?: string[];
   /** H1's wrap: every matching wrapper runs around a leaf's invocation,
    * here, outermost first. It calls next() once to run the step; the
    * step's outcome stays its own, whatever the wrapper returns. A wrapper
@@ -154,6 +162,11 @@ export function declaration(p: Plugin): Record<string, unknown> {
   }
   if (p.haltBefore) d.halt_before = p.haltBefore.map((s, i) => selector(`haltBefore[${i}]`, s));
   if (p.haltAfter) d.halt_after = p.haltAfter.map((s, i) => selector(`haltAfter[${i}]`, s));
+  if (p.writeCapable) d.write_capable = p.writeCapable.map((s, i) => selector(`writeCapable[${i}]`, s));
+  if (p.fatalErrorNames) {
+    if (!Array.isArray(p.fatalErrorNames) || p.fatalErrorNames.some((n) => typeof n !== "string")) throw new Error("windmill-lite plugin: fatalErrorNames is a list of names");
+    d.fatal_error_names = [...p.fatalErrorNames];
+  }
   if (p.around) {
     d.around = p.around.map((x, i) => {
       fn(`around[${i}].fn`, x.fn);
@@ -161,6 +174,7 @@ export function declaration(p: Plugin): Record<string, unknown> {
     });
   }
   for (const [key, name] of [
+    ["beforeFirstWrite", "before_first_write"],
     ["onModuleStart", "on_module_start"],
     ["onModuleEnd", "on_module_end"],
     ["invocationEnv", "invocation_env"],
@@ -215,6 +229,10 @@ export async function dispatch(p: Plugin, hook: string, run: string, payload: Re
         if (!args || typeof args !== "object" || Array.isArray(args)) throw new HostCallFailure("plugin_error", `rewriteArgs[${payload.index}] answered arguments that are not an object`);
         return { args };
       }
+      case "before_first_write":
+        if (!p.beforeFirstWrite) throw unknown();
+        await p.beforeFirstWrite({ run, site });
+        return {};
       case "on_module_start":
         if (!p.onModuleStart) throw unknown();
         await p.onModuleStart({ run, site });

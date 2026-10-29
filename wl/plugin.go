@@ -58,14 +58,17 @@ type pluginDecl struct {
 	Around     []struct {
 		Selector Selector `json:"selector"`
 	} `json:"around"`
-	OnModuleStart bool     `json:"on_module_start"`
-	OnModuleEnd   bool     `json:"on_module_end"`
-	InvocationEnv bool     `json:"invocation_env"`
-	OnRunEnd      bool     `json:"on_run_end"`
-	OnRunSettled  bool     `json:"on_run_settled"`
-	Providers     []string `json:"providers"`
-	Resource      bool     `json:"resource"`
-	Variable      bool     `json:"variable"`
+	WriteCapable     []Selector `json:"write_capable"`
+	BeforeFirstWrite bool       `json:"before_first_write"`
+	FatalErrorNames  []string   `json:"fatal_error_names"`
+	OnModuleStart    bool       `json:"on_module_start"`
+	OnModuleEnd      bool       `json:"on_module_end"`
+	InvocationEnv    bool       `json:"invocation_env"`
+	OnRunEnd         bool       `json:"on_run_end"`
+	OnRunSettled     bool       `json:"on_run_settled"`
+	Providers        []string   `json:"providers"`
+	Resource         bool       `json:"resource"`
+	Variable         bool       `json:"variable"`
 }
 
 // hostCaller sends one host_call: the pool's or the host's.
@@ -127,6 +130,11 @@ func newPlugin(decl jsonval.Value, prog *ir.Program, call hostCaller, timeout ti
 	}
 	for i, x := range p.decl.Around {
 		if err := check(fmt.Sprintf("around[%d]", i), x.Selector); err != nil {
+			return nil, err
+		}
+	}
+	for i, s := range p.decl.WriteCapable {
+		if err := check(fmt.Sprintf("writeCapable[%d]", i), s); err != nil {
 			return nil, err
 		}
 	}
@@ -193,7 +201,13 @@ func (r outcomeReply) outcome() (Outcome, bool) {
 
 // goHooks are the declaration as Go hooks, each callback a host_call.
 func (p *plugin) goHooks() *Hooks {
-	h := &Hooks{HaltBefore: p.decl.HaltBefore, HaltAfter: p.decl.HaltAfter}
+	h := &Hooks{HaltBefore: p.decl.HaltBefore, HaltAfter: p.decl.HaltAfter, WriteCapable: p.decl.WriteCapable, FatalErrorNames: p.decl.FatalErrorNames}
+	if p.decl.BeforeFirstWrite {
+		// H3: an error from the plugin vetoes the first write.
+		h.BeforeFirstWrite = func(ctx context.Context, run RunHandle, site Site) error {
+			return p.do(ctx, "before_first_write", run.ID(), &site, map[string]any{}, nil)
+		}
+	}
 	for i, x := range p.decl.Intercept {
 		in := Interceptor{Selector: x.Selector}
 		if x.Static != nil {
@@ -407,17 +421,22 @@ func (rt *Runtime) withPlugin(h *Hooks) *Hooks {
 	return mergeHooks(h, p.hooks)
 }
 
-// mergeHooks are a's hooks followed by b's: interceptions, rewrites and
-// halts in that order (the first matching interception answers), and both
-// observers, environment hooks and run-end hooks, a's first.
+// mergeHooks are a's hooks followed by b's: interceptions, rewrites, halts,
+// write-capable selectors and fatal names in that order (the first
+// matching interception answers), and both observers, first-write
+// signals (a veto from either vetoes), environment hooks and run-end
+// hooks, a's first.
 func mergeHooks(a, b *Hooks) *Hooks {
 	m := &Hooks{
-		Intercept:   slices.Concat(a.Intercept, b.Intercept),
-		RewriteArgs: slices.Concat(a.RewriteArgs, b.RewriteArgs),
-		HaltBefore:  slices.Concat(a.HaltBefore, b.HaltBefore),
-		HaltAfter:   slices.Concat(a.HaltAfter, b.HaltAfter),
+		Intercept:       slices.Concat(a.Intercept, b.Intercept),
+		RewriteArgs:     slices.Concat(a.RewriteArgs, b.RewriteArgs),
+		HaltBefore:      slices.Concat(a.HaltBefore, b.HaltBefore),
+		HaltAfter:       slices.Concat(a.HaltAfter, b.HaltAfter),
+		WriteCapable:    slices.Concat(a.WriteCapable, b.WriteCapable),
+		FatalErrorNames: slices.Concat(a.FatalErrorNames, b.FatalErrorNames),
 	}
 	m.OnModuleStart = both(a.OnModuleStart, b.OnModuleStart)
+	m.BeforeFirstWrite = both(a.BeforeFirstWrite, b.BeforeFirstWrite)
 	if a.OnModuleEnd != nil || b.OnModuleEnd != nil {
 		m.OnModuleEnd = func(ctx context.Context, r RunHandle, s Site, rec StepRecord) error {
 			for _, f := range []func(context.Context, RunHandle, Site, StepRecord) error{a.OnModuleEnd, b.OnModuleEnd} {
