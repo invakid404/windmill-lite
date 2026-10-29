@@ -14,6 +14,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // run is one run of a flow: its state and its trace. One goroutine drives
@@ -1052,16 +1053,20 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		Boundary:    Boundary(m.Leaf.Boundary),
 		ModuleState: ModuleStateWarm,
 	}
-	inv.Env = map[string]string{
-		"WM_WORKSPACE":        r.e.workspace,
-		"WM_JOB_ID":           inv.ID,
-		"WM_FLOW_JOB_ID":      in.id,
-		"WM_ROOT_FLOW_JOB_ID": in.scope,
-		"WM_ROOT_JOB_ID":      r.id,
-		"WM_FLOW_PATH":        in.path,
-		"WM_FLOW_STEP_ID":     fr.stepID(i),
-		"WM_JOB_PATH":         r.jobPath(fr, i),
-	}
+	// Job identity (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs in
+	// is its parent (a child flow, or the loop's flow for a collapsed
+	// iteration), with that flow's innermost scope and runnable path, under
+	// the run as its effective root.
+	inv.Env = platform.Identity{
+		JobID:         inv.ID,
+		FlowJobID:     in.id,
+		RootFlowJobID: in.scope,
+		RootJobID:     r.id,
+		FlowPath:      in.path,
+		StepID:        fr.stepID(i),
+		JobPath:       r.jobPath(fr, i),
+		Token:         platform.NewToken(),
+	}.Env(r.e.host)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.Latch(HookLatchError(ctx, err))
 	}

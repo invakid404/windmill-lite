@@ -62,9 +62,11 @@ jobs:
         run: echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
 
       - name: Fetch windmill-client 1.767.0
-        # The Q-WA-4 env-view test (milestone W1, internal/harness) runs the
-        # stock client of Windmill v1.767.0: an Apache-2.0 package, used as
-        # a test dependency and never committed. The tarball is checked
+        # The Q-WA-4 env-view test (milestone W1, internal/harness) and the
+        # facade's attribution test (milestone PF1,
+        # internal/platform/facade) run the stock client of Windmill
+        # v1.767.0: an Apache-2.0 package, used as a test dependency and
+        # never committed. The tarball is checked
         # against the SHA-512 of its npm integrity hash.
         run: |
           dir="$RUNNER_TEMP/windmill-client"

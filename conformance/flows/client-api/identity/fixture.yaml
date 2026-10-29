@@ -1,0 +1,15 @@
+# Milestone PF1's fixture: the job identity a flow step sees, recorded on the
+# oracle and run by wltest check on windmill-lite, where the platform facade
+# answers the step's call. Each step returns its state path (WA-5/a's rule,
+# for an inline step and a path script), the base URL variables a Bun job
+# has (WA-2/a), whether it has a token, and the answer to a root lookup it
+# makes with fetch at BASE_URL and its own token, the call getRootJobId
+# makes (WA-14, WA-V1): the flow's job, normalised to its placeholder
+# (OR-14), the same as WM_ROOT_JOB_ID. Synthetic, written for this
+# repository from docs/semantics/conformance.md.
+id: client-api/identity
+spec: [WA-4/a, WA-5/a, WA-2/a, WA-V1, WR-22, OR-14]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
