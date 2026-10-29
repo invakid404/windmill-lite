@@ -1093,7 +1093,10 @@ the reference left to them.
   last failed child job, so a child flow sees the failed child's `iter` as
   `iter_parent`, and a collapsed body job transforms the failed job's
   arguments; later iterations start from the loop's own flow input
-  (recorded by `cf-22/iter_parent` and `collapsed_input`). The failed
+  (recorded by `cf-22/iter_parent` and `collapsed_input`). The re-entry is
+  a later transition, so a chaining error there (its iterator, timeout,
+  `parallelism` or a push) fails the flow at once (FX-15 context 1), as a
+  leaf's retry does. The failed
   attempt is recorded as Windmill's job tree keeps it: the module's job,
   its last child job that failed, else its last child job, at
   `<site>/r:<k>`, a child flow's modules below it; a `branchall`, which

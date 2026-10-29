@@ -111,6 +111,23 @@ func TestContainerRetry(t *testing.T) {
 		t.Fatalf("calls %v", got)
 	}
 
+	// A retry's re-entry is a later transition (FX-15): an iterator that
+	// throws at the root's pickup fails the loop, which is retried, and the
+	// same throw at the re-entry fails the flow at once, the loop not run.
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(loopOf("l", body, `"iterator":`+js("flow_input.x.y")+`,"skip_failures":false`, `"retry":{"constant":{"attempts":2,"seconds":0}}`))}, &scripts{})
+	tr = runReq(t, e, RunRequest{})
+	wantStatus(t, tr, conformance.RunFailure, "")
+	if errorName(tr.Result) != "InternalError" {
+		t.Fatalf("result %s", tr.Result)
+	}
+	if l := record(t, tr, site("l")); l.Status != conformance.StepNotRun || len(l.FailedRetries) != 0 {
+		t.Fatalf("l %+v", l)
+	}
+	record(t, tr, attemptSite("l", 0))
+	if _, ok := tr.Step(attemptSite("l", 1)); ok {
+		t.Fatal("a second retry")
+	}
+
 	// The retry's attempts are spent: the loop fails with its second
 	// attempt's array.
 	s := &scripts{}

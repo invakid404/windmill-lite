@@ -84,11 +84,11 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 		if ctx.Err() != nil {
 			return branchInterrupted(o, false, conformance.RunCanceled)
 		}
-		return r.chaining(fr, i, o, text)
+		return r.chainingAt(fr, b.first, o, text)
 	}
 	c, text := r.branchFrame(fr, i, seg, body, path, false)
 	if c == nil {
-		return r.chaining(fr, i, o, text)
+		return r.chainingAt(fr, b.first, o, text)
 	}
 	c.due = b.due
 	r.addChild(c)
@@ -182,16 +182,17 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 		// The module's timeout is evaluated for each child it pushes (CF-21).
 		// A failure, or the push of the branch's child flow failing, is a
 		// chaining error of the module's flow, at its pickup only for the
-		// first branch of a module that is its first module.
+		// first branch of a module at its first module's first start (a
+		// retry's re-entry is a later transition, FX-15).
 		if text, err := r.childTimeout(ctx, fr, i, prev, prevID); err != nil {
 			if ctx.Err() != nil {
 				return r.loopInterrupted(o, &it, k > 0, conformance.RunCanceled)
 			}
-			return r.chainingAt(fr, k == 0 && i == 0, o, text)
+			return r.chainingAt(fr, k == 0 && b.first, o, text)
 		}
 		c, text := r.branchFrame(fr, i, conformance.Branch(k), br.Modules, fr.path+"/branchall-"+strconv.Itoa(k), false)
 		if c == nil {
-			return r.chainingAt(fr, k == 0 && i == 0, o, text)
+			return r.chainingAt(fr, k == 0 && b.first, o, text)
 		}
 		if k == 0 {
 			c.due = b.due
@@ -267,7 +268,7 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 	// More than one branch in a same_worker flow fails the module's start
 	// (CF-7); the flag is the root's, which child flows copy (CF-1).
 	if r.f.SameWorker && m.Sleep == nil && n > 1 {
-		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
+		return r.chainingAt(fr, b.first, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
 	// Every branch is created at once, each with an rng of its own drawn in
 	// branch order, so a seed still fixes every order, and the module's
@@ -280,11 +281,11 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, prev jsonv
 				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
 				return o
 			}
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
 		c, text := r.branchFrame(fr, i, conformance.Branch(k), br.Modules, fr.path+"/branchall-"+strconv.Itoa(k), true)
 		if c == nil {
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
 		c.due = b.due
 		children[k] = c

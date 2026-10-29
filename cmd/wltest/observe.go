@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -31,7 +32,8 @@ import (
 //   - a module's record lists the failed attempts of the flow-wide retry
 //     state (StepRecord.FailedRetries, FX-27): the walker fetches the k-th
 //     at <module>/r:<k>, so the attempt's record appears there too, also
-//     when it is an earlier module's (FX-29);
+//     when it is an earlier module's (FX-29), and with it what is below it,
+//     a retried container's failed child flow (CF-22);
 //   - stored values (the root's result, each site's args and result) are in
 //     their stored form, as the job API returns them (ADR 0005), while
 //     carried and resolved_args keep the texts the trace holds: the value
@@ -111,6 +113,19 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 
 	steps := map[conformance.SitePath]conformance.StepObservation{}
 	var expanded []engine.StepRecord
+	// moves are the failed attempts the walker meets again below a later
+	// module (FX-29): an attempt that is a child flow's job, a retried
+	// container's (CF-22), is walked in turn there, its modules with it.
+	type move struct{ from, to conformance.SitePath }
+	var moves []move
+	rebase := func(p conformance.SitePath, m move) (conformance.SitePath, bool) {
+		rest, ok := strings.CutPrefix(p.String(), m.from.String()+"/")
+		if !ok {
+			return p, false
+		}
+		q, err := conformance.ParseSitePath(m.to.String() + "/" + rest)
+		return q, err == nil
+	}
 	for _, rec := range live {
 		if hidden[rec.Site] {
 			continue
@@ -126,9 +141,17 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 				continue
 			}
 			// The walker meets the attempt's job again here: a copy whose
-			// pointers are its own.
+			// pointers are its own, and the records below it.
 			src.Site, src.FailedRetries = site, nil
 			expanded = append(expanded, src)
+			m := move{at, site}
+			moves = append(moves, m)
+			for _, sub := range live {
+				if q, ok := rebase(sub.Site, m); ok && !hidden[sub.Site] {
+					sub.Site, sub.FailedRetries = q, nil
+					expanded = append(expanded, sub)
+				}
+			}
 		}
 	}
 	for _, rec := range expanded {
@@ -191,6 +214,21 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	notRun(conformance.SitePath{}, segs)
 	for _, c := range children {
 		notRun(c.Site, conformance.ModuleSegments(c.Modules))
+		for _, m := range moves {
+			at, ok := rebase(c.Site, m)
+			if c.Site == m.from {
+				at, ok = m.to, true
+			}
+			if ok {
+				csegs := conformance.ModuleSegments(c.Modules)
+				for i, v := range c.Virtual {
+					if v {
+						hidden[at.Child(csegs[i])] = true
+					}
+				}
+				notRun(at, csegs)
+			}
+		}
 	}
 	if t.ResultOrigin.Generated() {
 		generated = append(generated, "/result")

@@ -786,6 +786,11 @@ func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.Sit
 	case isContainer(m.Kind) && j != nil && !j.flow:
 		rec.Superseded = true
 		r.supersedeLocked(fr.sites[i], j.site, site)
+		for k := range r.trace.Steps {
+			if a := &r.trace.Steps[k]; a.Site == site && !a.Superseded {
+				a.FailedRetries, a.Module, a.Carried, a.CarriedOrigin, a.CarriedNested = nil, "", jsonval.Value{}, OriginNone, nil
+			}
+		}
 		return true
 	case isContainer(m.Kind) && j != nil:
 		r.supersedeLocked(fr.sites[i], j.site, site)

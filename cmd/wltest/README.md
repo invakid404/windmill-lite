@@ -316,7 +316,9 @@ a few at a time (`flows.go`):
    (milestone NI): what a retried container's failed attempt ran besides
    the job the attempt is recorded as, at `<container>/r:<k>` with a child
    flow's modules below it
-   ([CF-22](../../docs/semantics/control-flow.md#cf-22)); what a loop ran
+   ([CF-22](../../docs/semantics/control-flow.md#cf-22)), which a later
+   module that lists the attempt (FX-29) shows again below its own
+   `r:<k>`, as the walker walks the attempt's flow there; what a loop ran
    before its `skip_if` held mid-loop
    ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
    iteration's job that was never pushed.

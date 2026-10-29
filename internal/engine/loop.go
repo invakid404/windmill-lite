@@ -29,8 +29,11 @@ var errIterator = errors.New("engine: the loop cannot start")
 
 // container runs module i of fr, a container that runs (CF-1): a for loop
 // or a while loop, a branchone or a branchall. b is how the module started:
-// b.due delays its first child, the sleep of the module before it (CF-21),
-// and b.base, on a retry of a loop, is the input its children start from
+// b.first says that the start is its flow's pickup, where a chaining error
+// of its start fails the module or the child flow (FX-15 contexts 2 and
+// 3), while a retry's re-entry is a later transition (context 1); b.due
+// delays its first child, the sleep of the module before it (CF-21); and
+// b.base, on a retry of a loop, is the input its children start from
 // (CF-22 rule 3).
 func (r *run) container(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, o outcome, b begin) outcome {
 	switch fr.modules[i].Kind {
@@ -63,7 +66,7 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
 				return o
 			}
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
 	}
 	if len(items) == 0 {
@@ -258,10 +261,11 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			if e.chain != "" {
 				// The push of the iteration's job failed: a chaining error
 				// of the loop's flow, at its pickup only for the first
-				// iteration of a loop that is its first module. The job was
-				// never pushed, so Windmill has no site for it.
+				// iteration of a loop at its first module's first start (a
+				// retry's re-entry is a later transition, FX-15). The job
+				// was never pushed, so Windmill has no site for it.
 				r.supersede(fr.sites[i].Child(conformance.Iteration(k)), conformance.SitePath{}, conformance.SitePath{})
-				return r.chainingAt(fr, k == 0 && i == 0, o, e.chain)
+				return r.chainingAt(fr, k == 0 && b.first, o, e.chain)
 			}
 			job = &childJob{site: c.sites[0], input: e.args, end: e}
 		} else {
@@ -272,12 +276,12 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 				if ctx.Err() != nil {
 					return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
 				}
-				return r.chainingAt(fr, k == 0 && i == 0, o, text)
+				return r.chainingAt(fr, k == 0 && b.first, o, text)
 			}
 			c, text := r.childFrame(fr, i, k, base(k), item(k), false)
 			if c == nil {
 				// The push of the iteration's child flow failed.
-				return r.chainingAt(fr, k == 0 && i == 0, o, text)
+				return r.chainingAt(fr, k == 0 && b.first, o, text)
 			}
 			if k == 0 {
 				c.due = b.due
@@ -390,13 +394,13 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 				o.rec.Status, o.rec.Module, o.end = conformance.StepNotRun, conformance.ModuleNotRun, endInterrupted
 				return o
 			}
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
 	}
 	// More than one child in a same_worker flow fails the loop's start
 	// (CF-7); the flag is the root's, which child flows copy (CF-1).
 	if r.f.SameWorker && m.Sleep == nil && n > 1 {
-		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
+		return r.chainingAt(fr, b.first, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
 	// Every child is created at once (CF-7), in one push: a child whose
 	// input cannot be stored fails the loop's start, before any runs. On a
@@ -411,7 +415,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	for k, item := range items {
 		c, text := r.childFrame(fr, i, k, base, item, true)
 		if c == nil {
-			return r.chaining(fr, i, o, text)
+			return r.chainingAt(fr, b.first, o, text)
 		}
 		c.due = b.due
 		children[k] = c
