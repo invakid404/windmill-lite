@@ -108,7 +108,7 @@ exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
 Runs the step cases of `conformance/steps`, the flow fixtures of
@@ -121,11 +121,13 @@ It prints `pass` or `fail`, the case and its file, or the fixture and the
 run, then each difference; `unsupported`, the fixture, the run and why it
 was not checked; and a summary. It exits 1 when a case or run failed or a
 file or fixture is invalid, and 2 for usage errors. Unsupported runs do not
-fail it. `--mode` is `warm` only: `fresh` is milestone C3b's, host mode
-F3b's. `--bun` defaults to `WL_BUN`, then `bun`; `--node` to `WL_NODE`,
-and empty skips the Node side of CommonJS codebase cases (below); the build refuses any Bun
-but the pin. `--repo` defaults to the nearest directory up from the working
-directory that holds `harnesses/bun`, whose build helper needs its
+fail it. `--mode` is `warm` (the default) or `fresh` (milestone C3b); host
+mode is F3b's. Flow fixtures run in `warm` only: in `fresh` mode every
+flow run is unsupported, since the flow suite runs in `fresh` through `wl`
+(milestone F1). `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
+`WL_NODE`, and empty skips the Node side of CommonJS codebase cases
+(below); the build refuses any Bun but the pin. `--repo` defaults to the
+nearest directory up from the working directory that holds `harnesses/bun`, whose build helper needs its
 dependencies installed (`bun install --frozen-lockfile` in
 `harnesses/bun/build`). `-v` prints the harness's diagnostics of a failed
 case or run.
@@ -138,20 +140,25 @@ writes the cases' scripts and host-provided modules into a sync folder in a
 temporary directory, builds them with the
 [Bun build helper](../../harnesses/bun/build/README.md) (`bundle.BuildBun`)
 into one bundle, whose `manifest.json` lists the host-provided modules in
-registration order, and runs each case in a harness process of its own
-([internal/harness](../../internal/harness/README.md)), its runs in order
-through the protocol: that is the `warm` configuration, in which module
-state and `globalThis` survive from one run to the next (D1). Each run's
-entrypoint is `engine.Entrypoint`'s, its job variables the core `WM_*`
-ones of a flow step (`WM_FLOW_STEP_ID` is the case's `step_id`, default
-`a`) or of a script job (`step_id: ""`), and its outcome is mapped to
-Windmill's stored value by `engine.StoreOutcome`, then compared by
-`conformance.CompareStep`. Every run is observed up to its settlement (at
-most 10 s), since an outcome fixed early (an intercepted `process.exit`)
-comes before the call ends: its warnings are those collected until then,
-and its late reports are compared when the case states them. A run whose
-call must not settle says `settled: pending` and is observed for 500 ms
-instead.
+registration order, and runs each case's runs in order through the protocol
+([internal/harness](../../internal/harness/README.md)). In the `warm`
+configuration a case's runs share a harness process of its own, in which
+module state and `globalThis` survive from one run to the next (D1); in
+`fresh` each run has a process of its own, which ends with it, as a
+Windmill job's does. Each run's entrypoint is `engine.Entrypoint`'s, its
+job variables the core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the
+case's `step_id`, default `a`) or of a script job (`step_id: ""`), and its
+outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
+compared by `conformance.CompareStep`. Every run is observed up to its
+settlement (at most 10 s), since an outcome fixed early (an intercepted
+`process.exit`) comes before the call ends: its warnings are those
+collected until then, and `left` compares the counts of its `left_behind`
+warning. A run whose call must not settle says `settled: pending` and is
+observed for 500 ms instead. A run's late reports are compared, when the
+case states them, at the end of its case, so that a late report of work it
+left running after it settled, which the D9 fence must stop, fails the
+case; in `warm` mode the process is observed for 200 ms more after a last
+run that states its late reports or settlement, before it is drained.
 
 A case with `codebase` is a codebase script: `check` writes its `files`
 into the folder and builds it with esbuild (`bundle.BuildCodebase`), with
@@ -272,13 +279,14 @@ Node side needs `WL_NODE`; without it the step suite runs on Bun only,
 unless `WL_REQUIRE_NODE` is set, as CI sets it (with Node 20, the major of
 Windmill v1.767.0's image).
 
-- `TestStepSuite` is milestone C3a's exit gate: every step case passes;
-  with `WL_NODE` it is also milestone C2b's D13 gate, every CommonJS
-  codebase case holding on Node too. `TestStepCheckerReportsDifferences`
-  checks that a wrong expectation of each kind fails,
-  `TestStepCheckerReportsNodeDifferences` that a wrong or unstated Node
-  difference fails, and `TestStepCatalogue` that every catalogue case of a
-  finding with a step file is a step case or deferred.
+- `TestStepSuite` is the exit gate of milestones C3a and C3b: every step
+  case passes, in `warm` and in `fresh`; with `WL_NODE` it is also
+  milestone C2b's D13 gate, every CommonJS codebase case holding on Node
+  too. `TestStepCheckerReportsDifferences` checks that a wrong expectation
+  of each kind fails, in both modes, `TestStepCheckerReportsNodeDifferences`
+  that a wrong or unstated Node difference fails, and `TestStepCatalogue`
+  that every catalogue case of a finding with a step file is a step case or
+  deferred.
 - `TestFlowSuite` is the exit gate of milestones E1 and N1a: every run the
   flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;

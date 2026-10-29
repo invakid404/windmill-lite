@@ -23,9 +23,10 @@ cases and the flow fixtures' unit cases at unit level: through its
 shortcuts and textual stages on a fake engine (milestone B2a), and on
 QuickJS-ng against what the oracle recorded, apart from the cases they list
 as skipped or as deviations (B2b). The step cases in `steps/` run on
-windmill-lite's Bun harness through
-`wltest check` (milestone C3a); those of a CommonJS codebase script also
-run on Node, where Windmill runs them (milestone C2b, deviation D13).
+windmill-lite's Bun harness through `wltest check` (milestone C3a), in
+`warm` and, since milestone C3b, in `fresh` mode; those of a CommonJS
+codebase script also run on Node, where Windmill runs them (milestone C2b,
+deviation D13).
 
 The suite pins each implementation to the
 [semantics reference](../docs/semantics/README.md). Every case cites the
@@ -484,14 +485,23 @@ file; its paths are relative to the harness's working directory.
 and only then release it; `concurrent` releases its calls in the order in
 which it expects their results.
 
+What a step writes through `console`, `process.stdout` or `process.stderr`
+arrives as `log` frames ahead of the frame that reports its outcome
+(milestone C3b), so a transcript expects them, with `<any>` for the text of
+a stack. `left-behind` and `platform-left-behind` expect the `left_behind`
+warning ahead of the result; `welcome-fresh`, `fresh-one-invocation` and
+`fresh-exit` run a harness in `fresh` mode, which serves one invocation and
+exits with it.
+
 ## Step cases
 
 A step file holds the step cases of one finding, or of a deviation of
 [ADR 0001](../docs/design/0001-equivalence-contract.md) §5 that has none
 (`d9.yaml`, `d11.yaml`, `d12.yaml`, `d13.yaml`), and is named after it in
-lower case.
-Each case is one Bun script and the runs that one harness process serves
-in order, so a later run sees what an earlier one left in memory (D1). A
+lower case. Each case is one Bun script and its runs, in order: in `warm`
+mode one harness process serves them all, so a later run sees what an
+earlier one left in memory (D1); in `fresh` mode each run has a process of
+its own. A
 run's observation is the step's **stored** value,
 `{"status": "success" | "failure", "result": …}`: the result, or the
 failure value ([WR-21](../docs/semantics/languages.md#wr-21)).
@@ -524,9 +534,10 @@ cases:
 | `deviation` | the deviation whose two readings the case's `by_mode` gives |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
 | `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |
-| `runs[].late`, `settled` | what the invocation reports after its outcome before it settles (`kind`, `final`, `body`), compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
-| `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9); none when absent |
-| `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own; `fresh` is checked from milestone C3b |
+| `runs[].late`, `settled` | what the invocation reports after its outcome (`kind`, `final`, `body`), up to the end of the case, so a late report of work it left running after it settled counts too, compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
+| `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9): `unattributed_error`, and `left_behind`, which reports what it still had when it settled; none when absent |
+| `runs[].left` | the counts of the `left_behind` warning by kind (`timeout`, `interval`, `immediate`, `fetch`, `child`), compared when given |
+| `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own |
 | `runs[].node` | for a CommonJS codebase case: what the same bundle shows on Node (`expect`, `claims`) where it differs from the run's own check (D13); without it, the run's own `expect` and `claims` must hold on Node too |
 
 **D13.** `wltest check --node` (or `WL_NODE`) runs each run of a CommonJS

@@ -162,7 +162,7 @@ recorded in each run's trace.
 | D6 | Module ids missing from a never-deployed folder are derived from their position, not random | reproducible bundle identity | [0002](0002-ir-and-loader.md) |
 | D7 | `//nobundling` scripts are bundled at build time instead of resolving imports and installing packages at run time | a bundle must run offline; results are the same, but `import.meta`, file paths and stack text differ, as they already do between Windmill's two modes ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
 | D8 | An expression attempt that hits the 20 s limit is interrupted; Windmill leaves the evaluation running on its thread | frees the CPU; the error text, the three attempts and the 5 s pauses are unchanged | §7, [JE-2](../semantics/expressions.md#je-2) |
-| D9 | Work a step leaves running after its result (unawaited promises, timers) keeps running in a warm process, and its late errors are recorded, not fatal; a process-level error that cannot be attributed to an invocation fails no step | Windmill cuts that work off at `process.exit` ([WR-2](../semantics/languages.md#wr-2)) and a detached rejection kills that step's process; in a shared process it would kill every co-resident step | [0004](0004-harness-protocol.md) |
+| D9 | In a warm process, work a step leaves running after its result is cut off only as far as the settle-time fence reaches. When the invocation settles, the harness clears the `setTimeout`, `setInterval` and `setImmediate` handles it still has, aborts its requests through the `fetch` view, drops its later log writes, refuses its later platform calls, and reports all of that as left behind. What the fence cannot reach runs on: promise continuations already queued (whose effects through those channels are refused), sockets and clients the step opened itself, child processes, and CPU work. Its late errors are recorded, not fatal. A process-level error that cannot be attributed to an invocation fails no step | Windmill cuts all of that work off at `process.exit` ([WR-2](../semantics/languages.md#wr-2)), and a detached rejection kills that step's process. In a shared process that would kill every co-resident step, and destroying a step's sockets would break the clients that module state keeps (D1) | [0004](0004-harness-protocol.md) |
 | D10 | A harness process has one working directory for all its invocations, not a fresh one per job, and every codebase entry's assets are visible there to every script; so one entry's `package.json` asset declaring `"type": "module"` also makes Bun import the default export of every CommonJS codebase module there as Node does (milestone C2b) | the working directory is process-global; Windmill gives each job its own, with only its entry's assets ([WR-1](../semantics/languages.md#wr-1)) | [0004](0004-harness-protocol.md) |
 | D11 | An intercepted `process.exit` fixes the step's outcome at the call, but `finally` blocks run and a `catch` can swallow it and continue | the process must not exit; the call can only throw | [0004](0004-harness-protocol.md) |
 | D12 | A host-provided module has one instance per process, shared by the host and every script that imports it | singletons that hold the host's scopes must be the host's own; Windmill inlines every import into each script's bundle ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
@@ -310,6 +310,19 @@ switch through a change to this record, naming the reason.
   `parallel` and `expr`) into `flow.yaml`, so a folder that has been
   through it carries them explicitly. Each such recording's provenance
   holds the three values.
+- Milestone C3b narrowed D9 with the settle-time fence (the anchor's
+  decision of 2026-10-28). Before it, a warm process let every timer and
+  request of a settled invocation run on. Now the harness revokes what it
+  can attribute to the invocation (timers, `fetch`-view requests, log
+  writes, platform calls) when the invocation settles. It reports what it
+  revoked in a `left_behind` warning, so the conformance and differential
+  suites flag a script that leaves work behind. The fence never touches
+  sockets or shared objects: a pooled client makes its connections and
+  maintenance timers in the process scope it captured, and a step
+  module's top-level code is module state (D1), so neither is fenced
+  ([0004](0004-harness-protocol.md), failure model item 4 and loading).
+  Cases `D9/error-after-result` and `D11/exit-after-result` now expect, in
+  `warm` too, that the timer never fires.
 - Recording batch E3a settled the CF-19 / CF-V6 row of §6 on the oracle:
   the direct lookup is line-anchored, which confirms the default. Its cases are
   `conformance/flows/cf/cf-19` and the expression cases of

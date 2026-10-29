@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -26,10 +27,10 @@ func TestBunHandshake(t *testing.T) {
 	if h.Proto != ProtocolVersion || h.Harness.Kind != "bun" || h.Runtime != PinnedBun || h.Bundle != cfg.Bundle || h.PID != p.PID() {
 		t.Fatalf("hello %+v", h)
 	}
-	// The runtime intercepts facade fetches (W1); native, fresh and host
-	// are later milestones' or the host SDK's.
-	if h.Caps != (Caps{Fetch: true}) {
-		t.Fatalf("caps %+v, want fetch only", h.Caps)
+	// The runtime intercepts facade fetches (W1) and runs fresh mode
+	// (C3b); native and host are a later milestone's and the host SDK's.
+	if h.Caps != (Caps{Fetch: true, Fresh: true}) {
+		t.Fatalf("caps %+v, want fetch and fresh", h.Caps)
 	}
 }
 
@@ -366,7 +367,9 @@ func TestBunKillGivesTheSignal(t *testing.T) {
 		out, _ := execute(t, p, newInvocation("never", `{}`, newRecorder()), 10*time.Second)
 		done <- out
 	}()
-	time.Sleep(100 * time.Millisecond)
+	// Killed once the invocation is in flight, so that it fails with the
+	// process rather than finding it gone (FU2: no timing sleep).
+	waitFor(t, "the invocation in flight", func() bool { n, _ := p.Load(); return n == 1 })
 	p.Kill()
 	out := <-done
 	if out.Kind != engine.OutcomeEscaped || out.Signal != "SIGKILL" || out.ExitCode != -1 {
@@ -481,7 +484,7 @@ func TestBunNotDispatched(t *testing.T) {
 	}{
 		"canceled before dispatch": {canceled, func(*engine.Invocation) {}, "context canceled"},
 		"native boundary":          {context.Background(), func(i *engine.Invocation) { i.Boundary = engine.BoundaryNative }, "no native boundary"},
-		"fresh mode":               {context.Background(), func(i *engine.Invocation) { i.ModuleState = engine.ModuleStateFresh }, "C3b"},
+		"fresh mode":               {context.Background(), func(i *engine.Invocation) { i.ModuleState = engine.ModuleStateFresh }, `module state "fresh", the process in "warm"`},
 		"invalid entrypoint":       {context.Background(), func(i *engine.Invocation) { i.Entry = "not-a-name" }, "not a valid name"},
 		"env not UTF-8":            {context.Background(), func(i *engine.Invocation) { i.Env = map[string]string{"X": "\xff"} }, "invalid_utf8"},
 	} {
@@ -554,25 +557,25 @@ func TestBunWorkingDirectoryAndStdio(t *testing.T) {
 	if out, err := execute(t, p, newInvocation("print", `{}`, newRecorder()), 5*time.Second); err != nil || string(out.Body.Producer()) != `"printed"` {
 		t.Fatalf("got %+v, %v", out, err)
 	}
-	// The lines arrive through pipes, asynchronously to the frames. Bun
-	// colours console.error because the base environment has FORCE_COLOR=1
-	// (WR-22), so the stderr line is matched around its escapes.
+	// What the step writes through console and process.stdout and
+	// process.stderr goes to its log frames (C3b); only Bun.stdout, which
+	// no invocation owns, reaches the process's stdout, through a pipe,
+	// asynchronously to the frames.
 	pid := strconv.Itoa(p.PID())
-	for _, want := range [][2]string{
-		{"harness pid " + pid + " stdout: ", "printed on stdout"},
-		{"harness pid " + pid + " stderr: ", "printed on stderr"},
-		{"harness pid " + pid + " stdout: ", `{"t":"result","id":"forged"`},
-	} {
-		deadline := time.Now().Add(2 * time.Second)
-		for !hasLine(diag.String(), want[0], want[1]) {
-			if time.Now().After(deadline) {
-				t.Fatalf("diagnostics lack a line %q…%q:\n%s", want[0], want[1], diag.String())
-			}
-			time.Sleep(10 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for !hasLine(diag.String(), "harness pid "+pid+" stdout: ", `{"t":"result","id":"forged-raw"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("diagnostics lack the Bun.stdout line:\n%s", diag.String())
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err := p.Drain(context.Background()); err != nil || !p.Bye() || p.ExitStatus().Code != 0 {
 		t.Fatalf("drain %v, bye %v, status %v", err, p.Bye(), p.ExitStatus())
+	}
+	for _, attributed := range []string{"printed on stdout", "printed on stderr", `"id":"forged",`} {
+		if strings.Contains(diag.String(), attributed) {
+			t.Fatalf("attributed output %q reached the process's streams:\n%s", attributed, diag.String())
+		}
 	}
 	if _, err := os.Stat(p.Dir()); !os.IsNotExist(err) {
 		t.Fatalf("working directory survives the process: %v", err)
@@ -644,6 +647,214 @@ func TestBunWatchdogFiniteCPU(t *testing.T) {
 		out, err := execute(t, pool, newInvocation("spin", `{"ms":2000}`, newRecorder()), 10*time.Second)
 		if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "2000" {
 			t.Fatalf("got %+v, %v", out, err)
+		}
+	})
+	// Fresh mode (C3b): the process is the invocation, so the watchdog does
+	// not apply, with killAfter 1 s or with it off; only the step's own
+	// timeout (10 s here) could end it.
+	for _, killAfter := range []time.Duration{time.Second, WatchdogOff} {
+		t.Run(fmt.Sprintf("fresh, killAfter %s", killAfter), func(t *testing.T) {
+			cfg, diag := bunConfig(t)
+			cfg.KillAfter = killAfter
+			pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+			out, err := execute(t, pool, freshInvocation("spin", `{"ms":2000}`, newRecorder()), 10*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != "2000" {
+				t.Fatalf("got %+v, %v\n%s", out, err, diag.String())
+			}
+			if strings.Contains(diag.String(), "watchdog") {
+				t.Fatalf("watchdog in fresh mode:\n%s", diag.String())
+			}
+		})
+	}
+}
+
+// freshInvocation is newInvocation in fresh mode.
+func freshInvocation(script, args string, rep engine.Reporter) engine.Invocation {
+	inv := newInvocation(script, args, rep)
+	inv.ModuleState = engine.ModuleStateFresh
+	return inv
+}
+
+// gone reports whether no process has pid any more.
+func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
+
+// A fresh process.exit ends the process at the call, as the job's process
+// ends on Windmill (WR-2, c3b review 1, R1-1): no catch or finally block of
+// the step runs afterwards, whether its log goes out at once or has to wait
+// for the socket, and the log still reaches the engine. In a warm process
+// both blocks run (D11), the control.
+func TestBunFreshExitRunsNoMoreCode(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	fresh := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+	warm := newPool(t, PoolConfig{Process: cfg})
+	for _, tc := range []struct {
+		name  string
+		x     *Pool
+		inv   func(string, string, engine.Reporter) engine.Invocation
+		lines int
+		ran   bool
+	}{
+		{"fresh, a short log", fresh, freshInvocation, 1, false},
+		{"fresh, a log the socket cannot take at once", fresh, freshInvocation, 3000, false},
+		{"warm", warm, newInvocation, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "marker")
+			args, _ := json.Marshal(map[string]any{"marker": marker, "lines": tc.lines})
+			rec := newRecorder()
+			out, err := execute(t, tc.x, tc.inv("exit-side-effects", string(args), rec), 10*time.Second)
+			last := fmt.Sprintf("line %d ", tc.lines-1)
+			if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 6 || !strings.Contains(out.Tail, last) {
+				t.Fatalf("got %s exit %d, tail has %q: %v, %v", out.Kind, out.ExitCode, last, strings.Contains(out.Tail, last), err)
+			}
+			rec.waitSettled(t, 5*time.Second)
+			for _, block := range []string{"catch", "finally"} {
+				_, err := os.Stat(marker + "." + block)
+				if ran := err == nil; ran != tc.ran {
+					t.Errorf("the %s block ran: %v, want %v", block, ran, tc.ran)
+				}
+			}
+		})
+	}
+}
+
+// Work a step module starts while it evaluates is the module's (ADR 0004,
+// loading): once the invocation that loaded the module has settled, what
+// the work writes reaches the process's stdout, as from a process scope,
+// rather than being dropped with the invocation's log.
+func TestBunModuleWorkWritesToTheProcessAfterSettlement(t *testing.T) {
+	cfg, diag := bunConfig(t)
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	if out, err := execute(t, p, newInvocation("module-logger", `{}`, rec), 5*time.Second); err != nil || out.Kind != engine.OutcomeOK {
+		t.Fatalf("got %+v, %v", out, err)
+	}
+	pid := strconv.Itoa(p.PID())
+	waitFor(t, "the module's line on the process's stdout", func() bool {
+		return hasLine(diag.String(), "harness pid "+pid+" stdout: ", "module work after settlement")
+	})
+	if got := rec.log(); got != "settled completed" {
+		t.Fatalf("reporter calls %q", got)
+	}
+}
+
+// Fresh mode (ADR 0006): each invocation runs in a process of its own, in
+// a working directory of its own, and the process ends right after the
+// result, which settles the invocation; a warm invocation is refused.
+func TestBunFreshPoolRunsEachInvocationInItsOwnProcess(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+	var pids []int
+	var dirs []string
+	for range 2 {
+		rec := newRecorder()
+		out, err := execute(t, pool, freshInvocation("process-info", `{}`, rec), 10*time.Second)
+		var info struct {
+			PID int
+			Cwd string
+		}
+		if err != nil || out.Kind != engine.OutcomeOK || json.Unmarshal(out.Body.Producer(), &info) != nil {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+			t.Fatalf("settled %s", k)
+		}
+		// The engine removes the directory once it has seen the exit.
+		waitFor(t, "the fresh process to exit and its directory to go", func() bool {
+			_, err := os.Stat(info.Cwd)
+			return gone(info.PID) && os.IsNotExist(err)
+		})
+		pids, dirs = append(pids, info.PID), append(dirs, info.Cwd)
+	}
+	if pids[0] == pids[1] || dirs[0] == dirs[1] {
+		t.Fatalf("two invocations shared a process or a directory: %v %v", pids, dirs)
+	}
+	rec := newRecorder()
+	if _, err := execute(t, pool, newInvocation("echo", `{}`, rec), time.Second); err == nil || rec.log() != "settled not_started" {
+		t.Fatalf("a warm invocation on a fresh pool: %v, %q", err, rec.log())
+	}
+}
+
+// Fresh mode removes D2 and D11: a canceled invocation's process is killed
+// at once, so the invocation settles with it and reports nothing late; a
+// process.exit ends the process with its code (WR-4), and exit 0 before a
+// result is WR-V2's empty result.
+func TestBunFreshEndsWithTheProcess(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+	t.Run("cancel", func(t *testing.T) {
+		rec := newRecorder()
+		ctx, cancel := context.WithTimeoutCause(context.Background(), 300*time.Millisecond, engine.CancelTimeout)
+		defer cancel()
+		if _, err := pool.Execute(ctx, freshInvocation("never", `{}`, rec)); !errors.Is(err, engine.CancelTimeout) {
+			t.Fatalf("got %v", err)
+		}
+		if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+			t.Fatalf("settled %s; calls %s", k, rec.log())
+		}
+		if got := rec.log(); got != "settled process_exited" {
+			t.Fatalf("reporter calls %q", got)
+		}
+	})
+	t.Run("exit", func(t *testing.T) {
+		rec := newRecorder()
+		out, err := execute(t, pool, freshInvocation("exit", `{"ms":10,"code":7}`, rec), 5*time.Second)
+		if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 7 || out.Signal != "" {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		if got := rec.log(); got != "settled process_exited" {
+			t.Fatalf("reporter calls %q", got)
+		}
+	})
+	// The process ends only once its frames are written, however much the
+	// socket takes at once (c3b review: a result above the socket's buffer
+	// was cut off).
+	for _, bytes := range []int{200_000, 3 << 20} {
+		t.Run(fmt.Sprintf("a result of %d bytes", bytes), func(t *testing.T) {
+			rec := newRecorder()
+			out, err := execute(t, pool, freshInvocation("big", fmt.Sprintf(`{"bytes":%d}`, bytes), rec), 10*time.Second)
+			if err != nil || out.Kind != engine.OutcomeOK || len(out.Body.Producer()) != bytes+2 {
+				t.Fatalf("got %s %d bytes, %v", out.Kind, len(out.Body.Producer()), err)
+			}
+			if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+				t.Fatalf("settled %s", k)
+			}
+		})
+	}
+	t.Run("an exit after a long log", func(t *testing.T) {
+		out, err := execute(t, pool, freshInvocation("log-exit", `{"lines":3000,"code":6}`, newRecorder()), 10*time.Second)
+		if err != nil || out.Kind != engine.OutcomeEscaped || out.ExitCode != 6 || out.Signal != "" || !strings.Contains(out.Tail, "line 2999 ") {
+			t.Fatalf("got %s exit %d %q, tail ending %q, %v", out.Kind, out.ExitCode, out.Signal, out.Tail[max(0, len(out.Tail)-120):], err)
+		}
+	})
+	t.Run("exit 0", func(t *testing.T) {
+		out, err := execute(t, pool, freshInvocation("exit-now", `{"code":0}`, newRecorder()), 5*time.Second)
+		if err != nil || out.Kind != engine.OutcomeEmpty {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+	})
+	t.Run("close kills what is left", func(t *testing.T) {
+		// A pool of its own, so no process of the subtests above is still
+		// leaving it.
+		pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: cfg})
+		rec := newRecorder()
+		go pool.Execute(context.Background(), freshInvocation("never", `{}`, rec))
+		waitFor(t, "the fresh invocation in flight", func() bool {
+			pool.mu.Lock()
+			defer pool.mu.Unlock()
+			for p := range pool.fresh {
+				n, _ := p.Load()
+				return n == 1
+			}
+			return false
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		if err := pool.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Close: %v", err)
+		}
+		if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+			t.Fatalf("settled %s", k)
 		}
 	})
 }
@@ -1036,7 +1247,8 @@ func TestBunPoolClose(t *testing.T) {
 		out, _ := execute(t, pool, newInvocation("sleep", `{"ms":300}`, newRecorder()), 10*time.Second)
 		done <- out
 	}()
-	time.Sleep(50 * time.Millisecond)
+	// Closed once the invocation holds its slot (FU2: no timing sleep).
+	waitFor(t, "the invocation's slot", func() bool { s := pool.Stats(); return len(s) == 1 && s[0].Active == 1 })
 	if err := pool.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}

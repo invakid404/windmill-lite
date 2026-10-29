@@ -133,6 +133,10 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	whole := ""
 	switch {
+	case fc.mode != conformance.ModeWarm:
+		// The walking skeleton and this runner's pool run warm; the flow
+		// suite runs in fresh and warm through wl (ADR 0012, F1).
+		whole = "flow fixtures run in warm mode only until milestone F1, whose gate runs the flow suite in fresh and warm"
 	case f.Stub:
 		whole = "stub mode on windmill-lite is milestone E4b's"
 	case f.Oracle.Effects:

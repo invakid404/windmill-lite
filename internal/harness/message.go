@@ -184,20 +184,32 @@ type Log struct {
 	Lines []string
 }
 
-// Warning is a process-level error that no invocation's context raised,
+// Warning is something an invocation in flight is told that fails
+// nothing: a process-level error that no invocation's context raised,
 // sent once for each invocation in flight when it happened (ADR 0004, the
-// shared-process failure model, item 3). It fails nothing.
+// shared-process failure model, item 3), or what an invocation left
+// behind, sent just before the frame that settles it (the D9 fence).
 type Warning struct {
 	// ID is the invocation in flight.
 	ID string
-	// Code is WarningUnattributed.
+	// Code is WarningUnattributed or WarningLeftBehind.
 	Code    string
 	Message string
+	// Left counts what a left_behind warning reports, by kind ("timeout",
+	// "interval", "immediate", "fetch", "child"); nil otherwise.
+	Left map[string]int
 }
 
-// WarningUnattributed is the code of a warning for a process-level error
-// that the harness could not attribute to any invocation.
-const WarningUnattributed = "unattributed_error"
+// Warning codes.
+const (
+	// WarningUnattributed is the code of a warning for a process-level
+	// error that the harness could not attribute to any invocation.
+	WarningUnattributed = "unattributed_error"
+	// WarningLeftBehind is the code of the warning that reports the
+	// handles and requests an invocation still had when it settled, which
+	// the settle-time fence then revoked (D9).
+	WarningLeftBehind = "left_behind"
+)
 
 // PlatformRequest is a fetch to the platform facade that the harness
 // intercepted, attributed to the invocation whose context made it
@@ -430,6 +442,9 @@ func (m Warning) appendPayload(b []byte) ([]byte, error) {
 	e.str("id", m.ID)
 	e.str("code", m.Code)
 	e.str("message", m.Message)
+	if m.Left != nil {
+		e.intMap("left", m.Left)
+	}
 	return e.end()
 }
 
@@ -659,7 +674,11 @@ func Decode(payload []byte) (Message, error) {
 	case TypeLog:
 		m = Log{ID: d.str("id"), Lines: d.strings("lines")}
 	case TypeWarning:
-		m = Warning{ID: d.str("id"), Code: d.str("code"), Message: d.str("message")}
+		w := Warning{ID: d.str("id"), Code: d.str("code"), Message: d.str("message")}
+		if d.present("left") {
+			w.Left = d.intMap("left")
+		}
+		m = w
 	case TypePlatform:
 		m = PlatformRequest{
 			ID:      d.str("id"),
@@ -902,6 +921,23 @@ func (d *decoder) env(name string) map[string]string {
 			return nil
 		}
 		out[k] = s
+	}
+	return out
+}
+
+// intMap decodes an object of integers whose keys are data.
+func (d *decoder) intMap(name string) map[string]int {
+	o := d.object(name)
+	if o == nil {
+		return nil
+	}
+	out := make(map[string]int, len(o.f))
+	for k := range o.f {
+		if !o.present(k) {
+			d.badType(name)
+			return nil
+		}
+		out[k] = o.int(k)
 	}
 	return out
 }
