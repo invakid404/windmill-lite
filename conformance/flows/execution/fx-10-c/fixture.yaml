@@ -1,0 +1,11 @@
+# Recording batch E3e: FX-10/c, which the semantics reference added after
+# recording batch E3b and E3b's manifest deferred to E3e. Inside a step's
+# own stop_after_if the preceding id is empty, so results[""] binds
+# previous_result, here the step's own result. Synthetic, written for this
+# repository from docs/semantics/conformance.md#fx-10.
+id: execution/fx-10-c
+spec: [FX-10]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

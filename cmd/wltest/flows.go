@@ -222,6 +222,9 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
 				continue
+			case r.RunsAndWaits():
+				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
+				continue
 			case r.Expect == nil && r.Recorded != nil && r.Recorded.Observation.Status == conformance.RunCanceled && r.CancelAfterMS == nil:
 				// JE-2/a: the oracle's own monitor of flows that hang
 				// between steps canceled the run, not the rule under test.

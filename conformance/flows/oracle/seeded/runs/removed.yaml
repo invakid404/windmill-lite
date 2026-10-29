@@ -1,0 +1,9 @@
+# OR-31/a: the variable seeded before the push is gone, so the probe fails
+# with OR-12/d's error.
+spec: [OR-31/a, OR-12/d]
+target: f/wl_probe/args_vs_received
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "execution error:\nNot found: Variable f/wl_probe/v not found for `s`: Not found: Variable f/wl_probe/v not found", step_id: a}}
+  steps:
+    "m:a": {status: failure, args: {s: "$var:f/wl_probe/v"}, result: {error: {name: ExecutionErr, message: "execution error:\nNot found: Variable f/wl_probe/v not found for `s`: Not found: Variable f/wl_probe/v not found", step_id: a}}}

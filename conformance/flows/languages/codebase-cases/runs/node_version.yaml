@@ -1,0 +1,9 @@
+# WR-50/b (later): the CE image runs CommonJS bundles on Node v20.20.2
+# (Q-WR-24); windmill-lite runs them on Bun (D13).
+spec: [WR-50/b]
+target: f/wl_cbx/node_version
+expect:
+  status: success
+  result: "v20.20.2"
+  steps:
+    "m:s": {"status": "success", "args": {}, "result": "v20.20.2"}

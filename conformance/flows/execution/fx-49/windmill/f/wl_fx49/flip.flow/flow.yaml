@@ -1,0 +1,28 @@
+summary: 'FX-49/a: a skip_expr that flips during a loop at module 0'
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: script
+              input_transforms:
+                name:
+                  type: static
+                  value: skip
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              path: f/wl_fx49/set
+        iterator:
+          type: javascript
+          expr: '[1, 2, 3]'
+        parallel: false
+        skip_failures: false
+  skip_expr: variable('f/wl_fx49/skip') === 'yes'
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

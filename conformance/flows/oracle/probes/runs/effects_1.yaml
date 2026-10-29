@@ -1,0 +1,13 @@
+# probe effects (OR-16/a), run 1 of two: each run records its own effects,
+# a's then b's, grouped by the outer root.
+spec: [OR-16/a]
+target: f/wl_probe/effects
+expect:
+  status: success
+  result: b
+  steps:
+    "m:a": {status: success, args: {}, result: a}
+    "m:b": {status: success, args: {}, result: b}
+  effects:
+    - {root: "<job:>", job: "<job:m:a>", step: a}
+    - {root: "<job:>", job: "<job:m:b>", step: b}

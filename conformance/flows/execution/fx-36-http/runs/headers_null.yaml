@@ -1,0 +1,11 @@
+# FX-36/g: a non-null metadata field and no non-null result: 204 with an
+# empty body.
+spec: [FX-36/g]
+target: f/wl_fx36h/headers_null
+submit: run_wait_result
+expect:
+  status: success
+  result: {windmill_headers: {}, result: null}
+  steps:
+    "m:a": {status: success, args: {}, result: {windmill_headers: {}, result: null}}
+  response: {status: 204, body: ''}

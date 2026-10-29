@@ -29,6 +29,12 @@ var OracleEnv = map[string]string{
 	"WHITELIST_ENVS":                 "WL_EFFECT_SINK",
 }
 
+// ListenIntervalVar is the compose variable through which a session sets
+// LISTEN_NEW_EVENTS_INTERVAL_SEC in place of OracleEnv's 1, for the knob
+// comparison of OR-7/a (Session.ListenInterval). compose.yaml defaults it
+// to 1.
+const ListenIntervalVar = "WL_LISTEN_NEW_EVENTS_INTERVAL_SEC"
+
 // Docker runs the docker CLI.
 type Docker interface {
 	// Run runs docker with args and extra environment variables

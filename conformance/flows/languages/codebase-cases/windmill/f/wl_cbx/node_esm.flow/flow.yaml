@@ -1,0 +1,12 @@
+summary: 'WR-50/d: f/wl_cbx/nodeesm/node_esm'
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_cbx/nodeesm/node_esm
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

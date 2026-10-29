@@ -237,10 +237,11 @@ func TestRecordedParallelismReleaseOrder(t *testing.T) {
 // recordings say about their target flows (oracle.deploy api): the
 // absent container fields of CF-6/a, CF-15/a and CF-15/b reach the server
 // absent and come back filled after the dependency job (CF-6 rule 2), and
-// generate-metadata writes the same defaults into flow.yaml; FX-40/d's
-// body is pinned to the hash the deployment assigned its script.
+// generate-metadata writes the same defaults into flow.yaml; a pull writes
+// them back too (CF-6/b, SY-6/c); FX-40/d's body is pinned to the hash the
+// deployment assigned its script.
 func TestRecordedDeploymentEvidence(t *testing.T) {
-	// spec: CF-6/a, CF-15/a, CF-15/b, FX-40/d
+	// spec: CF-6/a, CF-6/b, SY-6/c, CF-15/a, CF-15/b, FX-40/d
 	const absent = "(absent)"
 	type check struct {
 		pointer                          string
@@ -279,6 +280,25 @@ func TestRecordedDeploymentEvidence(t *testing.T) {
 					t.Errorf("%s %s: %s at %s is %s, want %s", c.fixture, c.run, v.name, ck.pointer, got, v.want)
 				}
 			}
+		}
+	}
+
+	// CF-6/b and SY-6/c: what the CLI's sync pull writes back for a flow
+	// the API created as written (oracle.pull). The identity module's
+	// extra field survives the round trip, and the loop that was
+	// submitted without skip_failures is pulled with it filled in.
+	d := recordedDeployment(t, "control-flow/pull", "pulled")
+	for _, ck := range []struct {
+		name, pointer, want string
+		doc                 json.RawMessage
+	}{
+		{"submitted", "/modules/1/value/skip_failures", absent, d.Submitted},
+		{"submitted", "/modules/0/value/extra", "7", d.Submitted},
+		{"pulled", "/modules/0/value/extra", "7", d.Pulled},
+		{"pulled", "/modules/1/value/skip_failures", "true", d.Pulled},
+	} {
+		if got := jsonAt(t, ck.doc, ck.pointer, absent); got != ck.want {
+			t.Errorf("control-flow/pull: %s at %s is %s, want %s", ck.name, ck.pointer, got, ck.want)
 		}
 	}
 
@@ -358,4 +378,117 @@ func jsonAt(t *testing.T, doc json.RawMessage, pointer, absent string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// recordedRun returns a committed run of a fixture under conformance/flows
+// and its provenance.
+func recordedRun(t *testing.T, fixture, run string) (conformance.Run, Provenance) {
+	t.Helper()
+	f, err := conformance.LoadFixture(filepath.Join(flowsRoot, filepath.FromSlash(fixture)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range f.Runs {
+		if r.Name != run {
+			continue
+		}
+		if r.Recorded == nil {
+			t.Fatalf("%s run %s has no recording", fixture, run)
+		}
+		var p Provenance
+		if err := json.Unmarshal(r.Recorded.Provenance, &p); err != nil {
+			t.Fatal(err)
+		}
+		return r, p
+	}
+	t.Fatalf("%s has no run %s", fixture, run)
+	return conformance.Run{}, Provenance{}
+}
+
+// TestRecordedEarlyReturn checks FX-37/a on its recording: run-and-wait
+// answered with step a's result while step b still slept its 2 s, so the
+// response came at least a second before the run completed, and the flow
+// went on to complete with b's result (the expect).
+func TestRecordedEarlyReturn(t *testing.T) {
+	// spec: FX-37/a
+	r, p := recordedRun(t, "execution/fx-36-http", "early")
+	resp := r.Recorded.Observation.Response
+	if resp == nil || resp.Body != "1" || string(r.Recorded.Observation.Result) != "2" {
+		t.Fatalf("response %+v, result %s", resp, r.Recorded.Observation.Result)
+	}
+	if p.Timings.SubmitToResponseMS == nil {
+		t.Fatal("the provenance has no submit_to_response_ms")
+	}
+	if got, done := *p.Timings.SubmitToResponseMS, p.Timings.SubmitToCompleteMS; got+1000 > done {
+		t.Errorf("run-and-wait answered after %d ms, the run completed after %d ms: not early", got, done)
+	}
+}
+
+// bigPayload is the big_payload probe's data: 300,000 characters from
+// xorshift32 with the catalogue's seed, 33 + s % 94 after each step
+// (OR-V1).
+func bigPayload() string {
+	s := uint32(2463534242)
+	b := make([]byte, 300000)
+	for i := range b {
+		s ^= s << 13
+		s ^= s >> 17
+		s ^= s << 5
+		b[i] = byte(33 + s%94)
+	}
+	return string(b)
+}
+
+// TestRecordedBigPayload checks OR-V1/a on its recording: the harness took
+// a's result and b's arguments from the dedicated endpoints, so the
+// recording holds the whole payload in both places, which the generic job
+// endpoint replaces with WINDMILL_TOO_BIG; the run's expect, a subset,
+// checks the rest.
+func TestRecordedBigPayload(t *testing.T) {
+	// spec: OR-V1/a
+	r, _ := recordedRun(t, "oracle/big-payload", "big_payload")
+	data := bigPayload()
+	want := map[string]string{"/steps/m:a/result/data": data, "/steps/m:b/args/d/data": data}
+	for ptr, w := range want {
+		got, err := pointerString(r.Recorded.Observation, ptr)
+		if err != nil {
+			t.Fatalf("%s: %v", ptr, err)
+		}
+		if got != w {
+			t.Errorf("%s: %d characters, not the %d-character payload", ptr, len(got), len(w))
+		}
+	}
+}
+
+// TestRecordedOutOfOrderCompletion checks Q-OR-7 and Q-OR-15 on the
+// two-worker recordings: the slow body at index 0 completed after the
+// next body, by the job times the walker kept, while the results the
+// expects compare stay in index order.
+func TestRecordedOutOfOrderCompletion(t *testing.T) {
+	// spec: OR-5/b, OR-11, OR-26/a
+	for _, c := range []struct{ run, slow, fast string }{
+		{"par_slow", "m:ba/b:0/m:s0", "m:ba/b:1/m:s1"},
+		{"par_slow_empty", "m:ba/b:0/m:s0", "m:ba/b:2/m:s2"},
+		{"loop_slow", "m:l/i:0/m:x", "m:l/i:1/m:x"},
+	} {
+		_, p := recordedRun(t, "oracle/workers2", c.run)
+		if p.Workers != 2 {
+			t.Errorf("%s was recorded with %d workers", c.run, p.Workers)
+		}
+		done := func(site string) time.Time {
+			t.Helper()
+			j, ok := p.Timings.Jobs[site]
+			if !ok {
+				t.Fatalf("%s: the provenance has no job at %s", c.run, site)
+			}
+			ts, err := time.Parse(time.RFC3339Nano, j.CompletedAt)
+			if err != nil {
+				t.Fatalf("%s %s: %v", c.run, site, err)
+			}
+			return ts
+		}
+		if !done(c.fast).Before(done(c.slow)) {
+			t.Errorf("%s: %s completed at %v, not before %s at %v", c.run, c.fast, done(c.fast), c.slow, done(c.slow))
+		}
+	}
 }

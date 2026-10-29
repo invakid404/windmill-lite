@@ -3,13 +3,18 @@ package oracle
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"unicode/utf8"
+
+	"github.com/invakid404/windmill-lite/internal/conformance"
 )
 
 // Client calls the oracle's REST API: the endpoints of the Apache-2.0
@@ -53,7 +58,24 @@ type Exchange struct {
 	URL         string `json:"url"`
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type"`
-	Body        string `json:"body"`
+	// Encoding is empty when Body is the body's text, or
+	// conformance.BodyBase64 when the body is not UTF-8 and Body is its
+	// base64 text, so a capture keeps every byte.
+	Encoding string `json:"encoding,omitempty"`
+	Body     string `json:"body"`
+}
+
+// exchangeBody returns the Body and Encoding that keep data losslessly.
+func exchangeBody(data []byte) (body, encoding string) {
+	if utf8.Valid(data) {
+		return string(data), ""
+	}
+	return base64.StdEncoding.EncodeToString(data), conformance.BodyBase64
+}
+
+// Bytes returns the exchange's body bytes.
+func (e Exchange) Bytes() ([]byte, error) {
+	return conformance.Response{Encoding: e.Encoding, Body: e.Body}.Bytes()
 }
 
 func (c *Capture) add(e Exchange) {
@@ -75,15 +97,49 @@ func (c *Capture) Handler() http.Handler {
 			http.Error(w, "not captured: "+r.Method+" "+r.URL.RequestURI(), http.StatusNotFound)
 			return
 		}
+		body, err := e.Bytes()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", e.ContentType)
 		w.WriteHeader(e.Status)
-		_, _ = io.WriteString(w, e.Body)
+		_, _ = w.Write(body)
 	})
 }
 
 // do sends one request and returns the body of a response whose status is
 // in want.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any, want ...int) ([]byte, error) {
+	resp, err := c.send(ctx, method, path, query, body)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range want {
+		if resp.Status == w {
+			return resp.Body, nil
+		}
+	}
+	return resp.Body, &APIError{Method: method, Path: path, Status: resp.Status, Body: string(resp.Body)}
+}
+
+// HTTPResponse is a response whatever its status: what run-and-wait
+// answers is the observation, not a failure of the harness (FX-36).
+type HTTPResponse struct {
+	Status      int
+	ContentType string
+	Body        []byte
+}
+
+// send sends one request and returns its response, recording the exchange
+// when the client captures.
+func (c *Client) send(ctx context.Context, method, path string, query url.Values, body any) (HTTPResponse, error) {
+	return c.sendRedirects(ctx, method, path, query, body, true)
+}
+
+// sendRedirects is send; with follow false a redirect response is returned
+// as it is, not followed, through a copy of the client's HTTP client.
+func (c *Client) sendRedirects(ctx context.Context, method, path string, query url.Values, body any, follow bool) (HTTPResponse, error) {
 	u := strings.TrimSuffix(c.BaseURL, "/") + "/api" + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -96,14 +152,14 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		default:
 			data, err := json.Marshal(b)
 			if err != nil {
-				return nil, err
+				return HTTPResponse{}, err
 			}
 			rd = bytes.NewReader(data)
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, rd)
 	if err != nil {
-		return nil, err
+		return HTTPResponse{}, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -115,24 +171,26 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	if h == nil {
 		h = http.DefaultClient
 	}
+	if !follow {
+		cp := *h
+		cp.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		h = &cp
+	}
 	resp, err := h.Do(req)
 	if err != nil {
-		return nil, err
+		return HTTPResponse{}, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return HTTPResponse{}, err
 	}
+	out := HTTPResponse{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: data}
 	if c.Capture != nil {
-		c.Capture.add(Exchange{Method: method, URL: req.URL.RequestURI(), Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: string(data)})
+		b, enc := exchangeBody(data)
+		c.Capture.add(Exchange{Method: method, URL: req.URL.RequestURI(), Status: out.Status, ContentType: out.ContentType, Encoding: enc, Body: b})
 	}
-	for _, w := range want {
-		if resp.StatusCode == w {
-			return data, nil
-		}
-	}
-	return data, &APIError{Method: method, Path: path, Status: resp.StatusCode, Body: string(data)}
+	return out, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, v any) error {
@@ -327,6 +385,18 @@ func (c *Client) RunScript(ctx context.Context, workspace, path string, args jso
 	return c.run(ctx, ws(workspace)+"/jobs/run/p/"+itemPath(path), args, jobID)
 }
 
+// RunWaitFlow submits a flow by path through the synchronous run-and-wait
+// endpoint and returns its HTTP response, whatever the status (FX-36,
+// FX-37, OR-10/b). The harness observes runs through RunFlow and the poll
+// (OR-10); this call exists to record the response itself, so a redirect
+// that response metadata asks for (a 3xx status with a Location header) is
+// returned, never followed. jobID pre-assigns the root id, as for RunFlow,
+// so the run can be walked and its effects kept.
+func (c *Client) RunWaitFlow(ctx context.Context, workspace, path string, args json.RawMessage, jobID string) (HTTPResponse, error) {
+	q := url.Values{"job_id": {jobID}}
+	return c.sendRedirects(ctx, http.MethodPost, ws(workspace)+"/jobs/run_wait_result/f/"+itemPath(path), q, args, false)
+}
+
 func (c *Client) run(ctx context.Context, path string, args json.RawMessage, jobID string) (string, error) {
 	var q url.Values
 	if jobID != "" {
@@ -434,6 +504,26 @@ func (c *Client) CreateVariable(ctx context.Context, workspace, path, value stri
 	body := map[string]any{"path": path, "value": value, "is_secret": secret, "description": description}
 	_, err := c.do(ctx, http.MethodPost, ws(workspace)+"/variables/create", nil, body, http.StatusOK, http.StatusCreated)
 	return err
+}
+
+// UpdateVariable sets an existing variable's value (oracle.setup each_run).
+func (c *Client) UpdateVariable(ctx context.Context, workspace, path, value string) error {
+	_, err := c.do(ctx, http.MethodPost, ws(workspace)+"/variables/update/"+itemPath(path), nil, map[string]any{"value": value}, http.StatusOK)
+	return err
+}
+
+// VariableExists reports whether GET /w/{ws}/variables/get/{path} answers
+// 200 (true) or 404 (false); any other status is an error (OR-31/b).
+func (c *Client) VariableExists(ctx context.Context, workspace, path string) (bool, error) {
+	_, err := c.do(ctx, http.MethodGet, ws(workspace)+"/variables/get/"+itemPath(path), nil, nil, http.StatusOK)
+	var api *APIError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &api) && api.Status == http.StatusNotFound:
+		return false, nil
+	}
+	return false, err
 }
 
 // CreateResource creates a resource (OR-31).

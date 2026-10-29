@@ -1,0 +1,11 @@
+# Q-OR-7: iteration 1 completes first, and the loop's result is still in
+# index order.
+spec: [OR-11]
+target: f/wl_w2/loop_slow
+expect:
+  status: success
+  result: [0, 1]
+  steps:
+    "m:l": {status: success, result: [0, 1]}
+    "m:l/i:0/m:x": {status: success, args: {v: 0}, result: 0}
+    "m:l/i:1/m:x": {status: success, args: {v: 1}, result: 1}

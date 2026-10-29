@@ -1,0 +1,12 @@
+# OR-V1/a: a's result and b's args are the whole payload (checked by
+# TestRecordedBigPayload, not in this subset); OR-V1/b: c's literal
+# WINDMILL_TOO_BIG is kept, as the step's and the root's result.
+spec: [OR-V1/a, OR-V1/b]
+target: f/wl_probe/big_payload
+expect:
+  status: success
+  result: WINDMILL_TOO_BIG
+  steps:
+    "m:a": {status: success, args: {}}
+    "m:b": {status: success, result: {len: 300000, head: 'Z%7kZ1!L~njDWM/O'}}
+    "m:c": {status: success, args: {}, result: WINDMILL_TOO_BIG}

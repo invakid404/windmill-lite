@@ -1,0 +1,25 @@
+# Recording batch E3e: WR-28 (contested in its later dynamic-import
+# consequence; Q-WR-16). Path scripts import other workspace scripts by
+# relative and absolute specifiers, which the worker's loader rewrites and
+# fetches from the workspace (WR-28/a, WR-28/b, the static core), and by
+# dynamic import() with and without a static import of the same or an
+# overlapping specifier (WR-28/c and WR-28/e, later; WR-28/d's script,
+# whose only import of ./helper is dynamic, cannot be deployed: its
+# dependency job takes the specifier for an npm package named ".", so it
+# is deferred). Each case is a flow whose one step runs the importing
+# script by path; every helper is a workspace script of its own, so no
+# local-file shortcut applies. The tree is created through the API
+# (oracle.deploy api) in path order, so each imported script exists before
+# the script that imports it: the CLI's generate-metadata, which runs
+# before a push, cannot lock a relative import of a script the workspace
+# does not hold yet (its first oracle run failed so). WR-28/e's second
+# helper is f/wl_wr28c/helper, reached by the dynamic
+# ../wl_wr28c/./helper, which holds the static ./helper as a substring.
+# Synthetic, written for this repository from
+# docs/semantics/conformance.md#wr-28.
+id: languages/wr-28
+spec: [WR-28]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

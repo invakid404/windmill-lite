@@ -1,0 +1,12 @@
+summary: 'WR-49/a: f/wl_cbx/asset/asset'
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_cbx/asset/asset
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

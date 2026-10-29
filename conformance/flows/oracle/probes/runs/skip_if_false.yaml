@@ -1,0 +1,11 @@
+# probe skip_if with {"skip":false} (OR-V2/d): a runs.
+spec: [OR-V2/d]
+target: f/wl_probe/skip_if
+args: {skip: false}
+expect:
+  status: success
+  result: {p: ran a, r: ran a}
+  steps:
+    "m:a0": {status: success, args: {}, result: a0}
+    "m:a": {status: success, args: {}, result: ran a}
+    "m:b": {status: success, args: {p: ran a, r: ran a}, result: {p: ran a, r: ran a}}

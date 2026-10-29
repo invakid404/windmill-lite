@@ -1,0 +1,12 @@
+summary: 'WR-47/c: f/wl_cbx/define/mode'
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        input_transforms: {}
+        path: f/wl_cbx/define/mode
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

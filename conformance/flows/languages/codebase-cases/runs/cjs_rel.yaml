@@ -1,0 +1,10 @@
+# The CommonJS entry: a relative import is bundled, and process.env holds
+# the step's environment.
+spec: [WR-47]
+target: f/wl_cbx/cjs_rel
+args: {x: 3}
+expect:
+  status: success
+  result: {tag: 'tag:cjs', x: 3, step: s}
+  steps:
+    "m:s": {status: success, args: {x: 3}, result: {tag: 'tag:cjs', x: 3, step: s}}

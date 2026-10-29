@@ -1,0 +1,12 @@
+# probe while_simple: the body's stop_after_if ends the while loop at
+# index 2; the iterations are child flows (flownode).
+spec: [OR-11, OR-28]
+target: f/wl_probe/while_simple
+expect:
+  status: success
+  result: [0, 1, 2]
+  steps:
+    "m:w": {status: success, result: [0, 1, 2]}
+    "m:w/i:0/m:x": {status: success, args: {i: 0}, result: 0}
+    "m:w/i:1/m:x": {status: success, args: {i: 1}, result: 1}
+    "m:w/i:2/m:x": {status: success, args: {i: 2}, result: 2}

@@ -3,7 +3,9 @@
 # standalone mode, both pinned by digest, ports bound to 127.0.0.1. Compose
 # never pulls: wltest pulls the images first, under the disk policy of OR-30.
 # The second worker of a two-worker profile (OR-5) is the "workers2" profile.
-# WL_EFFECT_SINK is set by wltest to its effect sink (OR-16).
+# WL_EFFECT_SINK is set by wltest to its effect sink (OR-16), and
+# WL_LISTEN_NEW_EVENTS_INTERVAL_SEC by a session that compares that knob
+# (OR-7/a); it defaults to 1.
 name: wl-oracle
 services:
   db:
@@ -25,7 +27,7 @@ services:
       DATABASE_URL: postgres://postgres:changeme@db/windmill?sslmode=disable
       MODE: standalone
       BASE_URL: http://localhost:8000
-      LISTEN_NEW_EVENTS_INTERVAL_SEC: "1"
+      LISTEN_NEW_EVENTS_INTERVAL_SEC: ${WL_LISTEN_NEW_EVENTS_INTERVAL_SEC:-1}
       WHITELIST_ENVS: WL_EFFECT_SINK
       WL_EFFECT_SINK: ${WL_EFFECT_SINK:?set by wltest}
     ports: ["127.0.0.1:8000:8000"]
