@@ -1,0 +1,160 @@
+{
+  "observation": {
+    "status": "failure",
+    "result": "parent-handled",
+    "steps": {
+      "m:c": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "Anyhow",
+            "message": "Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"
+          }
+        }
+      },
+      "m:c/m:l": {
+        "status": "not_run",
+        "ran": false
+      },
+      "m:c/s:failure": {
+        "status": "not_run",
+        "ran": false
+      },
+      "s:failure": {
+        "status": "success",
+        "args": {},
+        "result": "parent-handled"
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029103122-13996a50fdbe",
+      "revision": "13996a50fdbec5fcd46daab29efbba1cc30f04f8",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40858228112"
+    },
+    "recorded_at": "2026-10-29T10:35:31Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:40909"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 207,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T10:35:30.863949Z",
+          "started_at": "2026-10-29T10:35:30.908030Z",
+          "completed_at": "2026-10-29T10:35:30.939341Z",
+          "duration_ms": 31
+        },
+        "m:c": {
+          "kind": "flow",
+          "created_at": "2026-10-29T10:35:30.911Z",
+          "started_at": "2026-10-29T10:35:30.913929Z",
+          "completed_at": "2026-10-29T10:35:30.917149Z",
+          "duration_ms": 3
+        },
+        "s:failure": {
+          "kind": "preview",
+          "created_at": "2026-10-29T10:35:30.919164Z",
+          "started_at": "2026-10-29T10:35:30.921106Z",
+          "completed_at": "2026-10-29T10:35:30.937087Z",
+          "duration_ms": 14
+        }
+      }
+    },
+    "deployment": {
+      "method": "api",
+      "submitted": {
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "content": "export async function main() {\n  return \"parent-handled\";\n}\n",
+            "input_transforms": {},
+            "language": "bun",
+            "type": "rawscript"
+          }
+        },
+        "modules": [
+          {
+            "id": "c",
+            "value": {
+              "input_transforms": {},
+              "path": "f/wl_cfv3/start_error",
+              "type": "flow"
+            }
+          }
+        ]
+      },
+      "materialized": {
+        "modules": [
+          {
+            "id": "c",
+            "value": {
+              "path": "f/wl_cfv3/start_error",
+              "type": "flow",
+              "input_transforms": {}
+            }
+          }
+        ],
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
+            "type": "rawscript",
+            "content": "export async function main() {\n  return \"parent-handled\";\n}\n",
+            "language": "bun",
+            "input_transforms": {}
+          }
+        }
+      },
+      "cli_generated": {
+        "modules": [
+          {
+            "id": "c",
+            "value": {
+              "type": "flow",
+              "input_transforms": {},
+              "path": "f/wl_cfv3/start_error"
+            }
+          }
+        ],
+        "failure_module": {
+          "id": "failure",
+          "value": {
+            "type": "rawscript",
+            "content": "!inline failure.ts",
+            "input_transforms": {},
+            "lock": "!inline failure.lock",
+            "language": "bun"
+          }
+        }
+      }
+    }
+  }
+}

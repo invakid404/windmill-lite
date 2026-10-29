@@ -1,0 +1,10 @@
+# Recording batch N3c (ADR 0012): CF-V5, for-loop fast-path eligibility
+# follows the runtime job kind. Synthetic flows written for this repository
+# from docs/semantics/conformance.md#cf-v5, on CF-8/a's flow. Deployed with
+# oracle.deploy api and run by path after the dependency job.
+id: control-flow/cf-v5
+spec: [CF-V5, CF-V5/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

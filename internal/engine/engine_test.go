@@ -740,15 +740,13 @@ func TestEngineTimeouts(t *testing.T) {
 // milestone, never midway through a run.
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
-		"failure module loop":           `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
-		"loop and failure module":       `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", "") + `]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
-		"ai sleep":                      flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
-		"branch and failure module":     `{"modules":[{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
-		"while loop and failure module": `{"modules":[{"id":"w","value":{"type":"whileloopflow","skip_failures":true,"modules":[]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
-		"squashed while loop":           flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"squash":true,"modules":[]}}`),
-		"squashed loop":                 flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
-		"subflow":                       flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
-		"cache_ttl":                     flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		"failure module branchone": `{"modules":[],"failure_module":{"id":"f","value":{"type":"branchone","branches":[],"default":[]}}}`,
+		"retry on a subflow step":  flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
+		"failure module loop":      `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
+		"ai sleep":                 flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
+		"squashed while loop":      flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"squash":true,"modules":[]}}`),
+		"squashed loop":            flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
+		"cache_ttl":                flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
 		// N2's waits and retries in or on a container, or delaying one,
 		// are NI's.
 		"loop body retry":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),

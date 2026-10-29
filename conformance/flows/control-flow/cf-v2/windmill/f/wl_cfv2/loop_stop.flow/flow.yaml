@@ -1,0 +1,27 @@
+summary: "CF-V2: an empty loop with stop"
+value:
+  modules:
+    - id: l
+      stop_after_if: {expr: "true", skip_if_stopped: false}
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[]"}
+        parallel: false
+        skip_failures: false
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+    - id: n
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

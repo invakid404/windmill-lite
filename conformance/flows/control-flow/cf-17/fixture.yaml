@@ -1,0 +1,12 @@
+# Recording batch N3c (ADR 0012): CF-17, subflows by path.
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-17: parent's step c runs the flow
+# f/wl_cf17/child by path with its own input; the child's step s writes
+# into the child's own results scope, which the parent cannot read.
+# Deployed with oracle.deploy api.
+id: control-flow/cf-17
+spec: [CF-17, CF-17/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

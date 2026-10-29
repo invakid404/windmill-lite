@@ -1,0 +1,27 @@
+summary: "CF-V4/a: the handler id in a stored-node body"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1]"}
+        parallel: false
+        skip_failures: true
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+  failure_module:
+    id: h
+    value:
+      type: rawscript
+      content: "!inline h.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

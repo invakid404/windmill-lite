@@ -1,0 +1,12 @@
+# Recording batch N3c (ADR 0012): CF-V1, recovery success differs
+# between sequential propagation and parallel aggregation (CF-16/c).
+# Synthetic flows written for this repository from
+# docs/semantics/conformance.md#cf-v1: every body or branch fails, and the
+# flow's failure module, which each child flow carries a copy of, returns
+# exactly {recover: true}. Deployed with oracle.deploy api.
+id: control-flow/cf-v1
+spec: [CF-V1, CF-V1/a, CF-V1/b, CF-V1/c, CF-16/c]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

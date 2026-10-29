@@ -1,0 +1,12 @@
+# CF-V1/c, CF-16/c: a sequential branchall counts the recovered first
+# branch as failed, as CF-V1/a's loop does.
+spec: [CF-V1/c, CF-16/c]
+target: f/wl_cfv1/seq_branchall
+expect:
+  status: failure
+  result: [{recover: true}]
+  steps:
+    "m:ba": {status: failure, result: [{recover: true}]}
+    "m:ba/b:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:ba/b:0/s:failure": {status: success, args: {}, result: {recover: true}}
+    "s:failure": {status: not_run}

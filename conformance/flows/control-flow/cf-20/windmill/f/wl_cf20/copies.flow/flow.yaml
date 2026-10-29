@@ -1,0 +1,36 @@
+summary: "CF-20/a: sibling branches mutate independent copies"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: ba
+      value:
+        type: branchall
+        parallel: false
+        branches:
+          - skip_failure: false
+            modules:
+              - id: b0
+                value:
+                  type: rawscript
+                  content: "!inline b0.ts"
+                  language: bun
+                  input_transforms:
+                    x: {type: javascript, expr: results.a}
+          - skip_failure: false
+            modules:
+              - id: b1
+                value:
+                  type: rawscript
+                  content: "!inline b1.ts"
+                  language: bun
+                  input_transforms:
+                    x: {type: javascript, expr: results.a}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
