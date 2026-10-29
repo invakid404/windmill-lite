@@ -55,6 +55,14 @@
         "node"
       ],
       "allowedVersions": "<21"
+    },
+    {
+      "description": "esbuild is pinned to the version the pinned windmill-cli@1.767.0 bundles with (ADR 0002); the Codebase parity check compares byte for byte, so it moves only with the CLI/semantics pin.",
+      "matchPackageNames": [
+        "github.com/evanw/esbuild",
+        "esbuild"
+      ],
+      "allowedVersions": "0.28.0"
     }
   ]
 }
