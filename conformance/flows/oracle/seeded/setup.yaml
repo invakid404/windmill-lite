@@ -1,0 +1,4 @@
+variables:
+  - path: f/wl_probe/v
+    value: secret-ish
+    description: seeded before the push, which removes it (OR-31/a)

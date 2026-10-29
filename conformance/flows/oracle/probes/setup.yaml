@@ -1,0 +1,7 @@
+variables:
+  - path: f/wl_probe/v
+    value: secret-ish
+    description: args_vs_received's variable, created after the push (OR-31)
+  - path: f/wl_probe/attempt
+    value: "0"
+    description: the retry probe's attempt counter

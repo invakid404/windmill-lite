@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -58,6 +59,159 @@ func (n *Normaliser) Value(raw json.RawMessage) (json.RawMessage, error) {
 	n.maskStacks(tree)
 	n.rewrite(tree)
 	return json.RawMessage(tree.raw()), nil
+}
+
+// Text normalises a text kept as written rather than as a JSON value, such
+// as an HTTP response body (Response). Walked job ids become placeholders
+// anywhere in it. When the text is a JSON value, a stack is masked exactly
+// where Value would mask it (OR-V3 clauses a and b): in an object deep-equal
+// to a runtime error, its error member's stack; in an object deep-equal to
+// such an error's inner object, its own stack. Only that string's span
+// becomes the stack marker, so the text keeps its spelling, spaces and
+// member order, and the same string elsewhere, a handler's own data among
+// it, stays as it is. A text that is not JSON gets no stack masking.
+func (n *Normaliser) Text(raw string) (string, error) {
+	if err := n.prepare(); err != nil {
+		return "", err
+	}
+	var spans [][2]int
+	if len(n.runtime) > 0 && json.Valid([]byte(raw)) {
+		sc := spanScanner{text: raw}
+		n.stackSpans(raw, sc.value(), &spans)
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i][0] < spans[j][0] })
+	var parts []TextPart
+	pos := 0
+	for _, sp := range spans {
+		parts = append(parts, SplitJobIDs(raw[pos:sp[0]], n.IDs)...)
+		parts = append(parts, Literal(`"`), MarkerPart(MarkerStack), Literal(`"`))
+		pos = sp[1]
+	}
+	parts = append(parts, SplitJobIDs(raw[pos:], n.IDs)...)
+	return EncodeText(parts), nil
+}
+
+// stackSpans collects, below t, the spans of the stack strings that
+// maskStacks masks in the same value.
+func (n *Normaliser) stackSpans(raw string, t *spanNode, out *[][2]int) {
+	switch t.kind {
+	case kindObject:
+		if v, err := decodeAny([]byte(raw[t.start:t.end])); err == nil {
+			for i, r := range n.runtime {
+				if reflect.DeepEqual(v, r) {
+					if e := t.member("error"); e != nil {
+						if st := e.member("stack"); st != nil && st.kind == kindString {
+							*out = append(*out, [2]int{st.start, st.end})
+						}
+					}
+					return
+				}
+				if n.inner[i] != nil && reflect.DeepEqual(v, n.inner[i]) {
+					if st := t.member("stack"); st != nil && st.kind == kindString {
+						*out = append(*out, [2]int{st.start, st.end})
+					}
+					return
+				}
+			}
+		}
+		for _, m := range t.members {
+			n.stackSpans(raw, m.value, out)
+		}
+	case kindArray:
+		for _, e := range t.elems {
+			n.stackSpans(raw, e, out)
+		}
+	}
+}
+
+// spanNode is a JSON value of a text with its byte span, so that one
+// member can be replaced without respelling the rest.
+type spanNode struct {
+	kind       jkind
+	start, end int
+	members    []spanMember
+	elems      []*spanNode
+}
+
+type spanMember struct {
+	key   string
+	value *spanNode
+}
+
+// member returns the value of object t's member k, the last one when the
+// key repeats, as decoding takes it; nil when there is none.
+func (t *spanNode) member(k string) *spanNode {
+	if t.kind != kindObject {
+		return nil
+	}
+	var v *spanNode
+	for _, m := range t.members {
+		if m.key == k {
+			v = m.value
+		}
+	}
+	return v
+}
+
+// spanScanner reads a text already checked with json.Valid into spanNodes.
+type spanScanner struct {
+	text string
+	pos  int
+}
+
+func (sc *spanScanner) space() {
+	for sc.pos < len(sc.text) && strings.IndexByte(" \t\n\r", sc.text[sc.pos]) >= 0 {
+		sc.pos++
+	}
+}
+
+func (sc *spanScanner) value() *spanNode {
+	sc.space()
+	t := &spanNode{start: sc.pos}
+	switch c := sc.text[sc.pos]; c {
+	case '{':
+		t.kind = kindObject
+		sc.pos++
+		for sc.space(); sc.text[sc.pos] != '}'; sc.space() {
+			k := sc.value()
+			var key string
+			_ = json.Unmarshal([]byte(sc.text[k.start:k.end]), &key)
+			sc.space()
+			sc.pos++ // the colon
+			t.members = append(t.members, spanMember{key: key, value: sc.value()})
+			sc.space()
+			if sc.text[sc.pos] == ',' {
+				sc.pos++
+			}
+		}
+		sc.pos++
+	case '[':
+		t.kind = kindArray
+		sc.pos++
+		for sc.space(); sc.text[sc.pos] != ']'; sc.space() {
+			t.elems = append(t.elems, sc.value())
+			sc.space()
+			if sc.text[sc.pos] == ',' {
+				sc.pos++
+			}
+		}
+		sc.pos++
+	case '"':
+		t.kind = kindString
+		for sc.pos++; sc.text[sc.pos] != '"'; sc.pos++ {
+			if sc.text[sc.pos] == '\\' {
+				sc.pos++
+			}
+		}
+		sc.pos++
+	default: // a number, true, false or null: only the span matters
+		t.kind = kindNumber
+		for sc.pos < len(sc.text) && strings.IndexByte(",]} \t\n\r", sc.text[sc.pos]) < 0 {
+			sc.pos++
+		}
+	}
+	t.end = sc.pos
+	return t
 }
 
 func (n *Normaliser) prepare() error {

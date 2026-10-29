@@ -1,0 +1,8 @@
+# WR-47/f: the banner is prepended.
+spec: [WR-47/f]
+target: f/wl_cbx/banner
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:s": {status: success, args: {}, result: 1}

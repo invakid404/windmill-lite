@@ -1,0 +1,14 @@
+# Recording batch E3e: the two-worker profile (OR-5). A step that runs
+# another script through the run-and-wait API and waits for it needs a
+# second worker, which this fixture declares (OR-5/b; on one worker the
+# session refuses it, OR-5/a). With real parallelism, parallel bodies
+# whose index 0 is slow complete out of index order (Q-OR-7), and an
+# empty middle branch keeps its index (Q-OR-15); the results stay in index
+# order. The oracle workflow's second session records it. Synthetic,
+# written for this repository from docs/semantics/oracle.md#q-or-7.
+id: oracle/workers2
+spec: [OR-5, OR-11, OR-26]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2, concurrency: true}

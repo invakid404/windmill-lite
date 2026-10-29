@@ -1,0 +1,8 @@
+# WR-47/d: inject supplies the free identifier.
+spec: [WR-47/d]
+target: f/wl_cbx/inject
+expect:
+  status: success
+  result: 42
+  steps:
+    "m:s": {status: success, args: {}, result: 42}

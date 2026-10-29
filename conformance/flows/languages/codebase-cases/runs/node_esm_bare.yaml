@@ -1,0 +1,9 @@
+# WR-50/e (later): without a declared type, Node v20.20.2, which detects
+# module syntax (20.19.0 and later), loads the ESM bundle as ESM.
+spec: [WR-50/e]
+target: f/wl_cbx/node_esm_bare
+expect:
+  status: success
+  result: ["undefined", "v20.20.2"]
+  steps:
+    "m:s": {"status": "success", "args": {}, "result": ["undefined", "v20.20.2"]}

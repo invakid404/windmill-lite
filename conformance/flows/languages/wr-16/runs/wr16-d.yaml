@@ -1,0 +1,8 @@
+# WR-16/d: an object result gains wm_stream (both readings).
+spec: [WR-16/d]
+target: f/wl_wr16/wr16_d
+expect:
+  status: success
+  result: {k: 1, wm_stream: hi}
+  steps:
+    "m:s": {status: success, args: {}, result: {k: 1, wm_stream: hi}}

@@ -301,6 +301,22 @@ waits on an external gate except R1.
   own id at the top level; its copy inside an inline body (FX-34) comes
   with bodies, in N3c.
 
+- E3e, the last recording batch, holds what the earlier batches left to it
+  and the contested `later` rows of [0001](0001-equivalence-contract.md)
+  §6: FX-36's HTTP part with FX-37/a's early response, for which the
+  harness gained a run-and-wait submission and gates F7b; FX-49, WR-16 and
+  WR-28, whose implementing milestones belong to L1; the probe catalogue
+  rebuilt as executable fixtures (Q-OR-16); codebase scripts in CommonJS
+  and ESM; FX-10/c, which the reference added after E3b; and the pull
+  read-back of CF-6/b and SY-6/c. Its manifest,
+  [`internal/oracle/testdata/batches/e3e.json`](../../internal/oracle/testdata/batches/e3e.json),
+  has no `gates`: only F7b needs E3e merged. Cases outside the equivalence
+  contract (a restart, a preview, the CLI's push-and-version decisions for
+  codebase scripts) and a concurrency count that needs three workers are
+  deferred to `none`, with the reason. The oracle workflow runs a second
+  session with two workers, for the fixtures that need them and for the
+  smoke fixture under another `LISTEN_NEW_EVENTS_INTERVAL_SEC`.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records

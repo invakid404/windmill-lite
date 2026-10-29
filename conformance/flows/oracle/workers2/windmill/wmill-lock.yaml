@@ -1,0 +1,13 @@
+version: v2
+locks:
+  f/wl_w2/blocking.flow+__flow_hash: a9ace2afc7c50b50fabe235b884a1a5b5b469de9da1779f7110821f4af6a3e81
+  f/wl_w2/blocking.flow+a.ts: fbca7b7bae7a58113fa9d2c224aad498139335ec0be8912fdbe8f3ea1f7a14aa
+  f/wl_w2/child: 80e976470c186b7125cc35bfbdc4c25b50ab2d5625dd550057d595e635f6c6d9
+  f/wl_w2/loop_slow.flow+__flow_hash: 931a3520ab613a57f338bc8129a06bae83eb1bc7421b626e199c37cc8c4c42d3
+  f/wl_w2/loop_slow.flow+x.ts: 27703fbc258ab6e352d4ab26ec50f38dfd5199dadc32d7594b06af4e751b0712
+  f/wl_w2/par_slow_empty.flow+__flow_hash: 1fb4906f437cf5cc1b77a8763723f3028da66091a0d05df13d87d74787758a3c
+  f/wl_w2/par_slow_empty.flow+s0.ts: 0c315a92509a6a2cc7399965c72b2cc3412cf2e08b6912b3968b20d1b3c27750
+  f/wl_w2/par_slow_empty.flow+s2.ts: c52317f0a8744a6ba488fbec77e81d2b9e2236733275689347e3edc5c4f51c87
+  f/wl_w2/par_slow.flow+__flow_hash: 70863ce152ed2306949f438ed8a7173a2e77edea34277ec3229e4ea380ce832e
+  f/wl_w2/par_slow.flow+s0.ts: 0c315a92509a6a2cc7399965c72b2cc3412cf2e08b6912b3968b20d1b3c27750
+  f/wl_w2/par_slow.flow+s1.ts: 3eed85e0b1b936ae339f2b391d534b57f149ff20e95a2f2152d5977134a21fa2

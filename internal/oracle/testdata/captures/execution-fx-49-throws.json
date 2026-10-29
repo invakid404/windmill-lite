@@ -1,0 +1,59 @@
+{
+  "fixture": "conformance/flows/execution/fx-49",
+  "run": "throws",
+  "repeat": 0,
+  "workspace": "wl-e21b41-44",
+  "root": "903e8546-8c36-4185-864b-38cc6521c562",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/get/903e8546-8c36-4185-864b-38cc6521c562?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-44\",\"id\":\"903e8546-8c36-4185-864b-38cc6521c562\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:39:42.233290Z\",\"started_at\":\"2026-10-29T00:39:42.268308Z\",\"completed_at\":\"2026-10-29T00:39:42.304876Z\",\"duration_ms\":37,\"success\":false,\"script_hash\":\"0000000000000086\",\"script_path\":\"f/wl_fx49/throws\",\"args\":{},\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Error: QuickJS evaluation error: Error: flip\\n    at \u003canonymous\u003e (eval_script:1:102)\\n    at \u003canonymous\u003e (eval_script:1:116)\\n @worker_flow.rs:2451:11\"}},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 0, \"modules\": [{\"id\": \"l\", \"job\": \"01a18519-2dc2-918e-a4ce-05e1d6de9a7c\", \"type\": \"InProgress\", \"iterator\": {\"index\": 0, \"itered_len\": 3}, \"flow_jobs\": [\"01a18519-2dc2-918e-a4ce-05e1d6de9a7c\"], \"flow_jobs_success\": [true], \"flow_jobs_duration\": {\"started_at\": [\"2026-10-29T00:39:42.276393Z\"], \"duration_ms\": [22]}}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"l\",\"value\":{\"type\":\"forloopflow\",\"iterator\":{\"type\":\"javascript\",\"expr\":\"[1, 2, 3]\"},\"modules\":[{\"id\":\"x\",\"value\":{\"type\":\"script\",\"input_transforms\":{\"name\":{\"type\":\"static\",\"value\":\"throw\"},\"v\":{\"type\":\"javascript\",\"expr\":\"flow_input.iter.value\"}},\"path\":\"f/wl_fx49/set\"}}],\"skip_failures\":false,\"parallel\":false}}],\"skip_expr\":\"variable('f/wl_fx49/throw') === 'yes' ? (() =\u003e { throw new Error('flip') })() : false\"},\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/completed/get_result_maybe/903e8546-8c36-4185-864b-38cc6521c562?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"InternalError\", \"message\": \"Error: QuickJS evaluation error: Error: flip\\n    at \u003canonymous\u003e (eval_script:1:102)\\n    at \u003canonymous\u003e (eval_script:1:116)\\n @worker_flow.rs:2451:11\"}}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/completed/get_result_maybe/01a18519-2dc2-918e-a4ce-05e1d6de9a7c?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":1}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/get/01a18519-2dc2-918e-a4ce-05e1d6de9a7c?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-44\",\"id\":\"01a18519-2dc2-918e-a4ce-05e1d6de9a7c\",\"parent_job\":\"903e8546-8c36-4185-864b-38cc6521c562\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:39:42.273051Z\",\"started_at\":\"2026-10-29T00:39:42.276393Z\",\"completed_at\":\"2026-10-29T00:39:42.300709Z\",\"duration_ms\":22,\"success\":true,\"script_hash\":\"1a1807f1188e8d52\",\"script_path\":\"f/wl_fx49/set\",\"args\":{\"name\":\"throw\",\"v\":1},\"result\":1,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"script\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":19412,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/get/01a18519-2dc2-918e-a4ce-05e1d6de9a7c?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-44\",\"id\":\"01a18519-2dc2-918e-a4ce-05e1d6de9a7c\",\"parent_job\":\"903e8546-8c36-4185-864b-38cc6521c562\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:39:42.273051Z\",\"started_at\":\"2026-10-29T00:39:42.276393Z\",\"completed_at\":\"2026-10-29T00:39:42.300709Z\",\"duration_ms\":22,\"success\":true,\"script_hash\":\"1a1807f1188e8d52\",\"script_path\":\"f/wl_fx49/set\",\"args\":{\"name\":\"throw\",\"v\":1},\"result\":1,\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"script\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":19412,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/get_args/01a18519-2dc2-918e-a4ce-05e1d6de9a7c",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"v\": 1, \"name\": \"throw\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-44/jobs_u/completed/get_result_maybe/01a18519-2dc2-918e-a4ce-05e1d6de9a7c?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":1}"
+    }
+  ]
+}

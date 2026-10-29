@@ -1,0 +1,12 @@
+# probe sleep (OR-17/a): b starts at least 2 s after a completed, from the
+# recording's timings; timings are never compared.
+spec: [OR-17/a]
+target: f/wl_probe/sleep
+delays:
+  - {from: "m:a", to: "m:b", at_least_ms: 2000}
+expect:
+  status: success
+  result: b
+  steps:
+    "m:a": {status: success, args: {}, result: a}
+    "m:b": {status: success, args: {}, result: b}

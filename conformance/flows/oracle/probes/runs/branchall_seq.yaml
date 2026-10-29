@@ -1,0 +1,10 @@
+# probe branchall_seq (OR-26/a): the empty branch contributes {}.
+spec: [OR-26/a, OR-28]
+target: f/wl_probe/branchall_seq
+expect:
+  status: success
+  result: [0, {}, 2]
+  steps:
+    "m:ba": {status: success, result: [0, {}, 2]}
+    "m:ba/b:0/m:b0": {status: success, args: {}, result: 0}
+    "m:ba/b:2/m:b2": {status: success, args: {}, result: 2}

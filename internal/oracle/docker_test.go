@@ -104,6 +104,11 @@ func TestComposeFile(t *testing.T) {
 	}
 	env := c.Services["windmill"].Environment
 	for k, v := range OracleEnv {
+		// The knob of OR-7/a defaults to OracleEnv's value, and a session
+		// may set it (Session.ListenInterval).
+		if k == "LISTEN_NEW_EVENTS_INTERVAL_SEC" {
+			v = "${" + ListenIntervalVar + ":-" + v + "}"
+		}
 		if env[k] != v {
 			t.Errorf("windmill %s = %q, OracleEnv says %q", k, env[k], v)
 		}

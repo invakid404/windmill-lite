@@ -1,0 +1,12 @@
+# JE-8 right after a loop (request 8): results.l is the previous step's
+# result, the loop's aggregate, which comes from its iterations' stored
+# results (OR-24/d): compact text in jsonb key order, [{"a":2,"b":1}].
+spec: [JE-8, JE-29, JE-44, OR-24/d]
+target: f/wl_je_texts/loop_prev
+expect:
+  status: failure
+  result: {"error": {"name": "InternalError", "message": "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [{\"a\":2,\"b\":1}]"}}
+  steps:
+    "m:l": {"status": "success", "result": [{"a": 2, "b": 1}]}
+    "m:l/i:0/m:x": {"status": "success", "args": {}, "result": {"a": 2, "b": 1}}
+    "m:q": {"status": "not_run", "ran": false}

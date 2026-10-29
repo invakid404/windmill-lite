@@ -1,0 +1,8 @@
+# WR-47/b: format esm runs on Bun.
+spec: [WR-47/b]
+target: f/wl_cbx/esm_runtime
+expect:
+  status: success
+  result: object
+  steps:
+    "m:s": {status: success, args: {}, result: object}

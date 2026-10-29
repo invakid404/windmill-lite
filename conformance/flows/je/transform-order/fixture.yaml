@@ -1,0 +1,38 @@
+# Recording batch E3e: the order in which a step's input transforms are
+# evaluated (JE-23, JE-V5; E1's question on the CLI's name order). Step t
+# has three transforms that all fail, zz, b and aa, so the first one
+# evaluated names the error; t runs sixteen times, in the iterations of a
+# loop with skip_failures, and step s reports which transform failed
+# first: its name if the order is fixed (name order gives aa, jsonb order
+# b, the written order zz), or "varies" if the sixteen evaluations did not
+# all start with the same one, which a random order of three fails to show
+# with a probability near 1e-7. This flow is pushed with the CLI, whose
+# generate-metadata writes the transforms in name order (aa, b, zz). Each
+# iteration's error is masked, because a random order changes it from run
+# to run; s's answer is compared. Synthetic, written for this repository
+# from docs/semantics/expressions.md#je-23.
+id: je/transform-order
+spec: [JE-23, JE-V5]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
+compare:
+  mask:
+    - /steps/m:l/result
+    - /steps/m:l~1i:0~1m:t/result
+    - /steps/m:l~1i:1~1m:t/result
+    - /steps/m:l~1i:2~1m:t/result
+    - /steps/m:l~1i:3~1m:t/result
+    - /steps/m:l~1i:4~1m:t/result
+    - /steps/m:l~1i:5~1m:t/result
+    - /steps/m:l~1i:6~1m:t/result
+    - /steps/m:l~1i:7~1m:t/result
+    - /steps/m:l~1i:8~1m:t/result
+    - /steps/m:l~1i:9~1m:t/result
+    - /steps/m:l~1i:10~1m:t/result
+    - /steps/m:l~1i:11~1m:t/result
+    - /steps/m:l~1i:12~1m:t/result
+    - /steps/m:l~1i:13~1m:t/result
+    - /steps/m:l~1i:14~1m:t/result
+    - /steps/m:l~1i:15~1m:t/result

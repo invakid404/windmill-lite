@@ -29,7 +29,10 @@ const fakeCLIFlag = "--wltest-fake-cli"
 // TestFakeCLI is the fake wmill CLI. It does nothing unless re-executed
 // with fakeCLIFlag, a log file and a hang marker ("-" for none): then it
 // logs its arguments, prints a version for --version, and, with a marker,
-// creates the marker and hangs on sync push.
+// creates the marker and hangs on sync push. Like the real push, sync push
+// removes the workspace's variables, which it asks the fake oracle to do
+// (fakePushPath); sync pull writes the smoke flow, as the fake oracle
+// holds it, into its working directory.
 func TestFakeCLI(t *testing.T) {
 	args := os.Args
 	for i, a := range args {
@@ -49,9 +52,34 @@ func TestFakeCLI(t *testing.T) {
 			_ = os.WriteFile(marker, nil, 0o644)
 			time.Sleep(time.Minute)
 		}
+		flag := func(name string) string {
+			for k := i + 3; k+1 < len(args); k++ {
+				if args[k] == name {
+					return args[k+1]
+				}
+			}
+			return ""
+		}
+		switch {
+		case strings.Contains(cli, "sync push"):
+			resp, err := http.Post(flag("--base-url")+"/api/w/"+flag("--workspace")+fakePushPath, "text/plain", nil)
+			if err == nil {
+				resp.Body.Close()
+			}
+		case strings.Contains(cli, "sync pull"):
+			dir := filepath.Join("f", "wl_smoke", "two_step.flow")
+			if err := os.MkdirAll(dir, 0o755); err == nil {
+				_ = os.WriteFile(filepath.Join(dir, "flow.yaml"), []byte("summary: pulled\nvalue:\n  modules:\n    - id: a\n    - id: b\n  pulled: true\n"), 0o644)
+			}
+		}
 		os.Exit(0)
 	}
 }
+
+// fakePushPath is the fake oracle's test endpoint, below /api/w/{ws}, that
+// the fake CLI's sync push calls: it removes the workspace's variables, as
+// a real push removes the items absent from the tree (OR-31).
+const fakePushPath = "/wltest-fake/pushed"
 
 type fakeDocker struct {
 	mu        sync.Mutex
@@ -63,6 +91,7 @@ type fakeDocker struct {
 	calls     []string
 	sinkURL   string
 	up        bool
+	upEnv     []string // the environment of the last compose up
 }
 
 func newFakeDocker(t *testing.T) *fakeDocker {
@@ -108,6 +137,7 @@ func (d *fakeDocker) Run(_ context.Context, env []string, args ...string) ([]byt
 		switch {
 		case strings.Contains(line, " up -d"):
 			d.up = true
+			d.upEnv = append([]string(nil), env...)
 			for _, e := range env {
 				if v, ok := strings.CutPrefix(e, "WL_EFFECT_SINK="); ok {
 					d.sinkURL = v
@@ -173,10 +203,19 @@ type fakeOracle struct {
 	// failQueue, failFlows and failDelete make the queue count, the flow
 	// listing of the deployment gate and workspace deletion answer 500.
 	failQueue, failFlows, failDelete bool
+	// vars holds each workspace's variables; the fake CLI's push removes
+	// them. updates logs the variable updates, "<ws> <path>=<value>".
+	vars    map[string]map[string]string
+	updates []string
+	// keepVars makes a push keep the variables; loseVars makes a created
+	// variable vanish, so a setup check after the push sees the wrong state.
+	keepVars, loseVars bool
+	// refuseWait makes run-and-wait answer 400 without creating a job.
+	refuseWait bool
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
-	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}, created: map[string]json.RawMessage{}}
+	return &fakeOracle{t: t, version: OracleVersion, tag: "hi", docker: d, jobs: map[string]fakeJob{}, workspaces: map[string]bool{}, created: map[string]json.RawMessage{}, vars: map[string]map[string]string{}}
 }
 
 // ceWorkspaceLimit is CE v1.767.0's refusal of a third workspace besides
@@ -222,6 +261,13 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(201, "created")
 		return
 	}
+	if ws, ok := strings.CutSuffix(strings.TrimPrefix(p, "/w/"), fakePushPath); ok {
+		if !o.keepVars {
+			delete(o.vars, ws)
+		}
+		write(200, "pushed")
+		return
+	}
 	if r.Header.Get("Authorization") != "Bearer session-token" {
 		write(401, "unauthorized")
 		return
@@ -241,7 +287,51 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rest := p[strings.Index(p[3:], "/")+4:] // after /w/{ws}/
+	wsID := p[3 : strings.Index(p[3:], "/")+3]
 	switch {
+	case rest == "variables/create":
+		var v struct{ Path, Value string }
+		_ = json.NewDecoder(r.Body).Decode(&v)
+		if o.vars[wsID] == nil {
+			o.vars[wsID] = map[string]string{}
+		}
+		if !o.loseVars {
+			o.vars[wsID][v.Path] = v.Value
+		}
+		write(201, v.Path)
+	case strings.HasPrefix(rest, "variables/update/"):
+		path := strings.TrimPrefix(rest, "variables/update/")
+		var v struct{ Value string }
+		_ = json.NewDecoder(r.Body).Decode(&v)
+		if _, ok := o.vars[wsID][path]; !ok {
+			write(404, "no variable "+path)
+			return
+		}
+		o.vars[wsID][path] = v.Value
+		o.updates = append(o.updates, wsID+" "+path+"="+v.Value)
+		write(200, "updated")
+	case strings.HasPrefix(rest, "variables/get/"):
+		path := strings.TrimPrefix(rest, "variables/get/")
+		if v, ok := o.vars[wsID][path]; ok {
+			write(200, fmt.Sprintf(`{"path":%q,"value":%q}`, path, v))
+			return
+		}
+		write(404, "Not found: Variable "+path+" not found")
+	case strings.HasPrefix(rest, "jobs/run_wait_result/f/"):
+		// Like CE, run-and-wait answers when the flow completed: the
+		// stored result, with 200 on success and 422 on failure (FX-36).
+		if o.refuseWait {
+			write(400, "Bad request: no such flow")
+			return
+		}
+		root := o.start(r)
+		j := o.jobs[root]
+		w.Header().Set("Content-Type", "application/json")
+		code := 200
+		if !j.Success {
+			code = 422
+		}
+		write(code, string(j.Result))
 	case rest == "jobs/queue/count" && o.failQueue:
 		write(500, "queue unavailable")
 	case rest == "jobs/queue/count":
@@ -319,6 +409,13 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (o *fakeOracle) run(w http.ResponseWriter, r *http.Request) {
+	root := o.start(r)
+	w.WriteHeader(201)
+	io.WriteString(w, root)
+}
+
+// start runs the smoke flow for a submission and returns its root job id.
+func (o *fakeOracle) start(r *http.Request) string {
 	o.runs++
 	root := r.URL.Query().Get("job_id")
 	var args struct {
@@ -364,8 +461,7 @@ func (o *fakeOracle) run(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	w.WriteHeader(201)
-	io.WriteString(w, root)
+	return root
 }
 
 type sessionRig struct {

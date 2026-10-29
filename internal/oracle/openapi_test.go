@@ -129,7 +129,7 @@ func TestClientUsesTheOpenAPISurface(t *testing.T) {
 		mu.Unlock()
 		p := r.URL.Path
 		switch {
-		case r.Method == http.MethodPost && (strings.HasSuffix(p, "/auth/login") || strings.Contains(p, "/queue/cancel/")):
+		case r.Method == http.MethodPost && (strings.HasSuffix(p, "/auth/login") || strings.Contains(p, "/queue/cancel/") || strings.Contains(p, "/variables/update/")):
 			io.WriteString(w, "tok")
 		case r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusCreated)
@@ -177,10 +177,16 @@ func TestClientUsesTheOpenAPISurface(t *testing.T) {
 			_, err := c.RunScript(ctx, ws, "f/wl_smoke/double", json.RawMessage(`{"x":3}`), id)
 			return err
 		},
+		"RunWaitFlow": func() error {
+			_, err := c.RunWaitFlow(ctx, ws, path, json.RawMessage(`{"x":3}`), id)
+			return err
+		},
 		"Cancel":             func() error { return c.Cancel(ctx, ws, id, "test") },
 		"GetJob":             func() error { _, err := c.GetJob(ctx, ws, id); return err },
 		"GetArgs":            func() error { _, err := c.GetArgs(ctx, ws, id); return err },
 		"CreateVariable":     func() error { return c.CreateVariable(ctx, ws, "f/x/v", "v", false, "") },
+		"UpdateVariable":     func() error { return c.UpdateVariable(ctx, ws, "f/x/v", "w") },
+		"VariableExists":     func() error { _, err := c.VariableExists(ctx, ws, "f/x/v"); return err },
 		"CreateResource":     func() error { return c.CreateResource(ctx, ws, "f/x/r", "t", json.RawMessage(`{"a":1}`), "") },
 		"CreateResourceType": func() error { return c.CreateResourceType(ctx, ws, "t", json.RawMessage(`{"type":"object"}`), "") },
 	}

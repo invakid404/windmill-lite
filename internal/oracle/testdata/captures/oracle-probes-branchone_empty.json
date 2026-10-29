@@ -1,0 +1,45 @@
+{
+  "fixture": "conformance/flows/oracle/probes",
+  "run": "branchone_empty",
+  "repeat": 0,
+  "workspace": "wl-e21b41-69",
+  "root": "3157d4ba-5ba3-4f5d-adb4-c8d63d186a2a",
+  "effects": [],
+  "exchanges": [
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get/3157d4ba-5ba3-4f5d-adb4-c8d63d186a2a?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-69\",\"id\":\"3157d4ba-5ba3-4f5d-adb4-c8d63d186a2a\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:48:47.084314Z\",\"started_at\":\"2026-10-29T00:48:47.092166Z\",\"completed_at\":\"2026-10-29T00:48:47.171285Z\",\"duration_ms\":79,\"success\":true,\"script_hash\":\"0000000000000121\",\"script_path\":\"f/wl_probe/branchone_empty\",\"args\":{},\"result\":{\"p\": \"{}\", \"r\": \"{}\"},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flow\",\"permissioned_as\":\"u/admin\",\"flow_status\":{\"step\": 2, \"modules\": [{\"id\": \"br\", \"job\": \"00000000-0000-0000-0000-000000000000\", \"type\": \"Success\", \"skipped\": false, \"branch_chosen\": {\"type\": \"branch\", \"branch\": 0}}, {\"id\": \"after\", \"job\": \"01a18521-7df9-6e7c-182c-7771e3965e6b\", \"type\": \"Success\", \"skipped\": false}], \"cleanup_module\": {}, \"failure_module\": {\"id\": \"failure\", \"type\": \"WaitingForPriorSteps\"}, \"preprocessor_module\": null},\"is_flow_step\":false,\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"tag\":\"flow\",\"is_retry\":false,\"raw_flow\":{\"modules\":[{\"id\":\"br\",\"value\":{\"type\":\"branchone\",\"branches\":[{\"expr\":\"true\",\"modules\":[],\"skip_failure\":true,\"parallel\":true}],\"default\":[{\"id\":\"def\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]}},{\"id\":\"after\",\"value\":{\"type\":\"rawscript\",\"input_transforms\":{\"p\":{\"type\":\"javascript\",\"expr\":\"previous_result\"},\"r\":{\"type\":\"javascript\",\"expr\":\"results.br\"}},\"content\":\"...\",\"lock\":\"...\",\"language\":\"bun\"}}]},\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/completed/get_result_maybe/3157d4ba-5ba3-4f5d-adb4-c8d63d186a2a?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"p\": \"{}\", \"r\": \"{}\"}}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get/01a18521-7df9-6e7c-182c-7771e3965e6b?no_code=true\u0026no_logs=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"type\":\"CompletedJob\",\"workspace_id\":\"wl-e21b41-69\",\"id\":\"01a18521-7df9-6e7c-182c-7771e3965e6b\",\"parent_job\":\"3157d4ba-5ba3-4f5d-adb4-c8d63d186a2a\",\"created_by\":\"admin\",\"created_at\":\"2026-10-29T00:48:47.096943Z\",\"started_at\":\"2026-10-29T00:48:47.148432Z\",\"completed_at\":\"2026-10-29T00:48:47.168569Z\",\"duration_ms\":17,\"success\":true,\"script_hash\":\"000000000000010f\",\"script_path\":\"f/wl_probe/branchone_empty/after\",\"args\":{\"p\":\"{}\",\"r\":\"{}\"},\"result\":{\"p\": \"{}\", \"r\": \"{}\"},\"result_columns\":null,\"deleted\":false,\"canceled\":false,\"job_kind\":\"flowscript\",\"permissioned_as\":\"u/admin\",\"is_flow_step\":true,\"language\":\"bun\",\"is_skipped\":false,\"email\":\"admin@windmill.dev\",\"visible_to_owner\":true,\"mem_peak\":11084,\"tag\":\"bun\",\"priority\":0,\"is_retry\":false,\"worker\":\"wk-default-d9744bfa0cb2-xJdlf\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/get_args/01a18521-7df9-6e7c-182c-7771e3965e6b",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"p\": \"{}\", \"r\": \"{}\"}"
+    },
+    {
+      "method": "GET",
+      "url": "/api/w/wl-e21b41-69/jobs_u/completed/get_result_maybe/01a18521-7df9-6e7c-182c-7771e3965e6b?get_started=true",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"p\": \"{}\", \"r\": \"{}\"}}"
+    }
+  ]
+}
