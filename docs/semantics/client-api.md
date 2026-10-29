@@ -73,7 +73,8 @@ interface); `WA-Vn` findings were added during validation.
    `WM_ROOT_FLOW_JOB_ID` and resets only when a `flow` module is invoked or for a
    parallel-loop body. Body sub-flows follow the full "simple" predicate and live
    at `loop-i`, `forloop-i`, `branchone-k` and `branchall-i`. Flow user state is a
-   per-root-run map with `null` for missing keys; TS swallows its errors
+   per-root-run map with `null` for missing keys, gone once the root completes
+   (a later write gets 404, a read `null`); TS swallows its errors
    (including a failed root lookup) unless `errorIfNotPossible`; the Python
    setter ignores HTTP failures, but the Python getter parses non-404 bodies and
    may raise, and a failed Python root lookup raises. ([WA-V1](#wa-v1),
@@ -103,7 +104,8 @@ interface); `WA-Vn` findings were added during validation.
    [WA-V5](#wa-v5), [WA-V8](#wa-v8))
 8. **Object store:** the S3 client contract is verified from the Apache source;
    CE availability (10 GiB quota) comes only from the public docs; the pinned CE
-   server behaviour is unobserved ([Q-WA-3](#q-wa-3)). ([WA-16](#wa-16))
+   server behaviour is unobserved, and the CE image builds it from closed-source
+   modules, so only the oracle can settle it ([Q-WA-3](#q-wa-3)). ([WA-16](#wa-16))
 9. **Hybrid delegation.** `run_wait_result` answers 200/422, waits 600 s by
    default and cancels the job when the wait ends without a result; for a flow
    with `early_return` it can answer while the flow keeps running. A preview
@@ -265,7 +267,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-4"></a>
 ### WA-4 · Reserved ("contextual") variables injected into every job
 
-**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10) · **Status:** confirmed
+**Scope:** core (the eleven variables listed in the Note); later (the rest) · **Confidence:** high (names and formulas; which job fields are populated is refined by WA-V1 and WA-V10); high (the token's workspace check, source-traced) · **Status:** confirmed; drafted (the token's workspace check)
 
 - **Rule:** every job's process env contains the variables below. "Parent" is
   the job's `parent_job`: the enclosing flow, or a loop-iteration or branch
@@ -304,16 +306,50 @@ interface); `WA-Vn` findings were added during validation.
   - The `WM_ROOT_JOB_ID` rule above is the worker's process-env rule (the
     computed effective root). API resource interpolation of `$WM_ROOT_JOB_ID`
     uses the stored field instead ([WA-V3](#wa-v3)).
+  - **`WM_TOKEN` is bound to the job's workspace.** It is `jwt_` followed by
+    a token signed with the instance's internal secret, minted when the job
+    is pulled; it names the job's workspace and the job id, and carries the
+    permissioned-as identity. The API takes the workspace of a call from the
+    URL (`/api/w/<ws>/…`):
+    - **Authenticated routes** accept the token only when `<ws>` is the
+      job's workspace. For any other `<ws>`, existing or not, the call is
+      answered 401 `Not authorized: Unauthorized` (`text/plain`) before the
+      handler runs, so before any path, query or body rejection. Among the
+      routes the stock clients use, these are variables, resources (and so
+      state, [WA-13](#wa-13)), flow user state, dispatch (`jobs/run/…`) and
+      the object-store helpers (`job_helpers/…`).
+    - **The unauthenticated job routes** (`/api/w/<ws>/jobs_u/…`:
+      `get_root_job_id`, `completed/get_result`,
+      `completed/get_result_maybe`, `get`) check no token. A token that is
+      not valid for `<ws>` is ignored, so the caller is anonymous, and `<ws>`
+      only scopes the job lookup ([WA-V2](#wa-v2), [WA-19](#wa-19)).
+
+    The stock clients build every path from `WM_WORKSPACE`, so a script
+    reaches another workspace only by passing it explicitly.
 - **Evidence:** `backend/windmill-common/src/variables.rs:273`, `:280-480`,
   `:491-522` (custom env cache); `backend/windmill-worker/src/common.rs:508-571`
   (worker-side assembly, `build_envs_map` override order), `:535-558`
   (runnable id passed into env construction), `:1834-1839` (root-job rule);
-  `backend/windmill-worker/src/worker.rs:5165-5180` (`WM_PIPELINE`).
-- **Conformance:** [WA-4/a](conformance.md#wa-4)
+  `backend/windmill-worker/src/worker.rs:5165-5180` (`WM_PIPELINE`). The
+  token's workspace check: `backend/windmill-queue/src/jobs.rs:3182-3210`
+  (minted per job for its workspace); `backend/windmill-common/src/auth.rs:235-243`,
+  `:542-576` (the workspace claim, the `jwt_` prefix);
+  `backend/windmill-api-auth/src/auth.rs:182-195` (a claim for another
+  workspace is refused), `:672-690`, `:756-761` (the workspace read from the
+  URL), `:829` (the 401); `backend/windmill-api/src/lib.rs:547-549`,
+  `:595`, `:716-717` (the authenticated group and its layers), `:827-830`
+  (the unauthenticated job routes outside it).
+- **Conformance:** [WA-4/a, WA-4/b](conformance.md#wa-4)
 - **Note:** the core variables are `WM_WORKSPACE`, `WM_JOB_ID`,
   `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID`, `WM_FLOW_PATH`,
   `WM_FLOW_STEP_ID`, `WM_JOB_PATH`, `WM_BASE_URL`, `WM_TOKEN` and
   `WM_STATE_PATH`.
+- **Revision 2026-10-29 (SC3, source re-check, chain PF1):** added the
+  workspace binding of `WM_TOKEN`. Milestone PF1 found that the reference did
+  not say whether a call's `{workspace}` is checked against the caller; the
+  source checks it against the token's own workspace on every authenticated
+  route (401 `Not authorized: Unauthorized`) and not at all on the
+  unauthenticated job routes.
 
 <a id="wa-5"></a>
 ### WA-5 · State path formula
@@ -736,7 +772,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-11"></a>
 ### WA-11 · Variables: `getVariable` / `setVariable`
 
-**Scope:** core (read); later (write, masking, audit) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (read); later (write, masking, audit) · **Confidence:** high; high (source-traced: secrets that cannot be decrypted) · **Status:** confirmed; drafted (secrets that cannot be decrypted, the `already_encrypted` check)
 
 - **Rule:**
   - **Reads.**
@@ -748,6 +784,25 @@ interface); `WA-Vn` findings were added during validation.
       `Not authorized: Variable exists but you don't have access to it:`.
     - TS rewraps every error as
       `Error("Variable not found at <p> or not visible to you: <body>")`.
+    - **A secret whose stored value cannot be decrypted** (drafted). On CE
+      the only secret backend is the database: a read of a non-empty secret
+      decrypts the stored base64 ciphertext with the workspace key (and the
+      instance's `SECRET_SALT`, when set). A failure fails the read, on
+      `get_value` and on `get` with decryption alike, with HTTP 500 and the
+      body
+      `Internal: Error decrypting variable <p>: Internal: <cause> @<loc> @<loc>`
+      (`@variables.rs:<line>:<col> @resolver.rs:262:17` at the pin). `<cause>`
+      is one of the texts of [JE-42](expressions.md#je-42)'s `$encrypted:`:
+      normally `Could not decrypt value. The value may have been encrypted with a different key.`
+      (ciphertext under another key, or a length that is not a whole number
+      of 16-byte blocks), the base64 decoder's message for a value that is
+      not base64, or rarely a UTF-8 message when another key happens to leave
+      valid padding. The audit event is written first. An empty stored value
+      is not decrypted and reads as `""`. Every reader sees this body:
+      the clients rewrap it as above, the expression helper `variable()`
+      throws it ([JE-20](expressions.md#je-20)), and a leaf step's `$var:`
+      fails with ``Not found: Variable <p> not found for `<name>`: <body>``
+      ([JE-42](expressions.md#je-42)).
   - **Side effects of reading a secret.**
     - An audit event `variables.decrypt_secret` is written.
     - The plaintext is registered for log masking along the store's local code
@@ -765,17 +820,42 @@ interface); `WA-Vn` findings were added during validation.
     - Python `set_variable(path, value, is_secret=False)` probes
       `GET /w/{ws}/variables/get/{path}`. A 404 leads to a create with
       `description: ""`; any other answer leads to an update of the value.
+    - **How undecryptable ciphertext gets stored** (drafted). A create or
+      update of a secret with the query flag `already_encrypted=true` stores
+      the value verbatim, which is how the CLI pushes the secrets of a
+      pulled folder unless it is told they are plain
+      ([SY-11](openflow.md#sy-11)). The server checks only the shape: the
+      value must be standard base64 decoding to a non-zero multiple of 16
+      bytes (an external backend's `$vault:`, `$aws_sm:` or `$azure_kv:`
+      marker is also let through). Ciphertext pulled from a workspace with
+      another key passes, and every later read fails as above. A value of
+      any other shape is refused with HTTP 400
+      `Bad request: Variable <p> was sent as already-encrypted (already_encrypted=true) but its value is not valid workspace-encrypted ciphertext. To push a plaintext secret, send it without already_encrypted (CLI: use --plain-secrets) so it gets encrypted.`
 - **Evidence:** `typescript-client/client.ts:743-802`;
   `python-client/wmill/wmill/client.py:573-626`, `:2241-2245`;
   `backend/windmill-store/src/variables.rs:447-499` (permission explanation),
   `:1458-1550` (oauth2 gate `:1510-1531`; masking registration `:1476-1483`,
   `:1541-1543`); `backend/windmill-common/src/error.rs:24-43`, `:250-282`.
-- **Conformance:** [WA-11/a, WA-11/b](conformance.md#wa-11)
+  Secrets that cannot be decrypted: `backend/windmill-store/src/variables.rs:1505-1533`
+  (`get_value`: audit, then decryption of a non-empty value), `:377-418` (`get`);
+  `backend/windmill-common/src/secret_backend/resolver.rs:79-86` (CE has only
+  the database backend), `:249-276` (the decryption and its outer text);
+  `backend/windmill-common/src/variables.rs:115-148` (the workspace key and
+  salt), `:263-271` (the inner texts). The shape check:
+  `backend/windmill-store/src/variables.rs:539-566`, `:616-622` (create),
+  `:1119-1124` (update); `cli/src/commands/variable/variable.ts:127-198`
+  (`alreadyEncrypted` unless plain secrets).
+- **Conformance:** [WA-11/a, WA-11/b, WA-11/c, WA-11/d](conformance.md#wa-11)
+- **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
+  fails ciphertext and `$encrypted:` with its own text. Added Windmill's
+  texts for a secret that cannot be decrypted and the server's shape check
+  on already-encrypted values, with new cases WA-11/c and WA-11/d (not yet
+  recorded, [Q-WA-13](#q-wa-13)).
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
 
-**Scope:** core · **Confidence:** high (traced) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (traced) · **Status:** confirmed; drafted (an unusable `job_id`, `CUSTOM_INSTANCE_DB/` paths, the `$jsonvar:` body)
 
 - **Rule:** `get_value_interpolated` loads the stored value (a NULL value gives
   JSON `null`) and transforms it recursively.
@@ -784,6 +864,10 @@ interface); `WA-Vn` findings were added during validation.
       rules; a missing variable fails the whole call with its 404).
     - `$jsonvar:<p>` becomes the variable's value **parsed as JSON**. Invalid
       JSON gives an internal error `Failed to parse $jsonvar value as JSON: …`.
+      Its body is `Internal: Failed to parse $jsonvar value as JSON: <serde message> @<loc>`
+      (HTTP 500; `@resources.rs:827:17` at the pin), where the serde message
+      ends `at line L column C`, counted in bytes as
+      [JE-42](expressions.md#je-42) says (drafted).
     - `$res:<p>` becomes that resource's value, interpolated again. Splitting
       `<p>` on `/` must give at least 2 components (the path must contain at
       least one `/`); otherwise the call fails with an internal error whose
@@ -797,6 +881,19 @@ interface); `WA-Vn` findings were added during validation.
       `job_id` is given**; otherwise they are left unchanged. An unknown
       `$WM_X` is left unchanged. Any other `$…` string (custom envs, `$5.00`)
       is left unchanged.
+    - **An unusable `job_id`** (drafted). The job is looked up only when the
+      walk meets a `$WM_*` string, at each such string. A value without one
+      is returned as if no `job_id` had been sent, whatever it names. When
+      it is looked up, the job must belong to this workspace **and still be
+      queued or running**: the lookup joins the queue table, whose row is
+      deleted when the job completes. An unknown id, a job of another
+      workspace and a completed job all fail the whole read with HTTP 404
+      `Not found: Job not found at name <job_id> (resources.rs:899)`. A
+      `job_id` that is not a UUID never reaches the handler: the web
+      framework refuses the query string with HTTP 400 ([WA-42](#wa-42)).
+      Windmill's own callers send only the running leaf job's id
+      ([WA-V3](#wa-v3)); `getResource` sends none. The `$WM_TOKEN` it
+      resolves is the caller's own token.
   - **Depth accounting.**
     - The top-level value is transformed at depth 0.
     - Each value inside an object or array is transformed at its container's
@@ -814,7 +911,24 @@ interface); `WA-Vn` findings were added during validation.
   - **Caching.** Values without `$WM_*` may be cached per caller identity when
     `allow_cache=true`. The clients never set it.
   - **Error bodies.** Depth and invalid-path failures are HTTP 500 with body
-    `Internal: <message> @<file>:<line>`; compare by prefix.
+    `Internal: <message> @<file>:<line>:<column>`; compare by prefix.
+  - **`CUSTOM_INSTANCE_DB/<db>`** (drafted). A path of this route that
+    starts with `CUSTOM_INSTANCE_DB/` is not looked up as a resource. The
+    caller must be an instance super admin, else HTTP 401
+    `Not authorized: This endpoint requires the caller to be a super admin`.
+    A super admin gets the connection settings of Windmill's own database,
+    parsed from its database URL, with `dbname` replaced by `<db>`: an
+    object with the members `host`, `user`, `password`, `port`, `sslmode`,
+    `dbname`, `root_certificate_pem`, `accept_invalid_certs`,
+    `use_iam_auth` and `region` in that order, the last four `null` (`user`,
+    `password`, `port` and `sslmode` are `null` when the URL has none).
+    Nothing is interpolated, cached or checked against `job_id`. This is CE
+    behaviour, with no feature gate. Only this route has the special case:
+    the raw read (`get_value`) and a nested `$res:CUSTOM_INSTANCE_DB/<db>`
+    inside a value look the path up as an ordinary resource and find none.
+    So it is reached by `getResource`, by the expression helper `resource()`
+    ([JE-20](expressions.md#je-20)) and by a leaf step's top-level `$res:`
+    argument ([JE-42](expressions.md#je-42)), each as the job's user.
   - Because the TS and Python clients never pass `job_id`, **`getResource`
     returns `$WM_*` placeholders literally**. The worker's own argument
     resolution (static `$res:` transforms, [expressions.md](expressions.md))
@@ -824,8 +938,27 @@ interface); `WA-Vn` findings were added during validation.
   `:830-861`), `:944-985` (arrays and objects);
   `backend/windmill-common/src/error.rs:59-62`, `:234-239` (located internal
   error); worker side `backend/windmill-worker/src/common.rs:164`, `:174-210`,
-  `:262-396` (passes `job.id` at `:311-314`).
-- **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f](conformance.md#wa-12)
+  `:262-396` (passes `job.id` at `:311-314`). An unusable `job_id`:
+  `backend/windmill-store/src/resources.rs:653-657` (an optional UUID in
+  the query), `:870-899` (the lookup only for a `$WM_*` string, joined with
+  the queue, then the located not-found); `backend/windmill-common/src/utils.rs:338-352`;
+  `backend/windmill-queue/src/jobs.rs:1244`, `:4779-4792` (completion
+  deletes the queue row). `CUSTOM_INSTANCE_DB/`:
+  `backend/windmill-store/src/resources.rs:692-700` (before any lookup),
+  `:564-591` (the raw read has no such case), `:830-846` (nor the nested
+  `$res:`); `backend/windmill-api-auth/src/lib.rs:196-206`;
+  `backend/windmill-common/src/lib.rs:724-741`, `:1026-1068` (the members,
+  all serialised). The `$jsonvar:` body: `backend/windmill-store/src/resources.rs:826-828`.
+- **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h](conformance.md#wa-12)
+- **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
+  answers 501 for a `job_id` naming an unknown job and reads
+  `CUSTOM_INSTANCE_DB/` paths as plain resources, the reference being
+  silent on both. Added what Windmill does (a 404 only when a `$WM_*`
+  string is met, and the super-admin-only database settings) and the
+  `$jsonvar:` body, with new cases WA-12/g and WA-12/h (not yet recorded,
+  [Q-WA-13](#q-wa-13)). Also corrected the error bodies' location from
+  `@<file>:<line>` to `@<file>:<line>:<column>`, as every location suffix
+  is written ([FX-50](execution.md#fx-50)).
 - **Design note (not Windmill behaviour):** windmill-lite has to own this
   interpolation (in Go); a shared engine must keep the contexts of
   [WA-V3](#wa-v3) and [WA-40](#wa-40) apart.
@@ -897,7 +1030,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-14"></a>
 ### WA-14 · Flow user state: a key/value map on the root flow job, live while it runs
 
-**Scope:** core (TS); later (Python; access after the run) · **Confidence:** high (handlers traced); medium for a write to a completed root (Q-WA-10) · **Status:** confirmed
+**Scope:** core (TS); later (Python; access after the run) · **Confidence:** high (handlers traced); high for access after the run and for the request rejections (source-traced) · **Status:** confirmed; drafted (access after the run, request rejections)
 
 - **Rule:**
   - **Keying.** Both clients first resolve `root = getRootJobId(WM_JOB_ID)`,
@@ -912,9 +1045,10 @@ interface); `WA-Vn` findings were added during validation.
     `user_states.<key>` only on jobs of kind `flow`, `flowpreview`, `flownode`
     or `singlestepflow`; otherwise it returns 404
     `Not found: Flow job not found`. On success the response text is
-    `Flow job state updated`. The POST checks for a status row of a flow-kind
-    job, **not** queue membership: a write to a completed root whose status row
-    still exists may succeed while the GET returns `null` ([Q-WA-10](#q-wa-10)).
+    `Flow job state updated`. The POST needs the root's flow-status row, which
+    exists only while the root job is queued or running: completing a job
+    deletes that row together with the queue row, so a write to a completed
+    root fails with the same 404 (**After the run**, below).
   - **TS errors** (including a failed root lookup) are swallowed unless
     `errorIfNotPossible` is set; they are logged with
     `console.error("Error setting flow user state at <key>: <body>")` (**the
@@ -930,18 +1064,59 @@ interface); `WA-Vn` findings were added during validation.
     parallel branches and iterations, and to sub-flow steps whose root resolves
     to the same job (including steps inside a called sub-flow, [WA-V1](#wa-v1)).
   - **After the run.** Upstream does not stop a script from addressing a
-    finished run's flow state: generated services can pass any job id. GET then
-    returns `null` once the root has no queue row; POST depends on the status
-    row still existing ([Q-WA-10](#q-wa-10)).
+    finished run's flow state: generated services can pass any job id. From
+    the moment the root's completion is committed, GET returns `null` and
+    POST returns 404 `Not found: Flow job not found`; there is no grace
+    period. The map then survives only inside the completed job's stored
+    `flow_status`, which neither endpoint reads.
+  - **Request rejections** (raw HTTP; the stock clients always send a UUID
+    from the root lookup and a JSON body). Each comes from the web framework
+    with `Content-Type: text/plain; charset=utf-8` ([WA-42](#wa-42)):
+    - an id that is not a UUID, on GET or POST: 400
+      ``Invalid URL: Cannot parse `job_id` with value `<id>`: UUID parsing failed: <detail>``
+      (for `abc`, `<detail>` is `invalid length: found 3`);
+    - a POST body that is not JSON, sent with a JSON content type: 400
+      `Failed to parse the request body as JSON: <parser message>` (for the
+      body `hello`, `expected value at line 1 column 1`); with no JSON content
+      type at all: 415 ``Expected request with `Content-Type: application/json` ``.
+
+    The id is checked before the body, and both after authentication: a
+    token of another workspace gets 401 first ([WA-4](#wa-4)).
 - **Evidence:** `typescript-client/client.ts:142-149`, `:672-720`;
   `python-client/wmill/wmill/client.py:505-515`, `:807-829`;
   `backend/windmill-api/src/jobs.rs:336-340`, `:489-507`, `:4214-4262`;
-  `backend/windmill-worker/src/common.rs:1834-1839`.
-- **Conformance:** [WA-14/a, WA-14/b, WA-14/c](conformance.md#wa-14)
+  `backend/windmill-worker/src/common.rs:1834-1839`. After the run:
+  `backend/migrations/20250201124345_v2_job_status.up.sql:2-3` (the status
+  row's key references the queue row, with a cascading delete),
+  `backend/migrations/20250201124409_v2_job_queue_compatiblity_view.up.sql:2`
+  (the queue table renamed, the constraint kept);
+  `backend/windmill-queue/src/jobs.rs:1092-1117` (the completed row copies
+  `flow_status`), `:1244`, `:4779-4792` (the queue row deleted in the same
+  transaction). Request rejections: `backend/windmill-api/src/jobs.rs:4214-4218`,
+  `:4236-4241` (path, then body extractors); the pinned axum 0.8.9
+  (`src/extract/path/mod.rs:357-401`, `:420-451`, `src/extract/path/de.rs:375-391`,
+  `src/json.rs:106-113`, `:172-202`, `src/extract/rejection.rs:10-40`),
+  serde_path_to_error 0.1.20 (`src/lib.rs:119-126`) and uuid 1.24.0
+  (`src/external/serde_support.rs:133-135`, `src/error.rs:61-206`), each
+  checked against `backend/Cargo.lock`.
+- **Conformance:** [WA-14/a, WA-14/b, WA-14/c, WA-14/d](conformance.md#wa-14)
 - **Design note (not Windmill behaviour):** discarding the map when the run
   ends is a windmill-lite lifetime policy. It is faithful for every access made
-  through the stock helpers during the run, but not for explicit-id access
-  after it.
+  through the stock helpers during the run, and for an explicit-id write after
+  it, which Windmill also answers with 404; an explicit-id GET after the run
+  gets `null` from Windmill.
+- **Revision 2026-10-29 (SC3, source re-check, chain PF3):** answers
+  [Q-WA-10](#q-wa-10). The first edition allowed that a POST to a completed
+  root might still succeed while its status row lived on. It cannot: the
+  status table's key references the queue row with a cascading delete (the
+  constraint was created while the table was still called `queue`, and the
+  rename kept it), and completion copies `flow_status` into the completed row
+  and deletes the queue row in one transaction. So a write after the run gets
+  404 `Not found: Flow job not found` at once, as windmill-lite's
+  discard-at-end policy already answers, and a read gets `null`. Also added:
+  Windmill's status and text for an id that is not a UUID and a body that is
+  not JSON, where windmill-lite answers 400 with texts of its own (the status
+  agrees; the texts are the framework's, above).
 
 <a id="wa-15"></a>
 ### WA-15 · Dispatch: `run*Async`, `run*`, `waitJob`
@@ -999,7 +1174,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-v2"></a>
 ### WA-V2 · Unfinished and unknown-job polling responses carry explicit nulls
 
-**Scope:** core (dispatch interface) · **Confidence:** high (response struct and all response branches read) · **Status:** confirmed
+**Scope:** core (dispatch interface) · **Confidence:** high (response struct and all response branches read); high (ids that are not UUIDs, anonymous reads; source-traced) · **Status:** confirmed; drafted (ids that are not UUIDs, anonymous reads)
 
 - **Rule:** `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}`:
   - **Default query.** A job without a completed row returns all four fields:
@@ -1011,15 +1186,37 @@ interface); `WA-Vn` findings were added during validation.
     `result`.
   - Null-valued fields are serialised, not omitted. Stock TS `waitJob` on an
     unknown valid UUID can therefore poll indefinitely.
+  - **An id that is not a UUID** is refused by the web framework before the
+    handler: 400, `Content-Type: text/plain; charset=utf-8`, body
+    ``Invalid URL: Cannot parse `id` with value `<id>`: UUID parsing failed: <detail>``
+    ([WA-42](#wa-42)). Every `jobs_u` route keyed by `{id}` answers the same
+    (`completed/get_result`, `get_root_job_id`, `get`).
+  - **No authentication.** The route belongs to the unauthenticated job
+    group ([WA-4](#wa-4)): a missing token, or one not valid for the path's
+    workspace, makes the caller anonymous instead of failing. The path's
+    workspace only scopes the lookup, so a job of another workspace reads as
+    unknown (the null response above). A completed job of this workspace,
+    read anonymously, answers 400
+    `Bad request: As a non logged in user, you can only see jobs ran by anonymous users`
+    unless it was created by `anonymous`; the same check guards the
+    `get_started=true` branch for a job that exists but has not completed.
 - **Evidence:** `backend/windmill-api/src/jobs.rs:9197-9203`, `:9263-9328`;
-  `typescript-client/client.ts:276-309`.
-- **Conformance:** [WA-V2/a, WA-V2/b](conformance.md#wa-v2)
+  `typescript-client/client.ts:276-309`. Ids and anonymous reads:
+  `backend/windmill-api/src/jobs.rs:405-409` (the route, in the
+  unauthenticated group), `:9210-9218` (an optional caller, then the path
+  extractor), `:9241-9256`, `:9285-9303` (the anonymous rule); the pinned
+  axum 0.8.9 path rejection ([WA-14](#wa-14) lists the crate lines).
+- **Conformance:** [WA-V2/a, WA-V2/b, WA-V2/c, WA-V2/d](conformance.md#wa-v2)
 - **Note:** answers [Q-WA-2](#q-wa-2).
+- **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
+  the answer to an id that is not a UUID (windmill-lite answers 400 with a
+  text of its own; Windmill's status agrees and its text is the framework's,
+  above) and the anonymous reading of a token from another workspace.
 
 <a id="wa-16"></a>
 ### WA-16 · Object store (S3) client contract
 
-**Scope:** core (client contract); later (auto keys, storages, presigning, credential helpers); EE (advanced S3 permissions) · **Confidence:** high (client contract); medium (public-docs CE statements); low (CE server behaviour, Q-WA-3) · **Status:** confirmed
+**Scope:** core (client contract); later (auto keys, storages, presigning, credential helpers); EE (advanced S3 permissions) · **Confidence:** high (client contract); high (why the public source cannot settle CE's server side, source-traced); medium (public-docs CE statements); low (CE server behaviour, Q-WA-3) · **Status:** confirmed; drafted (where CE's handlers come from)
 
 - **Rule:**
   - **`S3Object`** is either a record `{s3, storage?, presigned?}` or a URI.
@@ -1066,16 +1263,45 @@ interface); `WA-Vn` findings were added during validation.
   - **Server.** The source is not public and a pure OSS build registers no
     job-helper routes. **No CE server behaviour is verified**: the explicit-key
     round trip is an oracle acceptance case ([Q-WA-3](#q-wa-3)).
+    - The CE image is not a pure OSS build. Its release workflow first
+      copies the closed-source modules into the tree, then builds with the
+      `ce` feature set, which includes `private` (use the closed-source
+      modules) and `parquet` (the object-store support). So the CE image's
+      `job_helpers` routes, the no-storage answer, the auto-generated key
+      format, the CE quota and the answer for a missing object
+      (`loadS3File` of a key that does not exist) all come from code that is
+      not in the public repository; the public stubs (an empty router, and
+      helpers failing with
+      `Not implemented in Windmill's Open Source repository`) are never
+      compiled into it. Only an oracle run can settle these
+      ([Q-WA-3](#q-wa-3)).
+    - The routes are nested inside the authenticated workspace group in
+      public code, so a token for another workspace gets 401 there too
+      ([WA-4](#wa-4)).
+    - A non-2xx answer to `loadS3File` throws, whatever the server's text:
+      `Failed to load S3 file: <status> <statusText> - <body>` (above).
 - **Evidence:** `typescript-client/s3Types.ts:1-65` (`:53-65`);
   `typescript-client/client.ts:841-1102` (`:918-1102`, signing `:1066-1081`);
   `python-client/wmill/wmill/client.py:840-1143` (`:946-1045`), `:2214-2238`;
   `backend/windmill-api/src/job_helpers_oss.rs:1-111` (`:46-49`);
   `backend/windmill-api/openapi.yaml:21348-21430`; public docs page above.
-- **Conformance:** [WA-16/a, WA-16/b, WA-16/c, WA-16/d](conformance.md#wa-16)
+  Where CE's handlers come from: `.github/workflows/docker-image.yml:72-74`
+  (the closed-source modules copied in), `:88-95` (built with `features=ce`);
+  `Dockerfile:97`, `:120`; `backend/Cargo.toml:114`, `:182-189`, `:198-199`
+  (`ce` includes `private` and, through `oss_core`, `parquet`);
+  `backend/windmill-api/src/job_helpers_oss.rs:1-3` (a `private` build uses
+  the closed module), `backend/windmill-api/src/lib.rs:443-453`, `:595` (the
+  routes nested in the authenticated group).
+- **Conformance:** [WA-16/a, WA-16/b, WA-16/c, WA-16/d, WA-16/e](conformance.md#wa-16)
 - **Design note (not Windmill behaviour):** windmill-lite's local blob store is
   a host extension that implements the verified client contract, keyed by
   `(storage or "_default_", key)` ([WA-40](#wa-40)). It claims no CE parity for
   what that contract leaves open: keys, quotas, storage selection, errors.
+- **Revision 2026-10-29 (SC3, source re-check, chain PF3):** re-checked
+  whether the public source can settle the CE answers milestone PF3 needed
+  (no storage, a missing object). It cannot: the CE image is built with the
+  closed-source modules (`ce` includes `private`). windmill-lite's 404 for a
+  missing object is its own choice until [Q-WA-3](#q-wa-3)'s recording.
 
 <a id="wa-17"></a>
 ### WA-17 · `WM_MOCKED_API_FILE`: an upstream local-mode hook for resources and variables
@@ -1151,7 +1377,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-19"></a>
 ### WA-19 · Job introspection from scripts (`getJob`, `getRootJobId`, `getResult*`, `listQueue`, cancel)
 
-**Scope:** core (`getRootJobId`); later (`getJob`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); low (what callers rely on) · **Status:** confirmed
+**Scope:** core (`getRootJobId`); later (`getJob`, `getResult`); out (queue listing, cancelling foreign jobs) · **Confidence:** high (surface); high (the root lookup's and `getResult`'s error answers, source-traced); low (what callers rely on) · **Status:** confirmed; drafted (the root lookup's and `getResult`'s error answers)
 
 - **Rule:** scripts can read their own job tree. `JobService.getJob({id})`
   returns a `Job` (`oneOf` `QueuedJob`/`CompletedJob` with discriminator `type`,
@@ -1159,11 +1385,41 @@ interface); `WA-Vn` findings were added during validation.
   `job_kind`, `script_path`). Scripts can also list queues and cancel jobs.
   `getRootJobId` follows the effective-root rule ([WA-14](#wa-14),
   [WA-V1](#wa-v1)). TS `setProgress(…, jobId)` uses `getJob`.
+  - **The root lookup.** TS `getRootJobId(id?)` (default `WM_JOB_ID`; with
+    neither it throws `Job ID not set` before any request) and Python
+    `get_root_job_id` call `GET /w/{ws}/jobs_u/get_root_job_id/{id}`, an
+    unauthenticated route ([WA-4](#wa-4)). It looks the id up in the path's
+    workspace and answers 200 with the root id as a JSON string. An id with
+    no job row there (unknown, or a job of another workspace) is not a 404:
+    the database's no-row error surfaces as HTTP 400, `text/plain`,
+    `SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:<line>:<col>`
+    ([WA-42](#wa-42)'s `SqlErr` row; the location is the converting call
+    site and moves between builds, [FX-50](execution.md#fx-50)). An id that
+    is not a UUID gets the framework's 400 of [WA-V2](#wa-v2). Stock TS
+    rejects with an `ApiError` of status 400; Python raises
+    `Exception("<url>: 400, <body>")`.
+  - **`getResult(id)`** (TS) and Python `get_result` call
+    `GET /w/{ws}/jobs_u/completed/get_result/{id}`, which reads completed
+    jobs only. A job still queued or running, and an unknown id alike,
+    answer 404
+    `Not found: Completed Job not found at name <id> (jobs.rs:9074)`; the
+    parenthesised location is part of the text ([FX-50](execution.md#fx-50)).
+    A completed job read anonymously gets the 400 of [WA-V2](#wa-v2).
+    `getResultMaybe` is the polling route of [WA-V2](#wa-v2).
 - **Evidence:** `backend/windmill-api/openapi.yaml:13896` (`getJob`), `:24558`
   (`QueuedJob`), `:24674` (`CompletedJob`), `:25110` (`Job`), `:23497`
   (`FlowStatus`); `backend/windmill-api/src/jobs.rs:498-507`;
-  `typescript-client/client.ts:632-640`.
-- **Conformance:** [WA-19/a](conformance.md#wa-19)
+  `typescript-client/client.ts:632-640`. Error answers:
+  `backend/windmill-api/src/jobs.rs:389`, `:405` (both routes in the
+  unauthenticated group), `:489-507` (the root lookup expects one row),
+  `:9026-9074` (`getResult` reads completed rows; the not-found at `:9074`),
+  `:9123-9140` (the anonymous rule); `backend/windmill-common/src/error.rs:153-158`
+  (a database error becomes `SqlErr` with its call site), `:250-262` (`SqlErr`
+  is 400); `backend/windmill-common/src/utils.rs:338-351` (the not-found
+  text); sqlx-core 0.8.6 `src/error.rs:62-64` (the no-row text, checked
+  against `backend/Cargo.lock`); `typescript-client/client.ts:142-149`,
+  `:317-320`; `python-client/wmill/wmill/client.py:505-515`, `:550-571`.
+- **Conformance:** [WA-19/a, WA-19/b, WA-19/c, WA-19/d](conformance.md#wa-19)
 - **Design note (not Windmill behaviour):** windmill-lite has no job rows, so
   it needs a per-endpoint policy: synthesise a minimal record from the run's
   in-memory tree, delegate to a real Windmill, or fail loudly. `getRootJobId`
@@ -1172,6 +1428,11 @@ interface); `WA-Vn` findings were added during validation.
   policy, `JobService.getJob` on the flow id would return at least
   `{"type":"QueuedJob","id":"<flow>","running":true}`. A minimal record is a
   design choice, not the full upstream schema.
+- **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
+  Windmill's answers where windmill-lite chose its own: the root lookup of an
+  unknown id is a 400 `SqlErr` text, not a 404 and not windmill-lite's 501;
+  `getResult` on a job that has not completed is the 404 not-found text above,
+  the status windmill-lite already gives.
 
 <a id="wa-20"></a>
 ### WA-20 · Progress, and other small helpers with exact client-side behaviour
@@ -1408,7 +1669,8 @@ interface); `WA-Vn` findings were added during validation.
     - **(a) Raw read** (`get_value`): no interpolation.
     - **(b) Client interpolated read** (`get_value_interpolated` with no job
       id): `$WM_*` stays literal and the depth counter starts at 0
-      ([WA-12](#wa-12)).
+      ([WA-12](#wa-12)). The expression helper `resource()` reads this way
+      too ([JE-20](expressions.md#je-20); revision 2026-10-29, SC3).
     - **(c) Worker argument resolution** ([expressions.md](expressions.md)):
       handles `$var:`, `$jsonvar:`, `$res:`, `$encrypted:` and any string
       `$<name>` that matches a reserved or custom env variable; runs for a
@@ -1551,7 +1813,7 @@ interface); `WA-Vn` findings were added during validation.
 <a id="wa-42"></a>
 ### WA-42 · Error status codes and bodies
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high · **Status:** confirmed; drafted (request-extraction and authentication rejections)
 
 - **Rule:** every variant of the API `Error` type is rendered as `text/plain`
   with its display string as the body. The full mapping:
@@ -1567,8 +1829,34 @@ interface); `WA-Vn` findings were added during validation.
   | 500 | every other variant: `BadConfig` (`Bad config: <m>`), `ConnectingToDatabase` (`Connecting to database: <m>`), `MetricNotFound` (`Metric not found: <m>`, a 500 despite its wording), `ExecutionErr` (raw, e.g. `timeout after 600s`), `ResultTooLarge` (raw), `IoErr`/`Utf8Err`/`UuidErr`/`SerdeJson`/`HexErr` (`<Kind>: <e> @<location>`), `InternalErr` (`Internal: <m>`), `InternalErrLoc` (`Internal: <m> @<location>`), `InternalErrAt` (`Internal: <location>: <m>`), `DatabaseMigration` (`Migrating database: <e>`), `ExitStatus` (`Non-zero exit status for <x>: <code>`), `ExecutionRawError` (`ExecutionRawError: <json>`), `Anyhow` (`Error: <e> @<location>`), `AlreadyCompleted` (raw), `WacSuspended` (`WAC job suspended: <m>`), `FindPythonError` (`Find python error: <m>`), `ArgumentErr` (`Problem with arguments: <m>`), `WorkersAreBehind`, `MigrationNeeded`, `FeatureUnavailable` (their fixed sentences) |
 
   - Failures while extracting the request (a malformed path, query or JSON
-    body) come from the web framework, not from this table, and their bodies
-    differ.
+    body) come from the web framework (axum 0.8.9), not from this table, and
+    their bodies differ: `Content-Type: text/plain; charset=utf-8`, and no
+    `Error` display prefix. The ones a client call can meet:
+    - **a path segment that is not a UUID**, where the route takes one: 400
+      ``Invalid URL: Cannot parse `<param>` with value `<value>`: UUID parsing failed: <detail>``,
+      where `<param>` is the route's parameter name (`id`, `job_id`, …),
+      `<value>` the percent-decoded segment and `<detail>` the UUID parser's
+      reason: `invalid length: found <n>` when every character is a hex
+      digit, ``invalid character: found `<c>` at <i>`` at the first character
+      that is neither a hex digit nor `-`, `invalid group count: expected 5, found <n>`
+      or `invalid group length in group <g>: expected <e>, found <n>` for a
+      hyphenated form;
+    - **a JSON body**, where the route takes one: without a JSON content type
+      (`application/json`, or any `application/*+json`), 415
+      ``Expected request with `Content-Type: application/json` ``; a body
+      that does not parse, an empty one or one with trailing data, 400
+      `Failed to parse the request body as JSON: <parser message>`; a body
+      that parses but does not fit the expected type, 422
+      `Failed to deserialize the JSON body into the target type: <message>`.
+      The parser message is serde_json's (`expected value at line 1 column 1`
+      for `hello`, `EOF while parsing a value at line 1 column 0` for an
+      empty body), preceded by `<path>: ` when the error lies inside a
+      member or element (for example `a: ` for `{"a": x}`).
+  - **Authentication** runs before the handler, so before these. An
+    authenticated route called with no token at all answers 401 with the
+    bare body `Unauthorized` (`text/plain; charset=utf-8`); with a token
+    that is not valid, or not valid for the path's workspace, 401
+    `Not authorized: Unauthorized` (`text/plain`, [WA-4](#wa-4)).
   - **Not-found bodies a script can see:**
     - direct resource path missing: `Not found: Resource <p> not found`, from
       the permission-explanation path;
@@ -1581,9 +1869,25 @@ interface); `WA-Vn` findings were added during validation.
   display formats), `:250-282` (status mapping);
   `backend/windmill-common/src/utils.rs:338-351`;
   `backend/windmill-store/src/resources.rs:593-631`, `:728-735`, `:843-853`.
-- **Conformance:** [WA-42/a, WA-42/b, WA-42/c](conformance.md#wa-42)
+  Request extraction: `backend/Cargo.lock` (axum 0.8.9, axum-core 0.5.6,
+  serde_path_to_error 0.1.20, uuid 1.24.0, serde_json 1.0.151); in those
+  crates, axum `src/extract/path/mod.rs:357-401`, `:420-451`,
+  `src/extract/path/de.rs:375-391`, `src/json.rs:106-113`, `:138-155`,
+  `:172-202`, `src/extract/rejection.rs:10-40`, axum-core
+  `src/macros.rs:136-141`, serde_path_to_error `src/lib.rs:119-126`, uuid
+  `src/external/serde_support.rs:133-135`, `src/error.rs:61-206`.
+  Authentication: `backend/windmill-api-auth/src/auth.rs:592-619` (no
+  token), `:720-829` (token checked); `backend/windmill-api/src/lib.rs:716-717`
+  (the token-presence layer wraps, so runs before, the authentication layer).
+- **Conformance:** [WA-42/a, WA-42/b, WA-42/c](conformance.md#wa-42); the
+  framework rejections in [WA-14/d](conformance.md#wa-14) and
+  [WA-V2/c](conformance.md#wa-v2), the 401 in [WA-4/b](conformance.md#wa-4)
 - **Design note (not Windmill behaviour):** a facade answering in Windmill's
   place reproduces these statuses and bodies.
+- **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** the
+  request-extraction rejections, which the first edition only said differ,
+  are now spelled out from the pinned framework crates, and the 401 of a
+  token for another workspace is added.
 
 ## G. Hybrid: delegating chosen steps to a real Windmill
 
@@ -1818,7 +2122,16 @@ interface); `WA-Vn` findings were added during validation.
   store: run `writeS3File({s3:"t/a.txt"},"hi")` plus `loadS3File`,
   `writeS3File(undefined,"x")`, the same upload with no storage configured, and
   a quota-boundary upload; record status, body and returned `file_key`
-  (cases [WA-16/c, WA-16/d](conformance.md#wa-16)).
+  (cases [WA-16/c, WA-16/d](conformance.md#wa-16)). **Re-scoped 2026-10-29
+  (SC3).** Re-checked for milestone PF3: the public source cannot answer any
+  part of this, because the CE image is built with the closed-source modules
+  ([WA-16](#wa-16), Server), so this stays oracle-only. Added to it: the
+  status and body of `loadS3File` for a key that does not exist (the stock
+  TS client then throws `Failed to load S3 file: <status> <statusText> - <body>`),
+  which windmill-lite answers with a 404 of its own meanwhile. *Settled by:*
+  the runs above plus `loadS3File({s3:"t/none.txt"})` after the explicit-key
+  write, on the same storage-configured session, recording the caught
+  error's message ([WA-16/e](conformance.md#wa-16)).
 <a id="q-wa-4"></a>
 - **Q-WA-4** · affects [WA-31](#wa-31) · Does the per-invocation isolation
   mechanism hold on the pinned Bun 1.3.10 with the real client? (build gate)
@@ -1857,10 +2170,16 @@ interface); `WA-Vn` findings were added during validation.
   secret variable and prints it, checking whether the stored job log shows it
   masked.
 <a id="q-wa-10"></a>
-- **Q-WA-10** · affects [WA-14](#wa-14) · After a root flow completes, does a
-  flow-user-state POST to its id still succeed, and for how long? *Settled by:*
-  running a flow to completion, then `POST …/jobs/flow/user_states/{root}/{k}`
-  and `GET` of the same, recording statuses over time, and tracing the
+- **Q-WA-10** · affects [WA-14](#wa-14) · **Answered 2026-10-29 (SC3)**
+  from the source: see [WA-14](#wa-14) (After the run). The status row is
+  deleted, by a cascading key, in the same transaction that completes the
+  root, so from that moment a POST answers 404 `Not found: Flow job not found`
+  and a GET answers `null`; there is no grace period. Oracle corroboration
+  of [WA-14/c](conformance.md#wa-14) is tracked in [Q-WA-13](#q-wa-13).
+  Original question: after a root flow completes, does a flow-user-state
+  POST to its id still succeed, and for how long? *Settled by:* running a
+  flow to completion, then `POST …/jobs/flow/user_states/{root}/{k}` and
+  `GET` of the same, recording statuses over time, and tracing the
   `v2_job_status` cleanup.
 <a id="q-wa-11"></a>
 - **Q-WA-11** · affects [WA-41](#wa-41) · (design decision) Should windmill-lite
@@ -1884,3 +2203,12 @@ interface); `WA-Vn` findings were added during validation.
   [WA-V7](#wa-v7). *Settled by:* recording each case on the
   oracle ([oracle.md](oracle.md)) in the configuration it states; cases that
   run against a recording facade test the client only and need no oracle.
+  **Re-scoped 2026-10-29 (SC3, chain PF2):** the source re-check added four
+  server cases to this list: [WA-11/c, WA-11/d](conformance.md#wa-11) (a
+  secret that cannot be decrypted; the `already_encrypted` shape check) and
+  [WA-12/g, WA-12/h](conformance.md#wa-12) (an unusable `job_id`;
+  `CUSTOM_INSTANCE_DB/`). Each is recordable from a Bun step that calls the
+  API with its own token; WA-11/c's ciphertext is accepted whatever the
+  oracle's workspace key, and its expected cause holds unless that key
+  happens to leave valid padding (about one chance in 256 for a fixed
+  value), so the case compares the cause by its set of texts.

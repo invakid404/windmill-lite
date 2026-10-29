@@ -1,8 +1,13 @@
 # Windmill semantics reference
 
 **Current state:** first edition, written against Windmill `v1.767.0`, revised
-on 2026-10-28 with recording batches E3a to E3d and on 2026-10-29 with
-recording batch E3e and the build milestones' questions. This README covers
+on 2026-10-28 with recording batches E3a to E3d, and twice on 2026-10-29:
+with recording batch E3e and the build milestones' questions, then (SC3)
+with the questions the engine, platform and follow-up milestones left open
+(N1b, N2, N3a, N3b, PF1 to PF3, FU4, FU5), answered from the pinned source,
+with the recordings only the oracle can make requested from a future batch
+E3f ([design README](../design/README.md#recording-requests-for-batch-e3f)).
+This README covers
 `docs/semantics/`: this index and the area files it links. The reference
 records the Windmill behaviour windmill-lite must reproduce, as numbered
 findings with a scope, a confidence level and a status. Expected outputs were
@@ -59,15 +64,15 @@ and [licensing.md](licensing.md) maps which parts do.
 
 | Area | Findings | `core` | `later` | `out` | `EE` | Not settled | Question entries | Conformance cases |
 |---|---|---|---|---|---|---|---|---|
-| [openflow.md](openflow.md) | 51 | 42 | 8 | 1 | 0 | 2 | 13 | 147 |
-| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 20 | 140 |
-| [control-flow.md](control-flow.md) | 36 | 30 | 5 | 0 | 1 | 0 | 18 | 87 |
-| [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 16 | 185 |
-| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 191 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 93 |
-| [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 4 | 18 | 83 |
+| [openflow.md](openflow.md) | 51 | 42 | 8 | 1 | 0 | 0 | 13 | 149 |
+| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 20 | 145 |
+| [control-flow.md](control-flow.md) | 36 | 30 | 5 | 0 | 1 | 0 | 19 | 90 |
+| [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 193 |
+| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 199 |
+| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 105 |
+| [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 4 | 18 | 86 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **349** | **271** | **66** | **7** | **5** | **6** | **127** | **929** |
+| **Total** | **349** | **271** | **66** | **7** | **5** | **4** | **129** | **970** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
@@ -93,7 +98,26 @@ carry a drafted part, which their status line names (for example
 [JE-44](expressions.md#je-44), [WR-22](languages.md#wr-22),
 [WR-26](languages.md#wr-26), [WR-28](languages.md#wr-28), [WR-40](languages.md#wr-40),
 [WR-49](languages.md#wr-49), [WR-50](languages.md#wr-50),
-[OR-21](oracle.md#or-21) and [OR-27](oracle.md#or-27). The answers to semantics requests 1 to 3
+[OR-21](oracle.md#or-21) and [OR-27](oracle.md#or-27). The SC3 revision
+of the same day added or extended drafted parts in
+[OF-3](openflow.md#of-3), [OF-17](openflow.md#of-17),
+[FX-13](execution.md#fx-13), [FX-26](execution.md#fx-26),
+[FX-27](execution.md#fx-27), [FX-48](execution.md#fx-48),
+[FX-50](execution.md#fx-50), [CF-7](control-flow.md#cf-7),
+[CF-23](control-flow.md#cf-23), [CF-25](control-flow.md#cf-25),
+[JE-19](expressions.md#je-19), [JE-20](expressions.md#je-20),
+[JE-42](expressions.md#je-42), [JE-49](expressions.md#je-49),
+[WR-11](languages.md#wr-11), [WR-22](languages.md#wr-22),
+[WR-37](languages.md#wr-37), [WR-50](languages.md#wr-50),
+[WA-4](client-api.md#wa-4), [WA-11](client-api.md#wa-11),
+[WA-12](client-api.md#wa-12), [WA-14](client-api.md#wa-14),
+[WA-16](client-api.md#wa-16), [WA-19](client-api.md#wa-19),
+[WA-42](client-api.md#wa-42), [WA-V2](client-api.md#wa-v2),
+[OR-7](oracle.md#or-7), [OR-21](oracle.md#or-21),
+[OR-24](oracle.md#or-24) and [OR-V7](oracle.md#or-v7), and extended the
+drafted findings [SY-5](openflow.md#sy-5), [SY-7](openflow.md#sy-7),
+[SY-19](openflow.md#sy-19), [FX-51](execution.md#fx-51),
+[WR-52](languages.md#wr-52) and [WR-54](languages.md#wr-54). The answers to semantics requests 1 to 3
 ([JE-48](expressions.md#je-48), [JE-49](expressions.md#je-49),
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
@@ -207,10 +231,17 @@ result decodes positionally), [FX-49](execution.md#fx-49)
 ([Q-WR-16](languages.md#q-wr-16)), and [OR-15](oracle.md#or-15) and
 [OR-V9](oracle.md#or-v9) ([Q-OR-16](oracle.md#q-or-16)).
 
+The SC3 revision of 2026-10-29 settled two more from the pinned source,
+with no recording: [OF-3](openflow.md#of-3) is `confirmed` with a drafted
+part and [OF-V5](openflow.md#of-v5) is `confirmed`
+([Q-OF-11](openflow.md#q-of-11)). Only enqueue reads the
+`DISABLE_FLOW_SCRIPT` switch; the worker looks the lite form up first at
+pickup and at every transition, so OF-V5's two-phase selection holds, and
+OF-3's revision note keeps the reading it replaces. An optional recording
+is requested from batch E3f.
+
 | Finding | Status | What is contested | Tracked by |
 |---|---|---|---|
-| [OF-3](openflow.md#of-3) | `DISPUTED` | Which form of a flow (lite or full) a run reads: one selection, or separate selections at enqueue and in the worker. | [Q-OF-11](openflow.md#q-of-11) |
-| [OF-V5](openflow.md#of-v5) | `open` | The two-phase selection rule: the competing claim against OF-3. | [Q-OF-11](openflow.md#q-of-11) |
 | [OR-11](oracle.md#or-11) | `DISPUTED` | The step identities the result walker assigns. | [Q-OR-17](oracle.md#q-or-17) |
 | [OR-14](oracle.md#or-14) | `DISPUTED` | Normalisation placeholders, which inherit the identity collisions. | [Q-OR-17](oracle.md#q-or-17) |
 | [OR-V3](oracle.md#or-v3) | `DISPUTED` | Whether normalisation keeps distinct steps distinct. | [Q-OR-17](oracle.md#q-or-17) |

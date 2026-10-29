@@ -501,7 +501,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-7"></a>
 ### OR-7 · Environment knobs (env only, image unmodified)
 
-**Scope:** later · **Confidence:** high (names and defaults, source-traced; the listen interval's lack of effect oracle-observed) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (names and defaults, source-traced; the listen interval's lack of effect oracle-observed; the refused result's error, source-traced) · **Status:** confirmed; drafted (the refused result's error, added 2026-10-29)
 
 - **Rule:**
   - **Windmill: scheduling and debug knobs, no intended semantic effect:**
@@ -519,7 +519,20 @@ validation. Open questions are `Q-OR-n`.
   - **Windmill: execution-observable settings:**
     - `MAX_RESULT_SIZE_MB` (default 500) decides which job results are
       accepted: integer MiB, strict greater-than, checked only for results
-      above 2 MiB;
+      above 2 MiB. The size is the byte length of the result's JSON text,
+      divided by 1024 twice with the remainder dropped, so a 4.9 MiB result
+      counts as 4. A refused result fails the job, without the completion
+      insert's retries, with
+      `{"error": {"message": "Result of job <job id> is too large: <n>MB > MAX_RESULT_SIZE_MB=<m>MB.\nUse external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill", "name": "ResultTooLarge"}}`
+      (no location suffix, no `step_id`), and the job's log gains
+      `Unexpected error during job execution:\nResultTooLarge: ` followed by
+      the same message. In a flow the step then fails like any other step
+      ([FX-12](execution.md#fx-12)). A result above 2 MiB but within the
+      limit is stored, and the log gains
+      `Warning: Result of job <job id> is large: <n>MB.\nRecommended max size is 2MB.\nPrefer using external storages such as the Windmill Object Storage to store large results: https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill`.
+      An error result is never measured. The 2 MB limits on output and
+      results that the source also has apply to the multi-tenant cloud
+      only;
     - `BASE_URL` sets `WM_BASE_URL` and resume URLs; keep it stable
       (`http://localhost:8000`), because jobs can observe it;
     - `WHITELIST_ENVS` decides which host environment variables jobs see
@@ -539,6 +552,19 @@ validation. Open questions are `Q-OR-n`.
   pointer is withdrawn); `integration_tests/docker-compose.yml:37,64`;
   the oracle workflow's `workers2` session.
 - **Conformance:** [OR-7/a, OR-7/b](conformance.md#or-7)
+- **Revision 2026-10-29 (SC3, source re-check, Q-OR-14):** added what a
+  refused result produces. The completion path measures the result before
+  inserting it and returns a `ResultTooLarge` error, which the insert's
+  retry policy excludes (`backend/windmill-queue/src/jobs.rs:1001-1012`,
+  `:1075-1077`, `:1472-1506`; sizes `:675-718`, an error result measuring
+  0 and raw text its byte length); the worker then fails
+  the job through its ordinary error path, which logs the error and stores
+  `{"message", "name"}` (`backend/windmill-worker/src/result_processor.rs:720-739`,
+  `:1880-1927`; `backend/windmill-common/src/worker.rs:2228-2233`;
+  `backend/windmill-common/src/error.rs:43-44`, `:103`). The cloud-only
+  limits are `backend/windmill-worker/src/common.rs:417-425` and
+  `backend/windmill-worker/src/handle_child.rs:367-371`. OR-7/b's
+  expectation now gives the shape.
 - **Revision 2026-10-29 (oracle, batch E3e):** OR-7/a was pending
   [Q-OR-18](#q-or-18). It is now checked live by every oracle run and has
   held. `MAX_RESULT_SIZE_MB` (OR-7/b, [Q-OR-14](#q-or-14)) is still
@@ -1419,7 +1445,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-21"></a>
 ### OR-21 · Edition differences that matter to a CE oracle
 
-**Scope:** EE · **Confidence:** medium (narrowed claim source-traced and CE-observed); high (the deployed value drops `delete_after_use`, source-traced) · **Status:** confirmed; drafted (the deployed value drops `delete_after_use`, added 2026-10-29)
+**Scope:** EE · **Confidence:** medium (narrowed claim source-traced and CE-observed); high (the deployed value drops `delete_after_use`, source-traced) · **Status:** confirmed; drafted (the deployed value drops `delete_after_use`, and the routes that still carry the option, added 2026-10-29)
 
 - **Rule:**
   - **Windmill:**
@@ -1439,9 +1465,31 @@ validation. Open questions are `Q-OR-n`.
       back and is unaffected. The pinned CLI's `generate-metadata` writes
       the same dependency job's answer into `flow.yaml`, so it removes the
       key from a fixture tree as well;
+    - **which routes carry the option to a flow's worker at all** (source
+      re-check of 2026-10-29):
+      - a deployed flow: only a run that the worker picks up **before** the
+        deployment's dependency job has written its value back reads the
+        value as sent, key included (and that worker's in-process cache of
+        the version may keep it for later runs). This is a race the harness
+        never drives, since it waits for the dependency job;
+      - a preview (`POST /jobs/run/preview_flow`) never carries it: the
+        submitted value is decoded into the typed flow and stored on the job
+        by serialising that, which drops the key again;
+      - a `script` step by path takes the script's **own** `delete_after_use`
+        as well (either one turns the option on for the step's job). That
+        flag lives on the deployed script row, survives deployment, and can
+        be set only through the scripts API, because the pinned CLI never
+        sends the key. This is the one dependable way to make a flow step's
+        job carry the option; on CE the flow cleanup that would act on it is
+        `enterprise`-gated, so nothing is blanked, as for a module's own key;
     - this is **not** a claim that CE never deletes job metadata: the ungated
       helper `handle_delete_after_completion` is called from synchronous API
-      paths;
+      paths: the run-and-wait routes of a script by path
+      (`POST` and `GET /api/w/{w}/jobs/run_wait_result/p/<path>`) and by hash
+      (`POST …/run_wait_result/h/<hash>`). For a script whose row has
+      `delete_after_use: true` they return the result as usual and then set
+      the job's stored args to `{}`, its result to `{}` and its logs to
+      `##DELETED##`, on CE too. No flow route calls it;
     - flow-node debouncing is gated by the `private` feature, which the CE
       image contains;
     - some run endpoints (for example `run_wait_result_flow_by_version*`) call a
@@ -1475,7 +1523,7 @@ validation. Open questions are `Q-OR-n`.
   `:435-473`, back into `flow.yaml`); recorded by
   `conformance/flows/oracle/probes` runs `delete_after_use` and
   `subflow_dau` (oracle run 40794872025).
-- **Conformance:** [OR-21/a](conformance.md#or-21)
+- **Conformance:** [OR-21/a–c](conformance.md#or-21)
 - **Revision 2026-10-29 (oracle, batch E3e; source re-check):** OR-21/a was
   pending [Q-OR-18](#q-or-18). E3e recorded it: after a subflow by path
   ran, its step still had args `{"x":7}` and result `{"secret":7}`. The
@@ -1484,6 +1532,28 @@ validation. Open questions are `Q-OR-n`.
   `generate-metadata` removed it, and a deployment removes it from the
   stored flow in any case. The recordings therefore cannot show the option's
   effect on any edition; the CE expectation (nothing blanked) is unchanged.
+- **Revision 2026-10-29 (SC3, source re-check, SC2's oracle note):** SC2
+  noted that a deployment drops `delete_after_use`; this revision traces
+  every route by which the option could still reach a worker, so the
+  oracle harness knows what a recording can show. A deployed flow carries
+  it only in the deploy race (`backend/windmill-common/src/lib.rs:1980-1995`:
+  a run by path takes the newest version whatever its dependency job's
+  state; `backend/windmill-common/src/cache.rs:555-573`: versions are cached
+  by id). A preview never does (`backend/windmill-queue/src/jobs.rs:5604`,
+  `:5665`, `:6319`, `:6476`: the typed value is re-serialised onto the job).
+  A `script` step by path also reads the script's own flag
+  (`backend/windmill-worker/src/worker_flow.rs:6051-6105`, combined at
+  `:6136-6137`; `backend/windmill-common/src/jobs.rs:117-131`), which the
+  scripts API stores (`backend/windmill-types/src/scripts.rs:546-547`,
+  read but not written back; `backend/windmill-api-scripts/src/scripts.rs:1568`)
+  and the pinned CLI never sends (`cli/src/commands/script/script.ts:472-501`).
+  On CE the only observable effect is the synchronous script routes'
+  deletion (`backend/windmill-api/src/jobs.rs:181-183`, `:189-190`, `:5817`,
+  `:5961`, `:6086`; `backend/windmill-api-jobs/src/execution.rs:524-544`,
+  `:549-562`). New cases OR-21/b (a step whose script carries the flag:
+  nothing blanked on CE) and OR-21/c (the synchronous script route deletes,
+  on CE), both source-derived; their recording is requested from batch
+  E3f.
 
 <a id="or-22"></a>
 ### OR-22 · Arguments as stored versus as received
@@ -1566,7 +1636,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-24"></a>
 ### OR-24 · Key order at step boundaries: a provenance model
 
-**Scope:** core · **Confidence:** high (ordinary, integer-key, retry, aggregate and flow-preprocessor paths oracle-observed; a script's own preprocessor source-derived) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (ordinary, integer-key, retry, aggregate and flow-preprocessor paths oracle-observed; a script's own preprocessor source-derived) · **Status:** confirmed; drafted (when a script's own preprocessor runs, corrected 2026-10-29)
 
 - **Rule:**
   - **Windmill:**
@@ -1580,7 +1650,11 @@ validation. Open questions are `Q-OR-n`.
     2. **A script's own preprocessor** builds new in-memory args and passes
        them straight to `main`; their order is the preprocessor's insertion
        order and is not re-sorted ([languages.md](languages.md)). It runs
-       only for a trigger, so no recording shows it.
+       whenever a job of the script is pushed with preprocessing requested,
+       which the run API does by default for a script that exports a
+       `preprocessor` (a run by path or by hash without
+       `skip_preprocessor=true`), as well as the triggers; no recording
+       shows it yet.
        - **A flow's preprocessor** is different: its job's result is
          stored, and the root flow's args are then replaced, inside the
          database, by that stored result (an object as it is, `null` as
@@ -1618,8 +1692,9 @@ validation. Open questions are `Q-OR-n`.
     - flow preprocessor: an object it built as `{bbb,a,cc}` reached the
       first module's transform and argument as `["a","cc","bbb"]` (run
       `pre_keys`).
-  - Not recorded: a script's own preprocessor (item 2; it needs a trigger)
-    and resume, which is out of scope ([Q-OR-11](#q-or-11)).
+  - Not recorded: a script's own preprocessor (item 2; recordable through
+    the run API, requested from batch E3f) and resume, which is out of
+    scope ([Q-OR-11](#q-or-11)).
   - **Design note (not Windmill behaviour):** windmill-lite implements this
     provenance model, not an unconditional sort before every `main` call
     (which would break the preprocessor case). The rule is to be adopted by
@@ -1647,6 +1722,16 @@ validation. Open questions are `Q-OR-n`.
   replaced in the database by the preprocessor job's stored result (item 2,
   new case OR-24/f). The summary's "preprocessor-built args keep their
   own order" now applies to a script's own preprocessor only.
+- **Revision 2026-10-29 (SC3, source re-check, Q-OR-11 (c)):** item 2 said
+  a script's own preprocessor runs only for a trigger. The run API also
+  requests it: a run of a script by path or by hash marks the job for
+  preprocessing when the deployed script has a preprocessor and the query
+  does not set `skip_preprocessor` (`backend/windmill-common/src/jobs.rs:80-150`;
+  `backend/windmill-api/src/jobs.rs:6053-6054`;
+  `backend/windmill-queue/src/jobs.rs:5377-5384`), and the server sets
+  that flag on deploy from a Bun script's exported `preprocessor`
+  (`backend/windmill-api-scripts/src/scripts.rs:1194-1235`). OR-24/e can
+  therefore be recorded without a trigger. The rule itself is unchanged.
 
 <a id="or-25"></a>
 ### OR-25 · An empty chosen `branchone` branch yields the JSON string `"{}"`
@@ -2176,7 +2261,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-v7"></a>
 ### OR-V7 · Generated virtual steps require an explicit capture policy
 
-**Scope:** core (trailing sleep capture); out (durable suspend) · **Confidence:** high (source-traced; live shape pending) · **Status:** confirmed
+**Scope:** core (trailing sleep capture); out (durable suspend) · **Confidence:** high (source-traced; live shape pending) · **Status:** confirmed; drafted (where the generated module shows, added 2026-10-29)
 
 - **Rule:**
   - **Windmill:** if the **last** module of a module list has `sleep` or
@@ -2184,6 +2269,20 @@ validation. Open questions are `Q-OR-n`.
     `id` = `<last id>-v` and summary "Virtual module needed for suspend/sleep
     when last module". It is added at lock and deploy time, at raw-flow push,
     and when child payloads are built. Users can also name a module `a-v`.
+    - **Where it shows** (source-traced 2026-10-29). At deploy time it is
+      added to the **lite** form only, so the deployed value that
+      `flows/get` returns (the full form) never contains it, and neither
+      does a pulled `flow.yaml` ([OF-3](openflow.md#of-3)). A preview's
+      raw-flow push adds it before the status list is built, and
+      an inline loop or branch body gets it whenever its payload is built.
+    - **Its status entry.** With an initial-lite status
+      ([OF-V5](openflow.md#of-v5)) the root's `flow_status.modules` holds a
+      slot `{"type": "WaitingForPriorSteps", "id": "a-v"}` from the start.
+      When `a` succeeds, the slot's job is pushed as an identity job (a job
+      row of its own, kind `identity`) scheduled for `a`'s sleep after that
+      moment; it returns its `previous_result` argument, so the entry ends
+      `Success` with that job and a result equal to `a`'s. With a
+      full-built status there is no slot and no job.
   - **Harness:**
     - a module is generated **iff** it is `identity`, last in its list, has
       `id == <previous id>-v`, the previous module has `sleep`/`suspend`,
@@ -2198,14 +2297,27 @@ validation. Open questions are `Q-OR-n`.
   `backend/windmill-worker/src/worker_lockfiles.rs:1704-1707`;
   `backend/windmill-worker/src/worker_flow.rs:5056`;
   `backend/windmill-queue/src/jobs.rs:5605,5956`.
-- **Conformance:** [OR-V7/a, OR-V7/b](conformance.md#or-v7)
+- **Conformance:** [OR-V7/a–c](conformance.md#or-v7)
 - **Note:** E3a's `je28-c` recording shows the generated step exists on a
   deployed flow whose last step sleeps (that step's `sleep` is evaluated and
   can fail the flow, [JE-28](expressions.md#je-28)); its raw status entry and
-  deployed value are still pending [Q-OR-9](#q-or-9).
+  deployed value are still unrecorded ([Q-OR-9](#q-or-9)), and the source
+  now predicts both (OR-V7/c).
 - **Revision 2026-10-28 (oracle, batch E3a):** the note said the live
   topology was pending; E3a's recording shows the generated step's effect,
   and Q-OR-9 is re-scoped to the parts still unrecorded.
+- **Revision 2026-10-29 (SC3, source re-check, Q-OR-9):** "added at lock
+  and deploy time" is narrowed: the dependency job writes the generated
+  module into the lite form only (`backend/windmill-worker/src/worker_lockfiles.rs:1706`,
+  inside the lite reduction; the full value written back at `:733-745`
+  has none), so `flows/get` never shows it. A raw-flow push adds it before
+  building the status (`backend/windmill-queue/src/jobs.rs:5605`, status at
+  `:5651`); an old-worker enqueue adds it only after the status is built
+  (`:5950-5957`). The step runs as an identity job
+  (`backend/windmill-worker/src/worker_flow.rs:5141`), scheduled from the
+  previous module's sleep (`:3666-3690`), whose result is its
+  `previous_result` argument (`backend/windmill-worker/src/worker.rs:4032-4038`).
+  New case OR-V7/c gives the predicted deployed value and status entry.
 
 <a id="or-v8"></a>
 ### OR-V8 · Semantic identities must distinguish special slots and literal module ids
@@ -2465,6 +2577,13 @@ no ports, and `mem_limit: 2g`.
   without server logs (`conformance/flows/oracle/nul`, oracle run
   40794872025): each failing step took about 30 s, and the runs right after
   a failure took about 10 s more from submission to completion; still open.
+  *2026-10-29 (SC3):* the 30 s follows from the source: the completion
+  insert is retried 10 times with a constant 3 s delay before the job is
+  failed ([FX-48](execution.md#fx-48) case 1;
+  `backend/windmill-queue/src/jobs.rs:1001-1012`). A read of the completion
+  and error paths does not explain the following run's extra 10 s, which
+  only the server logs can show. Still open, out of scope; not requested
+  from batch E3f.
 
 <a id="q-or-6"></a>
 - **Q-OR-6** · affects [OR-27](#or-27) · **Answered 2026-10-29** (except
@@ -2520,7 +2639,13 @@ no ports, and `mem_limit: 2g`.
   walker omits. *Settled by:* a fixture whose last step has
   `sleep: {type: static, value: 1}`, recording `flows/get` and the raw
   `flow_status`. *2026-10-29:* batch E3e did not record this (its `sleep`
-  probe sleeps on a step that is not last); still open.
+  probe sleeps on a step that is not last); still open. **Re-scoped
+  2026-10-29 (SC3).** The source predicts both parts ([OR-V7](#or-v7), new
+  case [OR-V7/c](conformance.md#or-v7)): `flows/get` shows no `a-v`, since
+  only the lite form carries it, and the raw `flow_status` ends with a
+  `Success` entry `a-v` whose job is an identity job scheduled about 1 s
+  after `a` completed, with `a`'s result. What remains is the recording,
+  requested from batch E3f.
 
 <a id="q-or-10"></a>
 - **Q-OR-10** · affects [OR-16](#or-16), [OR-V6](#or-v6), [OR-29](#or-29) ·
@@ -2568,7 +2693,19 @@ no ports, and `mem_limit: 2g`.
   - (d) resume is out of scope (durable suspend).
 
   Status: closed for (a) and (b); open for (c), a script's own
-  preprocessor.
+  preprocessor. **Re-scoped 2026-10-29 (SC3).** (c) needs no trigger: the
+  run API requests preprocessing itself. A run of a script by path or by
+  hash (`POST /api/w/{w}/jobs/run/p/<path>`, `run_wait_result/p/<path>`,
+  `run_wait_result/h/<hash>`) marks the job for preprocessing whenever the
+  deployed script has a preprocessor and the query does not set
+  `skip_preprocessor=true`, and on deploy the server sets that flag itself
+  from a Bun script's exported `preprocessor`
+  (`backend/windmill-common/src/jobs.rs:80-150`, the flag from the
+  deployed row; `backend/windmill-api/src/jobs.rs:6053-6054`;
+  `backend/windmill-queue/src/jobs.rs:5377-5384`;
+  `backend/windmill-api-scripts/src/scripts.rs:1194-1235`). So
+  [OR-24/e](conformance.md#or-24) can be recorded with the ordinary run
+  API; requested from batch E3f.
 
 <a id="q-or-12"></a>
 - **Q-OR-12** · affects [OR-23](#or-23), [OR-24](#or-24) · **Answered
@@ -2598,7 +2735,12 @@ no ports, and `mem_limit: 2g`.
   produce? *Settled by:* a lowered `MAX_RESULT_SIZE_MB=3` profile with a 4 MB
   result. Optional; distinct from the API truncation of [OR-V1](#or-v1).
   *2026-10-29:* batch E3e did not record this (OR-7/b is deferred: the knob
-  would change every observation of its session); still open.
+  would change every observation of its session); still open. **Answered
+  2026-10-29 (SC3)** from the source ([OR-7](#or-7), [OR-7/b](conformance.md#or-7)):
+  the job fails at once with name `ResultTooLarge` and the message
+  `Result of job <job id> is too large: <n>MB > MAX_RESULT_SIZE_MB=<m>MB.` plus
+  a pointer to object storage, without retries or location suffix. A
+  recording in a session of its own remains optional (batch E3f).
 
 <a id="q-or-15"></a>
 - **Q-OR-15** · affects [OR-26](#or-26), [OR-11](#or-11) · **Answered
@@ -2652,7 +2794,9 @@ no ports, and `mem_limit: 2g`.
   (design record 0011: `m:<id>` for an ordinary module, `s:failure` and
   `s:preprocessor` for the slots), and every recording since E2 uses them,
   but batch E3e recorded none of the colliding pairs above; still open
-  until those captures exist.
+  until those captures exist. *2026-10-29 (SC3):* nothing in the source
+  settles this: the encoding is a harness design choice (already made), and
+  what remains is the colliding-pair captures, requested from batch E3f.
 
 <a id="q-or-18"></a>
 - **Q-OR-18** · affects [OR-5](#or-5), [OR-7](#or-7), [OR-8](#or-8),

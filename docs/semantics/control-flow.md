@@ -435,7 +435,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion
 
-**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1`; all oracle-observed); medium (start order among several eligible iterations) · **Status:** confirmed
+**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1`; all oracle-observed); medium (start order among several eligible iterations); high (`type: ai` and the release delay, source-traced) · **Status:** confirmed; drafted (`type: ai`, the release delay)
 
 - **Rule:** With `parallel: true`:
   - **Spawning.** All iterations are created at once as child flows; the loop
@@ -452,6 +452,14 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     - With `N = 0`, every iteration is held and no completion releases any.
       The hold carries a 14-day deadline, so "never starts" is too strong;
       behaviour at the deadline is out of scope ([Q-CF-10](#q-cf-10)).
+    - **`parallelism: {type: ai}`** decodes (the slot accepts the `ai`
+      transform type, [OF-V2](openflow.md#of-v2)) and evaluates to `0`,
+      the value an `ai` transform gives wherever a number is expected. So it
+      behaves exactly as `N = 0`: every iteration is held, none is released,
+      and the loop waits on the 14-day hold. CE has no other route for it:
+      nothing refuses it at deploy or at run time, and no AI runtime fills
+      it in a flow run. (`iterator: {type: ai}` is refused instead,
+      [CF-2](#cf-2).)
   - **Completion.** The loop step completes only when every iteration has
     completed. There is no fail-fast: all iterations run even after one
     fails.
@@ -485,17 +493,40 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     scripts one at a time but not the child flows: with `parallelism: 2`
     the child flows overlapped, with `parallelism: 1` each started after
     the previous one completed.
+  - **Why a released iteration starts late.** A held iteration is queued
+    as a suspended job. Each completion releases exactly one, the iteration
+    `N + k − 1` at the `k`-th completion, by clearing its hold. A worker
+    looks for released suspended jobs only on some pulls: when its previous
+    such look found one, at random in proportion to how many of its last 30
+    pulls found one, or once 5 s have passed since its last look. On an
+    otherwise idle worker that gives the observed delay of up to about 5 s.
+    Among several released iterations, that look takes the highest priority
+    first, then the oldest queue row; all iterations of a loop are queued
+    in one transaction and share their creation time, so the source does
+    not fix which of several eligible iterations starts first
+    ([Q-CF-18](#q-cf-18)).
 - **Evidence:** `worker_flow.rs:5352-5414` (all payloads at once),
   `:4484-4515` (held jobs and release counter), `:1097-1115` (release when a
   sibling completes), `:765-916` (per-child completion), `:917-1080`,
   `:1018-1035` (final aggregation, persisted-status query), `:675-682` (no
-  `stop_after_if` for parallel loops), `:4100-4110`, `:4573`, `:4793-4798`
+  `stop_after_if` for parallel loops), `:4100-4110`, `:4573`, `:4793-4798`;
+  `type: ai`: `backend/windmill-types/src/flows.rs:780-794`, `:805-830`
+  (decoded in the `parallelism` slot), `worker_flow.rs:2706` (an `ai`
+  transform evaluates to the type's default, `0`), `:4484-4515` (held
+  when the index is at least that value); the release delay:
+  `worker_flow.rs:775-846` (the completion counter), `:1097-1115` (one
+  release per completion), `backend/windmill-common/src/worker.rs:648-657`
+  (the suspended-job pull and its order),
+  `backend/windmill-worker/src/worker.rs:2668-2690`, `:2750-2760` (when a
+  worker tries it), `backend/windmill-queue/src/jobs.rs:3998-4030`,
+  `backend/migrations/20220123221903_first.up.sql:124` (a queue row's
+  creation time defaults to the transaction's time)
   (`same_worker` condition; the error raised as `BadRequest` at `:4793-4798`);
   `backend/windmill-common/src/error.rs:55-56` (`Bad request: ` text),
   `:73-74` (the pickup form); `backend/windmill-types/src/flows.rs:1080-1081`;
   `frontend/src/lib/components/flows/content/FlowModuleEarlyStop.svelte:72`
   (the UI hides "break" for parallel loops).
-- **Conformance:** [CF-7/a to CF-7/d](conformance.md#cf-7)
+- **Conformance:** [CF-7/a to CF-7/e](conformance.md#cf-7)
 - **Revision 2026-10-28 (oracle, batch E3d):** the `same_worker` error's
   recorded form (`Bad request: ` inside the pickup envelope) and the
   observed release timing are added; the release order under
@@ -511,6 +542,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   above come from the single worker, not from the loop. Release under
   `parallelism` with several eligible iterations is still unrecorded
   ([Q-CF-18](#q-cf-18)).
+- **Revision 2026-10-29 (SC3, source re-check, chain N3a):** milestone N3a
+  refuses an `ai` parallelism and asked whether CE has a route for it. It
+  has one, and it is useless: the value evaluates to `0`, so the loop holds
+  every iteration as with `parallelism: 0`. Added, with the source's reason
+  for the observed release delay and why the start order among several
+  eligible iterations is not fixed. New source-derived case CF-7/e.
 
 <a id="cf-8"></a>
 ### CF-8 · The simple-loop-body fast path; eligibility follows the executing job's kind
@@ -1306,7 +1343,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container
 
-**Scope:** core (that the container fails; the message text); later (route-dependent error name and handler bypass) · **Confidence:** high (routing; the route 1 and route 3 forms, oracle-observed); low (the parent's recorded value on route 3) · **Status:** confirmed
+**Scope:** core (that the container fails; the message text); later (route-dependent error name and handler bypass) · **Confidence:** high (routing; the route 1 and route 3 forms, oracle-observed); high (the parent's recorded value on route 3, source-traced) · **Status:** confirmed; drafted (the parent's value on route 3)
 
 - **Rule:** Errors raised while preparing a container's children are an
   iterator that is not an array or throws ([CF-2](#cf-2)), a `parallelism`
@@ -1327,13 +1364,29 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      step of the same flow completed. The flow job **aborts**: it completes
      as failed with `{"error": {"name": "InternalError", "message": "<message>"}}`,
      and that flow's `continue_on_error`, `retry` and `failure_module` do not
-     run. If it is a child, its parent sees a failed child; for loops and
-     branchall the entry is the stored error. For a branchone or subflow
-     step, the parent may record the last successful inner result instead of
-     the error ([Q-CF-3](#q-cf-3)). The abort persists `InternalError`, but
-     the notification to the parent still carries the prior result value, so
-     the stored child result and the value delivered to the parent must not
-     be conflated.
+     run. If it is a child, its parent sees a failed child, but what it
+     gets as that child's value depends on the parent module:
+     - **a loop or `branchall`** reads its children's results from storage
+       when it aggregates, so the aborted child's entry is the stored
+       `{"error": {"name": "InternalError", "message": "<message>"}}`;
+     - **a `branchone` or a subflow step** (`type: flow`) has a single child
+       and takes the value delivered with the notification, which is the
+       aborted flow's **last carried value**: the result of the inner step
+       that completed just before the failing start, not the error. The
+       module's status entry becomes `Failure` naming the child job, and
+       everything that uses the step's value in memory sees the carried
+       value: the parent's `retry_if`, its `continue_on_error` (the next
+       step's `previous_result`), its failure module's `previous_result`
+       and `error` ([FX-32](execution.md#fx-32), [FX-8](execution.md#fx-8)),
+       and, when the parent flow ends on this failure, the parent's own
+       stored result, which is then that value with a failure status and no
+       `error` member. Lookups that read storage see the error instead:
+       `results.<branchone id>` from a later step ([JE-18](expressions.md#je-18)
+       step 2) and the direct lookup ([JE-19](expressions.md#je-19)) fetch
+       the child job's stored `InternalError` object
+       ([CF-23/d](conformance.md#cf-23)). This is the same split as
+       [FX-V2](execution.md#fx-v2): the stored child result and the module's
+       effective value differ.
 
   `branchone` predicate errors are the exception: they always become a
   failure of the branchone step ([CF-14](#cf-14)).
@@ -1341,12 +1394,18 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-worker/src/result_processor.rs:1910-1978` (root:
   failed-step update on itself; child: complete, then notify the parent);
   `worker_flow.rs:2086-2121` (error while chaining → `InternalError`),
+  `:2132-2154` (the parent is notified as failed with the aborted flow's
+  carried value), `:1478-1488` (a module with a list of child jobs
+  re-reads their stored results; any other takes the delivered value),
+  `:4703-4708` (a `branchone` records no list of child jobs),
+  `:2039-2056` (a failed flow stores that value as its result), `:1459-1474` and `backend/windmill-types/src/flow_status.rs:454-458`
+  (lookups map the module to the child job, whose stored result is read),
   `:2135-2150`, `:4053-4080` (`StepFailure` path for predicates);
   `backend/windmill-common/src/error.rs:145-150`;
   `backend/windmill-common/src/worker.rs:2228-2232`; test
   `backend/tests/worker.rs:5468` (an inner iterator error inside a while body
   fails the outer flow).
-- **Conformance:** [CF-23/a to CF-23/c](conformance.md#cf-23)
+- **Conformance:** [CF-23/a to CF-23/d](conformance.md#cf-23)
 - **Note:** the oracle recorded both forms (batch E3d,
   [CF-2/b](conformance.md#cf-2) and [CF-7/d](conformance.md#cf-7)). Route 1
   gave name `Anyhow` and `Error: <message> @worker.rs:3822:13`, where
@@ -1402,20 +1461,108 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-25"></a>
 ### CF-25 · `squash`
 
-**Scope:** EE · **Confidence:** high (CE behaviour); low (EE semantics) · **Status:** confirmed
+**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); low (EE semantics); unknown (the CE image's outcome, [Q-CF-19](#q-cf-19)) · **Status:** confirmed; drafted (the conditions, and the stub's error text)
 
 - **Rule:** `squash: true` on a sequential loop asks Windmill to run all
-  iterations on one dedicated runner, an Enterprise feature. In the CE build,
-  starting such a loop (non-empty, sequential, actually starting runners)
-  fails with `Squashing flow loops is not available in OSS`. Empty loops start
-  no runners, and parallel loops do not take the squash start path. Whether
-  squash changes data semantics in EE (for example module state shared
-  across iterations) is unknown ([Q-CF-11](#q-cf-11)).
+  iterations on one dedicated runner. The worker decides from public code
+  **when** it requests the runners (below); what the request does comes from
+  a module that depends on the build:
+  - **A build without the `private` feature** (the pure OSS build,
+    `features=oss`) has only a stub, and starting such a loop fails with
+    `Squashing flow loops is not available in OSS` (the full text below).
+  - **The published CE image** is built with `features=ce`, which includes
+    `private` ([OR-3](oracle.md#or-3)): its release build copies in the
+    closed-source runner module, and the stub is not compiled. Whether the
+    CE image then runs the loop squashed, runs it normally, or fails, and
+    with which text, is not in the public source ([Q-CF-19](#q-cf-19)).
+
+  Empty loops start no runners, and parallel loops do not take the squash
+  start path, in every build. Whether squash changes data semantics in EE
+  (for example module state shared across iterations) is unknown
+  ([Q-CF-11](#q-cf-11)).
+
+  **When the runners are requested, exactly.** The attempt is made when the loop's first
+  iteration is started: a `forloopflow` with `parallel` false whose
+  iterator is not empty, or a `whileloopflow` (always sequential), in both
+  cases with a body that is not empty, collapsed or not ([CF-8](#cf-8)).
+  The squash flag is ignored, and the loop runs normally, when the loop is
+  parallel, when its iterator or body is empty, and when the loop module
+  itself has a `sleep` or a `suspend`: those settings keep the worker from
+  continuing in place, and the runners are only started on that path. Nothing
+  refuses `squash` at deploy time. The request is made **after** the
+  first iteration's job has been queued and committed; where the request
+  fails, that job is not withdrawn on this path (what becomes of it is not
+  traced).
+
+  **The error text where the stub is compiled** (a build without
+  `private`; not the CE image). The stub's located internal error is wrapped with
+  the context `failed to spawn flow module runners for job: <id>`, where
+  `<id>` is the UUID of the flow job that runs the loop, and converted
+  into an `Anyhow` error ([FX-50](execution.md#fx-50)). It then takes the
+  container-start routes of [CF-23](#cf-23):
+  - at a root flow's pickup (route 1, a failure of the loop module that
+    the flow's retry, `continue_on_error` and failure module handle):
+    name `Anyhow`, message
+    `Error: Error: failed to spawn flow module runners for job: <id>: Internal: Squashing flow loops is not available in OSS<loc><loc><loc>`;
+  - at a child flow's pickup (route 2): the same name and message on the
+    child;
+  - during chaining (route 3, the flow aborts): name `InternalError`,
+    message
+    `Error: failed to spawn flow module runners for job: <id>: Internal: Squashing flow loops is not available in OSS<loc><loc>`.
+
+  The innermost `<loc>` is the stub's own location
+  (` @dedicated_worker_oss.rs:<line>:<col>`). Because the context text
+  stands between the leading `Error: ` prefixes and the `Internal: ` layer,
+  [FX-50](execution.md#fx-50)'s count sees one fewer leading prefix than
+  there are suffixes, so its masking leaves that innermost suffix in place;
+  a comparison must write it as a literal or mask it explicitly, and must
+  normalise `<id>`.
 - **Evidence:** `worker_flow.rs:5265`, `:5336`, `:4080-4095`, `:4800-4830`;
   `backend/windmill-worker/src/dedicated_worker_oss.rs:5-26`; public docs
   <https://www.windmill.dev/docs/flows/flow_loops> ("Squash … all iterations
-  run on the same worker", "can't be combined with parallel").
-- **Conformance:** [CF-25/a, CF-25/b](conformance.md#cf-25)
+  run on the same worker", "can't be combined with parallel"). The
+  conditions: `worker_flow.rs:5247-5289` (a while loop asks at its first
+  iteration), `:5294-5300`, `:5326-5348` (a sequential for loop asks at
+  index 0; a parallel one never does), `:5671-5697`, `:5700-5727` (both
+  collapsed and child-flow bodies carry the request; an empty body
+  returns before it), `:4081-4096` (runners only on the continue-in-place
+  path, which a `sleep` or `suspend` on the module turns off), `:4800`
+  (the queued jobs are committed first), `:4803-4824` (the call, its
+  context text and the conversion; the call names the stub module, which
+  re-exports the closed-source module when `private` is set,
+  `dedicated_worker_oss.rs:1-3`, and `backend/windmill-worker/src/lib.rs:36-38`
+  compiles `dedicated_worker_ee` only with `private`; that file is not in
+  the public tree); the features: `backend/Cargo.toml:182-199` (`ce`
+  includes `ce_core`, which includes `private`),
+  `.github/workflows/docker-image.yml:72-74`, `:93-95` (closed-source
+  modules copied in, then built with `features=ce`); the text: `dedicated_worker_oss.rs:23-25`
+  (a located internal error), `backend/windmill-common/src/error.rs:61-62`,
+  `:73-74`, `:146-150`, `:233-239`; `worker_flow.rs:2960-2977` (the start
+  phase's error leaves the flow handler as a generic error),
+  `backend/windmill-worker/src/worker.rs:3822-3840` (pickup conversion),
+  `worker_flow.rs:2103-2104` (chaining stores the display)
+- **Conformance:** [CF-25/a–CF-25/c](conformance.md#cf-25)
+- **Revision 2026-10-29 (SC3, source re-check, chain N3a):** milestone N3a
+  refuses `squash` and asked whether CE has any route for it. It has none
+  that runs squashed: CE fails the loop at its first iteration, or ignores
+  the flag where the runners are never started (parallel, empty, or a loop
+  module with `sleep` or `suspend`). Added the exact conditions, the full
+  error text per route and the masking caveat. New source-derived case
+  CF-25/c.
+- **Revision 2026-10-29 (SC3, parent's re-check, chain N3a):** the earlier
+  text, and the revision just above, said that "CE" fails a squashed loop
+  with the stub's message. That holds only for a build without the
+  `private` feature. The published CE image is built with `private`, so the
+  stub is replaced by the closed-source runner module, and the public
+  source cannot say what the CE image does with a sequential squashed loop.
+  What stays source-derived and holds on CE: when the runners are requested,
+  and that the flag has no effect on a parallel loop, an empty loop, or a
+  loop module with `sleep` or `suspend` (CF-25/c). CF-25/a is narrowed to
+  the build without `private`, and the CE image's outcome is the new
+  [Q-CF-19](#q-cf-19). Answer to N3a's question: CE has no route that
+  *refuses* `squash` at deploy time; the source shows CE ignoring it where
+  no runners start, and only a recording can show what a sequential
+  squashed loop does on the CE image.
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details
@@ -1847,7 +1994,9 @@ These are proposals made while studying the behaviour. They bind nothing.
   (fixture `conformance/flows/control-flow/pull`, oracle run 40794872025).
   It recorded no other case of this list (its probe fixture cites `OR-`
   cases only), so CF-V1/a to CF-V1/c, CF-V2/b, CF-V2/c and CF-29/a remain;
-  still open.
+  still open. *2026-10-29 (SC3):* no part of these is left for the source;
+  their recording is requested for batch E3f
+  ([docs/design/README.md](../design/README.md)).
 <a id="q-cf-2"></a>
 - **Q-CF-2** · affects [CF-6](#cf-6) · How long the window between push and
   dependency-job success lasts. The specification needs only the two
@@ -1867,6 +2016,18 @@ These are proposals made while studying the behaviour. They bind nothing.
   whose chosen branch is `[ret(1), forloop with an object iterator]`,
   inspecting the branchone step's stored result separately from the value
   delivered to the parent and the final result.
+  **Answered 2026-10-29 (SC3) for part (2), from the source.** A
+  `branchone` or subflow parent takes the aborted child's last carried
+  value, not the error: its module becomes `Failure` naming the child job,
+  every in-memory use of the step's value (the parent's `retry_if`,
+  `continue_on_error`, failure module, and its own final result when it
+  ends on this failure) sees the carried value, and only storage lookups
+  of the step see the child's stored `InternalError`; a loop or
+  `branchall` parent re-reads its children from storage, so its entry is
+  the error ([CF-23](#cf-23) route 3, new
+  [CF-23/d](conformance.md#cf-23)). Milestone N3b's provisional reading,
+  the stored `InternalError`, differs. A confirming recording of CF-23/d
+  is requested for batch E3f ([docs/design/README.md](../design/README.md)).
 <a id="q-cf-4"></a>
 - **Q-CF-4** · affects [CF-14](#cf-14), [CF-15](#cf-15) · **Answered
   2026-10-28.** Both predictions hold on the oracle: an empty chosen
@@ -1988,7 +2149,8 @@ These are proposals made while studying the behaviour. They bind nothing.
   running CF-7/a with `parallelism: 2` and recording the body jobs'
   start and end times, which needs a change to the oracle workflow (it runs
   one worker, [OR-4](oracle.md#or-4)). Not needed for the first release
-  unless the design promises an order. **Re-scoped 2026-10-29.** Batch E3e
+  unless the design promises an order.
+  **Re-scoped 2026-10-29.** Batch E3e
   added a second oracle session with two workers (fixtures declaring
   `oracle: {workers: 2}`, [OR-5](oracle.md#or-5)), so no workflow change is
   needed any more. It answered the concurrency half for an **unbounded**
@@ -2002,3 +2164,29 @@ These are proposals made while studying the behaviour. They bind nothing.
   *Settled by:* CF-7/a and CF-7/b as a fixture of the two-worker session,
   reading the body jobs' start and end times from the provenance. Still
   open.
+  *2026-10-29 (SC3), source half:* each completion releases exactly one
+  held iteration, in index order; a released iteration is picked up only
+  when a worker next looks for released suspended jobs (at most about 5 s
+  later on an idle worker), and that look orders by priority and then by
+  the queue row's creation time, which all iterations of the loop share
+  because they are queued in one transaction ([CF-7](#cf-7)). So the source
+  fixes the release order but not the start order among several released
+  iterations, and two released iterations can run at once on two workers.
+  Only a recording can show the observed pattern.
+
+<a id="q-cf-19"></a>
+- **Q-CF-19** · affects [CF-25](#cf-25) · open (oracle) · What does the
+  published CE image do with a sequential loop that has `squash: true`? The
+  public source fixes when the runners are requested and what a build
+  without the `private` feature does (it fails with the stub's
+  `Squashing flow loops is not available in OSS`), but the CE image is
+  built with `private` and compiles the closed-source runner module
+  instead ([CF-25](#cf-25), [OR-3](oracle.md#or-3)). It may run the loop
+  squashed, run it as an ordinary sequential loop, or fail with a text of
+  its own. *Settled by:* an oracle run of a one-step flow whose step is a
+  sequential `forloopflow` over `[1, 2]` with `squash: true` and a body
+  `bun(v): return v` (`v = "flow_input.iter.value"`), and the same with a
+  `whileloopflow` whose body stops after two iterations, recording the
+  flow's result or error and the jobs created (a squashed loop runs its
+  iterations on one runner, so the number and kind of iteration jobs tell
+  the paths apart). Added 2026-10-29 (SC3).

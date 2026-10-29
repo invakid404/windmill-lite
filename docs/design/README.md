@@ -586,6 +586,279 @@ do (FU4).
     push-and-version decisions for codebase scripts (WR-49/c–g) are a
     deploy pipeline windmill-lite does not reproduce.
 
+## Recording requests for batch E3f
+
+**From the semantics team** (revision SC3 of 2026-10-29); these are
+requests, not design decisions. The reference's revision answered from the
+pinned source what the source settles. What only a running Windmill can
+show is listed here for a future recording batch E3f, grouped by the
+oracle session each needs. Every expectation below is the reference's
+source-derived prediction; the named case or question holds the exact
+text. Compare location suffixes as `<loc>` and mask job ids
+([OR-14](../semantics/oracle.md#or-14), [FX-50](../semantics/execution.md#fx-50)).
+Nothing here may commit the oracle's database credentials unmasked.
+
+**The reference session** (one worker, default worker tags):
+
+- **Retry delays and jitter**
+  ([FX-26/c–f](../semantics/conformance.md#fx-26),
+  [Q-FX-18](../semantics/execution.md#q-fx-18)). One Bun step that always
+  throws, once per `retry`: FX-26/c `exponential: {attempts: 1, multiplier:
+  250, seconds: 300}`, FX-26/d `{attempts: 1, multiplier: 1, seconds:
+  30000}`, FX-26/e `{attempts: 2, multiplier: 1, seconds: 300}`. Do not
+  wait the delays out: once the step's status names the retry job, read
+  that job's `scheduled_for` through the jobs API, subtract the failed
+  attempt's completion time, then cancel the flow. Expected 9464 s,
+  21600 s, and 21600 s for FX-26/e's second delay. FX-26/f: `{attempts: 1,
+  multiplier: 1, seconds: 10, random_factor: 50}` about 20 times; every
+  delay a whole number of seconds from 6 to 14 (only the range is fixed,
+  not the values).
+- **Retry argument reuse** ([FX-27/a](../semantics/conformance.md#fx-27)).
+  `a: bun(x)` with `x = "flow_input.n"` and `retry: {constant: {attempts:
+  1, seconds: 0}}`; the first attempt flips a workspace variable and
+  throws, the retry returns `x`. Observe the result, one `failed_retries`
+  entry and both attempts' args. (The second `skip_if` evaluation is
+  already recorded by OR-24/c.)
+- **`wm_failure` on identity jobs**
+  ([FX-13/b, FX-13/c](../semantics/conformance.md#fx-13)). (b) `[a: bun:
+  return 1 (mock: {enabled: true, return_value: {wm_failure: "m", x: 1}}),
+  b: bun: return 2]`; (c) `[a: bun: return {wm_failure: "nope", x: 1}
+  (continue_on_error: true), b: identity, c: bun: return 3]`, and a variant
+  where `b` is a step with `skip_if: "true"`. Observe each step's status
+  and stored result and the flow's result. Expected: in (b) `a` fails; in
+  (c) and its variant `b` fails and `c` never runs.
+- **A branchone aborted at a later transition**
+  ([CF-23/d](../semantics/conformance.md#cf-23),
+  [Q-CF-3](../semantics/control-flow.md#q-cf-3)). (i) A one-step flow `b:
+  branchone(branches: [], default: [r: bun: return 1, l: forloopflow
+  (iterator: {type: javascript, expr: "({o: 1})"}, modules: [x: bun:
+  return 1])])`; (ii) the same `b` with `continue_on_error: true`, then `c:
+  bun(p): return p` (`p = "previous_result"`) and `d: bun(q): return q`
+  (`q = "results.b"`). Observe `b`'s status entry and job, the branch
+  job's stored result, each step's result and the flow's result.
+  Expected: the branch job stores an `InternalError`; (i) fails with
+  result `1`; in (ii) `c` returns `1` and `d` the error object.
+- **Squash and `ai` parallelism on the CE image**
+  ([CF-25](../semantics/control-flow.md#cf-25),
+  [Q-CF-19](../semantics/control-flow.md#q-cf-19),
+  [CF-7/e](../semantics/conformance.md#cf-7)). The CE image does not use
+  the open-source stub, so the reference cannot predict what a sequential
+  squashed loop does. Record a sequential `forloopflow` over `[1, 2]` with
+  `squash: true` at step 0 (body `bun(v): return v`, `v =
+  "flow_input.iter.value"`) and a two-iteration `whileloopflow` with
+  `squash: true`: the result or the full error, and every job created.
+  CF-25/c: the flag on a loop module with `sleep: {type: static, value:
+  0}` and on a parallel loop; both expected to give `[1, 2]`. CF-7/e: a
+  parallel loop over `[1, 2]` with `parallelism: {type: ai}`; wait about
+  30 s, check that no iteration started, then cancel.
+- **Number notation** ([Q-FX-7](../semantics/execution.md#q-fx-7),
+  [Q-JE-13](../semantics/expressions.md#q-je-13)). FX-42/a, /b, /e, /f, /i,
+  /j and a stored `1.50e3`, as Q-FX-7 describes; a loop aggregate whose
+  iterations return `{"b":1.50,"a":1}` (expected `[{"a":1,"b":1.5}]`; a
+  Bun or Python iteration cannot produce `1.50`, so the value must reach
+  storage without a JavaScript or Python parse); JE-11/c and JE-11/e end
+  to end.
+- **Push failures and the jsonb boundary**
+  ([FX-48/b, FX-48/c](../semantics/conformance.md#fx-48),
+  [FX-50/a](../semantics/conformance.md#fx-50),
+  [FX-51/a–c](../semantics/conformance.md#fx-51),
+  [Q-FX-8](../semantics/execution.md#q-fx-8),
+  [Q-FX-20](../semantics/execution.md#q-fx-20)). `[a: bun(s): return s]`
+  with `s = "String.fromCharCode(0)"`, and the same transform on a second
+  step after `x: bun: return 1` (expected: one `Error: ` prefix and one
+  suffix fewer at the later transition than at pickup). A Bun step
+  returning an unpaired high and an unpaired low surrogate (the
+  `InternalErr` text and the roughly 30 s of insert retries); the same
+  value produced by a transform at root pickup and at a later transition;
+  `$jsonvar:` variables holding `{"s": "\ud83d"}` and `{"n": 1e400}`.
+- **A transform whose text is not JSON**
+  ([JE-15/j, JE-15/k](../semantics/conformance.md#je-15),
+  [Q-JE-14](../semantics/expressions.md#q-je-14)). JE-15/j's runs, plus `x
+  = (JSON.stringify = () => "hello", 1)` on step `b` of `[a, b]` and on a
+  one-step flow. Expected after a step: an `InternalError` naming
+  `invalid input syntax for type json`; on the first step an `Anyhow`
+  error with one `Error: ` prefix and two suffixes; no job for `b`.
+- **Deep context values** ([JE-49/d, JE-49/e](../semantics/conformance.md#je-49),
+  [Q-JE-15](../semantics/expressions.md#q-je-15)). A run whose input is
+  `{"k": <127 nested arrays>}` with `x = flow_input.k.length` (expected: the
+  job is created and fails with `recursion limit exceeded at line 1 column
+  132`); a deployed flow whose `flow_env` member `K` is 128 levels deep, read
+  by `x = flow_env.K.length` (expected: the deploy succeeds; the step fails
+  at column 128).
+- **`resource()` and the provider texts**
+  ([JE-20/c, JE-20/d, JE-42/i, JE-42/j](../semantics/conformance.md#je-20),
+  [Q-JE-17](../semantics/expressions.md#q-je-17)). Resources and variables
+  created after the push, as E3a's `je/providers` does. (a) A transform
+  `resource("u/test/none")`, then `resource("u/test/r1")` with `r1 =
+  {"k":"$var:u/test/missing"}`, then `resource("$res:u/test/r1")`; record
+  each message. (b) `x = resource("u/test/r")`, `y =
+  resource("u/test/alias")`, `z = resource("u/test/n")` and a static `w =
+  "$res:u/test/r"`, with `r = {"p":"$var:u/test/v","job":"$WM_JOB_ID"}`,
+  `alias` the string `"$res:u/test/r"` and `n = 42`; record the result,
+  job ids masked (`x.job` should stay literal, `w.job` become the step's
+  id). (c) A static `$jsonvar:` argument for variables holding `hello`, the
+  empty text, `{"é": 1e400}`, and the three lines `{`, `  "b": 1e400`, `}`
+  (the serde positions). (d) Static `$encrypted:abcd`, `$encrypted:secret`
+  and `$encrypted:not!base64`.
+- **Secrets, `job_id` and `CUSTOM_INSTANCE_DB/` on the variable and
+  resource routes** ([WA-11/c, WA-11/d, WA-12/g, WA-12/h](../semantics/conformance.md#wa-11),
+  [Q-WA-13](../semantics/client-api.md#q-wa-13)). Create a secret with
+  `already_encrypted=true` and the value `AAAAAAAAAAAAAAAAAAAAAA==`; repeat
+  the create with `hunter2`, `dGVzdA==` and `$vault:u/x/p` and record each
+  status and body; read the secret with `getVariable`, as a static
+  `$var:` argument, and read `u/x/p` (compare the cause against WA-11/c's
+  set of texts). With resources `u/x/plain = {"a":1}` and `u/x/ctx =
+  {"j":"$WM_JOB_ID"}`, call the interpolated read of both with `job_id`
+  set to a random UUID, a completed step's id, the caller's own id and
+  `nope`. As the admin (a super admin), read `CUSTOM_INSTANCE_DB/demo`
+  through `getResource` and the raw route, masking every connection field;
+  the non-admin half needs a second user, deferred if the harness has none.
+- **The facade's error answers**
+  ([WA-14/c, WA-14/d, WA-19/b–d, WA-V2/c](../semantics/conformance.md#wa-14),
+  [Q-WA-13](../semantics/client-api.md#q-wa-13)). A Bun step that calls
+  the API with `fetch` and its own token and returns `[status, body]` for:
+  the root lookup of an unknown UUID and of `abc` (WA-19/b, /c);
+  `get_result_maybe` of `abc` (WA-V2/c); the flow user state of `abc`, and
+  WA-14/d's two non-JSON POSTs against the step's own root; `getResult` of
+  a child script started 5 s earlier and still running (WA-19/d). A second
+  flow stores a user-state key; after it completes the harness POSTs and
+  GETs that key by root id (WA-14/c: expected 404 `Not found: Flow job not
+  found`, then `null`). WA-4/b and WA-V2/d need a second workspace; record
+  them only if the bootstrap can create one.
+- **Envs, handler errors and validation**
+  ([WR-22/b, WR-22/c, WR-37/b](../semantics/conformance.md#wr-22),
+  [WR-54/a–e](../semantics/conformance.md#wr-54),
+  [Q-WR-20](../semantics/languages.md#q-wr-20),
+  [Q-WR-26](../semantics/languages.md#q-wr-26)). WR-22/b's cache directory
+  and `NODE_PATH`, for a Bun script and a CJS codebase script; WR-22/c by
+  path: `envs: ["A=b=c","B="]` (expected `["b=c",""]`) and `envs:
+  ["NOEQ"]` (expected: deploys, then fails with `Bad request: Invalid env
+  var: NOEQ. …`). WR-37/b: a preview of `main(...xs)`, expected to fail
+  with ``Error: parameter syntax unsupported: `...xs` `` and one location
+  suffix. Inline steps that start with the line `// schema_validation`,
+  given a wrong type, `null` for a required and for an optional
+  parameter, a string outside a literal union, and a missing or `null`
+  array element and object property; record each error.
+- **The rest of Q-WR-20** ([Q-WR-20](../semantics/languages.md#q-wr-20)):
+  the inline-flow import base (WR-29/a, /b), the empty-result `InternalErr`
+  (WR-V2/a), the `raw_unpinned` request during lock generation (WR-V9/a,
+  from the server's request log), and a single-file codebase script that
+  reports whether its own `main.js` contains CRLF (WR-49/h).
+- **TSX parse** ([WR-51/d, WR-52/a, WR-52/e](../semantics/conformance.md#wr-52),
+  [Q-WR-27](../semantics/languages.md#q-wr-27)). Previews of a decorator
+  script and of an angle-bracket assertion script (each expected to fail
+  with `Error while parsing code, it is invalid TypeScript: …` and one
+  location suffix), and of the generic-arrow script (expected `[1,2,3]`).
+- **Leftover processes** ([WR-55/a, WR-55/b](../semantics/conformance.md#wr-55),
+  [Q-WR-28](../semantics/languages.md#q-wr-28)). A step that starts a
+  background child sleeping 5 s and returns at once, and a detached
+  variant; the same child under a 1 s step timeout with a 10 s body.
+  Record each job's start and completion times and outcome.
+- **The trailing virtual step** ([OR-V7/c](../semantics/conformance.md#or-v7),
+  [OF-17/a](../semantics/conformance.md#of-17),
+  [Q-OR-9](../semantics/oracle.md#q-or-9)). Deploy `[a]`, `a` a Bun step
+  returning `7` with `sleep: {type: static, value: 1}`, run it by path;
+  record `flows/get` (expected: no `a-v`) and the raw `flow_status`
+  (expected: `a` and `a-v` both `Success`, `a-v` an identity job about 1 s
+  after `a`, result `7`).
+- **`delete_after_use` that survives deploy**
+  ([OR-21/b, OR-21/c](../semantics/conformance.md#or-21)). Create `f/demo/dau`
+  (`main(x)` returns `{secret: x}`) through the scripts API with
+  `"delete_after_use": true` (the CLI never sends it). (b) A flow with one
+  step by path to it and `x = 7`: expected unchanged args and result on CE.
+  (c) The run-and-wait script route with `{"x":7}`: expected the response
+  `{"secret":7}`, then the stored job with args `{}`, result `{}` and logs
+  `##DELETED##`.
+- **A script's own preprocessor** ([OR-24/e](../semantics/conformance.md#or-24),
+  [Q-OR-11](../semantics/oracle.md#q-or-11)). No trigger is needed: a Bun
+  script with `preprocessor(event)` returning `{x: {bbb: 1, a: 2, cc: 3}}`
+  and `main(x)` returning `Object.keys(x)`, run through the run-and-wait
+  script route (expected `["bbb","a","cc"]`), plus the stored args.
+- **Incoming input refused at storage**
+  ([FX-48/d](../semantics/conformance.md#fx-48),
+  [FX-51/d, FX-51/e](../semantics/conformance.md#fx-51)). Run requests to
+  a deployed one-step flow with the bodies `{"s": "x\u0000y"}`,
+  `{"k\u0000": 1}`, `{"x": 1e131072}`, `{"k": "\ud83d"}` and `{"k\ud83d":
+  1}`. Record status, content type and body, and that no job was created.
+  Expected 400 `text/plain` for all; the first four start `SqlErr: error
+  returned from database: `, the last is `Bad request: invalid json:
+  unexpected end of hex escape at line 1 column 10`.
+- **CLI warnings on push** ([SY-5/d, SY-19/e](../semantics/conformance.md#sy-5),
+  [Q-OF-13](../semantics/openflow.md#q-of-13)). Capture the CLI's stdout and
+  stderr during the pushes Q-OF-13 already asks for: a script with no lock
+  file (expected `Error reading inline path: f/a/x.script.lock, Error:
+  ENOENT: no such file or directory, open 'f/a/x.script.lock'`) and a flow
+  inline lock starting with the bytes `FF FE` (expected `Lock file
+  a.inline_script.lock not found, treating as empty`, and the lock `""`).
+
+**The two-worker session:**
+
+- **Released iterations** ([Q-CF-18](../semantics/control-flow.md#q-cf-18)).
+  CF-7/a and CF-7/b with `parallelism: 2` over four iterations whose
+  bodies sleep different times; record each body job's start and end.
+  Predicted: one release per completion, in index order, a pickup delay of
+  up to about 5 s, and no fixed start order among iterations released
+  together.
+
+**Sessions with a changed configuration** (only the fixtures that declare
+them run there):
+
+- **Native steps** ([Q-WR-21](../semantics/languages.md#q-wr-21);
+  [WR-40](../semantics/languages.md#wr-40) to
+  [WR-46](../semantics/languages.md#wr-46),
+  [WR-50/c, WR-50/f](../semantics/conformance.md#wr-50)). Add only
+  `WORKER_TAGS=nativets` to the standalone container (a `default`-group
+  worker adds it to its group's tags; `FORCE_WORKER_TAGS` would replace
+  them). First check that a one-step `nativets` flow returning `1`
+  completes. Then record WR-40/a to WR-46/b, WR-50/c (`format: esm`, first
+  line `//native`; expected `["undefined","undefined"]`) and WR-50/f (the
+  same with the default `cjs` format; expected a `ReferenceError` with
+  `module is not defined`), with full results and error objects including
+  `stack`.
+- **The result-size limit** ([OR-7/b](../semantics/conformance.md#or-7),
+  [Q-OR-14](../semantics/oracle.md#q-or-14) is answered from the source;
+  this confirms it). `MAX_RESULT_SIZE_MB=3` and a Bun step returning about
+  4.5 MiB. Expected a `ResultTooLarge` error with `… 4MB >
+  MAX_RESULT_SIZE_MB=3MB.`, no `step_id`, and no 30 s retry window.
+- **`DISABLE_FLOW_SCRIPT=true`**, optional
+  ([OF-V5/b](../semantics/conformance.md#of-v5),
+  [Q-OF-11](../semantics/openflow.md#q-of-11) is answered from the
+  source). The trailing-sleep flow above; expected status ids `["a"]` at
+  enqueue, with the worker still reading the lite form.
+- **Workspace object storage** ([WA-16/c–e](../semantics/conformance.md#wa-16),
+  [Q-WA-3](../semantics/client-api.md#q-wa-3)). The CE image's object-store
+  handlers are closed source, so only a recording can say what they do.
+  Session A points workspace storage at a local S3-compatible store
+  started beside the oracle; a Bun step returns, each call in its own
+  `try`: `writeS3File({s3:"t/a.txt"},"hi")` then `loadS3File` of it as
+  text (expected `[{"s3":"t/a.txt"},"hi"]`), `writeS3File(undefined,"x")`
+  (the generated key's form), and `loadS3File({s3:"t/none.txt"})` (the
+  status and body inside `Failed to load S3 file: …`). Session B has no
+  storage and runs the first call only (WA-16/d).
+
+**Outside the oracle, or outside the equivalence contract** (optional):
+
+- **PostgreSQL alone** ([Q-JE-9](../semantics/expressions.md#q-je-9)):
+  `SELECT '<json>'::jsonb::text` on the oracle's PostgreSQL with keys of
+  mixed length, multi-byte UTF-8 keys and integer-like keys.
+- **The image's toolchain** ([Q-JE-16](../semantics/expressions.md#q-je-16)):
+  a Python step printing `ldd --version` and the `.comment` section of the
+  server binary.
+- **Preview and restart:** JE-36/d as a preview
+  ([Q-JE-5](../semantics/expressions.md#q-je-5)); a restart for JE-19/e and
+  JE-19/f ([Q-JE-8](../semantics/expressions.md#q-je-8) is answered from the
+  source; expected `{"x":17,"y":17,"z":5}`).
+
+**Still open and oracle-only, recorded as their questions describe:**
+[Q-JE-1](../semantics/expressions.md#q-je-1) (JE-21/b's thrown values),
+[Q-JE-2](../semantics/expressions.md#q-je-2) (the `typeof` list),
+[Q-JE-12](../semantics/expressions.md#q-je-12) (JE-50/a, JE-51/a, JE-52/a),
+[Q-FX-18](../semantics/execution.md#q-fx-18)'s remaining cases,
+[Q-CF-1](../semantics/control-flow.md#q-cf-1) (CF-V1/a–c, CF-V2/b–c,
+CF-29/a), [Q-OF-1](../semantics/openflow.md#q-of-1)'s fixtures,
+[Q-OF-13](../semantics/openflow.md#q-of-13)'s sync trees, and
+[Q-OR-17](../semantics/oracle.md#q-or-17)'s colliding identity pairs.
+
 ## Changing the design
 
 1. A record is changed by a pull request that edits it in place and says why
