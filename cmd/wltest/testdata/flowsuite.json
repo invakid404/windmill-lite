@@ -1,5 +1,5 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, PF1, PF2, N2, PF3 and NI of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, N4, PF1, PF2, N2, PF3 and NI of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
     "N1a",
@@ -12,7 +12,8 @@
     "N3b",
     "PF3",
     "N3c",
-    "NI"
+    "NI",
+    "N4"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -271,6 +272,13 @@
     "conformance/flows/execution/fx-36/last_module": "E1",
     "conformance/flows/execution/fx-37/early": "N1a",
     "conformance/flows/execution/fx-38/cancel": "N1b",
+    "conformance/flows/execution/fx-40/a": "N4",
+    "conformance/flows/execution/fx-40/b": "N4",
+    "conformance/flows/execution/fx-40/c-path": "N4",
+    "conformance/flows/execution/fx-40/c-raw": "N4",
+    "conformance/flows/execution/fx-40/d-raw": "N4",
+    "conformance/flows/execution/fx-40/d-raw-path": "N4",
+    "conformance/flows/execution/fx-40/d-script": "N4",
     "conformance/flows/execution/fx-6/first_step": "E1",
     "conformance/flows/execution/fx-6/rederived_on_retry": "N2",
     "conformance/flows/execution/fx-7/js_and_static": "E1",

@@ -138,10 +138,6 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	whole := ""
 	switch {
-	case fc.mode != conformance.ModeWarm:
-		// The walking skeleton and this runner's pool run warm; the flow
-		// suite runs in fresh and warm through wl (ADR 0012, F1).
-		whole = "flow fixtures run in warm mode only until milestone F1, whose gate runs the flow suite in fresh and warm"
 	case f.Stub:
 		whole = "stub mode on windmill-lite is milestone E4b's"
 	case f.Oracle.Effects:
@@ -164,26 +160,30 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		return failRuns(results, "build: "+err.Error())
 	}
 	var diag syncBuffer
-	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
+	// The fixture's platform facade (ADR 0007, milestone PF1): a warm
 	// pool reaches it through the intercepted fetch, at an origin where
-	// nothing listens, and every step's calls are attributed to it. It
-	// serves the fixture's resources and variables, which the engine reads
-	// too (milestone PF2).
+	// nothing listens, and a fresh one over loopback TCP, and every step's
+	// calls are attributed to it. It serves the fixture's resources and
+	// variables, which the engine reads too (milestone PF2).
 	fac, err := facade.New(facade.Config{Platform: b.platform})
 	if err != nil {
 		return failRuns(results, "facade: "+err.Error())
 	}
 	defer fac.Close()
 	path, args := harness.BunCommand(fc.bun, filepath.Join(fc.repo, "harnesses", "bun", "runtime", "main.ts"), b.out)
+	state, origin := engine.ModuleState(fc.mode), fac.WarmOrigin()
+	if fc.mode == conformance.ModeFresh {
+		origin = fac.FreshOrigin()
+	}
 	pool, err := harness.NewPool(harness.PoolConfig{
-		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: engine.ModuleStateWarm},
+		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: state},
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
 			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
-			// The same kind of origin as a warm step case's, so a native step
-			// reads the facade's origin as BASE_URL and BASE_INTERNAL_URL in
-			// both (WR-45).
-			Facade: fac.WarmOrigin(), Platform: fac.Platform(),
+			// The same kind of origin as a step case's in the same mode, so
+			// a native step reads the facade's origin as BASE_URL and
+			// BASE_INTERNAL_URL in both (WR-45).
+			Facade: origin, Platform: fac.Platform(),
 		},
 	})
 	if err != nil {
@@ -203,7 +203,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 		// One engine per target's program, so that a flow it refuses
 		// leaves the fixture's others to run.
-		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform})
+		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform, ModuleState: state})
 		switch {
 		case errors.Is(err, engine.ErrUnsupported):
 			t.unsupported = "the engine does not run it yet: " + err.Error()
@@ -219,7 +219,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		// roots, through the facade's executor so that their calls are
 		// attributed, on the pool; it is in the services before any run
 		// starts, and closes before the pool does.
-		if e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform}); err == nil {
+		if e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform, ModuleState: state}); err == nil {
 			d := engine.NewDispatcher(e, fac.Executor(pool))
 			b.platform.Dispatcher = d
 			defer func() {
