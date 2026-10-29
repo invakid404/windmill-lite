@@ -1,0 +1,17 @@
+# Milestone N5 (ADR 0012): a retry on a flow step that runs a flow by path
+# (CF-17: the caller's retry applies to a failed subflow), alone, after its
+# retries ran out (plain, under continue_on_error and with a failure
+# module), with a delay, inside a sequential and a parallel loop, and above
+# a child whose own step is retried; and a retry on a while loop and on a
+# branchone (CF-22), which NI's cases did not record. Every run is recorded
+# without an expectation first, so that the oracle shows where a failed
+# attempt's child flow sits and what the caller's status and results show.
+# Synthetic flows written for this repository. Every run is by path after
+# the deployment gate saw the flow's dependency job succeed (ADR 0001
+# section 1).
+id: control-flow/subflow-retry
+spec: [CF-17, CF-22, FX-26, FX-27, FX-29, FX-30, CF-16, OR-11]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

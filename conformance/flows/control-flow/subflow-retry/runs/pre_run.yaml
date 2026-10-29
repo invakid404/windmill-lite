@@ -1,0 +1,6 @@
+# CF-17, FX-14, FX-27: a's input transform throws, so its job launches and
+# fails without running; a's retry then runs again, and the recording shows
+# whether a subflow ran for the failed attempt and with which arguments the
+# retry ran it.
+target: f/cfsr/pre_run
+args: {}

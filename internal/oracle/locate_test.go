@@ -158,6 +158,12 @@ func TestLocatorSites(t *testing.T) {
 		"FI":  flowJob("FI", "", "QueuedJob", `{"modules":[{"type":"Failure","id":"p","job":"P9"},{"type":"WaitingForPriorSteps","id":"q"}],"failure_module":{"type":"InProgress","id":"recover","job":"HB"}}`),
 		"EM":  flowJob("EM", "f/x/em", "QueuedJob", `{"modules":[{"type":"Success","id":"e","job":"EJ"},{"type":"InProgress","id":"z","job":"Z"}]}`),
 		"EJ":  flowJob("EJ", "f/x/empty", "CompletedJob", `{"modules":[{"type":"Success","id":"failure","job":"00000000-0000-0000-0000-000000000000"}]}`),
+		// A retried named subflow (milestone N5): the step's job is its
+		// current attempt's subflow, whose steps are at the step's site
+		// without the attempt, however many attempts failed before.
+		"R":   flowJob("R", "f/x/s", "QueuedJob", `{"modules":[{"type":"InProgress","id":"sub","job":"RS1","failed_retries":["RS0"]},{"type":"WaitingForPriorSteps","id":"fan"},{"type":"WaitingForPriorSteps","id":"each"}]}`),
+		"RS0": flowJob("RS0", "f/x/child", "CompletedJob", `{"modules":[{"type":"Failure","id":"c","job":"RC0"}]}`),
+		"RS1": flowJob("RS1", "f/x/child", "QueuedJob", `{"modules":[{"type":"InProgress","id":"c","job":"RC1"}]}`),
 	}
 	l, api := newLocator(t, tree, jobs)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -172,6 +178,8 @@ func TestLocatorSites(t *testing.T) {
 		{"L2", "P2", "m:loop/i:0/m:p"},
 		{"L2", "P3", "m:loop/i:1/m:p"},
 		{"S", "C", "m:sub/m:c"},
+		{"R", "RC1", "m:sub/m:c"},
+		{"R", "RS0", "m:sub"},
 		{"S", "U", "m:fan/b:0/m:u"},
 		{"S", "V", "m:fan/b:1/m:v"},
 		{"S", "E1", "m:each/i:1/m:one"},

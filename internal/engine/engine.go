@@ -308,14 +308,8 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 		}
 	case ir.KindIdentity:
 	case ir.KindSubflow:
-		switch r := m.Retry; {
-		case m.Subflow == nil:
+		if m.Subflow == nil {
 			return errors.New("a flow module with no subflow")
-		case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
-			// A retried attempt's subflow steps belong under its attempt's
-			// site (ADR 0011); no case of NI's, the milestone that integrates
-			// N2's retries with child flows, covers it (ADR 0012).
-			return unsupported("a retry on a subflow step (later)")
 		}
 	case ir.KindForLoop:
 		if err := supportedLoop(m.ForLoop, scripts); err != nil {

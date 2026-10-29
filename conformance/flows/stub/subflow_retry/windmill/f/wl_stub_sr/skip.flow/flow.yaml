@@ -1,0 +1,23 @@
+summary: wl stub retried subflow step with a step skipped on the first attempt
+value:
+  modules:
+    - id: prepare
+      value:
+        type: flow
+        input_transforms:
+          order:
+            type: javascript
+            expr: flow_input.order
+        path: f/wl_stub_sr/prepare
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    order:
+      type: string
+  required:
+    - order

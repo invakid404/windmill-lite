@@ -110,6 +110,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | E4b | the stub acceptance cases on windmill-lite | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
 | N4 | the `cache_ttl` result cache with the host store interface | N3c | the E3d FX-40 cases | 8 | yes |
 | F1 | `wl`: `Open`, `Run`, `BuildInfo`; `windmill-lite run` | F4, N3c, NI, PF2, PF3 | the flow suite through `wl` in `fresh` and `warm`, including E3a cases that need features of two milestones neither of which depends on the other (JE-V2/a and /b: retry, and a variable read or argument resolution), and E3b's FX-17/b (retry and a variable) | 8 | yes |
+| N5 | retry on a subflow step, in the engine and in stub mode | NI, E4b | the `control-flow/subflow-retry` cases, recorded on the oracle, in `fresh` and `warm`; the `stub/subflow_retry` case on the oracle and on windmill-lite | 9 | yes |
 | F2a | hooks as Go callbacks: H1, H2, H6, H8, H9, H12, H13, and mandatory provided sites | F1 | hook cases; the run-time half of the provided-site policy case of [0002](0002-ir-and-loader.md) | 9 | yes |
 | F2b | budgets and latches: H3, H4, H5, H7, H10 | F1 | latch-precedence cases | 9 | yes |
 | F3a | host-mode transport: `run` frames, host-provided-module registration, scope capture, health, drain, the watchdog option, the working-directory checks | F1, C2b, C3b | `workdir_not_writable` and `workdir_mismatch` cases; a codebase script reads its extracted asset in host mode | 9 | yes |
@@ -381,8 +382,8 @@ waits on an external gate except R1.
   record's status, as the walker reads a container with no child
   (CF-29/a). A container as the failure module (CF-30, source-traced only)
   and a retry on a subflow step (whose attempts' subflows NI places under
-  the attempt's site) are refused. The N2 and N3b merge resolution
-  (2dfbae10) was reviewed with this milestone.
+  the attempt's site) are refused; N5 runs the latter. The N2 and N3b
+  merge resolution (2dfbae10) was reviewed with this milestone.
 
 - N3b runs while loops on N3a's sequential loop, with no iterator, and
   `branchone` and `branchall` on frames: each branch that runs is a child
@@ -515,8 +516,8 @@ waits on an external gate except R1.
   under N3c, which merged first, through its declared `copies`. PF3 merged first
   with WA-6/b's `client-api/flow-path/retry`, a retry in a loop's body,
   which NI's engine runs, so NI requires it. N3c left a retry on a subflow
-  step refused for NI; no case of NI's row covers it, so it stays refused,
-  as `later`. The E3b runs that `e3b.json`
+  step refused for NI; no case of NI's row covers it, so it stayed refused,
+  as `later`, until N5. The E3b runs that `e3b.json`
   gates on NI (FX-6's retry variant, FX-8/b, FX-19/d) keep that gate, by
   the rule that a case needing two milestones gates the first that needs
   both; `flowsuite.json` already requires them under N2.
@@ -540,7 +541,43 @@ waits on an external gate except R1.
   which the runtime collects from the facade's records. PF3's job registry still registers no loop
   iteration, branch or subflow, so a dispatch from inside one gets no
   parent path; no case of F1's row needs it, and it stays open. A retry
-  on a subflow step stays refused.
+  on a subflow step stayed refused until N5.
+
+- N5 is a milestone added after the first plan. A host flow on the MVP
+  path retries a flow step that runs a flow by path, which the engine
+  refused (N3c, NI). CF-17 says the caller's `retry` applies to a failed
+  subflow, but no catalogue case records it. So N5 wrote the fixture
+  `conformance/flows/control-flow/subflow-retry` and recorded it on the
+  oracle without an expectation first, letting the recordings decide.
+  The runs are: a subflow step that fails once; one that runs out of
+  retries, plain, under `continue_on_error` and with a failure module; a
+  2 s delay; the step in a sequential and in a parallel loop; and above a
+  child that retries its own step. Every recording puts a failed
+  attempt's subflow job at the step's `r:<k>`, with that subflow's modules
+  below it (its own retried modules' attempts below those). A failure
+  module, or the step after a tolerated failure, lists the step's failed
+  attempts again with that subtree (FX-29), and a later step's `results`
+  read the last attempt's result. A run whose step's input transform
+  throws (FX-14) showed that the step's subflow job still launches and
+  fails with none of its modules run, and that the retry runs the
+  subflow with an empty input; the engine now lists that never-run child
+  flow, retried or not.
+  The engine moves a failed attempt's child flow to that site, as NI
+  moves a retried container's last failed child. The same fixture
+  records a retry on a while loop and on a branchone, which NI's engine
+  already ran and which no case had recorded; N5 requires them.
+  Stub mode accepts a retry on a flow step. A failed container attempt
+  is walked as its last failed child alone, under `r:<k>` without the
+  child's `i:` or `b:` segment, so none of its calls matches the site the
+  replay service resolved; a retry on a loop or branch step stays
+  refused there. The replay service resolves a subflow's step at its
+  site without the caller's attempt and counts its jobs across the
+  attempts, which `conformance.CheckReplay` holds to the walk's order
+  among the jobs that execute a script, so that a skipped step's
+  identity job takes no place (ADR 0011). `stub/subflow_retry` records
+  both, with a step skipped on the first attempt in its run `skipped`. No catalogue case gates
+  N5, so it has no recording-batch manifest; `flowsuite.json` requires
+  its runs.
 
 ## Spec IDs relied on
 

@@ -1,0 +1,43 @@
+summary: wl stub prepare an order, with a step the plan can skip
+value:
+  modules:
+    - id: prep
+      value:
+        type: rawscript
+        content: '!inline prep.ts'
+        input_transforms:
+          order:
+            type: javascript
+            expr: flow_input.order
+        lock: '!inline prep.lock'
+        language: bun
+    - id: x
+      value:
+        type: rawscript
+        content: '!inline x.ts'
+        input_transforms:
+          order:
+            type: javascript
+            expr: flow_input.order
+        lock: '!inline x.lock'
+        language: bun
+      skip_if:
+        expr: results.prep.skip
+    - id: tail
+      value:
+        type: rawscript
+        content: '!inline tail.ts'
+        input_transforms:
+          order:
+            type: javascript
+            expr: flow_input.order
+        lock: '!inline tail.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    order:
+      type: string
+  required:
+    - order

@@ -1,0 +1,4 @@
+# CF-17, CF-16, FX-29: as exhausted, with a failure module, which gets the
+# error and lists the failed attempts.
+target: f/cfsr/exhausted_failure
+args: {v: 7}
