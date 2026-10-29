@@ -24,6 +24,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/oracle"
+	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
@@ -163,8 +164,10 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	var diag syncBuffer
 	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
 	// pool reaches it through the intercepted fetch, at an origin where
-	// nothing listens, and every step's calls are attributed to it.
-	fac, err := facade.New(facade.Config{})
+	// nothing listens, and every step's calls are attributed to it. It
+	// serves the fixture's resources and variables, which the engine reads
+	// too (milestone PF2).
+	fac, err := facade.New(facade.Config{Platform: b.platform})
 	if err != nil {
 		return failRuns(results, "facade: "+err.Error())
 	}
@@ -198,7 +201,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 		// One engine per target's program, so that a flow it refuses
 		// leaves the fixture's others to run.
-		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js})
+		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform})
 		switch {
 		case errors.Is(err, engine.ErrUnsupported):
 			t.unsupported = "the engine does not run it yet: " + err.Error()
@@ -266,12 +269,13 @@ func failRuns(rs []runResult, problem string) []runResult {
 	return rs
 }
 
-// fixtureBundle is the bundle of one fixture: its Bun scripts, and what
-// each run's target flow needs.
+// fixtureBundle is the bundle of one fixture: its Bun scripts, what each
+// run's target flow needs, and the platform services its runs read.
 type fixtureBundle struct {
 	out, digest string
 	targets     map[string]*target
 	order       []string // the targets in the order of their first run
+	platform    *platform.Services
 }
 
 // target is one flow that runs of the fixture run.
@@ -324,6 +328,9 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 	defer folder.Close()
 
 	b := &fixtureBundle{out: filepath.Join(work, "bundle"), targets: map[string]*target{}}
+	if b.platform, err = platformOf(folder, f.Setup, f.Oracle.SetupPolicy()); err != nil {
+		return nil, err
+	}
 	entries := map[string]bundle.BunScript{}
 	codebase := map[string]bundle.CodebaseScript{}
 	users := map[string][]string{} // inventory id → the targets that reach it
@@ -335,8 +342,8 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 		b.targets[run.Target] = t
 		b.order = append(b.order, run.Target)
 		fc.compile(folder, run.Target, t)
-		if t.unsupported == "" && t.problem == "" && needsProviders(t, f.Setup) {
-			t.unsupported = providersNote
+		if t.unsupported == "" && t.problem == "" && needsFlowUserState(t) {
+			t.unsupported = flowUserStateNote
 		}
 		if t.unsupported != "" || t.problem != "" {
 			continue
@@ -475,51 +482,17 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 	}
 }
 
-// providersNote is why a run whose flow reads the platform is not checked.
-const providersNote = "the flow reads variables, resources or flow user state, which need the platform providers of milestone PF2"
+// flowUserStateNote is why a run whose flow reads flow user state is not
+// checked.
+const flowUserStateNote = "the flow reads flow user state, which needs the flow user state of milestone PF3"
 
-// platformReads are the texts by which a flow reads the platform: the
-// expression helpers (JE-20) and the references that a leaf's arguments
-// and flow_env resolve (JE-41, JE-42).
-var platformReads = []string{"variable(", "resource(", "flow_user_state(", "$var:", "$res:", "$jsonvar:", "$encrypted:"}
-
-// needsProviders reports whether t's flow reads the platform, which needs
-// the platform providers (PF2): its compiled program (an expression's text,
-// a static value, flow_env) holds one of platformReads, or it or the code
-// of a script it reaches names a variable or resource that the fixture's
-// setup.yaml creates. A fixture's other runs are checked.
-func needsProviders(t *target, setup *conformance.Setup) bool {
+// needsFlowUserState reports whether t's flow reads flow user state
+// through the expression helper flow_user_state() (JE-20), which needs
+// milestone PF3: its compiled program holds the helper's text. A script
+// that reads it through the client gets a 501, which fails its step.
+func needsFlowUserState(t *target) bool {
 	prog, err := t.prog.MarshalIndent()
-	if err != nil {
-		return true
-	}
-	for _, p := range platformReads {
-		if strings.Contains(string(prog), p) {
-			return true
-		}
-	}
-	if setup == nil {
-		return false
-	}
-	var paths []string
-	for _, v := range setup.Variables {
-		paths = append(paths, v.Path)
-	}
-	for _, r := range setup.Resources {
-		paths = append(paths, r.Path)
-	}
-	texts := []string{string(prog)}
-	for _, s := range t.reached {
-		texts = append(texts, s.Content)
-	}
-	for _, p := range paths {
-		for _, text := range texts {
-			if strings.Contains(text, p) {
-				return true
-			}
-		}
-	}
-	return false
+	return err != nil || strings.Contains(string(prog), "flow_user_state(")
 }
 
 // folderScripts maps every TypeScript script of the folder to its file: the

@@ -58,6 +58,12 @@ type frame struct {
 	// iteration has its own, seeded from its loop's frame, since it runs on
 	// a goroutine of its own.
 	rng *rand.Rand
+	// env is flow_env as the transition that started the frame's current
+	// module resolved it, and envCached the last resolution that succeeded,
+	// which the predicates after a child completes read (JE-38); zero
+	// before the frame's first module, where its flow's stored map stands
+	// (run.envOf). Only the goroutine that drives the frame touches them.
+	env, envCached jsonval.Value
 }
 
 // nodeScope is one scope of the result-by-node-id map (JE-19, CF-19): the

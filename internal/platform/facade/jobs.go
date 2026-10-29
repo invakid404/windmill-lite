@@ -44,3 +44,16 @@ func (f *Facade) rootOf(id string) (string, bool) {
 	}
 	return "", false
 }
+
+// jobEnv finds the job environment of the registered invocation whose job
+// is id (D3).
+func (f *Facade) jobEnv(id string) (map[string]string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, e := range f.invs {
+		if id != "" && e.caller.Env["WM_JOB_ID"] == id {
+			return e.caller.Env, true
+		}
+	}
+	return nil, false
+}

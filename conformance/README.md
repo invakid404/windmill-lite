@@ -48,7 +48,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b), with the platform providers (PF2) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -96,6 +96,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/languages/codebase` | Milestone E1's codebase-script fixture: a flow of two path steps that are codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)), one in an `esm` entry and one in an entry with no `format`, CommonJS ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)). The CLI bundles them with esbuild on the oracle, and `wltest check` with esbuild too, as milestone C2b builds codebase scripts (`bundle.BuildCodebase`); the CommonJS one runs on Bun's CommonJS loader (D13). The scripts are self-contained. |
 | `flows/client-api/job-env` | Milestone E1: the contextual variables of inline and path steps ([WA-4](../docs/semantics/client-api.md#wa-4)/a, [FX-45](../docs/semantics/execution.md#fx-45)/a, [WR-22](../docs/semantics/languages.md#wr-22)), with each step's job ids normalised to placeholders ([OR-14](../docs/semantics/oracle.md#or-14)): its own job, and the root flow as the parent, the innermost flow scope and the effective root of a step directly in the flow ([WA-V1](../docs/semantics/client-api.md#wa-v1)). |
 | `flows/client-api/identity` | Milestone PF1: the job identity of an inline step and a path script in a flow: the state path ([WA-5](../docs/semantics/client-api.md#wa-5)/a), the base URL variables ([WA-2](../docs/semantics/client-api.md#wa-2)/a), the token, and the root that a lookup with the step's own token answers by fetch at `BASE_URL` (the call `getRootJobId` makes, [WA-14](../docs/semantics/client-api.md#wa-14), WA-V1), which on windmill-lite the platform facade answers. |
+| `flows/client-api/providers` | Milestone PF2: the platform services a step reads, one fixture on the oracle and on windmill-lite ([WA-40](../docs/semantics/client-api.md#wa-40)/b), from its `setup.yaml` (a resource type, variables with a secret, resources): arguments the worker resolved, a `$res:` with a nested `$res:` and a secret `$var:`, `$WM_ROOT_JOB_ID` read with the job's id (`""`, [WA-V3](../docs/semantics/client-api.md#wa-v3)/a) and beside a marker (the flow), and a plain argument ([WR-5](../docs/semantics/languages.md#wr-5)/a, /c); the reads the stock client makes, by fetch at `BASE_URL` with the step's token (WA-10/a, WA-11/a, WA-12, WA-42/b, /c, WA-V3/b); and the failures of a missing resource and an invalid path at argument resolution (WR-5/e, /b). A body that carries a Rust location on Windmill is returned as whether it starts as the reference says (D14). |
 | `flows/execution/fx-36-http` | Batch E3e: [FX-36](../docs/semantics/execution.md#fx-36)'s HTTP part (`later`), every run submitted through run-and-wait (`submit: run_wait_result`), so its observation holds the HTTP response beside the walk: FX-36/a–g, an array result ([Q-FX-12](../docs/semantics/execution.md#q-fx-12), decoded positionally), a content type with and without a parameter, base64 transfer encoding to text and to bytes that are not UTF-8, a redirect status, FX-12/a over HTTP, FX-V3/a's skipped flow, and FX-37/a's early response. Gates F7b. |
 | `flows/execution/fx-49` | Batch E3e: [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11), `later`): a flow-level `skip_expr` that the loop at module 0 flips from false to true, with a collapsed and a two-step body, and to a throw. `setup.yaml` resets the variable before every run (`oracle.setup: each_run`). |
 | `flows/execution/fx-10-c` | Batch E3e: FX-10/c, `results[""]` inside a step's own `stop_after_if`, which the reference added after E3b. |
@@ -565,6 +566,7 @@ cases:
 | `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
 | `codebase` | makes the script a codebase script, bundled by esbuild (C2b): the settings of its `codebases` entry as `wmill.yaml` gives them (`format`, `define`, `inject`, `loader`, `banner`, `external`, `assets`) |
 | `files` | other files of the folder, by path from the sync root, that a codebase build reads: modules it imports, inject files, asset sources |
+| `setup` | the variables and resources the case's platform facade serves, in `setup.yaml`'s format; a secret's `value` is its plaintext (milestone PF2: `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`, `wa-42.yaml`, `wa-v3.yaml`) |
 | `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared) unless `keep_stack` is set, for a case that states the stack in claims; `unordered` arrays; `strict_key_order` |
 | `deviation` | the deviation whose two readings the case's `by_mode` gives, or `5a` for the restriction of ADR 0001 §5a that a warm process reaches the platform only through `fetch` (`wa-31.yaml`) |
 | `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
@@ -591,6 +593,16 @@ agree, and where they differ. `wr-50.yaml` holds the one case whose
 the harness extracts every asset of a step file's bundle into its working
 directory (D10), and such a file there also makes Bun import the default
 export of every CommonJS module beside it as Node does.
+
+**The arguments file.** `wr-5.yaml` (milestone PF2) checks that a script
+reads its own arguments from `args.json` in its working directory, which
+the harness writes before each invocation
+([WR-5](../docs/semantics/languages.md#wr-5)): run after run of one warm
+process, whose directory is every invocation's (D10), and in each fresh
+process; and that the file holds no `_MODULES` or `_TEMP_SCRIPT_REFS`
+while every other member keeps its text and place, as the script's
+parameters see it too. WR-5's catalogue cases need the engine's argument resolution and
+are checked at the flow level.
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step

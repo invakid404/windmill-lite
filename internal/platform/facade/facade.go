@@ -1,9 +1,10 @@
-// Package facade is the platform facade of ADR 0007 (milestone PF1): the
-// Go router behind the stock client's platform calls, attributed to the
-// invocation that made each one, over the harness's intercepted fetch in
-// warm and host-mode processes and over loopback TCP in fresh ones, with
-// Windmill's status codes and text/plain error bodies, and the 501 policy
-// for the routes windmill-lite does not serve.
+// Package facade is the platform facade of ADR 0007 (milestones PF1 and
+// PF2): the Go router behind the stock client's platform calls, attributed
+// to the invocation that made each one, over the harness's intercepted
+// fetch in warm and host-mode processes and over loopback TCP in fresh
+// ones, with Windmill's status codes and text/plain error bodies, the 501
+// policy for the routes windmill-lite does not serve, and the resource and
+// variable reads.
 package facade
 
 import (
@@ -13,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // Policy is what becomes of a step that made an unsupported call
@@ -115,6 +118,10 @@ type Config struct {
 	// record is released (Session.Release): after it settled and its
 	// outcome was decided.
 	Recorded func(inv string, calls []Record)
+	// Platform holds the resources, variables and secrets the facade's
+	// reads answer from (milestone PF2); nil means none, so every read is
+	// a not-found.
+	Platform *platform.Services
 }
 
 // Facade is the platform facade: its routes and handlers, the registry of
@@ -124,6 +131,7 @@ type Facade struct {
 	policy   Policy
 	maxBody  int64
 	recorded func(string, []Record)
+	platform *platform.Services
 	routes   *routeTable
 	handlers map[string]Handler
 	warm     *reservation
@@ -164,6 +172,7 @@ func New(cfg Config) (*Facade, error) {
 		policy:   cfg.Policy,
 		maxBody:  cfg.MaxBody,
 		recorded: cfg.Recorded,
+		platform: cfg.Platform,
 		routes:   defaultRoutes,
 		handlers: map[string]Handler{},
 		invs:     map[string]*entry{},
@@ -176,6 +185,7 @@ func New(cfg Config) (*Facade, error) {
 		f.maxBody = 512 << 20
 	}
 	f.Handle("getRootJobId", f.rootJobID)
+	f.serveProviders()
 	var err error
 	if f.warm, err = reserve(); err != nil {
 		return nil, err

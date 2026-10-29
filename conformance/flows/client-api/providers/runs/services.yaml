@@ -1,0 +1,58 @@
+# Written from the reference before the oracle ran it. The arguments are
+# recorded as written (O2) and resolved for the script (O3): ctx is the
+# context resource read with the step's job id, so $WM_ROOT_JOB_ID is its
+# stored root, "" for a step directly in a top-level flow (WA-V3/a); db
+# resolves its secret and its nested $res: with that job id too (WR-5/a);
+# names resolves $WM_ROOT_JOB_ID beside a marker to the process's
+# effective root, the flow (JE-42/d); plain has no marker and stays
+# (WR-5/c). The reads without a job id leave $WM_* literal (WA-V3/a,
+# WA-12/a), a raw read resolves nothing (WA-40), $jsonvar: output is
+# terminal and its 1e3 a double (WA-V3/b, FX-42), and the errors are
+# Windmill's (WA-10/a, WA-11/a, WA-12/c, WA-42/b, WA-42/c).
+spec: [WA-40/b, WA-40/a, WA-V3/a, WA-V3/b, WA-10/a, WA-11/a, WA-12/a, WA-12/c, WA-42/b, WA-42/c, WR-5/a, WR-5/c, OR-14]
+target: f/wl_pf2_prov/services
+expect:
+  status: success
+  result:
+    args:
+      ctx: {root: ""}
+      db: {host: h, password: pw-value, nested: {r: {root: ""}}}
+      n: 1
+      plain: "$WM_WORKSPACE"
+      names: ["<job:>", s3cr3t]
+    root_env: "<job:>"
+    context: {status: 200, type: application/json, value: {root: "$WM_ROOT_JOB_ID"}}
+    db: {status: 200, type: application/json, value: {host: h, password: pw-value, nested: {r: {root: "$WM_ROOT_JOB_ID"}}}}
+    raw: {status: 200, type: application/json, value: {host: h, password: "$var:f/wl_pf2_prov/pw", nested: {r: "$res:f/wl_pf2_prov/context"}}}
+    exists: [true, false, true, false]
+    variable: {status: 200, type: application/json, value: s3cr3t}
+    secret: {status: 200, type: application/json, value: pw-value}
+    var_prefixed: {status: 404, type: text/plain, text: "Not found: Variable $var:f/wl_pf2_prov/v not found"}
+    missing: {status: 404, type: text/plain, text: "Not found: Resource f/wl_pf2_prov/none not found"}
+    outer: {status: 404, type: text/plain, located: true}
+    deep: {status: 500, type: text/plain, internal: true}
+    terminal: {status: 200, type: application/json, value: {f: {x: "$var:f/wl_pf2_prov/v", n: 1000}}}
+  steps:
+    "m:a":
+      status: success
+      args: {ctx: "$res:f/wl_pf2_prov/context", db: "$res:f/wl_pf2_prov/db", n: 1, plain: "$WM_WORKSPACE", names: ["$WM_ROOT_JOB_ID", "$var:f/wl_pf2_prov/v"]}
+      resolved_args: {ctx: {root: ""}, db: {host: h, password: pw-value, nested: {r: {root: ""}}}, n: 1, plain: "$WM_WORKSPACE", names: ["<job:>", s3cr3t]}
+      result:
+        args:
+          ctx: {root: ""}
+          db: {host: h, password: pw-value, nested: {r: {root: ""}}}
+          n: 1
+          plain: "$WM_WORKSPACE"
+          names: ["<job:>", s3cr3t]
+        root_env: "<job:>"
+        context: {status: 200, type: application/json, value: {root: "$WM_ROOT_JOB_ID"}}
+        db: {status: 200, type: application/json, value: {host: h, password: pw-value, nested: {r: {root: "$WM_ROOT_JOB_ID"}}}}
+        raw: {status: 200, type: application/json, value: {host: h, password: "$var:f/wl_pf2_prov/pw", nested: {r: "$res:f/wl_pf2_prov/context"}}}
+        exists: [true, false, true, false]
+        variable: {status: 200, type: application/json, value: s3cr3t}
+        secret: {status: 200, type: application/json, value: pw-value}
+        var_prefixed: {status: 404, type: text/plain, text: "Not found: Variable $var:f/wl_pf2_prov/v not found"}
+        missing: {status: 404, type: text/plain, text: "Not found: Resource f/wl_pf2_prov/none not found"}
+        outer: {status: 404, type: text/plain, located: true}
+        deep: {status: 500, type: text/plain, internal: true}
+        terminal: {status: 200, type: application/json, value: {f: {x: "$var:f/wl_pf2_prov/v", n: 1000}}}

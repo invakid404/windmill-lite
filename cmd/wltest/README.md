@@ -6,7 +6,8 @@ E3a added expression files, and E3e `--skip-unmet-workers` and
 `--listen-interval`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
-end to end (milestone N1a), with the for loops of milestone N3a. This README covers the `wltest` command in
+end to end (milestone N1a), with the for loops of milestone N3a and the
+platform providers of milestone PF2 (`providers.go`). This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -162,7 +163,9 @@ when it passes, and its value is then `engine.TimeoutError`'s for the
 boundary. Each case has a platform facade of its own
 ([internal/platform/facade](../../internal/platform/facade/README.md),
 milestone PF1), in its default `fail` policy, through whose `Executor` the
-runs go: a warm process gets its non-listening origin as `BASE_URL` and
+runs go, and which serves the case's `setup`, its variables and resources
+(milestone PF2; a secret's value is its plaintext, which the runner passes
+in as a host passes its secrets): a warm process gets its non-listening origin as `BASE_URL` and
 intercepts its fetches, a fresh one its listening origin, which it
 reaches over TCP. A native step reads the same origin as `BASE_URL` and
 `BASE_INTERNAL_URL`. A run's `calls` compares what the facade recorded
@@ -235,7 +238,15 @@ a few at a time (`flows.go`):
    its non-listening origin as `BASE_URL` and intercept their fetches to
    it, a native step reads the same origin as `BASE_URL` and
    `BASE_INTERNAL_URL`, and its `Executor` attributes every call and
-   applies the 501 policy in `fail` mode. Runs go in name
+   applies the 501 policy in `fail` mode. The facade and the engine read
+   one set of platform services (milestone PF2, `providers.go`): the
+   resources and variables of the fixture's sync folder, then those of its
+   `setup.yaml`, which the oracle creates after the push and so replace
+   the folder's; a setup applied before the push holds nothing at run time,
+   since the push removes it (OR-31). A secret is held as the folder holds
+   it (ciphertext without `plainSecrets`); a setup's secret is its
+   plaintext, passed in as a host passes its secrets, never through a
+   bundle. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run with the
    reason and the canceler the oracle's cancellation names
@@ -296,10 +307,8 @@ unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
 names the milestone: waits, retries, while loops and branches, subflows, a
 for loop in a flow with a failure module, caching, a preprocessor), and a
-flow that reads the platform, which needs the platform providers of PF2:
-its compiled program holds `variable(`, `resource(`, `flow_user_state(`,
-`$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or a script it
-reaches names a variable or resource of the fixture's `setup.yaml`. The
+flow that reads flow user state through the helper `flow_user_state()`
+(its compiled program holds the text), which needs milestone PF3. The
 fixture's other runs are checked. So is a run the oracle canceled on its
 own, with no `cancel_after_ms` (JE-2/a: its monitor of flows that hang
 between steps), which has no counterpart on windmill-lite.
@@ -352,7 +361,8 @@ Windmill v1.767.0's image).
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
-- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b and N3a:
+- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a and
+  PF2 (with PF1's fixture):
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
