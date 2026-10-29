@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand/v2"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -31,8 +32,11 @@ type frame struct {
 	// module (context 2).
 	child bool
 	// tail reports whether the run goes on once the frame's last module has
-	// completed, which haltAfter needs (AfterContinue).
+	// completed, which haltAfter needs (AfterContinue); so does a positive
+	// held, the count of a parallel loop's iterations still held, which
+	// the run would start.
 	tail bool
+	held *atomic.Int32
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
 	collapsed *ir.Module

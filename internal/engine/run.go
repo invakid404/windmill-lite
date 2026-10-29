@@ -34,9 +34,13 @@ type run struct {
 	env    jsonval.Value
 	latch  Latch
 	settle *RunSettlement
-	// halted is set once a module's completion ended the run halted (H8),
-	// so that the iterations of a parallel loop start nothing more.
-	halted atomic.Bool
+	// halted is set once a module ended the run halted (H8), so that the
+	// iterations of a parallel loop start nothing more; wake is closed, once,
+	// when the run is latched or halted, which wakes a parallel loop whose
+	// iterations are all held.
+	halted   atomic.Bool
+	wake     chan struct{}
+	wakeOnce sync.Once
 	// wrote is set once a write-capable module has launched (H3); writeMu
 	// holds the iterations of a parallel loop back while H3 decides.
 	writeMu sync.Mutex
@@ -47,7 +51,7 @@ type run struct {
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand) *run {
-	r := &run{e: e, f: f, id: id, hooks: hooks, exec: exec}
+	r := &run{e: e, f: f, id: id, hooks: hooks, exec: exec, wake: make(chan struct{})}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng = f.Path, id, id, newNodeScope(nil), rng
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: ModuleStateWarm}
@@ -55,8 +59,22 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	return r
 }
 
-func (r *run) ID() string      { return r.id }
-func (r *run) Latch(err error) { r.latch.Set(err) }
+func (r *run) ID() string { return r.id }
+
+// Latch latches err on the run (H5); a nil err latches nothing.
+func (r *run) Latch(err error) {
+	if r.latch.Set(err) {
+		r.signal()
+	}
+}
+
+// halt ends the run halted (H8), wherever its iterations are.
+func (r *run) halt() {
+	r.halted.Store(true)
+	r.signal()
+}
+
+func (r *run) signal() { r.wakeOnce.Do(func() { close(r.wake) }) }
 
 // site is module i of fr as hooks see it. Container bodies belong to the
 // enclosing flow, so Flow is the run's flow, and Script is the leaf's
@@ -155,7 +173,8 @@ const (
 	// latched or canceled on its way; the completion check ends the run.
 	endInterrupted
 	// endHalted: a module in the module's loop body ended the run halted
-	// (H8).
+	// (H8); the completion check still ranks a latch or the cancellation
+	// first.
 	endHalted
 )
 
@@ -209,12 +228,17 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 	result, origin := fr.input, OriginNone
 	for i, m := range fr.modules {
 		site := r.site(fr, i)
-		if r.halted.Load() {
-			return flowEnd{status: conformance.RunHalted}
-		}
 		v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, HaltBefore: r.hooks.HaltBefore(site)})
 		if st, end := v.Status(); end {
+			if st == conformance.RunHalted {
+				r.halt()
+			}
 			return flowEnd{status: st}
+		}
+		// A halt decided in another iteration of a parallel loop comes
+		// after the latch and the cancellation (ADR 0008).
+		if r.halted.Load() {
+			return flowEnd{status: conformance.RunHalted}
 		}
 		// The module's slot in the trace is reserved first, so late output
 		// of its invocation always has a record to go to.
@@ -228,17 +252,14 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		r.span(site.Path, SpanModule, start)
 		r.setRecord(idx, o.rec)
 		if err := r.hooks.OnModuleEnd(ctx, r, site, o.rec); err != nil {
-			r.latch.Set(HookLatchError(ctx, err))
-		}
-		if o.end == endHalted {
-			return flowEnd{status: conformance.RunHalted}
+			r.Latch(HookLatchError(ctx, err))
 		}
 		fatal := o.end == endFailed && r.hooks.FatalErrorName(errorName(o.carried))
 		v = Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, FatalName: fatal})
 		if v == EndLatched && r.latch.Err() == nil {
 			// H7: the outcome's error latches the run, which bypasses what
 			// the flow would have done with the failure.
-			r.latch.Set(&FatalError{Site: site.Path, Name: errorName(o.carried), Value: o.carried})
+			r.Latch(&FatalError{Site: site.Path, Name: errorName(o.carried), Value: o.carried})
 			r.mark(idx, "H7")
 			r.mu.Lock()
 			r.trace.Deviations = append(r.trace.Deviations, "H7")
@@ -246,6 +267,9 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		}
 		if st, end := v.Status(); end {
 			return flowEnd{status: st}
+		}
+		if o.end == endHalted {
+			return flowEnd{status: conformance.RunHalted}
 		}
 		// Windmill's continue decision (FX-2 completion step 7), for a flow
 		// with no failure module and no tolerated failure (N1b) or retry
@@ -262,10 +286,10 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 			// completion check above ends the run for both.
 			return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: a module was interrupted with no latch or cancellation"), origin: OriginEngine}
 		}
-		continues := i < len(fr.modules)-1 || fr.tail
+		continues := i < len(fr.modules)-1 || fr.tail || fr.held != nil && fr.held.Load() > 0
 		if AfterContinue(ContinueSignals{RunContinues: continues, Final: true, HaltAfter: r.hooks.HaltAfter(site)}) == EndHalted {
 			r.mark(idx, "H8")
-			r.halted.Store(true)
+			r.halt()
 			return flowEnd{status: conformance.RunHalted}
 		}
 		prev, prevID = o.carried, m.ID
@@ -310,7 +334,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		return o
 	}
 	if err := r.hooks.OnModuleStart(ctx, r, site); err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
 		return notLaunched()
@@ -383,9 +407,9 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		// the trace keeps both.
 		rewritten, err := r.hooks.RewriteArgs(ctx, r, site, args)
 		if err != nil {
-			r.latch.Set(HookLatchError(ctx, err))
+			r.Latch(HookLatchError(ctx, err))
 		} else if !isObject(rewritten) {
-			r.latch.Set(errors.New("engine: H2 returned arguments that are not a JSON object"))
+			r.Latch(errors.New("engine: H2 returned arguments that are not a JSON object"))
 		}
 		if r.latch.Err() != nil {
 			return notLaunched()
@@ -412,7 +436,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	// Start step 10: the launch, where H1 may answer for the module.
 	out, intercepted, err := r.hooks.Intercept(ctx, r, site, stored)
 	if err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
 		return notLaunched()
@@ -437,7 +461,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			if !r.wrote {
 				r.wrote = true
 				if err := r.hooks.BeforeFirstWrite(ctx, r, site); err != nil {
-					r.latch.Set(HookLatchError(ctx, err))
+					r.Latch(HookLatchError(ctx, err))
 				}
 			}
 			r.writeMu.Unlock()
@@ -800,7 +824,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		"WM_JOB_PATH":         r.jobPath(fr, i),
 	}
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
 		return StepOutcome{}, errNotLaunched

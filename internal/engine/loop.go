@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr"
@@ -136,7 +137,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			e = r.runList(ctx, c)
 		}
 		if ended(e.status) {
-			return r.loopInterrupted(o, entries, ran, e.status)
+			return r.loopInterrupted(o, entries, ran, r.endedStatus(ctx, e.status))
 		}
 		entries = append(entries, e.result)
 		r.progress(fr, i, entries)
@@ -206,11 +207,15 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	if r.f.SameWorker && m.Sleep == nil && n > 1 {
 		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
+	// An iteration's last module is followed by whatever comes after the
+	// loop, and by the iterations still held, which the run would start.
 	after := i < len(fr.modules)-1 || fr.tail
+	var held atomic.Int32
+	held.Store(int32(n))
 	children := make([]*frame, n)
 	for k, item := range items {
 		children[k] = r.childFrame(fr, i, k, item, true)
-		children[k].tail = after
+		children[k].tail, children[k].held = after, &held
 	}
 	ends := make([]flowEnd, n)
 	done := make(chan int, n)
@@ -232,6 +237,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			next++
 			started++
 			running++
+			held.Add(-1)
 			go func() {
 				ends[k] = r.runList(ctx, children[k])
 				done <- k
@@ -242,10 +248,14 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	for running > 0 || (stopped == "" && next < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
-			// one (parallelism 0, CF-7): only the run's end stops the wait
-			// (the hold's 14-day deadline is out of scope, Q-CF-10).
-			<-ctx.Done()
-			stopped = conformance.RunCanceled
+			// one (parallelism 0, CF-7): only the run's end stops the wait,
+			// by a latch, a halt or the cancellation (the hold's 14-day
+			// deadline is out of scope, Q-CF-10).
+			select {
+			case <-ctx.Done():
+			case <-r.wake:
+			}
+			stopped = r.endedStatus(ctx, conformance.RunCanceled)
 			continue
 		}
 		<-done
@@ -269,10 +279,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 	}
 	if stopped != "" || started < n {
-		if stopped == "" {
-			stopped = conformance.RunCanceled
-		}
-		return r.loopInterrupted(o, entries, started > 0, stopped)
+		return r.loopInterrupted(o, entries, started > 0, r.endedStatus(ctx, stopped))
 	}
 	return r.loopDone(ctx, fr, i, o, entries, failed, nil)
 }
@@ -334,13 +341,26 @@ func (r *run) loopInterrupted(o outcome, entries []jsonval.Value, ran bool, stat
 }
 
 // iterationEnded reports whether a host signal ends the run before an
-// iteration starts (Start): the latch, the cancellation, or a halt that a
-// module elsewhere in the run decided.
+// iteration starts, in ADR 0008's order: the latch, the cancellation (both
+// Start's), then a halt that a module elsewhere in the run decided.
 func (r *run) iterationEnded(ctx context.Context) (conformance.RunStatus, bool) {
+	if st, end := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
+		return st, true
+	}
 	if r.halted.Load() {
 		return conformance.RunHalted, true
 	}
-	return Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status()
+	return "", false
+}
+
+// endedStatus is the status a loop that host signals cut short ends the
+// run with: the strongest signal by iterationEnded's order, whichever
+// iteration met it first, or fallback.
+func (r *run) endedStatus(ctx context.Context, fallback conformance.RunStatus) conformance.RunStatus {
+	if st, end := r.iterationEnded(ctx); end {
+		return st
+	}
+	return fallback
 }
 
 // ended reports whether a flow ended because of a host signal.

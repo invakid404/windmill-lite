@@ -779,6 +779,99 @@ func errorOf(v jsonval.Value) (string, string) {
 	return e.Error.Name, e.Error.Message
 }
 
+// haltAt halts the run before or after the modules at the given site
+// paths (H8); decided, when set, is closed once haltBefore has matched.
+type haltAt struct {
+	NoHooks
+	before, after string
+	decided       chan struct{}
+}
+
+func (h haltAt) HaltBefore(s Site) bool {
+	if s.Path.String() != h.before {
+		return false
+	}
+	if h.decided != nil {
+		close(h.decided)
+	}
+	return true
+}
+func (h haltAt) HaltAfter(s Site) bool { return s.Path.String() == h.after }
+
+// ADR 0008 in a parallel loop: a halt in one iteration stops the others at
+// their next module and wakes an iteration whose loop holds every
+// iteration; the latch, then the cancellation, then a halt decide the
+// run's status, whichever iteration met its signal first; a body's last
+// module halts after it while iterations are still held.
+func TestLoopParallelHostSignals(t *testing.T) {
+	body := []string{mod("b", "value", inputs("v", static("1")), ""), mod("c", "value", inputs("v", static("2")), "")}
+	loop := loopOf("l", body, `"iterator":{"type":"static","value":[0,1]},"parallel":true,"skip_failures":false`, "")
+
+	// A halt before i:0's c stops i:1 before its c.
+	g := newGated()
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(loop)}, g)
+	decided := make(chan struct{})
+	out := runAsync(context.Background(), e, `{}`, haltAt{before: "m:l/i:0/m:c", decided: decided})
+	first := []string{g.next(t), g.next(t)}
+	slices.Sort(first)
+	if !slices.Equal(first, []string{"m:l/i:0/m:b", "m:l/i:1/m:b"}) {
+		t.Fatalf("started %v", first)
+	}
+	g.done("m:l/i:0/m:b")
+	<-decided
+	// The engine records the halt right after haltBefore answers.
+	time.Sleep(20 * time.Millisecond)
+	g.done("m:l/i:1/m:b")
+	tr := <-out
+	if tr.Status != conformance.RunHalted || len(g.started) != 2 {
+		t.Fatalf("halt before: status %s, started %v", tr.Status, g.started)
+	}
+
+	// The same halt, then the cancellation while i:1 runs: canceled.
+	g = newGated()
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(loop)}, g)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	decided = make(chan struct{})
+	out = runAsync(ctx, e, `{}`, haltAt{before: "m:l/i:0/m:c", decided: decided})
+	g.next(t)
+	g.next(t)
+	g.done("m:l/i:0/m:b")
+	<-decided
+	cancel()
+	if tr = <-out; tr.Status != conformance.RunCanceled {
+		t.Fatalf("halt then cancel: status %s", tr.Status)
+	}
+
+	// An inner loop that holds every iteration wakes when a sibling of its
+	// iteration halts the run.
+	inner := loopOf("inner", []string{mod("x", "value", inputs("v", static("0")), "")}, `"iterator":{"type":"static","value":[0]},"parallel":true,"skip_failures":false,"parallelism":0`, "")
+	outer := loopOf("l", []string{mod("b", "value", inputs("v", static("1")), ""), inner}, `"iterator":{"type":"static","value":[0,1]},"parallel":true,"skip_failures":false`, "")
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(outer)}, &loopSteps{})
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Hooks: haltAt{before: "m:l/i:1/m:inner"}, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Status != conformance.RunHalted || time.Since(start) > 5*time.Second {
+		t.Fatalf("a held loop: status %s after %s", tr.Status, time.Since(start))
+	}
+
+	// haltAfter at a body's last module halts while an iteration is held.
+	s := &loopSteps{}
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(parallelLoop(2, `1`, false))}, s)
+	tr = runIt(t, e, `{}`, haltAt{after: "m:l/i:0/m:b"})
+	if tr.Status != conformance.RunHalted || len(s.invs) != 1 {
+		t.Fatalf("halt after: status %s, invocations %d", tr.Status, len(s.invs))
+	}
+	// With nothing held after it, the last iteration's halt changes
+	// nothing: the run would start nothing more.
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(parallelLoop(2, `1`, false))}, &loopSteps{})
+	wantStatus(t, runIt(t, e, `{}`, haltAt{after: "m:l/i:1/m:b"}), conformance.RunSuccess, `[0,1]`)
+}
+
 // latchAfter latches the run once a module ends.
 type latchAfter struct{ NoHooks }
 

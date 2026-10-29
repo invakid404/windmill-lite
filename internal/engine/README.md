@@ -440,7 +440,13 @@ result is the array of its iterations' results
 
 The host checks run before every iteration too (`Start`): a latch, the
 cancellation or a halt starts none, and a parallel loop waits for the
-iterations it started. A loop so interrupted records the array so far.
+iterations it started. A halt decided in one parallel iteration stops the
+others at their next module, and wakes a loop whose iterations are all
+held; the run's status ranks the latch, then the cancellation, then the
+halt (ADR 0008), whichever iteration met its signal first. A body's last
+module may halt after it while iterations of its parallel loop are still
+held, since the run would start them. A loop so interrupted records the
+array so far.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -457,7 +463,8 @@ texts, `skip_failures`, every break and stop of the flow, the empty
 loop, the iterator's errors at both routes, nested `iter`, a parallel
 loop's index order, `parallelism`'s release order with a gated executor
 (N = 2, 1 and 0), continue-all, its start errors, chaining errors in a
-child flow, the hooks inside loops, concurrent runs, and serde's texts.
+child flow, the hooks inside loops and the host signals across parallel
+iterations, concurrent runs, and serde's texts.
 The flow fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
 milestones N1a and N3a).
