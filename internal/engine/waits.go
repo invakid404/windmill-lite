@@ -233,13 +233,13 @@ func (c *RecordClock) Waits() []time.Duration {
 // "EOF while parsing a value" at the end.
 func decodeJSON(text []byte) (any, error) {
 	if msg, ok := serdeSyntax(text); ok {
-		return nil, errors.New(msg)
+		return nil, notJSON(msg)
 	}
 	t := bytes.TrimLeft(text, " \t\r\n")
 	start := len(text) - len(t)
 	if t[0] == '-' || t[0] >= '0' && t[0] <= '9' {
 		if msg, bad := serdeNumber(text, start, numberToken(t)); bad {
-			return nil, errors.New(msg)
+			return nil, notJSON(msg)
 		}
 	}
 	dec := json.NewDecoder(bytes.NewReader(text))
@@ -247,18 +247,21 @@ func decodeJSON(text []byte) (any, error) {
 	v, err := decodeValue(dec)
 	if err != nil {
 		var se *json.SyntaxError
-		switch {
-		case errors.As(err, &se):
-			return nil, errors.New("expected value" + serdePosition(text, int(se.Offset)))
-		default:
-			return nil, errors.New("EOF while parsing a value" + serdePosition(text, len(text)))
+		if errors.As(err, &se) {
+			return nil, notJSON("expected value" + serdePosition(text, int(se.Offset)))
 		}
+		return nil, notJSON("EOF while parsing a value" + serdePosition(text, len(text)))
 	}
 	if msg, trailing := serdeTrailing(text, int(dec.InputOffset())); trailing {
-		return nil, errors.New(msg)
+		return nil, notJSON(msg)
 	}
 	return v, nil
 }
+
+// notJSON is serde_json's error for a text that is not one JSON value.
+type notJSON string
+
+func (e notJSON) Error() string { return string(e) }
 
 // decodeValue decodes the next value of dec, keeping object members in
 // order.
@@ -383,7 +386,8 @@ func parseI32(text []byte) (int32, error) {
 // rustValueDebug writes a JSON value as the Debug form of serde_json's
 // Value does, its objects in insertion order (the backend builds
 // serde_json with preserve_order, JE-44): Null, Bool(true), Number(1.5),
-// String("…"), Array [Number(1)], Object {"a": Null}.
+// String("…"), Array [Number(1)], Object {"a": Null}, a float in
+// rustFloat's spelling (Number(1e+21)).
 func rustValueDebug(v any) string {
 	var b strings.Builder
 	writeValueDebug(&b, v)
@@ -404,7 +408,7 @@ func writeValueDebug(b *strings.Builder, v any) {
 		case numberSigned:
 			b.WriteString(strconv.FormatInt(i, 10))
 		default:
-			b.WriteString(ryuFormat(f))
+			b.WriteString(rustFloat(f))
 		}
 		b.WriteByte(')')
 	case string:
@@ -429,44 +433,6 @@ func writeValueDebug(b *strings.Builder, v any) {
 		}
 		b.WriteByte('}')
 	}
-}
-
-// ryuFormat writes f as the ryu crate's format_finite does, which
-// serde_json displays floats with, in a Number's debug form and in the
-// "floating point `…`" of a value of another type than expected
-// (serdeUnexpected): the shortest digits, in positional form when the
-// decimal point falls within 16 digits of them and in scientific form
-// (1e30, 1.234e-7) otherwise, with ".0" on an integral value.
-func ryuFormat(f float64) string {
-	if f == 0 {
-		if math.Signbit(f) {
-			return "-0.0"
-		}
-		return "0.0"
-	}
-	sign := ""
-	if f < 0 {
-		sign, f = "-", -f
-	}
-	// strconv's shortest form: d.ddde±x.
-	e := strconv.FormatFloat(f, 'e', -1, 64)
-	mant, expText, _ := strings.Cut(e, "e")
-	digits := strings.Replace(mant, ".", "", 1)
-	exp, _ := strconv.Atoi(expText)
-	length := len(digits)
-	k := exp - (length - 1) // f = digits × 10^k
-	kk := length + k        // where the decimal point falls
-	switch {
-	case k >= 0 && kk <= 16:
-		return sign + digits + strings.Repeat("0", k) + ".0"
-	case kk > 0 && kk <= 16:
-		return sign + digits[:kk] + "." + digits[kk:]
-	case kk > -5 && kk <= 0:
-		return sign + "0." + strings.Repeat("0", -kk) + digits
-	case length == 1:
-		return sign + digits + "e" + strconv.Itoa(kk-1)
-	}
-	return sign + digits[:1] + "." + digits[1:] + "e" + strconv.Itoa(kk-1)
 }
 
 // orderedObject is a JSON object with its members in order.

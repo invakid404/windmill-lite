@@ -90,9 +90,9 @@ func TestTimeoutResult(t *testing.T) {
 		// The recorded JE-29/a.
 		{"1.5", 0, p + "invalid type: floating point `1.5`, expected i32 at line 1 column 3. Value was: 1.5"},
 		{"2e0", 0, p + "invalid type: floating point `2.0`, expected i32 at line 1 column 3. Value was: 2e0"},
-		// serde_json writes the float with ryu (fx-24/js_exponent).
-		{"1e21", 0, p + "invalid type: floating point `1e21`, expected i32 at line 1 column 4. Value was: 1e21"},
-		{"1e+21", 0, p + "invalid type: floating point `1e21`, expected i32 at line 1 column 5. Value was: 1e+21"},
+		// serde_json writes the float as rustFloat does (fx-24/js_exponent).
+		{"1e21", 0, p + "invalid type: floating point `1e+21`, expected i32 at line 1 column 4. Value was: 1e21"},
+		{"1e+21", 0, p + "invalid type: floating point `1e+21`, expected i32 at line 1 column 5. Value was: 1e+21"},
 		{"-0", 0, p + "invalid type: floating point `-0.0`, expected i32 at line 1 column 2. Value was: -0"},
 		{"2147483648", 0, p + "invalid value: integer `2147483648`, expected i32 at line 1 column 10. Value was: 2147483648"},
 		{"-3000000000", 0, p + "invalid value: integer `-3000000000`, expected i32 at line 1 column 11. Value was: -3000000000"},
@@ -279,21 +279,21 @@ func TestSeededJitter(t *testing.T) {
 	}
 }
 
-// The ryu crate's float form, which serde_json's Number displays in a
-// value's debug form.
-func TestRyuFormat(t *testing.T) {
-	for f, want := range map[float64]string{
-		0: "0.0", 1: "1.0", 1.5: "1.5", -2.25: "-2.25", 1e15: "1000000000000000.0",
-		1234567890123456: "1234567890123456.0", 1e16: "1e16", 1e21: "1e21",
-		1.234e33: "1.234e33", 123456789012345680000: "1.2345678901234568e20",
-		0.001234: "0.001234", 0.0001: "0.0001", 1e-5: "0.00001", 1e-6: "1e-6", 1.5e-7: "1.5e-7",
+// The debug form of serde_json's Value, which a sleep's error quotes: its
+// floats in rustFloat's spelling, its objects in insertion order.
+func TestRustValueDebug(t *testing.T) {
+	for text, want := range map[string]string{
+		`[1e21, 1.5, 2.0, -0, 1e-7]`:  "Array [Number(1e+21), Number(1.5), Number(2.0), Number(-0.0), Number(1e-7)]",
+		`{"z": 18446744073709551615}`: `Object {"z": Number(18446744073709551615)}`,
+		`"\u0001"`:                    `String("\u{1}")`,
 	} {
-		if got := ryuFormat(f); got != want {
-			t.Errorf("%v: %s, want %s", f, got, want)
+		v, err := decodeJSON([]byte(text))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if got := ryuFormat(math.Copysign(0, -1)); got != "-0.0" {
-		t.Errorf("-0: %s", got)
+		if got := rustValueDebug(v); got != want {
+			t.Errorf("%s: %s, want %s", text, got, want)
+		}
 	}
 }
 

@@ -1546,8 +1546,12 @@ func (r *run) leafTimeout(fr *frame, m *ir.Module, secs *int64) (time.Duration, 
 // evaluated with that module's own result own as result and
 // previous_result and no results (JE-22). A failed evaluation fails with
 // "Expected a number value, had error instead: ExecutionErr(…)", the debug
-// form of the evaluation's error, and a value that is not a delay with
-// sleepDelay's texts, all chaining errors (FX-15).
+// form of the evaluation's error, and so does a result that is not JSON
+// (a replaced JSON.stringify, JE-15), which the evaluation itself fails
+// to read as a JSON value: "Error parsing result as
+// serde_json::value::Value: <serde_json's error>. Value was: <the text>"
+// (recorded by fx-23/sleep_not_json). A value that is not a delay fails
+// with sleepDelay's texts. All are chaining errors (FX-15).
 func (r *run) sleep(ctx context.Context, fr *frame, t *ir.Transform, site conformance.SitePath, own jsonval.Value) (time.Duration, error) {
 	text := []byte(orNull(t.Value))
 	if t.Type == ir.Javascript {
@@ -1559,6 +1563,12 @@ func (r *run) sleep(ctx context.Context, fr *frame, t *ir.Transform, site confor
 			return 0, &evalFailure{text: "Expected a number value, had error instead: ExecutionErr(" + rustDebug(evaluationFailure(t.Expr, err).Error()) + ")", err: err}
 		}
 		text = v.Producer()
+		d, err := sleepDelay(text)
+		var nj notJSON
+		if errors.As(err, &nj) {
+			return 0, &evalFailure{text: "Expected a number value, had error instead: ExecutionErr(" + rustDebug("Error parsing result as serde_json::value::Value: "+string(nj)+". Value was: "+string(text)) + ")", err: err}
+		}
+		return d, err
 	}
 	return sleepDelay(text)
 }

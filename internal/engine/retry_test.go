@@ -728,10 +728,17 @@ func TestEngineMonitorRefreshedByChildFlows(t *testing.T) {
 	}
 }
 
+// sleepNotJSON is the error of a sleep whose evaluation returned text
+// that is not JSON, serde_json's error msg (fx-23/sleep_not_json).
+func sleepNotJSON(msg, text string) string {
+	return "Expected a number value, had error instead: ExecutionErr(" + rustDebug("Error parsing result as serde_json::value::Value: "+msg+". Value was: "+text) + ")"
+}
+
 // JE-15, JE-28, JE-29: a replaced JSON.stringify hands sleep and timeout
 // text that is not JSON, which fails with serde_json's syntax errors (the
 // helpers of serde.go): a broken or truncated literal, a leading zero, a
-// value on a later line.
+// value on a later line. A sleep's evaluation fails to read it, so its
+// error is the evaluation's.
 func TestEngineTimeValuesNotJSON(t *testing.T) {
 	stringify := func(text string) string {
 		return js(`(JSON.stringify = () => ` + string(jsonString(text)) + `, 1)`)
@@ -739,9 +746,9 @@ func TestEngineTimeValuesNotJSON(t *testing.T) {
 	for _, c := range []struct {
 		name, flow, want string
 	}{
-		{"sleep, a broken literal", flowOf(mod("a", "value", "", `"sleep":`+stringify("nope")), mod("b", "value", "", "")), "expected ident at line 1 column 2"},
-		{"sleep, a truncated literal", flowOf(mod("a", "value", "", `"sleep":`+stringify("tru")), mod("b", "value", "", "")), "EOF while parsing a value at line 1 column 3"},
-		{"sleep, a leading zero", flowOf(mod("a", "value", "", `"sleep":`+stringify("01")), mod("b", "value", "", "")), "invalid number at line 1 column 2"},
+		{"sleep, a broken literal", flowOf(mod("a", "value", "", `"sleep":`+stringify("nope")), mod("b", "value", "", "")), sleepNotJSON("expected ident at line 1 column 2", "nope")},
+		{"sleep, a truncated literal", flowOf(mod("a", "value", "", `"sleep":`+stringify("tru")), mod("b", "value", "", "")), sleepNotJSON("EOF while parsing a value at line 1 column 3", "tru")},
+		{"sleep, a leading zero", flowOf(mod("a", "value", "", `"sleep":`+stringify("01")), mod("b", "value", "", "")), sleepNotJSON("invalid number at line 1 column 2", "01")},
 		{"timeout, a broken literal", flowOf(mod("a", "value", "", ""), mod("b", "value", "", `"timeout":`+stringify("nope"))), "Error parsing result as i32: expected ident at line 1 column 2. Value was: nope"},
 		{"timeout, a leading zero", flowOf(mod("a", "value", "", ""), mod("b", "value", "", `"timeout":`+stringify("01"))), "Error parsing result as i32: invalid number at line 1 column 2. Value was: 01"},
 		{"timeout, a later line", flowOf(mod("a", "value", "", ""), mod("b", "value", "", `"timeout":`+stringify("\n  x"))), "Error parsing result as i32: expected value at line 2 column 3. Value was: \n  x"},

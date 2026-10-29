@@ -157,7 +157,7 @@ func serdeSequenceError(text []byte) string {
 
 // serdeUnexpected names the first JSON value of text as serde's
 // Unexpected does, with serde_json's spelling of null and of a float
-// (its JsonUnexpected: "null", and the float as ryu writes it), and
+// ("null", and the float as rustFloat writes it), and
 // returns the reader's position once it has named it.
 func serdeUnexpected(text []byte) (string, int) {
 	t := bytes.TrimLeft(text, " \t\r\n")
@@ -184,14 +184,14 @@ func serdeUnexpected(text []byte) (string, int) {
 		return "null", p + 4
 	case c == '-' || c >= '0' && c <= '9':
 		// An integer of 64 bits, but negative zero, which serde_json reads
-		// as a float (classifyNumber); a float written with ryu
-		// (ryuFormat): 1e21, not the re-printed 1e+21 of rustFloat.
+		// as a float (classifyNumber); a float in rustFloat's spelling,
+		// 1e+21 (recorded by fx-24/js_exponent).
 		tok := numberToken(t)
 		if k, _, _, _ := classifyNumber(string(tok)); k != numberFloat {
 			return "integer `" + string(tok) + "`", p + len(tok)
 		}
 		if f, err := strconv.ParseFloat(string(tok), 64); err == nil {
-			return "floating point `" + ryuFormat(f) + "`", p + len(tok)
+			return "floating point `" + rustFloat(f) + "`", p + len(tok)
 		}
 	}
 	return "unit value", p

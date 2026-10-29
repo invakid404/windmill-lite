@@ -771,12 +771,16 @@ fixture recorded on the oracle:
   then more than white space after the value, at serde_json's positions
   (lines included); its other syntax errors read `expected value` where
   the decoder stopped. An i32 is checked for type and range before what
-  follows it. The oracle recorded the commonest of these
+  follows it. A sleep's evaluation itself fails to read such a text, so
+  its error is `Expected a number value, had error instead:
+  ExecutionErr("Error parsing result as serde_json::value::Value: <serde
+  error>. Value was: <text>")`. The oracle recorded these
   (`fx-23/sleep_not_json`, `fx-24/js_not_json`, `fx-24/js_leading_zero`).
-- serde_json names a float of the wrong type as ryu writes it
-  (`floating point `1e21``, recorded by `fx-24/js_exponent`), and a
-  negative zero is a float (`-0.0`); `serdeUnexpected`, which N3a's
-  iterator and `parallelism` errors share, writes both so.
+- serde_json names a float of the wrong type in `rustFloat`'s spelling
+  (`floating point `1e+21``, recorded by `fx-24/js_exponent`), and a
+  negative zero is a float (`-0.0`), which `serdeUnexpected`, shared with
+  N3a's iterator and `parallelism` errors, now reads as one; a `Value`'s
+  debug form writes its floats so too.
 - A sleep beyond about 292 years waits that long, where Windmill's
   scheduled time would overflow.
 - serde_json's `Value` debug form writes an object's members in insertion
@@ -785,8 +789,8 @@ fixture recorded on the oracle:
 **Tests.** `waits_test.go` checks the values of `sleep` and `timeout`
 (every case of JE-28's and JE-29's texts, with serde_json's positions),
 FX-26's schedule (FX-26/a to /e, the wrap in the jitter's product, the
-saturating sum, the factor's bounds), the seeded jitter, the ryu float
-form and the recording clock. `retry_test.go` runs flows: argument reuse
+saturating sum, the factor's bounds), the seeded jitter, a `Value`'s
+debug form and the recording clock. `retry_test.go` runs flows: argument reuse
 and the attempt records, the flow-wide counter and list (FX-29/a and /b,
 and an attempt whose site counts an earlier module's), FX-26/a to /e and
 the jitter through the engine on the recording clock, `retry_if` (false,
