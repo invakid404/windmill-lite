@@ -86,7 +86,8 @@ A `StepOutcome` mirrors the harness's `result` frame (`ok`, `error`,
   once with the context's cause. The engine names the cause with a
   `CancelReason` (`timeout`, `canceled`, `run_ended`). Anything the
   abandoned invocation produces later reaches the trace through `Reporter`
-  as `Late` (deviations D2 and D9).
+  as `Late` (deviations D2 and D9). In `fresh` mode the harness process is
+  killed instead, so the invocation settles with it and nothing comes late.
 
 ## Stored values and the entrypoint
 
@@ -132,6 +133,13 @@ An invocation settles when its entrypoint call can run no more code, and
 | `not_started` | the invocation never reached a harness | before |
 | `process_exited` | the harness process ended before the call did | before when the invocation was in flight; later when it had been abandoned or its outcome was fixed early |
 
+- **Warnings.** `Warning` hands over a process-level error no invocation
+  owned (code `unattributed_error`), what the invocation still had when
+  it settled (code `left_behind`, its `Left` counting the timers, requests
+  and child processes by kind), which the settle-time fence then revoked
+  (D9), or what the native boundary handed a native invocation but does
+  not track (code `native_untracked`, its `Untracked` counting by kind,
+  D5). None changes the outcome.
 - **Order.** One invocation's `Reporter` is never called from two goroutines
   at once. Its calls come in this order: `Late` and `Warning`; at most one
   `Late` with `Final` set, which says how a late-ending call ended;

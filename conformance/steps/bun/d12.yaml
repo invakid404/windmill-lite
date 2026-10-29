@@ -96,3 +96,118 @@ cases:
           - {at: /result/error/name, equals: ExecutionErr}
           - {at: /result/error/exit_code, equals: 1}
           - {at: /result/error/message, contains: [pool maintenance]}
+  - spec: D12
+    variant: pool-monitor
+    provenance: policy
+    title: a pooled client made in run 1 through the pool's captured scope keeps its monitor after run 1 settles, so run 2 sees the failover it detected
+    note: >-
+      The pool makes its client, and the client's monitor timer, in the
+      scope it captured at load, never the borrower's (decisions,
+      2026-10-28, the pooler study), so the settle-time fence does not
+      clear the monitor and run 1 leaves nothing behind. Run 2 waits before
+      it borrows, so in fresh mode, where the process is new, it gets a new
+      client whose monitor has not run.
+    deviation: D9
+    host_modules:
+      - path: f/wl_step/monitored_pool
+        script: |
+          const inProcess = globalThis[Symbol.for("windmill-lite.processScope")].capture();
+          let client;
+          export function connect() {
+            return inProcess(() => {
+              client ??= { primary: "node-a", checks: 0 };
+              client.monitor ??= setInterval(() => {
+                client.checks++;
+                if (client.checks === 3) client.primary = "node-b";
+              }, 5);
+              return client;
+            });
+          }
+    script: |
+      import { connect } from "./monitored_pool.ts";
+      export async function main(later: boolean) {
+        if (later) await Bun.sleep(60);
+        const c = connect();
+        return [c.primary, c.checks >= 3];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [node-a, false]}
+      - args: '{"later":true}'
+        by_mode:
+          warm: {expect: {status: success, result: [node-b, true]}}
+          fresh: {expect: {status: success, result: [node-a, false]}}
+  - spec: D12
+    variant: pool-handshake-timeout
+    provenance: policy
+    title: a pool's handshake timeout that crosses the borrowing step's settlement still fires, and gives its permit back
+    note: >-
+      Run 1 starts a connection, which takes the pool's one permit and
+      never answers, and returns before the handshake's timeout. The timeout
+      was set in the pool's captured scope, so the fence leaves it alone;
+      run 2 finds the permit back. In fresh mode run 2's pool is new.
+    deviation: D9
+    host_modules:
+      - path: f/wl_step/permit_pool
+        script: |
+          const inProcess = globalThis[Symbol.for("windmill-lite.processScope")].capture();
+          export const pool = { permits: 1 };
+          export function connect(ms) {
+            return inProcess(() => {
+              pool.permits--;
+              return new Promise((_, reject) => setTimeout(() => { pool.permits++; reject(new Error("handshake timed out")); }, ms));
+            });
+          }
+    script: |
+      import { connect, pool } from "./permit_pool.ts";
+      export async function main(wait: boolean) {
+        if (!wait) {
+          connect(30).catch(() => {});
+          return pool.permits;
+        }
+        for (let i = 0; i < 100 && pool.permits < 1; i++) await Bun.sleep(10);
+        return pool.permits;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 0}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: 1}}
+          fresh: {expect: {status: success, result: 1}}
+  - spec: D12
+    variant: pool-handshake-without-scope
+    provenance: policy
+    title: the same pool without the captured scope sets its handshake timeout in the borrower's context, so the fence clears it and the permit is lost
+    note: >-
+      The control of pool-handshake-timeout, and why a pool must make its
+      connections in its own scope: run 1 leaves the timeout behind, which
+      is reported, and in warm mode run 2 waits in vain for the permit.
+    deviation: D9
+    host_modules:
+      - path: f/wl_step/bare_permit_pool
+        script: |
+          export const pool = { permits: 1 };
+          export function connect(ms) {
+            pool.permits--;
+            return new Promise((_, reject) => setTimeout(() => { pool.permits++; reject(new Error("handshake timed out")); }, ms));
+          }
+    script: |
+      import { connect, pool } from "./bare_permit_pool.ts";
+      export async function main(wait: boolean) {
+        if (!wait) {
+          connect(30).catch(() => {});
+          return pool.permits;
+        }
+        for (let i = 0; i < 30 && pool.permits < 1; i++) await Bun.sleep(10);
+        return pool.permits;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 0}
+        warnings: [left_behind]
+        left: {timeout: 1}
+      - args: '{"wait":true}'
+        by_mode:
+          warm: {expect: {status: success, result: 0}}
+          fresh: {expect: {status: success, result: 1}}

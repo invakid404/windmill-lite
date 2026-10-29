@@ -57,15 +57,19 @@ type ProcessConfig struct {
 	Kind    string
 	Runtime string
 	Bundle  string
-	// ModuleState is the process's module-state mode. Only
-	// engine.ModuleStateWarm is implemented; fresh mode is milestone C3b.
+	// ModuleState is the process's module-state mode (ADR 0006): warm,
+	// the default, serves any number of invocations; fresh serves one,
+	// ends with it as Windmill's job process does, has no watchdog, and is
+	// killed when the engine stops waiting for its invocation.
 	ModuleState engine.ModuleState
 	// EngineVersion is sent in the welcome.
 	EngineVersion string
 
 	// KillAfter is the watchdog threshold: the process is killed when no
 	// frame has arrived from it for that long. Zero means
-	// DefaultKillAfter; WatchdogOff disables the watchdog.
+	// DefaultKillAfter; WatchdogOff disables the watchdog. A fresh process
+	// has none: it is the invocation, which only its own timeout ends
+	// (ADR 0004, case watchdog/finite-cpu).
 	KillAfter time.Duration
 	// Heartbeat is how often the harness pings on its own. Zero means one
 	// second, or a quarter of KillAfter when that is shorter.
@@ -190,6 +194,7 @@ type Process struct {
 	helloCh    chan Hello
 	hello      Hello
 	invs       map[string]*invocation
+	served     bool                               // a fresh process's one invocation was dispatched
 	runs       map[string]context.CancelCauseFunc // a host's runs in flight
 	recent     recentInvocations
 	inFlight   int
@@ -268,8 +273,8 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	if cfg.ModuleState == "" {
 		cfg.ModuleState = engine.ModuleStateWarm
 	}
-	if cfg.ModuleState != engine.ModuleStateWarm {
-		return nil, 0, fmt.Errorf("harness: module-state mode %q is not implemented (fresh mode is milestone C3b)", cfg.ModuleState)
+	if cfg.ModuleState != engine.ModuleStateWarm && cfg.ModuleState != engine.ModuleStateFresh {
+		return nil, 0, fmt.Errorf("harness: unknown module-state mode %q", cfg.ModuleState)
 	}
 	p := &Process{
 		cfg:        cfg,
@@ -285,6 +290,9 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	}
 	if p.killAfter == 0 {
 		p.killAfter = DefaultKillAfter
+	}
+	if cfg.ModuleState == engine.ModuleStateFresh {
+		p.killAfter = WatchdogOff
 	}
 	if p.heartbeat == 0 {
 		p.heartbeat = time.Second
@@ -451,6 +459,8 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine spawned pid %d", h.PID, p.pid)}
 	case p.host != nil && !h.Caps.Host:
 		reject = &Reject{RejectHarness, "a harness that connects in host mode must offer the host capability"}
+	case p.cfg.ModuleState == engine.ModuleStateFresh && !h.Caps.Fresh:
+		reject = &Reject{RejectHarness, "a harness spawned in fresh mode must offer the fresh capability"}
 	case p.host != nil && h.PID != p.host.getppid():
 		// In host mode the engine is the host's child: the process its
 		// watchdog would signal is its parent, and the one that greets it
@@ -670,7 +680,7 @@ func (p *Process) onWarning(w Warning) (*invocation, []func()) {
 		p.diag.printf("dropped a warning for invocation %q, which is not in flight: %s", w.ID, w.Message)
 		return nil, nil
 	}
-	warning := engine.Warning{Code: w.Code, Message: w.Message}
+	warning := engine.Warning{Code: w.Code, Message: w.Message, Left: w.Left, Untracked: w.Untracked}
 	return inv, []func(){func() { inv.report.Warning(warning) }}
 }
 
@@ -724,9 +734,18 @@ func (p *Process) readerDone(err error) {
 	}
 	p.conn.close()
 	status := p.endInvocations()
+	p.mu.Lock()
+	clean := p.readErr == nil && p.killReason == ""
+	p.mu.Unlock()
 	// A process that dies fails its in-flight invocations as escaped, with
-	// its real exit code or the signal that ended it (ADR 0004, WR-4).
+	// its real exit code or the signal that ended it (ADR 0004, WR-4). A
+	// fresh process is its invocation's job process: when it exits 0
+	// before a result, over a connection that never failed, the job's
+	// result is empty (WR-19, WR-V2), as after process.exit(0).
 	p.failInvocations(func(inv *invocation) execResult {
+		if p.cfg.ModuleState == engine.ModuleStateFresh && clean && status.Signal == "" && status.Code == 0 {
+			return execResult{out: engine.StepOutcome{Kind: engine.OutcomeEmpty}}
+		}
 		return execResult{out: engine.StepOutcome{
 			Kind:     engine.OutcomeEscaped,
 			Tail:     inv.tail.String(),
@@ -862,7 +881,7 @@ func platformAnswer(ctx context.Context, h PlatformHandler, req PlatformRequest)
 // for the invocation (see invocation.fixed), but never for one that was
 // not dispatched.
 func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func()) (engine.StepOutcome, dispatch, error) {
-	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.Facade); err != nil {
+	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.ModuleState, p.cfg.Facade); err != nil {
 		return engine.StepOutcome{}, notDispatched, err
 	}
 	payload, err := Encode(Invoke{
@@ -891,6 +910,11 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		p.mu.Unlock()
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q is already in flight", inv.ID)
 	}
+	fresh := p.cfg.ModuleState == engine.ModuleStateFresh
+	if fresh && p.served {
+		p.mu.Unlock()
+		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q: a fresh process serves one invocation", inv.ID)
+	}
 	if err := p.conn.sendPayload(payload, inv.ID); err != nil {
 		p.mu.Unlock()
 		if errors.Is(err, net.ErrClosed) {
@@ -899,6 +923,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
 	}
 	p.invs[inv.ID] = e
+	p.served = p.served || fresh
 	p.inFlight++
 	p.mu.Unlock()
 
@@ -928,8 +953,16 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 			fixed()
 		}
 	}, p.notifyFunc(), func() { close(freed) })
-	p.conn.send(Cancel{ID: inv.ID, Reason: string(reason)})
+	if !fresh {
+		p.conn.send(Cancel{ID: inv.ID, Reason: string(reason)})
+	}
 	p.mu.Unlock()
+	if fresh {
+		// A fresh process is the invocation: Windmill kills the job's
+		// process at once on timeout or cancellation (WR-37), so it settles
+		// with the process, never late.
+		p.kill("invocation " + string(reason))
+	}
 	<-freed
 	return engine.StepOutcome{}, abandoned, context.Cause(ctx)
 }
@@ -937,10 +970,10 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 var entryName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // checkInvocation refuses invocations this harness cannot run. They never
-// reach it. A native one needs a harness that offers the native boundary
-// and a facade origin, which a native step reads as BASE_URL and
-// BASE_INTERNAL_URL (WR-45).
-func checkInvocation(inv engine.Invocation, caps Caps, facade string) error {
+// reach it. One must run in the process's module state. A native one
+// needs a harness that offers the native boundary and a facade origin,
+// which a native step reads as BASE_URL and BASE_INTERNAL_URL (WR-45).
+func checkInvocation(inv engine.Invocation, caps Caps, mode engine.ModuleState, facade string) error {
 	switch {
 	case inv.ID == "":
 		return errors.New("harness: invocation without an id")
@@ -948,8 +981,8 @@ func checkInvocation(inv engine.Invocation, caps Caps, facade string) error {
 		return fmt.Errorf("harness: invocation %q has no arguments", inv.ID)
 	case !entryName.MatchString(inv.Entry):
 		return fmt.Errorf("harness: invocation %q: entrypoint %q is not a valid name", inv.ID, inv.Entry)
-	case inv.ModuleState != "" && inv.ModuleState != engine.ModuleStateWarm:
-		return fmt.Errorf("harness: invocation %q: module-state mode %q is not implemented (milestone C3b)", inv.ID, inv.ModuleState)
+	case inv.ModuleState != "" && inv.ModuleState != mode:
+		return fmt.Errorf("harness: invocation %q runs in module state %q, the process in %q", inv.ID, inv.ModuleState, mode)
 	}
 	switch inv.Boundary {
 	case engine.BoundaryBun, "":

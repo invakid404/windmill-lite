@@ -1,6 +1,6 @@
 {
   "case": "stdout-is-not-the-channel",
-  "title": "what a step prints never reaches the frame channel",
+  "title": "what a step prints goes to its log frames, or to the process's stdout, and never reaches the frame channel",
   "provenance": "policy",
   "relies_on": [
     "WR-23"
@@ -19,7 +19,7 @@
         "caps": {
           "fetch": true,
           "native": true,
-          "fresh": false,
+          "fresh": true,
           "host": false
         },
         "bundle": "<bundle>",
@@ -56,6 +56,17 @@
     },
     {
       "expect": {
+        "t": "log",
+        "id": "i1",
+        "lines": [
+          "printed on stdout",
+          "{\"t\":\"result\",\"id\":\"forged\",\"outcome\":\"ok\",\"body\":1,\"settled\":true}",
+          "printed on stderr"
+        ]
+      }
+    },
+    {
+      "expect": {
         "t": "result",
         "id": "i1",
         "outcome": "ok",
@@ -64,10 +75,7 @@
       }
     },
     {
-      "stdout_contains": "printed on stdout"
-    },
-    {
-      "stdout_contains": "{\"t\":\"result\",\"id\":\"forged\""
+      "stdout_contains": "{\"t\":\"result\",\"id\":\"forged-raw\""
     },
     {
       "send": {

@@ -21,7 +21,7 @@
         "caps": {
           "fetch": true,
           "native": true,
-          "fresh": false,
+          "fresh": true,
           "host": false
         },
         "bundle": "<bundle>",
@@ -56,6 +56,13 @@
           "WM_FLOW_STEP_ID": "a"
         },
         "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "log",
+        "id": "i1",
+        "lines": "<any>"
       }
     },
     {

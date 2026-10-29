@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,20 +33,23 @@ import (
 
 // check runs step-case files (the step level of ADR 0003) and flow
 // fixtures (the flow level) on windmill-lite. For a step file, the file's
+// check runs step-case files (the step level of ADR 0003) and flow
+// fixtures (the flow level) on windmill-lite. For a step file, the file's
 // scripts are built into one bundle, by the Bun build helper or, for
 // codebase scripts, by esbuild (bundle.BuildCodebase), each case's runs go
-// in order to a harness process of its own through the protocol, and each
-// outcome is mapped to the value Windmill stores (engine.StoreOutcome) and
-// compared with the case's expectation (conformance.CompareStep). With
-// Node, each run of a CommonJS codebase bundle also runs on Node, as on
-// Windmill, and is compared with its node check (D13). For a flow fixture,
-// each run's flow runs on the walking skeleton's interpreter (flowChecker)
-// and its observation is compared with the run's expect or recording
-// (milestone E1).
+// in order through the protocol, to one harness process of the case's own
+// in warm mode, or to one process each in fresh mode, and each outcome is
+// mapped to the value Windmill stores (engine.StoreOutcome) and compared
+// with the case's expectation (conformance.CompareStep). With Node, each
+// run of a CommonJS codebase bundle also runs on Node, as on Windmill, and
+// is compared with its node check (D13). For a flow fixture, each run's
+// flow runs on the walking skeleton's interpreter (flowChecker) and its
+// observation is compared with the run's expect or recording (milestone
+// E1).
 func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	mode := fs.String("mode", conformance.ModeWarm, "configuration: warm (fresh is milestone C3b, host mode F3b)")
+	mode := fs.String("mode", conformance.ModeWarm, "configuration: warm or fresh (host mode is milestone F3b)")
 	bun := fs.String("bun", envOr("WL_BUN", "bun"), "the Bun executable: the pin, "+harness.PinnedBun)
 	node := fs.String("node", os.Getenv("WL_NODE"), "the Node executable that runs CommonJS codebase bundles as Windmill does (D13); empty skips that side")
 	repo := fs.String("repo", "", "the repository root, which holds harnesses/bun (default: found from the working directory)")
@@ -57,8 +61,8 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: wltest check [flags] <step file, fixture or directory>...")
 		return 2
 	}
-	if *mode != conformance.ModeWarm {
-		fmt.Fprintf(stderr, "wltest check: mode %q is not implemented yet (ADR 0012: fresh is C3b, host mode F3b)\n", *mode)
+	if *mode != conformance.ModeWarm && *mode != conformance.ModeFresh {
+		fmt.Fprintf(stderr, "wltest check: mode %q is not warm or fresh (host mode is milestone F3b)\n", *mode)
 		return 2
 	}
 	for _, a := range fs.Args() {
@@ -198,6 +202,11 @@ const (
 	runTimeout    = 30 * time.Second
 	settleTimeout = 10 * time.Second
 	pendingWindow = 500 * time.Millisecond
+	// lateWindow is how long a warm case's process is still observed after
+	// its last run settled, when that run states its late reports: a later
+	// run of the case observes the earlier ones' work, and nothing follows
+	// the last.
+	lateWindow = 200 * time.Millisecond
 )
 
 // stepFacade is the platform facade's origin the harness is given, for step
@@ -381,31 +390,79 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 	return out, digest, problems, nil
 }
 
-// runCase runs a case's runs in order in one harness process of its own,
-// which is the warm configuration: the module and globalThis survive from
-// one run to the next (D1).
+// runCase runs a case's runs in order. In warm mode they go to one
+// harness process of the case's own, so the module and globalThis survive
+// from one run to the next (D1); in fresh mode each run has a process of
+// its own, which ends with it. The late reports of a run are compared at
+// the end of the case, so that one its work makes after it settled, which
+// the D9 fence must stop, is seen.
 func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out, digest, id string) ([]string, string) {
 	var diag syncBuffer
-	p, err := sc.spawn(ctx, out, digest, &diag)
-	if err != nil {
-		return []string{"spawn: " + err.Error()}, diag.String()
-	}
-	defer func() {
+	spawn := func() (*harness.Process, error) { return sc.spawn(ctx, out, digest, &diag) }
+	// end drains a warm process; a fresh one ends by itself, and is killed
+	// if it has not within the grace.
+	end := func(p *harness.Process) {
+		if sc.mode == conformance.ModeFresh {
+			select {
+			case <-p.Done():
+			case <-time.After(5 * time.Second):
+				p.Kill()
+				<-p.Done()
+			}
+			return
+		}
 		dctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		p.Drain(dctx)
-	}()
+	}
+	var warm *harness.Process
+	if sc.mode == conformance.ModeWarm {
+		var err error
+		if warm, err = spawn(); err != nil {
+			return []string{"spawn: " + err.Error()}, diag.String()
+		}
+	}
 	runID := newUUID()
 	var problems []string
+	recs := make([]*stepRecorder, len(c.Runs))
 	for i := range c.Runs {
-		for _, pr := range sc.runOne(ctx, p, c, &c.Runs[i], id, runID) {
+		p := warm
+		if p == nil {
+			var err error
+			if p, err = spawn(); err != nil {
+				problems = append(problems, fmt.Sprintf("run %d: spawn: %s", i+1, err))
+				continue
+			}
+		}
+		var prs []string
+		prs, recs[i] = sc.runOne(ctx, p, c, &c.Runs[i], id, runID)
+		if warm == nil {
+			end(p)
+		}
+		for _, pr := range prs {
+			problems = append(problems, fmt.Sprintf("run %d: %s", i+1, pr))
+		}
+	}
+	if warm != nil {
+		if k := c.Runs[len(c.Runs)-1].Check(sc.mode); (k.Settled != "" && k.Settled != conformance.StepPending) || len(k.Late) > 0 {
+			time.Sleep(lateWindow)
+		}
+		end(warm)
+	}
+	for i := range c.Runs {
+		k := c.Runs[i].Check(sc.mode)
+		if recs[i] == nil || (k.Settled == "" && len(k.Late) == 0) {
+			continue
+		}
+		for _, pr := range compareLate(recs[i].lates(), k.Late) {
 			problems = append(problems, fmt.Sprintf("run %d: %s", i+1, pr))
 		}
 	}
 	return problems, diag.String()
 }
 
-// spawn starts a warm harness process on the bundle in out.
+// spawn starts a harness process on the bundle in out, in the checker's
+// module state, with the step facade's origin (stepFacade).
 func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Writer) (*harness.Process, error) {
 	path, args := harness.BunCommand(sc.bun, filepath.Join(sc.repo, "harnesses", "bun", "runtime", "main.ts"), out)
 	return harness.Spawn(ctx, harness.ProcessConfig{
@@ -414,19 +471,22 @@ func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Wr
 		Kind:          "bun",
 		Runtime:       harness.PinnedBun,
 		Bundle:        digest,
-		ModuleState:   engine.ModuleStateWarm,
+		ModuleState:   engine.ModuleState(sc.mode),
 		EngineVersion: "wltest-check",
 		Diagnostics:   diag,
 		Facade:        stepFacade,
 	})
 }
 
-// runOne runs one invocation and checks what it produced.
-func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *conformance.StepCase, r *conformance.StepRun, script, runID string) []string {
+// runOne runs one invocation and checks what it produced up to its
+// settlement; it returns the recorder, which keeps receiving the run's
+// late reports.
+func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *conformance.StepCase, r *conformance.StepRun, script, runID string) ([]string, *stepRecorder) {
+	rec := newStepRecorder()
 	args := jsonval.FromProducer([]byte(r.Args))
 	entry, _, err := engine.Entrypoint(args)
 	if err != nil {
-		return []string{err.Error()}
+		return []string{err.Error()}, rec
 	}
 	step := c.ModuleID()
 	_, boundary := language(c)
@@ -440,9 +500,8 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 		Args:        args,
 		Env:         jobEnv(c, step, invID, runID),
 		Boundary:    boundary,
-		ModuleState: engine.ModuleStateWarm,
+		ModuleState: engine.ModuleState(sc.mode),
 	}
-	rec := newStepRecorder()
 	inv.Report = rec
 	rctx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
@@ -461,13 +520,13 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 	case c.Timeout != nil && errors.Is(err, engine.CancelTimeout):
 		stored = engine.Stored{Failed: true, Value: engine.TimeoutError(boundary, step, timeout, false), Origin: engine.OriginEngine}
 	case err != nil:
-		return []string{"execute: " + err.Error()}
+		return []string{"execute: " + err.Error()}, rec
 	default:
 		stored = engine.StoreOutcome(out, step)
 	}
 	text, err := stored.Value.Stored()
 	if err != nil {
-		return []string{"the stored value: " + err.Error()}
+		return []string{"the stored value: " + err.Error()}, rec
 	}
 	status := conformance.RunSuccess
 	if stored.Failed {
@@ -476,7 +535,7 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 	got := conformance.Observation{Status: status, Result: json.RawMessage(text)}
 	problems, err := conformance.CompareStep(c, r, sc.mode, got)
 	if err != nil {
-		return []string{"compare: " + err.Error()}
+		return []string{"compare: " + err.Error()}, rec
 	}
 	if len(problems) > 0 {
 		problems = append(problems, "observed "+compactJSON(got))
@@ -498,13 +557,20 @@ func (sc *stepChecker) runOne(ctx context.Context, p *harness.Process, c *confor
 			problems = append(problems, fmt.Sprintf("settled %s, want %s", kind, k.Settled))
 		}
 	}
-	if k.Settled != "" || len(k.Late) > 0 {
-		problems = append(problems, compareLate(rec.lates(), k.Late)...)
-	}
 	if got, want := rec.warningCodes(), k.Warnings; strings.Join(got, ",") != strings.Join(want, ",") {
 		problems = append(problems, fmt.Sprintf("warnings %v, want %v", got, want))
 	}
-	return problems
+	if k.Left != nil {
+		if got := rec.leftBehind(); !maps.Equal(got, k.Left) {
+			problems = append(problems, fmt.Sprintf("left behind %v, want %v", got, k.Left))
+		}
+	}
+	if k.Untracked != nil {
+		if got := rec.nativeUntracked(); !maps.Equal(got, k.Untracked) {
+			problems = append(problems, fmt.Sprintf("untracked %v, want %v", got, k.Untracked))
+		}
+	}
+	return problems, rec
 }
 
 // hasCommonJS reports whether a step file has a CommonJS codebase case.
@@ -758,7 +824,10 @@ type stepRecorder struct {
 	mu       sync.Mutex
 	late     []engine.Late
 	warnings []string
-	settled  chan engine.SettleKind
+	left     map[string]int
+	// untracked is what native_untracked warnings counted, by kind.
+	untracked map[string]int
+	settled   chan engine.SettleKind
 }
 
 func newStepRecorder() *stepRecorder {
@@ -775,6 +844,38 @@ func (r *stepRecorder) Warning(w engine.Warning) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.warnings = append(r.warnings, w.Code)
+	if w.Code == harness.WarningLeftBehind {
+		if r.left == nil {
+			r.left = map[string]int{}
+		}
+		for k, n := range w.Left {
+			r.left[k] += n
+		}
+	}
+	if w.Code == harness.WarningNativeUntracked {
+		if r.untracked == nil {
+			r.untracked = map[string]int{}
+		}
+		for k, n := range w.Untracked {
+			r.untracked[k] += n
+		}
+	}
+}
+
+// leftBehind is what the invocation's left_behind warning counted, by
+// kind; nil when it had none.
+func (r *stepRecorder) leftBehind() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return maps.Clone(r.left)
+}
+
+// nativeUntracked is what the invocation's native_untracked warning
+// counted, by kind; nil when it had none.
+func (r *stepRecorder) nativeUntracked() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return maps.Clone(r.untracked)
 }
 
 func (r *stepRecorder) Settled(k engine.SettleKind) {

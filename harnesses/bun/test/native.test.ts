@@ -492,9 +492,8 @@ describe("a native realm", () => {
       native.toRealm(new WeakMap());
       native.toRealm(function harnessFunction() {});
       expect(j.untracked).toEqual({ PerformanceTiming: 2, WeakMap: 1, "function harnessFunction": 1 });
-      expect(j.untrackedText()).toBe(
-        "the native boundary handed this invocation objects it does not track (ADR 0001, D5): PerformanceTiming (2), WeakMap (1), function harnessFunction (1)",
-      );
+      expect(Object.keys(j.untracked)).toEqual(["PerformanceTiming", "WeakMap", "function harnessFunction"]);
+      expect(j.untrackedText()).toBe("untracked by the native boundary (ADR 0001, D5): 2 PerformanceTiming, 1 WeakMap, 1 function harnessFunction");
     });
     expect(unowned).toEqual([]);
     // A web API's promise given in no native invocation's context cannot

@@ -19,17 +19,19 @@ cases:
       - args: '{}'
         expect: {status: success, result: function}
         warnings: [native_untracked]
+        untracked: {PerformanceTiming: 1}
   - spec: D5
     variant: untracked-bunnative
     provenance: policy
     title: an object the native boundary does not track is reported when the invocation settles (bunnative)
     script: |
       //native
-      export function main() { return typeof performance.timing.toJSON; }
+      export function main() { return [typeof performance.timing, typeof performance.toJSON().timing]; }
     runs:
       - args: '{}'
-        expect: {status: success, result: function}
+        expect: {status: success, result: [object, object]}
         warnings: [native_untracked]
+        untracked: {PerformanceTiming: 2}
   - spec: D5
     variant: tracked
     provenance: policy

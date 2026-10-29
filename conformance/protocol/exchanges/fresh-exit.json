@@ -1,0 +1,64 @@
+{
+  "case": "fresh-exit",
+  "title": "process.exit in a fresh process ends the process with its code, as on Windmill, so no frame reports the outcome",
+  "provenance": "policy",
+  "relies_on": [
+    "WR-4",
+    "WR-20"
+  ],
+  "design": "docs/design/0004-harness-protocol.md#the-shared-process-failure-model",
+  "steps": [
+    {
+      "expect": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": true,
+          "fresh": true,
+          "host": false
+        },
+        "bundle": "<bundle>",
+        "pid": "<pid>"
+      }
+    },
+    {
+      "send": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "exchange-test",
+        "bundle": "<bundle>",
+        "config": {
+          "module_state": "fresh",
+          "heartbeat_ms": 60000,
+          "max_message": 536870912
+        }
+      }
+    },
+    {
+      "send": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "exit-now",
+        "entry": "main",
+        "args": {
+          "code": 3
+        },
+        "env": {
+          "WM_FLOW_STEP_ID": "a"
+        },
+        "boundary": "bun"
+      }
+    },
+    {
+      "exit": 3
+    }
+  ]
+}

@@ -116,6 +116,15 @@ run's trace:
   change of mode.
 - First-invocation latency includes module evaluation; eager loading
   ([0004](0004-harness-protocol.md)) moves it to process start.
+- Milestone C3b implemented `fresh` mode. A fresh process offers the
+  `fresh` capability and serves one invocation in a working directory of
+  its own. It exits once its result has gone out, as Windmill's wrapper
+  does after writing it, and the engine kills it if the invocation times
+  out or is canceled. The step suite runs in both modes
+  (`wltest check --mode fresh`). It also decided that a step module's
+  top-level code runs in its loading invocation's context, but that the
+  timers and connections it starts are module state, which the settle-time
+  fence of D9 leaves alone ([0004](0004-harness-protocol.md), loading).
 
 ## Spec IDs relied on
 

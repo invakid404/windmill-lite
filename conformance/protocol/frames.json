@@ -272,6 +272,42 @@
       "error": "missing_field"
     },
     {
+      "case": "warning-left-behind",
+      "title": "what an invocation still had when it settled, by kind, sent just before the frame that settles it; the kinds sort as data keys",
+      "message_text": "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"left_behind\",\"message\":\"left at settlement: 1 fetch, 2 timeout\",\"left\":{\"timeout\":2,\"fetch\":1}}",
+      "payload": "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"left_behind\",\"message\":\"left at settlement: 1 fetch, 2 timeout\",\"left\":{\"fetch\":1,\"timeout\":2}}"
+    },
+    {
+      "case": "warning-left-not-integers",
+      "title": "a warning's left counts are integers",
+      "frames": [
+        "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"left_behind\",\"message\":\"m\",\"left\":{\"timeout\":\"2\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "warning-left-not-an-object",
+      "title": "a warning's left is an object",
+      "frames": [
+        "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"left_behind\",\"message\":\"m\",\"left\":[1]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "warning-native-untracked",
+      "title": "what the native boundary handed a native invocation but does not track, by kind, sent just before the frame that settles it; the kinds sort as data keys",
+      "message_text": "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"native_untracked\",\"message\":\"untracked by the native boundary (ADR 0001, D5): 1 PerformanceTiming, 2 function f\",\"untracked\":{\"function f\":2,\"PerformanceTiming\":1}}",
+      "payload": "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"native_untracked\",\"message\":\"untracked by the native boundary (ADR 0001, D5): 1 PerformanceTiming, 2 function f\",\"untracked\":{\"PerformanceTiming\":1,\"function f\":2}}"
+    },
+    {
+      "case": "warning-untracked-not-integers",
+      "title": "a warning's untracked counts are integers",
+      "frames": [
+        "{\"t\":\"warning\",\"id\":\"i1\",\"code\":\"native_untracked\",\"message\":\"m\",\"untracked\":{\"WeakMap\":\"2\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
       "case": "welcome-config-facade",
       "title": "a welcome whose engine serves platform calls names the facade origin, after the other config fields",
       "message": {

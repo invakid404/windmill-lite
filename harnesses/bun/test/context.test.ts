@@ -10,6 +10,7 @@ import {
   installEnvView,
   installProcessScope,
   type InvocationContext,
+  InvocationLog,
   InvocationResources,
   invocations,
   PROCESS_SCOPE,
@@ -25,7 +26,8 @@ installProcessScope();
 function context(env: Record<string, string>): InvocationContext {
   const e = Object.assign(Object.create(null), env);
   shadow(e);
-  return { id: "i", run: "r", env: e, signal: new AbortController().signal, resources: new InvocationResources() };
+  const resources = new InvocationResources();
+  return { id: "i", run: "r", env: e, signal: new AbortController().signal, resources, work: resources, log: new InvocationLog() };
 }
 
 function inside<T>(env: Record<string, string>, fn: () => T): T {
@@ -98,6 +100,8 @@ test("the registry releases what is still pending when the invocation settles, o
   });
   r.track("interval", () => released.push("i"));
   done(); // t2 ended by itself
+  expect(r.pending()).toEqual({ fetch: 1, interval: 1, timeout: 1 });
+  expect(Object.keys(r.pending())).toEqual(["fetch", "interval", "timeout"]);
   expect(r.settle()).toEqual({ timeout: 1, fetch: 1, interval: 1 });
   expect(released).toEqual(["t1", "f", "i"]);
   expect(r.settled).toBe(true);

@@ -29,7 +29,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import { types } from "node:util";
 import vm from "node:vm";
-import { current, type InvocationResources } from "./context.ts";
+import { current, type InvocationResources, invocations, realTimers } from "./context.ts";
 import { type Param, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 /** The URL a native step's module is loaded as, and the embedded client's,
@@ -205,7 +205,9 @@ export class Native {
    * the harness constructs around its body cannot carry; kept through
    * every clone. */
   private responseMeta = new WeakMap<object, { url: string; redirected: boolean; type: string }>();
-  private timers = { setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask };
+  /** Bun's timers, before the fence wraps them: a realm registers its
+   * handles itself (NativeJob.timer). */
+  private timers = { ...realTimers, queueMicrotask };
   private fetch: typeof fetch = fetch;
   private console: Console = console;
 
@@ -232,7 +234,6 @@ export class Native {
     for (const name of WEB_GLOBALS) if (g[name] !== undefined) this.web[name] = g[name];
     this.fetch = globalThis.fetch;
     this.console = console;
-    this.timers = { setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask };
     this.trackedProto ??= this.trackedPromise().prototype;
     // Each class gets its own, even one whose prototype another shares
     // (Bun 1.3.10's File has Blob's); an instance takes the first's.
@@ -846,9 +847,10 @@ export class NativeJob {
     this.untrackedKinds.set(kind, (this.untrackedKinds.get(kind) ?? 0) + 1);
   }
 
-  /** What the boundary handed this invocation untracked, by kind. */
+  /** What the boundary handed this invocation untracked, by kind in
+   * sorted order. */
   get untracked(): Record<string, number> {
-    return Object.fromEntries(this.untrackedKinds);
+    return Object.fromEntries([...this.untrackedKinds].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   }
 
   /** The text of the warning that reports what the boundary handed this
@@ -856,8 +858,10 @@ export class NativeJob {
    * over nothing untracked. */
   untrackedText(): string | undefined {
     if (this.untrackedKinds.size === 0) return undefined;
-    const kinds = [...this.untrackedKinds].map(([k, n]) => `${k} (${n})`).join(", ");
-    return `the native boundary handed this invocation objects it does not track (ADR 0001, D5): ${kinds}`;
+    const kinds = Object.entries(this.untracked)
+      .map(([k, n]) => `${n} ${k}`)
+      .join(", ");
+    return `untracked by the native boundary (ADR 0001, D5): ${kinds}`;
   }
 
   /** The realm's globals (WR-45): the web APIs, console, the invocation's
@@ -927,12 +931,14 @@ export class NativeJob {
     };
   }
 
-  /** fetch of the realm (WR-45): the harness's own, so a request to the
-   * facade becomes a platform call; with the User-Agent the script's
+  /** fetch of the realm (WR-45): the harness's fetch view, so a request to
+   * the facade becomes a platform call; with the User-Agent the script's
    * header names, or windmill/beta, unless the request sets one; settled as
    * a promise of the realm, with a response of the realm (Native.respond).
-   * The request is the invocation's until its body ends, and aborted if
-   * the invocation settles first. */
+   * The request is the invocation's until its body ends, however the realm
+   * reads it, and aborted if the invocation settles first: the realm
+   * registers it itself, so the view runs with no work registry and
+   * registers nothing. */
   private fetch() {
     const { fetch } = this.native.hooks;
     const g = this.g;
@@ -944,7 +950,9 @@ export class NativeJob {
           if (!req.headers.has("user-agent")) req.headers.set("user-agent", ua);
           const abort = new AbortController();
           const untrack = this.inv.resources.track("fetch", () => abort.abort());
-          fetch(new Request(req, { signal: AbortSignal.any([req.signal, abort.signal]) })).then(
+          const send = () => fetch(new Request(req, { signal: AbortSignal.any([req.signal, abort.signal]) }));
+          const c = current();
+          (c === undefined ? send() : invocations.run({ ...c, work: undefined }, send)).then(
             (res) => resolve(this.native.respond(res, untrack)),
             (e) => {
               untrack();

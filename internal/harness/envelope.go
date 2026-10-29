@@ -43,9 +43,9 @@ func (e *envelope) str(k, v string) {
 	}
 }
 
-// pair writes a member whose key is data rather than a protocol field name,
-// escaping the key as a string.
-func (e *envelope) pair(k, v string) {
+// dataKey writes the key of a member whose key is data rather than a
+// protocol field name, escaped as a string.
+func (e *envelope) dataKey(k string) {
 	if !e.first {
 		e.b = append(e.b, ',')
 	}
@@ -55,6 +55,12 @@ func (e *envelope) pair(k, v string) {
 		e.err = err
 	}
 	e.b = append(e.b, ':')
+}
+
+// pair writes a member whose key is data, with a string value.
+func (e *envelope) pair(k, v string) {
+	e.dataKey(k)
+	var err error
 	if e.b, err = appendJSONString(e.b, v); err != nil && e.err == nil {
 		e.err = err
 	}
@@ -72,6 +78,22 @@ func (e *envelope) strMap(k string, m map[string]string) {
 	e.object(k, func(e *envelope) {
 		for _, name := range keys {
 			e.pair(name, m[name])
+		}
+	})
+}
+
+// intMap writes an object of integers whose keys are data, sorted
+// bytewise as strMap sorts them.
+func (e *envelope) intMap(k string, m map[string]int) {
+	keys := make([]string, 0, len(m))
+	for name := range m {
+		keys = append(keys, name)
+	}
+	slices.Sort(keys)
+	e.object(k, func(e *envelope) {
+		for _, name := range keys {
+			e.dataKey(name)
+			e.b = strconv.AppendInt(e.b, int64(m[name]), 10)
 		}
 	})
 }

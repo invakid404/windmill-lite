@@ -64,6 +64,9 @@ func TestLoadStepFileRefuses(t *testing.T) {
 		{"by_mode without fresh", "wr-6.yaml", stepCaseHead + "    deviation: D1\n    runs: [{args: '{}', by_mode: {warm: {expect: {status: success, result: 1}}}}]\n", "exactly warm and fresh"},
 		{"by_mode and a check", "wr-6.yaml", stepCaseHead + "    deviation: D1\n    runs: [{args: '{}', expect: {status: success, result: 1}, by_mode: {warm: {expect: {status: success, result: 1}}, fresh: {expect: {status: success, result: 1}}}}]\n", "one or the other"},
 		{"a bad late kind", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', late: [{kind: warning}]}]\n", "late kind"},
+		{"left without its warning", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', left: {timeout: 1}}]\n", "which warnings does not list"},
+		{"untracked without its warning", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', untracked: {WeakMap: 1}}]\n", "untracked counts a native_untracked warning"},
+		{"an untracked count below 1", "wr-6.yaml", stepCaseHead + "    runs: [{args: '{}', warnings: [native_untracked], untracked: {WeakMap: 0}}]\n", "counts at least 1"},
 		{"a bad path", "wr-6.yaml", stepCaseHead + "    path: u/x/y\n    runs: [{args: '{}', expect: {status: success, result: 1}}]\n", "not a Windmill path"},
 		{"a finding cited without a variant", "wr-6.yaml", strings.Replace(stepCaseHead, "spec: WR-6/a", "spec: WR-6", 1) + "    runs: [{args: '{}', expect: {status: success, result: 1}}]\n", "needs a variant"},
 		{"two sources for one path", "wr-6.yaml", stepCaseHead + "    path: f/x/s\n    runs: [{args: '{}', expect: {status: success, result: 1}}]\n" +

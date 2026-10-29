@@ -126,7 +126,8 @@ type Reporter interface {
 	// fixed or it was abandoned.
 	Late(Late)
 	// Warning reports a process-level error that the harness could not
-	// attribute to any invocation, raised while this one was in flight.
+	// attribute to any invocation, raised while this one was in flight, or
+	// the work this one left behind when it settled (D9).
 	Warning(Warning)
 	// Settled reports that the invocation's entrypoint call can run no more
 	// code, and how.
