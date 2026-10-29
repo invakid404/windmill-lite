@@ -22,7 +22,8 @@ type Site struct {
 	// Module is the module's id.
 	Module string
 	// Script is the path of the script a leaf runs, or <flow path>/<module
-	// id> for an inline script; "" for other modules.
+	// id> for an inline script, and the same for a host-provided site that
+	// replaces a script or inline step (ADR 0002); "" for other modules.
 	Script string
 }
 

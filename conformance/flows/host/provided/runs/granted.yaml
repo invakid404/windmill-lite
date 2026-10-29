@@ -1,0 +1,12 @@
+# The provider's value stands in for the semaphore subflow's result: the
+# site succeeds with it, records the arguments its transforms gave it, and
+# the next step reads its ticket through results.wait (FX-10).
+spec: [FX-10]
+target: f/wl_provided/granted
+args: {key: k1}
+expect:
+  status: success
+  result: "t-1:k1"
+  steps:
+    "m:wait": {status: success, args: {key: k1}, result: {granted: true, ticket: t-1}}
+    "m:work": {status: success, args: {key: k1, ticket: t-1}, result: "t-1:k1"}

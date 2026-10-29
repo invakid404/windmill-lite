@@ -76,6 +76,15 @@ func ErrRequiresWorkers(need, have int) *Refusal {
 	return refusal("fixture_requires_workers", "need", strconv.Itoa(need), "have", strconv.Itoa(have))
 }
 
+// ErrProvidedSites is the reason a fixture with host-provided sites
+// (conformance.Fixture.Provided, milestone F2a) is skipped: windmill-lite
+// replaces those sites with the host's providers, while the oracle would
+// run their real targets, a suspending subflow for one (ADR 0002), so such
+// a fixture holds expects and has nothing to record.
+func ErrProvidedSites(n int) *Refusal {
+	return refusal("fixture_has_provided_sites", "sites", strconv.Itoa(n))
+}
+
 // ErrForeignEffect is what the effect sink answers to an effect whose root
 // is not the run being recorded (OR-16/c).
 func ErrForeignEffect() *Refusal { return refusal("foreign_effect") }

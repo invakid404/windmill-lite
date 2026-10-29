@@ -22,7 +22,7 @@ and the services are [internal/platform](../README.md).
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |
 | `jobs.go` | The root lookup, the job environment a read's `job_id` names, flow user state and the result polls, from the job registry and the dispatcher (PF1, PF3) |
-| `providers.go` | The resource and variable reads (PF2), and the variable update (F1) |
+| `providers.go` | The resource and variable reads (PF2), and the variable update (F1), answered from the caller's run's own services when it has them (H13, F2a) |
 | `dispatch.go` | The dispatch routes (PF3) |
 | `objects.go` | The object store's job helpers (PF3) |
 | `errors.go` | `Error`: an API error as a reply, with the variants of `platform.Error` (WA-42) |
@@ -47,7 +47,8 @@ segments wins, then the shorter one.
 
 **Handlers** are registered by operationId (`Facade.Handle`); registering an
 operation the API does not have panics. A handler gets the `Call`: its
-`Caller` (the invocation's id, run and job environment), the matched
+`Caller` (the invocation's id, run and job environment, and the platform
+services of a run that chose its own, F2a), the matched
 `Route`, its parameters, query, headers and body. It answers a `Reply`;
 `Error` renders [WA-42](../../../docs/semantics/client-api.md#wa-42)'s
 variants with their statuses, `text/plain`, without the Rust location some
@@ -73,7 +74,11 @@ with no job is not in the reference.
 
 **The resource and variable reads** (PF2) answer from `Config.Platform`
 ([internal/platform](../README.md#services)), nil meaning none, so every
-read is a not-found. They keep the three resource-read contracts of
+read is a not-found; for an invocation whose run chose its own providers
+(H13, F2a: `engine.Invocation.Platform`, kept as `Caller.Platform`), they
+and the variable update answer from those services instead, which share
+the facade's job registry, flow user state, object store and dispatcher
+that the other routes answer from. They keep the three resource-read contracts of
 [WA-40](../../../docs/semantics/client-api.md#wa-40) apart, and answer
 `application/json` on success and WA-42's `text/plain` errors:
 
@@ -277,7 +282,10 @@ comparison. An abandoned invocation has no outcome to replace.
   with a live invocation's `job_id` and with an unknown one, a write's 501,
   and a facade with no platform; and the variable update (WA-11, F1): a
   value later reads see, its secrecy, a missing variable's 404, and the
-  501s of a rename, an encrypted value and a read-only service.
+  501s of a rename, an encrypted value and a read-only service; and the
+  per-run providers (H13, F2a): an invocation whose run chose its own
+  services reads variables and resources from them, another the facade's,
+  and both the shared job registry.
 - `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's

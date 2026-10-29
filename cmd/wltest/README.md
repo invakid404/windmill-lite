@@ -69,7 +69,9 @@ The oracle runs in public CI; see
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
-`expect_mismatch`, `failed`, `refused` or `skipped`, the fixture and the run, then any
+`expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
+more workers, under `--skip-unmet-workers`, or one with host-provided
+sites, which only windmill-lite runs), the fixture and the run, then any
 error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
 actual before expected). It exits 1 when a run failed, was refused, was
 unstable or did not match its `expect`, and in check mode also when a
@@ -234,10 +236,14 @@ a few at a time (`flows.go`):
    refuses (unsupported) or cannot compile (failed). When the fixture lists
    `roots`, the bundle's other roots (the targets its steps dispatch, which
    a host contract lists, ADR 0002), they are compiled together the same
-   way. It then builds one bundle of
+   way. When it lists `provided` sites (F2a), each compile gets those of
+   them its roots reach, as the host contract's mandatory provided sites,
+   whose targets stay opaque: a selector that a target's compile reports
+   matching no site is left out of that compile. It then builds one bundle of
    [ADR 0010](../../docs/design/0010-packaging.md) with `bundle.Build`
    ([internal/bundle](../../internal/bundle/README.md)), whose contract's
-   roots are the targets it can run and the roots, with `wl`'s engine
+   roots are the targets it can run and the roots, and its provided sites
+   the fixture's, with `wl`'s engine
    version and the module state of `--mode`: the program, the Bun scripts
    the roots reach, built with the Bun build helper and each named by its
    inventory id ([ADR 0002](../../docs/design/0002-ir-and-loader.md)),
@@ -254,7 +260,9 @@ a few at a time (`flows.go`):
    build that fails as a whole, fails every run.
 2. **Run.** The bundle is opened with `wl.Open`
    ([wl](../../wl/README.md)) in the mode of `--mode`, on the pinned Bun and
-   the repository's harness runtime, with the fixture's host data
+   the repository's harness runtime, with the fixture's named `providers`
+   as `wl.Options.Providers` (`fixtureProviders`: each answers its sites
+   with its result or its error, or declines), and with its host data
    (`hostDataOf`, `providers.go`): the folder's secrets, as the folder
    holds them (ciphertext without `plainSecrets`), then the variables and
    resources of its `setup.yaml`, which the oracle creates after the push
@@ -395,9 +403,10 @@ own: the oracle's effect sink (`oracle.Sink`,
 them, on a free loopback port. Every invocation of a run gets the
 server's URL as `WL_EFFECT_SINK` through the engine's
 invocation-environment hook (H12), which also records the site each job
-(`WM_JOB_ID`) launches at. The hooks go to the run as
-`wl.RunOptions.Hooks` (the engine's hook interface, until milestone F2a
-gives hosts Go callbacks for that seam). The sink keeps
+(`WM_JOB_ID`) launches at. The hooks go to the run as the Go callbacks a
+host gives it (`wl.Hooks`, milestone F2a: `InvocationEnv`, and a group's
+`OnModuleStart`, `runHooks`), so the runner takes no path a host does not
+have. The sink keeps
 the effects whose `root` is the run's id (`WM_ROOT_JOB_ID`), so the runs
 of a group stay apart, and refuses any other root with 409 (OR-16/c).
 In stub mode the runs run the stubbed copy of the sync tree that `record`
@@ -490,10 +499,12 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1 and N5:
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b, F1, F2a and N5:
   every run the flow suite requires passes in `warm` and in `fresh`,
   through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
-  with a variable that the step updates through the job API). `testdata/flowsuite.json` lists them in
+  with a variable that the step updates through the job API; F2a, whose
+  runs are `host/provided`'s, the run-time half of ADR 0002's provided-site
+  policy case). `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone

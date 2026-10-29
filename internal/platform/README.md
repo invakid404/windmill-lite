@@ -20,7 +20,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | File | Contents |
 |---|---|
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
-| `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services` |
+| `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services`, `Providers` and `Services.WithProviders` (H13) |
 | `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState` (PF3) |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
@@ -138,10 +138,20 @@ starts.
   variable service when it is a `VariableUpdater`, as `Store` is: a new
   value replaces the old one (and is plaintext, no longer `Encrypted`), and
   a new secrecy replaces the old; a missing variable is the read's
-  not-found. A variable service that is not one, a chain among them, is
-  read-only (`ErrReadOnlyVariables`), and the facade answers 501. A runtime
-  that owns its store ([wl](../../wl/README.md)) thus keeps a step's update
-  for the runs after it.
+  not-found. A `VariableChain` is one too (F2a): it updates its first
+  service that has the variable, the one a read answers from, which must
+  itself be an updater. A variable service that is not one is read-only
+  (`ErrReadOnlyVariables`), and the facade answers 501. A runtime that owns
+  its store ([wl](../../wl/README.md)) thus keeps a step's update for the
+  runs after it.
+- **Per-run providers** (F2a, H13 of
+  [ADR 0008](../../docs/design/0008-host-hooks.md)). `Providers` holds the
+  providers a run may choose for itself: resources, variables, secrets and
+  value resolvers. `Services.WithProviders` returns services that answer
+  with them in place of the services' own, where they are set, and share
+  the services' job registry, flow user state, object store, dispatcher
+  and result cache, so that a run with its own providers is still one of
+  the runtime's runs, whose jobs the shared registry knows.
 - **Host overrides.** `ResourceChain` and `VariableChain` put services in
   order, the first that has a path answering for it (WA-40's design note):
   a host's own store before the bundle's.
@@ -168,14 +178,15 @@ kind (`JobFlow` or `JobScript`), its effective root
 for a script job, its job variables.
 
 - **Who registers what.** The engine registers each flow run it starts,
-  its own root, from start to end
-  ([internal/engine](../engine/README.md)); the facade registers each
+  its own root, from start to end, and each child flow of it (a loop
+  iteration's, a branch's, a subflow's) while it runs, with its runnable
+  path (F2a) ([internal/engine](../engine/README.md)); the facade registers each
   invocation, a script job, from `Register` to the end of its registration
   ([internal/platform/facade](facade/README.md)). A script job's parent
   flow, innermost flow scope and root (`WM_FLOW_JOB_ID`,
   `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID`) become known with it, as flow
-  jobs of its root, live while the root is: a loop iteration's child flow
-  is known while one of its steps has run and its run lives.
+  jobs of its root, live while the root is, unless the engine registered
+  them first.
 - **How long.** A job stays known while its root lives, so a step's job
   can be looked up after it ended. Once the root has ended, the jobs of its
   tree that have ended are forgotten with their user state; a job still
@@ -352,7 +363,8 @@ One walker implements resolution for the three contracts of
   WR-5/a to /e, FX-42/h and FX-51/c, among others, through the three
   contracts. It also checks the secret layer (plaintext, ciphertext with
   and without a host's `Secrets`, a host's resolvers), the chains, and
-  `APIEnv`.
+  `APIEnv`; `TestUpdateVariable` the updates, a chain's included, and
+  `TestWithProviders` the per-run providers and what they share.
 - `json_test.go` checks the double notation, parse and write, and the
   parse errors with their positions.
 - `data_test.go` loads `testdata/bundle/data/`, a bundle's `data/` in

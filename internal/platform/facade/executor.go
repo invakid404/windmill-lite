@@ -40,7 +40,7 @@ type executor struct {
 }
 
 func (x *executor) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
-	s := x.f.Register(inv.ID, inv.Run, inv.Env)
+	s := x.f.register(inv.ID, inv.Run, inv.Env, inv.Platform)
 	// The record is released once the invocation has settled and this
 	// call is done with it, in either order.
 	var mu sync.Mutex

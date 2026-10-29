@@ -30,6 +30,11 @@ type run struct {
 	id    string
 	hooks Hooks
 	exec  StepExecutor
+	// platform is the services the run reads its providers from: the
+	// engine's, or those the run chose (RunRequest.Platform, H13), which
+	// its invocations carry to the facade; own says which.
+	platform *platform.Services
+	own      bool
 
 	// rootID is the effective root of the run's jobs: the run itself,
 	// unless the links of a dispatch tracked in its parent place it in
@@ -80,7 +85,7 @@ type run struct {
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
 	now := clock.Now()
-	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, wake: make(chan struct{}), clock: clock, jitter: jitter, cancel: cancel}
+	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, platform: e.platform, wake: make(chan struct{}), clock: clock, jitter: jitter, cancel: cancel}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
 	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
@@ -90,6 +95,15 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 }
 
 func (r *run) ID() string { return r.id }
+
+// ownPlatform is the services the run chose (H13), or nil when it reads
+// the engine's.
+func (r *run) ownPlatform() *platform.Services {
+	if r.own {
+		return r.platform
+	}
+	return nil
+}
 
 // Latch latches err on the run (H5); a nil err latches nothing.
 func (r *run) Latch(err error) {
@@ -110,15 +124,26 @@ func (r *run) signal() { r.wakeOnce.Do(func() { close(r.wake) }) }
 // belong to the enclosing flow, so Flow is the flow whose module lists
 // hold the module (the run's, or a subflow's by path, ADR 0008), and
 // Script is the leaf's static path, <flow path>/<module id> for an inline
-// script.
+// script, a host-provided script step's included.
 func (r *run) site(fr *frame, i int) Site {
 	m := fr.moduleAt(i)
 	s := Site{Path: fr.sites[i], Flow: fr.def.Path, Module: m.ID}
-	if m.Leaf != nil {
+	switch {
+	case m.Leaf != nil:
 		if sc := r.e.prog.Scripts[m.Leaf.Script]; sc != nil {
 			s.Script = sc.Path
 		} else {
 			s.Script = m.Leaf.Script
+		}
+	case m.Provided != nil:
+		// A host-provided site keeps the call-site identity of the step it
+		// replaces (ADR 0002): its script's path, or an inline script's
+		// <flow path>/<module id>; a provided flow step has none.
+		switch m.Provided.Target.Kind {
+		case ir.KindScript:
+			s.Script = m.Provided.Target.Path
+		case ir.KindRawScript:
+			s.Script = fr.def.Path + "/" + m.ID
 		}
 	}
 	return s
@@ -488,6 +513,14 @@ func (r *run) run(ctx context.Context) {
 // result until now plus the TTL, a failed flow's included when its failure
 // module's job succeeded (FX-40).
 func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
+	if fr != r.root && fr.collapsed == nil {
+		// A child flow (a loop iteration, a branch, a subflow) is a flow
+		// job of the run's tree while it runs (ADR 0007, D3), so a dispatch
+		// whose parent_job names it gets its runnable path (WA-15), and its
+		// id answers root lookups, whether or not one of its steps has
+		// registered yet.
+		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path})()
+	}
 	if fr.cacheTTL <= 0 {
 		return r.runModules(ctx, fr)
 	}
@@ -1315,13 +1348,30 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
 	}
 
-	// The launch, where H1 may answer for the module.
-	out, intercepted, err := r.hooks.Intercept(ctx, r, site, stored)
-	if err != nil {
-		r.Latch(HookLatchError(ctx, err))
-	}
-	if r.latch.Err() != nil {
-		return notLaunched()
+	// The launch, where a host-provided site's provider answers for its
+	// module (ADR 0008, mandatory sites), or else H1 may.
+	var out StepOutcome
+	var intercepted bool
+	if m.Kind == ir.KindProvided && !identity {
+		out, err = r.provide(ctx, site, m.Provided, stored)
+		if err != nil {
+			r.Latch(HookLatchError(ctx, err))
+		}
+		if r.latch.Err() != nil {
+			return notLaunched()
+		}
+		intercepted, o.rec.Ran, o.rec.Hooks = true, true, append(o.rec.Hooks, "provided")
+	} else {
+		out, intercepted, err = r.hooks.Intercept(ctx, r, site, stored)
+		if err != nil {
+			r.Latch(HookLatchError(ctx, err))
+		}
+		if r.latch.Err() != nil {
+			return notLaunched()
+		}
+		if intercepted {
+			o.rec.Hooks = append(o.rec.Hooks, "H1")
+		}
 	}
 	var job string // the id of the leaf's job, once it ran
 	// The key and TTL of the leaf's job in the result cache, when a TTL
@@ -1330,7 +1380,6 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	var cacheTTL time.Duration
 	switch {
 	case intercepted:
-		o.rec.Hooks = append(o.rec.Hooks, "H1")
 	case identity:
 		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
 	case m.Kind == ir.KindSubflow:
@@ -1710,7 +1759,7 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.e.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID},
 	}
 }
 
@@ -1731,7 +1780,7 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.e.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID},
 	}
 	if fr.isFailure(i) {
 		// The flow job's: the run's at the root, a body's or a subflow's
@@ -1752,7 +1801,7 @@ func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope 
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.e.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID},
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {
@@ -1773,7 +1822,7 @@ func (r *run) sleepScope(fr *frame, own jsonval.Value) *expr.Scope {
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
-		Helpers:   helpers{r.e.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID},
 	}
 }
 
@@ -1788,7 +1837,7 @@ func (r *run) timeoutScope(fr *frame, prev jsonval.Value, prevID string) *expr.S
 		FlowInput:  fr.input,
 		FlowEnv:    r.envOf(fr),
 		Results:    r.results(fr),
-		Helpers:    helpers{r.e.platform, r.rootID},
+		Helpers:    helpers{r.platform, r.rootID},
 	}
 }
 
@@ -1802,7 +1851,7 @@ func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Sc
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: failed}, {Name: "result", Value: failed}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.e.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID},
 	}
 	if strings.Contains(x.Trimmed, "flow_env") {
 		s.FlowEnv = r.cachedEnvOf(fr)
@@ -2046,6 +2095,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		Args:        args,
 		Boundary:    Boundary(m.Leaf.Boundary),
 		ModuleState: r.e.moduleState,
+		Platform:    r.ownPlatform(),
 	}
 	inv.Env = r.jobEnv(fr, i, inv.ID)
 	// The job's reserved variables, which its argument resolution reads
@@ -2062,7 +2112,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	}
 	// The worker resolves the arguments once it has picked the job up,
 	// before the script runs (JE-41, JE-42, WR-5).
-	resolved, err := r.e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
+	resolved, err := r.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
 		return StepOutcome{}, inv.ID, jsonval.Value{}, &resolveFailure{err}
 	}

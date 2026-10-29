@@ -6,6 +6,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // StepExecutor runs leaf invocations in language harnesses: the engine side
@@ -82,6 +83,10 @@ type Invocation struct {
 	// Report receives what the invocation produces outside its outcome. It
 	// is never nil; NopReporter discards.
 	Report Reporter
+	// Platform, when set, is the platform services of a run that chose its
+	// own (RunRequest.Platform, H13), which the facade answers the step's
+	// resource and variable reads from; nil means the facade's own.
+	Platform *platform.Services
 }
 
 // Boundary is a step's boundary mode (ADR 0002).
