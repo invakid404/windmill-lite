@@ -1,0 +1,16 @@
+# FX-23: sleep (and JE-28's values). A sleep on module i delays when
+# module i+1's job starts: a javascript sleep of the module's own result,
+# a fractional static one, a negative fraction (none), and the sleep
+# after a skipped module and after a tolerated failure; a final module's
+# sleep runs in the virtual <id>-v step (OF-17); a string or null value
+# is a chaining error; a cancellation cuts a pending sleep short, and
+# the queued job fails with the Canceled error (FX-38). Steps run the
+# path scripts f/wl_fx23/echo (returns x) and fail (throws msg).
+# Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-23.
+id: execution/fx-23
+spec: [FX-23, FX-23/a, FX-23/b, FX-23/c, JE-28, OF-17, FX-38]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}

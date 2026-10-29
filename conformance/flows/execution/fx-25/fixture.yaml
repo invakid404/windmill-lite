@@ -1,0 +1,11 @@
+# FX-25: a process timeout is an ordinary step failure, which
+# continue_on_error tolerates and retry retries. Steps run the path
+# scripts f/wl_fx25/echo (returns x) and slow (waits ms, then returns
+# ms). Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-25.
+id: execution/fx-25
+spec: [FX-25, FX-25/a, FX-27]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}

@@ -1,0 +1,9 @@
+# FX-23: a negative float clamps to 0, so the flow goes on at once.
+spec: [FX-23, JE-28]
+target: f/wl_fx23/negative_float
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:b": {status: success, args: {x: 2}, result: 2}

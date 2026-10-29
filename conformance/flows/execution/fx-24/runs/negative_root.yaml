@@ -1,0 +1,13 @@
+# FX-24/b: a negative timeout at the root's first pickup fails a with an
+# Anyhow error and no job (FX-15 context 2, as FX-15/b), and the flow
+# fails with it.
+spec: [FX-24/b, FX-15]
+target: f/wl_fx24/negative_root
+expect:
+  status: failure
+  result: {error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}
+  steps:
+    "m:a":
+      status: failure
+      ran: false
+      carried: {error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}

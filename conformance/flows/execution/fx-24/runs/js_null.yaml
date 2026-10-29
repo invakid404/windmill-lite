@@ -1,0 +1,9 @@
+# JE-29: nor does null.
+spec: [JE-29, FX-15]
+target: f/wl_fx24/js_null
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error parsing result as i32: invalid type: null, expected i32 at line 1 column 4. Value was: null"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

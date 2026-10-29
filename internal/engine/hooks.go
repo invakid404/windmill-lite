@@ -181,10 +181,10 @@ func (l *Latch) Err() error {
 	return nil
 }
 
-// Clock is the engine's clock (H10): every requested wait goes through it,
-// so a host can record waits instead of sleeping them. The retry-jitter
-// source is a separate seam, defined with the retry arithmetic (FX-26,
-// milestone N2).
+// Clock is the engine's clock (H10): every requested wait, a sleep or a
+// retry delay, goes through it, so a host can record waits instead of
+// sleeping them (RecordClock). The retry-jitter source is the other seam
+// of H10 (Jitter).
 type Clock interface {
 	Now() time.Time
 	// Wait waits for d, or until ctx ends, and returns nil when the wait

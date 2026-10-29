@@ -1,0 +1,13 @@
+# FX-28/c: the same without a failure module: the flow fails with the
+# string error.
+spec: [FX-28/c, FX-21]
+target: f/wl_fx28/throw_no_handler
+expect:
+  status: failure
+  result: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
+  steps:
+    "m:a":
+      status: failure
+      args: {msg: x}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}

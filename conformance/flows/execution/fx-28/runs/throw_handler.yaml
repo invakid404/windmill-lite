@@ -1,0 +1,17 @@
+# FX-28/b: retry_if throws while the completion is decided, so the failure
+# is re-processed as unrecoverable with the predicate's error as a string
+# (as FX-21, with the predicate helper's location): no retry, and the
+# failure module runs and sees {"error": <string>}; its result does not
+# recover, so the flow fails with it.
+spec: [FX-28/b, FX-21]
+target: f/wl_fx28/throw_handler
+expect:
+  status: failure
+  result: string
+  steps:
+    "m:a":
+      status: failure
+      args: {msg: x}
+      result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}
+      carried: {error: "Error: QuickJS evaluation error: Error: cannot read property 'x' of null\n    at <anonymous> (eval_script:1:35)\n    at <eval> (eval_script:1:44)\n @worker_flow.rs:2451:11"}
+    "s:failure": {status: success, args: {x: string}, result: string}

@@ -1,0 +1,22 @@
+summary: 'FX-25 a timed-out step is retried'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          ms:
+            type: static
+            value: 3000
+        path: f/wl_fx25/slow
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+      timeout:
+        type: static
+        value: 1
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

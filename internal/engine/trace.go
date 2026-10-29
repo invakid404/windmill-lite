@@ -63,10 +63,24 @@ func (t *Trace) Step(p conformance.SitePath) (StepRecord, bool) {
 }
 
 // StepRecord is the trace of one site: one module, or one failed attempt of
-// a retried module at <module>/r:<k>.
+// a retried module at <module>/r:<k>, where k is the attempt's place in
+// the flow-wide list of failed attempts (FX-27), which counts an earlier
+// module's attempts after a tolerated failure (FX-29).
 type StepRecord struct {
-	Site    conformance.SitePath
+	Site conformance.SitePath
+	// Attempt is the module's attempt the record is of: 0 for its first
+	// run, n for its nth retry.
 	Attempt int
+	// FailedRetries are, on a module's record, the sites of the failed
+	// attempts its Success or Failure status lists: the flow-wide list
+	// that Windmill copies into the status of every module that completes,
+	// its own retried attempts and, after a tolerated failure, an earlier
+	// module's (FX-27, FX-29). Each names the record of that attempt.
+	FailedRetries []conformance.SitePath
+	// Job is the id of the site's leaf job, the invocation's WM_JOB_ID,
+	// once it launched; empty for identity jobs, which have no
+	// invocation, and for sites with no job.
+	Job string
 
 	// Status is the status of the site's job (OR-V2), or StepNotRun when it
 	// has none. Module is the module's own status (FX-1), for a site that is
@@ -98,7 +112,8 @@ type StepRecord struct {
 
 	// Result is the stored result of the site's own job; Carried is the
 	// value the module carries on to what follows it, which differs from
-	// Result after an error stop (FX-V2). Together with Module and
+	// Result after an error stop (FX-V2), and is zero for a failed attempt,
+	// which carries nothing on. Together with Module and
 	// ResolvedArgs they are the dimensions ADR 0001 §2 compares beyond
 	// OR-15's step record (conformance.StepObservation).
 	Result  jsonval.Value
@@ -115,6 +130,10 @@ type StepRecord struct {
 	// BranchChosen is the branch a branchone took.
 	BranchChosen *conformance.BranchChosen
 
+	// Start and Duration time the site's job, from its launch, after any
+	// sleep or retry delay, to its outcome; for a site with no job, the
+	// time its module took to reach that point. The module's own span,
+	// waits included, is a SpanModule span.
 	Start    time.Time
 	Duration time.Duration
 	// Late holds what the invocation produced after it settled or was

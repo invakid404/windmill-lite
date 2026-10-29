@@ -1,0 +1,13 @@
+# FX-29: the retry counter is flow-wide. After a tolerated failure it
+# carries over, so the next failing module gets fewer retries, and the
+# list of failed attempts carries over with it, so the next module to
+# complete lists them as its own (FX-27); a success in between clears
+# both. Steps run the path scripts f/wl_fx29/fail (throws msg) and echo
+# (returns x). Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-29.
+id: execution/fx-29
+spec: [FX-29, FX-29/a, FX-29/b, FX-27]
+scope: core
+provenance: source-derived
+languages: [bun]
+oracle: {workers: 1}

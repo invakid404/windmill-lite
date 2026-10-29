@@ -1,0 +1,13 @@
+summary: 'FX-24/f identity jobs are untimed'
+value:
+  modules:
+    - id: a
+      value:
+        type: identity
+      timeout:
+        type: static
+        value: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
