@@ -600,6 +600,21 @@ waits on an external gate except R1.
   every loop iteration, branch and subflow as a flow job of the run's tree
   while it runs, so a dispatch whose `parent_job` names one gets its path.
 
+- F2b exposes H3, H4, H5, H7 and H10 through `wl`: write-capable selectors
+  and `BeforeFirstWrite`, and `FatalErrorNames`, on `wl.Hooks`; the
+  pre-write deadline, the clock (`RecordClock` for quick waits) and the
+  jitter on `wl.RunOptions`; the latch through `RunHandle.Latch` and every
+  hook's error. All of them are off by default. Its exit gate's
+  latch-precedence cases are data files of a new conformance level,
+  `conformance/hooks` ([0003](0003-semantics-placement.md)), run through
+  `wl`'s public hooks on flows of identity modules; H3, which only a job
+  that runs a step reaches, is checked by `wl`'s tests on the Bun harness.
+  The cases read FX-19's error stop as a `stop_after_if` with an
+  `error_message`, which is the only completion the cancellation's
+  exception lets through; a plain failure under cancellation never starts
+  the failure module. A passed deadline, hard or pre-write, names
+  Windmill's default reason and canceler, since a deadline has neither.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records

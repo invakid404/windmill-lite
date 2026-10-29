@@ -97,7 +97,29 @@ type Hooks struct {
 	// produced after the run ended; resources step code can reach are
 	// released here.
 	OnRunSettled func(t *Trace)
+	// WriteCapable (H3) marks the sites the host deems write-capable.
+	// Before the first of them launches its job in a run, BeforeFirstWrite
+	// is called once; its error vetoes the write and latches the run (H5).
+	// When several write-capable sites launch at once (parallel branches
+	// or iterations), the others wait for that one verdict, and a veto
+	// stops them all. From the first such launch on, the run reports
+	// MayHaveMutated, in a failed run too. Only a job that runs a step is
+	// a write: an interception, a host-provided site, a mock or a skipped
+	// module never is.
+	WriteCapable     []Selector
+	BeforeFirstWrite func(ctx context.Context, run RunHandle, site Site) error
+	// FatalErrorNames (H7) are error names that bypass retry,
+	// continue_on_error, skip_failures and skip_failure: a module that
+	// fails with one latches the run with a *FatalError instead. Using it
+	// is a deviation the trace records ("H7"), because Windmill has no such
+	// rule (FX-28).
+	FatalErrorNames []string
 }
+
+// FatalError is the latch of a module that failed with one of
+// Hooks.FatalErrorNames (H7): its site, the error's name and the failure
+// value it carried.
+type FatalError = engine.FatalError
 
 // Interceptor is one H1 interception: the sites Selector matches, and
 // either Static, a fixed result (the no-code form), or Func, which
@@ -225,6 +247,11 @@ func engineHooks(h *Hooks, prog *ir.Program) (*hooks, error) {
 	}
 	for i, s := range h.HaltAfter {
 		if err := check(fmt.Sprintf("Hooks.HaltAfter[%d]", i), s); err != nil {
+			return nil, err
+		}
+	}
+	for i, s := range h.WriteCapable {
+		if err := check(fmt.Sprintf("Hooks.WriteCapable[%d]", i), s); err != nil {
 			return nil, err
 		}
 	}
@@ -424,11 +451,16 @@ func (x *hooks) RewriteArgs(ctx context.Context, r engine.Run, s engine.Site, ar
 	return args, nil
 }
 
-func (*hooks) WriteCapable(engine.Site) bool { return false }
+func (x *hooks) WriteCapable(s engine.Site) bool { return anyMatch(x.h.WriteCapable, s) }
 
-func (*hooks) BeforeFirstWrite(context.Context, engine.Run, engine.Site) error { return nil }
+func (x *hooks) BeforeFirstWrite(ctx context.Context, r engine.Run, s engine.Site) error {
+	if x.h.BeforeFirstWrite == nil {
+		return nil
+	}
+	return x.h.BeforeFirstWrite(ctx, r, s)
+}
 
-func (*hooks) FatalErrorName(string) bool { return false }
+func (x *hooks) FatalErrorName(name string) bool { return slices.Contains(x.h.FatalErrorNames, name) }
 
 func (x *hooks) HaltBefore(s engine.Site) bool { return anyMatch(x.h.HaltBefore, s) }
 
