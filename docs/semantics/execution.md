@@ -2499,12 +2499,20 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
      `branchall`'s children, which are read from storage into values and
      written out as the container's result text (its `previous_result`,
      [expressions.md](expressions.md#je-44)).
-     - **Integers.** A number written without a fraction or an exponent
-       that fits an unsigned 64-bit integer (non-negative) or a signed one
-       (negative) is kept exactly and written as an integer. Any other
-       number is parsed as the nearest double; the parse is correctly
-       rounded, so a double written in its shortest form comes back with
-       the same digits.
+     - **Negative zero.** The integer token `-0` is not an integer: it is
+       parsed as the double negative zero and written `-0.0`, while `0`
+       stays `0`.
+     - **Integers.** Any other number written without a fraction or an
+       exponent that fits an unsigned 64-bit integer (non-negative) or a
+       signed one (negative) is kept exactly and written as an integer.
+     - **Doubles.** Every remaining number is parsed as the nearest double;
+       the parse is correctly rounded, so a double written in its shortest
+       form comes back with the same digits. A number too small for a double
+       becomes zero with its sign (`1e-400` is `0.0`, `-1e-400` is `-0.0`).
+       A number too large for one is not accepted: the parse fails with
+       `number out of range at line <l> column <c>`, so a `$jsonvar:`
+       reference fails its step ([FX-51](#fx-51) rule 5) instead of
+       producing a value.
      - **Digits.** A double is written with the shortest digits that parse
        back to it. Zero is `0.0`, negative zero `-0.0`.
      - **Notation.** Let E be the exponent of the first significant digit
@@ -2529,6 +2537,9 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
      | `18446744073709551616`, `-9223372036854775809` | `1.8446744073709552e+19`, `-9.223372036854776e+18` |
      | `1e3`, `1000.0` | `1000.0` |
      | `1.50`, `0.1`, `0.0`, `-0.0` | `1.5`, `0.1`, `0.0`, `-0.0` |
+     | `0`, `-0` | `0`, `-0.0` |
+     | `1e-400`, `-1e-400` | `0.0`, `-0.0` |
+     | `1e400`, `-1e400`, `123e999` | not accepted: `number out of range at line 1 column 5` (6, 7) |
      | `0.00001` (or `1e-5`) | `0.00001` |
      | `0.000001` (or `1e-6`), `0.000001234` | `1e-6`, `1.234e-6` |
      | `0.0000001` (or `1e-7`), `0.00000015` | `1e-7`, `1.5e-7` |
@@ -2538,9 +2549,14 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
      | `123456789012345680000`, `123456789012345678901234567890` | `1.2345678901234568e+20`, `1.2345678901234568e+29` |
      | `5e-324`, `1.7976931348623157e308` | `5e-324`, `1.7976931348623157e+308` |
 
-     For a loop's children the text read is PostgreSQL's printed `jsonb`,
-     which writes every number in plain decimal and keeps the scale
-     (rule 6; `1e-7` is printed `0.0000001`, `1.50` stays `1.50`).
+     The text read matters. A `$jsonvar:` variable's text is parsed as the
+     user wrote it, since a variable is stored as text, so `-0` there
+     reaches the arguments file as `-0.0`. For a loop's children the text
+     read is PostgreSQL's printed `jsonb`, which writes every number in
+     plain decimal and keeps the scale (rule 6; `1e-7` is printed
+     `0.0000001`, `1.50` stays `1.50`), and has no negative zero: a child's
+     `-0.0` was already stored as `0.0` ([JE-16](expressions.md#je-16)), so
+     the container's result text holds `0.0`.
      Integers a JavaScript step returns stay as written up to
      the 64-bit limits; beyond them (10²⁰, 2⁶⁴) they turn into exponent
      form. A number JavaScript wrote as `1e+21` or `1.5e-7` comes back the
@@ -2574,7 +2590,14 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     exponent from −5 to 15 (`src/lib.rs:320`, `:1622-1647`), else the
     exponent form with its sign and no padding (`:1649-1702`, the
     exponent strings at `:583-623`); zero is written at `:1538-1546`
-    (the sign is written first, at `:1518-1521`).
+    (the sign is written first, at `:1518-1521`). `serde_json`'s parser
+    turns the integer token `-0` into a double (`src/de.rs:509-526`),
+    rejects a double whose value is infinite with `NumberOutOfRange`
+    (`src/de.rs:624-635`; text `number out of range`, `src/error.rs:366`),
+    and lets one that is too small round to a signed zero; a `$jsonvar:`
+    parse failure becomes the step's error at
+    `backend/windmill-worker/src/common.rs:298-300`. Checked against those
+    crates, as built with `float_roundtrip`.
     The parse is correctly rounded because the CE build (`features=ce`,
     which includes `deno_core` through `all_languages`,
     `backend/Cargo.toml:132`, `:177`, `:198-199`) links `deno_core`
@@ -2591,7 +2614,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
     against the oracle's PostgreSQL image by `conformance/jsonb/je-44.yaml`.
   - PostgreSQL: https://www.postgresql.org/docs/current/datatype-json.html,
     https://www.postgresql.org/docs/current/datatype-numeric.html
-- **Conformance:** [FX-42/a–FX-42/j](conformance.md#fx-42); also
+- **Conformance:** [FX-42/a–FX-42/l](conformance.md#fx-42); also
   [FX-V2/a](conformance.md#fx-v2), [FX-V5/a](conformance.md#fx-v5).
 - **Design note (not Windmill behaviour):** an earlier proposal that a
   key-sorting walk is enough for parity is withdrawn. Exact parity needs
@@ -2632,6 +2655,15 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   text). Rule 9 is source-traced; no recording yet tells a correctly
   rounded parse from the library's default one, because the recorded
   values come back the same either way.
+- **Revision 2026-10-29 (validation round 1):** rule 9 said that a number
+  without a fraction or exponent is an integer when it fits 64 bits, and
+  that every other number becomes the nearest double. Two exceptions were
+  missing: the token `-0` is parsed as negative zero and written `-0.0`,
+  and a number whose double would be infinite (`1e400`) is rejected, so a
+  `$jsonvar:` reference to it fails the step. Rule 9 now states both, and
+  that `-0` survives only where the text is parsed as written (a variable)
+  and not after a `jsonb` round trip. New source-derived cases
+  [FX-42/k](conformance.md#fx-42) and [FX-42/l](conformance.md#fx-42).
 
 <a id="fx-43"></a>
 ### FX-43 · Result size limits
@@ -2848,17 +2880,31 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
      parsing …` and `Error during …` are not prefixes.)
   2. Mask trailing ` @<file>.rs:<line>:<col>` suffixes from the end, at
      most k of them, each as `<loc>`.
-  3. Mask as `<loc>` every ` (<file>.rs:<line>)` that directly follows a
-     lookup helper's `<kind> not found at name <name>`, wherever it stands.
+  3. Mask a parenthesised ` (<file>.rs:<line>)` only where the expected
+     text writes `<loc>` for it: a case whose step reads a result the
+     lookup helper cannot find, as [CF-19](control-flow.md#cf-19)/c does.
+     Never mask it by searching the observed text
+     ([OR-14](oracle.md#or-14) compares the same way).
 
-  At these sites user text cannot imitate a layer. The innermost text
-  starts with fixed text (`QuickJS evaluation error: `, `Expected …`,
-  `Timeout value cannot be negative`, `Error parsing result as …`,
-  `Bad request: …`, a database error), so it cannot add to k. It ends in
-  fixed text, in the engine's stack or debug form followed by a newline, or
-  in a JSON text (`… Value was: <result text>`), none of which ends like a
-  suffix. The one exception is a result text from a replaced
+  For trailing suffixes, user text cannot imitate a layer at these sites.
+  The innermost text starts with fixed text (`QuickJS evaluation error: `,
+  `Expected …`, `Timeout value cannot be negative`, `Error parsing result
+  as …`, `Bad request: …`, a database error), so it cannot add to k. It
+  ends in fixed text, in the engine's stack or debug form followed by a
+  newline, or in a JSON text (`… Value was: <result text>`), none of which
+  ends like a suffix. The one exception is a result text from a replaced
   `JSON.stringify`, which can be any string ([JE-15](expressions.md#je-15)).
+
+  The parenthesised form is different: no textual rule tells a generated
+  one from user text. The helper writes it as plain text, with no marker,
+  and an expression's failed fetch reaches the message as an ordinary
+  exception whose text is that string, so it renders exactly as a
+  `throw new Error("…")` with the same text would. A user can therefore
+  write `Not found: Completed Job not found at name x (user.rs:123)` in
+  their own error, and a search-based mask would hide a change of `123` to
+  `456` in the user's message ([FX-50/d](conformance.md#fx-50)). Which
+  parenthesised forms Windmill generated is a property of the flow (which
+  lookups fail), so the case's expected text must say so.
 
   The recorded chaining errors have as many `Error: ` prefixes as suffixes,
   but that is not general. A start-phase error from another located kind
@@ -2876,7 +2922,12 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   call site, last path segment); `:45-54`, `:61`, `:65`, `:234-239` (the
   other located kinds; `internal_err` builds the located internal error),
   `:59-60` (the unlocated one); `backend/windmill-common/src/utils.rs:338-351`
-  (the not-found helper's parenthesised location);
+  (the not-found helper's parenthesised location, written as plain text);
+  `backend/windmill-jseval/src/lib.rs:703-708`, `:743-747` (a failed
+  fetch's text, handed to the program behind a private marker),
+  `:770-778` (the prelude throws it as `new Error(<text>)`), `:387-419`
+  (any exception is rendered as `QuickJS evaluation error: ` plus its
+  display);
   `backend/windmill-worker/src/worker_flow.rs:2104` (a later transition
   stores only the outermost display), `:4404-4438` and
   `backend/windmill-queue/src/jobs.rs:6417-6521` (pushing the next job; a
@@ -2887,7 +2938,7 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   the display text); `backend/windmill-worker/src/worker.rs:3815-3840`
   (conversion at `:3822`); built messages `worker_flow.rs:3694-3713`,
   `:4392-4396`, `:2761-2767`.
-- **Conformance:** [FX-50/a–FX-50/c](conformance.md#fx-50);
+- **Conformance:** [FX-50/a–FX-50/d](conformance.md#fx-50);
   [FX-15/a–FX-15/c](conformance.md#fx-15),
   [FX-14/a](conformance.md#fx-14), [FX-8/b](conformance.md#fx-8).
 - **Note:** added 2026-10-28 from the recordings of batches E3b and E3c
@@ -2908,6 +2959,16 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   case [FX-50/a](conformance.md#fx-50) states the push failure's text. The
   layer list and the masking rule are source-traced; the push failure's
   text is not recorded ([Q-FX-8](#q-fx-8)).
+- **Revision 2026-10-29 (validation round 1):** masking step 3 said to mask
+  every ` (<file>.rs:<line>)` that follows the lookup helper's not-found
+  text, wherever it stands. That would also hide user text: a failed
+  fetch reaches the message as an ordinary thrown `Error`, so a user's own
+  `throw` can write the same phrase, and nothing in the text tells the two
+  apart. Step 3 now masks a parenthesised form only where the case's
+  expected text writes `<loc>` for it, as [OR-14](oracle.md#or-14) already
+  compares; the new negative case [FX-50/d](conformance.md#fx-50) keeps a
+  forged phrase literal. The trailing-suffix count (steps 1 and 2) is
+  unchanged.
 
 <a id="fx-51"></a>
 ### FX-51 · Unpaired surrogate escapes and out-of-range numbers at storage boundaries

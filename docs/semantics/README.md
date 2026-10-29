@@ -60,14 +60,14 @@ and [licensing.md](licensing.md) maps which parts do.
 | Area | Findings | `core` | `later` | `out` | `EE` | Not settled | Question entries | Conformance cases |
 |---|---|---|---|---|---|---|---|---|
 | [openflow.md](openflow.md) | 51 | 42 | 8 | 1 | 0 | 2 | 13 | 147 |
-| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 20 | 137 |
+| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 20 | 140 |
 | [control-flow.md](control-flow.md) | 36 | 30 | 5 | 0 | 1 | 0 | 18 | 87 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 16 | 185 |
-| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 189 |
+| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 191 |
 | [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 93 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 4 | 18 | 83 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **349** | **271** | **66** | **7** | **5** | **6** | **127** | **924** |
+| **Total** | **349** | **271** | **66** | **7** | **5** | **6** | **127** | **929** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
@@ -91,7 +91,7 @@ carry a drafted part, which their status line names (for example
 [FX-50](execution.md#fx-50), [JE-11](expressions.md#je-11),
 [JE-16](expressions.md#je-16), [JE-18](expressions.md#je-18),
 [JE-44](expressions.md#je-44), [WR-22](languages.md#wr-22),
-[WR-26](languages.md#wr-26), [WR-40](languages.md#wr-40),
+[WR-26](languages.md#wr-26), [WR-28](languages.md#wr-28), [WR-40](languages.md#wr-40),
 [WR-49](languages.md#wr-49), [WR-50](languages.md#wr-50),
 [OR-21](oracle.md#or-21) and [OR-27](oracle.md#or-27). The answers to semantics requests 1 to 3
 ([JE-48](expressions.md#je-48), [JE-49](expressions.md#je-49),

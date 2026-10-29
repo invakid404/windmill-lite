@@ -47,14 +47,14 @@ behaviour each. Paths such as `f/demo/...` are invented.
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 147 | 127 | 20 | 0 | 0 | 1 | 4 | 0 |
-| [Flow execution](#execution) | 137 | 99 | 37 | 1 | 0 | 81 | 0 | 1 |
+| [Flow execution](#execution) | 140 | 100 | 39 | 1 | 0 | 81 | 0 | 1 |
 | [Loops, branches and subflows](#control-flow) | 87 | 68 | 17 | 0 | 2 | 44 | 0 | 0 |
 | [Expressions](#expressions) | 185 | 128 | 57 | 0 | 0 | 167 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 189 | 125 | 64 | 0 | 0 | 27 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 191 | 125 | 66 | 0 | 0 | 27 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 83 | 76 | 5 | 0 | 2 | 53 | 11 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 924 | 678 | 236 | 6 | 4 | 373 | 15 | 7 |
+| **Total** | 929 | 679 | 240 | 6 | 4 | 373 | 15 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -2094,6 +2094,27 @@ contested and now carry their own provenance.
     `jsonb` printed it in plain decimal, and the loop's result text writes
     each number again in the backend's notation ([FX-42](execution.md#fx-42)
     rule 9; the text site as in [JE-44](expressions.md#je-44)).
+- **FX-42/k** · source-derived · later · The token `-0` in a variable's
+  text is negative zero.
+  - **Given:** a variable with the text `[-0, 0, -1e-400, 1e-400]`, passed
+    to a Bun step as the static argument `v = "$jsonvar:<path>"`; the step
+    returns the text of its arguments file, as in FX-42/h, and in a second
+    flow `v.map((x) => Object.is(x, -0))`.
+  - **Expect:** the arguments file is `{"v":[-0.0,0,-0.0,0.0]}`, and the
+    script sees `[true, false, true, false]`: `-0` is negative zero and `0`
+    an integer, and a number too small for a double keeps its sign as zero
+    ([FX-42](execution.md#fx-42) rule 9). The variable's text is parsed as
+    written; a value that went through `jsonb` first carries no negative
+    zero ([JE-16](expressions.md#je-16)).
+- **FX-42/l** · source-derived · later · A number too large for a double is
+  not accepted.
+  - **Given:** a variable with the text `1e400`, passed to a Bun step `a` as
+    the static argument `v = "$jsonvar:<path>"`.
+  - **Expect:** `a` fails before its script runs. Its stored result, and
+    the flow's, is
+    `{"error": {"name": "ExecutionErr", "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 5<loc>", "step_id": "a"}}`
+    ([FX-42](execution.md#fx-42) rule 9; the envelope as in
+    [FX-51/c](#fx-51), which gives the same error for `{"n": 1e400}`).
 
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
@@ -2269,7 +2290,9 @@ The recorded shapes are cases of [FX-15](#fx-15), [FX-14](#fx-14) and
     `execution error:\n` lead-in. Written with `<loc>`:
     `…not defined\n<loc><loc>`, unchanged, `…{"a": 2, "b": 1}<loc>`,
     `Error: Internal: x<loc>`, `…0000-000000000000<loc>` followed by the
-    unchanged frame lines, and `…column 9<loc>`.
+    unchanged frame lines, and `…column 9<loc>`. Message 5's `<loc>` is
+    known to be generated only because the flow reads a result that is
+    missing; its text alone does not show it ([FX-50/d](#fx-50)).
 - **FX-50/c** · source-derived · A suffix in the user's own message is not
   generated.
   - **Given:** `[a: bun: return 1, b: bun: return 2 (skip_if: {expr: "(() =>
@@ -2280,6 +2303,19 @@ The recorded shapes are cases of [FX-15](#fx-15), [FX-14](#fx-14) and
     by the engine's stack lines and one `<loc>`: one layer prefix, so only
     the final suffix is generated; the user's ` @worker.rs:1:2` sits before
     the stack and stays.
+- **FX-50/d** · source-derived · A not-found phrase in the user's own
+  message is not generated.
+  - **Given:** `[a: bun: return 1, b: bun: return 2 (skip_if: {expr: "(() =>
+    { throw new Error('Not found: Completed Job not found at name pretend
+    (user.rs:123)') })()"})]`.
+  - **Expect:** the flow fails at the transition after `a` with an
+    `InternalError` whose message is
+    `Error: QuickJS evaluation error: Error: Not found: Completed Job not found at name pretend (user.rs:123)\n`
+    followed by the engine's stack lines and one `<loc>`. The
+    ` (user.rs:123)` is the user's text and is compared literally: the
+    same flow with `(user.rs:456)` gives a different message. Its shape is
+    the lookup helper's, as in [CF-19](#cf-19)/c, where the same form is
+    generated; only the case's expected text decides which one is masked.
 
 <a id="fx-v1"></a>
 ### FX-V1 · A throwing `stop_after_all_iters_if` uses the EarlyStopError path
@@ -3235,7 +3271,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **Rust location suffix:** strip ` @<file>.rs:<line>:<col>` before comparing. `<loc>` in an expected message stands for one such suffix **including its leading space** (or the parenthesised not-found form ` (<file>.rs:<line>)`), with nothing else between it and the text before it; a message that ends in `<loc><loc>` carries two ([FX-50](execution.md#fx-50)).
 - **`…`** in an expected message marks elided text: a stack, a location suffix, or the rest of a library message.
 
-**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); batch E3e deferred it, since a restart is outside windmill-lite's equivalence contract) and JE-V5/a (which transform fails first changes from one pass to the next, as JE-23/e records, so counting the reads is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)). On 2026-10-29, batch E3e recorded three new cases, JE-23/e, JE-44/d and JE-44/e, and the source re-check added seven `source-derived` ones: JE-11/b–e and JE-16/h (design request 10; [Q-JE-13](expressions.md#q-je-13)), JE-18/e (a repeated module id) and JE-44/f (an identity job's text).
+**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); batch E3e deferred it, since a restart is outside windmill-lite's equivalence contract) and JE-V5/a (which transform fails first is not fixed and may change from one pass to the next, as JE-23/e records, so counting the reads is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)). On 2026-10-29, batch E3e recorded three new cases, JE-23/e, JE-44/d and JE-44/e, and the source re-check added seven `source-derived` ones: JE-11/b–e and JE-16/h (design request 10; [Q-JE-13](expressions.md#q-je-13)), JE-18/e (a repeated module id) and JE-44/f (an identity job's text).
 
 <a id="je-1"></a>
 ### JE-1 · QuickJS-ng evaluates every expression that reaches the engine
@@ -3801,9 +3837,9 @@ Retry, missing-payload and dispatch cases are under [JE-V2](#je-v2), [JE-V4](#je
   - **Given:** `x = nope` on a non-skipped `b`
   - **Expect:** `b`'s result is ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `nope`:\nQuickJS evaluation error: Error: nope is not defined…"}}``.
   - **Recorded:** [`exprs/je-23.yaml`](../../conformance/exprs/je-23.yaml) case `JE-23/d`, oracle run 40687124625.
-- **JE-23/e** · oracle-observed · the evaluation order is drawn afresh for every pass (O5)
+- **JE-23/e** · oracle-observed · the evaluation order is not fixed and may change from pass to pass (O5)
   - **Given:** a sequential loop over sixteen items with `skip_failures: true` and a two-step body whose first step `t` has three transforms, `zz`, `b` and `aa`, each failing with an unknown name; a step after the loop reports which transform each iteration's error names. The flow is deployed twice: by the CLI, whose `flow.yaml` writes the transforms in name order (`aa`, `b`, `zz`), and through the API, created in the written order `zz`, `b`, `aa`.
-  - **Expect:** in both deployments the sixteen errors do not all name the same transform: no order is fixed, neither the written one nor name order. A fixture must not expect a particular transform to be evaluated, or to fail, first.
+  - **Expect:** no order is fixed, neither the written one nor name order, so a fixture must not expect a particular transform to be evaluated, or to fail, first. In the recording, the sixteen errors did not all name the same transform in either deployment. That is an observed sample: freshly seeded maps make it very likely but do not guarantee it, so a check of it is statistical, not a deterministic conformance condition.
   - **Recorded:** [`flows/je/transform-order`](../../conformance/flows/je/transform-order) run `order` and [`flows/je/transform-order-api`](../../conformance/flows/je/transform-order-api) run `order`, oracle run 40801169516.
 
 <a id="je-24"></a>
@@ -4779,7 +4815,7 @@ The dispute over the later dynamic-import consequence ([Q-WR-16](languages.md#q-
   - **Given:** a static `import { h } from "./helper"` and a dynamic `await import("./helper")` in the same file.
   - **Expect:** both load workspace script `<dir>/helper`: the recording returns `["helper","helper"]`.
   - **Recorded:** [`flows/languages/wr-28`](../../conformance/flows/languages/wr-28) run `wr28-c`, oracle run 40801169516.
-- **WR-28/d** · source-derived · later · a dynamic import with no static rewrite trigger cannot be deployed
+- **WR-28/d** · source-derived · later · a dynamic import of an extensionless relative path, with no static rewrite trigger, cannot be deployed
   - **Given:** script `<dir>/x` whose only import is a dynamic `await import("./helper")`, deployed without a lock, so the server runs its dependency job; a workspace script `<dir>/helper` exists.
   - **Expect:** the dependency job fails: the specifier stays in the build output, the dependency scan reads it as a package named `.`, and `bun install` fails with `Package "." with tag "latest" not found` ([WR-26](languages.md#wr-26)). The script gets a lock error and no version a run by path can select. Observed on the oracle (oracle run 40798097155), with no committed recording, since there is no deployed script to run.
   - **Correction 2026-10-29:** the case expected a run in which the import is not fetched from the workspace and resolution fails unless a local file exists. That run never happens: the deploy fails first ([WR-26](languages.md#wr-26), [WR-28](languages.md#wr-28)).
@@ -4788,6 +4824,12 @@ The dispute over the later dynamic-import consequence ([Q-WR-16](languages.md#q-
   - **Expect:** the static rewrite turns the dynamic literal into `../other/./helper.ts`, which is intercepted and fetched against the importer's path: the importer returns `["helper","elsewhere"]`, the second value coming from the other folder's helper.
   - **Recorded:** [`flows/languages/wr-28`](../../conformance/flows/languages/wr-28) run `wr28-e`, oracle run 40801169516.
   - **Correction 2026-10-29:** the case gave two expectations, not rewritten or intercepted as drafted, and rewritten then intercepted from the validation; the oracle settled it for the validation. Its example specifier `./nested/./helper` is replaced by one that reaches another folder, as the recording does, so that the fetched helper is told apart by its result.
+- **WR-28/f** · source-derived · later · a dynamic `.ts` path needs no static rewrite trigger
+  - **Given:** script `<dir>/x` whose only import is a dynamic `await import("./helper.ts")`, deployed without a lock; workspace script `<dir>/helper` exports `x = "helper"`, and no local file `helper.ts` exists in the job directory. `main` returns `(await import("./helper.ts")).x`.
+  - **Expect:** the deploy succeeds: the resolver plugin claims the specifier in the dependency job's build, so it never reaches the scan. A run by path returns `"helper"`, fetched from the workspace against the importer's path ([WR-28](languages.md#wr-28) rule 3).
+- **WR-28/g** · source-derived · later · a dynamic builtin or package import needs no static rewrite trigger
+  - **Given:** script `<dir>/x` whose only imports are a dynamic `await import("node:path")` and a dynamic `await import("is-number")`, deployed without a lock. `main` returns `[(await import("node:path")).sep, (await import("is-number")).default(5)]`.
+  - **Expect:** the deploy succeeds: the scan skips `node:path` and locks `is-number` at `latest` ([WR-26](languages.md#wr-26)). A run by path returns `["/", true]`.
 
 <a id="wr-29"></a>
 ### WR-29 · The import base for an inline flow script is the flow's path
