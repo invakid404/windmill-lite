@@ -1,0 +1,4 @@
+# CF-17, FX-26: a constant 2 s retry delay between a's two subflow
+# attempts.
+target: f/cfsr/delay
+args: {v: 7}

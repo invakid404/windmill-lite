@@ -1,0 +1,4 @@
+# CF-17, CF-1: each iteration's subflow step fails once and is retried
+# inside the iteration's child flow.
+target: f/cfsr/loop_seq
+args: {items: [p, q]}

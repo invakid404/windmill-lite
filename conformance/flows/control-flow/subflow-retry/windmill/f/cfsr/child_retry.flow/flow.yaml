@@ -1,0 +1,32 @@
+summary: "N5 child flow whose flaky step has its own retry"
+value:
+  modules:
+    - id: x
+      value:
+        type: script
+        input_transforms:
+          tag:
+            type: javascript
+            expr: "flow_input.tag"
+          fails:
+            type: javascript
+            expr: "flow_input.fails"
+          v:
+            type: javascript
+            expr: "flow_input.v"
+        path: f/cfsr/flaky
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    tag:
+      type: string
+    fails:
+      type: number
+    v:
+      type: ''
+  required: []

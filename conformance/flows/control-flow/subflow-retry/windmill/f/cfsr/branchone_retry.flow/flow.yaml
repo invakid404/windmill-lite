@@ -1,0 +1,33 @@
+summary: "N5 a retried branchone whose chosen branch fails once"
+value:
+  modules:
+    - id: br
+      value:
+        type: branchone
+        branches:
+          - modules:
+              - id: x
+                value:
+                  type: script
+                  input_transforms:
+                    tag:
+                      type: static
+                      value: br
+                    fails:
+                      type: static
+                      value: 1
+                    v:
+                      type: static
+                      value: 1
+                  path: f/cfsr/flaky
+            expr: 'true'
+        default: []
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -1,0 +1,4 @@
+# CF-17, FX-30: as exhausted, under continue_on_error: b reads the error
+# as results.a.
+target: f/cfsr/exhausted_continue
+args: {v: 7}
