@@ -31,8 +31,12 @@ type InlineScript struct {
 	// ContentFile is the root-relative file the content was read from.
 	ContentFile string `json:"content_file"`
 	// LockFile is the file the lock was read from, "" when the lock was
-	// not a reference or its file is missing.
+	// not a reference or its file is missing or unreadable.
 	LockFile string `json:"lock_file,omitempty"`
+	// Warnings are what the CLI logs while it reads the files: a content
+	// file it read from the fallback name, and a lock file it could not
+	// read (SY-7, SY-19).
+	Warnings []string `json:"warnings,omitempty"`
 	// Script is the rawscript in Document.
 	Script *openflow.RawScript `json:"-"`
 }
@@ -62,13 +66,15 @@ func (f *Folder) FlowDocument(p string) (*Flow, error) {
 	}
 	item := "flow " + p
 	fl := &Flow{Path: p, Dir: e.file, File: e.file + "/flow.yaml"}
-	data, found, err := f.readFile(fl.File)
-	if err != nil {
-		return nil, err.(*Error).withItem(item)
-	}
-	if !found {
+	data, found, refused, rerr := f.readDecoded(fl.File)
+	switch {
+	case rerr != nil:
+		return nil, rerr.withItem(item)
+	case !found:
 		return nil, &Error{Kind: ErrFlowLayout, Item: item, File: fl.Dir,
 			Msg: "the flow folder has no flow.yaml, the only file the CLI pushes from it (SY-6)"}
+	case refused != nil:
+		return nil, refused.withItem(item)
 	}
 	js, err := yamlx.ToJSON(data)
 	if err != nil {
@@ -144,9 +150,11 @@ func (f *Folder) inline(fl *Flow) *Error {
 // inlineScript resolves one rawscript. Only content that starts with
 // `!inline` is a reference; otherwise the lock, even an `!inline` string,
 // stays as written (SY-V1). The file is the second space-separated token
-// of the string. A missing content file is tried again as `<module id>.`
-// plus everything after the first dot of the name; a missing lock file is
-// the empty lock (SY-7).
+// of the string. A content file that is missing, or that the decoder
+// refuses, is tried again as `<module id>.` plus everything after the
+// first dot of the name, nothing when it has none (SY-7, SY-19). A lock
+// file that is missing or refused is the empty lock. A refused file the
+// CLI's walk reads fails the push instead.
 func (f *Folder) inlineScript(dir, id string, rs *openflow.RawScript) (*InlineScript, string, *Error) {
 	if !strings.HasPrefix(rs.Content, "!inline") {
 		return nil, "", nil
@@ -160,26 +168,24 @@ func (f *Folder) inlineScript(dir, id string, rs *openflow.RawScript) (*InlineSc
 	if err != nil {
 		return nil, "", err
 	}
-	data, found, rerr := f.readFile(p)
-	if rerr != nil {
-		return nil, "", rerr.(*Error)
+	data, found, err := f.readInline(p)
+	if err != nil {
+		return nil, "", err
 	}
 	if !found {
-		if _, rest, ok := strings.Cut(name, "."); ok {
-			fb, err := flowPath(dir, id+"."+rest)
-			if err != nil {
-				return nil, "", err
-			}
-			if data, found, rerr = f.readFile(fb); rerr != nil {
-				return nil, "", rerr.(*Error)
-			}
-			if found {
-				p = fb
-			}
+		in.Warnings = append(in.Warnings, fmt.Sprintf("Script file %s not found", name))
+		_, rest, _ := strings.Cut(name, ".")
+		fb, err := flowPath(dir, id+"."+rest)
+		if err != nil {
+			return nil, "", err
 		}
-	}
-	if !found {
-		return nil, fmt.Sprintf("%s (module %s)", p, id), nil
+		if data, found, err = f.readInline(fb); err != nil {
+			return nil, "", err
+		}
+		if !found {
+			return nil, fmt.Sprintf("%s (module %s)", p, id), nil
+		}
+		p = fb
 	}
 	text, terr := checkText(data, p, "")
 	if terr != nil {
@@ -192,14 +198,33 @@ func (f *Folder) inlineScript(dir, id string, rs *openflow.RawScript) (*InlineSc
 			if err != nil {
 				return nil, "", err
 			}
-			lock, lockFile, err := f.readLockFile(lp)
+			lock, lockFile, warning, err := f.readLockFile(lp)
 			if err != nil {
 				return nil, "", err
 			}
 			rs.Lock, in.LockFile = &lock, lockFile
+			if warning != "" {
+				in.Warnings = append(in.Warnings, warning)
+			}
 		}
 	}
 	return in, "", nil
+}
+
+// readInline reads an inline content file through the decoder. A file it
+// refuses reads as missing, unless the CLI's walk reads it, which fails the
+// push (SY-19).
+func (f *Folder) readInline(p string) (data []byte, found bool, err *Error) {
+	data, found, refused, err := f.readDecoded(p)
+	switch {
+	case err != nil:
+		return nil, false, err
+	case refused != nil && f.walked[p]:
+		return nil, false, refused
+	case refused != nil:
+		return nil, false, nil
+	}
+	return data, found, nil
 }
 
 // inlineLockFile recognises a lock reference: a string that, after leading

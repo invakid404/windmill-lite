@@ -335,7 +335,7 @@ A load case gives a sync folder as a map of files and what the loader of
 the folder opens, which items it lists or filters out, and for named items
 parts of the record read or the error
 ([SY-1](../docs/semantics/openflow.md#sy-1) to
-[SY-15](../docs/semantics/openflow.md#sy-15),
+[SY-19](../docs/semantics/openflow.md#sy-19),
 [SY-V1](../docs/semantics/openflow.md#sy-v1) to
 [SY-V4](../docs/semantics/openflow.md#sy-v4), PA-1, PA-2).
 
@@ -376,7 +376,8 @@ Case fields beyond those of the decode cases:
 
 The runner writes each case to a temporary directory, with a `.git`
 directory at its root so that the upward search for `wmill.yaml` stays in the
-case. `deferred.json` lists the catalogue's SY and PA cases that are not
+case; a case without `wmill.yaml` thus has its start directory as the root
+([SY-13](../docs/semantics/openflow.md#sy-13)). `deferred.json` lists the catalogue's SY and PA cases that are not
 load cases here, each with the reason and where it is expected to be
 checked; the SY-9 cases are the YAML dialect's, in
 [internal/yamlx](../internal/yamlx/README.md).

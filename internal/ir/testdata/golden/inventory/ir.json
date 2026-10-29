@@ -104,7 +104,6 @@
         "format": "cjs"
       },
       "import_base": "f/cb/cjs_entry",
-      "schema": {},
       "dependency_set": "codebase:1"
     },
     "f/cb/esm_entry": {
@@ -124,7 +123,6 @@
         "format": "esm"
       },
       "import_base": "f/cb/esm_entry",
-      "schema": {},
       "dependency_set": "codebase:0"
     },
     "f/lib/edge": {
@@ -139,7 +137,6 @@
       "lock": "",
       "bundling": "transpiled",
       "import_base": "f/lib/edge",
-      "schema": {},
       "dependency_set": "bundled"
     },
     "f/lib/native": {
@@ -157,7 +154,6 @@
       "annotations": [
         "native"
       ],
-      "schema": {},
       "dependency_set": "bundled"
     },
     "f/lib/plain": {
@@ -172,7 +168,6 @@
       "lock": "",
       "bundling": "bundled",
       "import_base": "f/lib/plain",
-      "schema": {},
       "dependency_set": "bundled"
     },
     "f/lib/unbundled": {
@@ -206,7 +201,7 @@
       "content_digest": "sha256:763dba234e872e6cf53d9849838e2b7a2a666ea1de8d2a4eeeb8aff762c086bf",
       "lock": null,
       "bundling": "transpiled",
-      "import_base": "f/lib/elsewhere/entry",
+      "import_base": "f/lib/inline/flow",
       "dependency_set": "bundled"
     },
     "inline-9a784ecd05adcc17": {

@@ -11,9 +11,6 @@ type ErrorKind string
 // The error kinds. A load error names the item or file it is about; see the
 // package README for when each one is raised.
 const (
-	// ErrNoConfig: no wmill.yaml in the start directory or its parents, up
-	// to the git root (SY-1).
-	ErrNoConfig ErrorKind = "wmill_yaml_not_found"
 	// ErrConfig: wmill.yaml has a value of the wrong type, or a non-empty
 	// top-level `overrides` (SY-13).
 	ErrConfig ErrorKind = "invalid_config"
@@ -42,10 +39,11 @@ const (
 	// ErrMissingSource: script metadata without a source file (SY-2).
 	ErrMissingSource ErrorKind = "missing_source"
 	// ErrLanguage: a script's language cannot be inferred from its file
-	// name (SY-3).
+	// name (SY-3), or its source is a `.js` file (SY-18).
 	ErrLanguage ErrorKind = "unknown_language"
 	// ErrMetadata: a metadata, resource, variable or resource-type file
-	// has a value of the wrong type (SY-4, SY-5, SY-10, SY-11).
+	// has a value of the wrong type (SY-4, SY-5, SY-10, SY-11), or lacks
+	// one the push needs (SY-10, SY-11).
 	ErrMetadata ErrorKind = "invalid_metadata"
 	// ErrFlow: the flow document does not decode (OF-2). The wrapped
 	// *openflow.Error has Windmill's message.
@@ -55,11 +53,13 @@ const (
 	// ErrPathEscape: an `!inline` reference leaves the sync root (SY-7; a
 	// divergence of 0002).
 	ErrPathEscape ErrorKind = "path_escape"
-	// ErrText: a script or inline file is not valid UTF-8 (a restriction
-	// of 0001 §5a).
+	// ErrText: a text file the CLI's decoder refuses, for its UTF-16 or
+	// UTF-32 byte order mark (SY-19), or a script, inline or lock file
+	// that is not valid UTF-8 (a restriction of 0001 §5a).
 	ErrText ErrorKind = "invalid_text"
 	// ErrUnsupported: a feature windmill-lite does not load (multi-file
-	// scripts, JSON-mode files, file and fileset resources). The message
+	// scripts, JSON mode and JSON-mode metadata, file and fileset
+	// resources). The message
 	// is `unsupported: <feature>`, as 0001 §3 has it.
 	ErrUnsupported ErrorKind = "unsupported_feature"
 	// ErrIO: reading the folder failed.

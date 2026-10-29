@@ -118,7 +118,7 @@
     {
       "spec": "SY-6",
       "provenance": "policy",
-      "title": "a flow folder without flow.yaml",
+      "title": "a flow folder whose files the walk drops is not a flow",
       "given": {
         "files": {
           "wmill.yaml": "defaultTs: bun\n",
@@ -126,19 +126,27 @@
         }
       },
       "expect": {
+        "paths": {
+          "flow": []
+        },
+        "filtered": {
+          "flow": []
+        },
         "items": {
           "flow": {
             "f/a/x": {
               "error": {
-                "kind": "flow_layout",
-                "contains": [
-                  "no flow.yaml"
-                ]
+                "kind": "not_in_folder"
               }
             }
           }
-        }
-      }
+        },
+        "warnings": [
+          "f/a/x.flow is ignored: no file in it selects the flow"
+        ],
+        "check_ok": true
+      },
+      "note": "the walk drops .json files in YAML mode (SY-18), so no file selects the folder (SY-17) and the CLI pushes nothing from it"
     },
     {
       "spec": "SY-6",
@@ -189,6 +197,40 @@
               }
             }
           }
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "the inline file selects the folder (SY-17), and the push then reads flow.yaml, which is missing",
+      "title": "a flow folder without flow.yaml",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "flow_layout",
+                "contains": [
+                  "no flow.yaml"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "flow_layout"
         }
       }
     }

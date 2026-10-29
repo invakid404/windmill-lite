@@ -59,7 +59,7 @@ func mapFolder(t *testing.T, files map[string]string) *Folder {
 	return f
 }
 
-// spec: SY-1
+// spec: SY-1, SY-13
 func TestFind(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
@@ -71,20 +71,15 @@ func TestFind(t *testing.T) {
 	})
 	for _, c := range []struct {
 		start, root string
-		kind        ErrorKind
 	}{
-		{".", ".", ""},
-		{"f/a/b", ".", ""},
-		{"nested", ".", ""},
-		{"sub", "", ErrNoConfig}, // a .git file is a git root too
+		{".", "."},
+		{"f/a/b", "."},
+		{"nested", "."},
+		// A .git file is a git root too, and with no wmill.yaml up to it
+		// the root is the start directory (SY-13).
+		{"sub", "sub"},
 	} {
 		root, err := Find(filepath.Join(dir, c.start))
-		if c.kind != "" {
-			if kindOf(err) != c.kind {
-				t.Errorf("Find(%s): %v, want %s", c.start, err, c.kind)
-			}
-			continue
-		}
 		if err != nil || root != filepath.Join(dir, c.root) {
 			t.Errorf("Find(%s) = %s, %v; want %s", c.start, root, err, c.root)
 		}
@@ -101,8 +96,13 @@ func TestLoadFromFS(t *testing.T) {
 	if err != nil || s.Language != openflow.LangDeno {
 		t.Fatalf("Script = %+v, %v", s, err)
 	}
-	if _, err := Load(fstest.MapFS{}); kindOf(err) != ErrNoConfig {
-		t.Errorf("Load without wmill.yaml: %v", err)
+	// Without wmill.yaml every setting takes its absent value (SY-13).
+	f, err = Load(fstest.MapFS{"f/a/x.ts": {Data: []byte(mainSrc)}})
+	if err != nil {
+		t.Fatalf("Load without wmill.yaml: %v", err)
+	}
+	if !slices.Contains(f.Warnings, noConfigWarning) || f.Config.DefaultTs != openflow.LangBun || f.Config.NonDottedPaths {
+		t.Errorf("Load without wmill.yaml: config %+v, warnings %q", f.Config, f.Warnings)
 	}
 }
 
@@ -246,23 +246,30 @@ func TestLockDirectiveWhitespace(t *testing.T) {
 	}
 }
 
-func TestDataDuplicatesAndJSONMode(t *testing.T) {
+// spec: SY-18 (.json files are dropped in YAML mode), SY-4, SY-12
+func TestDataJSONFilesAndOverrides(t *testing.T) {
 	f := mapFolder(t, map[string]string{
 		"wmill.yaml":               "",
-		"f/a/r.resource.yaml":      "value: 1\n",
-		"f/a/r.resource.json":      "{\"value\": 1}\n",
+		"f/a/r.resource.yaml":      "resource_type: x\nvalue: 1\n",
+		"f/a/r.resource.json":      "{\"resource_type\": \"x\", \"value\": 1}\n",
 		"f/a/j.variable.json":      "{\"value\": \"v\"}\n",
 		"t.resource-type.json":     "{}\n",
-		"f/a/r.prod.resource.yaml": "value: 2\n",
+		"f/a/s.ts":                 mainSrc,
+		"f/a/s.script.json":        "{}\n",
+		"f/a/r.prod.resource.yaml": "resource_type: x\nvalue: 2\n",
 	})
+	if r, err := f.Resource("f/a/r"); err != nil || r.File != "f/a/r.resource.yaml" {
+		t.Errorf("f/a/r = %+v, %v; want the .yaml file alone", r, err)
+	}
 	for _, c := range []struct {
 		kind ItemKind
 		path string
 		want ErrorKind
 	}{
-		{KindResource, "f/a/r", ErrDuplicate},
-		{KindVariable, "f/a/j", ErrUnsupported},
-		{KindResourceType, "t", ErrUnsupported},
+		{KindVariable, "f/a/j", ErrNotInFolder},
+		{KindResourceType, "t", ErrNotInFolder},
+		// A script's .json metadata is still paired with it, and refused.
+		{KindScript, "f/a/s", ErrUnsupported},
 		{KindVariable, "f/a/none", ErrNotInFolder},
 	} {
 		if _, err := f.read(c.kind, c.path); kindOf(err) != c.want {

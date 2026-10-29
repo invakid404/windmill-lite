@@ -130,7 +130,9 @@ each record):
 
 ## Unsettled findings
 
-Twenty-one findings of the reference are not settled. The design does not pick
+Twenty-one findings of the reference were not settled when the design was
+written; the reference's revision of 2026-10-28 settled nine of them, and
+[twelve remain](../semantics/README.md#not-settled). The design does not pick
 sides silently: [0001](0001-equivalence-contract.md) §6 lists each contested
 rule, its readings, the default and why, and the recording that settles it.
 Recording batches E3a to E3e record them on the oracle (E3e holds the
@@ -146,13 +148,18 @@ E3d recorded CF-12 and FX-40 as reading (b), the default each already had
 (request 6 below). E3a has recorded the CF-19 / CF-V6 dispute
 ([Q-CF-16](../semantics/control-flow.md#q-cf-16)): the direct lookup is
 line-anchored, the stated default (request 7 below). 0001 §6 gives the
-results; the reference still lists these findings as not settled until the
-semantics team records them.
+results, and the reference now records them (requests 5 to 7 below).
 
 ## Requests to the semantics team
 
 Questions reach the semantics team as requests for the reference to cover a
-behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
+behaviour ([AGENTS.md](../../AGENTS.md)). The design depended on these, and
+all nine are answered: 1 to 3 by the semantics requests S1 to S3 (pull
+request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1, pull
+request #36). Each item names the findings that answer it. Where an answer
+differs from a reading a milestone took, that milestone's code follows the
+answer in a follow-up; the sync-folder loader and the import base already
+do (FU4).
 
 1. **Native boundary rules** for `bunnative` and `nativets` steps: how a
    result is serialised (in particular object properties holding
@@ -163,25 +170,37 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    loading ([OF-13](../semantics/openflow.md#of-13)). Until it is covered, the
    harness's native mode ([0004](0004-harness-protocol.md)) has no public
    conformance cases, and milestone C3n cannot merge (gate S1).
+   **Answered** by [WR-40](../semantics/languages.md#wr-40) to
+   [WR-46](../semantics/languages.md#wr-46): which steps run natively and
+   how each is prepared (WR-40), a fresh isolate and argument binding
+   (WR-41), the result as `JSON.stringify(value ?? null)` with no replacer,
+   so `undefined` properties are dropped (WR-42), the error shapes (WR-43),
+   the timeout text and the heap and stack limits (WR-44), the environment,
+   globals and `fetch` (WR-45), and streaming (WR-46). Gate S1 is met.
 2. **Codebase bundling details**: the default `format` of a codebase entry,
    the esbuild version the pinned CLI uses, how `inject` and `customBundler`
    are handled, where `assets` land at run time, and the Node version that
    runs CJS bundles. [WR-30](../semantics/languages.md#wr-30) gives the
-   outline. Answered by [WR-47](../semantics/languages.md#wr-47) to
+   outline. **Answered** by [WR-47](../semantics/languages.md#wr-47) to
    [WR-50](../semantics/languages.md#wr-50): esbuild `0.28.0`, `cjs` by
-   default, `inject` and the other settings passed through, assets beside
-   `main.js` in the job directory, Node 20 with its patch unpinned
+   default, `inject` and the other settings passed through, `customBundler`
+   run through the shell with its output as the bundle (WR-48), assets
+   beside `main.js` in the job directory, Node 20 with its patch unpinned
    (Q-WR-24). Milestone C2b builds to those settings and checks its
    bundles against the pinned CLI's uploads
    ([0002](0002-ir-and-loader.md), decision 4).
 3. **The expression engine's stack limit**: which maximum stack size
    Windmill's QuickJS-ng embedding uses, since stack-overflow depth is
-   observable. Answered by [JE-48](../semantics/expressions.md#je-48):
+   observable. **Answered** by [JE-48](../semantics/expressions.md#je-48):
    QuickJS-ng's built-in default of 1 MiB, which windmill-lite pins and
    records in the manifest ([0003](0003-semantics-placement.md)).
    Recording batch E3a found the reference's bracket wrong on the oracle: a
    recursion of depth 1 000 already overflows (JE-48/a), so far fewer frames
-   fit than the reference implies; request 7 asks why.
+   fit than the reference implies; request 7 asks why. JE-48 now keeps the
+   recorded depths and gives the reason, the engine's C build; how many
+   frames fit depends on that build (deviation D17 of
+   [0001](0001-equivalence-contract.md),
+   [Q-JE-16](../semantics/expressions.md#q-je-16)).
 4. **What `jsonb` rejects besides NUL**: PostgreSQL's `jsonb` input also
    rejects a UTF-16 surrogate escape without its pair (`"\ud83d"`) and a
    number outside `numeric`'s range (more than 131072 digits before the
@@ -191,6 +210,13 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    message? The reference covers only NUL. Until it is answered, `jsonval`
    rejects both as PostgreSQL does, and the eager NUL flag of
    [0005](0005-json-step-boundaries.md) covers NUL alone.
+   **Answered** by [FX-51](../semantics/execution.md#fx-51): an unpaired
+   surrogate leaves Bun and the engine as a `\uXXXX` escape, reaches
+   `jsonb` and fails with `invalid input syntax for type json` (a
+   `$jsonvar:` value fails earlier); no JavaScript producer can emit a
+   number outside `numeric`'s range.
+   [Q-FX-20](../semantics/execution.md#q-fx-20) asks batch E3e to record
+   it.
 5. **Fold in recording batch E3c.** E3c recorded the catalogue cases of
    FX-12 to FX-15, FX-30 to FX-38 (FX-36's executor part), FX-V6/a and
    FX-10/a on the CE oracle (`conformance/flows/execution`, oracle run
@@ -225,6 +251,20 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      Chaining errors end in Rust location suffixes, and at a child flow's
      pickup the message starts `Error: Error: ` and carries two suffixes
      ([FX-15](../semantics/execution.md#fx-15)).
+
+   **Answered.** [FX-34](../semantics/execution.md#fx-34) and
+   [FX-32](../semantics/execution.md#fx-32) are corrected (a deployed body's
+   copied failure module keeps the id `failure`), with FX-5, FX-45,
+   [CF-16](../semantics/control-flow.md#cf-16) and CF-V4; the recorded cases
+   are `oracle-observed`; Q-FX-15 and Q-FX-19 are closed for FX-V6 and
+   FX-33. The other observations are now in [OR-6](../semantics/oracle.md#or-6)
+   (the workspace cap), [FX-3](../semantics/execution.md#fx-3) (an empty
+   flow's status), [OR-11](../semantics/oracle.md#or-11) and
+   [OR-28](../semantics/oracle.md#or-28) (job kinds), FX-17 (the skipped
+   flag), [FX-35](../semantics/execution.md#fx-35) (the preprocessor's
+   arguments), and [FX-50](../semantics/execution.md#fx-50), which answers
+   Q-FX-13: how a message gains its `Error: ` prefix and location
+   suffixes.
 6. **Batch E3d's recordings**
    ([conformance/flows/control-flow](../../conformance/flows/control-flow),
    [conformance/flows/execution/fx-40](../../conformance/flows/execution/fx-40)):
@@ -246,6 +286,14 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    name `Anyhow` and the message
    `Error: Bad request: Cannot continue on same worker …` plus a location.
    The design waits on none of this.
+   **Answered.** The CF-2 to CF-15 and FX-40 cases are `oracle-observed`;
+   Q-CF-14 ([CF-12](../semantics/control-flow.md#cf-12), reading (b)),
+   Q-CF-4, Q-FX-6 and Q-FX-17 are closed;
+   [FX-40](../semantics/execution.md#fx-40) is confirmed, with the shared
+   entry of collapsed inline `flowscript` nodes;
+   [CF-6](../semantics/control-flow.md#cf-6) gains `generate-metadata`'s
+   container defaults; and [CF-7](../semantics/control-flow.md#cf-7) and
+   CF-23 state CF-7/d's error.
 7. **Fold in recording batch E3a.** E3a recorded the JE catalogue cases
    (`conformance/exprs`, `conformance/flows/je`) and CF-19 and CF-V6
    (`conformance/flows/cf/cf-19`; oracle runs 40687124625, 40688787344 and
@@ -268,6 +316,18 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      before the timeout error surfaces;
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
      where JE-33 says it completes successfully.
+
+   **Answered.** Q-CF-16 is closed: [CF-19](../semantics/control-flow.md#cf-19)
+   and CF-V6 are confirmed. [JE-48](../semantics/expressions.md#je-48) keeps
+   the recorded depths (request 3);
+   [JE-28](../semantics/expressions.md#je-28) and
+   [OF-17](../semantics/openflow.md#of-17) evaluate the final `sleep`
+   through the `-v` identity; [JE-35](../semantics/expressions.md#je-35)
+   follows FX-50's prefixes and suffixes;
+   [JE-2](../semantics/expressions.md#je-2) names the 60 s monitor of flows
+   hanging between two steps; and [JE-33](../semantics/expressions.md#je-33)
+   and [FX-22](../semantics/execution.md#fx-22) leave a flow stopped by
+   `skip_expr` `skipped`.
 8. **The textual pipeline's unstated details** (milestone B2a). The
    reference leaves these open. Each is decided by the reading named here.
    All but the last are pinned by a source-derived case in
@@ -306,6 +366,18 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      Two oracle runs would settle it: `timeout: flow_input.o` with `o` an
      object, and `timeout: results.l` right after a loop `l`, whose parse
      errors quote the text.
+
+   **Answered.** JE-5, JE-7, JE-9, JE-12, [JE-13](../semantics/expressions.md#je-13)
+   and JE-14 confirm the readings, the function wrapper included;
+   [JE-11](../semantics/expressions.md#je-11) confirms the end of the text
+   for ASCII and states what non-ASCII text does. JE-6 to
+   [JE-8](../semantics/expressions.md#je-8) and
+   [JE-44](../semantics/expressions.md#je-44) are corrected: a value read
+   from the database is not uniformly the compact stored text. A
+   `flow_input` member is `jsonb`'s spaced text, and a `previous_result`
+   after a loop or `branchall` is compact text printed again.
+   [Q-JE-13](../semantics/expressions.md#q-je-13) asks for the two oracle
+   runs.
 9. **The expression program's unstated details** (milestone B2b). Each is
    decided by the reading named here and pinned by a test in
    `internal/expr`; [internal/expr](../../internal/expr/README.md) says
@@ -339,6 +411,23 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      D16 and D17 of [0001](0001-equivalence-contract.md). Which C library
      and compiler flags the CE image's engine was built with would say
      whether a calibration could retire them.
+
+   **Answered.** [JE-21](../semantics/expressions.md#je-21) is corrected: a
+   thrown value that is not an `Error` reads
+   `Exception generated by quickjs: <debug form>`, and Q-JE-1 now asks to
+   record JE-21/b. [JE-17](../semantics/expressions.md#je-17)'s "or else" is
+   a falsy test. [JE-49](../semantics/expressions.md#je-49) is partly
+   corrected: only `flow_input`'s outer object is compacted, and the named
+   context values are checked before it
+   ([Q-JE-15](../semantics/expressions.md#q-je-15)).
+   [JE-10](../semantics/expressions.md#je-10): `results` is a constant and
+   `error` can be assigned. [JE-16](../semantics/expressions.md#je-16): a
+   `__proto__` key goes through the setter.
+   [JE-15](../semantics/expressions.md#je-15): a replaced `JSON.stringify`'s
+   string passes through unchecked
+   ([Q-JE-14](../semantics/expressions.md#q-je-14)). JE-48 and JE-1 state
+   what the source fixes about the CE image's build; D16 and D17 stand
+   until [Q-JE-16](../semantics/expressions.md#q-je-16) is recorded.
 
 ## Changing the design
 

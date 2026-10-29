@@ -1,0 +1,314 @@
+{
+  "finding": "SY-19",
+  "cases": [
+    {
+      "spec": "SY-19/a",
+      "provenance": "source-derived",
+      "title": "UTF-8 byte order mark",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "﻿export function main() { return 1 }\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/content": "export function main() { return 1 }\n"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-19/b",
+      "provenance": "source-derived",
+      "title": "UTF-16 byte order mark",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n"
+        },
+        "hex_files": {
+          "f/a/x.ts": "fffe6500780070006f00720074002000660075006e006300740069006f006e0020006d00610069006e002800290020007b002000720065007400750072006e002000310020007d000a00"
+        }
+      },
+      "expect": {
+        "paths": {
+          "script": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "invalid_text",
+                "contains": [
+                  "File f/a/x.ts is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "invalid_text",
+          "contains": [
+            "File f/a/x.ts is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-19/c",
+      "provenance": "source-derived",
+      "title": "a refused lock reached only as a reference",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/*.ts']\n",
+          "f/a/x.ts": "export function main() { return 1 }\n",
+          "f/a/x.script.yaml": "lock: '!inline f/a/x.script.lock'\n"
+        },
+        "hex_files": {
+          "f/a/x.script.lock": "fffe7b007d000a00"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/lock": "",
+                "/warnings": [
+                  "Error reading inline path: f/a/x.script.lock, File f/a/x.script.lock is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+                ]
+              },
+              "absent": [
+                "/lock_file"
+              ]
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-19/d",
+      "provenance": "source-derived",
+      "title": "a refused inline file with a readable fallback",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/flow.yaml']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline legacy.inline_script.ts'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export function main() { return 1 }\n"
+        },
+        "hex_files": {
+          "f/a/fl.flow/legacy.inline_script.ts": "fffe6500780070006f00720074002000660075006e006300740069006f006e0020006d00610069006e002800290020007b002000720065007400750072006e002000310020007d000a00"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/flow/value/modules/0/value/content": "export function main() { return 1 }\n",
+                "/inline/0/content_file": "f/a/fl.flow/a.inline_script.ts",
+                "/inline/0/warnings": [
+                  "Script file legacy.inline_script.ts not found"
+                ]
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-19",
+      "provenance": "source-derived",
+      "title": "without the filter the walk reads the lock, and the push fails",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export function main() { return 1 }\n",
+          "f/a/x.script.yaml": "lock: '!inline f/a/x.script.lock'\n"
+        },
+        "hex_files": {
+          "f/a/x.script.lock": "fffe7b007d000a00"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "error": {
+                "kind": "invalid_text",
+                "contains": [
+                  "File f/a/x.script.lock is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "invalid_text",
+          "contains": [
+            "f/a/x.script.lock"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-19",
+      "provenance": "source-derived",
+      "title": "a walked inline file the decoder refuses fails the push",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline legacy.inline_script.ts'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.inline_script.ts": "export function main() { return 1 }\n"
+        },
+        "hex_files": {
+          "f/a/fl.flow/legacy.inline_script.ts": "fffe6500780070006f00720074002000660075006e006300740069006f006e0020006d00610069006e002800290020007b002000720065007400750072006e002000310020007d000a00"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "error": {
+                "kind": "invalid_text",
+                "contains": [
+                  "legacy.inline_script.ts is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8."
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "invalid_text"
+        }
+      }
+    },
+    {
+      "spec": "SY-19",
+      "provenance": "source-derived",
+      "title": "a refused inline lock reached only as a reference",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nincludes: ['**/*.ts']\n",
+          "f/a/fl.flow/flow.yaml": "value:\n  modules:\n    - id: a\n      value:\n        type: rawscript\n        language: bun\n        content: '!inline a.ts'\n        lock: '!inline a.lock'\n        input_transforms: {}\n",
+          "f/a/fl.flow/a.ts": "export function main() { return 1 }\n"
+        },
+        "hex_files": {
+          "f/a/fl.flow/a.lock": "feff7b007d000a00"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/flow/value/modules/0/value/lock": "",
+                "/inline/0/warnings": [
+                  "Error reading inline path: f/a/fl.flow/a.lock, File f/a/fl.flow/a.lock is encoded as UTF-16 BE, which is not supported. Please convert it to UTF-8."
+                ]
+              },
+              "absent": [
+                "/inline/0/lock_file"
+              ]
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-19",
+      "provenance": "source-derived",
+      "title": "an unreferenced walked file the decoder refuses fails the push",
+      "note": "FF FE 00 00 is UTF-32 LE; Check reports it before any item, and the flow alone still reads",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/fl.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        },
+        "hex_files": {
+          "f/a/fl.flow/extra.yaml": "fffe0000"
+        }
+      },
+      "expect": {
+        "items": {
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/file": "f/a/fl.flow/flow.yaml"
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "invalid_text",
+          "contains": [
+            "File f/a/fl.flow/extra.yaml is encoded as UTF-32 LE, which is not supported. Please convert it to UTF-8."
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-19",
+      "provenance": "source-derived",
+      "title": "metadata, flow.yaml and data files go through the decoder",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.ts": "export function main() { return 1 }\n",
+          "f/a/x.script.yaml": "﻿summary: s\n",
+          "f/a/fl.flow/flow.yaml": "﻿summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/r.resource.yaml": "﻿resource_type: x\nvalue: 1\n"
+        },
+        "hex_files": {
+          "f/a/v.variable.yaml": "0000feff"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/metadata/summary": "s"
+              }
+            }
+          },
+          "flow": {
+            "f/a/fl": {
+              "at": {
+                "/flow/summary": "one step"
+              }
+            }
+          },
+          "resource": {
+            "f/a/r": {
+              "at": {
+                "/resource_type": "x"
+              }
+            }
+          },
+          "variable": {
+            "f/a/v": {
+              "error": {
+                "kind": "invalid_text",
+                "contains": [
+                  "is encoded as UTF-32 BE, which is not supported. Please convert it to UTF-8."
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

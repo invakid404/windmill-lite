@@ -1,6 +1,6 @@
 {
   "finding": "WR-29",
-  "note": "An inline script's import base is ImportBase(flow path, module id, explicit path).",
+  "note": "An inline script's import base is ImportBase(flow path, module id, explicit path). A deployed flow keeps the explicit path only in its failure and preprocessor slots; internal/ir decides when to pass it.",
   "cases": [
     {
       "spec": "WR-29/a",
@@ -17,11 +17,26 @@
     {
       "spec": "WR-29/b",
       "provenance": "source-derived",
-      "title": "an explicit path overrides the import base",
+      "title": "an explicit path in a module list leaves the default base",
+      "part": "build",
+      "rest_in": "internal/ir's WR-29/b: a deploy drops the explicit path f/elsewhere/entry of a module-list step, so the compiler gives the build the default base; the preview's \"elsewhere\" is out of scope (0001 §1)",
       "given": {
-        "flow": {"path": "f/a/fl", "module": "s", "explicit_path": "f/elsewhere/entry"},
+        "flow": {"path": "f/a/fl", "module": "s"},
         "source": "import { b } from \"./x\";\nexport function main() { return b; }",
-        "files": {"f/elsewhere/x.ts": "export const b = \"elsewhere\";\n", "f/a/fl/x.ts": "export const b = \"flow\";\n"}
+        "files": {"f/a/fl/x.ts": "export const b = \"flow\";\n", "f/elsewhere/entry/x.ts": "export const b = \"entry\";\n", "f/elsewhere/x.ts": "export const b = \"elsewhere\";\n"}
+      },
+      "expect": {"imports": ["f/a/fl/x"], "run": {"calls": [{"result": "flow"}]}}
+    },
+    {
+      "spec": "WR-29/c",
+      "provenance": "source-derived",
+      "title": "a failure module keeps its explicit path",
+      "part": "build",
+      "rest_in": "internal/ir's WR-29/c gives the slot its explicit path; the failure module's run in a flow is N1b's",
+      "given": {
+        "flow": {"path": "f/a/fl", "module": "failure", "explicit_path": "f/elsewhere/entry"},
+        "source": "import { b } from \"./x\";\nexport function main() { return b; }",
+        "files": {"f/a/fl/x.ts": "export const b = \"flow\";\n", "f/elsewhere/entry/x.ts": "export const b = \"entry\";\n", "f/elsewhere/x.ts": "export const b = \"elsewhere\";\n"}
       },
       "expect": {"imports": ["f/elsewhere/x"], "run": {"calls": [{"result": "elsewhere"}]}}
     },
@@ -36,6 +51,18 @@
         "files": {"f/a/fl/x.ts": "export const b = \"x\";\n"}
       },
       "expect": {"imports": ["f/a/fl/x"], "run": {"calls": [{"export": "preprocessor", "result": "x"}]}}
+    },
+    {
+      "spec": "WR-29",
+      "variant": "preprocessor path",
+      "provenance": "source-derived",
+      "title": "a preprocessor keeps its explicit path",
+      "given": {
+        "flow": {"path": "f/a/fl", "module": "preprocessor", "explicit_path": "f/elsewhere/entry"},
+        "source": "import { b } from \"./x\";\nexport function preprocessor() { return b; }",
+        "files": {"f/a/fl/x.ts": "export const b = \"flow\";\n", "f/elsewhere/entry/x.ts": "export const b = \"entry\";\n", "f/elsewhere/x.ts": "export const b = \"elsewhere\";\n"}
+      },
+      "expect": {"imports": ["f/elsewhere/x"], "run": {"calls": [{"export": "preprocessor", "result": "elsewhere"}]}}
     }
   ]
 }
