@@ -85,7 +85,7 @@ step without failing the others.
 
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
-| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id) | handshake |
+| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`; facade origin and log limits with the milestones that use them) or `reject` (`code`, `message`) | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
@@ -97,10 +97,11 @@ step without failing the others.
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)) | host mode: a harness that is also the host submits runs |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`; `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
+| `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
-| `drain` / `bye` | engine → harness / back | — | orderly shutdown |
+| `drain` / `bye` | engine → harness / back; in host mode harness → engine / back | — | orderly shutdown; in host mode the host's drain (host mode item 3) |
 
 **Entrypoints.** `entry` is `main`, `preprocessor` (the flow preprocessor
 step), or the value of `_ENTRYPOINT_OVERRIDE` when the arguments carry one
@@ -260,7 +261,8 @@ microtask see none.
    own; D10). In host mode the SDK does not change the host's working
    directory: the host passes a writable directory to the SDK and must have
    made it its working directory before connecting; the SDK checks both and
-   refuses to connect with `workdir_not_writable` or `workdir_mismatch`.
+   refuses to connect with `workdir_not_writable` or `workdir_mismatch`,
+   and the engine checks them again (host mode item 7).
    Codebase assets are extracted into it before the first invocation
    ([0002](0002-ir-and-loader.md)).
 6. **`process.exit`** is replaced per invocation. The call fixes the
@@ -589,7 +591,13 @@ change:
    then lets the host exit. Runs still in flight at the deadline end with the
    host; their callers get whatever the host's own transport gives on exit.
    A host drains when it decides it is unhealthy but still responsive, for
-   example after too many abandoned invocations.
+   example after too many abandoned invocations. On the wire the host sends
+   `drain`: from then on the engine answers each `run` with a `run_done`
+   whose `error` is `draining`, and once the runs in flight have ended it
+   answers `bye`; the SDK also refuses new runs itself. Recycle triggers
+   that the host sets (resident memory over a threshold on consecutive
+   heartbeats, more script modules loaded than a cap) are reported through
+   `health()` for the host to act on; the SDK never drains on its own.
 4. **The watchdog.** A host whose event loop is blocked (a step spinning in
    a synchronous loop) cannot answer anything, including its own health
    checks, so recovery cannot depend on it. The engine is a separate process
@@ -624,7 +632,10 @@ change:
      the process handle the engine holds, which cannot reach a reused pid (a
      pidfd on Linux; elsewhere Go does not signal a child it has reaped). In
      host mode, where the engine is the host's child, it checks that the
-     host is still its parent (`getppid()` equals the handshake pid).
+     host is still its parent (`getppid()` equals the handshake pid); on
+     Linux it also opens a pidfd of the host at the handshake, once that
+     check holds, and signals through it, so the moment between the check
+     and the signal cannot reach a process that took the pid.
 5. **Run resources.** `onRunEnd` fires when a run's outcome is decided;
    `onRunSettled` fires when the run's abandoned invocations have all
    settled, which may be never. A resource that an abandoned invocation may
@@ -632,11 +643,27 @@ change:
    when the process exits, never on a timer, because abandoned code can
    resume at any time and a timer would hand the resource to two users.
    Resources that no step code can reach (host-side bookkeeping) may be
-   released at `onRunEnd`.
+   released at `onRunEnd`. A host-mode run's outcome is its `run_done`; when
+   it has settled, the engine sends `run_settled` after it, which the SDK
+   reports to the run's `onSettled`.
 6. **Losing the host.** If the host process exits, its in-flight runs are
    lost with it: their callers are the host's own callers. The engine fails
    them as `harness_lost` and does not try to move them, because their scopes
    existed only in that process.
+7. **The working directory** (failure model item 5). The host passes the
+   engine the directory it passed the SDK, and its hello names its working
+   directory; the engine refuses the host in the handshake with
+   `workdir_not_writable` when the directory is not one it (the host's
+   child, with its user) can write, and with `workdir_mismatch` when it is
+   not the host's working directory once both are resolved without
+   symbolic links. So a host that does not use the SDK is held to the same
+   rule; both sides run the cases of `conformance/protocol/host`. The
+   engine writes each invocation's `args.json` there, as in a warm
+   process's own directory, and since the host was not spawned with the
+   base environment, each invocation carries the facade's origin as
+   `BASE_URL`. An engine that cannot serve the host at all (the bundle
+   does not open) refuses it in the handshake too, with `engine_refused`
+   and its reason.
 
 Measured (prototype outside the repository, Bun 1.4.2): a Bun host that
 heartbeats a Go child every 100 ms and then spins forever was killed by the
@@ -969,6 +996,17 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     engine's `WINDMILL_DIR`, `/tmp/windmill` when it has none, and the
     engine's `NODE_PATH` only when it has one; a script's own `NODE_PATH`
     entry then does not reach the step.
+
+- Milestone F3a completed host mode on the engine's `wl` library and real
+  bundles: `hello` gained `workdir` and the engine checks the host's
+  working directory (host mode item 7, with the `engine_refused` reject
+  for a bundle it cannot open); `run_done` gained `may_have_mutated`,
+  `warnings` and, for a run the engine did not start, `error` in place of
+  `status`; `run_settled` carries `onRunSettled` to the host (item 5); the
+  host drains its engine with `drain` and `bye` in the reverse direction
+  (item 3); a host-mode invocation carries `BASE_URL` and has its
+  `args.json` written; and on Linux the watchdog signals the host through
+  a pidfd (item 4). The recycle triggers are the host's (item 3).
 
 ## Spec IDs relied on
 

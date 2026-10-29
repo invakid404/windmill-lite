@@ -43,7 +43,7 @@ export type Outgoing = { t: string; [k: string]: unknown };
 
 /** Field order of each message type, after `t` (ADR 0004 message table). */
 const FIELDS: Record<string, readonly string[]> = {
-  hello: ["proto", "harness", "runtime", "caps", "bundle", "pid"],
+  hello: ["proto", "harness", "runtime", "caps", "bundle", "pid", "workdir"],
   welcome: ["proto", "engine", "bundle", "config", "reject"],
   invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary"],
   result: ["id", "outcome", "body", "origin", "tail", "exit_code", "settled"],
@@ -55,8 +55,9 @@ const FIELDS: Record<string, readonly string[]> = {
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
-  run_done: ["id", "status", "result"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "error"],
   run_cancel: ["id"],
+  run_settled: ["id"],
   ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   part: ["id", "seq", "last", "chunk"],
@@ -70,6 +71,7 @@ const NESTED: Record<string, readonly string[]> = {
   caps: ["fetch", "native", "fresh", "host"],
   config: ["module_state", "heartbeat_ms", "max_message", "facade"],
   reject: ["code", "message"],
+  error: ["code", "message"],
 };
 
 function value(v: unknown, nestedOrder?: readonly string[]): string {
@@ -93,6 +95,9 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
   throw new ProtocolError("bad_field", `cannot encode ${typeof v}`);
 }
 
+/** Boolean fields written only when true, as Go writes them. */
+const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
+
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
   const order = Object.hasOwn(FIELDS, m.t) ? FIELDS[m.t] : undefined;
@@ -100,7 +105,7 @@ export function encodeText(m: Outgoing): string {
   let s = '{"t":' + JSON.stringify(m.t);
   for (const k of order) {
     const v = m[k];
-    if (v === undefined) continue;
+    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`))) continue;
     s += "," + JSON.stringify(k) + ":" + value(v, NESTED[k]);
   }
   return s + "}";
@@ -163,8 +168,9 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   platform: { id: "string", inv: "string", method: "string", url: "string", headers: "env" },
   platform_reply: { id: "string", status: "int", headers: "env" },
   run: { id: "string", kind: "string", path: "string", args: "raw" },
-  run_done: { id: "string", status: "string" },
+  run_done: { id: "string" },
   run_cancel: { id: "string" },
+  run_settled: { id: "string" },
   ping: { id: "string" },
   pong: { id: "string" },
   part: { id: "string", seq: "int", last: "bool", chunk: "string" },
@@ -219,6 +225,8 @@ export function decode(payload: Uint8Array): Message {
     case "hello":
       checkNested(m.t, m, "harness", { kind: "string", version: "string" });
       checkNested(m.t, m, "caps", { fetch: "bool", native: "bool", fresh: "bool", host: "bool" });
+      // A host's working directory, in host mode (ADR 0004, item 5).
+      if (m.workdir != null) checkField(m.t, m, "workdir", "string");
       break;
     case "welcome":
       if (m.config != null && m.reject != null) throw new ProtocolError("bad_field", "welcome has both config and reject");
@@ -289,7 +297,17 @@ export function decode(payload: Uint8Array): Message {
       if (!["flow", "script"].includes(m.kind)) throw new ProtocolError("bad_field", `run kind ${JSON.stringify(m.kind)}`);
       break;
     case "run_done":
-      if (!RUN_STATUSES.includes(m.status)) throw new ProtocolError("bad_field", `run_done status ${JSON.stringify(m.status)}`);
+      // A run the engine did not start has an error and no status.
+      if (m.error != null) {
+        checkField(m.t, m, "error", "object");
+        checkNested(m.t, m, "error", { code: "string", message: "string" });
+        if (m.status != null) throw new ProtocolError("bad_field", "run_done has both status and error");
+      } else {
+        checkField(m.t, m, "status", "string");
+        if (!RUN_STATUSES.includes(m.status)) throw new ProtocolError("bad_field", `run_done status ${JSON.stringify(m.status)}`);
+      }
+      if (m.may_have_mutated != null) checkField(m.t, m, "may_have_mutated", "bool");
+      if (m.warnings != null && !Array.isArray(m.warnings)) throw new ProtocolError("bad_field", "run_done warnings is not an array");
       break;
     case "ping":
     case "pong": {
@@ -316,7 +334,7 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   result: ["body"],
   late: ["body"],
   run: ["args", "intercept"],
-  run_done: ["result"],
+  run_done: ["result", "warnings"],
 };
 
 /** Whether a result of this outcome has field k: body for ok and error,
@@ -453,7 +471,7 @@ export function decodeAll(payloads: Uint8Array[], maxMessage = DEFAULT_MAX_MESSA
  * call by the invocation it names in inv), and those about one host-mode
  * run, which keep their order under a key of their own. */
 const ABOUT_INVOCATION = new Set(["invoke", "cancel", "result", "late", "log", "warning"]);
-const ABOUT_RUN = new Set(["run", "run_done", "run_cancel"]);
+const ABOUT_RUN = new Set(["run", "run_done", "run_cancel", "run_settled"]);
 
 type OutStream = { id: string; about?: string; payload: Uint8Array; off: number; seq: number; after: Queued[] };
 type Queued = { frame: Uint8Array } | { stream: OutStream };

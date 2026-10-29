@@ -1,0 +1,6 @@
+summary: A step that backs up the host's socket, starts a child and blocks the event loop, with a step timeout of 1 s (WR-55, FX-24)
+value:
+  modules:
+    - id: a
+      timeout: 1
+      value: {type: script, path: f/host/stall, input_transforms: {pidFile: {type: javascript, expr: flow_input.pidFile}}}

@@ -17,11 +17,17 @@ the platform handler two-phase, so the facade sees every platform frame in
 order, and gave each process its facade origin as `BASE_URL`. Milestone
 FU6 made a fresh process the leader of its job's process group
 ([WR-55](../../docs/semantics/languages.md#wr-55)) and completed the base
-environment (WR-22/b).
-`Pool` and `Process` implement `engine.StepExecutor`; their users are the
-walking skeleton's interpreter in
-[internal/engine](../engine/README.md) and its `windmill-lite host` command
-in [cmd/windmill-lite](../../cmd/windmill-lite/README.md).
+environment (WR-22/b). Milestone F3a completed host mode: the
+working-directory checks (`CheckWorkdir`), refusing a host the engine
+cannot serve, the host's drain, `run_settled`, `run_done`'s new fields,
+`BASE_URL` and `args.json` for a host's invocations, and a pidfd for the
+watchdog on Linux.
+`Pool` and `Process` implement `engine.StepExecutor`; their user is the
+[wl](../../wl/README.md) runtime: its pool of spawned processes, and in
+host mode (`wl.Options.Host`, which `windmill-lite host` in
+[cmd/windmill-lite](../../cmd/windmill-lite/README.md) opens) the host's
+`Process`. The walking skeleton's loader in
+[internal/engine](../engine/README.md) uses them in its own tests.
 
 Not here yet:
 
@@ -30,9 +36,6 @@ Not here yet:
   process without a handler answers each call with a 501.
 - The `host_call` and `host_reply` frames, which are refused as
   `unknown_type` until F2c adds them.
-- Host mode's completion (F3a): drain from the engine's side, the working
-  directory checks on the engine's side, `onRunSettled` across the
-  connection.
 - Mapping an outcome to Windmill's stored value: `engine.StoreOutcome`
   does it from the `engine.StepOutcome` this package returns
   ([internal/engine](../engine/README.md)).
@@ -51,7 +54,8 @@ is `engine.OriginHarness` (`process.go`, milestone FU5).
 | `errors.go` | `ProtocolError` and its codes, shared with the Bun codec |
 | `conn.go` | One socket's writer and reader goroutines, and when the last frame arrived |
 | `process.go` | `Spawn`, `Process`: the handshake, invocations, settlement, death, the watchdog, platform calls |
-| `host.go` | `AttachHost`, `HostConn`: host mode on the engine's side, its runs, and its watchdog |
+| `host.go` | `AttachHost`, `HostConn`, `HostChildren`, `CheckWorkdir`: host mode on the engine's side, its handshake checks, its runs and their settlement, the host's drain, and its watchdog |
+| `target_linux.go`, `target_other.go` | What host mode's watchdog signals: a pidfd of the host on Linux, kill(2) elsewhere |
 | `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines, recent reporters, signal names |
 
@@ -117,14 +121,20 @@ milestone C1 fixed the details they left open.
   handler that panics in either part, gives no answer or answers another
   status gets a 502 in its place, so one bad answer never ends the
   harness.
-- **Runs** (W1, host mode). A host submits `run` with `id`, `kind` (`flow`
+- **Runs** (W1 and F3a, host mode). A host submits `run` with `id`, `kind` (`flow`
   or `script`), `path`, `args` (raw) and an optional raw `intercept`
   object, module ids to the results that stand in for them (H1's static
-  form). The engine answers `run_done` with `status` (a run status) and an
-  optional raw `result`; `run_cancel` cancels a run. The run's `id` is its
-  id in the engine, so every `invoke` of it carries it as `run`. These
-  fields stand in for the JSON mapping of `runner.proto` until milestone F5
-  defines it.
+  form). The engine answers `run_done` with `status` (a run status), an
+  optional raw `result`, `may_have_mutated` (written only when true) and
+  `warnings` (raw, an array of objects with `code` and `message`); a run
+  the engine did not start has instead `error`, with `code` (`draining`,
+  `RunDraining`, or `refused`, `RunRefused`) and `message`, and no status.
+  `run_cancel` cancels a run. Once a run whose `run_done` went out has
+  settled, the engine sends `run_settled` with its `id` (F3a). The run's
+  `id` is its id in the engine, so every `invoke` of it carries it as
+  `run`. These fields stand in for the JSON mapping of `runner.proto`
+  until milestone F5 defines it. A host's hello names its working
+  directory as `workdir` (F3a), after `pid`.
 
 ## Spawned processes
 
@@ -265,8 +275,9 @@ so a script never reads it half written. Windmill's wrapper binds the
 script's parameters from that file, so the invoke frame carries the same
 text. A fresh process's file is its one invocation's; a warm
 process's working directory is every invocation's (D10), so its file is
-the latest invocation's. A host-mode connection has no working directory
-of its own and writes none (F3a).
+the latest invocation's. A host-mode connection writes it in the host's
+working directory, which the handshake checked (`HostConfig.Workdir`,
+F3a), and never removes that directory.
 
 ## Death and the watchdog
 
@@ -321,22 +332,40 @@ until that parent reaps it, or until the engine adopts it. `readProc` and
 ## Host mode
 
 `AttachHost` serves host mode on the engine's side (ADR 0004 host mode,
-milestone W1). The Bun host SDK starts the engine with its socket as file
+milestones W1 and F3a); the [wl](../../wl/README.md) runtime calls it in
+host mode. The Bun host SDK starts the engine with its socket as file
 descriptor 3 (`HostConn`); the host is the harness that every invocation
 goes to. It passes file descriptor 4 too (`HostChildren`,
 `HostConfig.Children`): a channel of `child` frames only, which the host
 writes synchronously and `readChildren` reads on a goroutine of its own,
 so a step's child group reaches the engine even when the host's socket is
-backed up and its event loop then blocks (WR-55).
+backed up and its event loop then blocks (WR-55). `HostChildren` is called
+before `HostConn`: with no file descriptor 4, the socket's duplicate could
+take that number.
 
 - **Handshake.** As for a spawned harness, plus: the hello must offer the
   `host` capability (else `harness_mismatch`), and its `pid` must be the
   engine's parent process, `getppid()` (else `pid_mismatch`), because that
-  is the process the watchdog would signal.
+  is the process the watchdog would signal. With `HostConfig.Workdir`, the
+  directory the host passed must be a directory the engine can write
+  (else `workdir_not_writable`) and the hello's `workdir` once both are
+  resolved without symbolic links (else `workdir_mismatch`): `CheckWorkdir`,
+  on the shared cases of `conformance/protocol/host/workdir.json`, which
+  the host SDK runs too (ADR 0004 host mode item 7). `HostConfig.Refuse`
+  refuses the host whatever its hello says (`RejectEngine`,
+  `engine_refused`, when the engine cannot open the bundle).
 - **Runs.** Each `run` frame starts `HostConfig.Run` on a goroutine of its
   own, with a context that `run_cancel` ends with cause
-  `engine.CancelCanceled`. What it returns goes back as `run_done`. Its
-  invocations go to the same `Process`.
+  `engine.CancelCanceled`. What it returns goes back as `run_done`; when
+  its `Settled` channel closes, `run_settled` follows (onRunSettled, ADR
+  0004 host mode item 5). Its invocations go to the same `Process`. A
+  host's invocations carry `HostConfig.Facade` as `BASE_URL` in their
+  `env`, since the host was not spawned with the base environment (WA-2),
+  and their arguments go to `args.json` in the host's working directory.
+- **Drain** (host mode item 3). A host sends `drain` (from a spawned
+  harness it is a protocol error): every later `run` is answered with a
+  `run_done` whose `error` is `draining`, and once no run is in flight the
+  engine sends `bye`, after the last `run_done`.
 - **No taint, no recycle.** Abandoned invocations stay in the host until
   they settle, counted in its health; the engine never stops routing to
   the host (D2).
@@ -350,8 +379,12 @@ backed up and its event loop then blocks (WR-55).
   to its diagnostics naming the runs and invocations in flight, and sends
   `SIGKILL` to the handshake's pid only if `getppid()` still equals it: once
   the host has exited the engine is reparented, and the pid may belong to
-  another process. Then it ends the connection, which ends the engine. It
-  reports no run outcome; their only receiver was the host.
+  another process. On Linux the signal goes through a pidfd of the host,
+  opened at the handshake while the host was known to be the parent
+  (`target_linux.go`), so the moment between the check and the signal
+  cannot reach a process that took the pid; elsewhere that moment remains.
+  Then it ends the connection, which ends the engine. It reports no run
+  outcome; their only receiver was the host.
 
 ## Pools
 
@@ -421,6 +454,12 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   lost host, and the watchdog, which signals its parent and spares a pid
   that no longer is. It also checks the 502 that stands in for a bad
   platform answer, from either part of the handler.
+- `hostmode_test.go` (F3a) runs the shared working-directory cases through
+  `CheckWorkdir` and through the handshake, a hello without a working
+  directory, a refused host, a host's invocation environment (`BASE_URL`)
+  and `args.json`, the host's drain (a run after it answered `draining`,
+  `bye` after the last `run_done`, also when idle), and `run_settled` after
+  `run_done`, never before.
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
   the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture

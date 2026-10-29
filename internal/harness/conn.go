@@ -141,6 +141,8 @@ func invocationOf(m Message) string {
 		return "run:" + m.ID
 	case RunCancel:
 		return "run:" + m.ID
+	case RunSettled:
+		return "run:" + m.ID
 	}
 	return ""
 }

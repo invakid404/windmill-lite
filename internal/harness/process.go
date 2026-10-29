@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -516,6 +517,9 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 	w := Welcome{Proto: ProtocolVersion, Engine: p.cfg.EngineVersion, Bundle: p.cfg.Bundle}
 	var reject *Reject
 	switch {
+	case p.host != nil && p.host.refuse != nil:
+		// The engine cannot serve this host at all, and says why.
+		reject = p.host.refuse
 	case h.Proto != ProtocolVersion:
 		reject = &Reject{RejectProto, fmt.Sprintf("protocol %d, engine speaks %d", h.Proto, ProtocolVersion)}
 	case h.Harness.Kind != p.cfg.Kind:
@@ -537,6 +541,11 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		// watchdog would signal is its parent, and the one that greets it
 		// must be that process (ADR 0004 host mode item 4).
 		reject = &Reject{RejectPID, fmt.Sprintf("hello from pid %d, the engine's parent is pid %d", h.PID, p.host.getppid())}
+	case p.host != nil && p.host.workdir != "":
+		// The host's working directory is where its steps run and where
+		// the engine writes their args.json (ADR 0004, the shared-process
+		// failure model, item 5).
+		reject = CheckWorkdir(p.host.workdir, h.Workdir)
 	}
 	if reject != nil {
 		w.Reject = reject
@@ -652,6 +661,8 @@ func (p *Process) handleMessage(m Message) error {
 		p.onPlatform(m)
 	case RunRequest:
 		err = p.onRun(m)
+	case Drain:
+		err = p.onHostDrain()
 	case RunCancel:
 		if p.host == nil {
 			err = protoErr(CodeUnexpected, "run_cancel from a harness that is not in host mode")
@@ -1534,6 +1545,17 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	// The script receives, and args.json holds, the arguments without the
 	// worker's internal keys (WR-5).
 	args := scriptArgs(inv.Args)
+	env := inv.Env
+	if p.host != nil && p.cfg.Facade != "" {
+		// A host was not spawned with the base environment, so the
+		// invocation carries the facade's origin as BASE_URL, which the
+		// worker sets last (WA-2), before any step module loads (WA-1).
+		env = maps.Clone(env)
+		if env == nil {
+			env = map[string]string{}
+		}
+		env["BASE_URL"] = p.cfg.Facade
+	}
 	payload, err := Encode(Invoke{
 		ID:       inv.ID,
 		Run:      inv.Run,
@@ -1541,7 +1563,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		Script:   inv.Script,
 		Entry:    inv.Entry,
 		Args:     args,
-		Env:      inv.Env,
+		Env:      env,
 		Boundary: string(inv.Boundary),
 	})
 	if err != nil {

@@ -542,6 +542,23 @@ waits on an external gate except R1.
   parent path; no case of F1's row needs it, and it stays open. A retry
   on a subflow step stays refused.
 
+- F3a makes host mode a runtime of `wl`: `Options.Host` opens a bundle
+  directory in host mode, completes the handshake with the host, and
+  serves its `run` frames with `Runtime.Run`, so `windmill-lite host`, the
+  engine the Bun host SDK starts, runs real bundles on the code path every
+  other adapter runs. It replaces the walking skeleton's loader in host
+  mode; the loader stays in `internal/engine` for its own tests until a
+  cleanup removes it. The working-directory checks run on both sides, the
+  SDK's and the engine's, on the shared cases of
+  `conformance/protocol/host`; those cases, with the engine's own refusal
+  through `windmill-lite host` and a codebase script that reads its asset
+  in a compiled host, are the exit gate. ADR 0004 records the protocol
+  F3a added (`workdir`, `run_settled`, the host's `drain`, `run_done`'s
+  new fields) and ADR 0009 the engine path's pairing. The recycle
+  triggers of host mode (resident memory, modules loaded) are reported by
+  the SDK's `health()` and left to the host; a retired-entry trigger waits
+  for the pooled-connection layer it would count.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records

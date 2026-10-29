@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
@@ -40,8 +41,8 @@ const (
 
 // Options configure Open. The zero value of every field is a default, so a
 // later milestone adds fields without breaking a host: the hooks and
-// per-run providers of F2a and the budgets of F2b come as run options, the
-// host-mode transport of F3a and the go-plugin adapter of F5 as runtimes
+// per-run providers of F2a and the budgets of F2b come as run options,
+// host mode (F3a) is Host, and the go-plugin adapter of F5 is a runtime
 // over the same calls.
 type Options struct {
 	// Bun is the Bun executable that harness processes run on; it must be
@@ -81,6 +82,14 @@ type Options struct {
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
 	ExpressionSlots int
+	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
+	// ADR 0009): its steps run in the host process that started it, which
+	// submits the runs. The bundle must then be a directory, which the
+	// host loads too; steps run warm (ADR 0006), so ModuleState may only
+	// be warm; HarnessRuntime and Bun are not used, since the host is the
+	// harness. Open completes the handshake with the host before it
+	// returns, and refuses the host, with the reason, when it fails.
+	Host *Host
 }
 
 // Resource is a resource the host provides: its resource type, and its
@@ -134,6 +143,8 @@ type Runtime struct {
 	js        *quickjs.Engine
 	fac       *facade.Facade
 	pool      *harness.Pool
+	host      *harness.Process // host mode's connection (Options.Host)
+	hostProc  atomic.Pointer[harness.Process]
 	exec      *recorder
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
@@ -207,11 +218,25 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.version == "" {
 		rt.version = Version()
 	}
+	attached := false // the handshake with the host was made, or tried
 	defer func() {
 		if err != nil {
+			if opts.Host != nil && opts.Host.Conn != nil && !attached {
+				// The host greets an engine that cannot serve it: it is
+				// told why.
+				refuseHost(opts.Host, rt.version, opts.Diagnostics, err)
+			}
 			rt.Close()
 		}
 	}()
+	if opts.Host != nil {
+		if opts.Host.Conn == nil || opts.Host.Workdir == "" {
+			return nil, errors.New("wl: host mode needs Host.Conn and Host.Workdir")
+		}
+		if opts.ModuleState != "" && opts.ModuleState != ModuleStateWarm {
+			return nil, fmt.Errorf("wl: host mode runs warm (ADR 0006), not %s", opts.ModuleState)
+		}
+	}
 	// Harness processes run in directories of their own, so every path
 	// they see is absolute.
 	if path, err = filepath.Abs(path); err != nil {
@@ -239,6 +264,8 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if fi.IsDir() {
 		rt.dir = path
 		v, err = bundle.Verify(path, bundle.VerifyOptions{Digest: opts.Digest})
+	} else if opts.Host != nil {
+		return nil, fmt.Errorf("wl: host mode opens a bundle directory, which the host loads too, not the archive %s", path)
 	} else {
 		// Each runtime extracts into a directory of its own, which Close
 		// removes, so a data directory a host keeps (its object store)
@@ -267,6 +294,10 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if opts.ModuleState != "" {
 		rt.state = engine.ModuleState(opts.ModuleState)
 	}
+	if opts.Host != nil {
+		// Steps run in the host, which keeps their modules (ADR 0006).
+		rt.state = engine.ModuleStateWarm
+	}
 	if rt.state != engine.ModuleStateWarm && rt.state != engine.ModuleStateFresh {
 		return nil, fmt.Errorf("wl: module state %q is neither warm nor fresh", rt.state)
 	}
@@ -294,7 +325,10 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	}
 
 	var inner engine.StepExecutor = noHarness{}
-	if len(prog.Scripts) > 0 {
+	switch {
+	case opts.Host != nil:
+		inner = hostExec{proc: &rt.hostProc}
+	case len(prog.Scripts) > 0:
 		if rt.pool, err = rt.harness(opts); err != nil {
 			return nil, err
 		}
@@ -312,6 +346,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	// it is in the services before any run starts.
 	rt.dispatch = engine.NewDispatcher(rt.eng, rt.fac.Executor(inner))
 	rt.services.Dispatcher = rt.dispatch
+	if opts.Host != nil {
+		attached = true
+		if err := rt.attachHost(opts.Host, opts.Diagnostics); err != nil {
+			return nil, err
+		}
+	}
 	return rt, nil
 }
 
@@ -474,6 +514,14 @@ func (rt *Runtime) Close() error {
 		}
 		if rt.pool != nil {
 			errs = append(errs, rt.pool.Close(ctx))
+		}
+		if rt.host != nil {
+			// The host's connection ends, and with it host mode.
+			rt.host.Kill()
+			select {
+			case <-rt.host.Done():
+			case <-ctx.Done():
+			}
 		}
 		if rt.fac != nil {
 			errs = append(errs, rt.fac.Close())

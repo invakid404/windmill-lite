@@ -1,0 +1,19 @@
+# The host contract of the host-mode tests (cmd/windmill-lite/host_test.go):
+# the flows the test host runs, one script it runs as a script job, and
+# the host-provided module whose instance the host registers (ADR 0010,
+# D12).
+roots:
+  - flow: f/host/echo
+  - flow: f/host/intercept
+  - flow: f/host/reject
+  - flow: f/host/scope
+  - flow: f/host/spin
+  - flow: f/host/stall
+  - flow: f/host/timeout
+  - flow: f/host/two
+  - flow: f/host/linger
+  - flow: f/host/variable
+  - flow: f/host/cb_scope
+  - flow: f/host/cb_asset
+  - script: f/host/sleep
+host_modules: [f/host/scopes.ts]

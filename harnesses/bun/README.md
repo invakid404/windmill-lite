@@ -14,11 +14,12 @@ milestone PF1, which gave intercepted replies their reason phrase, kept a
 result behind its own platform call, and fixed the borrowed reading
 methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
-([WR-55](../../docs/semantics/languages.md#wr-55), below). This
+([WR-55](../../docs/semantics/languages.md#wr-55), below); and milestone
+F3a, which completed the host SDK (below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
-host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md) in W1's
-minimal form (F3a completes it); and `test/`, the developer checks. The
+host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
+`test/`, the developer checks. The
 build helper of milestone C2a, which bundles scripts and parses their
 signatures, has its own README: [build/](build/README.md). The harness runs
 on the pinned Bun 1.3.10, the version of Windmill v1.767.0's images
@@ -52,8 +53,9 @@ cannot corrupt the protocol.
 - **Handshake.** It sends `hello` with `Bun.version`, its pid, the SHA-256
   of the bundle's `manifest.json`, and the `fetch`, `native` and `fresh`
   capabilities (in host mode `host` instead of `fresh`, since host mode
-  always runs warm). It accepts a warm welcome, or a fresh one outside host
-  mode.
+  always runs warm, and the working directory as `workdir`). It accepts a
+  warm welcome, or a fresh one outside host mode. A welcome that refuses
+  it is reported to `onReject` with its code and message.
 - **Heartbeat.** After the welcome it sends a `ping` every `heartbeat_ms`
   with its health: invocations in flight (those whose outcome is still
   open), abandoned ones, the process-level errors no invocation owned, the
@@ -77,7 +79,8 @@ cannot corrupt the protocol.
   `assets/` into its working directory, at their paths there, before any
   module loads (`extractAssets`; [ADR 0002](../../docs/design/0002-ir-and-loader.md),
   decision 3; D10); one that fails to extract them fails the start (exit
-  code 4). In host mode the SDK extracts them (F3a).
+  code 4). In host mode the SDK extracts them into the host's working
+  directory (F3a).
 - **Host-provided modules.** A harness the engine spawned registers the
   bundle's copy of each, `scripts/bun/provided/<id>.mjs`, in the order of
   the manifest's `host_modules`, before it greets the engine
@@ -88,6 +91,14 @@ cannot corrupt the protocol.
   instances instead.
 - **Cancel** abandons the invocation. When its call ends, the outcome goes
   out as the `late` frame that settles it.
+- **Host mode's runs** (F3a). `submit` sends a `run` and resolves with
+  its `run_done`, or rejects with a `RunError` (`draining`, `refused`) for
+  a run the engine did not start; its `onSettled` is called on
+  `run_settled`, outside every invocation. `drainEngine` sends the host's
+  `drain` and calls back on the engine's `bye`. `hostHealth` adds the age
+  of the oldest abandoned invocation and the number of script modules
+  loaded to the health pings carry, and `onHeartbeat` hears it at every
+  heartbeat.
 - **Fresh mode** ([ADR 0006](../../docs/design/0006-module-state.md)): the
   process serves one invocation (a second `invoke` is a protocol error)
   and exits as soon as its result has been written to the socket, however
@@ -363,18 +374,30 @@ calls on its current connection.
 `host/index.ts` is the SDK for a host that is itself a Bun program
 (ADR 0009). `connect(options)`:
 
-1. checks that `workdir` is writable and is already the process's working
-   directory (`workdir_not_writable`, `workdir_mismatch`), and reads the
-   bundle's manifest (`bundle`);
+1. checks `workdir` (`checkWorkdir`): it must be a directory this process
+   can write, else `workdir_not_writable`, and already the process's
+   working directory once both are resolved without symbolic links, else
+   `workdir_mismatch` (ADR 0004, the shared-process failure model, item
+   5), on the cases of `conformance/protocol/host/workdir.json`, which the
+   engine runs too; and reads the bundle's manifest (`bundle`);
 2. registers the host's instances of the host-provided modules
-   (`hostModules`, by module path) in the registry
-   `Symbol.for("windmill-lite.hostModules")`
+   (`hostModules`, by the keys the host contract gives them) in the
+   registry `Symbol.for("windmill-lite.hostModules")`
    ([ADR 0010](../../docs/design/0010-packaging.md), D12), before any step
-   loads;
-3. starts the engine binary as `<engine> host --bundle <dir> --kill-after
-   <ms>ms` with one end of a socketpair as its fd 3 (Node's extra `"pipe"`
-   stdio, which Bun 1.3.10 makes a socket), or fails with `engine_start`, and
-   runs the runtime in this process in host mode. The socket's backpressure
+   loads, with a diagnostic for a key the manifest does not list and for a
+   listed module the host left out (a step that imports it fails at load);
+3. extracts the bundle's codebase assets into `workdir` (`extractAssets`,
+   as a spawned harness extracts them into its own directory: WR-49,
+   WR-50, D10), or fails with `assets`;
+4. starts the engine binary as `<engine> host --bundle <dir> --workdir
+   <workdir> --kill-after <ms>ms` and `engineFlags` after them (such as
+   `-variables` and `-resources`), with one end of a socketpair as its fd 3
+   (Node's extra `"pipe"` stdio, which Bun 1.3.10 makes a socket), or fails
+   with `engine_start`, and runs the runtime in this process in host mode.
+   Its hello names the working directory (`workdir`), which the engine
+   checks again; an engine that refuses the host makes `connect` fail with
+   the reject's code (`workdir_not_writable`, `workdir_mismatch`,
+   `engine_refused`, ...). The socket's backpressure
    reaches the runtime's send queue, so a small frame still waits behind at
    most one part frame. A second socketpair, the engine's fd 4, carries only
    the `child` frames that announce the steps' child groups (WR-55): the
@@ -388,27 +411,46 @@ calls on its current connection.
 
 It returns a `Host`:
 
-- `run(path, args, {intercept, signal})` submits a run and resolves with
-  its `status` and `result`; an aborted `signal` cancels it. The scope the caller has when it calls `run`
-  is captured with `AsyncLocalStorage.snapshot()`, and every invocation of
-  the run re-enters it (H11). `intercept` maps module ids to the results
-  that stand in for them (H1's static form).
+- `run(path, args, {kind, intercept, signal, onSettled})` submits a run of
+  a flow, or with `kind: "script"` a script, and resolves with its `id`,
+  `status`, `result`, `mayHaveMutated` and `warnings`, or rejects with a
+  `HostError` when the engine does not start it (`draining`, or `refused`:
+  no such target, arguments that are not an object). An aborted `signal`
+  cancels it. The scope the caller has when it calls `run` is captured
+  with `AsyncLocalStorage.snapshot()`, and every invocation of the run
+  re-enters it (H11). `intercept` maps module ids to the results that
+  stand in for them (H1's static form). `onSettled` is called once the run
+  has settled, after its outcome (`run_settled`, ADR 0004 host mode item
+  5): every invocation it started has settled, which may be never, and
+  resources an abandoned step may still use are released there.
 - `health()` reports invocations in flight and abandoned, the age of the
-  oldest abandoned one, unattributed errors, lag, RSS and the runs in
-  flight.
-- `drain(timeoutMs)` refuses new runs (`draining`) and waits for those in
-  flight up to the timeout; the host may then exit.
+  oldest abandoned one, unattributed errors, lag, RSS, the script modules
+  loaded (`modules`), the runs in flight, whether it drains, and the
+  recycle trigger that tripped (`recycle`, or null).
+- `drain(timeoutMs)` refuses new runs (`draining`), here and in the engine,
+  to which it sends `drain`, and waits up to the timeout for the engine's
+  `bye`, which comes once the runs in flight have ended; the host may then
+  exit (ADR 0004 host mode item 3).
 - `close()` ends the connection and resolves once the engine has exited;
   the host lives on.
+
+The connect option `recycle` sets recycle triggers, none by default: `rss`
+trips when the resident set is at least that many bytes on `samples`
+consecutive heartbeats (default 2), and `modules` when more script modules
+are loaded than that, since a module stays loaded for the life of the
+process (ADR 0006). The runtime checks them at every heartbeat, outside
+every invocation (its `onHeartbeat`); the first that trips is reported by
+`health()` and, once, to `onRecycle`. The host decides what to do, usually
+to drain and exit so that its supervisor starts a new generation; the SDK
+never drains on its own.
 
 When the connection to the engine ends other than by `close()`, the SDK
 exits the host with code 1 unless `onEngineExit` is given: without its engine a host runs nothing, and
 its supervisor restarts it. The engine's watchdog kills the host when its
 event loop stops answering (`watchdog.killAfter`, default 30 s, 0 disables
 it). A step reads a host scope only through a host-provided module; the
-bundle's step imports it through a shim that takes each export from the
-registry. Milestone C2a generates those shims; W1's test bundle has one
-written by hand.
+bundle's step imports it through the shim the build generates, which
+takes each export from the registry.
 
 ## The step runner
 
@@ -646,8 +688,10 @@ the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
 sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
-and `test/host.test.ts` the SDK's refusals: the working directory and an
-engine that cannot start. `test/build.test.ts` checks the build helper's
+and `test/host.test.ts` the SDK: the shared working-directory cases of
+`conformance/protocol/host/workdir.json` through `checkWorkdir`, the
+refusals before the engine starts, and the assets extracted into the
+working directory before it does. `test/build.test.ts` checks the build helper's
 scans and parse. All are developer checks, run by CI's non-required
 `Bun harness checks` job. The merge gate is the Go side:
 [internal/harness](../../internal/harness/README.md) drives this runtime
