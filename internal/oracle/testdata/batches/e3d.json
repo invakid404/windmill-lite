@@ -51,6 +51,11 @@
       "reason": "a raw submission or a version whose dependency job failed: outside the reference configuration, where windmill-lite applies the deployed defaults (ADR 0001 sections 1 and 7, Q-CF-13); the harness runs deployed flows by path only"
     },
     {
+      "case": "CF-7/e",
+      "milestone": "later",
+      "reason": "later; source-derived in the reference's revision of 2026-10-29 (SC3): CE deploys an ai parallelism and holds every iteration job, so no body starts; no run of this batch records it, and docs/design/README.md requests the recording from a future batch E3f (squash and ai parallelism on the CE image). windmill-lite's engine refuses a program with an ai parallelism as not supported yet (internal/engine), and no milestone of ADR 0012 implements an ai parallelism"
+    },
+    {
       "case": "CF-8/d",
       "milestone": "none",
       "reason": "a raw parent submission (Q-CF-15): windmill-lite never runs raw submissions, so ADR 0001 section 6 needs no recording; the harness runs deployed flows by path only"

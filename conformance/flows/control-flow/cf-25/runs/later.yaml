@@ -1,6 +1,7 @@
-# CF-25/a: a squashed sequential loop on CE, after a first step: CE runs it
-# as an ordinary loop.
-spec: [CF-25/a]
+# CF-25/d: a squashed sequential loop on CE, after a first step: it
+# succeeds with its unsquashed result (CF-25/a describes a build without
+# the private feature, outside the reference configuration).
+spec: [CF-25/d]
 target: f/cf25/later
 note: "Corrected after recording: the prediction, from CF-25, was the failure Squashing flow loops is not available in OSS."
 expect:
