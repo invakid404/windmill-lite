@@ -100,7 +100,13 @@ and refuses any other target (the restriction of
 waits and retries, the cancellation and failures with the containers of
 N3a and N3b, with its fixtures `cf-21` to `cf-28` and `waits` recorded on
 the oracle, and observations of a container's failed attempts as the
-walker of [0011](0011-differential-testing.md) meets them.
+walker of [0011](0011-differential-testing.md) meets them. Milestone E4b
+runs the stub mode of [0011](0011-differential-testing.md) on
+windmill-lite. `wltest check` serves the oracle's effect sink and replay
+service to every run that needs them and holds the stub calls against the
+run's trace with the same check the oracle applies to its walk. The stub
+acceptance cases, together with a case on codebase scripts, match the
+oracle's recordings.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
