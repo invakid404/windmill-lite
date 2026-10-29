@@ -21,6 +21,8 @@
     "conformance/flows/execution/fx-v6"
   ],
   "deferred": [
+    {"case": "FX-13/b", "milestone": "N1b", "reason": "source-derived in the reference's revision of 2026-10-29 (SC3): a mock value carrying a string wm_failure fails the step's identity job, so b never runs; no run of this batch records it, and docs/design/README.md requests the recording from a future batch E3f (wm_failure on identity jobs). windmill-lite's identity job, a mocked step's included, succeeds today whatever its result holds (internal/engine, identityJob), while N1b applies wm_failure to a script's result only, so a follow-up of N1b implements it"},
+    {"case": "FX-13/c", "milestone": "N1b", "reason": "source-derived in the reference's revision of 2026-10-29 (SC3): a tolerated wm_failure result reaches the next identity job, or a step its true skip_if skips, as previous_result and fails it, so c never runs; no run of this batch records it, and docs/design/README.md requests the recording from a future batch E3f (wm_failure on identity jobs). windmill-lite's identity job succeeds today whatever its result holds (internal/engine, identityJob), so a follow-up of N1b, which owns wm_failure and continue_on_error, implements it"},
     {"case": "FX-36/a", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
     {"case": "FX-36/b", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
     {"case": "FX-36/c", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},

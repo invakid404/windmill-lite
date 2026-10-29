@@ -1,8 +1,9 @@
 # OR-24 with the flow's preprocessor (FX-35): the object it built is read
 # back from storage, so the transform sees o's keys in jsonb order (a, cc,
 # bbb), not the order the preprocessor wrote (bbb, a, cc): OR-24/f. The
-# catalogue's case of a script's own preprocessor, OR-24/e, which runs
-# only for a trigger (WR-11), stays deferred (batches/e3e.json).
+# catalogue's case of a script's own preprocessor, OR-24/e, which a
+# trigger or a plain run through the run API requests (WR-11), stays
+# deferred to batch E3f (batches/e3e.json).
 spec: [OR-24, OR-24/f, FX-35]
 target: f/wl_keys/pre_keys
 expect:
