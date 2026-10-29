@@ -5,8 +5,9 @@ milestone K1, the fixture format, normaliser and comparator of milestone
 E2, the expression-case format, its lifting into generated flows, and the
 claims and unit cases of recording batch E3a, and the replay table and
 replay service of stub mode, milestone E4a, the step-case format and
-its comparison, milestone C3a, and the location rule of comparisons with
-the oracle, milestone E1
+its comparison, milestone C3a, the location rule of comparisons with
+the oracle, milestone E1, and the run-and-wait response, the setup
+policies and the pull of recording batch E3e
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
@@ -19,7 +20,7 @@ fixtures on windmill-lite.
 |---|---|
 | `sitepath.go` | `SitePath`, `Segment` and the encoder of [ADR 0011](../../docs/design/0011-differential-testing.md), which answers [Q-OR-17](../../docs/semantics/oracle.md#q-or-17) |
 | `status.go` | `RunStatus` (Windmill's four job statuses plus windmill-lite's `latched` and `halted`), `StepStatus` ([OR-V2](../../docs/semantics/oracle.md#or-v2)) and `ModuleStatus` ([FX-1](../../docs/semantics/execution.md#fx-1)) |
-| `observation.go` | `Observation`, `StepObservation` and `BranchChosen`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments (see below) |
+| `observation.go` | `Observation`, `StepObservation`, `BranchChosen` and `Response`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments, and a run-and-wait run's HTTP response (see below) |
 | `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
 | `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
 | `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred` and `CompareStep` (see [Step cases](#step-cases)) |
@@ -27,7 +28,7 @@ fixtures on windmill-lite.
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
-| `normalise.go` | `Normaliser` and `MaskPaths`: the value rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations`, the rule a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
+| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations`, the rule a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`: stub mode's replay table and the run-scoped service that answers stubs (see [Stub mode](#stub-mode)) |
 
@@ -58,6 +59,16 @@ Encoding and decoding put every step in canonical form:
   is kept: the codec cannot know whether a fixture compares with
   `key_order: strict` ([OR-14](../../docs/semantics/oracle.md#or-14)), so a
   comparator expands the absences and then applies the fixture's policy.
+
+A run submitted through run-and-wait (`submit: run_wait_result`) also has a
+`response`: `{status, content_type, body}`, the HTTP status, the content
+type without parameters, and the body as text
+([FX-36](../../docs/semantics/execution.md#fx-36),
+[FX-37](../../docs/semantics/execution.md#fx-37),
+[OR-10/b](../../docs/semantics/conformance.md#or-10)). The body is text, not
+a value, because its spelling is what an HTTP client sees: jsonb's text
+output with spaces, or a string result unquoted under a content type. Every
+other run has no `response`.
 
 Steps whose fields contradict each other are rejected, as is a module
 status on an attempt, iteration or branch site that differs from the one
@@ -149,10 +160,10 @@ A flow fixture is a directory (OR-15, [ADR 0003](../../docs/design/0003-semantic
 
 | Entry | Content |
 |---|---|
-| `fixture.yaml` | `id`; `spec` (findings and catalogue cases); `scope` (`core`, `later`, `out`, `EE`); `provenance` (the catalogue's tags); `languages`; `oracle: {workers, effects, concurrency, deploy}` (`deploy`: `cli`, the default, or `api`, which has the oracle harness create the tree through the REST API as written); `compare: {mode, key_order, stack, mask, unordered}`; `stub` (stub mode, which deploys through the CLI only); `note` |
+| `fixture.yaml` | `id`; `spec` (findings and catalogue cases); `scope` (`core`, `later`, `out`, `EE`); `provenance` (the catalogue's tags); `languages`; `oracle: {workers, effects, concurrency, deploy, setup, pull}` (`deploy`: `cli`, the default, or `api`, which has the oracle harness create the tree through the REST API as written; `setup`: when `setup.yaml` is applied, below; `pull`: with `deploy: api`, read the deployed tree back with the CLI's `sync pull` into the runs' deployment evidence); `compare: {mode, key_order, stack, mask, unordered}`; `stub` (stub mode, which deploys through the CLI only); `note` |
 | `windmill/` | the sync tree the oracle's CLI pushes, with the metadata and locks `generate-metadata` writes |
-| `setup.yaml` | optional `resource_types`, `variables` and `resources`, created after the push |
-| `runs/<name>.yaml` | `target`, `kind` (`flow` or `script`), `args` (an object), `cancel_after_ms`, `group`, `replay` (stub mode only), `spec`, `expect` (an observation), `note` |
+| `setup.yaml` | optional `resource_types`, `variables` and `resources`, created after the push unless `oracle.setup` says otherwise |
+| `runs/<name>.yaml` | `target`, `kind` (`flow` or `script`), `args` (an object), `cancel_after_ms`, `group`, `submit` (empty, or `run_wait_result`), `replay` (stub mode only), `spec`, `expect` (an observation), `note` |
 | `recorded/<name>.json` | `{"observation": …, "provenance": …}`, written by `wltest record` |
 
 Every file decodes strictly: unknown keys, YAML aliases and merge keys,
@@ -162,6 +173,16 @@ repeated keys, and numbers that are not JSON numbers (`0x1F`, `1_000`,
 `/steps/m:a0/args/fi_keys`; a `/` inside a site path is `~1`. `stack` masks a
 string as `<stack>` (OR-V3 clause c) and `mask` replaces any value with
 `<masked>` (environment-derived values, OR-29).
+
+`oracle.setup` is `after_push` (the default: once, after the push),
+`before_push` (once, before the push, which then removes what it seeded,
+[OR-31](../../docs/semantics/oracle.md#or-31); CLI deployment only) or
+`each_run` (after the push, and its variables again before every run, for
+a fixture whose runs change them). The last two need variables in
+`setup.yaml`. A run with `submit: run_wait_result` is submitted through the
+synchronous run-and-wait endpoint, then polled and walked like any other,
+and its observation holds the response; it runs a flow alone, so it takes
+no `kind: script`, `group`, `cancel_after_ms` or `replay`.
 
 Runs with the same `group` are submitted together, as concurrent outer runs
 (`RunBatches`: each group at its first run's place, in name order); every
@@ -331,6 +352,12 @@ number text and duplicate elements:
 
 `MaskPaths` then applies a fixture's `stack` and `mask` pointers.
 `testdata/normalise/cases.json` holds the cases.
+
+`Normaliser.Text` normalises a text kept as written, a run-and-wait body:
+walked job ids become placeholders, and wherever the text writes a runtime
+error's stack as a JSON string, that string becomes `"<stack>"`; spacing,
+member order and every other character stay. `TestNormaliseText` holds its
+cases.
 
 ### Location suffixes
 

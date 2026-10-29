@@ -1,0 +1,6 @@
+# OR-24/c (Q-OR-11 a): on the retry b's skip_if sees the predecessor read
+# back from storage, in jsonb order, and its diagnostic names that order.
+# The catalogue gives the order, not the flow's outcome; the expect is the
+# recorded observation.
+spec: [OR-24/c]
+target: f/wl_keys/retry_keys

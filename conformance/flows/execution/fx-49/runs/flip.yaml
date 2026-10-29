@@ -3,6 +3,7 @@
 # loop after its first iteration, and the flow completes normally with
 # [1]. As drafted, the expression would be evaluated three times.
 spec: [FX-49/a]
+cancel_after_ms: 20000
 target: f/wl_fx49/flip
 expect:
   status: success

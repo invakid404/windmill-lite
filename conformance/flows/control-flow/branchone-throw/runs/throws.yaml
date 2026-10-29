@@ -1,0 +1,5 @@
+# OR-V2/e: the module is a failure that ran nothing, never an empty
+# success; the root's shape is recorded (Q-OR-8), and the expect is the
+# recorded observation.
+spec: [OR-V2/e]
+target: f/wl_br_throw/throws

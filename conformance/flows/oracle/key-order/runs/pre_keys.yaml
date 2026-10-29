@@ -1,0 +1,6 @@
+# OR-24/e (Q-OR-11 c), with the flow's preprocessor: per source, an object
+# the preprocessor built keeps its insertion order where the transform
+# reads it; the object a receives is stored first. The expect is the
+# recorded observation.
+spec: [OR-24/e]
+target: f/wl_keys/pre_keys

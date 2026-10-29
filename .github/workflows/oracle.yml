@@ -104,10 +104,12 @@ jobs:
 
       - name: Record the fixtures
         # wltest measures free disk itself and refuses to pull without the
-        # reserve of OR-30.
+        # reserve of OR-30. A run that has not completed after 2 minutes is
+        # canceled and fails, so a hung run cannot exhaust the job; the
+        # slowest runs (JE-2's three 20 s attempts) take about 75 s.
         run: |
           df -h /
-          bin/wltest record --check --regenerate-metadata --repeat 2 \
+          bin/wltest record --check --regenerate-metadata --repeat 2 --run-timeout 2m \
             --out "$RUNNER_TEMP/oracle/recorded" \
             --raw "$RUNNER_TEMP/oracle/raw" \
             --report "$RUNNER_TEMP/oracle/report.json" \

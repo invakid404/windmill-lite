@@ -3,4 +3,5 @@
 # (FX-15). The catalogue sets no expectation; this one is the recorded
 # observation.
 spec: [FX-49, FX-15]
+cancel_after_ms: 20000
 target: f/wl_fx49/throws

@@ -11,16 +11,14 @@ claims:
     equals: failure
   - at: /steps/m:e/result/error/message
     contains: ["Failed to fetch result for step 'br'"]
+# CF-19/c's unit restatement is step d's direct lookup only. Step c's
+# engine read of the preceding id is served from memory, where the empty
+# default left a's 42 (FX-10 reading (b)); a unit case cannot state that
+# previous_result, which no recorded step holds, since br ran no job. Step
+# e's engine read fails to fetch br's result, which a unit context, whose
+# results are the texts a read returns, cannot express. Both stay checked
+# end to end by this run's claims.
 unit:
-  - spec: CF-19/c
-    site: m:c
-    input: x
-    expr: "[results.br]"
-    context:
-      previous_id: br
-    expect:
-      text: "[42]"
-    note: "an engine read of the preceding id, served from memory (FX-10 reading (b)); after the branchone's empty default that is still a's 42, which the recording cannot show, since br ran no job, so previous_result is left out"
   - spec: CF-19/c
     site: m:d
     input: x
@@ -31,14 +29,3 @@ unit:
     expect:
       text: "null"
     note: "the direct lookup of br, which ran no job, answers null (JE-9)"
-  - spec: CF-19/c
-    site: m:e
-    input: x
-    expr: "[results.br]"
-    context:
-      previous_id: d
-      previous_result: "null"
-    expect:
-      error:
-        contains: ["Failed to fetch result for step 'br'"]
-    note: "an engine read of br from storage fails; the exact text is later scope (Q-CF-5)"

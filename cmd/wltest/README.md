@@ -51,13 +51,15 @@ The oracle runs in public CI; see
 | `--repeat N` | 1 | Run each run `N` times and require equal observations. |
 | `--regenerate-metadata` | off | Run `folder add-missing` and `generate-metadata` in each fixture's sync tree, in place, before pushing; CI then diffs the tree ([OR-8](../../docs/semantics/oracle.md#or-8)). A fixture with `oracle: {deploy: api}` is never regenerated: its tree is created through the API as written. A generated tree always gets them. |
 | `--workers N` | 1 | Worker containers, 1 or 2 ([OR-5](../../docs/semantics/oracle.md#or-5)). |
+| `--skip-unmet-workers` | off | Skip a fixture that needs more workers than `--workers`, reporting its runs as `skipped`, instead of refusing it ([OR-5/a](../../docs/semantics/conformance.md#or-5)): the oracle workflow's two-worker session records it. |
+| `--listen-interval N` | 1 | The oracle's `LISTEN_NEW_EVENTS_INTERVAL_SEC`, for the knob comparison of [OR-7/a](../../docs/semantics/conformance.md#or-7); the value is in every recording's provenance, which is never compared. |
 | `--cli CMD` | `npx -y windmill-cli@1.767.0` | The command that runs the CLI; its `--version` must report exactly `1.767.0` (a pre-release such as `1.767.0-beta` is refused). |
 | `--docker-data-root DIR` | Docker's data root | The directory whose filesystem the disk preflight measures. |
 | `--sink-listen ADDR` | `0.0.0.0:0` | The effect sink's address; the oracle reaches it through `host.docker.internal`, which on Linux is the Docker bridge gateway, so the default listens beyond loopback. On a shared network, pass a narrower address. |
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
-`expect_mismatch`, `failed` or `refused`, the fixture and the run, then any
+`expect_mismatch`, `failed`, `refused` or `skipped`, the fixture and the run, then any
 error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
 actual before expected). It exits 1 when a run failed, was refused, was
 unstable or did not match its `expect`, and in check mode also when a
@@ -209,7 +211,9 @@ a few at a time (`flows.go`):
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with `setup.yaml` (resources and variables,
-PF2) or effects (the effect sink), a script run (`kind: script`), a flow the
+PF2) or effects (the effect sink), a script run (`kind: script`), a
+run-and-wait run (`submit: run_wait_result`, whose response is the HTTP
+adapter's, F7b), a flow the
 compiler refuses as an unsupported feature, language or pinned hash, a
 script of another harness or boundary (C3n), or a flow the walking
 skeleton refuses at load (containers, failure modules, `skip_if`, retries

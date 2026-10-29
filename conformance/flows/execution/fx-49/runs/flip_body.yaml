@@ -1,6 +1,7 @@
 # FX-49/a with a two-step body: as for the collapsed body, the second
 # iteration's launch sees true and stops the loop.
 spec: [FX-49/a]
+cancel_after_ms: 20000
 target: f/wl_fx49/flip_body
 expect:
   status: success
