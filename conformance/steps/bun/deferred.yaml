@@ -50,3 +50,24 @@ deferred:
   - spec: WR-46/b
     reason: later; native result streaming is not implemented
     expected_in: a later milestone that implements result streaming (WR-16, WR-46)
+  - spec: WR-50/a
+    reason: >-
+      whether CE standalone deploys and runs a codebase script, and the
+      refusal in split mode, are the oracle's to observe; the run's value
+      is WR-47/a's, whose step case (d13.yaml) runs the bundle on Node and
+      on the harness
+    expected_in: E3e (the oracle) and d13.yaml (WR-47/a)
+  - spec: WR-50/b
+    reason: later; the Node patch of Windmill's image is an oracle observation (Q-WR-24), and windmill-lite runs no Node
+    expected_in: E3e (the oracle)
+  - spec: WR-50/d
+    reason: >-
+      a //nodejs codebase script runs on Node on Windmill, with Bun's
+      environment (WR-50, rule 2), not at the native boundary; windmill-lite
+      has no Node and runs it on the Bun harness, so its probe gives
+      ["object","string"] where Windmill gives ["undefined","string"], the
+      same runtime difference as D13's
+    expected_in: D13 (ADR 0001 §5), with d13.yaml
+  - spec: WR-50/e
+    reason: later; Node's module-format detection for an ESM bundle sent to Node by //nodejs depends on the Node patch (Q-WR-24)
+    expected_in: E3e (the oracle) and C3n

@@ -26,9 +26,10 @@
       "enabled": false
     },
     {
-      "description": "The oracle workflow's Node runs the pinned windmill-cli@1.767.0 (OR-8); its major moves only with the oracle pin.",
+      "description": "The oracle and parity workflows' Node runs the pinned windmill-cli@1.767.0 (OR-8); its major moves only with the oracle pin.",
       "matchFileNames": [
-        ".github/workflows/oracle.yml"
+        ".github/workflows/oracle.yml",
+        ".github/workflows/parity.yml"
       ],
       "matchPackageNames": [
         "node"
@@ -44,6 +45,16 @@
         "windmill-client"
       ],
       "allowedVersions": "1.326.0"
+    },
+    {
+      "description": "The CI workflow's Node runs D13's Node side: Node 20, the major Windmill v1.767.0's image installs (WR-50); it moves only with the semantics pin.",
+      "matchFileNames": [
+        ".github/workflows/ci.yml"
+      ],
+      "matchPackageNames": [
+        "node"
+      ],
+      "allowedVersions": "<21"
     }
   ]
 }

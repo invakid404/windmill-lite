@@ -81,7 +81,10 @@ milestone C1 fixed the details they left open.
 - **Warnings** (C3a). A process-level error that no invocation's context
   raised reaches each invocation in flight as `warning`, with `id`, `code`
   (`unattributed_error`) and `message` (its kind, text and stack), ahead
-  of the frame that settles it. The `Process` hands it to the
+  of the frame that settles it. What the native boundary handed a native
+  invocation but does not track comes the same way, with code
+  `native_untracked` (`WarningNativeUntracked`, D5 in ADR 0001), ahead of
+  the frame that settles that invocation. The `Process` hands it to the
   invocation's `Reporter.Warning`; one for an invocation that is not in
   flight is dropped with a diagnostics line.
 - **Platform calls** (W1). When `ProcessConfig.Facade` names the facade's

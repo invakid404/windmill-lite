@@ -89,7 +89,7 @@ step without failing the others.
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
-| `warning` | harness → engine | `id`, `code` (`unattributed_error`), `message` | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3) |
+| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `native_untracked`), `message` | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); or what the native boundary handed an invocation but does not track, sent ahead of the frame that settles it (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
@@ -584,7 +584,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     top-level function declaration, exported or not, beside every export's
     ([0002](0002-ir-and-loader.md)), so an entrypoint whose declaration
     does not parse fails before its module loads even when the module does
-    not export it ([WR-7](../semantics/languages.md#wr-7)).
+    not export it ([WR-7](../semantics/languages.md#wr-7)). A codebase
+    script's callable export that its metadata does not sign (CommonJS
+    source has no static export list) is called with an empty parameter
+    list, as Windmill's parser gives a function it does not find in the
+    script's content (milestone C2b; [0010](0010-packaging.md)).
   - **Results above `max_message`** stay a protocol refusal (an `escaped`
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the
@@ -606,20 +610,23 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     with the other escapes, naming the mismatch.
   - **Attribution by realm.** Item 2 of the failure model cannot attribute a
     rejection nobody handles, which carries no async context; for a native
-    invocation the promise's realm names it. The web APIs a realm gets are
-    subclasses of the harness's classes whose methods, inherited and
-    symbol-named ones included, track each promise they return for the
-    calling invocation, in place, and every continuation `then` derives
-    from it: a rejection nobody handles of what `Response.json()`,
-    `File.text()`, a stream's iterator or `crypto.subtle` returned, or of a
-    continuation of it, is attributed to that invocation and warns no
-    other. The promise stays the same object, so a rejection the web API's
-    own code handles (a stream's iteration, `closed`) stays handled. What
-    the APIs hand over by other ways is the realm's alike: iterator values,
-    the arguments of their callbacks (`FormData.forEach`), a reader's
-    results, `structuredClone`'s result all through, and a `MessagePort`
-    message's data and ports, whose listener runs as the invocation that
-    registered it.
+    invocation the promise's realm names it. The web APIs reach a realm
+    through a boundary that fails closed (D5): each promise a web API
+    hands an invocation is tracked for it, in place, when the boundary
+    hands it over, and so is every continuation `then` derives from it,
+    so a rejection nobody handles of what `Response.json()`, `File.text()`,
+    a stream's iterator or `crypto.subtle` returned, or of a continuation
+    of it, is attributed to that invocation and warns no other. The
+    promise stays the same object, so a rejection the web API's own code
+    handles (a stream's iteration, `closed`) stays handled.
+  - **`native_untracked`.** What the boundary hands an invocation and
+    cannot track, an object of a class WR-45 does not list or a harness
+    function, is counted on it, and the harness sends the count as a
+    `warning` with code `native_untracked` ahead of the frame that settles
+    the invocation, so it reaches the run's trace. One handed out in no
+    invocation's context goes to every invocation in flight, as an
+    unattributed error does, but health does not count it; one handed out
+    after the invocation settled is a diagnostic line.
   - **The facade origin is required.** The engine refuses a native
     invocation to a process with no facade origin, which a native step
     reads as `BASE_URL` and `BASE_INTERNAL_URL`

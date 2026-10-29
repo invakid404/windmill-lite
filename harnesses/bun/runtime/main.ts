@@ -8,7 +8,7 @@
 
 import { join } from "node:path";
 import { exitProcess } from "./context.ts";
-import { registerHostModules, Runtime } from "./runtime.ts";
+import { extractAssets, registerHostModules, Runtime } from "./runtime.ts";
 
 const EXIT_STARTUP = 4;
 
@@ -62,6 +62,14 @@ const runtime = new Runtime({
     Promise.race([closed, Bun.sleep(1000)]).then(() => exitProcess(code));
   },
 });
+
+// The bundle's codebase assets are extracted into the working directory
+// before any module loads (WR-50, D10).
+try {
+  extractAssets(bundleDir, process.cwd());
+} catch (e) {
+  fail(`cannot extract the bundle's assets: ${(e as Error).message}`);
+}
 
 // The bundle's copies of its host-provided modules are registered before
 // any step loads, so each shim finds its module (D12), and before the

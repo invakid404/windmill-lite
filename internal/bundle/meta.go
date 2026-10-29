@@ -35,10 +35,23 @@ type ScriptMeta struct {
 	// bundle uses (D12).
 	HostModules []string `json:"host_modules"`
 	// Metafile is the bundler's metafile, with paths relative to the
-	// dependency set's directory.
+	// dependency set's directory; for a codebase script, esbuild's inputs,
+	// with paths relative to the sync root.
 	Metafile json.RawMessage `json:"metafile,omitempty"`
 	// Native is the record of a native-boundary script's native form.
 	Native *NativeMeta `json:"native,omitempty"`
+	// Bundler is "esbuild" for a codebase script (BuildCodebase), whose
+	// module the harness loads from its working directory; empty for a
+	// module of the Bun build.
+	Bundler string `json:"bundler,omitempty"`
+	// Format is a codebase script's module format: "cjs", whose module is
+	// scripts/bun/<id>.cjs, or "esm". Empty means ESM, the Bun build's.
+	Format Format `json:"format,omitempty"`
+
+	esbuildWarnings []string
+	// nativeBundle is where a //native codebase script's bundle waits for
+	// its native form (BuildCodebase).
+	nativeBundle string
 }
 
 // NativeMeta is what the harness needs to run a native-boundary script

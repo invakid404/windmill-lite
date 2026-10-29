@@ -31,7 +31,7 @@ type Manifest struct {
 	Format int    `json:"format"`
 	Engine Engine `json:"engine"`
 	// Bundlers are the versions of the bundlers that built the scripts:
-	// Bun always, esbuild once codebase scripts are built (C2b).
+	// Bun always, esbuild when the bundle has codebase scripts (C2b).
 	Bundlers Bundlers `json:"bundlers"`
 	// NonconformantRuntime is set when the Bun that built the bundle is not
 	// the pin (`--bun-mismatch`, ADR 0010).

@@ -8,7 +8,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import vm from "node:vm";
 import { nativeHeader, nativeModule, transpile } from "../build/native.ts";
 import { type InvocationContext, InvocationResources, invocations } from "../runtime/context.ts";
-import { DEFAULT_USER_AGENT, Native, type NativeForm, NativeJob } from "../runtime/native.ts";
+import { DEFAULT_USER_AGENT, Native, type NativeForm, NativeJob, WEB_GLOBALS } from "../runtime/native.ts";
 
 // Runs a module's native form in a fresh context with the imports given,
 // with an empty preamble, and returns its namespace.
@@ -134,8 +134,13 @@ describe("a native realm", () => {
   });
   afterAll(() => server.stop(true));
 
+  // What the boundary reported through onUntracked: handed over in no
+  // native invocation's context, or after its job settled.
+  const unowned: string[] = [];
+  const onUntracked = (j: NativeJob | undefined, kind: string) => unowned.push(`${j === undefined ? "no job" : "settled"}: ${kind}`);
+
   const job = (form: Partial<NativeForm> = {}) => {
-    const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {} });
+    const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {}, onUntracked });
     native.capture();
     const resources = new InvocationResources();
     const inv = { id: "i", script: "s", entry: "main", args: {}, env: {}, resources };
@@ -235,7 +240,7 @@ describe("a native realm", () => {
   // A native job registered for an async-context store, as Native.run
   // registers one, and the store to run its code in.
   const registered = () => {
-    const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {} });
+    const native = new Native({ bundleDir: "/nonexistent", baseURL: () => undefined, onError: () => {}, onUntracked });
     native.capture();
     const resources = new InvocationResources();
     const ctx: InvocationContext = { id: "i", run: "r", env: {}, signal: new AbortController().signal, resources };
@@ -243,12 +248,14 @@ describe("a native realm", () => {
     return { native, j, ctx, resources };
   };
 
-  test("a realm-facing class wraps every method and getter its class has, inherited and symbol-named ones included (c3n review r2, finding 1)", () => {
+  test("every web API class is realm-facing: each member it has, inherited and symbol-named ones included, is wrapped, and it inherits as in V8 (c3n review r3, finding 1)", () => {
     const { j } = registered();
-    for (const name of ["Request", "Response", "Blob", "File", "FormData", "ReadableStream", "ReadableStreamDefaultReader", "WritableStream", "WritableStreamDefaultWriter", "TransformStream", "SubtleCrypto"]) {
+    const classes = WEB_GLOBALS.filter((n) => /^[A-Z]/.test(n) && typeof (globalThis as Record<string, unknown>)[n] === "function");
+    expect(classes.length).toBeGreaterThan(40);
+    for (const name of classes) {
       const R = j.g[name];
       const C = (globalThis as Record<string, any>)[name];
-      expect(Object.getPrototypeOf(R)).toBe(C);
+      expect([name, Object.getPrototypeOf(R) === C]).toEqual([name, true]);
       const missing: string[] = [];
       for (let proto = C.prototype; proto !== null && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
         for (const k of Reflect.ownKeys(proto)) {
@@ -259,6 +266,19 @@ describe("a native realm", () => {
       }
       expect(missing).toEqual([]);
     }
+    // Each inherits from its parent's realm-facing class, and keeps its
+    // own toStringTag.
+    const g = j.g;
+    const inherits = [
+      [g.CustomEvent, g.Event], [g.MessageEvent, g.Event], [g.ErrorEvent, g.Event], [g.CloseEvent, g.Event],
+      [g.AbortSignal, g.EventTarget], [g.MessagePort, g.EventTarget], [g.File, g.Blob],
+    ].map(([a, b]) => [a.name, b.name, b.prototype.isPrototypeOf(a.prototype)]);
+    expect(inherits.filter(([, , ok]) => !ok)).toEqual([]);
+    expect(Object.prototype.toString.call(new g.CustomEvent("x"))).toBe("[object CustomEvent]");
+    expect(new g.AbortController().signal instanceof g.EventTarget).toBe(true);
+    // crypto, crypto.subtle and performance forward to the shared objects.
+    expect([g.crypto instanceof g.Crypto, g.crypto.subtle instanceof g.SubtleCrypto, g.performance instanceof g.Performance]).toEqual([true, true, true]);
+    expect([typeof g.performance.now(), g.performance.timeOrigin]).toEqual(["number", performance.timeOrigin]);
   });
 
   test("what a web API returns, and every continuation of it, is the calling invocation's (c3n review, finding 1)", async () => {
@@ -371,6 +391,122 @@ describe("a native realm", () => {
       mc.port1.close();
       mc.port2.close();
     });
+  });
+
+  test("events, event handlers and stream callbacks get the realm's objects, and a listener runs as the invocation that registered it (c3n review r3, finding 1)", async () => {
+    const { native, j, ctx } = registered();
+    const g = j.g;
+    const owned = (p: unknown) => native.jobOfPromise(p) === j;
+    const seen: Record<string, unknown> = {};
+    const c = await invocations.run(ctx, () => {
+      const c = new g.AbortController();
+      const listener = function (this: unknown, e: Event) {
+        seen.listener = [e instanceof g.Event, e.target instanceof g.AbortSignal, this === c.signal, owned(new g.Blob(["l"]).text())];
+      };
+      c.signal.addEventListener("abort", listener);
+      c.signal.addEventListener("abort", { handleEvent: (e: Event) => (seen.handleEvent = e instanceof g.Event) });
+      const removed = () => (seen.removed = true);
+      c.signal.addEventListener("abort", removed);
+      c.signal.removeEventListener("abort", removed);
+      const h = (e: Event) => (seen.handler = [e instanceof g.Event, owned(new g.Blob(["h"]).text())]);
+      c.signal.onabort = h;
+      expect(c.signal.onabort).toBe(h);
+      return c;
+    });
+    // Aborted from outside any invocation: the listeners still run as the
+    // one that registered them.
+    c.abort();
+    expect(seen).toEqual({ listener: [true, true, true, true], handleEvent: true, handler: [true, true] });
+    await invocations.run(ctx, async () => {
+      // A web API's exception and rejection are the realm's DOMException,
+      // as the value a getter gives is.
+      let thrown: unknown;
+      try {
+        g.AbortSignal.abort().throwIfAborted();
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown instanceof g.DOMException).toBe(true);
+      const errored = new g.ReadableStream({ start: (ctl: ReadableStreamDefaultController) => ctl.error(new DOMException("d", "AbortError")) });
+      expect(await errored.getReader().read().catch((e: unknown) => e instanceof g.DOMException)).toBe(true);
+      const rejected = await g.fetch(`http://127.0.0.1:${server.port}/`, { signal: g.AbortSignal.abort() }).catch((e: unknown) => e);
+      expect(rejected instanceof g.DOMException).toBe(true);
+      expect(c.signal.reason instanceof g.DOMException).toBe(true);
+
+      // A stream's callbacks get its controllers as the realm's, on the
+      // dictionary that holds them, inherited ones included.
+      const got: Record<string, unknown> = {};
+      class Source {
+        start(this: unknown, ctl: unknown) {
+          got.readable = [ctl instanceof g.ReadableStreamDefaultController, this instanceof Source];
+          (ctl as ReadableStreamDefaultController).enqueue("r");
+          (ctl as ReadableStreamDefaultController).close();
+        }
+      }
+      expect(await new g.Response(new g.ReadableStream(new Source())).text()).toBe("r");
+      const sink = {
+        write(this: unknown, _chunk: unknown, ctl: unknown) {
+          got.writable = [ctl instanceof g.WritableStreamDefaultController, this === sink];
+        },
+      };
+      const writer = new g.WritableStream(sink).getWriter();
+      await writer.write("w");
+      const ts = new g.TransformStream({
+        transform(chunk: unknown, ctl: TransformStreamDefaultController) {
+          got.transform = ctl instanceof g.TransformStreamDefaultController;
+          ctl.enqueue(chunk);
+        },
+      });
+      ts.writable.getWriter().write("t");
+      await ts.readable.getReader().read();
+      const bytes = new g.ReadableStream({
+        type: "bytes",
+        autoAllocateChunkSize: 4,
+        pull(ctl: ReadableByteStreamController) {
+          got.bytes = [ctl instanceof g.ReadableByteStreamController, ctl.byobRequest instanceof g.ReadableStreamBYOBRequest];
+          ctl.byobRequest!.respond(0);
+          ctl.close();
+        },
+      });
+      await bytes.getReader().read();
+      expect(got).toEqual({ readable: [true, true], writable: [true, true], transform: true, bytes: [true, true] });
+    });
+  });
+
+  test("what the boundary does not track is counted, on the invocation it was handed to, or reported when no unsettled invocation can count it (c3n review r3, finding 1)", async () => {
+    const { native, j, ctx, resources } = registered();
+    const g = j.g;
+    unowned.length = 0;
+    await invocations.run(ctx, async () => {
+      // Data, the realm's own and the web API classes are not counted; a
+      // container is passed on all through.
+      const given = native.toRealm({ list: [new Blob(["x"])], bytes: new Uint8Array(2), when: new Date(), err: new TypeError("t"), own: new g.Object() }) as { list: Blob[] };
+      expect(given.list[0] instanceof g.Blob).toBe(true);
+      expect(j.untracked).toEqual({});
+      expect(j.untrackedText()).toBeUndefined();
+      // Bun's performance.timing is a PerformanceTiming, which is no web
+      // API of the native runtime; a harness function or WeakMap is none
+      // either.
+      expect(typeof g.performance.timing.toJSON).toBe("function");
+      g.performance.toJSON();
+      native.toRealm(new WeakMap());
+      native.toRealm(function harnessFunction() {});
+      expect(j.untracked).toEqual({ PerformanceTiming: 2, WeakMap: 1, "function harnessFunction": 1 });
+      expect(j.untrackedText()).toBe(
+        "the native boundary handed this invocation objects it does not track (ADR 0001, D5): PerformanceTiming (2), WeakMap (1), function harnessFunction (1)",
+      );
+    });
+    expect(unowned).toEqual([]);
+    // A web API's promise given in no native invocation's context cannot
+    // be tracked.
+    const outside = new j.g.Blob(["o"]).text();
+    await outside;
+    expect(unowned).toEqual(["no job: Promise"]);
+    // Nor can anything handed over after the invocation settled.
+    resources.settle();
+    await invocations.run(ctx, async () => g.performance.timing);
+    expect(unowned).toEqual(["no job: Promise", "settled: PerformanceTiming"]);
+    expect(j.untracked).toEqual({ PerformanceTiming: 2, WeakMap: 1, "function harnessFunction": 1 });
   });
 
   test("a stream error the script catches is no unhandled rejection, as with Bun's own stream (c3n review r2, finding 4)", async () => {

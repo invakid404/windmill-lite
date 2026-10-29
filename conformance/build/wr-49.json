@@ -1,0 +1,126 @@
+{
+  "finding": "WR-49",
+  "scope": "core",
+  "note": "What a codebase bundle carries besides its module: the assets of its entry, under assets/ in the bundle (ADR 0010), which a harness extracts into its working directory (ADR 0002, decision 3; D10). The push, version and replacement decisions of WR-49/c to /g have no counterpart: windmill-lite deploys nothing, and the bundle digest follows every input (ADR 0010).",
+  "cases": [
+    {
+      "spec": "WR-49/a",
+      "provenance": "source-derived",
+      "title": "an asset is carried in the bundle at its to path",
+      "part": "build",
+      "rest_in": "the step suite (steps/bun/wr-49.yaml): a spawned harness extracts it into its working directory, where the script reads it",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    assets: [{from: f/cb/data/a.txt, to: data/a.txt}]\n",
+          "f/cb/data/a.txt": "asset",
+          "f/cb/asset.ts": "import { readFileSync } from \"node:fs\";\nexport function main() { return readFileSync(\"data/a.txt\", \"utf8\"); }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "assets": {
+          "data/a.txt": "asset"
+        }
+      }
+    },
+    {
+      "spec": "WR-49",
+      "variant": "shared-asset",
+      "provenance": "policy",
+      "title": "two scripts that extract the same content to one path share it",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    assets: [{from: f/cb/a.txt, to: shared.txt}]\n  - relative_path: f/other\n    includes: [\"f/other/**\"]\n    assets: [{from: f/other/same.txt, to: shared.txt}]\n",
+          "f/cb/a.txt": "same",
+          "f/other/same.txt": "same",
+          "f/cb/one.ts": "export function main() { return 1; }\n",
+          "f/other/two.ts": "export function main() { return 2; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "assets": {
+          "shared.txt": "same"
+        }
+      }
+    },
+    {
+      "spec": "WR-49",
+      "variant": "asset-collision",
+      "provenance": "policy",
+      "title": "two scripts that extract different content to one path fail the build",
+      "note": "ADR 0002, decision 3, and ADR 0001 §5a: a harness process has one working directory (D10), so two assets at one path cannot both be there.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    assets: [{from: f/cb/a.txt, to: data/x.txt}]\n  - relative_path: f/other\n    includes: [\"f/other/**\"]\n    assets: [{from: f/other/b.txt, to: data/x.txt}]\n",
+          "f/cb/a.txt": "one",
+          "f/other/b.txt": "two",
+          "f/cb/one.ts": "export function main() { return 1; }\n",
+          "f/other/two.ts": "export function main() { return 2; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "script f/other/two",
+            "kind": "asset_collision",
+            "contains": [
+              "data/x.txt",
+              "f/cb/one",
+              "f/other/b.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "WR-49",
+      "variant": "asset-outside-the-working-directory",
+      "provenance": "policy",
+      "title": "an asset whose to leaves the working directory is refused",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    assets: [{from: f/cb/a.txt, to: ../escape.txt}]\n",
+          "f/cb/a.txt": "x",
+          "f/cb/x.ts": "export function main() { return 1; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "script f/cb/x",
+            "kind": "invalid_asset",
+            "contains": [
+              "../escape.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "WR-49",
+      "variant": "several-outputs-refused",
+      "provenance": "policy",
+      "title": "a bundle with several output files is refused",
+      "note": "esbuild emits a second file for a file loader or a native add-on; the CLI then uploads a tar of every output, a layout the reference covers only at medium confidence (WR-49, Q-WR-25), so the build refuses it (ADR 0001 §5a).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    loader: {\".bin\": \"file\"}\n",
+          "f/cb/blob.bin": "bytes",
+          "f/cb/multi.ts": "import p from \"./blob.bin\";\nexport function main() { return p; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "script f/cb/multi",
+            "kind": "unsupported_feature",
+            "contains": [
+              "2 output files"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

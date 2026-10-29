@@ -25,7 +25,7 @@ A bundle is a directory, or the same tree as one `.wlb` file (a tar archive):
 |---|---|
 | `manifest.json` | format version; the exact engine version that built it; the digest of every other file; the source inventory (every input file of the sync folder with its digest, locks included); the host contract (roots, provided sites, host-provided modules); the Bun and esbuild versions; deviations in effect ([0001](0001-equivalence-contract.md)); module-state mode; harness runtime digest |
 | `ir.json` | the compiled program ([0002](0002-ir-and-loader.md)), a cache for that exact engine version, not an exchange format |
-| `scripts/bun/<id>.mjs` | one bundled module per Bun script, plus `<id>.meta.json` (the bundler's metafile and the parsed signatures of every export) |
+| `scripts/bun/<id>.mjs` | one bundled module per Bun script (`<id>.cjs` for a codebase script built as CommonJS), plus `<id>.meta.json` (the bundler's metafile and the parsed signatures of every export) |
 | `scripts/bun/provided/<id>.mjs` | a bundled copy of each host-provided module, used when no host registers its own |
 | `assets/` | codebase assets, extracted into a harness process's working directory at start ([0002](0002-ir-and-loader.md)) |
 | `data/` | resources, resource types and non-secret variables from the folder |
@@ -81,9 +81,12 @@ host upgrades the engine and rebuilds the bundle together.
    reference. What a define cannot see
    reads the real environment: imports of the `bun` module, optional
    chaining or reflection through the global object, and code built at run
-   time. The Bun helper applies the rewrite to Bun-target bundles; `//native`
-   and `//nodejs` scripts do not run with Bun's globals on Windmill, and
-   their environment is the native boundary's (C3n);
+   time. The Bun helper applies the rewrite to Bun-target bundles only. A
+   `//native` script runs at the native boundary (C3n), whose `process.env`
+   is its preamble's; a `//nodejs` one runs on Node on Windmill, with Bun's
+   environment ([WR-50](../semantics/languages.md#wr-50)), and on the Bun
+   harness in windmill-lite, whose environment view covers it at run time
+   (D13);
 6. resolves imports of **host-provided modules** (below) to generated shims,
    in both bundlers;
 7. writes the manifest last.
@@ -280,6 +283,41 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     engine with `zig cc` against musl for `amd64` and `arm64`, checks that
     it is static, and runs `windmill-lite selfcheck`, which starts the
     expression engine, and `verify` in an image built `FROM scratch`.
+- Milestone C2b built the esbuild side (`internal/bundle`, `BuildCodebase`)
+  and settled what step 3 left to it:
+  - **The CLI's settings** are WR-47's table, through esbuild 0.28.0's Go
+    API, from the sync root as the CLI's working directory (so `inject`
+    paths and asset sources resolve as they do for the CLI). The parity
+    check found the pinned CLI's uploads the same bytes as this
+    reproduction; a single-file upload is a multipart text field, whose
+    line breaks the form-data encoding sends as CRLF.
+  - **The transforms** reach esbuild through a plugin that only maps
+    paths. The env rewrite's support module is injected, before the
+    entry's own `inject` files, from the plugin's `windmill-lite`
+    namespace, as are the shims, so no codebase bundle names a file
+    outside the folder or depends on where it was built. The define
+    table's keys take precedence over the entry's own `define`.
+  - **The module** of a CommonJS codebase script is `<id>.cjs`. The
+    harness loads a codebase module from a copy in its working directory,
+    as Windmill places the bundle as `main.js` in the job directory beside
+    its assets (WR-50), so its `__dirname`, `__filename`, `import.meta`
+    and run-time `require` of relative paths agree with Windmill's; a
+    spawned harness extracts `assets/` there before any module loads (in
+    host mode, F3a). The metadata records `bundler: "esbuild"` and the
+    `format`; the signatures cover every export of the bundle (those an
+    entry re-exports with `export *` included, read from an ES module build
+    with the same plugin, so imports of host-provided modules resolve to
+    their shims there too), each with the parameters the Bun helper parses
+    from the entry's own source, as Windmill parses a codebase script's
+    content, or none when the source does not declare it. CommonJS source
+    has no static export list, and a build that cannot read the names
+    warns; in both cases the harness calls a callable export the metadata
+    does not sign with an empty parameter list ([0004](0004-harness-protocol.md)).
+  - **Refusals:** several output files (`unsupported_feature`), an asset
+    that leaves the working directory or does not read (`invalid_asset`),
+    and a `format` other than `cjs` and `esm` ([0001](0001-equivalence-contract.md) §5a).
+    A codebase script needs no lock: esbuild inlines its packages from the
+    folder's `node_modules`.
 - Milestone C3n built native scripts in their **native form**,
   `scripts/bun/<id>.native.js`: the source of one async function, which the
   harness compiles in the invocation's realm with the environment preamble
@@ -295,6 +333,12 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
     env rewrite, and inlines host-provided modules instead of using their
     shims: a realm does not reach the process-wide registry, so D12 does not
     extend to native steps.
+  - A **`//native` codebase script** runs esbuild's bundle in the native
+    runtime ([WR-50](../semantics/languages.md#wr-50)): `BuildCodebase`
+    bundles it without the env rewrite and with host-provided modules
+    inlined, and the Bun helper's `native` op writes the bundle's native
+    form, so a CommonJS bundle fails on its first use of `module`, as on
+    Windmill.
   - The **embedded client** that a nativets script imports as
     `./windmill.ts` is `windmill-client@1.326.0` (Apache-2.0), pinned in the
     Bun helper's lock, bundled as CommonJS for the browser target into

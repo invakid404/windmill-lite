@@ -8,10 +8,10 @@
 // the ECMAScript built-ins and the web APIs the native runtime installs
 // (WR-45), taken from the harness's own realm, and nothing of Bun's; its
 // timers and fetches are the invocation's, released when it settles, as
-// the isolate is dropped when the job ends. The web API classes whose
-// methods return promises or other web objects are given to the realm as
-// subclasses (realm-facing classes, below), so that what they return
-// belongs to the invocation that called them. The script runs in its native
+// the isolate is dropped when the job ends. The web APIs are given to the
+// realm through a boundary that fails closed (below): every promise and
+// object they hand over is tracked as the invocation's, or counted and
+// reported when it settles. The script runs in its native
 // form (harnesses/bun/build/native.ts): one async function that the
 // harness compiles with the environment preamble in front of its text,
 // then calls with the static imports it resolved and linked.
@@ -27,6 +27,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
+import { types } from "node:util";
 import vm from "node:vm";
 import { current, type InvocationResources } from "./context.ts";
 import { type Param, signatureErrorText, signatureOf } from "./wrapper.ts";
@@ -69,7 +70,7 @@ export type NativeInvocation = {
 
 /** The web APIs the native runtime installs (WR-45), by name. Bun 1.3.10
  * has no FileReader, so a native step finds none. */
-const WEB_GLOBALS = [
+export const WEB_GLOBALS = [
   "Request", "Response", "Headers", "FormData",
   "URL", "URLSearchParams", "URLPattern",
   "atob", "btoa", "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream",
@@ -85,43 +86,53 @@ const WEB_GLOBALS = [
   "performance", "Performance", "PerformanceEntry", "PerformanceMark", "PerformanceMeasure",
 ];
 
-/** The web API classes a native realm gets as realm-facing subclasses:
- * those whose methods or getters return a promise or another web object.
- * The harness realm's prototypes cannot be changed (Bun 1.3.10 makes most
- * of their methods read-only, and Bun steps share them), so each of these
- * is a subclass, made once per process, whose methods and getters, its
- * class's own and inherited ones, symbol-named ones included, call the
- * original and pass on what it returns (Native.toRealm):
- *
- * - a promise of the harness realm is tracked, not replaced: its prototype
- *   becomes TrackedPromise's, which records the invocation it was returned
- *   to and gives every promise its then derives the same, so a rejection
- *   nobody handles, of it or of a continuation, is attributed to that
- *   invocation (WR-43). It stays the same object, so what the web API's
- *   own code does with it (marking it handled, as a stream's closed and
- *   Bun's own iteration do) is unchanged;
- * - an instance of one of these classes takes its subclass's prototype, so
- *   what it returns in turn is handled alike.
- *
- * Every other way these APIs hand an object to the script is covered too:
- * the values of the iterators they return, sync and async; the arguments
- * of the callbacks their methods call (FormData.forEach); the value of a
- * promise, when a continuation receives it; structuredClone's result, all
- * through; and a MessagePort's message events (their data and ports).
- * `crypto` and `crypto.subtle`, which every caller shares, become objects
- * of their subclasses that forward to them. */
-const REALM_CLASSES = [
-  "Request", "Response", "Blob", "File", "FormData",
-  "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamBYOBReader",
-  "WritableStream", "WritableStreamDefaultWriter", "TransformStream",
-  "TextEncoderStream", "TextDecoderStream", "CompressionStream", "DecompressionStream",
-  "Crypto", "SubtleCrypto", "MessageChannel", "MessagePort",
-];
+// The native boundary fails closed (ADR 0001, D5): every object and promise
+// a web API hands to a native invocation is either tracked, the moment the
+// boundary hands it over, or counted, and the count is reported when the
+// invocation settles. The harness realm's prototypes cannot be changed (Bun
+// 1.3.10 makes most of their methods read-only, and Bun steps share them),
+// so the boundary sits between the realm and them:
+//
+// - Every web API class above is given to the realm as a realm-facing
+//   subclass (Native.realmClass), made once per process. Its constructor
+//   is the only way the realm makes one, and each of its members, its
+//   class's own and inherited ones, string- and symbol-named, and its
+//   static ones, calls the original and passes on what it returns or
+//   throws (Native.toRealm). The function globals (atob, btoa,
+//   reportError, structuredClone) do the same, and crypto, crypto.subtle
+//   and performance, which every caller shares, are forwarders: objects of
+//   their realm-facing classes whose members apply to them.
+// - What the harness calls back is wrapped where the realm hands it over:
+//   a callback argument of a method (FormData.forEach), the callbacks of a
+//   stream's underlying source, sink, transformer and strategy
+//   (STREAM_CALLBACKS), and every event listener and on… handler of every
+//   event target, which runs in the async context that registered it and
+//   gets its event, and its this, passed on.
+// - toRealm decides what each value is, once, in this order: a primitive,
+//   or an object or function of the realm itself, is the script's own; a
+//   promise of the harness realm is tracked for the invocation; an
+//   instance of a web API class takes its realm-facing class's prototype;
+//   an array, Map, Set or plain object has its contents passed on, all
+//   through; an iterator is given a forwarder whose results are passed on;
+//   buffers, views, dates, regular expressions, errors and boxed
+//   primitives are data, with nothing to track. Anything else of the
+//   harness realm, an object of a class outside this list or a function,
+//   is untracked: it is handed over as it is, and counted
+//   (Native.untracked).
 
-/** The EventTarget methods that take a listener whose identity matters
- * (removeEventListener finds it by identity), so a method wrapper leaves
- * their callbacks as they are; MessagePort's message listeners are handled
- * apart (Native.portClass). */
+/** The dictionaries a stream constructor reads callbacks from, by
+ * constructor: for each argument, the callbacks it may hold. */
+const STREAM_CALLBACKS: Record<string, string[][]> = {
+  ReadableStream: [["start", "pull", "cancel"], ["size"]],
+  WritableStream: [["start", "write", "close", "abort"], ["size"]],
+  TransformStream: [["start", "transform", "flush", "cancel"], ["size"], ["size"]],
+};
+
+/** The methods whose promise gives JSON data, in which nothing is left to
+ * track, so a continuation gets it without a walk. */
+const DATA_METHODS = new Set(["json"]);
+
+/** The EventTarget methods that take a listener. */
 const LISTENER_METHODS = new Set(["addEventListener", "removeEventListener"]);
 
 /** Statuses whose response has no body. */
@@ -155,7 +166,7 @@ const REALM_SCRIPT = new vm.Script(`(function () {
 
 /** An identifier the preamble can declare as a const. A variable name that
  * is not one fails every nativets step's load on Windmill too (WR-45). */
-const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;
+const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*$/u;
 
 /** The Bun harness's native mode: one per runtime. */
 export class Native {
@@ -167,20 +178,29 @@ export class Native {
   private web: Record<string, unknown> = {};
   /** Each realm-facing class's prototype, by the prototype of its class. */
   private realmProtos = new Map<object, object>();
-  /** Objects every caller shares, whose prototype is never changed. */
-  private shared = new WeakSet<object>();
+  /** The realm-facing classes' prototypes. */
+  private facing = new Set<object>();
+  /** The forwarder of each object every caller shares. */
+  private forwarders = new Map<object, object>();
+  /** What the boundary itself made and hands to the realm: its classes,
+   * wrappers and forwarders. */
+  private mine = new WeakSet<object>();
   /** The promises given to a native invocation, and those derived from
    * them, with the job they belong to. */
   private tracked = new WeakMap<object, NativeJob>();
   private trackedProto: object | undefined;
-  /** The promises an async iterator's next, return or throw gave, whose
-   * value is an iterator result. */
-  private iteratorResults = new WeakSet<object>();
+  /** The tracked promises whose value is JSON data (DATA_METHODS). */
+  private dataPromises = new WeakSet<object>();
+  /** The arrays, maps, sets and plain objects of the harness realm whose
+   * contents were passed on already. */
+  private walked = new WeakSet<object>();
   /** The realm-facing File's prototype: Bun 1.3.10's File shares Blob's
    * prototype, so a File the harness made is told apart by instanceof. */
   private fileProto: object | undefined;
-  /** Message events whose data and ports were passed on already. */
-  private messages = new WeakSet<object>();
+  /** Each event target's listener wrappers, by the listener. */
+  private listeners = new WeakMap<object, WeakMap<object, (e: unknown) => unknown>>();
+  /** Each event target's on… handlers, as the realm gave them. */
+  private handlers = new WeakMap<object, Map<string, unknown>>();
   /** A fetched response's own url, redirected and type, which a response
    * the harness constructs around its body cannot carry; kept through
    * every clone. */
@@ -197,6 +217,10 @@ export class Native {
       /** An error of a native job's code outside its entrypoint's call: a
        * throw from a microtask it queued. */
       onError: (job: NativeJob, e: unknown) => void;
+      /** Something the boundary handed over untracked (Native.untracked)
+       * that no unsettled job can count: in no native invocation's
+       * context (job undefined), or after its job settled. */
+      onUntracked: (job: NativeJob | undefined, kind: string) => void;
     },
   ) {}
 
@@ -212,92 +236,232 @@ export class Native {
     this.trackedProto ??= this.trackedPromise().prototype;
     // Each class gets its own, even one whose prototype another shares
     // (Bun 1.3.10's File has Blob's); an instance takes the first's.
-    for (const name of REALM_CLASSES) {
-      const C = this.web[name];
-      if (typeof C === "function") this.web[name] = this.realmClass(name, C as new (...a: unknown[]) => object);
+    const made: [object, object][] = [];
+    for (const name of WEB_GLOBALS) {
+      const v = this.web[name];
+      if (typeof v !== "function") continue;
+      if (/^[A-Z]/.test(name)) {
+        const R = this.realmClass(name, v as new (...a: any[]) => object);
+        made.push([(v as { prototype: object }).prototype, R.prototype]);
+        this.web[name] = R;
+      } else {
+        const d = this.member(name, { value: v, writable: true, enumerable: false, configurable: true }, globalThis);
+        this.web[name] = d.value;
+      }
     }
-    this.responseClass(this.web.Response as { prototype: object });
-    // A File is a Blob, as in V8, though Bun's File has no Blob parent of
-    // its own.
+    // A realm-facing class inherits from its class's parent's, as V8's
+    // CustomEvent from Event and AbortSignal from EventTarget, so
+    // instanceof holds in the realm. A File is a Blob, as in V8, though
+    // Bun's File has no Blob parent of its own.
+    for (const [base, proto] of made) {
+      const parent = this.realmProtos.get(Object.getPrototypeOf(base));
+      if (parent !== undefined) Object.setPrototypeOf(proto, parent);
+    }
     this.fileProto = (this.web.File as { prototype: object }).prototype;
     Object.setPrototypeOf(this.fileProto, (this.web.Blob as { prototype: object }).prototype);
-    this.portClass(this.web.MessagePort as { prototype: object });
-    const clone = this.web.structuredClone as typeof structuredClone;
-    this.web.structuredClone = {
-      structuredClone: (v: unknown, o?: StructuredSerializeOptions) => this.deep(clone(v, o)),
-    }.structuredClone;
+    this.responseClass(this.web.Response as { prototype: object });
     const crypto = globalThis.crypto;
-    this.shared.add(crypto);
-    this.shared.add(crypto.subtle);
     const subtle = this.forwarder(crypto.subtle, this.web.SubtleCrypto as { prototype: object });
     this.web.crypto = this.forwarder(crypto, this.web.Crypto as { prototype: object }, { subtle });
+    this.web.performance = this.forwarder(globalThis.performance, this.web.Performance as { prototype: object });
   }
 
   /** The class of the promises a native invocation is given: a promise of
    * the harness realm whose then records the invocation the promise
    * belongs to on the promise it derives, which by species is one of
-   * these too, and passes a value on with toRealm. catch, finally and
-   * await all go through then. */
+   * these too, and passes its value or reason on with toRealm. catch,
+   * finally and await all go through then. */
   private trackedPromise() {
     const native = this;
     return class TrackedPromise<T> extends Promise<T> {
       then<A = T, B = never>(onFulfilled?: ((v: T) => A | PromiseLike<A>) | null, onRejected?: ((e: unknown) => B | PromiseLike<B>) | null): Promise<A | B> {
         const job = native.tracked.get(this) ?? native.currentJob();
-        const pass = native.iteratorResults.has(this) ? (v: T) => native.iteratorResult(v) as T : (v: T) => native.toRealm(v) as T;
+        const pass = native.dataPromises.has(this) ? (v: T) => v : (v: T) => native.toRealm(v, job) as T;
         const ok = typeof onFulfilled === "function" ? (v: T) => onFulfilled(pass(v)) : onFulfilled;
-        const p = super.then(ok, onRejected);
+        const fail = typeof onRejected === "function" ? (e: unknown) => onRejected(native.toRealm(e, job)) : onRejected;
+        const p = super.then(ok, fail);
         if (job !== undefined) native.tracked.set(p, job);
         return p;
       }
     };
   }
 
-  /** The realm-facing subclass of a web API class: every method and
-   * getter its prototype has, its own and inherited ones up to
-   * Object.prototype, string- and symbol-named, and its own static
-   * methods, call the class's own and pass on the result with toRealm. */
-  private realmClass(name: string, C: new (...a: unknown[]) => object) {
+  /** The realm-facing subclass of a web API class: each member its
+   * prototype has, its own and inherited ones up to Object.prototype,
+   * string- and symbol-named, and each of its own static ones, as
+   * Native.member makes it. A stream class's constructor wraps the
+   * callbacks of its dictionaries (STREAM_CALLBACKS). */
+  private realmClass(name: string, C: new (...a: any[]) => object) {
     const native = this;
-    const R = { [name]: class extends C {} }[name];
-    const define = (target: object, k: PropertyKey, d: PropertyDescriptor, self?: object) => {
-      if (typeof d.value === "function") {
-        const m = d.value as (...a: unknown[]) => unknown;
-        const listener = typeof k === "string" && LISTENER_METHODS.has(k);
-        const value = {
-          [k](this: unknown, ...a: unknown[]) {
-            // A callback the method calls gets its arguments passed on.
-            const args = listener ? a : a.map((x) => (typeof x === "function" ? native.callback(x as (...b: unknown[]) => unknown) : x));
-            return native.toRealm(Reflect.apply(m, self ?? this, args));
-          },
-        }[k as string];
-        // The subclass's own property, so it may be layered on (Response's
-        // metadata) whatever the original's descriptor says.
-        Object.defineProperty(target, k, { ...d, value, configurable: true });
-      } else if (d.get !== undefined) {
-        const get = d.get;
-        Object.defineProperty(target, k, {
-          ...d,
-          configurable: true,
-          get(this: unknown) {
-            return native.toRealm(Reflect.apply(get, this, []));
-          },
-        });
-      }
-    };
+    const dicts = STREAM_CALLBACKS[name];
+    const R =
+      dicts === undefined
+        ? { [name]: class extends C {} }[name]
+        : {
+            [name]: class extends C {
+              constructor(...a: any[]) {
+                super(...a.map((x, i) => (i < dicts.length ? native.callbacks(x, dicts[i]) : x)));
+              }
+            },
+          }[name];
     const seen = new Set<PropertyKey>(["constructor"]);
     for (let proto: object | null = C.prototype; proto !== null && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
       for (const k of Reflect.ownKeys(proto)) {
         if (seen.has(k)) continue;
         seen.add(k);
-        define(R.prototype, k, Object.getOwnPropertyDescriptor(proto, k)!);
+        Object.defineProperty(R.prototype, k, this.member(k, Object.getOwnPropertyDescriptor(proto, k)!));
       }
     }
     for (const k of Reflect.ownKeys(C)) {
       if (k === "prototype" || k === "length" || k === "name") continue;
-      define(R, k, Object.getOwnPropertyDescriptor(C, k)!, C);
+      Object.defineProperty(R, k, this.member(k, Object.getOwnPropertyDescriptor(C, k)!, C));
     }
     if (!this.realmProtos.has(C.prototype)) this.realmProtos.set(C.prototype, R.prototype);
+    this.facing.add(R.prototype);
+    this.mine.add(R);
     return R;
+  }
+
+  /** A web API member as the realm gets it, on a realm-facing class, where
+   * it applies to this, or applied to self (a static member's class, a
+   * forwarder's shared object, globalThis for a function global):
+   *
+   * - a method passes on what it returns or throws (toRealm), and calls
+   *   back a function argument through Native.callback, or, for
+   *   addEventListener and removeEventListener, a listener through its
+   *   wrapper (Native.listener);
+   * - an on… accessor is an event handler (Native.handler);
+   * - any other getter passes on what it gives, and a setter what it
+   *   throws;
+   * - a data property is copied as it is, so a class keeps its constants
+   *   and its toStringTag whatever its prototype inherits from. */
+  private member(k: PropertyKey, d: PropertyDescriptor, self?: object): PropertyDescriptor {
+    const native = this;
+    if (typeof d.value === "function") {
+      const m = d.value as (...a: unknown[]) => unknown;
+      const register = typeof k === "string" && LISTENER_METHODS.has(k);
+      const data = typeof k === "string" && DATA_METHODS.has(k);
+      const value = {
+        [k](this: unknown, ...a: unknown[]) {
+          const target = self ?? this;
+          const args = register ? native.listenerArgs(target, a) : a.map((x) => (typeof x === "function" ? native.callback(x as (...b: unknown[]) => unknown) : x));
+          const r = native.call(m, target, args);
+          if (data && r instanceof Promise) native.dataPromises.add(r);
+          return r;
+        },
+      }[k as string];
+      this.mine.add(value);
+      return { ...d, value, configurable: true };
+    }
+    if (d.get === undefined && d.set === undefined) return { ...d, configurable: true };
+    if (typeof k === "string" && k.startsWith("on") && d.set !== undefined) return this.handler(k, d, self);
+    const { get, set } = d;
+    const out: PropertyDescriptor = { enumerable: d.enumerable, configurable: true };
+    if (get !== undefined) out.get = { get(this: unknown) { return native.call(get, self ?? this, []); } }.get;
+    if (set !== undefined) out.set = { set(this: unknown, v: unknown) { native.call(set, self ?? this, [v]); } }.set;
+    for (const f of [out.get, out.set]) if (f !== undefined) this.mine.add(f);
+    return out;
+  }
+
+  /** Calls a web API function and passes on what it returns, or what it
+   * throws. */
+  private call(fn: (...a: unknown[]) => unknown, self: unknown, args: unknown[]): unknown {
+    let r: unknown;
+    try {
+      r = Reflect.apply(fn, self, args);
+    } catch (e) {
+      throw this.toRealm(e);
+    }
+    return this.toRealm(r);
+  }
+
+  /** An on… event handler accessor: the handler is set as a listener
+   * would be added (Native.listener), and the getter reads back the
+   * handler the realm gave. */
+  private handler(k: string, d: PropertyDescriptor, self?: object): PropertyDescriptor {
+    const native = this;
+    const set = d.set!;
+    const handlers = this.handlers;
+    const out: PropertyDescriptor = {
+      enumerable: d.enumerable,
+      configurable: true,
+      get: {
+        get(this: object) {
+          return handlers.get(self ?? this)?.get(k) ?? null;
+        },
+      }.get,
+      set: {
+        set(this: object, h: unknown) {
+          const target = self ?? this;
+          let own = handlers.get(target);
+          if (own === undefined) handlers.set(target, (own = new Map()));
+          own.set(k, typeof h === "function" ? h : null);
+          native.call(set as (...a: unknown[]) => unknown, target, [typeof h === "function" ? native.listener(target, h) : h]);
+        },
+      }.set,
+    };
+    this.mine.add(out.get!);
+    this.mine.add(out.set!);
+    return out;
+  }
+
+  /** addEventListener's or removeEventListener's arguments, with the
+   * listener, a function or an object with handleEvent, replaced by its
+   * wrapper for the target. */
+  private listenerArgs(target: unknown, a: unknown[]): unknown[] {
+    const [type, l, ...rest] = a;
+    if (l === null || (typeof l !== "function" && typeof l !== "object")) return a;
+    if (target === null || (typeof target !== "object" && typeof target !== "function")) return a;
+    return [type, this.listener(target, l), ...rest];
+  }
+
+  /** A listener's wrapper for an event target, one per target and
+   * listener, so removing a listener by identity removes it: it runs in
+   * the async context that first registered it, so what it does is that
+   * invocation's, and passes on its event and its this (toRealm). An
+   * object's handleEvent is read when the event arrives. */
+  private listener(target: object, l: object): (e: unknown) => unknown {
+    let byTarget = this.listeners.get(target);
+    if (byTarget === undefined) this.listeners.set(target, (byTarget = new WeakMap()));
+    let w = byTarget.get(l);
+    if (w === undefined) {
+      const native = this;
+      const run = AsyncLocalStorage.snapshot();
+      w = function (this: unknown, e: unknown) {
+        return run(() => {
+          const event = native.toRealm(e);
+          if (typeof l === "function") return Reflect.apply(l, native.toRealm(this), [event]);
+          return Reflect.apply((l as { handleEvent: (e: unknown) => unknown }).handleEvent, l, [event]);
+        });
+      };
+      this.mine.add(w);
+      byTarget.set(l, w);
+    }
+    return w;
+  }
+
+  /** A stream constructor's dictionary argument, with each of the
+   * callbacks it names wrapped: an object that inherits from the
+   * dictionary, with an own property for each of them that calls the
+   * dictionary's, on the dictionary, with its arguments passed on
+   * (toRealm). Each is read once, when the stream is constructed, as the
+   * stream reads it. */
+  private callbacks(dict: unknown, names: string[]): unknown {
+    if (dict === null || typeof dict !== "object") return dict;
+    const native = this;
+    let out: object | undefined;
+    for (const k of names) {
+      const fn = (dict as Record<string, unknown>)[k];
+      if (typeof fn !== "function") continue;
+      out ??= Object.create(dict) as object;
+      const value = {
+        [k](...a: unknown[]) {
+          return Reflect.apply(fn, dict, a.map((x) => native.toRealm(x)));
+        },
+      }[k];
+      Object.defineProperty(out, k, { value, writable: true, enumerable: true, configurable: true });
+    }
+    return out ?? dict;
   }
 
   /** The realm-facing Response's url, redirected and type read a fetched
@@ -330,194 +494,158 @@ export class Native {
     Object.defineProperty(R.prototype.clone, "name", { value: "clone" });
   }
 
-  /** An object of a realm-facing class that forwards every method of the
-   * shared object obj to it, and holds props. */
+  /** An object of a realm-facing class that stands for an object every
+   * caller shares, whose prototype is never changed: each member it and
+   * its prototypes have, as Native.member makes it, applied to it; its
+   * own data properties read it when they are read; props are the
+   * forwarder's own. */
   private forwarder(obj: object, R: { prototype: object }, props: Record<string, unknown> = {}) {
     const out = Object.create(R.prototype);
-    for (const k of Object.getOwnPropertyNames(Object.getPrototypeOf(obj))) {
-      const m = (obj as Record<string, unknown>)[k];
-      if (k === "constructor" || typeof m !== "function") continue;
-      const value = { [k]: (...a: unknown[]) => this.toRealm(Reflect.apply(m, obj, a)) }[k];
-      Object.defineProperty(out, k, { value, writable: true, enumerable: false, configurable: true });
+    const seen = new Set<PropertyKey>(["constructor", ...Object.keys(props)]);
+    for (let p: object | null = obj; p !== null && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+      for (const k of Reflect.ownKeys(p)) {
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const d = Object.getOwnPropertyDescriptor(p, k)!;
+        const own = p === obj && typeof d.value !== "function" && d.get === undefined && d.set === undefined;
+        const get = () => this.toRealm((obj as Record<PropertyKey, unknown>)[k]);
+        Object.defineProperty(out, k, own ? { get, enumerable: d.enumerable, configurable: true } : this.member(k, d, obj));
+      }
     }
     for (const [k, v] of Object.entries(props)) Object.defineProperty(out, k, { value: v, enumerable: true, configurable: true });
+    this.mine.add(out);
+    this.forwarders.set(obj, out);
     return out;
   }
 
-  /** What a web API returned, as the calling invocation gets it: a plain
-   * promise of the harness realm is tracked for the invocation, as the same
-   * object; an instance of a class with a realm-facing subclass takes that
-   * subclass's prototype; an async iterator gets a forwarder whose results
-   * are passed on alike; an array has its elements passed on. Anything else
-   * is returned as it is. */
-  toRealm(v: unknown): unknown {
-    if (v instanceof Promise) {
-      if (Object.getPrototypeOf(v) === Promise.prototype) {
-        const job = this.currentJob();
-        if (job !== undefined) {
-          Object.setPrototypeOf(v, this.trackedProto!);
-          this.tracked.set(v, job);
-        }
+  /** What a web API hands to the realm, as the invocation job (by default
+   * the one whose context the caller runs in) gets it: tracked, or
+   * counted as untracked. See the boundary's rules above. */
+  toRealm(v: unknown, job: NativeJob | undefined = this.currentJob()): unknown {
+    if (v === null || (typeof v !== "object" && typeof v !== "function")) return v;
+    if (this.mine.has(v) || types.isProxy(v)) return v;
+    const forwarder = this.forwarders.get(v);
+    if (forwarder !== undefined) return forwarder;
+    if (typeof v === "function") {
+      if (v instanceof Function) this.untracked(job, `function ${v.name || "(anonymous)"}`);
+      return v;
+    }
+    const proto = Object.getPrototypeOf(v);
+    // The realm's own, handed back.
+    if (proto !== null && !(v instanceof Object)) return v;
+    if (v instanceof Promise) return this.promise(v, job);
+    for (let p = proto; p !== null; p = Object.getPrototypeOf(p)) {
+      if (this.facing.has(p)) return v;
+      const R = this.realmProtos.get(p);
+      if (R === undefined) continue;
+      // A subclass the harness made of a web API class is not one.
+      if (p !== proto) break;
+      Object.setPrototypeOf(v, v instanceof File ? this.fileProto! : R);
+      return v;
+    }
+    if (this.walked.has(v)) return v;
+    if (Array.isArray(v)) {
+      this.walked.add(v);
+      for (let i = 0; i < v.length; i++) {
+        const x = this.toRealm(v[i], job);
+        if (x !== v[i]) Reflect.set(v, i, x);
       }
       return v;
     }
-    if (Array.isArray(v)) {
-      for (let i = 0; i < v.length; i++) v[i] = this.toRealm(v[i]);
+    if (v instanceof Map) {
+      this.walked.add(v);
+      const entries = [...v].map(([k, x]) => [this.toRealm(k, job), this.toRealm(x, job)] as const);
+      v.clear();
+      for (const [k, x] of entries) v.set(k, x);
       return v;
     }
-    if (v === null || typeof v !== "object" || this.shared.has(v)) return v;
-    const proto = this.realmProtos.get(Object.getPrototypeOf(v));
-    if (proto !== undefined) {
-      Object.setPrototypeOf(v, v instanceof File ? this.fileProto! : proto);
+    if (v instanceof Set) {
+      this.walked.add(v);
+      const values = [...v].map((x) => this.toRealm(x, job));
+      v.clear();
+      for (const x of values) v.add(x);
       return v;
     }
     const it = v as AsyncIterator<unknown> & Iterator<unknown> & { [Symbol.asyncIterator]?: unknown; [Symbol.iterator]?: unknown };
     if (typeof it.next === "function" && typeof it[Symbol.asyncIterator] === "function") return this.iterator(it);
     if (typeof it.next === "function" && typeof it[Symbol.iterator] === "function") return this.syncIterator(it);
-    // A stream reader's read() gives an iterator result too.
-    const keys = Object.getPrototypeOf(v) === Object.prototype ? Object.keys(v) : [];
-    if (keys.length === 2 && keys.includes("value") && keys.includes("done")) return this.iteratorResult(v);
+    if (proto === Object.prototype || proto === null) {
+      this.walked.add(v);
+      for (const k of Object.keys(v)) {
+        const o = v as Record<string, unknown>;
+        const x = this.toRealm(o[k], job);
+        if (x !== o[k]) Reflect.set(o, k, x);
+      }
+      return v;
+    }
+    if (isData(v)) return v;
+    this.untracked(job, proto?.constructor?.name || Object.prototype.toString.call(v));
     return v;
   }
 
-  /** An iterator result with its value passed on with toRealm. */
-  iteratorResult(r: unknown): unknown {
-    if (r !== null && typeof r === "object" && "value" in r) (r as { value: unknown }).value = this.toRealm((r as { value: unknown }).value);
-    return r;
+  /** A promise of the harness realm, tracked for the job: as the same
+   * object, so what the web API's own code does with it (marking it
+   * handled, as a stream's closed and Bun's own iteration do) is
+   * unchanged, with TrackedPromise's prototype when it has
+   * Promise.prototype. One of another class is tracked itself, but its
+   * continuations cannot be, so it is counted too. With no job, it is
+   * counted. */
+  private promise(p: Promise<unknown>, job: NativeJob | undefined): Promise<unknown> {
+    if (this.tracked.has(p)) return p;
+    if (job === undefined) {
+      this.untracked(undefined, "Promise");
+      return p;
+    }
+    const proto = Object.getPrototypeOf(p);
+    if (proto === Promise.prototype) Object.setPrototypeOf(p, this.trackedProto!);
+    else if (proto !== this.trackedProto) this.untracked(job, `${proto?.constructor?.name ?? "Promise"} (its continuations)`);
+    this.tracked.set(p, job);
+    return p;
   }
 
-  /** A callback a web API method calls: its arguments passed on with
-   * toRealm. */
+  /** Counts something handed to a native invocation that the boundary does
+   * not track, on its job, which reports the count when it settles; or,
+   * when no unsettled job can count it, reports it through onUntracked. */
+  private untracked(job: NativeJob | undefined, kind: string) {
+    if (job !== undefined && !job.inv.resources.settled) job.count(kind);
+    else this.opts.onUntracked(job, kind);
+  }
+
+  /** A callback a web API method calls: its this and its arguments passed
+   * on with toRealm. */
   private callback(fn: (...a: unknown[]) => unknown) {
     const native = this;
     return function (this: unknown, ...a: unknown[]) {
-      return Reflect.apply(fn, this, a.map((x) => native.toRealm(x)));
+      return Reflect.apply(fn, native.toRealm(this), a.map((x) => native.toRealm(x)));
     };
   }
 
-  /** A value with every object of a realm-facing class in it passed on, all
-   * through its plain objects, arrays, maps and sets: what structuredClone
-   * and a message's data give. */
-  private deep(v: unknown, seen = new Set<object>()): unknown {
-    if (v === null || typeof v !== "object" || seen.has(v)) return v;
-    seen.add(v);
-    const proto = Object.getPrototypeOf(v);
-    if (this.realmProtos.has(proto)) return this.toRealm(v);
-    if (Array.isArray(v)) {
-      for (let i = 0; i < v.length; i++) v[i] = this.deep(v[i], seen);
-    } else if (v instanceof Map) {
-      const entries = [...v].map(([k, x]) => [this.deep(k, seen), this.deep(x, seen)] as const);
-      v.clear();
-      for (const [k, x] of entries) v.set(k, x);
-    } else if (v instanceof Set) {
-      const values = [...v].map((x) => this.deep(x, seen));
-      v.clear();
-      for (const x of values) v.add(x);
-    } else if (proto === Object.prototype || proto === null) {
-      for (const k of Object.keys(v)) (v as Record<string, unknown>)[k] = this.deep((v as Record<string, unknown>)[k], seen);
-    }
-    return v;
-  }
-
-  /** The realm-facing MessagePort: a message event its listeners receive
-   * has its data and ports passed on (deep), once per event, and each
-   * listener runs in the async context that registered it, so what it does
-   * is the registering invocation's. A listener keeps its identity for
-   * removeEventListener, and onmessage reads back the handler it was given. */
-  private portClass(R: { prototype: object }) {
-    const native = this;
-    const types = new Set(["message", "messageerror"]);
-    const wrappers = new WeakMap<object, WeakMap<object, (e: Event) => unknown>>();
-    const wrap = (port: object, fn: (e: Event) => unknown) => {
-      let byPort = wrappers.get(port);
-      if (byPort === undefined) wrappers.set(port, (byPort = new WeakMap()));
-      let w = byPort.get(fn);
-      if (w === undefined) {
-        const run = AsyncLocalStorage.snapshot();
-        w = function (this: unknown, e: Event) {
-          return run(() => {
-            native.messageEvent(e);
-            return Reflect.apply(fn, this, [e]);
-          });
-        };
-        byPort.set(fn, w);
-      }
-      return w;
-    };
-    for (const k of ["addEventListener", "removeEventListener"] as const) {
-      const d = Object.getOwnPropertyDescriptor(R.prototype, k)!;
-      const m = d.value as (...a: unknown[]) => unknown;
-      Object.defineProperty(R.prototype, k, {
-        ...d,
-        value: {
-          [k](this: object, type: unknown, listener: unknown, ...rest: unknown[]) {
-            const l = types.has(String(type)) && typeof listener === "function" ? wrap(this, listener as (e: Event) => unknown) : listener;
-            return Reflect.apply(m, this, [type, l, ...rest]);
-          },
-        }[k],
-      });
-    }
-    const handlers = new WeakMap<object, Map<string, unknown>>();
-    for (const k of ["onmessage", "onmessageerror"]) {
-      const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(R.prototype), k) ?? Object.getOwnPropertyDescriptor(R.prototype, k);
-      if (d?.set === undefined) continue;
-      const set = d.set;
-      Object.defineProperty(R.prototype, k, {
-        configurable: true,
-        enumerable: d.enumerable,
-        get(this: object) {
-          return handlers.get(this)?.get(k) ?? null;
-        },
-        set(this: object, h: unknown) {
-          let own = handlers.get(this);
-          if (own === undefined) handlers.set(this, (own = new Map()));
-          own.set(k, typeof h === "function" ? h : null);
-          set.call(this, typeof h === "function" ? wrap(this, h as (e: Event) => unknown) : h);
-        },
-      });
-    }
-  }
-
-  /** A message event's data and ports passed on (deep), once. */
-  private messageEvent(e: Event) {
-    if (this.messages.has(e)) return;
-    this.messages.add(e);
-    const m = e as MessageEvent;
-    Object.defineProperty(e, "data", { value: this.deep(m.data), configurable: true, enumerable: true });
-    Object.defineProperty(e, "ports", { value: this.deep([...m.ports]), configurable: true, enumerable: true });
-  }
-
-  /** A sync iterator whose results have their values passed on. */
+  /** A sync iterator whose results are passed on. */
   private syncIterator(it: Iterator<unknown>): IterableIterator<unknown> {
     const out: IterableIterator<unknown> = {
-      next: (...a: [] | [unknown]) => this.iteratorResult(it.next(...a)) as IteratorResult<unknown>,
+      next: (...a: [] | [unknown]) => this.toRealm(it.next(...a)) as IteratorResult<unknown>,
       [Symbol.iterator]() {
         return out;
       },
     };
-    if (typeof it.return === "function") out.return = (x?: unknown) => this.iteratorResult(it.return!(x)) as IteratorResult<unknown>;
-    if (typeof it.throw === "function") out.throw = (e?: unknown) => this.iteratorResult(it.throw!(e)) as IteratorResult<unknown>;
+    if (typeof it.return === "function") out.return = (x?: unknown) => this.toRealm(it.return!(x)) as IteratorResult<unknown>;
+    if (typeof it.throw === "function") out.throw = (e?: unknown) => this.toRealm(it.throw!(e)) as IteratorResult<unknown>;
+    this.mine.add(out);
     return out;
   }
 
-  /** An async iterator whose next, return and throw call the original's
-   * and pass on their promises with toRealm. */
+  /** An async iterator whose next, return and throw pass on their
+   * promises, so a continuation gets each result passed on. */
   private iterator(it: AsyncIterator<unknown>): AsyncIterableIterator<unknown> {
-    // The promise is tracked as itself, and marked so that a continuation
-    // gets the result's value passed on.
-    const result = (p: unknown) => {
-      const q = this.toRealm(p);
-      if (q !== null && typeof q === "object") this.iteratorResults.add(q);
-      return q as Promise<IteratorResult<unknown>>;
-    };
     const out: AsyncIterableIterator<unknown> = {
-      next: (...a: [] | [unknown]) => result(it.next(...a)),
+      next: (...a: [] | [unknown]) => this.toRealm(it.next(...a)) as Promise<IteratorResult<unknown>>,
       [Symbol.asyncIterator]() {
         return out;
       },
     };
-    if (typeof it.return === "function") out.return = (x?: unknown) => result(it.return!(x));
-    if (typeof it.throw === "function") out.throw = (e?: unknown) => result(it.throw!(e));
+    if (typeof it.return === "function") out.return = (x?: unknown) => this.toRealm(it.return!(x)) as Promise<IteratorResult<unknown>>;
+    if (typeof it.throw === "function") out.throw = (e?: unknown) => this.toRealm(it.throw!(e)) as Promise<IteratorResult<unknown>>;
+    this.mine.add(out);
     return out;
   }
 
@@ -697,6 +825,9 @@ export class NativeJob {
   private modules = new Map<string, Promise<Record<string, unknown>>>();
   /** The lines of the script's module as compiled. */
   private lines: string[] = [];
+  /** What the boundary handed this invocation untracked, by kind
+   * (Native.untracked). */
+  private untrackedKinds = new Map<string, number>();
 
   constructor(
     private native: Native,
@@ -708,6 +839,25 @@ export class NativeJob {
     this.realm = REALM_SCRIPT.runInContext(this.ctx)();
     this.promiseProto = (this.realm as unknown as { promiseProto: object }).promiseProto;
     this.install();
+  }
+
+  /** Counts one thing the boundary handed this invocation untracked. */
+  count(kind: string) {
+    this.untrackedKinds.set(kind, (this.untrackedKinds.get(kind) ?? 0) + 1);
+  }
+
+  /** What the boundary handed this invocation untracked, by kind. */
+  get untracked(): Record<string, number> {
+    return Object.fromEntries(this.untrackedKinds);
+  }
+
+  /** The text of the warning that reports what the boundary handed this
+   * invocation untracked, when it settles, or undefined when it handed
+   * over nothing untracked. */
+  untrackedText(): string | undefined {
+    if (this.untrackedKinds.size === 0) return undefined;
+    const kinds = [...this.untrackedKinds].map(([k, n]) => `${k} (${n})`).join(", ");
+    return `the native boundary handed this invocation objects it does not track (ADR 0001, D5): ${kinds}`;
   }
 
   /** The realm's globals (WR-45): the web APIs, console, the invocation's
@@ -798,11 +948,11 @@ export class NativeJob {
             (res) => resolve(this.native.respond(res, untrack)),
             (e) => {
               untrack();
-              reject(e);
+              reject(this.native.toRealm(e));
             },
           );
         } catch (e) {
-          reject(e);
+          reject(this.native.toRealm(e));
         }
       });
   }
@@ -991,6 +1141,24 @@ export class NativeJob {
 }
 
 const OVERFLOW = "Maximum call stack size exceeded";
+
+/** Whether an object of the harness realm is data, with nothing in it to
+ * track: a buffer or a view of one, a date, a regular expression, an error
+ * (DOMException, a web API class, is handled before), or a boxed
+ * primitive. */
+function isData(v: object): boolean {
+  return (
+    v instanceof ArrayBuffer ||
+    v instanceof SharedArrayBuffer ||
+    ArrayBuffer.isView(v) ||
+    v instanceof Date ||
+    v instanceof RegExp ||
+    v instanceof Error ||
+    v instanceof Boolean ||
+    v instanceof Number ||
+    v instanceof String
+  );
+}
 const FAILED = Symbol("failed");
 
 /** A name or message as an optional string: a string or a String object is

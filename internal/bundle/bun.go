@@ -551,6 +551,12 @@ type helperEntry struct {
 	Content  string `json:"content,omitempty"`
 	Deps     string `json:"deps,omitempty"`
 	Language string `json:"language,omitempty"`
+	// Exports are a codebase script's bundle exports (parse only), which
+	// the signatures cover; nil makes the helper scan the source's.
+	Exports []string `json:"exports,omitempty"`
+	// Bundle is a file under the work directory holding esbuild's bundle of
+	// a codebase script with the //native header (native only).
+	Bundle string `json:"bundle,omitempty"`
 }
 
 type helperResponse struct {

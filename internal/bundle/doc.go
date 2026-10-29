@@ -2,9 +2,10 @@
 //
 //   - Build loads and compiles a sync folder with its host contract
 //     (internal/syncfolder, internal/ir), bundles its Bun scripts and
-//     host-provided modules with BuildBun, refuses workflow-as-code and
-//     scripts that import a package without a lock, and writes the bundle:
-//     ir.json, scripts/bun/, data/ and manifest.json, last.
+//     host-provided modules with BuildBun and its codebase scripts with
+//     BuildCodebase, refuses workflow-as-code and scripts that import a
+//     package without a lock, and writes the bundle: ir.json, scripts/bun/,
+//     assets/, data/ and manifest.json, last.
 //   - The manifest (Manifest) lists the digest of every bundle file and of
 //     every source file the build read; the bundle digest is the SHA-256 of
 //     its canonical encoding (Canonicalize). WriteArchive writes a bundle as
@@ -20,6 +21,8 @@
 //     markers (WR-6 to WR-8, WR-31, WR-32, WR-39), scans the exports of
 //     host-provided modules and refuses live bindings, and writes
 //     scripts/bun/<id>.mjs with its <id>.meta.json.
-//
-// Codebase bundling through esbuild is milestone C2b.
+//   - BuildCodebase bundles codebase scripts (SY-8) with esbuild 0.28.0
+//     through its Go API, with the pinned CLI's settings (CodebaseSettings,
+//     WR-47) plus the env rewrite and the shims, and carries their assets
+//     (WR-49): scripts/bun/<id>.cjs (or .mjs) and assets/<to>.
 package bundle

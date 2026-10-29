@@ -18,7 +18,8 @@
 // child-process wrapping come with milestone C3b.
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { join } from "node:path";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   Assembler,
@@ -62,6 +63,10 @@ export const TAIL_LENGTH = 600;
  * invocation's context raised (ADR 0004, the shared-process failure model,
  * item 3). */
 export const UNATTRIBUTED = "unattributed_error";
+/** The code of a warning frame for what the native boundary handed a native
+ * invocation but does not track (ADR 0001, D5), sent when the invocation
+ * settles, and for what it handed out in no invocation's context. */
+export const NATIVE_UNTRACKED = "native_untracked";
 
 /** Exit codes of the harness process. */
 export const EXIT = {
@@ -111,6 +116,8 @@ type Invocation = {
   controller: AbortController;
   /** Its registry in its async-context store, settled with it. */
   resources: InvocationResources;
+  /** Its async-context store, which names its native job, if it has one. */
+  context?: InvocationContext;
 };
 
 /** A run's outcome, as run_done reports it. result is its JSON text. */
@@ -136,6 +143,9 @@ export class Runtime {
   private invocations = new Map<string, Invocation>();
   private modules = new Map<string, Promise<Record<string, unknown>>>();
   private metas = new Map<string, Promise<unknown>>();
+  /** The working directory the process started in (ADR 0004): codebase
+   * modules load from copies there. */
+  private workdir = process.cwd();
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private pingSeq = 0;
   private lagMs = 0;
@@ -155,6 +165,7 @@ export class Runtime {
       bundleDir: opts.bundleDir,
       baseURL: () => this.facade,
       onError: (job, e) => this.guard("an error from a microtask", () => this.nativeError(job, e, "microtask")),
+      onUntracked: (job, kind) => this.guard("an untracked object", () => this.untracked(job, kind)),
     });
     installEnvView();
     installProcessScope();
@@ -311,6 +322,7 @@ export class Runtime {
     const env: Record<string, string> = Object.assign(Object.create(null), m.env);
     shadow(env);
     const ctx: InvocationContext = { id: m.id, run: m.run, env, signal: inv.controller.signal, resources: inv.resources };
+    inv.context = ctx;
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
     // submitted the run.
@@ -334,8 +346,9 @@ export class Runtime {
   private async run(m: Message): Promise<Outcome> {
     if (m.boundary === "native") return this.runNative(m);
     let sig: Signature | undefined;
+    let meta: unknown;
     try {
-      const meta = await this.meta(m.script);
+      meta = await this.meta(m.script);
       if (isNative(meta)) return escaped(`windmill-lite: script ${JSON.stringify(m.script)} is built for the native boundary, not bun`);
       sig = signatureOf(meta, m.entry);
     } catch (e) {
@@ -347,7 +360,7 @@ export class Runtime {
     if (sig?.error !== undefined) return { outcome: "error", body: signatureErrorText(sig.error, stepId()) };
     let mod: Record<string, unknown>;
     try {
-      mod = await this.load(m.script);
+      mod = await this.load(m.script, meta);
     } catch (e) {
       // A module that fails to load or evaluate escapes the wrapper
       // (WR-19); its tail is the error's text until C3b attributes logs.
@@ -358,7 +371,15 @@ export class Runtime {
     }
     const fn = mod[m.entry];
     if (typeof fn === "function" && sig === undefined) {
-      return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
+      // A Bun-built module's metadata signs every export of its bundle. A
+      // codebase module's cannot always: CommonJS source has no static
+      // export list, so a callable export its source does not declare gets
+      // an empty parameter list, as Windmill's parser gives a function it
+      // does not find in the script's content (WR-6, WR-7).
+      if (!isCodebase(meta)) {
+        return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
+      }
+      sig = { params: [] };
     }
     let value: unknown;
     try {
@@ -397,11 +418,12 @@ export class Runtime {
   }
 
   /** Loads a script's bundled module once per process (warm module state,
-   * ADR 0006), on its first invocation. */
-  private load(script: string): Promise<Record<string, unknown>> {
+   * ADR 0006), on its first invocation, from the file its metadata names
+   * (moduleFile). */
+  private load(script: string, meta: unknown): Promise<Record<string, unknown>> {
     let p = this.modules.get(script);
     if (!p) {
-      p = scriptPath(this.opts.bundleDir, script, ".mjs").then((path) => import(pathToFileURL(path).href));
+      p = moduleFile(this.opts.bundleDir, script, meta, this.workdir).then((path) => import(pathToFileURL(path).href));
       this.modules.set(script, p);
     }
     return p;
@@ -494,11 +516,26 @@ export class Runtime {
     else this.lateError(id, e, () => job.errorText(e));
   }
 
+  /** What the native boundary handed over untracked that no unsettled
+   * job counts (Native.untracked): one handed to a native invocation
+   * after it settled is written to the diagnostics; one handed out in no
+   * invocation's context is reported as an unattributed error is, as a
+   * warning to every invocation in flight, but counts in no health. */
+  private untracked(job: NativeJob | undefined, kind: string) {
+    if (job !== undefined) {
+      this.diag(`windmill-lite harness: native invocation ${JSON.stringify(job.inv.id)} was handed ${kind} after it settled, which the native boundary does not track`);
+      return;
+    }
+    const message = `the native boundary handed out ${kind} in no invocation's context, so it is not tracked (ADR 0001, D5)`;
+    this.diag(`windmill-lite harness: ${message}`);
+    for (const inv of this.invocations.values()) this.sendWarning(inv.id, message, NATIVE_UNTRACKED);
+  }
+
   /** Sends a warning, its message cut to fit max_message: the error's
    * text can be as long as the step made it. A warning that cannot fit at
    * all is only written to the diagnostics. It never throws. */
-  private sendWarning(id: string, message: string) {
-    const m = fitString({ t: "warning", id, code: UNATTRIBUTED, message: "" }, "message", message, this.sender.maxMessage);
+  private sendWarning(id: string, message: string, code = UNATTRIBUTED) {
+    const m = fitString({ t: "warning", id, code, message: "" }, "message", message, this.sender.maxMessage);
     if (m === undefined) {
       this.diag(`windmill-lite harness: a warning for invocation ${JSON.stringify(id)} does not fit max_message`);
       return;
@@ -633,6 +670,11 @@ export class Runtime {
    * engine's at completion (WR-15). */
   private finish(inv: Invocation, o: Outcome) {
     if (this.stopped || this.byeSent || this.invocations.get(inv.id) !== inv) return;
+    // What the native boundary handed it untracked is reported ahead of
+    // the frame that settles it, while warnings still reach it.
+    const job = inv.context === undefined ? undefined : this.native.jobOfContext(inv.context);
+    const untracked = job?.untrackedText();
+    if (untracked !== undefined) this.sendWarning(inv.id, untracked, NATIVE_UNTRACKED);
     for (const msg of this.terminalFrames(inv, o)) {
       try {
         this.sender.send(msg);
@@ -793,6 +835,62 @@ function describe(e: unknown): string {
  * or more `/`-separated segments, none empty, `.` or `..`. */
 async function scriptPath(bundleDir: string, script: string, ext: string): Promise<string> {
   return join(bundleDir, "scripts", "bun", ...idSegments(script)) + ext;
+}
+
+/** Whether a script's metadata is a codebase script's, which esbuild
+ * bundled (milestone C2b). */
+function isCodebase(meta: unknown): boolean {
+  return (meta as { bundler?: unknown } | null)?.bundler === "esbuild";
+}
+
+/** The file a script's module loads from. A module of the Bun build is
+ * scripts/bun/<id>.mjs in the bundle. A codebase script's (its metadata's
+ * bundler is esbuild, milestone C2b) is scripts/bun/<id>.cjs for CommonJS,
+ * which Bun's CommonJS loader runs (D13), or .mjs for ESM; it loads from a
+ * copy in the working directory, as Windmill places a codebase bundle as
+ * main.js in the job directory beside its assets (WR-50), so its
+ * __dirname, __filename and import.meta, and the relative paths its own
+ * require resolves at run time, are the working directory's. The copy is
+ * named by a digest of the id, with a leading dot. */
+export async function moduleFile(bundleDir: string, script: string, meta: unknown, workdir: string): Promise<string> {
+  const m = meta as { bundler?: unknown; format?: unknown } | null;
+  const ext = m?.format === "cjs" ? ".cjs" : ".mjs";
+  const file = await scriptPath(bundleDir, script, ext);
+  if (!isCodebase(meta)) return file;
+  const copy = join(workdir, ".windmill-lite-" + new Bun.CryptoHasher("sha256").update(script).digest("hex").slice(0, 16) + ext);
+  copyFileSync(file, copy);
+  return copy;
+}
+
+/** Extracts a bundle's codebase assets, assets/ in the bundle (ADR 0010),
+ * into the working directory at their paths there, before any module
+ * loads: Windmill unpacks them beside main.js in the job directory, which
+ * is its working directory (WR-50); here every codebase entry's assets
+ * share the process's one working directory (D10). The bundle holds only
+ * regular files and directories. */
+export function extractAssets(bundleDir: string, workdir: string) {
+  const root = join(bundleDir, "assets");
+  const walk = (rel: string) => {
+    let entries;
+    try {
+      entries = readdirSync(join(root, rel), { withFileTypes: true });
+    } catch (e) {
+      if (rel === "" && (e as { code?: string }).code === "ENOENT") return;
+      throw e;
+    }
+    for (const d of entries) {
+      const r = rel === "" ? d.name : join(rel, d.name);
+      if (d.isDirectory()) {
+        walk(r);
+      } else if (d.isFile()) {
+        mkdirSync(dirname(join(workdir, r)), { recursive: true });
+        copyFileSync(join(root, r), join(workdir, r));
+      } else {
+        throw new Error(`assets/${r} is not a regular file`);
+      }
+    }
+  };
+  walk("");
 }
 
 /** The segments of an inventory id or a host-provided module's id, which

@@ -99,19 +99,16 @@ type buildCase struct {
 			Kind     string   `json:"kind"`
 			Contains []string `json:"contains"`
 		} `json:"build_problems"`
-		HostModuleOrder []string     `json:"host_module_order"`
-		OrderProblem    *problemWant `json:"order_problem"`
-		Warnings        []string     `json:"warnings"`
+		// Assets are the files a Folder case's bundle carries under
+		// assets/, by path, with their content (codebase scripts, C2b).
+		Assets          map[string]string `json:"assets"`
+		HostModuleOrder []string          `json:"host_module_order"`
+		OrderProblem    *problemWant      `json:"order_problem"`
+		Warnings        []string          `json:"warnings"`
 		Run             *struct {
 			Env      map[string]string `json:"env"`
 			Register []string          `json:"register"`
-			Calls    []struct {
-				Entry  string          `json:"entry"`
-				Export string          `json:"export"`
-				Args   []any           `json:"args"`
-				Result json.RawMessage `json:"result"`
-				Error  string          `json:"error"`
-			} `json:"calls"`
+			Calls    []callWant        `json:"calls"`
 		} `json:"run"`
 	} `json:"expect"`
 }
@@ -125,6 +122,7 @@ type entryExpect struct {
 	WorkflowAsCode   *WorkflowAsCode          `json:"workflow_as_code"`
 	Imports          []string                 `json:"imports"`
 	HostModules      []string                 `json:"host_modules"`
+	Format           string                   `json:"format"`
 	BundleContains   []string                 `json:"bundle_contains"`
 	BundleNotContain []string                 `json:"bundle_not_contains"`
 	FirstLine        string                   `json:"first_line"`
@@ -393,19 +391,31 @@ func runBuildCase(t *testing.T, bun, helper string, c buildCase) {
 			}
 			calls = append(calls, call{Module: filepath.Join(out, "scripts", "bun", entry+".mjs"), Export: exp, Args: cl.Args})
 		}
-		got := runModules(t, bun, r.Env, register, calls)
-		for i, cl := range r.Calls {
-			g := got[i]
-			switch {
-			case cl.Error != "":
-				if g.Error == nil || !strings.Contains(*g.Error, cl.Error) {
-					t.Errorf("call %d: got %s / %v, want an error containing %q", i, g.Result, g.Error, cl.Error)
-				}
-			case g.Error != nil:
-				t.Errorf("call %d: threw %s, want %s", i, *g.Error, cl.Result)
-			case !jsonEqual(t, g.Result, cl.Result):
-				t.Errorf("call %d: returned %s, want %s", i, g.Result, cl.Result)
+		checkCalls(t, runModules(t, bun, r.Env, register, calls), r.Calls)
+	}
+}
+
+type callWant struct {
+	Entry  string          `json:"entry"`
+	Export string          `json:"export"`
+	Args   []any           `json:"args"`
+	Result json.RawMessage `json:"result"`
+	Error  string          `json:"error"`
+}
+
+func checkCalls(t *testing.T, got []callResult, want []callWant) {
+	t.Helper()
+	for i, cl := range want {
+		g := got[i]
+		switch {
+		case cl.Error != "":
+			if g.Error == nil || !strings.Contains(*g.Error, cl.Error) {
+				t.Errorf("call %d: got %s / %v, want an error containing %q", i, g.Result, g.Error, cl.Error)
 			}
+		case g.Error != nil:
+			t.Errorf("call %d: threw %s, want %s", i, *g.Error, cl.Result)
+		case !jsonEqual(t, g.Result, cl.Result):
+			t.Errorf("call %d: returned %s, want %s", i, g.Result, cl.Result)
 		}
 	}
 }
@@ -456,13 +466,137 @@ func runFolderCase(t *testing.T, bun, helper string, c buildCase) {
 	for _, p := range got {
 		t.Errorf("unexpected problem %s: %s: %s", p.Item, p.Kind, p.Message)
 	}
-	if be == nil {
-		if res == nil || res.Manifest == nil {
-			t.Fatal("a clean build has no manifest")
+	if be != nil {
+		if c.Expect.Run != nil || c.Expect.Entries != nil || c.Expect.Assets != nil {
+			t.Fatalf("a case that checks the bundle needs a clean build: %v", be)
 		}
-		if _, err := Verify(cfg.Out, VerifyOptions{Digest: res.Digest}); err != nil {
-			t.Error(err)
+		return
+	}
+	if res == nil || res.Manifest == nil {
+		t.Fatal("a clean build has no manifest")
+	}
+	if _, err := Verify(cfg.Out, VerifyOptions{Digest: res.Digest}); err != nil {
+		t.Error(err)
+	}
+	for id, w := range c.Expect.Entries {
+		checkBuiltEntry(t, cfg.Out, id, w)
+	}
+	if c.Expect.Assets != nil {
+		got := map[string]string{}
+		for p := range res.Manifest.Files {
+			if to, ok := strings.CutPrefix(p, "assets/"); ok {
+				b, err := os.ReadFile(filepath.Join(cfg.Out, "assets", filepath.FromSlash(to)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				got[to] = string(b)
+			}
 		}
+		if !reflect.DeepEqual(got, c.Expect.Assets) {
+			t.Errorf("assets %q, want %q", got, c.Expect.Assets)
+		}
+	}
+	if c.Expect.Warnings != nil {
+		var codes []string
+		for _, w := range res.Warnings {
+			code, _, _ := strings.Cut(w, ": ")
+			codes = append(codes, code)
+		}
+		if !slices.Equal(nonNil(codes), c.Expect.Warnings) {
+			t.Errorf("warnings %q, want %q", res.Warnings, c.Expect.Warnings)
+		}
+	}
+	if r := c.Expect.Run; r != nil {
+		keys := map[string]string{}
+		for _, h := range res.Manifest.HostModules {
+			keys[h.ID] = h.Key
+		}
+		var register [][2]string
+		if r.Register != nil {
+			register = [][2]string{}
+			for _, id := range r.Register {
+				register = append(register, [2]string{keys[id], filepath.Join(cfg.Out, "scripts", "bun", "provided", id+".mjs")})
+			}
+		}
+		var calls []call
+		for _, cl := range r.Calls {
+			exp := cl.Export
+			if exp == "" {
+				exp = "main"
+			}
+			calls = append(calls, call{Module: builtModule(t, cfg.Out, cl.Entry), Export: exp, Args: cl.Args})
+		}
+		checkCalls(t, runModules(t, bun, r.Env, register, calls), r.Calls)
+	}
+}
+
+// builtModule is the module file of a script in a bundle: a codebase
+// script's .cjs, or the .mjs of any other.
+func builtModule(t *testing.T, out, id string) string {
+	t.Helper()
+	base := filepath.Join(out, "scripts", "bun", filepath.FromSlash(id))
+	// A native-boundary script's module is its native form (D5).
+	for _, ext := range []string{".native.js", ".cjs"} {
+		if _, err := os.Stat(base + ext); err == nil {
+			return base + ext
+		}
+	}
+	if _, err := os.Stat(base + ".mjs"); err != nil {
+		t.Fatalf("script %s: no module in the bundle: %v", id, err)
+	}
+	return base + ".mjs"
+}
+
+// checkBuiltEntry checks what a whole-folder build recorded for one
+// script, from its metadata and module in the bundle.
+func checkBuiltEntry(t *testing.T, out, id string, w entryExpect) {
+	t.Helper()
+	item := "script " + id
+	b, err := os.ReadFile(filepath.Join(out, "scripts", "bun", filepath.FromSlash(id)+".meta.json"))
+	if err != nil {
+		t.Fatalf("%s: %v", item, err)
+	}
+	var m ScriptMeta
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("%s: %v", item, err)
+	}
+	if w.Format != "" && string(m.Format) != w.Format {
+		t.Errorf("%s: format %q, want %q", item, m.Format, w.Format)
+	}
+	if w.Target != "" && m.Target != w.Target {
+		t.Errorf("%s: target %s, want %s", item, m.Target, w.Target)
+	}
+	if w.Boundary != "" && m.Boundary != w.Boundary {
+		t.Errorf("%s: boundary %s, want %s", item, m.Boundary, w.Boundary)
+	}
+	if w.Exports != nil && !slices.Equal(m.Exports, w.Exports) {
+		t.Errorf("%s: exports %q, want %q", item, m.Exports, w.Exports)
+	}
+	if w.HostModules != nil && !slices.Equal(m.HostModules, w.HostModules) {
+		t.Errorf("%s: host modules %q, want %q", item, m.HostModules, w.HostModules)
+	}
+	for name, sw := range w.Signatures {
+		got, ok := m.Signatures[name]
+		if !ok || got.Error != "" || !slices.Equal(got.Params, nonNilParams(sw.Params)) {
+			t.Errorf("%s: signature of %s is %+v (found %v), want %+v", item, name, got, ok, sw.Params)
+		}
+	}
+	mod, err := os.ReadFile(builtModule(t, out, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range w.BundleContains {
+		if !bytes.Contains(mod, []byte(s)) {
+			t.Errorf("%s: the bundle lacks %q:\n%s", item, s, mod)
+		}
+	}
+	for _, s := range w.BundleNotContain {
+		if bytes.Contains(mod, []byte(s)) {
+			t.Errorf("%s: the bundle contains %q:\n%s", item, s, mod)
+		}
+	}
+	if first, _, _ := strings.Cut(string(mod), "\n"); w.FirstLine != "" && first != w.FirstLine {
+		t.Errorf("%s: the bundle starts with %q, want %q", item, first, w.FirstLine)
 	}
 }
 

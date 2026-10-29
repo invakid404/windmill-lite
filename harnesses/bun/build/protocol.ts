@@ -31,11 +31,20 @@ export type EntryRequest = {
   // The language a deploy records ("bun", "bunnative" or "nativets"): a
   // nativets script is transpiled, not bundled (WR-40).
   language?: string;
+  // parse only: the export names of a codebase script's bundle, which the
+  // Go build reads from esbuild; absent, the source's own are scanned.
+  exports?: string[];
+  // native only: a file under work that holds esbuild's bundle of a
+  // codebase script with the //native header (WR-50).
+  bundle?: string;
 };
 
 export type Request = {
   version: 1;
-  op: "scan" | "build";
+  // scan: the host-provided modules' exports; build: every module; parse:
+  // only what the source of each entry records, for codebase scripts,
+  // which esbuild bundles in Go (C2b).
+  op: "scan" | "build" | "parse" | "native";
   require_bun?: string;
   folder: string;
   work: string;

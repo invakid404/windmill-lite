@@ -186,11 +186,13 @@ type Log struct {
 
 // Warning is a process-level error that no invocation's context raised,
 // sent once for each invocation in flight when it happened (ADR 0004, the
-// shared-process failure model, item 3). It fails nothing.
+// shared-process failure model, item 3), or what the native boundary
+// handed an invocation but does not track (ADR 0001, D5). It fails
+// nothing.
 type Warning struct {
 	// ID is the invocation in flight.
 	ID string
-	// Code is WarningUnattributed.
+	// Code is WarningUnattributed or WarningNativeUntracked.
 	Code    string
 	Message string
 }
@@ -198,6 +200,12 @@ type Warning struct {
 // WarningUnattributed is the code of a warning for a process-level error
 // that the harness could not attribute to any invocation.
 const WarningUnattributed = "unattributed_error"
+
+// WarningNativeUntracked is the code of a warning for what the native
+// boundary handed a native invocation but does not track, sent ahead of
+// the frame that settles it, or for what it handed out in no invocation's
+// context, sent to each invocation in flight (ADR 0001, D5).
+const WarningNativeUntracked = "native_untracked"
 
 // PlatformRequest is a fetch to the platform facade that the harness
 // intercepted, attributed to the invocation whose context made it

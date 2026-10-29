@@ -5,7 +5,9 @@
 // The Go build runs it twice per bundle. `scan` reads the exports of each
 // host-provided module so that Go can generate its shim; `build` bundles
 // the host-provided copies and every Bun script, writing the modules into
-// the bundle directory and returning what the parse recorded. A request
+// the bundle directory and returning what the parse recorded. `parse`
+// returns only what each entry's source records, for codebase scripts,
+// which esbuild bundles in Go (C2b). A request
 // that cannot be served at all fails with exit code 2 and an `error` in the
 // response; a problem with one script or module is reported against it.
 
@@ -33,7 +35,7 @@ try {
   response.error = { kind: "invalid_request", message: `cannot read the request: ${(e as Error).message}` };
   finish(2);
 }
-if (req.version !== 1 || (req.op !== "scan" && req.op !== "build")) {
+if (req.version !== 1 || (req.op !== "scan" && req.op !== "build" && req.op !== "parse" && req.op !== "native")) {
   response.error = { kind: "invalid_request", message: `unsupported request version ${req.version} or op ${req.op}` };
   finish(2);
 }
@@ -61,7 +63,7 @@ const problemOf = (e: unknown) => {
   return { kind: "internal", message: String((e as Error)?.stack ?? e) };
 };
 
-for (const hm of req.host_modules) {
+for (const hm of req.op === "parse" || req.op === "native" ? [] : req.host_modules) {
   try {
     response.host_modules[hm.id] =
       req.op === "scan" ? await builder.scanHostModule(hm) : await builder.buildHostModule(hm);
@@ -69,10 +71,11 @@ for (const hm of req.host_modules) {
     response.host_modules[hm.id] = { error: problemOf(e) };
   }
 }
-if (req.op === "build") {
+if (req.op !== "scan") {
   for (const e of req.entries) {
     try {
-      response.entries[e.id] = await builder.buildEntry(e);
+      response.entries[e.id] =
+        req.op === "build" ? await builder.buildEntry(e) : req.op === "native" ? builder.nativeEntry(e) : builder.parseEntry(e);
     } catch (err) {
       response.entries[e.id] = { meta: { path: e.path }, error: problemOf(err) };
     }

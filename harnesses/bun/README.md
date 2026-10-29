@@ -36,7 +36,7 @@ cannot corrupt the protocol.
 
 | File | Contents |
 |---|---|
-| `runtime/main.ts` | Reads the bundle's digest, registers its host-provided modules, connects to fd 3, starts the runtime |
+| `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, connects to fd 3, starts the runtime |
 | `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the preamble, imports and the embedded client, binding, the result and the error shapes |
@@ -54,10 +54,23 @@ cannot corrupt the protocol.
   with the same.
 - **Invocations** run concurrently on the event loop, each inside its own
   `AsyncLocalStorage` context with its id, run, environment, abort signal
-  and resource registry. A script's module, `scripts/bun/<id>.mjs` in the
-  bundle, and its metadata, `<id>.meta.json`, are read once per process on
-  its first invocation, inside that invocation's context (warm module
-  state).
+  and resource registry. A script's metadata, `scripts/bun/<id>.meta.json`
+  in the bundle, and its module are read once per process on its first
+  invocation, inside that invocation's context (warm module state). The
+  module is `scripts/bun/<id>.mjs`, or, for a codebase script (metadata
+  `bundler: "esbuild"`, milestone C2b), `<id>.cjs` when it is CommonJS,
+  which Bun's CommonJS loader runs (D13). A codebase module loads from a
+  copy in the working directory, `.windmill-lite-<16 hex digits of the
+  id's SHA-256><ext>`, as Windmill places a codebase bundle as `main.js`
+  in the job directory beside its assets
+  ([WR-50](../../docs/semantics/languages.md#wr-50)): its `__dirname`,
+  `__filename` and `import.meta`, and the relative paths its own `require`
+  resolves at run time, are the working directory's (`moduleFile`).
+- **Codebase assets.** A harness the engine spawned copies the bundle's
+  `assets/` into its working directory, at their paths there, before any
+  module loads (`extractAssets`; [ADR 0002](../../docs/design/0002-ir-and-loader.md),
+  decision 3; D10); one that fails to extract them fails the start (exit
+  code 4). In host mode the SDK extracts them (F3a).
 - **Host-provided modules.** A harness the engine spawned registers the
   bundle's copy of each, `scripts/bun/provided/<id>.mjs`, in the order of
   the manifest's `host_modules`, before it greets the engine
@@ -245,8 +258,14 @@ order ([WR-2](../../docs/semantics/languages.md#wr-2)):
    function is missing` in the wrapper-catch shape
    ([WR-7](../../docs/semantics/languages.md#wr-7),
    [WR-12](../../docs/semantics/languages.md#wr-12)). An exported function
-   whose signature the bundle does not record is `escaped`: the bundle is
-   broken.
+   whose signature a Bun-built bundle does not record is `escaped`: the
+   bundle is broken, since the build signs every export of its output. A
+   codebase module's metadata cannot always sign every callable export
+   (CommonJS source has no static export list), so one it does not sign
+   gets an empty parameter list, as Windmill's parser gives a function it
+   does not find in the script's content
+   ([WR-6](../../docs/semantics/languages.md#wr-6),
+   [WR-7](../../docs/semantics/languages.md#wr-7)).
 4. **Binding** ([WR-6](../../docs/semantics/languages.md#wr-6)): with
    parameters, each one's value by name, read as destructuring reads it
    (a missing key gives `undefined`, `null` stays, extra keys are dropped,
@@ -303,39 +322,62 @@ this mode cannot reproduce is deviation D5 of
   empty `core`, and `addEventListener`, `removeEventListener` and
   `dispatchEvent` on `globalThis`. Nothing of Bun's: no `Bun`, `Buffer`,
   `require`, `module`, `process`, `setImmediate` or `ShadowRealm`.
-- **Realm-facing web classes.** The classes whose methods return promises
-  or other web objects (`Request`, `Response`, `Blob`, `File`, `FormData`,
-  the streams and their readers and writers, `Crypto`, `SubtleCrypto`) are
-  given to the realm as subclasses, made once per process. Each method and
-  getter the class has, its own and inherited ones (Bun's `File` shares
-  `Blob`'s prototype) and symbol-named ones (a stream's async iterator),
-  calls the original and passes on what it returns:
-  - a promise is **tracked in place**: it takes the prototype of a
-    `Promise` subclass whose `then` records the invocation on every
-    promise it derives, so a rejection nobody handles, of the promise or of
-    a continuation (`then`, `catch`, `finally`, `await`), is attributed to
-    that invocation. Being the same object, a rejection the web API's own
-    code handles (Bun's stream iteration, a stream's `closed`) stays
-    handled. It is a promise of the harness realm, so not an `instanceof`
-    the realm's `Promise`;
-  - an instance of such a class takes its subclass's prototype (a harness
-    `File`, which shares `Blob`'s prototype in Bun, the realm's `File`,
-    which is a realm `Blob`), and a promise's value is passed on when a
-    continuation receives it;
-  - so is what the APIs hand over by other ways: the values of the
-    iterators they return, sync and async (`FormData`'s `values()` and
-    spread, a stream's `for await`); a stream reader's `{value, done}`; the
-    arguments of the callbacks their methods call (`FormData.forEach`);
-    `structuredClone`'s result, through its plain objects, arrays, maps and
-    sets; and a `MessagePort` message event's `data` and `ports`, whose
-    listener runs in the async context that registered it (identity kept
-    for `removeEventListener`, and `onmessage` reads back what it was
-    given).
+- **A boundary that fails closed.** Every promise and object a web API
+  hands the realm is **tracked** as the calling invocation's the moment the
+  boundary hands it over, or handed over **untracked** and **counted**. No
+  path an object can travel is listed: the boundary sits on the realm's
+  only ways into the web APIs, so what it cannot tell apart is counted
+  rather than missed.
+  - *Where it sits.* Every class WR-45 lists is given to the realm as a
+    realm-facing subclass, made once per process, which inherits from its
+    parent's (`CustomEvent` from `Event`, `AbortSignal` from
+    `EventTarget`; Bun's `File` shares `Blob`'s prototype, so the realm's
+    `File` is chained to the realm's `Blob`). Its constructor is the only
+    way the realm makes one, and each member it has, its own, inherited,
+    symbol-named and static ones, calls the original and hands on what it
+    returns or throws. The function globals (`atob`, `btoa`,
+    `reportError`, `structuredClone`) do the same; `crypto`,
+    `crypto.subtle` and `performance`, which every caller shares, are
+    objects of their subclasses that forward to them. What the harness
+    calls back is wrapped where the realm hands it over: a method's
+    callback argument (`FormData.forEach`); the callbacks of a stream's
+    underlying source, sink, transformer and queuing strategy, called on
+    the dictionary that holds them; and every listener and `on…` handler
+    of every event target, which runs in the async context that
+    registered it (identity kept for `removeEventListener`, and the
+    handler reads back what it was given). Each gets its `this` and
+    arguments handed on.
+  - *What it hands on, decided once per value.* A primitive, or the
+    realm's own object given back (a signal's `reason`), as it is. A
+    promise of the harness realm is **tracked in place**: it takes the
+    prototype of a `Promise` subclass whose `then` records the invocation
+    on every promise it derives (`catch`, `finally` and `await` go through
+    it) and hands on the value or reason, so a rejection nobody handles is
+    attributed to the invocation, while a rejection the web API's own code
+    handles (Bun's stream iteration, a stream's `closed`) stays handled. An
+    instance of a WR-45 class takes its subclass's prototype (a harness
+    `DOMException` is the realm's). An array, `Map`, `Set` or plain object
+    has its contents handed on, all through (`structuredClone`'s result, a
+    message's `data`, a key pair, `{value, done}`), once. An iterator, sync
+    or async, gets a forwarder whose results are handed on. Buffers and
+    their views, dates, regular expressions, errors and boxed primitives
+    are data and handed on as they are, as is the JSON `json()` parses.
+  - *What it only counts.* Anything else of the harness realm, an object
+    of a class WR-45 does not list (Bun's `performance.timing`, a
+    `PerformanceTiming`) or a harness function, is handed over as it is and
+    counted on the invocation; `runtime.ts` sends the count as a
+    `native_untracked` warning ahead of the frame that settles it. One
+    handed out in no native invocation's context, or after its invocation
+    settled, cannot be counted on it: it is a `native_untracked` warning to
+    every invocation in flight, or a diagnostic line. A promise of a web
+    API's own internals that is never handed over is not the invocation's:
+    a rejection of it nobody handles is an unattributed error.
 
-  `crypto` and `crypto.subtle` are objects of those subclasses that
-  forward to the shared ones. A fetched response's `url`, `redirected` and
-  `type` are kept for it and every clone of it. The harness realm's own
-  classes and objects are never changed.
+  A fetched response's `url`, `redirected` and `type` are kept for it and
+  every clone of it. The harness realm's own classes and objects are never
+  changed; a web API's promise, buffer or parsed JSON is the harness
+  realm's, so not an `instanceof` the realm's `Promise`, `ArrayBuffer` or
+  `Object`.
 - **Timers and fetch are the invocation's.** `setTimeout` and
   `setInterval` return numeric ids; each pending handle and each fetch in
   flight is registered with the invocation and released when it settles,
@@ -393,7 +435,9 @@ so the engine always learns how it ended, by that frame or by the exit.
 Go tests write, `conformance/protocol/frames.json`. `test/wrapper.test.ts`
 checks the wrapper's rules, `test/native.test.ts` the native boundary
 mode (the build's native form, the realm's globals, the fetch user agent
-against a local endpoint, settlement, the error shapes), and
+against a local endpoint, settlement, the error shapes, and the boundary:
+every WR-45 class realm-facing, what each way of handing an object over
+gives, and what it counts as untracked), and
 `test/fit.test.ts` how a warning's message
 is cut to fit `max_message`. `test/sender.test.ts`
 checks the send queue against a socket that accepts a few bytes at a time:

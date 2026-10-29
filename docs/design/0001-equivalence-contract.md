@@ -163,10 +163,10 @@ recorded in each run's trace.
 | D7 | `//nobundling` scripts are bundled at build time instead of resolving imports and installing packages at run time | a bundle must run offline; results are the same, but `import.meta`, file paths and stack text differ, as they already do between Windmill's two modes ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
 | D8 | An expression attempt that hits the 20 s limit is interrupted; Windmill leaves the evaluation running on its thread | frees the CPU; the error text, the three attempts and the 5 s pauses are unchanged | §7, [JE-2](../semantics/expressions.md#je-2) |
 | D9 | Work a step leaves running after its result (unawaited promises, timers) keeps running in a warm process, and its late errors are recorded, not fatal; a process-level error that cannot be attributed to an invocation fails no step | Windmill cuts that work off at `process.exit` ([WR-2](../semantics/languages.md#wr-2)) and a detached rejection kills that step's process; in a shared process it would kill every co-resident step | [0004](0004-harness-protocol.md) |
-| D10 | A harness process has one working directory for all its invocations, not a fresh one per job, and every codebase entry's assets are visible there to every script | the working directory is process-global; Windmill gives each job its own, with only its entry's assets ([WR-1](../semantics/languages.md#wr-1)) | [0004](0004-harness-protocol.md) |
+| D10 | A harness process has one working directory for all its invocations, not a fresh one per job, and every codebase entry's assets are visible there to every script; so one entry's `package.json` asset declaring `"type": "module"` also makes Bun import the default export of every CommonJS codebase module there as Node does (milestone C2b) | the working directory is process-global; Windmill gives each job its own, with only its entry's assets ([WR-1](../semantics/languages.md#wr-1)) | [0004](0004-harness-protocol.md) |
 | D11 | An intercepted `process.exit` fixes the step's outcome at the call, but `finally` blocks run and a `catch` can swallow it and continue | the process must not exit; the call can only throw | [0004](0004-harness-protocol.md) |
 | D12 | A host-provided module has one instance per process, shared by the host and every script that imports it | singletons that hold the host's scopes must be the host's own; Windmill inlines every import into each script's bundle ([WR-27](../semantics/languages.md#wr-27)) | [0010](0010-packaging.md) |
-| D13 | Codebase scripts built as CommonJS run on Bun's CommonJS loader, not Node | one JavaScript harness, and host mode needs the steps in the host's Bun process; Windmill runs CJS codebase bundles under Node ([WR-30](../semantics/languages.md#wr-30), `EE`) | [0002](0002-ir-and-loader.md) |
+| D13 | Codebase scripts built as CommonJS run on Bun's CommonJS loader, not Node, and so does an ES module one whose header says `//nodejs`, which Windmill also runs on Node ([WR-50](../semantics/languages.md#wr-50)/d). Milestone C2b's cases (Node against Bun, `conformance/steps/bun/d13.yaml`) find the runtime visible (`globalThis.Bun`, `process.versions.bun`), an `_ENTRYPOINT_OVERRIDE` of `default` calling the module's default export on Bun where Node finds the whole exports object, and a `package.json` asset declaring `"type": "module"`, under which Node fails to load a CommonJS bundle that the harness runs; named exports, overrides, `__dirname`, run-time `require` of the bundle's files and assets, and thrown errors agree | one JavaScript harness, and host mode needs the steps in the host's Bun process; Windmill runs CJS codebase bundles under Node ([WR-30](../semantics/languages.md#wr-30), [WR-50](../semantics/languages.md#wr-50)) | [0002](0002-ir-and-loader.md) |
 | D14 | Messages windmill-lite generates in place of Windmill's server-side ones carry no Rust location suffix | windmill-lite has no Rust source; §2 strips the oracle's suffix only on generated messages | §2 |
 | D15 | A host-set cap on in-flight invocations per process. There is none by default; with one set, concurrent children that wait on each other, or parents that wait on runs they dispatched locally, can wait forever where a Windmill with enough workers completes them | a host may need to bound concurrency; the reference has no such bound | [0004](0004-harness-protocol.md) |
 | D16 | A transcendental `Math` function (`Math.sin`, `Math.tan`, `Math.log`, `Math.cosh` and the like) gives what the engine build's C library gives, which can differ in the last digit from the glibc of Windmill's image. Measured on recording batch E3a's 30 values: the static musl engine (`amd64` and `arm64`) gives all of them; the glibc of CI's Ubuntu 24.04 runner differs on `Math.cbrt(10)` and macOS's libm on 6, each by one unit in the last place. Other inputs can differ on any library but the image's own | QuickJS-ng calls the C library's libm, and the release engine links musl statically ([0003](0003-semantics-placement.md)); no libm that reproduces glibc's results is vendored | [JE-1](../semantics/expressions.md#je-1), [0003](0003-semantics-placement.md) |
@@ -181,10 +181,57 @@ Its global object holds the native runtime's web APIs and nothing of Bun's
 binding, the result's serialisation (V8's BigInt message included), both
 error shapes, the environment preamble and its redeclaration failures, the
 timeout text, the failure of a job by a rejection nobody handles (of its
-own promises or of those the web APIs return it) or a throw from a timer,
+own promises or of those the web APIs hand it) or a throw from a timer,
 a module scope with no `arguments` and an undefined `this`, and the end of
-its timers and fetches (a response's body included) when it settles. It
-cannot keep:
+its timers and fetches (a response's body included) when it settles.
+
+The web APIs reach the realm through a boundary that **fails closed**:
+each promise and object they hand an invocation is tracked as its own
+when the boundary hands it over, or handed over untracked and counted. No
+path an object can travel is listed; the boundary sits on the realm's only
+ways into the web APIs, so what it cannot tell apart is counted rather
+than missed.
+
+- *Where it sits.* The realm gets each class WR-45 lists as a subclass of
+  the harness realm's, made once per process, which inherits from its
+  parent's subclass as in V8 (`CustomEvent` from `Event`, `File` from
+  `Blob`). Its constructor is the only way the realm makes one, and each
+  member of the class, its own, inherited, symbol-named and static ones,
+  hands on what it returns or throws. The function globals (`atob`,
+  `btoa`, `reportError`, `structuredClone`) do the same, and `crypto`,
+  `crypto.subtle` and `performance` are objects of their subclasses that
+  forward to the shared ones. What the harness calls back is wrapped where
+  the realm hands it over: a method's callback argument
+  (`FormData.forEach`), the callbacks of a stream's underlying source,
+  sink, transformer and queuing strategy, and every event listener and
+  `on…` handler of every event target, which runs in the async context of
+  the invocation that registered it. Each gets its `this` and arguments
+  handed on.
+- *Tracked.* A promise of the harness realm, as the invocation's, and each
+  promise its `then` derives (`catch`, `finally` and `await` included),
+  whose value or reason is handed on in turn, so a rejection nobody
+  handles fails the invocation ([WR-43](../semantics/languages.md#wr-43)).
+  An instance of a WR-45 class, which takes its subclass's prototype. The
+  contents of an array, `Map`, `Set` or plain object, all through (a
+  message event's `data`, `structuredClone`'s result, a key pair), and the
+  results of an iterator, sync or async.
+- *Handed on as data.* Buffers and their views, dates, regular
+  expressions, errors other than `DOMException`, boxed primitives, the
+  JSON `json()` parses, and the realm's own objects when a web API gives
+  them back (a signal's `reason`): there is nothing in them to track.
+- *Counted.* Anything else of the harness realm: an object of a class
+  WR-45 does not list (Bun's `performance.timing`, a `PerformanceTiming`)
+  or a harness function. It is handed over as it is and counted on the
+  invocation, and the count reaches the engine as a `native_untracked`
+  warning ahead of the frame that settles it
+  ([0004](0004-harness-protocol.md)). One handed out in no invocation's
+  context, or after its invocation settled, cannot be counted on it: it is
+  a `native_untracked` warning to every invocation in flight, or a
+  diagnostic line. A promise internal to a web API that is never handed
+  over belongs to no invocation: a rejection of it nobody handles is an
+  unattributed error (0004's failure model, item 3).
+
+The realm cannot keep:
 
 - JavaScriptCore's texts where they differ from V8's: a redeclared name, a
   cyclic result, a missing export, the cause of a load failure, the text
@@ -198,17 +245,13 @@ cannot keep:
   (WR-43/e): with other invocations on the event loop, the harness cannot
   know that nothing is pending, so such a step runs until its timeout;
 - `FileReader`, which Bun 1.3.10 lacks;
-- separate web API objects: the realm gets the harness realm's classes,
-  as subclasses made once per process whose methods (inherited and
-  symbol-named ones included) hand it the objects they return as its own
-  and track the promises they return for the calling invocation, as they
-  do for what iterators, callbacks, `structuredClone` and message events
-  hand over, and
-  `crypto` as an object that forwards to the shared one; a script that
-  changes one of them (a prototype, `crypto`) changes it for the other
-  native invocations of the process, as D1 says of Bun's `globalThis`;
-  and a web API's promise is the harness realm's, so it is not an
-  `instanceof` the realm's `Promise`;
+- separate web API objects: the realm gets the harness realm's classes
+  through the subclasses above, made once per process, and the shared
+  `crypto` and `performance` through forwarders; a script that changes one
+  of them (a prototype, `crypto`) changes it for the other native
+  invocations of the process, as D1 says of Bun's `globalThis`; and a web
+  API's promise, buffer or parsed JSON is the harness realm's, so it is
+  not an `instanceof` the realm's `Promise`, `ArrayBuffer` or `Object`;
 - imports of files of the host: windmill-lite reads none, so only the
   embedded client resolves ([WR-40](../semantics/languages.md#wr-40)); the
   client is `windmill-client@1.326.0`, the version Windmill embeds, built
@@ -237,7 +280,8 @@ sees only the error its client library raises, and nothing is recorded.
 | A by-path target of a local dispatch (`runScript*`, `runFlow*`) must be a root of the bundle | the dispatching step fails with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>` | [0007](0007-platform-interface.md) |
 | A host-provided module must be an ES module that does not export a binding it reassigns (`export let` that changes); a CommonJS module, whose names are known only when it runs, is refused | build error `host_module_live_binding`, or `host_module_commonjs` | [0010](0010-packaging.md) |
 | A Bun script that Windmill's bundled mode cannot build, and so fails at every run: an import that resolves to no script of the folder, including one a `.ts` rewrite collision corrupted ([WR-28](../semantics/languages.md#wr-28), [WR-38](../semantics/languages.md#wr-38)). And scripts Windmill runs that the build refuses: an `//npm` script, which installs with npm; a bundle that emits a file besides its module (an asset through Bun's file loader); a source the build's TypeScript parser rejects (the deprecated `import … assert {}` form) | build error `bundle_failed`, `unsupported_feature` for `//npm`, or `parse_failed` | [0010](0010-packaging.md) |
-| Two codebase scripts may not extract different assets to the same relative path | build error `asset_collision` | [0002](0002-ir-and-loader.md) |
+| Two codebase scripts may not extract different assets to the same relative path, or to paths that would not form one tree | build error `asset_collision` | [0002](0002-ir-and-loader.md) |
+| A codebase asset whose `to` is not a clean relative path (one that leaves the working directory), or whose source does not read; a codebase bundle with several output files (a `file` loader's output, a native add-on), whose upload layout is `later` ([WR-49](../semantics/languages.md#wr-49)); a codebase entry whose `format` is neither `cjs` nor `esm` | build error `invalid_asset`, `unsupported_feature`, or `bundle_failed` | [0002](0002-ir-and-loader.md), [0010](0010-packaging.md) |
 | A hook selector that names a module id occurring more than once in one module list must give the occurrence; a mandatory provided-site selector must match exactly one site | load error `ambiguous_selector` | [0008](0008-host-hooks.md) |
 | A codebase entry with `customBundler`, and a script with a `schema_validation` annotation, until the reference covers them | load error `unsupported_feature` | [0002](0002-ir-and-loader.md), [0009](0009-host-adapters.md) |
 | Sync folders the CLI pushes but the loader does not read as the CLI does ([SY-1](../semantics/openflow.md#sy-1), [SY-7](../semantics/openflow.md#sy-7), [SY-13](../semantics/openflow.md#sy-13)): a script file with a dot before its script extension (`f/my.dir/x.ts`), which the CLI renames by cutting its path there; an `!inline` or script-lock reference that leaves the sync root, and an absolute script-lock reference; a script, inline or lock file that is not UTF-8; a `wmill.yaml` glob outside the syntax that minimatch 9 and 10 read alike (extglobs, POSIX classes, `.` and `..` segments, some escapes, braces that do not expand, sequences that JavaScript would round); a `wmill.yaml` value of the wrong type; a file whose name is not UTF-8, which is skipped with a warning | load error `dotted_path`, `path_escape`, `invalid_text`, `unsupported_glob` or `invalid_config` | [0002](0002-ir-and-loader.md) |

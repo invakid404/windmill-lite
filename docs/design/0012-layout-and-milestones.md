@@ -184,6 +184,13 @@ waits on an external gate except R1.
   [0003](0003-semantics-placement.md) that milestone C3a gave its format
   and its runner, `wltest check`; C3a runs them in `warm`, and C3b adds
   `fresh`.
+- C2b placed codebase bundling in `internal/bundle` (`BuildCodebase`,
+  esbuild through its Go API) beside the Bun build, and gave the step
+  cases a `codebase` field and a per-run `node` check: `wltest check` runs
+  each CommonJS codebase bundle on Node as well, which is how its D13
+  cases compare Node against Bun. Its CLI parity check runs the pinned CLI
+  in a workflow of its own, `parity.yml`, which branch protection does not
+  require; the fallback runs in the Go jobs.
 - C3n's exit gate, the native cases of the reference, is the step files
   `conformance/steps/bun/wr-40.yaml` to `wr-45.yaml`: each catalogue case of
   WR-40 to WR-46 is a step case, run as `nativets` and as `//native` where
@@ -207,8 +214,10 @@ waits on an external gate except R1.
   milestone adds itself there, and a required run stays required. A run the
   engine cannot run yet is reported as unsupported and never compared.
   `flows/languages/codebase` is the codebase-script fixture that C2b drops
-  its esbuild bundles into: until then `wltest check` builds codebase
-  scripts with the Bun build helper as ordinary Bun scripts. The `diff`
+  its esbuild bundles into: E1 built codebase scripts with the Bun build
+  helper as ordinary Bun scripts, and since C2b `wltest check` builds them
+  with esbuild (`bundle.BuildCodebase`), the CommonJS one running on Bun's
+  CommonJS loader (D13). The `diff`
   verb of [0011](0011-differential-testing.md) is in no milestone's row,
   and E1 left it out.
 

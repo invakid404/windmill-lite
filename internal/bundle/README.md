@@ -1,6 +1,6 @@
 # internal/bundle
 
-**Current state:** milestones C2a and F4 of
+**Current state:** milestones C2a, F4 and C2b of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md). This README
 covers `internal/bundle` and its `testdata/`. The package builds
 windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
@@ -11,12 +11,12 @@ windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
 - the manifest, its canonical encoding and the bundle digest; the `.wlb`
   archive; `Verify`, which `windmill-lite verify` calls;
 - the build parts both bundlers share (the env rewrite, the shim generator,
-  the import base of inline scripts) and `BuildBun`, which runs the
-  [Bun build helper](../../harnesses/bun/build/README.md).
+  the import base of inline scripts), `BuildBun`, which runs the
+  [Bun build helper](../../harnesses/bun/build/README.md), and
+  `BuildCodebase`, which bundles codebase scripts with esbuild through its
+  Go API, with the same env rewrite and shims, and carries their assets.
 
-Nothing opens a bundle to run it yet: that is `wl.Open` (F1). Codebase
-scripts, which esbuild bundles with the same env rewrite and shims, are C2b;
-until then the build refuses them.
+Nothing opens a bundle to run it yet: that is `wl.Open` (F1).
 
 ## Files
 
@@ -30,6 +30,7 @@ until then the build refuses them.
 | `shim.go` | `Shim`: the shim of a host-provided module; the registry key |
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
+| `esbuild.go` | `CodebaseSettings` (a codebases entry, WR-47), `CLIOptions` and `CLIBundle` (the pinned CLI's build), `BuildCodebase`, assets |
 | `meta.go` | `ScriptMeta` and the other result types, problems and warnings |
 
 ## The bundle
@@ -41,12 +42,13 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 | `manifest.json` | the manifest (below), in canonical form |
 | `ir.json` | the compiled program, `(*ir.Program).MarshalIndent` ([internal/ir](../ir/README.md)) |
 | `scripts/bun/<id>.mjs`, `<id>.meta.json` | each Bun script's module and metadata (`BuildBun`, below), named by its inventory id: `scripts/bun/f/app/report.mjs` for the path script `f/app/report`, `scripts/bun/inline-<16 hex>.mjs` for an inline step, as the harness runtime resolves an id; a native-boundary script's module is `<id>.native.js` instead |
+| `scripts/bun/<id>.cjs`, `<id>.meta.json` | a codebase script built as CommonJS (`BuildCodebase`, below); one built as ESM is `<id>.mjs` |
+| `assets/<to>` | every codebase entry's assets, at the path in the working directory they are extracted to |
 | `scripts/native/windmill.js`, `windmill.meta.json` | the native runtime's embedded client, when a script is nativets |
 | `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | each host-provided module's bundled copy and shim, named by its script path |
 | `data/resources.json`, `data/resource_types.json`, `data/variables.json` | every resource and resource type the folder keeps, and every variable but secrets, each file an object keyed by path (a resource type by name), with the record of [internal/syncfolder](../syncfolder/README.md) |
 
-`assets/` (codebase assets, C2b) and `plugins/` (host plugins, F2c) arrive
-with their milestones. A secret variable is never written: its value in a
+`plugins/` (host plugins, F2c) arrives with its milestone. A secret variable is never written: its value in a
 folder is ciphertext (or plain text, with `plainSecrets`), and the host
 supplies secrets (PF2).
 
@@ -58,7 +60,7 @@ supplies secrets (PF2).
 |---|---|
 | `format` | `FormatVersion`, 1 |
 | `engine` | `version`, the exact engine version that built the bundle, and `expression_stack_bytes`, the expression engine's stack limit, 1 MiB, which is observable ([ADR 0003](../../docs/design/0003-semantics-placement.md), [JE-48](../../docs/semantics/expressions.md#je-48)) |
-| `bundlers` | the Bun version that built the scripts; esbuild's once codebase scripts are built |
+| `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
 | `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's |
@@ -84,7 +86,11 @@ another), or a host-provided module whose bundled copy it does not list.
 every file read: `wmill.yaml`, the flows and scripts the roots reach with
 their metadata, locks and `!inline` files, and the data files. It adds the
 workspace scripts that bundles inline and each host-provided module's
-file, metadata and lock, which the Bun helper reads itself. Files the build
+file, metadata and lock, which the Bun helper reads itself, and what
+esbuild read for each codebase script inside the folder (its metafile's
+inputs, outside `node_modules`) with the sources of its assets. A package
+or a file outside the folder that a codebase bundle inlines reaches the
+digest through the bundled module itself. Files the build
 does not read, such as a script nothing reaches, are not inputs. Nor is a
 secret variable's file: with `plainSecrets` it holds the value in plain
 text, and its digest in a shipped manifest would let anyone test guesses of
@@ -110,8 +116,12 @@ change with what runs. `dir` itself may be a link.
 3. resolves the contract's `host_modules`: each must be the file of a Bun
    script of the folder (`f/shared/ctx.ts`), whose path becomes its id; a
    script that fails to read is refused with its load error;
-4. runs `BuildBun` for every script of the inventory, with every `.ts`
-   script of the folder available to workspace imports;
+4. runs `BuildBun` for every script of the inventory that is not a
+   codebase script, with every `.ts` script of the folder available to
+   workspace imports, then `BuildCodebase` for the codebase scripts, each
+   with the settings of the `codebases` entry that selects it
+   ([SY-8](../../docs/semantics/openflow.md#sy-8)) and the shims the scan
+   wrote;
 5. checks each script's metadata: workflow-as-code by any detection path is
    refused with `unsupported_feature`, `unsupported: workflow_as_code`
    ([ADR 0001](../../docs/design/0001-equivalence-contract.md) §3;
@@ -121,13 +131,14 @@ change with what runs. `dir` itself may be a link.
    with `missing_lock`
    ([ADR 0002](../../docs/design/0002-ir-and-loader.md), validation 5): a
    lock is the only thing the build installs from. An empty lock with no
-   package imports builds;
+   package imports builds. A codebase script has no lock: esbuild inlines
+   its packages from the folder's `node_modules`, as the CLI does
+   ([WR-47](../../docs/semantics/languages.md#wr-47));
 6. writes `ir.json` and `data/`, then the manifest, last.
 
-Before bundling it refuses, with `unsupported_feature`, a codebase script
-(esbuild bundling is C2b) and a host-provided module that is not a script
-of the folder: a host-provided package would need a lock, which the
-contract cannot give yet. Problems with scripts and modules come back
+Before bundling it refuses, with `unsupported_feature`, a host-provided
+module that is not a script of the folder: a host-provided package would
+need a lock, which the contract cannot give yet. Problems with scripts and modules come back
 together as a `*BuildError`, sorted by item; a path script is named
 `script <path>`, an inline step `<flow> step '<id>' (script <inventory id>)`.
 
@@ -159,6 +170,92 @@ Differences come back together as a `*MismatchError`. A
 bundle checked only against its own manifest proves it is intact, not that
 it is the one released: a changed file with a manifest rewritten to match
 passes alone and fails against the release manifest or digest.
+
+## Codebase scripts
+
+A codebase script is a Bun script that a `codebases` entry of `wmill.yaml`
+selects ([SY-8](../../docs/semantics/openflow.md#sy-8)); Windmill's CLI
+bundles it with esbuild at deploy time
+([WR-30](../../docs/semantics/languages.md#wr-30)). `BuildCodebase(ctx,
+CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
+`go.mod` at the CLI's version, 0.28.0 (`EsbuildVersion`,
+[WR-47](../../docs/semantics/languages.md#wr-47)):
+
+- **The CLI's build.** `ParseCodebaseSettings` reads the entry
+  (`format`, `external`, `inject`, `define`, `loader`, `banner`, `assets`;
+  `relative_path`, `includes` and `excludes` do not shape the bundle).
+  `CLIOptions` is WR-47's table: the script file as the single entry point,
+  resolved from the sync root (the CLI's working directory, which `inject`
+  paths and asset sources are relative to too), `bundle`, platform `node`,
+  packages inlined, format `cjs` (absent `format`; engine `node20.15.1`) or
+  `esm` (target `esnext`), output in memory under `/`, the entry's
+  `external`, `inject`, `define` and `banner` unchanged, its `loader` map in
+  place of the default `{".node": "file"}`, and no minification, source map,
+  splitting or metafile. `CLIBundle` runs it as it is: the CLI parity check
+  compares it with what the CLI uploads.
+- **windmill-lite's transforms**, from the same single implementation as
+  the Bun build ([ADR 0010](../../docs/design/0010-packaging.md)): the env
+  rewrite (below) for the entry's format, with the define table's keys
+  taking precedence over the entry's own and the support module injected
+  before the entry's own `inject` files, so it runs before any code of the
+  bundle; and imports that resolve to a listed host-provided module's file,
+  or name a listed package, resolved to that module's shim. Both reach
+  esbuild through a plugin that only maps paths: the support module and
+  the shims load from its `windmill-lite` namespace, so no bundle names a
+  file outside the folder and the output does not depend on where it was
+  built. esbuild calls the plugin concurrently, one call per import
+  being resolved, so what it records is kept under a lock. The binding
+  name is chosen as the Bun helper chooses it (`spells` applies the same
+  rule). `//native` and `//nodejs` scripts are not
+  rewritten. A `//native` codebase script runs in the native runtime
+  (WR-50): it is bundled with host-provided modules inlined, and the Bun
+  helper's `native` op writes the bundle's native form,
+  `scripts/bun/<id>.native.js`, in place of its `.cjs` or `.mjs`.
+- **Metadata.** The helper's `parse` op reads each source for its
+  annotations, workflow-as-code markers and packages, and records a
+  signature for each export of the bundle: the export names come from the
+  metafile of an ES module build of the same entry, with the same plugin as
+  the real build, so an import of a host-provided module resolves to its
+  shim there too (`bundleExports`; a CommonJS bundle's `module.exports`
+  takes the same names), and a function the entry re-exports with
+  `export *` is signed. CommonJS source has no static export list, so its
+  exports are left unsigned; a build that cannot read the names says so in
+  an `esbuild_warning`. The harness calls a callable export of a codebase
+  module that the metadata does not sign with an empty parameter list. A function the entry
+  source declares gets its parameters, as Windmill parses a codebase
+  script's content (WR-6, WR-7); one it does not declare gets an empty
+  list, never a dependency's parameters. The metadata adds
+  `bundler: "esbuild"`, the `format`, the host-provided modules used and
+  esbuild's metafile inputs.
+- **Output.** `scripts/bun/<id>.cjs` for CommonJS (or `.mjs`) and its
+  `.meta.json`; every asset at `assets/<to>`. esbuild's warnings (such as an
+  empty `import.meta` in CommonJS output) are build warnings,
+  `esbuild_warning`.
+- **Refusals**, each a problem of the script: settings of the wrong type
+  or a `format` other than `cjs` and `esm` (`bundle_failed`); an esbuild
+  error (`bundle_failed`); a bundle with several output files, such as a
+  `file` loader's, whose upload layout is `later`
+  ([WR-49](../../docs/semantics/languages.md#wr-49), `unsupported_feature`);
+  an asset whose `to` is not a clean relative path or whose source does not
+  read (`invalid_asset`); and two scripts that extract different content to
+  one path (`asset_collision`,
+  [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 3). Two
+  scripts that extract the same content to one path share it.
+- **Partial success.** Scripts build in id order, and one that fails
+  does not stop the others: as `BuildBun` writes the metadata of every
+  script that built, each script whose module and assets succeed gets its
+  metadata and its assets written, so a caller that runs only the scripts
+  that built (the step and flow checkers of `wltest check`) can run them.
+  An entry's assets are taken all or none, and one that collides with an
+  asset an earlier script took is the later script's problem. Paths that
+  would not extract to one tree (a file that is also another's directory)
+  are the bundle's problem, reported as the item `assets`
+  (`asset_collision`); then no asset or metadata is written. `Build` still
+  refuses the whole folder on any problem.
+
+The harness runs a CommonJS bundle on Bun's CommonJS loader (D13), from a
+copy in its working directory, where it has extracted the assets
+([harnesses/bun](../../harnesses/bun/README.md)).
 
 ## The env rewrite
 
@@ -193,8 +290,10 @@ invocation's environment, and a local binding named `Bun` is left alone. What a 
 imports of the `bun` module (`import { env } from "bun"`), optional chaining
 through the global object (`globalThis?.Bun`), reflection, an alias of the
 global object, and `eval` or `new Function`. The Bun build applies the
-rewrite to Bun-target bundles only; `//native` and `//nodejs` ones are the
-native boundary's (C3n).
+rewrite to Bun-target bundles only: a `//native` script runs at the native
+boundary (C3n), and a `//nodejs` one, which Windmill runs on Node with Bun's
+environment (WR-50), runs on the Bun harness, whose environment view covers
+it at run time (D13).
 
 ## Host-provided modules
 
@@ -310,11 +409,15 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestConformanceBuildCatalogue` fails unless every catalogue case of a
   finding with a case file is a case or listed in `deferred.json`.
   Whole-folder cases (`given.folder`) run `Build` instead, and list every
-  problem it must report: workflow-as-code (WA-33/c, WR-32) and the missing
-  lock (WR-26).
+  problem it must report: workflow-as-code (WA-33/c, WR-32), the missing
+  lock (WR-26), the codebase refusals (WR-47, WR-49). A clean one can check
+  what it recorded for each script, its assets and warnings, and run its
+  modules: the codebase cases of WR-47 (the CLI's settings), WR-49 (assets),
+  WA-31 (the env rewrite in CommonJS and ESM output) and D12 (shims).
 - `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
   flow, an inline step, a path script, a workspace import, a host-provided
-  module, a resource, a resource type, a variable and a secret) and checks
+  module, a codebase script with a define, an import of its codebase and an
+  asset, a resource, a resource type, a variable and a secret) and checks
   the bundle's files, every manifest field, `data/`, `ir.json`, and that its
   modules run on Bun sharing the host-provided module.
   `TestBuildTwiceGivesOneDigest` is F4's exit gate: two builds of copies of
@@ -323,7 +426,8 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   byte. `TestDigestFollowsInputs` changes each input in turn (a flow's
   `stop_after_if`, scripts, the host-provided module and its metadata, a
   lock, data, the contract, the mode, the engine version, the harness
-  runtime) and checks that the digest changes, and that a secret's file and
+  runtime, a codebase script, a module it imports, its entry's define, its
+  asset) and checks that the digest changes, and that a secret's file and
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
   directory and the refusals.
@@ -341,6 +445,26 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
 - `TestEnvRewriteGolden` and `TestShimGolden` pin the define tables, the
   support module and generated shims in `testdata/`; `go test ./internal/bundle -run
   Golden -args -update` rewrites them. `TestShimBehaviour` runs shims on Bun.
+- `TestCLIParity` is the CLI parity check of
+  [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 4
+  ([Q-WR-24](../../docs/semantics/languages.md#q-wr-24)). With
+  `WL_WMILL_CLI` naming the command that runs the unmodified
+  `windmill-cli@1.767.0` (CI's `parity.yml`: `npx --yes
+  windmill-cli@1.767.0`; never run locally, never a dependency), it pushes
+  each synthetic WR-47 fixture with `wmill script push` to a recording HTTP
+  stub and checks that the bundle the CLI uploads (`main.js`, or a tar of
+  it and the assets) equals `CLIBundle`'s, byte for byte. Without it, it
+  skips. `TestCLIOptionsFollowWR47` is its documented fallback, run
+  everywhere: the options `CLIOptions` gives, option by option, are WR-47's
+  table, and `go.mod` pins esbuild at the CLI's version.
+  `TestSpells` checks the binding-name collision rule, and
+  `TestBuildCodebaseConcurrentHostImports` builds 64 modules that each
+  import a listed folder module and a listed package, which esbuild
+  resolves concurrently (run under `-race` in CI), and runs the bundle.
+  `TestBuildCodebasePartialSuccess` builds a script that fails, one that
+  builds and reads its asset, and one whose asset collides, and checks that
+  only the one that built has its metadata and asset, and runs; and that
+  assets that cannot form one tree write nothing.
 - `TestBuildIsReproducible`, `TestMetaFile`, `TestBuildLocks`,
   `TestBuildRefusesAnotherBun`, `TestBuildIgnoresNodeEnv`,
   `TestBuildRefusesAncestorPackages`, `TestHelperRefusesPathsOutsideTheFolder`,
