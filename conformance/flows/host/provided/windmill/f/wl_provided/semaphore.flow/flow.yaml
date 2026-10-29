@@ -13,4 +13,5 @@ schema:
   properties:
     key:
       type: string
-  required: [key]
+  required:
+    - key

@@ -69,7 +69,9 @@ The oracle runs in public CI; see
 | `--run-timeout D` | `5m` | The timeout of one run; less than 60 s is raised to 60 s ([OR-10](../../docs/semantics/oracle.md#or-10)). A run that times out is canceled. |
 
 It prints one line per run: `unchanged`, `new`, `changed`, `unstable`,
-`expect_mismatch`, `failed`, `refused` or `skipped`, the fixture and the run, then any
+`expect_mismatch`, `failed`, `refused` or `skipped` (a fixture that needs
+more workers, under `--skip-unmet-workers`, or one with host-provided
+sites, which only windmill-lite runs), the fixture and the run, then any
 error and the JSON-pointer differences (`/steps/m:b/args/tag: "ho" != "hi"`,
 actual before expected). It exits 1 when a run failed, was refused, was
 unstable or did not match its `expect`, and in check mode also when a

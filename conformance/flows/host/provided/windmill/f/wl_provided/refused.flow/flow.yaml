@@ -4,11 +4,11 @@ value:
     - id: wait
       value:
         type: flow
-        path: f/wl_provided/semaphore
         input_transforms:
           key:
             type: javascript
             expr: flow_input.key
+        path: f/wl_provided/semaphore
       stop_after_if:
         expr: result.granted === false
         skip_if_stopped: false
@@ -17,12 +17,12 @@ value:
         type: rawscript
         content: '!inline work.ts'
         input_transforms:
-          ticket:
-            type: javascript
-            expr: results.wait.ticket
           key:
             type: javascript
             expr: flow_input.key
+          ticket:
+            type: javascript
+            expr: results.wait.ticket
         lock: '!inline work.lock'
         language: bun
 schema:
@@ -31,4 +31,5 @@ schema:
   properties:
     key:
       type: string
-  required: [key]
+  required:
+    - key
