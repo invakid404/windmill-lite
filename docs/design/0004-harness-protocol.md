@@ -336,7 +336,17 @@ microtask see none.
    harness only counts them for the `left_behind` warning, a guarded child
    while its own process runs. The engine holds each group with the
    members it last saw in it, pid and start time, and finds the guardian
-   among them by the token in its arguments. It signals a group only while
+   among them by the token in its arguments: its `sleep` operand, or,
+   from its fork until its exec, a word of the prologue's script, which
+   it carries as a copy of the shell; the group's leader carries the
+   script too until it execs the step's command, so only the operand
+   makes the leader a guardian. So a step's command that exits at once
+   cannot leave the engine a group in which it knows no process. A look
+   that finds neither the guardian nor a member it saw before, while a
+   member other than the leader runs and reads no arguments, as in the
+   middle of an exec, is undecided: the group is kept as it was and
+   looked at again, and a kill looks again for up to 200 ms before it
+   gives the group up. It signals a group only while
    it is the original: while the guardian is among its members, or, for a
    group without one, while a member it saw before is still there, the
    same process, since a group's id is not given to a new process while

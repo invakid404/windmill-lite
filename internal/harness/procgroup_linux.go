@@ -64,9 +64,22 @@ func statOf(pid int) (procInfo, bool) {
 	return procInfo{start: start, ppid: ppid, pgid: pgid, zombie: f[0] == "Z"}, true
 }
 
-// processHasGuard reports whether the process pid is the guardian of the
-// token: an argument of its is guardArg(token) (/proc/<pid>/cmdline).
-func processHasGuard(pid int, token string) bool {
+// processHasGuard reports whether the process pid's arguments carry the
+// guardian's token, with script as hasGuardArg takes it
+// (/proc/<pid>/cmdline).
+func processHasGuard(pid int, token string, script bool) bool {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
-	return err == nil && bytes.Contains(append([]byte{0}, b...), []byte("\x00"+guardArg(token)+"\x00"))
+	return err == nil && hasGuardArg(b, token, script)
+}
+
+// processArgsUnread reports whether the process pid runs and reads no
+// arguments, as it does in the middle of an exec, before the new program's
+// arguments are set up (/proc/<pid>/cmdline empty, and not a zombie).
+func processArgsUnread(pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil || len(b) > 0 {
+		return false
+	}
+	info, ok := statOf(pid)
+	return ok && !info.zombie
 }

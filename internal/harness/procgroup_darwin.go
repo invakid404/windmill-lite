@@ -1,7 +1,6 @@
 package harness
 
 import (
-	"bytes"
 	"errors"
 	"syscall"
 
@@ -56,11 +55,22 @@ func procInfoOf(pid int) (procInfo, bool) {
 // szomb is p_stat's value for a zombie (<sys/proc.h>).
 const szomb = 5
 
-// processHasGuard reports whether the process pid is the guardian of the
-// token: an argument of its is guardArg(token), from kern.procargs2, which
-// gives a process of the engine's user its executable's path and its
-// arguments, each ending in a NUL.
-func processHasGuard(pid int, token string) bool {
+// processHasGuard reports whether the process pid's arguments carry the
+// guardian's token, with script as hasGuardArg takes it, from
+// kern.procargs2, which gives a process of the engine's user its
+// executable's path and its arguments, each ending in a NUL.
+func processHasGuard(pid int, token string, script bool) bool {
 	b, err := unix.SysctlRaw("kern.procargs2", pid)
-	return err == nil && bytes.Contains(b, []byte("\x00"+guardArg(token)+"\x00"))
+	return err == nil && hasGuardArg(b, token, script)
+}
+
+// processArgsUnread reports whether the process pid runs and gives no
+// arguments (kern.procargs2 fails or is empty, and it is not a zombie), as
+// in the middle of an exec.
+func processArgsUnread(pid int) bool {
+	if b, err := unix.SysctlRaw("kern.procargs2", pid); err == nil && len(b) > 0 {
+		return false
+	}
+	info, ok := procInfoOf(pid)
+	return ok && !info.zombie
 }

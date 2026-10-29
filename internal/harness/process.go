@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -852,12 +853,41 @@ type childGroup struct {
 // argument by which the engine knows it.
 func guardArg(token string) string { return "999999999." + token }
 
+// hasGuardArg reports whether args, a process's arguments each ending in a
+// NUL, carry the guardian's token: an argument that is guardArg(token),
+// the guardian's sleep operand once it runs sleep; or, with script, also
+// guardArg(token) as a word of an argument, between spaces, as the
+// prologue's script holds it, which every process of the prologue carries
+// until it execs (guardedCommand): the guardian among them, from its fork
+// until its exec, so a step's command that exits at once cannot leave the
+// engine a group in which it knows no process (review round 5's CI).
+func hasGuardArg(args []byte, token string, script bool) bool {
+	w := []byte(guardArg(token))
+	for i := 0; i < len(args); {
+		j := bytes.Index(args[i:], w)
+		if j < 0 {
+			return false
+		}
+		j += i
+		k := j + len(w)
+		whole := (j == 0 || args[j-1] == 0) && (k == len(args) || args[k] == 0)
+		word := (j == 0 || args[j-1] == 0 || args[j-1] == ' ') && (k == len(args) || args[k] == 0 || args[k] == ' ')
+		if whole || script && word {
+			return true
+		}
+		i = j + 1
+	}
+	return false
+}
+
 // The process operations on child groups, replaced in tests so that no
-// real signal is sent: the members of groups, whether a process is a
-// group's guardian, and a group's kill.
+// real signal is sent: the members of groups, whether a process carries a
+// group's token, whether a running process reads no arguments, and a
+// group's kill.
 var (
 	groupMembers = groupMembersOf
 	isGuard      = processHasGuard
+	argsUnread   = processArgsUnread
 	signalGroup  = func(pgid int) { syscall.Kill(-pgid, syscall.SIGKILL) }
 )
 
@@ -877,24 +907,46 @@ func newChildGroup(pid int, token string) (g *childGroup, ok bool) {
 }
 
 // findGuard looks for the guardian among now, with g.mu held or g not yet
-// shared, until it is found: a guardian whose exec of sleep has not yet
-// set up its arguments shows no token, and a later look finds it.
+// shared, until it is found: a process of the group whose arguments carry
+// the token (hasGuardArg). The group's leader carries the prologue's
+// script too until it execs the step's command, so only the guardian's
+// sleep operand makes the leader a guardian, never the script. The
+// prologue's subshell may be found first, and exits: a later look finds
+// the guardian then (continues).
 func (g *childGroup) findGuard(now []groupMember) {
 	if g.token == "" || g.guard != nil {
 		return
 	}
 	for _, m := range now {
-		if isGuard(m.pid, g.token) {
+		if isGuard(m.pid, g.token, m.pid != g.pgid) {
 			g.guard = &m
 			return
 		}
 	}
 }
 
-// continues reports whether the group of g's id is still the group the
-// step's child started, given its members now, and if so remembers them;
-// guardOnly is set when the guardian is its only member, so nothing of the
-// step is left in it.
+// verdict is what a look at its members tells of a child group
+// (continues).
+type verdict int
+
+const (
+	// lost: the group is not the step's any more, as far as the engine
+	// can tell, and is given up for good.
+	lost verdict = iota
+	// held: it is the step's group.
+	held
+	// alone: it is the step's group, with only its guardian left, so
+	// nothing of the step is left in it.
+	alone
+	// undecided: the look could not tell, since a member's arguments read
+	// empty while it runs, as they do while it execs, and it may be the
+	// guardian in its exec of sleep. The group is kept as it was, and
+	// looked at again (review round 5's CI).
+	undecided
+)
+
+// continues tells whether the group of g's id is still the group the
+// step's child started, given its members now, and if so remembers them.
 //
 //   - While the guardian is among them (found by its token, then known by
 //     its pid and start time), it is: the group's id cannot be given to a
@@ -908,53 +960,72 @@ func (g *childGroup) findGuard(now []groupMember) {
 //     and a replacement shares no member with it. When none is left, which
 //     a group whose members all came and went between two looks shares
 //     with a replacement, the group is given up for good: it is left
-//     running rather than risk killing another owner's processes.
-func (g *childGroup) continues(now []groupMember) (owned, guardOnly bool) {
+//     running rather than risk killing another owner's processes; unless
+//     the group was started with a guardian and a member other than its
+//     leader reads no arguments while it runs (argsUnread): the look is
+//     undecided then, and the group is left as it was.
+func (g *childGroup) continues(now []groupMember) verdict {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.continuesLocked(now)
 }
 
 // continuesLocked is continues with g.mu held.
-func (g *childGroup) continuesLocked(now []groupMember) (owned, guardOnly bool) {
+func (g *childGroup) continuesLocked(now []groupMember) verdict {
 	if g.seen == nil {
-		return false, false
+		return lost
+	}
+	if g.guard != nil && !slices.Contains(now, *g.guard) {
+		// It ended: the guardian killed, or a copy of the prologue that
+		// carried the token and exited. Another may carry it still.
+		g.guard = nil
 	}
 	g.findGuard(now)
 	if g.guard != nil {
-		if slices.Contains(now, *g.guard) {
-			g.seen = now
-			return true, len(now) == 1
+		g.seen = now
+		if len(now) == 1 {
+			return alone
 		}
-		g.guard = nil
+		return held
 	}
 	for _, m := range now {
 		if slices.Contains(g.seen, m) {
 			g.seen = now
-			return true, false
+			return held
 		}
 	}
+	if g.token != "" && slices.ContainsFunc(now, func(m groupMember) bool { return m.pid != g.pgid && argsUnread(m.pid) }) {
+		return undecided
+	}
 	g.seen = nil
-	return false, false
+	return lost
 }
 
-// look returns, for each of gs, whether it continues and whether only its
-// guardian is left (continues), from one listing of the groups' members.
-func look(gs []*childGroup) (owned, guardOnly []bool) {
+// look returns what continues tells of each of gs, from one listing of the
+// groups' members.
+func look(gs []*childGroup) []verdict {
 	if len(gs) == 0 {
-		return nil, nil
+		return nil
 	}
 	ids := make([]int, len(gs))
 	for i, g := range gs {
 		ids[i] = g.pgid
 	}
 	members := groupMembers(ids)
-	owned, guardOnly = make([]bool, len(gs)), make([]bool, len(gs))
+	out := make([]verdict, len(gs))
 	for i, g := range gs {
-		owned[i], guardOnly[i] = g.continues(members[g.pgid])
+		out[i] = g.continues(members[g.pgid])
 	}
-	return owned, guardOnly
+	return out
 }
+
+// How long end looks again at a group a look left undecided, at most:
+// endTries times, endRetry apart, while the member that read no arguments
+// finishes its exec.
+var (
+	endTries = 40
+	endRetry = 5 * time.Millisecond
+)
 
 // end is the one kill of g's group, by whichever path comes first: a
 // cancellation, a settlement or the process's end (killChildGroups), or
@@ -962,7 +1033,9 @@ func look(gs []*childGroup) (owned, guardOnly []bool) {
 // g.mu held, it looks at the group's members afresh and kills the group
 // with SIGKILL only when its id can name a group (validGroupID), it is
 // still the group the step's child started (continues) and, for a release,
-// only its guardian is left. A group it kills is ended for good, so that
+// only its guardian is left. A look left undecided is taken again, a few
+// milliseconds later, for a while (endTries); a group still undecided
+// then is given up. A group it kills is ended for good, so that
 // no other path, holding a look from before the kill, signals its id
 // again: the kill ends the guardian that kept the id reserved (review
 // round 4, finding 1). The kill follows the look at once; a group that
@@ -976,12 +1049,20 @@ func (g *childGroup) end(release bool) (ended bool) {
 	if g.seen == nil || !validGroupID(g.pgid) {
 		return true
 	}
-	now := groupMembers([]int{g.pgid})[g.pgid]
-	owned, guardOnly := g.continuesLocked(now)
+	var now []groupMember
+	v := undecided
+	for try := 0; v == undecided && try < endTries; try++ {
+		if try > 0 {
+			time.Sleep(endRetry)
+		}
+		now = groupMembers([]int{g.pgid})[g.pgid]
+		v = g.continuesLocked(now)
+	}
 	switch {
-	case !owned:
+	case v == lost || v == undecided:
+		g.seen, g.guard = nil, nil
 		return true
-	case release && !guardOnly:
+	case release && v != alone:
 		return false
 	}
 	signalGroup(g.pgid)
@@ -1058,11 +1139,11 @@ func (p *Process) retireChildren() { p.lookAtChildren(func(*childGroup) bool { r
 // lookAtChildren is retireChildren for the groups due says to look at.
 func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 	p.mu.Lock()
-	var held []*childGroup
+	var gs []*childGroup
 	for _, inv := range p.invs {
 		for _, g := range inv.children {
 			if due(g) {
-				held = append(held, g)
+				gs = append(gs, g)
 			}
 		}
 	}
@@ -1070,21 +1151,21 @@ func (p *Process) lookAtChildren(due func(*childGroup) bool) {
 	// The reaper's pass rides on the watcher's looks too, so a group the
 	// watcher released is reaped at its next look.
 	defer reapPass()
-	prev := make([][]groupMember, len(held))
-	for i, g := range held {
+	prev := make([][]groupMember, len(gs))
+	for i, g := range gs {
 		g.mu.Lock()
 		prev[i] = g.seen
 		g.mu.Unlock()
 	}
 	gone := map[*childGroup]bool{}
-	owned, guardOnly := look(held)
-	for i, g := range held {
+	for i, v := range look(gs) {
+		g := gs[i]
 		switch {
-		case !owned[i]:
+		case v == lost:
 			gone[g] = true
-		case guardOnly[i] && g.end(true):
+		case v == alone && g.end(true):
 			gone[g] = true
-		default:
+		case v == held:
 			g.reapAdopted(prev[i])
 		}
 	}

@@ -172,9 +172,19 @@ process the harness starts in the group so that its id stays reserved,
 which the engine finds among the members by its arguments
 (`processHasGuard`: `/proc/<pid>/cmdline` on Linux, `kern.procargs2` on
 macOS, which gives another process's arguments but not its environment).
-It looks for the guardian again at each look until it finds it, since a
-guardian whose exec of `sleep` has not yet set up its arguments shows no
-token.
+The token counts as the `sleep` operand, or, for a member other than the
+group's leader, as a word of the prologue's script, which the guardian
+carries from its fork until its exec (`hasGuardArg`); the leader carries
+the script too until it execs the step's command, so it is never taken
+for the guardian by it. It looks for the guardian again at each look
+until it finds it, and again once the process it found has exited (the
+prologue's subshell carries the script as well). A look that finds
+neither the guardian nor a member seen before, in a guarded group, while
+a member other than the leader runs and reads no arguments
+(`processArgsUnread`: as in the middle of an exec, when
+`/proc/<pid>/cmdline` reads empty), is `undecided`: the watcher keeps the
+group as it was, and `end` looks again, `endRetry` apart, up to
+`endTries` times (200 ms), before it gives the group up.
 `continues` takes the group for the original while the guardian is among
 its members, or, without one, while a member seen before is still there;
 otherwise the group is given up for good and never signalled. A group
@@ -192,7 +202,7 @@ The engine also kills an invocation's groups at its settlement
 (`settleLocked`), when the harness reported them left behind. A group
 without a guardian whose members all came and went between two looks is
 given up and left running. The process operations are variables the
-tests replace (`groupMembers`, `isGuard`, `signalGroup`), so no test
+tests replace (`groupMembers`, `isGuard`, `argsUnread`, `signalGroup`), so no test
 sends a real signal to a fake id.
 When a warm process ends, `endGroup` kills what is left in its own group:
 what the steps' synchronous child calls started, which gets no group of

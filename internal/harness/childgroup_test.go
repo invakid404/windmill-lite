@@ -20,9 +20,14 @@ import (
 // signalled, and the processes reaped. No real signal is sent and no real
 // process is waited for.
 type fakeProcs struct {
-	mu       sync.Mutex
-	groups   map[int][]groupMember
-	guards   map[int]string // pid → the token in its arguments
+	mu     sync.Mutex
+	groups map[int][]groupMember
+	guards map[int]string // pid → the token as its sleep operand
+	// scripts are the processes that carry a token in the prologue's
+	// script, before their exec (pid → token); unread are those that run
+	// and read no arguments, in the middle of an exec.
+	scripts  map[int]string
+	unread   map[int]bool
 	signaled []int
 	// parents are the processes whose parent is the engine (pid → true);
 	// zombies are those that have exited, not yet reaped.
@@ -35,11 +40,16 @@ type fakeProcs struct {
 
 func useFakeProcs(t *testing.T) *fakeProcs {
 	t.Helper()
-	f := &fakeProcs{groups: map[int][]groupMember{}, guards: map[int]string{}, parents: map[int]bool{}, zombies: map[int]bool{}}
+	f := &fakeProcs{groups: map[int][]groupMember{}, guards: map[int]string{}, scripts: map[int]string{}, unread: map[int]bool{}, parents: map[int]bool{}, zombies: map[int]bool{}}
 	// No reaping goroutine may read the process operations while they are
 	// replaced, nor reap a fake group with the real ones afterwards.
 	resetReaper()
-	gm, ig, sg, rp, wp := groupMembers, isGuard, signalGroup, readProc, reapPID
+	gm, ig, au, sg, rp, wp := groupMembers, isGuard, argsUnread, signalGroup, readProc, reapPID
+	argsUnread = func(pid int) bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.unread[pid]
+	}
 	readProc = func(pid int) (procInfo, bool) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -71,10 +81,10 @@ func useFakeProcs(t *testing.T) *fakeProcs {
 		}
 		return true
 	}
-	isGuard = func(pid int, token string) bool {
+	isGuard = func(pid int, token string, script bool) bool {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		return f.guards[pid] == token
+		return f.guards[pid] == token || script && f.scripts[pid] == token
 	}
 	groupMembers = func(pgids []int) map[int][]groupMember {
 		f.mu.Lock()
@@ -99,7 +109,7 @@ func useFakeProcs(t *testing.T) *fakeProcs {
 	}
 	t.Cleanup(func() {
 		resetReaper()
-		groupMembers, isGuard, signalGroup, readProc, reapPID = gm, ig, sg, rp, wp
+		groupMembers, isGuard, argsUnread, signalGroup, readProc, reapPID = gm, ig, au, sg, rp, wp
 	})
 	return f
 }
@@ -302,6 +312,124 @@ func TestChildGroupGuardian(t *testing.T) {
 			t.Fatalf("signalled %v", got)
 		}
 	})
+	// The leader carries the prologue's script, and so the token, until it
+	// execs the step's command: alone in its group, it is not a guardian
+	// left alone, and is not released (review round 5's CI).
+	t.Run("the leader before its exec", func(t *testing.T) {
+		f.scripts[4242] = "tk"
+		defer delete(f.scripts, 4242)
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "tk")
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		p := &Process{invs: map[string]*invocation{"i": inv}}
+		p.retireChildren()
+		if got := f.took(); len(got) != 0 || len(inv.children) != 1 {
+			t.Fatalf("signalled %v, held %d", got, len(inv.children))
+		}
+	})
+	// The engine first finds the prologue's subshell, which carries the
+	// token; it exits, and so does the step's command, at once, before the
+	// engine saw the guardian: the guardian, which carries the token from
+	// its fork, keeps the group the original (review round 5's CI).
+	t.Run("a copy of the prologue, then the guardian", func(t *testing.T) {
+		f.scripts[6001] = "tk"
+		defer delete(f.scripts, 6001)
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, "tk")
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		p := &Process{invs: map[string]*invocation{"i": inv}}
+		f.set(4242, m(4242, 1), m(6001, 2))
+		p.retireChildren()
+		f.set(4242, m(6000, 3), m(5000, 4))
+		p.mu.Lock()
+		gs := takeChildren(inv)
+		p.mu.Unlock()
+		killChildGroups(gs)
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+	})
+}
+
+// A look that finds neither the guardian nor a member it saw before, in a
+// group started with a guardian, while a member other than the leader runs
+// and reads no arguments, as in its exec, is undecided: the watcher keeps
+// the group as it was, and a kill looks again a few milliseconds later,
+// for a while, before it gives the group up. A group started without a
+// guardian is never undecided (review round 5's CI: a guardian whose exec
+// of sleep the look caught midway).
+func TestChildGroupUndecided(t *testing.T) {
+	// spec: WR-55
+	f := useFakeProcs(t)
+	m := func(pid int, start uint64) groupMember { return groupMember{pid: pid, start: start} }
+	tries, retry := endTries, endRetry
+	endTries, endRetry = 5, time.Millisecond
+	t.Cleanup(func() { endTries, endRetry = tries, retry })
+	// execing makes 6000 the guardian midway through its exec, running
+	// with no arguments, or, done, with its sleep operand.
+	execing := func(done bool) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.unread[6000] = !done
+		if done {
+			f.guards[6000] = "tk"
+		} else {
+			delete(f.guards, 6000)
+		}
+	}
+	holding := func(token string) (*Process, *invocation) {
+		f.set(4242, m(4242, 1))
+		g, _ := newChildGroup(4242, token)
+		inv := &invocation{id: "i", children: []*childGroup{g}}
+		f.set(4242, m(6000, 2), m(5000, 3)) // the command exited
+		return &Process{invs: map[string]*invocation{"i": inv}}, inv
+	}
+	t.Run("the watcher keeps it", func(t *testing.T) {
+		execing(false)
+		p, inv := holding("tk")
+		p.retireChildren()
+		if len(inv.children) != 1 || len(f.took()) != 0 {
+			t.Fatalf("held %d", len(inv.children))
+		}
+		execing(true)
+		killChildGroups(takeChildren(inv))
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+	})
+	t.Run("a kill waits for the exec", func(t *testing.T) {
+		execing(false)
+		_, inv := holding("tk")
+		// The exec ends after the kill's first look, by its second.
+		f.mu.Lock()
+		f.hold = func() {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.hold = func() { execing(true) }
+		}
+		f.mu.Unlock()
+		killChildGroups(takeChildren(inv))
+		if got := f.took(); !slices.Equal(got, []int{4242}) {
+			t.Fatalf("signalled %v", got)
+		}
+	})
+	t.Run("undecided for too long", func(t *testing.T) {
+		execing(false)
+		_, inv := holding("tk")
+		killChildGroups(takeChildren(inv))
+		if got := f.took(); len(got) != 0 {
+			t.Fatalf("signalled %v", got)
+		}
+	})
+	t.Run("without a guardian", func(t *testing.T) {
+		execing(false)
+		p, inv := holding("")
+		p.retireChildren()
+		if len(inv.children) != 0 {
+			t.Fatal("a group without a guardian was left undecided")
+		}
+	})
+	execing(true)
 }
 
 // The watcher's release of a group with only its guardian left and a
@@ -539,7 +667,7 @@ func TestReviewOwnedGuardianReaped(t *testing.T) {
 		var ws syscall.WaitStatus
 		syscall.Wait4(pid, &ws, syscall.WNOHANG, nil)
 	})
-	waitFor(t, "the guardian's token", func() bool { return processHasGuard(pid, token) })
+	waitFor(t, "the guardian's token", func() bool { return processHasGuard(pid, token, false) })
 	g, ok := newChildGroup(pid, token)
 	if !ok {
 		t.Fatal("no group")
@@ -617,9 +745,47 @@ func TestGuardianToken(t *testing.T) {
 	}
 	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
 	pid := cmd.Process.Pid
-	waitFor(t, "the guardian's token", func() bool { return processHasGuard(pid, "012345678901234") })
-	if processHasGuard(pid, "01234567890123") || processHasGuard(os.Getpid(), "012345678901234") {
+	waitFor(t, "the guardian's token", func() bool { return processHasGuard(pid, "012345678901234", false) })
+	if processHasGuard(pid, "01234567890123", true) || processHasGuard(os.Getpid(), "012345678901234", true) {
 		t.Fatal("the guardian's token is not told apart")
+	}
+	// Before its exec, a process of the prologue carries the token as a
+	// word of the script (hasGuardArg): here a shell that keeps running
+	// with such a script.
+	sh := exec.Command("/bin/sh", "-c", "sleep 5; : sleep "+guardArg("543210987654321")+" &")
+	if err := sh.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sh.Process.Kill(); sh.Wait() })
+	waitFor(t, "the script's token", func() bool { return processHasGuard(sh.Process.Pid, "543210987654321", true) })
+	if processHasGuard(sh.Process.Pid, "543210987654321", false) || processHasGuard(sh.Process.Pid, "54321098765432", true) {
+		t.Fatal("the script's token is not told apart")
+	}
+}
+
+// hasGuardArg finds the token as a whole argument, or, with script, as a
+// whole word of one too, and nowhere else.
+func TestHasGuardArg(t *testing.T) {
+	for _, c := range []struct {
+		args          string
+		whole, script bool
+	}{
+		{"sleep\x00999999999.123\x00", true, true},
+		{"/bin/sh\x00-c\x00( exec </dev/null; sleep 999999999.123 & ); exec \"$0\" \"$@\"\x00sh\x00", false, true},
+		{"999999999.123\x00", true, true},
+		{"sleep\x00999999999.1234\x00", false, false},
+		{"sleep\x00999999999.12\x00", false, false},
+		{"sleep\x00x999999999.123\x00", false, false},
+		{"echo\x00999999999.123x\x00", false, false},
+		{"sleep\x00999999999.1234\x00999999999.123\x00", true, true},
+		{"", false, false},
+	} {
+		if got := hasGuardArg([]byte(c.args), "123", false); got != c.whole {
+			t.Errorf("hasGuardArg(%q, false) = %v", c.args, got)
+		}
+		if got := hasGuardArg([]byte(c.args), "123", true); got != c.script {
+			t.Errorf("hasGuardArg(%q, true) = %v", c.args, got)
+		}
 	}
 }
 
