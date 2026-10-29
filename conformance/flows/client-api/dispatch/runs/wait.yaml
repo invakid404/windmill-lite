@@ -1,0 +1,26 @@
+# Written from the reference before the oracle ran it. Each dispatch
+# answers 201 with the new job's id (the API's schema); the polls end with
+# completed true: the script's result and started true, the failed
+# script's error with its name and message (WA-15/a, WR-21), the flow's
+# result. A UUID that names no job answers the four fields with nulls,
+# started false when get_started asks for it (WA-V2/a, WA-V2/b).
+spec: [WA-15/a, WA-15/c, WA-V2/a, WA-V2/b]
+target: f/wl_pf3_disp/wait
+expect:
+  status: success
+  result:
+    add: {status: 201, started: true, success: true, result: 3}
+    fail: {status: 201, success: false, name: Error, message: boom}
+    flow: {status: 201, success: true, result: 40}
+    unknown: {started: null, success: null, completed: false, result: null}
+    unknown_started: {started: false, success: null, completed: false, result: null}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        add: {status: 201, started: true, success: true, result: 3}
+        fail: {status: 201, success: false, name: Error, message: boom}
+        flow: {status: 201, success: true, result: 40}
+        unknown: {started: null, success: null, completed: false, result: null}
+        unknown_started: {started: false, success: null, completed: false, result: null}

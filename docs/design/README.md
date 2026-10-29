@@ -81,7 +81,13 @@ the engine's waits and time: `sleep`, the step timeout and its messages,
 retries with their arithmetic, jitter and argument reuse, deadlines (the
 monitor of flows that hang between steps, the pre-write deadline of
 [0008](0008-host-hooks.md)'s H4) and the clock of H10, with its fixtures
-`fx-23` to `fx-29` recorded on the oracle.
+`fx-23` to `fx-29` recorded on the oracle. Milestone PF3 adds the job
+registry, flow user state, the object store and the dispatcher's
+interface there, their routes in the facade, and in the engine each run's
+registration, `flow_user_state()`, a root script's run as a script job
+and the default dispatcher, which runs a bundle's roots as separate runs
+and refuses any other target (the restriction of
+[0001](0001-equivalence-contract.md) §5a).
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

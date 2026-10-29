@@ -1,0 +1,19 @@
+# Milestone PF3's fixture: the runs a step dispatches (WA-15, WA-V2),
+# recorded on the oracle with two workers, since a step that waits for a
+# run it dispatched holds one while the run needs another (OR-5), and run
+# by wltest check on windmill-lite, where the default dispatcher runs the
+# target from the bundle as a separate run of the same runtime (ADR 0007).
+# Each step makes the calls that the stock client's runScriptByPath,
+# runFlow and runFlowAsync make, with fetch at BASE_URL and its own token,
+# and polls the result as waitJob does. roots lists the bundle's other
+# roots, the targets the steps dispatch, which a host contract lists
+# (ADR 0002) and wltest check compiles with each target. Synthetic,
+# written for this repository from docs/semantics/client-api.md and
+# docs/semantics/conformance.md.
+id: client-api/dispatch
+spec: [WA-15/a, WA-15/c, WA-V2/a, WA-V2/b, OR-5, OR-14]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2}
+roots: [f/wl_pf3_disp/add, f/wl_pf3_disp/fail, f/wl_pf3_disp/probe, f/wl_pf3_disp/child, f/wl_pf3_disp/probe_flow]

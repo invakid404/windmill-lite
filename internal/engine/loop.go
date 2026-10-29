@@ -538,7 +538,7 @@ func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site con
 		FlowInput:  fr.input,
 		FlowEnv:    r.envOf(fr),
 		Results:    r.results(fr),
-		Helpers:    helpers{r.e.platform},
+		Helpers:    helpers{r.e.platform, r.rootID},
 	}
 	v, err := r.evaluate(ctx, fr, t.Expr, site, s)
 	if err != nil {

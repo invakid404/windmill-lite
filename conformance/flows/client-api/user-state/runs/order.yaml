@@ -1,0 +1,8 @@
+# The text a value comes back as: the reference says only that the state
+# lives in the root's flow status (WA-14), so no expect is written and the
+# recording is the reference for the key order and the number spelling.
+spec: [WA-14/a]
+target: f/wl_pf3_us/order
+claims:
+  - at: /result/set
+    equals: 200
