@@ -216,13 +216,13 @@ func TestAttemptEndWinsOverALateCompletion(t *testing.T) {
 	}
 }
 
-// A cancellation that lands while the evaluation runs wins over the result
-// the evaluation completes with afterwards, and counts as a canceled
-// attempt. The cancel comes from a host call the expression makes, so it
+// A cancellation that lands while the evaluation waits on a host call ends
+// it with the caller's cause and counts as a canceled attempt; the code
+// after the call does not run. The cancel comes from that host call, so it
 // always lands during the evaluation: a timer could fire while the job
 // still waited for its slot to be prepared, which counts no canceled
 // attempt (FU7: a loaded runner prepared the slot in more than 2 ms).
-func TestCancellationWinsOverALateCompletion(t *testing.T) {
+func TestCancellationDuringAHostCall(t *testing.T) {
 	e := newEngine(t, Options{Slots: 1})
 	p := compile(t, e, `(async () => { await stop(); return String("x".repeat(100 << 20).length); })()`)
 	cause := errors.New("run canceled")
@@ -236,6 +236,39 @@ func TestCancellationWinsOverALateCompletion(t *testing.T) {
 	}
 	if s := e.Stats(); s.Canceled != 1 || s.Timeouts != 0 {
 		t.Fatalf("stats %+v", s)
+	}
+}
+
+// A cancellation that lands once the evaluation has completed and read its
+// result back, but before the result is returned, wins over that late
+// result: the caller gets its cause and the attempt counts as canceled
+// (JE-2, D8). The test ends the caller's context at that boundary
+// (attemptReturned), after a successful readback of the 100 MiB string's
+// length.
+func TestCancellationWinsOverALateCompletion(t *testing.T) {
+	e := newEngine(t, Options{Slots: 1})
+	p := compile(t, e, `String("x".repeat(100 << 20).length)`)
+	cause := errors.New("run canceled")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	completed := false
+	after := func(c context.Context) {
+		if c == ctx {
+			completed = true
+			cancel(cause)
+		}
+	}
+	attemptReturned.Store(&after)
+	t.Cleanup(func() { attemptReturned.Store(nil) })
+	if out, err := e.Eval(ctx, p, expr.Input{}); !errors.Is(err, cause) || !completed {
+		t.Fatalf("got %s, %v (completed %v); want the cancellation cause over the completed result", out, err, completed)
+	}
+	if s := e.Stats(); s.Canceled != 1 || s.Timeouts != 0 {
+		t.Fatalf("stats %+v", s)
+	}
+	attemptReturned.Store(nil)
+	// Without a cancellation, the same program returns its result.
+	if got := mustRun(t, e, `String("x".repeat(100 << 20).length)`, expr.Input{}); got != "104857600" {
+		t.Fatalf("got %q", got)
 	}
 }
 

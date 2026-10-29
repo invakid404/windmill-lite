@@ -438,8 +438,13 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   `platform-left-behind`, whose late reply is dropped), of a platform
   call refused after settlement, and of `fresh` mode (`welcome-fresh`,
   `fresh-one-invocation`, `fresh-exit`).
-- `bun_test.go` runs `Process` and `Pool` against the real Bun harness:
-  handshake rejections and the pid check, outcomes, process death (through
+- `bun_test.go` runs `Process` and `Pool` against the real Bun harness.
+  `TestBunCancelDuringLargeInvoke` holds a 24 MiB invoke's delivery after
+  its first part (`partWritten`, a hook every connection's writer calls
+  after a part frame), cancels while the stream is open, checks that the
+  cancel waits behind it, and runs a gate step, so the invocation is still
+  abandoned when the harness answers the ping that follows the cancel. It
+  also covers handshake rejections and the pid check, outcomes, process death (through
   `process.reallyExit`, which the harness does not intercept), a
   `process.exit` that ends only its invocation, the attribution of a
   timer's error and the warning of an unattributed rejection, one whose

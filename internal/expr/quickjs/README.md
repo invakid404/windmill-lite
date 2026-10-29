@@ -201,7 +201,9 @@ each with mimalloc and with its own `malloc`).
   of thrown values, the job queue (every queued job runs, and a throwing
   one is dropped), the compile cache, fresh runtimes, leaks, interrupts
   and cancellations (also when
-  they come during a long built-in or readback), `Close`, the arrival
+  they come during a long built-in or readback, while a host call is
+  pending, or once a completed readback is about to be returned, which the
+  tests reach through `attemptReturned`), `Close`, the arrival
   order of waiting callers, concurrent use under `-race`, and the overflow
   depth at the default stack, which they log for each platform and check
   lies between 600 (fits) and 1 000 000 (overflows), the bracket JE-48
