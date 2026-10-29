@@ -238,7 +238,10 @@ parallelism, whose error the reference does not give; a preprocessor and
    `WM_JOB_ID` (the invocation's id), the run as `WM_FLOW_JOB_ID`,
    `WM_ROOT_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, the flow's path, the module
    id, the job path, `WM_STATE_PATH`, a fresh `WM_TOKEN`, and the host
-   configuration of `Config.Host` and `Config.Workspace`.
+   configuration of `Config.Host` and `Config.Workspace`. A step in a loop
+   body takes its child flow's job id, innermost scope and path, or its
+   collapsed loop's step id and `<flow path>/loop-<i>` job path (For loops,
+   below).
 5. **`stop_after_if`** after a success, except on the failure module, and
    on an identity job classified skipped: any identity job of a module
    with a `skip_if`, whatever the predicate answered, and whether it ran or
