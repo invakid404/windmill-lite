@@ -172,7 +172,9 @@ repeated keys, and numbers that are not JSON numbers (`0x1F`, `1_000`,
 `compare` paths are RFC 6901 JSON Pointers into the observation, for example
 `/steps/m:a0/args/fi_keys`; a `/` inside a site path is `~1`. `stack` masks a
 string as `<stack>` (OR-V3 clause c) and `mask` replaces any value with
-`<masked>` (environment-derived values, OR-29).
+`<masked>` (environment-derived values, OR-29). Neither reaches inside a
+run-and-wait response's body, which is text: a pointer can mask the whole
+`/response/body`.
 
 `oracle.setup` is `after_push` (the default: once, after the push),
 `before_push` (once, before the push, which then removes what it seeded,

@@ -92,7 +92,9 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    ([FX-36](../../docs/semantics/execution.md#fx-36),
    [FX-37](../../docs/semantics/execution.md#fx-37)), and is then polled to
    completion like the others, since an `early_return` answers while the
-   flow runs on; the response's time is in the provenance. Before every
+   flow runs on; one deadline bounds the response and the poll together,
+   a submission refused without a job fails the run with its response,
+   and the response's time is in the provenance. Before every
    repetition of a fixture with `oracle.setup: each_run`, its variables are
    set to `setup.yaml`'s values again (`ResetSetup`). Walk the run,
    normalise it, and repeat as asked (the observations must be equal,
@@ -427,7 +429,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
 | `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; the pulled flow keeps an identity module's extra field and fills the loop's `skip_failures` (CF-6/b, SY-6/c); FX-40/d's body carries the deployed script's hash | `conformance/flows` |
 | `TestRecordedEarlyReturn`, `TestRecordedBigPayload`, `TestRecordedOutOfOrderCompletion` | E3e's recordings: run-and-wait answered `early_return`'s value at least a second before the flow completed (FX-37/a); the big payload is whole in a's result and b's arguments (OR-V1/a); on two workers the slow index-0 body completed after the next one, while results stay in index order (Q-OR-7, Q-OR-15) | `conformance/flows` |
-| `TestSessionRecordsRunAndWait`, `TestSessionSetupPolicies`, `TestSessionSkipsUnmetWorkers`, `TestSessionListenInterval`, `TestSessionPullsTheDeployedTree` | E3e's session options against the fake Windmill: a run-and-wait run's response (200 and 422, the failed step's stack masked inside the body) beside its walk; `setup.yaml` after the push, before it and before every run, with `setup_not_applied` and `seed_survived_push`; a fixture that needs two workers skipped; the listen-interval knob in compose's environment and the provenance; the pulled flow in the deployment evidence | the smoke fixture |
+| `TestSessionRecordsRunAndWait`, `TestSessionRunAndWaitRefused`, `TestSessionSetupPolicies`, `TestSessionSkipsUnmetWorkers`, `TestSessionListenInterval`, `TestSessionPullsTheDeployedTree` | E3e's session options against the fake Windmill: a run-and-wait run's response (200 and 422, the failed step's stack masked inside the body) beside its walk, and a refused submission failing at once; `setup.yaml` after the push, before it (read back before and after the push) and before every run, with `setup_not_applied` and `seed_survived_push`; a fixture that needs two workers skipped; the listen-interval knob in compose's environment and the provenance; the pulled flow in the deployment evidence | the smoke fixture |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |

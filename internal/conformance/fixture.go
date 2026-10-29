@@ -142,6 +142,9 @@ type CompareSpec struct {
 	Stack []string `json:"stack,omitempty"`
 	// Mask lists values replaced by MarkerMasked: environment-derived
 	// values such as WM_BASE_URL, WM_WORKSPACE, identities and tokens.
+	// Stack and Mask point into the observation's values; a run-and-wait
+	// response's body is text, which they do not reach inside (only the
+	// whole body can be masked).
 	Mask []string `json:"mask,omitempty"`
 	// Unordered lists arrays that compare as multisets (OR-23).
 	Unordered []string `json:"unordered,omitempty"`
@@ -360,6 +363,14 @@ func LoadFixture(dir string) (*Fixture, error) {
 	}
 	if len(f.Runs) == 0 {
 		return nil, fmt.Errorf("%s: fixture has no runs/*%s", dir, runExtension)
+	}
+	if f.Oracle.SetupPolicy() == SetupEachRun {
+		// Concurrent runs would share the variables between resets.
+		for _, r := range f.Runs {
+			if r.Group != "" {
+				return nil, fmt.Errorf("%s: oracle.setup %s resets before each run, so run %s cannot be in group %s", filepath.Join(dir, FixtureFile), SetupEachRun, r.Name, r.Group)
+			}
+		}
 	}
 	sort.Slice(f.Runs, func(i, j int) bool { return f.Runs[i].Name < f.Runs[j].Name })
 	return f, nil

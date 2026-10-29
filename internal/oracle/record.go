@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -79,6 +80,15 @@ type Session struct {
 	settle        time.Duration
 	minRunTimeout time.Duration
 	runWatch      time.Duration
+}
+
+// listenInterval returns the oracle's LISTEN_NEW_EVENTS_INTERVAL_SEC:
+// ListenInterval, or OracleEnv's value when it is zero.
+func (s *Session) listenInterval() string {
+	if s.ListenInterval != 0 {
+		return fmt.Sprint(s.ListenInterval)
+	}
+	return OracleEnv["LISTEN_NEW_EVENTS_INTERVAL_SEC"]
 }
 
 func (s *Session) base() string {
@@ -227,9 +237,9 @@ func (s *Session) Run(ctx context.Context, fixtures []*conformance.Fixture) (*Re
 		return rep, err
 	}
 	compose := Compose{Docker: s.Docker, File: file, Workers: s.Workers, Env: []string{"WL_EFFECT_SINK=" + sinkURL}}
-	if s.ListenInterval != 0 {
-		compose.Env = append(compose.Env, fmt.Sprintf("%s=%d", ListenIntervalVar, s.ListenInterval))
-	}
+	// Always set, so a value left in the caller's environment cannot
+	// reach compose behind the provenance's back.
+	compose.Env = append(compose.Env, ListenIntervalVar+"="+s.listenInterval())
 	s.logf("starting the oracle (%d worker container(s))", s.Workers)
 	// The watchdog covers the start as well as the session (OR-30 step 7);
 	// teardown runs whatever happened.
@@ -381,9 +391,7 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 	for k, v := range OracleEnv {
 		env[k] = v
 	}
-	if s.ListenInterval != 0 {
-		env["LISTEN_NEW_EVENTS_INTERVAL_SEC"] = fmt.Sprint(s.ListenInterval)
-	}
+	env["LISTEN_NEW_EVENTS_INTERVAL_SEC"] = s.listenInterval()
 	base := Provenance{
 		Oracle: OracleProvenance{
 			Version:       OracleVersion,
@@ -533,11 +541,17 @@ func (s *Session) deployCLI(ctx context.Context, c *Client, cli CLI, f *conforma
 	} else if err := CopyTree(f.SyncTree(), copyDir); err != nil {
 		return nil, dep, err
 	}
-	// Seeded before the push, setup.yaml's variables must be gone after it
-	// (OR-31/a, OR-31/b); applied after it, they must be there.
+	// Seeded before the push, setup.yaml's variables must be there before
+	// it and gone after it (OR-31/a, OR-31/b); applied after it, they must
+	// be there.
 	before := f.Oracle.SetupPolicy() == conformance.SetupBeforePush
 	if before {
 		if err := ApplySetup(ctx, c, ws, f.Setup); err != nil {
+			return nil, dep, err
+		}
+		// The seed must be there before the push for its absence after
+		// the push to show anything.
+		if err := CheckSetup(ctx, c, ws, f.Setup, true); err != nil {
 			return nil, dep, err
 		}
 	}
@@ -881,6 +895,10 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 		defer replay.Close(root)
 	}
 	submitted := time.Now()
+	// One deadline bounds the whole run, a run-and-wait response and the
+	// poll after it together (OR-10).
+	runCtx, cancelRun := context.WithTimeout(ctx, s.RunTimeout)
+	defer cancelRun()
 	var id string
 	var err error
 	var resp *HTTPResponse
@@ -892,12 +910,18 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 		// Run-and-wait answers when the flow completes, or early at its
 		// early_return step while the flow runs on (FX-37); the poll
 		// below then waits for the flow itself.
-		waitCtx, cancel := context.WithTimeout(ctx, s.RunTimeout)
 		var hr HTTPResponse
-		hr, err = c.RunWaitFlow(waitCtx, ws, r.Target, r.ArgsOrEmpty(), root)
-		cancel()
+		hr, err = c.RunWaitFlow(runCtx, ws, r.Target, r.ArgsOrEmpty(), root)
 		responded = time.Since(submitted)
 		id, resp = root, &hr
+		if err == nil && hr.Status >= 400 {
+			// A refused submission (bad arguments, an unknown path)
+			// creates no job, so there is no run to poll or walk.
+			var api *APIError
+			if _, gerr := c.GetJob(runCtx, ws, root); errors.As(gerr, &api) && api.Status == http.StatusNotFound {
+				err = fmt.Errorf("oracle: run-and-wait refused run %s without a job: HTTP %d: %s", r.Name, hr.Status, strings.TrimSpace(string(hr.Body)))
+			}
+		}
 		if err != nil {
 			stop, done := context.WithTimeout(context.Background(), 30*time.Second)
 			if cerr := c.Cancel(stop, ws, root, "wltest: run-and-wait failed"); cerr == nil {
@@ -920,9 +944,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 		})
 		defer t.Stop()
 	}
-	runCtx, cancel := context.WithTimeout(ctx, s.RunTimeout)
 	err = WaitJob(runCtx, c, ws, id, s.pollInterval, false)
-	cancel()
 	if err != nil {
 		// A run left going would hold the only worker and post its late
 		// effects into later runs: cancel it and give it a moment to stop.

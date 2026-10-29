@@ -210,6 +210,8 @@ type fakeOracle struct {
 	// keepVars makes a push keep the variables; loseVars makes a created
 	// variable vanish, so a setup check after the push sees the wrong state.
 	keepVars, loseVars bool
+	// refuseWait makes run-and-wait answer 400 without creating a job.
+	refuseWait bool
 }
 
 func newFakeOracle(t *testing.T, d *fakeDocker) *fakeOracle {
@@ -318,6 +320,10 @@ func (o *fakeOracle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(rest, "jobs/run_wait_result/f/"):
 		// Like CE, run-and-wait answers when the flow completed: the
 		// stored result, with 200 on success and 422 on failure (FX-36).
+		if o.refuseWait {
+			write(400, "Bad request: no such flow")
+			return
+		}
 		root := o.start(r)
 		j := o.jobs[root]
 		w.Header().Set("Content-Type", "application/json")

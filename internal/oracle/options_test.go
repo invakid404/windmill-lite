@@ -98,6 +98,25 @@ expect:
 	}
 }
 
+// TestSessionRunAndWaitRefused fails a run whose run-and-wait submission
+// the oracle refused without creating a job, at once and with the
+// response, instead of polling a job that does not exist.
+func TestSessionRunAndWaitRefused(t *testing.T) {
+	// spec: OR-10
+	rig := newRig(t)
+	rig.oracle.refuseWait = true
+	writeFixtureFile(t, rig, "runs/wait_ok.yaml", "target: f/wl_smoke/two_step\nargs: {x: 3}\nsubmit: run_wait_result\n")
+	rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rep.Runs {
+		if r.Run == "wait_ok" && (r.Outcome != OutcomeFailed || !strings.Contains(r.Error, "refused run wait_ok without a job: HTTP 400: Bad request: no such flow")) {
+			t.Errorf("wait_ok: %s %s", r.Outcome, r.Error)
+		}
+	}
+}
+
 // TestSessionSetupPolicies applies setup.yaml under each policy of
 // oracle.setup: after the push (the default), where each variable must
 // then be there; before the push, where the push must have removed it
@@ -116,6 +135,7 @@ func TestSessionSetupPolicies(t *testing.T) {
 		{name: "after_push_lost", policy: "", lose: true, refusal: "setup_not_applied"},
 		{name: "before_push", policy: "before_push"},
 		{name: "before_push_survives", policy: "before_push", keep: true, refusal: "seed_survived_push"},
+		{name: "before_push_lost", policy: "before_push", lose: true, refusal: "setup_not_applied"},
 		// Three runs (ok, fail, effects), two repetitions each.
 		{name: "each_run", policy: "each_run", updates: 6},
 	} {
@@ -129,6 +149,9 @@ func TestSessionSetupPolicies(t *testing.T) {
 			rep, err := rig.session(20*GiB).Run(context.Background(), []*conformance.Fixture{rig.load(t)})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if len(rep.Runs) != len(rig.load(t).Runs) {
+				t.Fatalf("%d run reports for %d runs", len(rep.Runs), len(rig.load(t).Runs))
 			}
 			for _, r := range rep.Runs {
 				switch {
@@ -168,6 +191,9 @@ func TestSessionSkipsUnmetWorkers(t *testing.T) {
 		want := OutcomeRefused
 		if skip {
 			want = OutcomeSkipped
+		}
+		if len(rep.Runs) != len(rig.load(t).Runs) {
+			t.Fatalf("skip %v: %d run reports for %d runs", skip, len(rep.Runs), len(rig.load(t).Runs))
 		}
 		for _, r := range rep.Runs {
 			if r.Outcome != want || r.Failed(true) == skip {
