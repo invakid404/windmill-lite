@@ -149,6 +149,7 @@ func (r *run) snapshot() *Trace {
 	t.Warnings = append([]Warning(nil), r.trace.Warnings...)
 	t.Deviations = append([]string(nil), r.trace.Deviations...)
 	t.Spans = append([]Span(nil), r.trace.Spans...)
+	t.PlatformCalls = append([]PlatformCall(nil), r.trace.PlatformCalls...)
 	return &t
 }
 

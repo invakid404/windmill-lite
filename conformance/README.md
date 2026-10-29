@@ -13,8 +13,9 @@ cases, those of recording batch E3a (the expression cases of the JE
 catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
 HTTP responses, the contested `later` cases, codebase scripts, and the
 probe catalogue rebuilt as fixtures). This README covers `conformance/`.
-`wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
-engine core (milestones E1, N1a, N1b, N3a and N3b), which runs flows of
+`wltest check` runs the flow fixtures on windmill-lite, through the `wl`
+library in `warm` and `fresh` (milestone F1), on the engine core
+(milestones E1, N1a, N1b, N3a and N3b), which runs flows of
 Bun steps, their failure modules, loops and branches; it also runs the
 expression cases end to end, as the generated one-step flows `wltest
 record` lifts them into. The runs it cannot run yet
@@ -48,7 +49,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4), with the platform providers (PF2), the effect sink and stub mode (E4b) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4), with the platform providers (PF2), the effect sink and stub mode (E4b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -70,7 +71,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/execution/fx-9` | [FX-9](../docs/semantics/execution.md#fx-9): one `skip_if` per value the rule lists. |
 | `flows/execution/fx-10` | [FX-10](../docs/semantics/execution.md#fx-10): a failure module reads an error-stopped step three ways; unknown and not-yet-run ids; which engine reads of the preceding id use memory, without a failure module ([Q-FX-15](../docs/semantics/execution.md#q-fx-15)). |
 | `flows/execution/fx-16` | [FX-16](../docs/semantics/execution.md#fx-16): identity with direct input, and as a passthrough. |
-| `flows/execution/fx-17` | [FX-17](../docs/semantics/execution.md#fx-17): a skipped step's passthrough; a step skipped only on its retry; no `stop_after_if` on a skipped step. |
+| `flows/execution/fx-17` | [FX-17](../docs/semantics/execution.md#fx-17): a skipped step's passthrough; a step skipped only on its retry (FX-17/b, F1's: its step writes a variable through the job API); no `stop_after_if` on a skipped step. |
 | `flows/execution/fx-18` | [FX-18](../docs/semantics/execution.md#fx-18) (`later`): a mocked step; `stop_after_if` on the mock value; a false `skip_if` beside a mock. |
 | `flows/execution/fx-19` | [FX-19](../docs/semantics/execution.md#fx-19): the clean stops, the error-stop's value, and its matrix of retry, `continue_on_error` and the failure module. |
 | `flows/execution/fx-20` | [FX-20](../docs/semantics/execution.md#fx-20): a clean stop and an error-stop in a `branchone` body. |
@@ -90,7 +91,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
 | `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. JE-26/b–c configure a `retry` and gate NI, JE-35/d's subflow by path gates N3c, and the others gate N1b. |
-| `flows/je/waits` | `sleep`, `timeout` and `retry_if` sites and retried arguments: JE-22/a–b, JE-28, JE-29/a, JE-32, JE-V2. |
+| `flows/je/waits` | `sleep`, `timeout` and `retry_if` sites and retried arguments: JE-22/a–b, JE-28, JE-29/a, JE-32, JE-V2 (JE-V2/a and /b are F1's: their steps write a variable through the job API). |
 | `flows/je/loops` | For-loop cases: JE-9/e–f, JE-19/a and c, JE-26/d, JE-27 on loops, JE-30, JE-36/a–c and e, JE-37/a, JE-38/c, JE-39/a, JE-40, JE-V1. |
 | `flows/je/branches` | `branchone`, `branchall` and while-loop cases: JE-24/a, JE-27 on `branchall`, JE-31, JE-36/d and f. |
 | `flows/je/scopes` | Cross-scope cases: JE-19/b and d, JE-38/d. |

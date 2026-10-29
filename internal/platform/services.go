@@ -45,6 +45,17 @@ type Variables interface {
 	Variable(ctx context.Context, path string) (Variable, bool, error)
 }
 
+// VariableUpdater is a variable service that also takes writes: the
+// update of an existing variable's value through the job API (WA-11,
+// milestone F1). A variable service that does not implement it is
+// read-only, and the facade answers its update route 501.
+type VariableUpdater interface {
+	// UpdateVariable sets the value of the variable at path when value is
+	// not nil, and its secrecy when secret is not nil, and reports false
+	// when there is no such variable.
+	UpdateVariable(ctx context.Context, path string, value *string, secret *bool) (bool, error)
+}
+
 // Secrets is the secret service of ADR 0007: it reveals the plaintext of a
 // secret variable, and decrypts the $encrypted: values of worker argument
 // resolution (WR-5). windmill-lite never decrypts Windmill ciphertext
@@ -125,6 +136,26 @@ func (s *Store) SetVariable(path string, v Variable) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.variables[path] = v
+}
+
+// UpdateVariable sets the value of the variable at path when value is not
+// nil, and its secrecy when secret is not nil (VariableUpdater). A value
+// set is plaintext: a secret held as ciphertext stops being so.
+func (s *Store) UpdateVariable(_ context.Context, path string, value *string, secret *bool) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.variables[path]
+	if !ok {
+		return false, nil
+	}
+	if value != nil {
+		v.Value, v.Encrypted = *value, false
+	}
+	if secret != nil {
+		v.IsSecret = *secret
+	}
+	s.variables[path] = v
+	return true, nil
 }
 
 // Resource returns the resource at path.

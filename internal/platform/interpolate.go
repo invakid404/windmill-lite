@@ -114,6 +114,37 @@ func (s *Services) VariableExists(ctx context.Context, path string) (bool, error
 	return ok, nil
 }
 
+// ErrReadOnlyVariables marks an update of a variable through services
+// whose variable service takes no writes (VariableUpdater).
+var ErrReadOnlyVariables = errors.New("platform: the variable service is read-only")
+
+// UpdateVariable answers variables/update (WA-11, milestone F1): it sets
+// the value of an existing variable when value is not nil, and its
+// secrecy when secret is not nil. A missing variable is the 404 `Not found: Variable <p> not found`,
+// as a read's; services whose variable service takes no writes fail with
+// ErrReadOnlyVariables.
+func (s *Services) UpdateVariable(ctx context.Context, path string, value *string, secret *bool) error {
+	u, ok := s.variableService().(VariableUpdater)
+	if !ok {
+		return ErrReadOnlyVariables
+	}
+	found, err := u.UpdateVariable(ctx, path, value, secret)
+	switch {
+	case err != nil:
+		return internal("%v", err)
+	case !found:
+		return notFound("Variable %s not found", path)
+	}
+	return nil
+}
+
+func (s *Services) variableService() Variables {
+	if s == nil {
+		return nil
+	}
+	return s.Variables
+}
+
 // VariableValue answers variables/get_value (WA-11): the variable's value,
 // a secret's plaintext as Secrets reveals it and the value resolvers
 // leave it. A missing variable is the 404 `Not found: Variable <p> not

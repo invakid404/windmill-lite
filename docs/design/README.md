@@ -106,7 +106,12 @@ windmill-lite. `wltest check` serves the oracle's effect sink and replay
 service to every run that needs them and holds the stub calls against the
 run's trace with the same check the oracle applies to its walk. The stub
 acceptance cases, together with a case on codebase scripts, match the
-oracle's recordings.
+oracle's recordings. Milestone F1 is the core of
+[0009](0009-host-adapters.md), the public [wl](../../wl/README.md)
+library: `Open` verifies a bundle and owns its platform services, `Run`
+runs a flow or root script in `warm` or `fresh` and returns its trace with
+the platform calls its steps made, and `windmill-lite run` is its command
+line; `wltest check` runs the flow suite through it in both modes.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
