@@ -206,6 +206,9 @@
     "conformance/flows/languages/wr-28/wr28-e": "E3e",
     "conformance/flows/oracle/big-payload/big_payload": "E3e",
     "conformance/flows/oracle/key-order/int_keys": "E3e",
+    "conformance/flows/oracle/nul/nul": "N1b",
+    "conformance/flows/oracle/nul/nul_key": "N1b",
+    "conformance/flows/oracle/nul/nul_nested": "N1b",
     "conformance/flows/oracle/smoke/fail": "N1a",
     "conformance/flows/oracle/smoke/ok": "N1a"
   }

@@ -9,6 +9,10 @@
         {
           "name": "size",
           "date": false
+        },
+        {
+          "name": "gc",
+          "date": false
         }
       ]
     }
