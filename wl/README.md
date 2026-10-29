@@ -1,10 +1,13 @@
 # wl
 
-**Current state:** milestones F1, F2a and F3a of
+**Current state:** milestones F1, F2a, F2b and F3a of
 [ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
 [ADR 0009](../docs/design/0009-host-adapters.md), the host hooks of
 [ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
-bundle's mandatory host-provided sites, and host mode. This README covers `wl`,
+bundle's mandatory host-provided sites (F2a), its budgets and latches
+(F2b: write-capable steps and the first-write signal, deadlines, the
+latch, fatal error names, the clock and the jitter), and host mode
+(F3a). This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
@@ -16,18 +19,18 @@ calls: the command line's `windmill-lite run`
 through it. Host mode (F3a) is `Options.Host`: a runtime whose steps run
 in the host process that started it, and whose runs that host submits;
 `windmill-lite host`, the engine the Bun host SDK starts, is that runtime.
-Budgets and latches (F2b: H3, H4, H5, H7, H10), host plugins in
-TypeScript (F2c) and the go-plugin adapter (F5, `wl/plugin`) come later,
-as fields of `Options` and `RunOptions` and as runtimes over the same
-calls, so a host written against this API keeps compiling.
+Host plugins in TypeScript (F2c) and the go-plugin adapter (F5,
+`wl/plugin`) come later, as fields of `Options` and `RunOptions` and as
+runtimes over the same calls, so a host written against this API keeps
+compiling.
 
 ## Files
 
 | File | Contents |
 |---|---|
 | `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
-| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
-| `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
+| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; `Clock`, `RealClock`, `RecordClock`, `Jitter`, `SeededJitter`, `ErrPreWriteDeadline` (H4, H10); the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
+| `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `FatalError`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs it serves |
 
 ## Open
@@ -146,6 +149,8 @@ called from several goroutines at once (a parallel loop's iterations).
 | H8 | `HaltBefore`, `HaltAfter` | end the run halted before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module |
 | H9 | `OnRunEnd`, `OnRunSettled` | the run's end, whose warnings join the run's, and its settlement, once its abandoned invocations have settled; both traces carry the run's platform calls as of its end, as the returned trace does |
 | H12 | `InvocationEnv` | sets or deletes variables of each invocation's job environment before it runs |
+| H3 | `WriteCapable`, `BeforeFirstWrite` | marks the sites the host deems write-capable, a leaf or a subflow call (asked about before its child flow starts, so a veto stops every step below it); before the first of them launches a job in a run, `BeforeFirstWrite` is asked once, and its error vetoes the write and latches the run; parallel launches wait for that one verdict, and a veto stops them all. The approval is the commit point: from it on the run reports `MayHaveMutated`, a failed run too, and the pre-write deadline no longer applies, even when what prepares the launch after it (`InvocationEnv`, the arguments' resolution) stops the job. An interception, a provided site, a mock or a skipped module launches no job, so it is never a write |
+| H7 | `FatalErrorNames` | error names that bypass retry, `continue_on_error`, `skip_failures` and `skip_failure`: a module that fails with one latches the run with a `*FatalError`, and the trace lists `H7` among its deviations |
 
 **Selectors** (`Selector`, the host contract's selector type) name call
 sites: `{Flow, Module}` names the module with that id in any module list
@@ -177,6 +182,37 @@ from them; a step's variable update changes the run's own variable, or the
 runtime's where the run has none. The job registry, flow user state,
 object store and result cache stay the runtime's, and the runs a step
 dispatches read the runtime's providers.
+
+## Budgets and latches
+
+Every one of them is off unless a host sets it (F2b).
+
+- **Cancellation and deadlines (H4).** The run's context is its
+  cancellation source and its hard deadline; `RunOptions.PreWriteDeadline`
+  is a second deadline that applies only until the run's first write is
+  approved (H3), after which it no longer counts. A passed
+  deadline ends the run canceled, as a cancellation does, with Windmill's
+  default reason and canceler in the Canceled error; a cancellation with
+  a `*Cancellation` cause names its own. Both are checked at every module
+  boundary, iteration, sleep and retry delay.
+- **The latch (H5).** A hook's error, `RunHandle.Latch`, a veto (H3), a
+  fatal error name (H7) and a declining provider each latch an error on
+  the run: it starts nothing more and ends `latched` with the first error
+  latched (`Result.Latched`), which never becomes a step's result.
+- **The clock and the jitter (H10).** `RunOptions.Clock` is the clock every
+  sleep and retry delay waits on: the real one by default, or a
+  `*RecordClock`, which records each wait and returns at once (quick
+  waits), and makes the trace list `H10` among its deviations.
+  `RunOptions.Jitter` is the retry-jitter source; `SeededJitter` fixes it,
+  as `Seed` does.
+- **Precedence** (ADR 0008). At a module's start: the latch, then
+  cancellation and deadlines, then halts. At its completion: the latch,
+  then cancellation, then fatal error names, then Windmill's own continue
+  decision; one exception lets an error stop that coincides with the
+  cancellation, in a flow with a failure module, still start what
+  Windmill's continue decision asks for. The latch-precedence cases of
+  `conformance/hooks` hold this order against retry, `continue_on_error`,
+  `skip_failures` and the failure module.
 
 ## Host mode
 
@@ -263,7 +299,8 @@ again after an open that failed once it was extracted; and `BuildInfo`'s
 deviations under an override both ways; and an unawaited call answered
 after its step's invocation was released, which still goes to the run in
 flight, with nothing of the invocation kept after the run ends.
-`hooks_test.go` covers the hooks without Bun: H1 by function and static,
+`hookcases_test.go` runs `conformance/hooks`, the latch-precedence cases,
+through the public hooks (F2b). `hooks_test.go` covers the hooks without Bun: H1 by function and static,
 H2 with the trace's arguments before and after, H6's observers, H9's
 warnings and settlement, H8 before and after, a hook's error and a latch,
 an interception narrowed to one iteration, the selector checks
@@ -287,11 +324,18 @@ both, an `InvocationEnv` hook's variable in the step's environment (H12)
 and a run's own variable read and updated through the job API (H13), the
 runtime's left as it was; and the same platform calls in the returned
 trace and in the traces `OnRunEnd` and `OnRunSettled` get, for a run
-canceled while its step waits too. `outside_test.go` builds a bundle whose
-host contract lists two modules outside the sync folder (milestone F3h)
-and runs it on Bun without a host: a codebase script that imports one finds
-no host scope, and two step bundles share the other's one registered copy.
-Both need
+canceled while its step waits too; and the first write (H3) and the
+pre-write deadline (H4): a veto latches and launches nothing, an approval
+is asked once for two write-capable steps and makes the run report
+`MayHaveMutated`, a veto stops parallel write-capable branches, and the
+pre-write deadline ends a run with no write but not one past its first
+write; a write-capable subflow call asked about before its child flow,
+vetoed and approved, and of two calls of one subflow only the marked one;
+and an H12 veto after the approval, which still counts as written.
+`outside_test.go` builds a bundle whose host contract lists two modules
+outside the sync folder (milestone F3h) and runs it on Bun without a host:
+a codebase script that imports one finds no host scope, and two step
+bundles share the other's one registered copy. Both need
 `WL_BUN` and the build helper's dependencies, and skip without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
 

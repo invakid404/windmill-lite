@@ -1,0 +1,182 @@
+# Milestone F2b's latch-precedence cases: the host signals of ADR 0008
+# (the latch, H5; cancellation and deadlines, H4; fatal error names, H7;
+# halts, H8; the clock, H10) against Windmill's own continue decision
+# (FX-2): retry, continue_on_error, skip_failures and the failure module.
+# Host signals have a channel of their own, which no error tolerance of
+# the flow swallows. Each case runs one synthetic flow, at f/hooks/case,
+# through wl (go test ./wl), with no harness: its modules are identity
+# modules, whose identity jobs H1 answers where a case needs a failure or
+# a value. These are windmill-lite's rules, not Windmill's, so nothing is
+# recorded on the oracle. Synthetic, written for this repository from
+# docs/design/0008-host-hooks.md and docs/semantics/execution.md.
+#
+# host:
+#   fail / value: module id -> the outcome H1 answers that module's job
+#     with (a failure's error object, or a result)
+#   latch_at_start / latch_at_end: module ids at whose start (H6
+#     OnModuleStart) or end (OnModuleEnd) a hook latches an error (H5)
+#   cancel_at_start / cancel_at_end: module ids at whose start or end the
+#     host cancels the run (H4, reason "host stop" by "host")
+#   canceled: the run's context is canceled before it starts
+#   fatal_error_names: H7
+#   halt_before / halt_after: module ids (H8)
+#   clock: record, H10's record mode
+#   pre_write_deadline_ms: H4's pre-write deadline, from the run's start
+# expect:
+#   status; latched: host (the hook's error) or fatal (a FatalError);
+#   ran / not_ran: site paths with and without a record in the trace;
+#   result: the run's result, stored; deviations: the trace's.
+cases:
+  - name: a latch outranks continue_on_error
+    spec: [H5, FX-30]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, continue_on_error: true}
+        - {id: b, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, latch_at_end: [a]}
+    expect: {status: latched, latched: host, ran: ["m:a"], not_ran: ["m:b"]}
+
+  - name: a latch outranks a due retry
+    spec: [H5, FX-26]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, retry: {constant: {attempts: 2, seconds: 0}}}
+        - {id: b, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, latch_at_end: [a]}
+    expect: {status: latched, latched: host, ran: ["m:a"], not_ran: ["m:a/r:0", "m:b"]}
+
+  - name: a latch outranks the failure module
+    spec: [H5, FX-32]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+        - {id: b, value: {type: identity}}
+      failure_module: {id: f, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, latch_at_end: [a]}
+    expect: {status: latched, latched: host, ran: ["m:a"], not_ran: ["m:b", "s:failure"]}
+
+  - name: a latch outranks a cancellation at the same start
+    spec: [H5, FX-38]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+        - {id: b, value: {type: identity}}
+        - {id: c, value: {type: identity}}
+    host: {cancel_at_start: [b], latch_at_start: [b]}
+    expect: {status: latched, latched: host, ran: ["m:a"], not_ran: ["m:c"]}
+
+  - name: a latch outranks a halt after the module
+    spec: [H5]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+        - {id: b, value: {type: identity}}
+    host: {latch_at_end: [a], halt_after: [a]}
+    expect: {status: latched, latched: host, ran: ["m:a"], not_ran: ["m:b"]}
+
+  - name: a cancellation outranks continue_on_error
+    spec: [FX-38, FX-30]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, continue_on_error: true}
+        - {id: b, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, cancel_at_end: [a]}
+    expect: {status: canceled, ran: ["m:a"], not_ran: ["m:b"]}
+
+  - name: a cancellation outranks a due retry
+    spec: [FX-38, FX-26]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, retry: {constant: {attempts: 2, seconds: 0}}}
+        - {id: b, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, cancel_at_end: [a]}
+    expect: {status: canceled, ran: ["m:a"], not_ran: ["m:a/r:0", "m:b"]}
+
+  - name: a cancellation outranks the failure module
+    spec: [FX-38, FX-32]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+        - {id: b, value: {type: identity}}
+      failure_module: {id: f, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, cancel_at_end: [a]}
+    expect: {status: canceled, ran: ["m:a"], not_ran: ["m:b", "s:failure"]}
+
+  - name: a cancellation that coincides with an error stop still starts the failure module
+    spec: [FX-38, FX-19]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, stop_after_if: {expr: "true", skip_if_stopped: false, error_message: stopped}}
+        - {id: b, value: {type: identity}}
+      failure_module: {id: f, value: {type: identity}}
+    host: {cancel_at_end: [a]}
+    expect: {status: canceled, ran: ["m:a", "s:failure"], not_ran: ["m:b"]}
+
+  - name: a cancellation outranks a halt before the first module
+    spec: [FX-38]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+    host: {canceled: true, halt_before: [a]}
+    expect: {status: canceled, not_ran: ["m:a"]}
+
+  - name: a fatal error name outranks retry and continue_on_error
+    spec: [FX-28, FX-30]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, continue_on_error: true, retry: {constant: {attempts: 2, seconds: 0}}}
+        - {id: b, value: {type: identity}}
+    host: {fail: {a: {name: Fatal, message: stop}}, fatal_error_names: [Fatal]}
+    expect: {status: latched, latched: fatal, ran: ["m:a"], not_ran: ["m:a/r:0", "m:b"], deviations: [H7]}
+
+  - name: a fatal error name outranks skip_failures
+    spec: [CF-5]
+    flow:
+      modules:
+        - id: l
+          value:
+            type: forloopflow
+            iterator: {type: javascript, expr: "[1, 2]"}
+            skip_failures: true
+            modules:
+              - {id: x, value: {type: identity}}
+              - {id: y, value: {type: identity}}
+        - {id: b, value: {type: identity}}
+    host: {fail: {x: {name: Fatal, message: stop}}, fatal_error_names: [Fatal]}
+    expect: {status: latched, latched: fatal, not_ran: ["m:b"], deviations: [H7]}
+
+  - name: an error name the host does not list keeps continue_on_error
+    spec: [FX-28, FX-30]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, continue_on_error: true}
+        - {id: b, value: {type: identity}}
+    host: {fail: {a: {name: Boom, message: boom}}, fatal_error_names: [Fatal]}
+    expect: {status: success, ran: ["m:a", "m:b"], result: {error: {name: Boom, message: boom}}}
+
+  - name: the record clock returns a sleep at once and is a deviation
+    spec: [FX-23]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}, sleep: {type: static, value: 3600}}
+        - {id: b, value: {type: identity}}
+    host: {value: {b: 2}, clock: record}
+    expect: {status: success, ran: ["m:a", "m:b"], result: 2, deviations: [H10]}
+
+  # The run has written nothing when the deadline passes during the sleep
+  # after b, so it ends canceled as at its hard deadline: c's queued job is
+  # made due at once and fails without running, with the Canceled error
+  # (FX-38), whose reason and canceler are Windmill's defaults, since a
+  # deadline names neither.
+  - name: a pre-write deadline ends a run that has written nothing
+    spec: [FX-38, FX-23]
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+        - {id: b, value: {type: identity}, sleep: {type: static, value: 30}}
+        - {id: c, value: {type: identity}}
+    host: {pre_write_deadline_ms: 50}
+    expect:
+      status: canceled
+      ran: ["m:a", "m:b", "m:c"]
+      result: {error: {name: Canceled, reason: no reason given, message: "Job canceled: no reason given by unknown", canceler: unknown}}

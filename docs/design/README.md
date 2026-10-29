@@ -116,6 +116,10 @@ Milestone F2a exposes the hook seams of [0008](0008-host-hooks.md) to
 hosts through `wl` as Go callbacks with selectors (H1, H2, H6, H8, H9,
 H12, H13) and runs the mandatory host-provided sites of
 [0002](0002-ir-and-loader.md)'s host contract with the host's providers.
+Milestone F2b adds the budgets and latches of [0008](0008-host-hooks.md)
+(H3, H4, H5, H7, H10) to `wl`, and the hooks level of
+[0003](0003-semantics-placement.md)'s conformance suite, whose
+latch-precedence cases hold their precedence.
 Milestone N5, added to [0012](0012-layout-and-milestones.md) after the
 first plan, retries a flow step that runs a flow by path: the oracle
 recorded where a failed attempt's subflow sits, below the step's `r:<k>`,
