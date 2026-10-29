@@ -1040,7 +1040,14 @@ input, results scope and job identity, a body inside one under a
 caller's loop, the caller's results and `flow_env` it reads, every
 outcome (a failure, a tolerated one, both failure modules, a recovered
 one, each kind of stop), a pickup error, the hooks, `same_worker`, the
-executor check through a subflow, and concurrent runs. `bodies_test.go`
+executor check through a subflow, and concurrent runs.
+`subflow_retry_test.go` (N5) covers a retried flow step: the failed
+attempt's child flow and modules at `r:<k>`, the retry's arguments and
+each attempt's flow id, running out of retries (plain, under
+`continue_on_error`, with a failure module), a child's own retried step,
+a retried flow step and a retried loop inside a retried subflow, in
+sequential and parallel loops, and an input transform that throws.
+`bodies_test.go`
 (N3c) covers failure modules in bodies: the copy per failed iteration,
 its scope and id, no second run with or without `skip_failures` and
 through a clean stop of a failed inner loop under a loop, a `branchone`
