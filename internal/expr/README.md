@@ -246,9 +246,10 @@ throws, or when the text is not UTF-8, as a message holding an unpaired
 surrogate is not ([JE-52](../../docs/semantics/expressions.md#je-52)).
 Nothing else read back runs the program's code: an Error's name, which the
 memory check needs, comes from data properties only, and a value that is
-not an Error is not converted unless it is a primitive other than a
-symbol, so a `toString`, `Symbol.toPrimitive` or Proxy trap is never
-called. A value's debug form is rquickjs's type name and payload:
+not an Error is not converted unless it is a string, a number or a
+boolean, so a `toString`, `Symbol.toPrimitive` or Proxy trap is never
+called, and a BigInt's decimal text, which can take longer to write than
+an attempt has left, is never written. A value's debug form is rquickjs's type name and payload:
 `String(Ok("s"))` (Rust's quoting and escapes), `Int(1)` for a number the
 engine holds as a 32-bit integer, `Float(1.5)`, `Float(1e300)` or
 `Float(NaN)` for any other (Rust's notation: the shortest digits that read
@@ -429,10 +430,11 @@ end with no leaked heap block.
   JE-16), the depth check's positions and order (JE-49), the recursion
   depth (JE-48, D17), strict mode (JE-50), the job queue (JE-51), JE-11's
   rewrite of text that is not ASCII, a readback that runs none of the
-  program's code (`TestReadbackRunsNoCode`), and ADR 0003's JE-8 key-order example
-  on the engine's routes: the proxy answers the previous step from memory
-  in the producer's key order and another step from the database in
-  jsonb's (review item cx R16).
+  program's code (`TestReadbackRunsNoCode`) and writes no BigInt's
+  decimal text (`TestReadbackOfALargeBigInt`), and ADR 0003's JE-8
+  key-order example on the engine's routes: the proxy answers the previous
+  step from memory in the producer's key order and another step from the
+  database in jsonb's (review item cx R16).
 - The fake-engine tests check the retries, the error texts' mapping for
   every kind of engine error and every kind of thrown value, and how the
   completion is read back (`TestCompletionReadBack`).

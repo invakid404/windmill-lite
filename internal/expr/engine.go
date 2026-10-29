@@ -138,10 +138,12 @@ type Exception struct {
 	Value ThrownValue
 	// Text is a diagnostic: for an Error, its name and message joined as
 	// Error.prototype.toString joins them ("ReferenceError: x is not
-	// defined"); for a thrown primitive other than a symbol, its string
-	// form; and empty for a symbol or an object, whose conversion would run
-	// the program's code. Reading the exception back runs none of it beyond
-	// what Windmill's embedding runs: an Error's message and stack.
+	// defined"); for a thrown string, number or boolean, its string form;
+	// and empty for anything else: a symbol's or an object's conversion
+	// would run the program's code, and a BigInt's decimal text can take
+	// longer to write than the attempt has left. Reading the exception back
+	// does no more than Windmill's embedding needs: an Error's message and
+	// stack, a string's text, and a value's kind and payload.
 	Text string
 }
 

@@ -852,16 +852,18 @@ int wl_exception(wl_slot *s, wl_exc *out)
 			out->address = (uintptr_t)JS_VALUE_GET_PTR(v);
 			break;
 		}
-		// Only a primitive other than a symbol is converted to text, which
-		// runs none of the program's code; a symbol's or an object's
-		// conversion could (toString, Symbol.toPrimitive, a Proxy's traps),
-		// and the debug form needs only the kind and the address (JE-21).
+		// Only a string, a number and a boolean are converted to text: the
+		// debug form needs a string's text, and the others cost a bounded
+		// conversion that runs none of the program's code. A symbol's or an
+		// object's conversion could run it (toString, Symbol.toPrimitive, a
+		// Proxy's traps), and a BigInt's decimal text can take seconds to
+		// write, while the debug form needs only their kind and an address
+		// (JE-21).
 		switch (out->kind) {
 		case WL_KIND_BOOL:
 		case WL_KIND_INT:
 		case WL_KIND_FLOAT:
 		case WL_KIND_STRING:
-		case WL_KIND_BIG_INT:
 			out->text = keep_cstr(s, v);
 			break;
 		}

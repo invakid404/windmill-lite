@@ -265,7 +265,7 @@ func TestExceptions(t *testing.T) {
 		{`(() => { throw 42 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindInt, Int: 42}, Text: "42"}},
 		{`(() => { throw 4.5 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFloat, Float: 4.5}, Text: "4.5"}},
 		{`(() => { throw false })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBool}, Text: "false"}},
-		{`(() => { throw 10n })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBigInt}, Text: "10"}},
+		{`(() => { throw 10n })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBigInt}}},
 		{`(() => { throw [1] })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindArray}}},
 		{`(() => { throw class C {} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindConstructor}}},
 		{`(() => { throw () => 1 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFunction}}},

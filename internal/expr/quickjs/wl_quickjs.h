@@ -53,7 +53,7 @@ enum {
 typedef struct wl_exc {
 	int thrown;
 	// name is an Error's name, read from data properties only; text is the
-	// string form of a thrown primitive other than a symbol, and empty for
+	// string form of a thrown string, number or boolean, and empty for
 	// anything else.
 	wl_text name, message, text, stack;
 	// For WL_THROWN_ERROR: whether message and stack were read. Each is

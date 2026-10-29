@@ -94,9 +94,10 @@ What the package does not do:
    object as the first of array, constructor, function, promise and proxy
    that it is, else object) and its payload: a number, a boolean, a
    string's bytes, or the engine's address of a symbol or an object, and
-   the string form of a primitive other than a symbol. A symbol or an
+   the string form of a string, a number or a boolean. A symbol or an
    object is never converted, so its `toString`, `Symbol.toPrimitive` or
-   traps do not run. The pipeline writes Windmill's texts from these
+   traps do not run, and neither is a BigInt, whose decimal text can take
+   longer to write than the attempt has left. The pipeline writes Windmill's texts from these
    ([JE-21](../../../docs/semantics/expressions.md#je-21)).
    rquickjs tests a promise by `JS_PromiseState(…) >= 0`, which works
    because the quickjs-ng it vendors adds `JS_PROMISE_NOT_A_PROMISE = -1`;
