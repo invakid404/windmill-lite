@@ -124,6 +124,11 @@ type Config struct {
 	// record is released (Session.Release): after it settled and its
 	// outcome was decided.
 	Recorded func(inv string, calls []Record)
+	// Answered, if not nil, receives each call of a registered invocation
+	// once its answer is decided (its status set), in the order the facade
+	// answers them, outside the facade's lock. Unlike Recorded, it sees the
+	// calls of an invocation that is abandoned and never released.
+	Answered func(inv string, call Record)
 	// Platform holds the services the facade's routes answer from: the
 	// resources, variables and secrets of milestone PF2, and the job
 	// registry, flow user state, object store and dispatcher of milestone
@@ -142,6 +147,7 @@ type Facade struct {
 	policy   Policy
 	maxBody  int64
 	recorded func(string, []Record)
+	answered func(string, Record)
 	platform *platform.Services
 	routes   *routeTable
 	handlers map[string]Handler
@@ -185,6 +191,7 @@ func New(cfg Config) (*Facade, error) {
 		policy:   cfg.Policy,
 		maxBody:  cfg.MaxBody,
 		recorded: cfg.Recorded,
+		answered: cfg.Answered,
 		platform: cfg.Platform,
 		routes:   defaultRoutes,
 		handlers: map[string]Handler{},
@@ -464,7 +471,9 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 	}
 	if h == nil {
 		rec.Status, rec.Unsupported, rec.Message = 501, true, UnsupportedPrefix+rec.name()
+		answered := f.answer(rec)
 		f.mu.Unlock()
+		answered()
 		return fixed(text(501, rec.Message))
 	}
 	e.inflight++
@@ -492,10 +501,23 @@ func (f *Facade) route(req request, byID string, intercepted bool) func(context.
 				close(e.idle)
 				e.idle = make(chan struct{})
 			}
+			answered := f.answer(rec)
 			f.mu.Unlock()
+			answered()
 		}()
 		return h(ctx, call)
 	}
+}
+
+// answer returns the call to Answered for a record whose answer is
+// decided, which the caller makes after releasing mu. Called with mu held,
+// so the copy is consistent.
+func (f *Facade) answer(rec *Record) func() {
+	if f.answered == nil {
+		return func() {}
+	}
+	c := copyRecords([]*Record{rec})[0]
+	return func() { f.answered(c.Inv, c) }
 }
 
 // unsupportedMessage is what the 501 policy quotes of a handler's 501: its

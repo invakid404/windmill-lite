@@ -168,21 +168,31 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 // manifestDeviations are the deviations a bundle lists: the program's,
 // those of its module-state mode, and those of every bundle.
 func manifestDeviations(prog []string, mode engine.ModuleState) []string {
-	set := map[string]bool{}
-	for _, d := range prog {
-		set[d] = true
-	}
 	// Every bundle: windmill-lite job ids (D3), the interrupted expression
 	// attempt (D8), no Rust location suffix in generated messages (D14), and
 	// the expression engine's build: Math's digits from its libm (D16) and
 	// the recursion depth its frames fit (D17).
-	for _, d := range []string{"D3", "D8", "D14", "D16", "D17"} {
+	return ModeDeviations(append(slices.Clone(prog), "D3", "D8", "D14", "D16", "D17"), mode)
+}
+
+// warmDeviations are the deviations of warm mode, which fresh mode removes
+// (ADR 0006).
+var warmDeviations = []string{"D1", "D2", "D9", "D10", "D11"}
+
+// ModeDeviations returns the deviations listed with those of the
+// module-state mode in place of the other mode's (ADR 0006), sorted by
+// number and each once: what a runtime that overrides a bundle's mode has
+// in effect, the bundle's other deviations kept.
+func ModeDeviations(listed []string, mode engine.ModuleState) []string {
+	set := map[string]bool{}
+	for _, d := range listed {
 		set[d] = true
 	}
-	// warm mode; fresh removes them (ADR 0006).
-	if mode == engine.ModuleStateWarm {
-		for _, d := range []string{"D1", "D2", "D9", "D10", "D11"} {
+	for _, d := range warmDeviations {
+		if mode == engine.ModuleStateWarm {
 			set[d] = true
+		} else {
+			delete(set, d)
 		}
 	}
 	out := make([]string, 0, len(set))

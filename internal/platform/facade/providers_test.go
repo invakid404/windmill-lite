@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -74,5 +75,53 @@ func TestProviderRoutesWithoutPlatform(t *testing.T) {
 	rep := intercept(f, "inv-a", "GET", "http://x/api/w/ws/variables/get_value/u/x/v", nil, nil)
 	if rep.Status != 404 || string(rep.Body) != "Not found: Variable u/x/v not found" {
 		t.Fatalf("%d %s", rep.Status, rep.Body)
+	}
+}
+
+// WA-11, milestone F1: an update sets an existing variable's value, which
+// later reads see, and its secrecy; a missing variable is the read's 404;
+// a rename, a value already encrypted, and any update of a read-only
+// variable service answer 501.
+func TestVariableUpdate(t *testing.T) {
+	store := platform.NewStore()
+	store.SetVariable("u/x/v", platform.Variable{Value: "first"})
+	f := newFacade(t, Config{Platform: &platform.Services{Resources: store, Variables: store}})
+	f.Register("inv-a", "F", env("S", "F", "tok-a"))
+	const base = "http://x/api/w/ws/variables/"
+	post := func(path, body string) harness.PlatformReply {
+		return intercept(f, "inv-a", "POST", base+path, nil, []byte(body))
+	}
+	if rep := post("update/u/x/v", `{"value":"second"}`); rep.Status != 200 || rep.Headers["content-type"] != "text/plain" {
+		t.Fatalf("update: %d %s", rep.Status, rep.Body)
+	}
+	if rep := intercept(f, "inv-a", "GET", base+"get_value/u/x/v", nil, nil); rep.Status != 200 || string(rep.Body) != `"second"` {
+		t.Fatalf("read after the update: %d %s", rep.Status, rep.Body)
+	}
+	if rep := post("update/u/x/v", `{"is_secret":true}`); rep.Status != 200 {
+		t.Fatalf("secrecy: %d %s", rep.Status, rep.Body)
+	}
+	if v, _, _ := store.Variable(t.Context(), "u/x/v"); !v.IsSecret || v.Value != "second" {
+		t.Fatalf("the variable after a secrecy update: %+v", v)
+	}
+	for _, c := range []struct {
+		name, path, body string
+		status           int
+		text             string
+	}{
+		{"missing", "update/u/x/none", `{"value":"x"}`, 404, "Not found: Variable u/x/none not found"},
+		{"rename", "update/u/x/v", `{"path":"u/x/w"}`, 501, UnsupportedPrefix + "POST /w/{ws}/variables/update/{path}"},
+		{"already encrypted", "update/u/x/v?already_encrypted=true", `{"value":"x"}`, 501, UnsupportedPrefix + "POST /w/{ws}/variables/update/{path}"},
+		{"not an object", "update/u/x/v", `[1]`, 400, ""},
+	} {
+		rep := post(c.path, c.body)
+		if rep.Status != c.status || c.text != "" && string(rep.Body) != c.text {
+			t.Errorf("%s: %d %s", c.name, rep.Status, rep.Body)
+		}
+	}
+	// A variable service that takes no writes.
+	ro := newFacade(t, Config{Platform: &platform.Services{Variables: platform.VariableChain{store}}})
+	ro.Register("inv-b", "F", env("S", "F", "tok-b"))
+	if rep := intercept(ro, "inv-b", "POST", base+"update/u/x/v", nil, []byte(`{"value":"x"}`)); rep.Status != 501 {
+		t.Fatalf("read-only: %d %s", rep.Status, rep.Body)
 	}
 }

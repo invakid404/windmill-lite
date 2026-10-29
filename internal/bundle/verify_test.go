@@ -57,6 +57,15 @@ func TestManifestDeviations(t *testing.T) {
 		[]string{"D3", "D7", "D8", "D14", "D16", "D17"}; !slices.Equal(got, want) {
 		t.Errorf("fresh: %q, want %q", got, want)
 	}
+	// A runtime that overrides the bundle's mode swaps the mode's
+	// deviations and keeps the others, both ways.
+	warm := manifestDeviations([]string{"D12"}, engine.ModuleStateWarm)
+	if got, want := ModeDeviations(warm, engine.ModuleStateFresh), manifestDeviations([]string{"D12"}, engine.ModuleStateFresh); !slices.Equal(got, want) {
+		t.Errorf("warm to fresh: %q, want %q", got, want)
+	}
+	if got, want := ModeDeviations([]string{"D14", "D3", "D3"}, engine.ModuleStateWarm), []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}; !slices.Equal(got, want) {
+		t.Errorf("fresh to warm: %q, want %q", got, want)
+	}
 }
 
 // writeBundle writes a bundle directory by hand: its files and a manifest
@@ -336,6 +345,40 @@ func TestWriteArchive(t *testing.T) {
 		t.Error("archived a changed file")
 	}
 	_ = manifest
+}
+
+// Extract writes a verified archive's bundle into a new directory, which
+// then verifies with the archive's digest; it refuses a directory that is
+// not empty and an archive that does not verify.
+func TestExtract(t *testing.T) {
+	dir, _ := writeBundle(t, testFiles)
+	archive := filepath.Join(t.TempDir(), "b"+ArchiveExt)
+	if err := WriteArchiveFile(dir, archive); err != nil {
+		t.Fatal(err)
+	}
+	want, err := Verify(archive, VerifyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "x")
+	v, err := Extract(archive, out, VerifyOptions{Digest: want.Digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Digest != want.Digest {
+		t.Fatalf("digest %s, want %s", v.Digest, want.Digest)
+	}
+	for p, content := range testFiles {
+		if got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(p))); err != nil || string(got) != content {
+			t.Errorf("%s: %q, %v", p, got, err)
+		}
+	}
+	if _, err := Extract(archive, out, VerifyOptions{}); err == nil {
+		t.Error("extracted into a directory that is not empty")
+	}
+	if _, err := Extract(archive, filepath.Join(t.TempDir(), "y"), VerifyOptions{Digest: "sha256:" + strings.Repeat("0", 64)}); err == nil {
+		t.Error("extracted an archive whose digest is not the pinned one")
+	}
 }
 
 // TestVerifyArchiveEntries checks the archive reader's refusals and that
