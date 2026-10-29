@@ -97,6 +97,33 @@ func ParseCodebaseSettings(raw json.RawMessage) (*CodebaseSettings, error) {
 	return s, nil
 }
 
+// loaderFor is the name of the loader esbuild bundles file with under
+// these settings: the entry's loader map's for its extension, or else
+// esbuild's own for the extension, or "" for none (WR-47).
+func (s *CodebaseSettings) loaderFor(file string) string {
+	ext := path.Ext(file)
+	if name, ok := s.Loader[ext]; ok {
+		return name
+	}
+	switch ext {
+	case ".js", ".mjs", ".cjs":
+		return "js"
+	case ".jsx":
+		return "jsx"
+	case ".ts", ".mts", ".cts":
+		return "ts"
+	case ".tsx":
+		return "tsx"
+	case ".json":
+		return "json"
+	case ".css":
+		return "css"
+	case ".txt":
+		return "text"
+	}
+	return ""
+}
+
 // loaders are esbuild's loader names, as its JavaScript API takes them.
 var loaders = map[string]api.Loader{
 	"base64": api.LoaderBase64, "binary": api.LoaderBinary, "copy": api.LoaderCopy, "css": api.LoaderCSS,
@@ -213,7 +240,7 @@ func (cfg *CodebaseConfig) bundleExports(e CodebaseScript, s *CodebaseSettings, 
 		return nil, false, err
 	}
 	o.Format, o.Target, o.Engines, o.Metafile = api.FormatESModule, api.ESNext, nil, true
-	o.Plugins = []api.Plugin{cfg.plugin("", "", shims, "", nil)}
+	o.Plugins = []api.Plugin{cfg.plugin("", "", shims, e.File, nil)}
 	r := api.Build(o)
 	if len(r.Errors) > 0 {
 		return nil, false, errors.New(esbuildMessages(r.Errors))
@@ -599,9 +626,12 @@ const pluginNamespace = "windmill-lite"
 // namespace under the binding's name; an import that names a listed
 // package resolves to the module's shim there; and a listed module's file,
 // wherever esbuild's own resolution finds it, loads as the module's shim,
-// except self's (the module whose bundled copy is being built). record,
-// when not nil, is told the key of each listed module the build takes.
-// esbuild calls it concurrently.
+// except entry's, the file the build bundles (relative to the folder): a
+// listed codebase script that is a root is built from its own source with
+// its own entry's settings, and so is a module whose bundled copy the
+// build is, so an import of the entry's file in its own bundle is that
+// source too. record, when not nil, is told the key of each listed module
+// the build takes. esbuild calls it concurrently.
 //
 // A listed file is replaced when it loads, not when an import of it
 // resolves: telling which imports resolve to it at resolve time took a
@@ -611,16 +641,15 @@ const pluginNamespace = "windmill-lite"
 // same build without (milestone F3h). esbuild resolves the import itself,
 // as in a build with no listed module, so every other module keeps its
 // resolution, its package's sideEffects included.
-func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]string, self string, record func(key string)) api.Plugin {
+func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]string, entry string, record func(key string)) api.Plugin {
 	byFile := map[string]string{} // real path of a listed module's file → key
 	byPackage := map[string]string{}
+	own := realPath(filepath.Join(cfg.Folder, filepath.FromSlash(entry)))
 	for _, m := range cfg.HostModules {
-		switch {
-		case m.Key == self:
-		case m.Package != "":
+		if m.Package != "" {
 			byPackage[m.Package] = m.Key
-		default:
-			byFile[realPath(filepath.Join(cfg.Folder, filepath.FromSlash(m.File)))] = m.Key
+		} else if p := realPath(filepath.Join(cfg.Folder, filepath.FromSlash(m.File))); p != own {
+			byFile[p] = m.Key
 		}
 	}
 	use := func(key string) {
@@ -696,7 +725,7 @@ func (cfg *CodebaseConfig) bundleOne(e CodebaseScript, s *CodebaseSettings, meta
 				binding = fmt.Sprintf("%s_%d", base, n)
 			}
 		}
-		out, inputs, used, warnings, p := cfg.esbuild(e, s, binding, shims, "")
+		out, inputs, used, warnings, p := cfg.esbuild(e, s, binding, shims)
 		if p != nil {
 			return p
 		}
@@ -746,11 +775,11 @@ type esbuildOutput struct {
 
 // esbuild runs one build of a codebase script: the CLI's options plus,
 // with a binding, the env rewrite, and the host-provided modules' shims,
-// but self's, the module whose bundled copy the build is.
+// but the entry's own (plugin).
 // It returns the output, the text of every input of the folder (to check
 // the binding against), the keys of the host-provided modules used, and
 // esbuild's warnings.
-func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, binding string, shims map[string]string, self string) (*esbuildOutput, []string, []string, []string, *Problem) {
+func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, binding string, shims map[string]string) (*esbuildOutput, []string, []string, []string, *Problem) {
 	o, err := s.CLIOptions(cfg.Folder, e.File)
 	if err != nil {
 		return nil, nil, nil, nil, &Problem{ProblemBundleFailed, err.Error()}
@@ -775,7 +804,7 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 	// being resolved, so what they record is kept under a lock.
 	var mu sync.Mutex
 	used := map[string]bool{}
-	o.Plugins = []api.Plugin{cfg.plugin(support, binding, shims, self, func(key string) {
+	o.Plugins = []api.Plugin{cfg.plugin(support, binding, shims, e.File, func(key string) {
 		mu.Lock()
 		used[key] = true
 		mu.Unlock()

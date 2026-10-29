@@ -59,7 +59,7 @@ func bundleScripts(t testing.TB, folder string, scripts int, listed bool) time.D
 	start := time.Now()
 	for k := range scripts {
 		p := fmt.Sprintf("f/cb/s%d", k)
-		_, _, used, _, prob := cfg.esbuild(CodebaseScript{ID: p, Path: p, File: p + ".ts"}, s, EnvBinding, shims, "")
+		_, _, used, _, prob := cfg.esbuild(CodebaseScript{ID: p, Path: p, File: p + ".ts"}, s, EnvBinding, shims)
 		if prob != nil {
 			t.Fatalf("%s: %s: %s", p, prob.Kind, prob.Message)
 		}

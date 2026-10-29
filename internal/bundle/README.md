@@ -218,7 +218,9 @@ CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
   or name a listed package, resolved to that module's shim. Both reach
   esbuild through a plugin: the support module and a listed package's
   shim load from its `windmill-lite` namespace, and a listed file's shim
-  loads in place of the file when esbuild loads it, under its path from
+  loads in place of the file when esbuild loads it (but the entry's own
+  file: a listed codebase script that is a root is bundled from its own
+  source, with its entry's settings), under its path from
   the sync root, so the output does not depend on where it was built.
   Every other import resolves as it would without the plugin, so a
   listed module costs no extra resolution (resolving each import a
@@ -337,8 +339,11 @@ identifier is written as a string export name.
 
 `BuildOutside(ctx, OutsideConfig)` builds the listed modules outside the
 folder (milestone F3h), which only codebase scripts can import. The
-helper's `parse` op reads each source (`host_module_live_binding` for
-`export let` or `export var`); a first esbuild build of each, with the
+helper's `parse` op reads each source, with the syntax of the loader
+esbuild bundles it with (`loaderFor`: the entry's `loader` override, or
+esbuild's own for the extension, so TSX and JSX parse), for
+`host_module_live_binding` (`export let` or `export var`); a first
+esbuild build of each, with the
 outside modules' shims as CommonJS placeholders that take any import name,
 records which listed modules it imports, which orders them
 (`host_module_cycle`); then each is bundled in that order, as an ES module
@@ -346,7 +351,8 @@ with its codebase entry's settings, the env rewrite and the other modules'
 shims, into `scripts/bun/provided/<id>.mjs`, and its shim is generated from
 the export names of that bundle's metafile (`host_module_commonjs` when the
 entry is CommonJS source). The manifest registers them after the modules
-inside the folder, which cannot import them.
+inside the folder, which cannot import them, and `Build` adds the files of
+the folder the copies read (`OutsideResult.Inputs`) to the sources.
 
 ## BuildBun
 
@@ -453,8 +459,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   lock (WR-26), the codebase refusals (WR-47, WR-49). A clean one can check
   what it recorded for each script, its assets and warnings, and run its
   modules: the codebase cases of WR-47 (the CLI's settings), WR-49 (assets),
-  WA-31 (the env rewrite in CommonJS and ESM output) and D12 (shims, and
-  modules outside the folder, whose files a case gives in `given.outside`).
+  WA-31 (the env rewrite in CommonJS and ESM output) and D12 (shims, a
+  listed codebase script that is itself a root, and modules outside the
+  folder, TSX and JSX among them, whose files a case gives in
+  `given.outside`).
 - `TestBuildFixture` builds `testdata/fixture` (a synthetic folder with a
   flow, an inline step, a path script, a workspace import, a host-provided
   module, a codebase script with a define, an import of its codebase and an
@@ -472,6 +480,9 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   a file the build does not read leave it alone. `TestBuildOutput`,
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
   directory and the refusals.
+- `TestBuildOutsideHostModuleSources` checks that a file of the folder
+  that only an outside module's copy reads is a source, and that a
+  comment in it, which leaves the copy alone, changes the digest.
 - `TestBuildOutsideHostModule` (milestone F3h) builds a folder whose
   codebase script imports, from outside the folder, a module holding an
   `AsyncLocalStorage` store, listed by its path from the sync root: it

@@ -41,7 +41,9 @@ entry's `exports` (without them, the source's own exports are scanned).
 As for any Bun script, a function the source declares gets its
 parameters and an export it does not declare gets none. A `parse`
 request's host-provided modules each give a `source`, the absolute path of
-a module outside the folder (milestone F3h): the helper reports the
+a module outside the folder (milestone F3h), and the `loader` esbuild
+bundles it with: the helper reads it with that loader's syntax (`ts`,
+`tsx`, `js` or `jsx`; another loader's file is not parsed) and reports the
 packages it imports, or `host_module_live_binding`. It installs,
 bundles and writes nothing. A request it cannot serve
 at all (unreadable, another Bun) exits with code 2 and an `error` in the

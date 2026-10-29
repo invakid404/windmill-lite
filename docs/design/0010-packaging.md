@@ -144,12 +144,23 @@ the host was a compiled Bun executable.
    esbuild bundles its copy as an ES module, with the settings of the
    codebase entry whose `relative_path` holds it (the deepest, when several
    do) and the other listed modules resolved to their shims, and its export
-   names come from that bundle's metafile. Its files are named by the id
+   names come from that bundle's metafile. The live-binding check reads its
+   source with the syntax of the loader esbuild bundles it with (its
+   extension's, or the entry's `loader` override), so TSX and JSX modules
+   can be listed. Its files are named by the id
    `outside/<n>/` and the rest of its path, where `n` counts the leading
    `../`, and it is registered after the modules inside the folder, which
-   cannot import it. An entry that leaves the root but names no file of a
-   codebase entry's `relative_path` fails the build with
+   cannot import it; the files of the folder its copy reads are sources of
+   the bundle, as a codebase script's are. An entry that leaves the root but
+   names no file of a codebase entry's `relative_path` fails the build with
    `host_module_unknown`, naming the entry (milestone F3h).
+   Only imports of a listed module resolve to its shim: a listed codebase
+   script that is itself a root is bundled from its own source, with its
+   entry's settings (WR-47), as is the copy of an outside module. The
+   shared copy of a listed module inside the folder is the Bun build's,
+   even when the module is a codebase script, so its entry's settings
+   (`define`, `loader`) do not reach that copy: a step that reaches the
+   module through its shim runs the Bun-built copy.
 2. **Host mode.** The Bun host SDK registers the host's own instances (the
    modules the host's program imported) before any step module loads.
 3. **Elsewhere.** The harness loads the bundled copy from

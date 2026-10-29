@@ -109,3 +109,46 @@ func TestOutsideID(t *testing.T) {
 		}
 	}
 }
+
+// A file of the folder that only an outside module's copy reads is a
+// source of the bundle, as a codebase script's inputs are (ADR 0010, the
+// manifest's sources): it is listed, and an edit that leaves the copy's
+// bytes alone (a comment) still changes the digest (milestone F3h, review
+// round 1).
+func TestBuildOutsideHostModuleSources(t *testing.T) {
+	bun := bunPath(t)
+	dir := writeFolder(t, map[string]string{
+		"lib/ctx.ts":                "export { store } from \"../windmill/helpers/value.ts\";\n",
+		"windmill/helpers/value.ts": "export const store = 42;\n",
+		"windmill/wmill.yaml":       outsideFiles["windmill/wmill.yaml"],
+		"windmill/f/cb/read.ts":     "import { store } from \"../../../lib/ctx.ts\";\nexport function main() { return store; }\n",
+	})
+	rebuild := func() *Result {
+		return build(t, Config{
+			Folder:         filepath.Join(dir, "windmill"),
+			Contract:       []byte("roots:\n  - {script: f/cb/read}\nhost_modules: [../lib/ctx.ts]\n"),
+			EngineVersion:  fixtureEngine,
+			Bun:            bun,
+			Helper:         repoPath(t, "harnesses/bun/build/main.ts"),
+			HarnessRuntime: repoPath(t, "harnesses/bun/runtime"),
+			Out:            filepath.Join(t.TempDir(), "bundle"),
+			Work:           t.TempDir(),
+		})
+	}
+	first := rebuild()
+	if _, ok := first.Manifest.Sources["helpers/value.ts"]; !ok {
+		t.Fatalf("sources %q lack helpers/value.ts", sortedKeys(first.Manifest.Sources))
+	}
+	value := filepath.Join(dir, "windmill", "helpers", "value.ts")
+	if err := os.WriteFile(value, []byte("// the value\nexport const store = 42;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second := rebuild()
+	copyFile := "scripts/bun/provided/outside/1/lib/ctx.ts.mjs"
+	if first.Manifest.Files[copyFile] != second.Manifest.Files[copyFile] {
+		t.Fatalf("the comment changed the copy: %s, then %s", first.Manifest.Files[copyFile], second.Manifest.Files[copyFile])
+	}
+	if first.Digest == second.Digest {
+		t.Fatal("editing a source of the outside module's copy left the digest alone")
+	}
+}

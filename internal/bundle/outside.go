@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,6 +86,10 @@ type OutsideResult struct {
 	// one, are all registered before).
 	HostModules map[string]*HostModuleMeta
 	Order       []string
+	// Inputs are the files of the folder the copies read (folderInputs),
+	// sorted: sources of the bundle, as a codebase script's are. The
+	// modules' own files lie outside the folder.
+	Inputs []string
 }
 
 // BuildOutside builds the host-provided modules outside the folder: it
@@ -133,16 +138,30 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	if !cfg.AllowBunMismatch {
 		req.RequireBun = harness.PinnedBun
 	}
+	// Each module's settings, and the syntax of its source: that of the
+	// loader esbuild bundles it with.
+	var problems []ItemProblem
+	settings := map[string]*CodebaseSettings{}
 	for _, m := range cfg.Modules {
+		s, err := ParseCodebaseSettings(m.Settings)
+		if err != nil {
+			problems = append(problems, ItemProblem{item(m), Problem{ProblemBundleFailed, err.Error()}})
+			continue
+		}
+		// The copy is an ES module, as every bundled copy is
+		// (scripts/bun/provided/<ID>.mjs).
+		s.Format = ESM
+		settings[m.ID] = s
 		req.HostModules = append(req.HostModules, helperHostModule{ID: m.ID, Key: m.Key,
-			Source: filepath.Join(cfg.Folder, filepath.FromSlash(m.Key))})
+			Source: filepath.Join(cfg.Folder, filepath.FromSlash(m.Key)), Loader: s.loaderFor(m.Key)})
+	}
+	if len(problems) > 0 {
+		return res, &BuildError{Problems: problems}
 	}
 	resp, err := runHelper(ctx, &bc, &req)
 	if err != nil {
 		return nil, err
 	}
-	var problems []ItemProblem
-	settings := map[string]*CodebaseSettings{}
 	for _, m := range cfg.Modules {
 		r, ok := resp.HostModules[m.ID]
 		switch {
@@ -153,15 +172,6 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 			problems = append(problems, ItemProblem{item(m), *r.Error})
 			continue
 		}
-		s, err := ParseCodebaseSettings(m.Settings)
-		if err != nil {
-			problems = append(problems, ItemProblem{item(m), Problem{ProblemBundleFailed, err.Error()}})
-			continue
-		}
-		// The copy is an ES module, as every bundled copy is
-		// (scripts/bun/provided/<ID>.mjs).
-		s.Format = ESM
-		settings[m.ID] = s
 		res.HostModules[m.ID] = &HostModuleMeta{Key: m.Key, Packages: nonNilStrings(r.Packages)}
 	}
 	if len(problems) > 0 {
@@ -187,7 +197,7 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	cc := &CodebaseConfig{Folder: cfg.Folder, HostModules: all}
 	mods := make([]HostModule, 0, len(cfg.Modules))
 	for _, m := range cfg.Modules {
-		_, _, used, _, p := cc.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, settings[m.ID], "", shims, m.Key)
+		_, _, used, _, p := cc.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, settings[m.ID], "", shims)
 		if p != nil {
 			problems = append(problems, ItemProblem{item(m), *p})
 			continue
@@ -217,6 +227,11 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 			continue
 		}
 		res.HostModules[id].Exports = out.exports
+		for _, p := range folderInputs(out.metafile) {
+			if !slices.Contains(res.Inputs, p) {
+				res.Inputs = append(res.Inputs, p)
+			}
+		}
 		shim, err := Shim(m.Key, out.exports)
 		if err != nil {
 			return nil, err
@@ -232,6 +247,7 @@ func BuildOutside(ctx context.Context, cfg OutsideConfig) (*OutsideResult, error
 	if len(problems) > 0 {
 		return res, &BuildError{Problems: problems}
 	}
+	slices.Sort(res.Inputs)
 	return res, nil
 }
 
@@ -244,7 +260,7 @@ func (cfg *CodebaseConfig) outsideCopy(m OutsideHostModule, s *CodebaseSettings,
 		if n > 1 {
 			binding = fmt.Sprintf("%s_%d", EnvBinding, n)
 		}
-		out, inputs, _, _, p := cfg.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, s, binding, shims, m.Key)
+		out, inputs, _, _, p := cfg.esbuild(CodebaseScript{ID: m.ID, Path: m.Key, File: m.Key}, s, binding, shims)
 		if p != nil {
 			return nil, p
 		}

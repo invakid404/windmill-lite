@@ -339,6 +339,11 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			}
 		}
 	}
+	for _, p := range ores.Inputs {
+		if err := src.add(p); err != nil {
+			return nil, err
+		}
+	}
 	for _, from := range cres.Assets {
 		if p := path.Clean(filepath.ToSlash(from)); inside(p) {
 			if err := src.add(p); err != nil {
@@ -472,13 +477,19 @@ func addScriptSources(src *sourceFS, scripts map[string]*syncfolder.Script, p st
 }
 
 // codebaseInputs are the files of the folder a codebase bundle read, from
+// its metafile (folderInputs).
+func codebaseInputs(meta *ScriptMeta) []string {
+	return folderInputs(meta.Metafile)
+}
+
+// folderInputs are the files of the folder an esbuild bundle read, from
 // its metafile: inputs that are not the build's own modules, outside
 // node_modules and inside the folder.
-func codebaseInputs(meta *ScriptMeta) []string {
+func folderInputs(metafile json.RawMessage) []string {
 	var mf struct {
 		Inputs map[string]json.RawMessage `json:"inputs"`
 	}
-	if json.Unmarshal(meta.Metafile, &mf) != nil {
+	if json.Unmarshal(metafile, &mf) != nil {
 		return nil
 	}
 	var out []string

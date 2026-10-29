@@ -17,6 +17,11 @@ export type HostModuleRequest = {
   // relative_path, by its absolute path (parse only): the helper checks its
   // source, and the Go build bundles it with esbuild (milestone F3h).
   source?: string;
+  // The esbuild loader that bundles the source (parse only, with source):
+  // its extension's, or its codebase entry's loader override. ts, tsx, js
+  // and jsx parse with that syntax; any other loader's file has no
+  // JavaScript to check.
+  loader?: string;
   // The generated shim, in the bundle tree, and the scan's export names
   // (build only).
   shim?: string;

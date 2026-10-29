@@ -21,7 +21,7 @@ import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
 import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
 import { buildNativeClient, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
-import { importSpecifiers, liveBindings, parseModule, signatures } from "./signature.ts";
+import { importSpecifiers, liveBindings, parseModule, signatures, type Syntax } from "./signature.ts";
 import { detectWorkflowAsCode } from "./wac.ts";
 
 export class BuildProblem extends Error {
@@ -349,7 +349,10 @@ export class Builder {
   // Parse: what the source of a host-provided module outside the folder
   // must not do, which only its syntax shows (the Go build bundles it with
   // esbuild, as the codebase scripts that import it, milestone F3h): export
-  // a binding it can reassign, which a shim cannot follow (ADR 0010).
+  // a binding it can reassign, which a shim cannot follow (ADR 0010). The
+  // source is read with the syntax of the loader esbuild bundles it with
+  // (TypeScript, TSX, JavaScript or JSX); a file of any other loader has
+  // no exports a source could reassign.
   parseHostSource(hm: HostModuleRequest): HostModuleResult {
     let source: string;
     try {
@@ -357,7 +360,9 @@ export class Builder {
     } catch (e) {
       throw new BuildProblem("invalid_request", `cannot read ${hm.key}: ${(e as Error).message}`);
     }
-    const parsed = parse(source);
+    const syntax = hm.loader ?? "ts";
+    if (syntax !== "ts" && syntax !== "tsx" && syntax !== "js" && syntax !== "jsx") return { packages: [] };
+    const parsed = parse(source, syntax);
     const live = liveBindings(parsed);
     if (live.length > 0) {
       throw new BuildProblem(
@@ -617,9 +622,9 @@ export class Builder {
 
 type EntryRequest = Request["entries"][number];
 
-function parse(source: string) {
+function parse(source: string, syntax?: Syntax) {
   try {
-    return parseModule(source);
+    return parseModule(source, syntax);
   } catch (e) {
     throw new BuildProblem("parse_failed", (e as Error).message);
   }

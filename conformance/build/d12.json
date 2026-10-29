@@ -940,6 +940,144 @@
           }
         ]
       }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-listed-root",
+      "provenance": "policy",
+      "title": "a listed codebase script that is itself a root is built from its own source, with its entry's settings, while another script's import of it resolves to the shim",
+      "note": "Only imports of a listed module resolve to its shim (ADR 0010): the script's own bundle is its source, bundled with its codebases entry's define (WR-47), so it reads 42; another script that imports it reads the registered copy through the shim (milestone F3h, review round 1).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    define:\n      BUILD_VALUE: \"42\"\n",
+          "f/cb/read.ts": "export const tag = \"read\";\nexport function main() { return BUILD_VALUE; }\n",
+          "f/cb/use.ts": "import { tag } from \"./read.ts\";\nexport function main() { return tag; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\n  - script: f/cb/use\nhost_modules: [f/cb/read.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/read": {
+            "format": "cjs",
+            "host_modules": [],
+            "bundle_not_contains": [
+              "windmill-lite.hostModules",
+              "BUILD_VALUE"
+            ]
+          },
+          "f/cb/use": {
+            "format": "cjs",
+            "host_modules": [
+              "f/cb/read.ts"
+            ],
+            "bundle_contains": [
+              "host-provided module not registered: f/cb/read.ts"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "f/cb/read"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/read",
+              "result": 42
+            },
+            {
+              "entry": "f/cb/use",
+              "result": "read"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-jsx",
+      "provenance": "policy",
+      "title": "a host-provided module outside the folder may be TSX, or JSX through its codebase entry's loader, and is built and shared like any other",
+      "note": "The parse that checks an outside module's exports reads it with the syntax of the loader esbuild bundles it with: its extension's (.tsx), or its codebases entry's loader override (.js as jsx, WR-47) (milestone F3h, review round 1). Neither step bundle inlines the modules, and ctx.tsx loads once.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n    loader:\n      \".js\": jsx\n",
+          "f/cb/read.ts": "import { el, loads } from \"../../../lib/ctx.tsx\";\nimport { view } from \"../../../lib/view.js\";\nexport function main() { return [el, view, loads()]; }\n",
+          "f/cb/again.ts": "import { loads } from \"../../../lib/ctx.tsx\";\nexport function main() { return loads(); }\n"
+        },
+        "outside": {
+          "../lib/ctx.tsx": "const React = { createElement: (tag: string) => tag };\nglobalThis.wlTsxLoads = (globalThis.wlTsxLoads ?? 0) + 1;\nexport const el = <div />;\nexport function loads(): number { return globalThis.wlTsxLoads; }\n",
+          "../lib/view.js": "const React = { createElement: (tag) => tag };\nexport const view = <span />;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\n  - script: f/cb/again\nhost_modules: [../lib/ctx.tsx, ../lib/view.js]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "outside/1/lib/ctx.tsx",
+          "outside/1/lib/view.js"
+        ],
+        "entries": {
+          "f/cb/read": {
+            "host_modules": [
+              "../lib/ctx.tsx",
+              "../lib/view.js"
+            ],
+            "bundle_not_contains": [
+              "wlTsxLoads",
+              "createElement"
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "outside/1/lib/ctx.tsx",
+            "outside/1/lib/view.js"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/read",
+              "result": [
+                "div",
+                "span",
+                1
+              ]
+            },
+            {
+              "entry": "f/cb/again",
+              "result": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-jsx-live-binding",
+      "provenance": "policy",
+      "title": "a TSX host-provided module outside the folder that exports a binding it can reassign is refused, by name",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/read.ts": "import { count } from \"../../../lib/ctx.tsx\";\nexport function main() { return count; }\n"
+        },
+        "outside": {
+          "../lib/ctx.tsx": "const React = { createElement: (tag: string) => tag };\nexport let count = 0;\nexport const el = <div />;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.tsx]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module ../lib/ctx.tsx",
+            "kind": "host_module_live_binding",
+            "contains": [
+              "../lib/ctx.tsx",
+              "count"
+            ]
+          }
+        ]
+      }
     }
   ]
 }
