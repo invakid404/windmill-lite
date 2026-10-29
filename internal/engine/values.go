@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr"
@@ -177,15 +178,89 @@ func databaseError(err error) error {
 
 // identityResult is what an identity job returns: its stored arguments'
 // previous_result, or {} when they have none (FX-16). The job reads its
-// arguments from storage, so the value is in stored form.
+// arguments from storage, decoded member by member from the jsonb column,
+// as the worker reads a flow input's members (JE-44), so the value is in
+// jsonb's printed form: a space after each : and , outside strings
+// (expr.DatabaseText).
 func identityResult(stored jsonval.Value) jsonval.Value {
 	ms, _ := members(stored.Producer())
 	for _, m := range ms {
 		if m.key == "previous_result" {
-			return jsonval.FromProducer(m.value)
+			return jsonval.FromProducer(expr.DatabaseText(m.value))
 		}
 	}
 	return jsonval.FromProducer([]byte("{}"))
+}
+
+// canceledError is the result of a canceled flow (FX-38), whatever its
+// modules reported.
+func canceledError(reason, canceler string) jsonval.Value {
+	return wrapped(struct {
+		Message  string `json:"message"`
+		Name     string `json:"name"`
+		Reason   string `json:"reason"`
+		Canceler string `json:"canceler"`
+	}{"Job canceled: " + reason + " by " + canceler, "Canceled", reason, canceler})
+}
+
+// killedError is the failure value of a step whose job a cancellation
+// killed while it ran (FX-38): the worker's text, ExecutionErr, step_id.
+func killedError(stepID, reason, canceler string) jsonval.Value {
+	return workerError(stepID, "execution error:\njob process terminated due to cancelled by "+canceler+" (reason: "+reason+")")
+}
+
+// recovers reports whether a failure module's successful result makes the
+// flow succeed (FX-33): it decodes as the one-field recovery record with
+// recover equal to JSON true. The decoder is serde's derived struct
+// decoder: an object whose recover member is a boolean, or null or absent
+// for none, unknown members ignored and a repeated recover refused; or an
+// array of exactly one element, the field by position, a boolean or null.
+// Anything else is a decode error, which does not recover.
+func recovers(result jsonval.Value) bool {
+	t := bytes.TrimSpace(result.Producer())
+	var field []byte
+	switch {
+	case len(t) > 0 && t[0] == '{':
+		ms, ok := members(t)
+		if !ok {
+			return false
+		}
+		for _, m := range ms {
+			if m.key == "recover" {
+				if field != nil {
+					return false
+				}
+				field = m.value
+			}
+		}
+	case len(t) > 0 && t[0] == '[':
+		var elems []json.RawMessage
+		if json.Unmarshal(t, &elems) != nil || len(elems) != 1 {
+			return false
+		}
+		field = elems[0]
+	default:
+		return false
+	}
+	return string(bytes.TrimSpace(field)) == "true"
+}
+
+// rfc3339 writes t as a UTC RFC 3339 timestamp whose fraction has 0, 3, 6
+// or 9 digits, the fewest that keep its precision, as Windmill's server
+// writes a start time.
+func rfc3339(t time.Time) string {
+	t = t.UTC()
+	layout := "2006-01-02T15:04:05Z"
+	switch ns := t.Nanosecond(); {
+	case ns == 0:
+	case ns%1e6 == 0:
+		layout = "2006-01-02T15:04:05.000Z"
+	case ns%1e3 == 0:
+		layout = "2006-01-02T15:04:05.000000Z"
+	default:
+		layout = "2006-01-02T15:04:05.000000000Z"
+	}
+	return t.Format(layout)
 }
 
 // errorName is the name of the error a failure value carries, as H7

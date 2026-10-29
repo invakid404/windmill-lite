@@ -226,8 +226,12 @@ a few at a time (`flows.go`):
    the step cases' facade origin, so a native step reads the same
    `BASE_URL` and `BASE_INTERNAL_URL` in both. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
-   (`conformance.RunBatches`); `cancel_after_ms` cancels a run, and a run
-   that has not ended after 60 s fails. Each run has its own id, which its
+   (`conformance.RunBatches`); `cancel_after_ms` cancels a run with the
+   reason and the canceler the oracle's cancellation names
+   (`oracle.CancelAfterReason`, `wltest: cancel_after_ms`, by
+   `oracle.CancelAfterCanceler`, `admin`), which the engine's `Canceled`
+   result quotes ([FX-38](../../docs/semantics/execution.md#fx-38)), and a
+   run that has not ended after 60 s fails. Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, and the checker
    records the id of every invocation it makes (`WM_JOB_ID`) with its site.
    The engine names an invocation's script by its inventory id, as the
@@ -235,7 +239,8 @@ a few at a time (`flows.go`):
 3. **Observe** (`observe.go`). The run's trace becomes the observation the
    oracle's walker produces ([ADR 0011](../../docs/design/0011-differential-testing.md),
    [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow that
-   the trace has no record of is `not_run`; the root's result and each
+   the trace has no record of is `not_run`, and so is the failure module's
+   site `s:failure` of a flow that has one; the root's result and each
    site's `args` and `result` are in their stored form, as the job API
    returns them ([ADR 0005](../../docs/design/0005-json-step-boundaries.md));
    `carried` and `resolved_args` keep the trace's texts, the value carried
@@ -248,13 +253,20 @@ a few at a time (`flows.go`):
    fixture's `stack` and `mask` pointers apply.
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
-   then its `claims` are checked. On the reference's side, the location of
-   the recognised internal error is stripped where windmill-lite generated
-   the value (`conformance.StripLocations`, ADR 0011's location rule): a
-   result whose origin the trace records as the engine, a harness or the
-   facade, and a carried value that is the same value, in either member
-   order. A carried value that differs from the result has no recorded
-   origin and is never stripped. A run with nothing to compare fails.
+   then its `claims` are checked. On the reference's side, the location
+   suffixes of a message that matches a catalogue template carrying `<loc>`
+   (the recognised internal error, the chaining errors of FX-15, the
+   string of FX-21) are stripped where windmill-lite generated the value
+   (`conformance.StripLocations`, ADR 0011's location rule): a result whose
+   origin the trace records as the engine, a harness or the facade; a
+   carried value that is the same value, in either member order; and a
+   carried value the engine set apart from the result, whose origin the
+   trace records too (an error stop's, a throwing `stop_after_if`'s, a
+   chaining error with no job, milestone N1b). A carried value that differs
+   from the result with no recorded origin is never stripped. Claims are
+   checked on windmill-lite's observation as it is, so a claim about a
+   location suffix holds only on the oracle. A run with nothing to compare
+   fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with effects (the effect sink), a script run
@@ -262,7 +274,7 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: failure modules, waits, retries, containers, subflows),
+names the milestone: waits, retries, containers, subflows, a preprocessor),
 and a flow that reads the platform, which needs the platform providers of
 PF2: its compiled program holds `variable(`, `resource(`,
 `flow_user_state(`, `$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or
@@ -312,8 +324,8 @@ Windmill v1.767.0's image).
   with and without `//native`, bun with it) through the real build and
   harness, checking each one's boundary and its `BASE_URL` and
   `BASE_INTERNAL_URL`.
-- `TestFlowSuite` is the exit gate of milestones E1 and N1a: every run the
-  flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
+- `TestFlowSuite` is the exit gate of milestones E1, N1a and N1b: every
+  run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
@@ -334,13 +346,14 @@ Windmill v1.767.0's image).
   same for codebase scripts: one that does not bundle and one whose asset
   collides fail their own flows, while a flow whose codebase script reads
   its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
-  same isolation for codebase step cases. `TestObserveTrace`, `TestCompareRun` and
-  `TestCarriedLocation` need no Bun: they check the observation of a trace
-  (stored forms, `not_run` sites, placeholders, stack masking, the kept
+  same isolation for codebase step cases. `TestObserveTrace`, `TestCompareRun`,
+  `TestCarriedLocation` and `TestObserveFailureSlotAndCarriedOrigin` need
+  no Bun: they check the observation of a trace (stored forms, `not_run`
+  sites, the failure module's site, placeholders, stack masking, the kept
   `carried` and `resolved_args`, the generated values) and which reference
   a run is compared with, including the location rule's positive and
-  negative cases for a result and for a carried value in either member
-  order.
+  negative cases for a result, for a carried value in either member order,
+  and for a carried value with its own origin.
 
 ## Version
 

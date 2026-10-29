@@ -942,7 +942,7 @@ func (s *Session) execute(ctx context.Context, c *Client, ws string, f *conforma
 	}
 	if r.CancelAfterMS != nil {
 		t := time.AfterFunc(time.Duration(*r.CancelAfterMS)*time.Millisecond, func() {
-			_ = c.Cancel(ctx, ws, id, "wltest: cancel_after_ms")
+			_ = c.Cancel(ctx, ws, id, CancelAfterReason)
 		})
 		defer t.Stop()
 	}

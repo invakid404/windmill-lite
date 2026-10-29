@@ -18,15 +18,18 @@ import (
 )
 
 // Engine runs the flows of one compiled program (ir.Program, ADR 0002):
-// the flow interpreter of ADR 0003, milestone N1a's engine core. It runs a
-// flow's top-level modules in sequence, through Windmill's decision list
-// (FX-2): input transforms and the argument pipeline (FX-7, ADR 0005), the
-// results routes of expressions (FX-10, JE-18), skip_if (FX-17), mock
-// (FX-18), identity (FX-16), stop_after_if and its stops (FX-19, FX-21), a
-// static step timeout, and the host hooks of K1 with their precedence
-// (ADR 0008). Features that later milestones implement are refused when
-// the engine opens, with ErrUnsupported, never midway through a run
-// (ADR 0001 §3's rule).
+// the flow interpreter of ADR 0003, milestone N1a's engine core with
+// N1b's errors. It runs a flow's top-level modules in sequence, through
+// Windmill's decision list (FX-2): input transforms and the argument
+// pipeline (FX-7, ADR 0005), the results routes of expressions (FX-10,
+// JE-18), skip_if (FX-17), mock (FX-18), identity (FX-16), stop_after_if
+// and its stops (FX-19, FX-21), a static step timeout, continue_on_error
+// (FX-30), the failure module and recovery (FX-31 to FX-33), chaining
+// errors (FX-15), the final result (FX-36), the cancellation outcome
+// (FX-38), and the host hooks of K1 with their precedence (ADR 0008).
+// Features that later milestones implement are refused when the engine
+// opens, with ErrUnsupported, never midway through a run (ADR 0001 §3's
+// rule).
 //
 // An Engine is safe for concurrent use: runs share nothing but the program,
 // the expression pipeline and the step executor.
@@ -85,7 +88,7 @@ func New(cfg Config) (*Engine, error) {
 		if err := supported(f); err != nil {
 			return nil, fmt.Errorf("engine: flow %s: %w", path, err)
 		}
-		for _, m := range f.Modules {
+		for _, m := range flowModules(f) {
 			if m.SkipIf != nil {
 				exprs = append(exprs, m.SkipIf)
 			}
@@ -116,12 +119,19 @@ func unsupported(format string, args ...any) error {
 	return fmt.Errorf("%s: %w", fmt.Sprintf(format, args...), ErrUnsupported)
 }
 
+// flowModules returns f's top-level modules and then its failure module,
+// when it has one: every module the engine may start.
+func flowModules(f *ir.Flow) []*ir.Module {
+	if f.FailureModule == nil {
+		return f.Modules
+	}
+	return append(slices.Clip(f.Modules), f.FailureModule)
+}
+
 // supported checks that f uses only what the engine runs. Each refusal
 // names the milestone of ADR 0012 that implements the feature.
 func supported(f *ir.Flow) error {
 	switch {
-	case f.FailureModule != nil:
-		return unsupported("a failure module (N1b)")
 	case f.PreprocessorModule != nil:
 		return unsupported("a preprocessor module")
 	case f.SkipExpr != nil:
@@ -131,8 +141,11 @@ func supported(f *ir.Flow) error {
 	case f.Timeout != nil:
 		return unsupported("a flow timeout (N2)")
 	}
-	for _, m := range f.Modules {
+	for _, m := range flowModules(f) {
 		if err := supportedModule(m); err != nil {
+			if m == f.FailureModule {
+				return fmt.Errorf("failure module %q: %w", m.ID, err)
+			}
 			return fmt.Errorf("module %q: %w", m.ID, err)
 		}
 	}
@@ -167,8 +180,6 @@ func supportedModule(m *ir.Module) error {
 		return unsupported("sleep (N2)")
 	case m.Timeout != nil && m.Timeout.Type != ir.Static:
 		return unsupported("a %s timeout (N2)", m.Timeout.Type)
-	case m.ContinueOnError:
-		return unsupported("continue_on_error (N1b)")
 	case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
 		return unsupported("retry (N2)")
 	case m.CacheTTL != nil:
@@ -225,9 +236,11 @@ type RunRequest struct {
 }
 
 // Run runs a flow to its end and returns its trace. ctx is the run's
-// cancellation and deadline (H4). An error means the run could not start:
-// an unknown flow, arguments that are not a JSON object or that the job
-// API could not store, or no step executor.
+// cancellation and deadline (H4): a run whose ctx ends finishes canceled,
+// with the Canceled error of FX-38 as its result, which names the reason
+// and the canceler when ctx's cause is a *Cancellation. An error means the
+// run could not start: an unknown flow, arguments that are not a JSON
+// object or that the job API could not store, or no step executor.
 func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	f := e.prog.Flows[req.Path]
 	if f == nil {
@@ -253,7 +266,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	if exec == nil {
 		exec = e.exec
 	}
-	if exec == nil && slices.ContainsFunc(f.Modules, func(m *ir.Module) bool { return m.Leaf != nil }) {
+	if exec == nil && slices.ContainsFunc(flowModules(f), func(m *ir.Module) bool { return m.Leaf != nil }) {
 		return nil, errors.New("engine: no step executor for the run")
 	}
 	id := req.ID
@@ -281,6 +294,36 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	t.Warnings = append(t.Warnings, w...)
 	r.settle.End()
 	return t, nil
+}
+
+// Cancellation is the cause a host cancels a run with (H4,
+// context.WithCancelCause): who canceled it and why, as Windmill's cancel
+// records them (FX-38). An empty field takes Windmill's default, "no reason
+// given" for the reason and "unknown" for the canceler, as does a run whose
+// context ends with any other cause.
+type Cancellation struct {
+	Reason   string
+	Canceler string
+}
+
+func (c *Cancellation) Error() string {
+	return fmt.Sprintf("engine: run canceled by %s: %s", c.Canceler, c.Reason)
+}
+
+// cancellationOf returns the reason and the canceler of a run whose ctx has
+// ended, with Windmill's defaults (FX-38).
+func cancellationOf(ctx context.Context) (reason, canceler string) {
+	reason, canceler = "no reason given", "unknown"
+	var c *Cancellation
+	if errors.As(context.Cause(ctx), &c) {
+		if c.Reason != "" {
+			reason = c.Reason
+		}
+		if c.Canceler != "" {
+			canceler = c.Canceler
+		}
+	}
+	return reason, canceler
 }
 
 // flowEnv is the flow's flow_env as an object in its stored form: the flow

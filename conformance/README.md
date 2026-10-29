@@ -14,9 +14,10 @@ catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
 HTTP responses, the contested `later` cases, codebase scripts, and the
 probe catalogue rebuilt as fixtures). This README covers `conformance/`.
 `wltest check` runs the flow fixtures on windmill-lite, in `warm`, on the
-engine core (milestones E1 and N1a), which runs sequential flows of Bun
-steps; it also runs the expression cases end to end, as the generated
-one-step flows `wltest record` lifts them into. The runs it cannot run yet
+engine core (milestones E1, N1a and N1b), which runs sequential flows of
+Bun steps and their failure modules; it also runs the expression cases
+end to end, as the generated one-step flows `wltest record` lifts them
+into. The runs it cannot run yet
 are reported as unsupported, and the runs it must pass are listed in
 `cmd/wltest/testdata/flowsuite.json`
 ([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression
@@ -47,9 +48,9 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a) |
-| step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` |
-| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d), `flows/control-flow/cf-*` (E3d), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b) |
+| step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
+| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
 ## Flow fixtures
 
@@ -84,7 +85,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/stub/scopes` | Stub mode: a named subflow and a parallel loop under one outer run (run `alone`), and two concurrent outer runs (`r` and `t`, group `rt`), with every call's `WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID` and `WM_JOB_ID` ([OR-V6](../docs/semantics/oracle.md#or-v6)/a, [Q-OR-10](../docs/semantics/oracle.md#q-or-10)). |
 | `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
-| `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. |
+| `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. JE-26/b–c configure a `retry` and gate NI, JE-35/d's subflow by path gates N3c, and the others gate N1b. |
 | `flows/je/waits` | `sleep`, `timeout` and `retry_if` sites and retried arguments: JE-22/a–b, JE-28, JE-29/a, JE-32, JE-V2. |
 | `flows/je/loops` | For-loop cases: JE-9/e–f, JE-19/a and c, JE-26/d, JE-27 on loops, JE-30, JE-36/a–c and e, JE-37/a, JE-38/c, JE-39/a, JE-40, JE-V1. |
 | `flows/je/branches` | `branchone`, `branchall` and while-loop cases: JE-24/a, JE-27 on `branchall`, JE-31, JE-36/d and f. |
@@ -143,7 +144,10 @@ temporary copy on every recording ([internal/oracle](../internal/oracle/README.m
 
 Each E3b run's `expect` was written from the reference before the oracle
 first ran it. Where the oracle disagreed, the run's `note` says what was
-predicted, what was recorded, and in which oracle runs.
+predicted, what was recorded, and in which oracle runs. The engine
+milestones added the `carried` value of a module that an error stop or a
+throwing `stop_after_if` fails (N1a, N1b), which the oracle exposes no
+recording of: the recorder compares an `expect` without it.
 
 ### Recording batches
 
@@ -227,7 +231,10 @@ evaluator level in the meantime, by the pipeline cases of
 Runs of flow fixtures, and the runs lifted from expression cases, carry
 three kinds of assertion beyond `expect`. `go test ./internal/oracle` checks
 them against the committed recordings; the recorder does not, so a
-contradicted claim still leaves its recording to inspect.
+contradicted claim still leaves its recording to inspect. `wltest check`
+checks the claims on windmill-lite's own observation too, so a claim
+states only what both sides write: a Rust location suffix, which
+windmill-lite never writes (D14), stays in the recording (JE-35/b).
 
 - **`claims`**: a JSON Pointer `at` into the observation, in its canonical
   encoding (a step field left to its canonical absence is absent), and one

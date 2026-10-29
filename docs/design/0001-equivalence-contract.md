@@ -376,8 +376,10 @@ switch through a change to this record, naming the reason.
   against these recordings. E3c's recordings also contradict one confirmed
   finding: a failure module copied into an inline body keeps its own id,
   in its status and in `WM_FLOW_STEP_ID`, where FX-34 and FX-32 say it is
-  suffixed. §6 now lists it with the recorded behaviour, which N1b
-  implements; the correction is asked of the semantics team
+  suffixed. §6 now lists it with the recorded behaviour, which the engine
+  implements (N1b runs a top-level failure module with its own id; its
+  copy inside a body comes with bodies, in N3c); the correction is asked
+  of the semantics team
   ([README](README.md), request 5).
 - Recording batch E3b settled Q-FX-16 and recorded the handler-free half of
   Q-FX-15 on the oracle. Both recordings agreed with the defaults in §6, so
