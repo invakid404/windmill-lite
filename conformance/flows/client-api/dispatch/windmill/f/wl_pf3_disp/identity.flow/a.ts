@@ -1,9 +1,11 @@
 // Step a of identity: it dispatches the probe script tracked in its parent,
-// as runScriptByPath does, and returns how the probe's job identity
-// relates to its own, without the ids themselves: what WM_FLOW_JOB_ID,
-// WM_ROOT_JOB_ID and the root lookup of a dispatched job are is not in the
-// reference (WA-V1 leaves dispatched jobs out), so the oracle records it.
-// It also returns the keys of a dispatched failure's error.
+// as runScriptByPath does, and a flow whose step is the probe, tracked as
+// runFlow does and untracked as runFlowAsync does, and returns how each
+// probe's job identity relates to its own and to the dispatched job's id,
+// without the ids themselves: what WM_FLOW_JOB_ID, WM_ROOT_JOB_ID and the
+// root lookup of a dispatched job are is not in the reference (WA-V1
+// leaves dispatched jobs out), so the oracle records it. It also returns
+// the keys of a dispatched failure's error.
 export async function main() {
   const e = process.env;
   const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
@@ -33,7 +35,10 @@ export async function main() {
     }
     throw new Error(`job ${id} did not complete`);
   };
-  const relate = (p: any) => ({
+  const relate = (p: any, id: string) => ({
+    flow_job_is_dispatched: p.flow_job === id,
+    root_is_dispatched: p.root === id,
+    root_flow_is_dispatched: p.root_flow === id,
     flow_job_is_mine: p.flow_job === e.WM_JOB_ID,
     flow_job_is_my_flow: p.flow_job === e.WM_FLOW_JOB_ID,
     flow_job_empty: p.flow_job === "",
@@ -48,10 +53,18 @@ export async function main() {
     step: p.step,
     state_path: p.state_path,
   });
-  const tracked = await wait((await dispatch("p", "f/wl_pf3_disp/probe", {}, true)).id);
+  const probe = async (kind: string, path: string, track: boolean) => {
+    const { id } = await dispatch(kind, path, {}, track);
+    return relate((await wait(id)).result, id);
+  };
+  const tracked = await probe("p", "f/wl_pf3_disp/probe", true);
+  const flowTracked = await probe("f", "f/wl_pf3_disp/probe_flow", true);
+  const flowUntracked = await probe("f", "f/wl_pf3_disp/probe_flow", false);
   const fail = await wait((await dispatch("p", "f/wl_pf3_disp/fail", {}, true)).id);
   return {
-    tracked: relate(tracked.result),
+    tracked,
+    flow_tracked: flowTracked,
+    flow_untracked: flowUntracked,
     fail_keys: Object.keys(fail.result.error).sort(),
     fail_top: Object.keys(fail.result).sort(),
   };

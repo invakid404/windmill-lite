@@ -66,10 +66,13 @@ type Config struct {
 	// InstanceTimeout is the instance's maximum job duration (WR-37); zero
 	// means Windmill's self-hosted default of 604800 s.
 	InstanceTimeout time.Duration
-	// Platform holds the resources, variables and secrets that runs read
-	// (ADR 0007, milestone PF2): through a leaf's argument resolution,
-	// flow_env and the expression helpers. nil means none, so every read
-	// is a not-found. A host gives the facade the same services.
+	// Platform holds the platform services runs use (ADR 0007): the
+	// resources, variables and secrets read through a leaf's argument
+	// resolution, flow_env and the expression helpers (milestone PF2), and
+	// the job registry each run is registered with and the flow user state
+	// flow_user_state() reads (milestone PF3). nil means none, so every
+	// read is a not-found and no run is registered. A host gives the
+	// facade the same services.
 	Platform *platform.Services
 }
 
@@ -93,6 +96,11 @@ func New(cfg Config) (*Engine, error) {
 	}
 	if e.cap == 0 {
 		e.cap = 604800 * time.Second
+	}
+	for _, path := range cfg.Program.Roots.Scripts {
+		if err := supportedRootScript(cfg.Program.Scripts[path]); err != nil {
+			return nil, fmt.Errorf("engine: script %s: %w", path, err)
+		}
 	}
 	var exprs []*expr.Expr
 	for _, path := range sortedKeys(cfg.Program.Flows) {
@@ -259,6 +267,21 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 	return nil
 }
 
+// supportedRootScript checks a script root, which the default dispatcher
+// runs as a script job (RunScript): a Bun step in either boundary, without
+// its own cache_ttl.
+func supportedRootScript(s *ir.Script) error {
+	switch {
+	case s == nil:
+		return errors.New("not in the program's inventory")
+	case s.Harness != ir.ClassBun || (s.Boundary != ir.BoundaryBun && s.Boundary != ir.BoundaryNative):
+		return unsupported("a %s script in the %s boundary", s.Harness, s.Boundary)
+	case s.Metadata != nil && s.Metadata.CacheTTL != nil:
+		return unsupported("a script's own cache_ttl (N4)")
+	}
+	return nil
+}
+
 // supportedLoop checks a for loop: its body, and the fields the engine
 // runs.
 func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
@@ -370,7 +393,13 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 		// effective root, at the flow's path.
 		r.flowJobEnv = platform.Identity{JobID: id, RootJobID: id, JobPath: f.Path, Token: platform.NewToken()}.Env(e.host)
 	}
+	// The run is a flow job of the job registry while it runs, its own
+	// effective root, so that its steps' root lookups, reads with a job id
+	// and flow user state find it (ADR 0007, D3, WA-14); its user state
+	// is discarded when it ends.
+	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: id, Path: f.Path})
 	r.run(ctx)
+	endJob()
 	// H9: OnRunEnd sees the outcome first; its warnings are part of the
 	// returned trace and of the one OnRunSettled receives, possibly at once
 	// from End when no invocation was abandoned.

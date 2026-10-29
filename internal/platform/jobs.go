@@ -62,10 +62,10 @@ type Jobs interface {
 // a service need not check that itself.
 type FlowUserState interface {
 	// UserState returns the value stored under key for the flow job, as
-	// its stored JSON text, and false when there is none.
+	// the JSON text a read gives back, and false when there is none.
 	UserState(ctx context.Context, job, key string) (json.RawMessage, bool, error)
-	// SetUserState stores v, a stored JSON text, under key for the flow
-	// job.
+	// SetUserState stores v, the JSON text a read is to give back, under
+	// key for the flow job.
 	SetUserState(ctx context.Context, job, key string, v json.RawMessage) error
 }
 
@@ -297,17 +297,40 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // (WA-14). The job must be a live flow job, else the write fails with
 // ErrFlowJobNotFound; a write to a run that has ended fails so too, since
 // its map was discarded with it (windmill-lite's lifetime policy; whether
-// Windmill accepts it is Q-WA-10). The value is held in its stored form,
-// as the flow status column holds it.
+// Windmill accepts it is Q-WA-10). The value is held as a read gives it
+// back, which the oracle recorded (fixture client-api/user-state, run
+// order): the body as Windmill's backend JSON library parses and writes
+// it (1e3 as 1000.0, 1.50 as 1.5), stored as the flow status column
+// stores it, in jsonb's key order, and written out by the library again.
+// A body that is not JSON, or that jsonb refuses, answers 400; the text is
+// windmill-lite's.
 func (s *Services) SetFlowUserState(ctx context.Context, id, key string, body []byte) error {
-	stored, err := jsonval.FromProducer(body).Stored()
+	v, err := userStateValue(body)
 	if err != nil {
-		return &Error{Variant: "BadRequest", Message: "the flow user state value is not JSON that can be stored: " + err.Error()}
+		return &Error{Variant: "BadRequest", Message: "windmill-lite: the flow user state value: " + err.Error()}
 	}
 	if !s.liveFlow(id) {
 		return ErrFlowJobNotFound
 	}
-	return s.userState().SetUserState(ctx, id, key, stored)
+	return s.userState().SetUserState(ctx, id, key, v)
+}
+
+// userStateValue is a flow user state value as a read gives it back:
+// parsed and written by the backend's JSON library, stored as jsonb, and
+// written by the library again.
+func userStateValue(body []byte) ([]byte, error) {
+	n, err := parseJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := jsonval.FromProducer(n.write(nil)).Stored()
+	if err != nil {
+		return nil, err
+	}
+	if n, err = parseJSON(stored); err != nil {
+		return nil, err
+	}
+	return n.write(nil), nil
 }
 
 func (s *Services) liveFlow(id string) bool {

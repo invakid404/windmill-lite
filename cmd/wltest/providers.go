@@ -8,16 +8,18 @@ import (
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
-// platformOf returns the platform services (milestone PF2) of a flow
-// fixture or a step case: the resources and variables of its sync folder
-// (nil for a step case), then those of its setup, which the oracle
-// creates after the push (OR-31), so they replace the folder's. A setup
-// applied before the push is removed by the push, so it holds nothing at
-// run time. A secret is held as the folder holds it: ciphertext without
+// platformOf returns the platform services of a flow fixture or a step
+// case: the resources and variables of its sync folder (nil for a step
+// case), then those of its setup, which the oracle creates after the push
+// (OR-31), so they replace the folder's (milestone PF2). A setup applied
+// before the push is removed by the push, so it holds nothing at run
+// time. A secret is held as the folder holds it: ciphertext without
 // plainSecrets, which needs a host secret resolver; a setup's secret is
 // its plaintext, which wltest passes in as a host passes its secrets,
-// never through a bundle (ADR 0010).
-func platformOf(folder *syncfolder.Folder, setup *conformance.Setup, policy string) (*platform.Services, error) {
+// never through a bundle (ADR 0010). Its object store is a directory of
+// its own, objects (milestone PF3); its job registry and flow user state
+// are the services' own, and the caller adds a dispatcher.
+func platformOf(folder *syncfolder.Folder, setup *conformance.Setup, policy, objects string) (*platform.Services, error) {
 	store := platform.NewStore()
 	if folder != nil {
 		for _, p := range folder.Paths(syncfolder.KindResource) {
@@ -51,5 +53,9 @@ func platformOf(folder *syncfolder.Folder, setup *conformance.Setup, policy stri
 			}
 		}
 	}
-	return &platform.Services{Resources: store, Variables: store}, nil
+	dir, err := platform.NewDirObjects(objects)
+	if err != nil {
+		return nil, err
+	}
+	return &platform.Services{Resources: store, Variables: store, Objects: dir}, nil
 }

@@ -920,7 +920,7 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.id},
 	}
 }
 
@@ -939,7 +939,7 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.id},
 	}
 	if fr.isFailure(i) {
 		s.Context = append(s.Context,
@@ -958,7 +958,7 @@ func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope 
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.e.platform},
+		Helpers:   helpers{r.e.platform, r.id},
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {

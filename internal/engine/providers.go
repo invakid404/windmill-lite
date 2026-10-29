@@ -2,22 +2,25 @@ package engine
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // This file is where a run reads the platform providers of ADR 0007
-// (milestone PF2): the expression helpers variable() and resource()
-// (JE-20), flow_env's resolution on every transition (JE-38), and a leaf
-// job's argument resolution before its script runs (JE-41, JE-42, WR-5),
-// all through the engine's platform.Services.
+// (milestones PF2 and PF3): the expression helpers variable(), resource()
+// and flow_user_state() (JE-20), flow_env's resolution on every transition
+// (JE-38), and a leaf job's argument resolution before its script runs
+// (JE-41, JE-42, WR-5), all through the engine's platform.Services.
 
-// helpers answers the expression helpers of JE-20 for one run. Every
-// engine site has an authenticated client (only suspend's
-// user_groups_required lacks one, and the engine does not run suspend).
-type helpers struct{ s *platform.Services }
+// helpers answers the expression helpers of JE-20 for one run, whose
+// effective root is root. Every engine site has an authenticated client
+// (only suspend's user_groups_required lacks one, and the engine does not
+// run suspend).
+type helpers struct {
+	s    *platform.Services
+	root string
+}
 
 // Variable is variable(path): the variable's value, a secret's plaintext,
 // or the API's error text.
@@ -36,10 +39,15 @@ func (h helpers) Resource(ctx context.Context, path string) (jsonval.Value, erro
 	return jsonval.FromProducer(b), nil
 }
 
-// FlowUserState is flow_user_state(key), which needs the flow user state
-// of milestone PF3.
-func (h helpers) FlowUserState(context.Context, string) (jsonval.Value, error) {
-	return jsonval.Value{}, fmt.Errorf("windmill-lite: flow_user_state() needs the flow user state of milestone PF3: %w", ErrUnsupported)
+// FlowUserState is flow_user_state(key): the value stored under key for
+// the run's root flow job (WA-14), JSON null when there is none, as the
+// API's read gives it.
+func (h helpers) FlowUserState(ctx context.Context, key string) (jsonval.Value, error) {
+	v, err := h.s.FlowUserState(ctx, h.root, key)
+	if err != nil {
+		return jsonval.Value{}, err
+	}
+	return jsonval.FromProducer(v), nil
 }
 
 // resolveEnv resolves flow_env for the transition that starts a module of

@@ -16,4 +16,4 @@ scope: core
 provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 2}
-roots: [f/wl_pf3_disp/add, f/wl_pf3_disp/fail, f/wl_pf3_disp/probe, f/wl_pf3_disp/child]
+roots: [f/wl_pf3_disp/add, f/wl_pf3_disp/fail, f/wl_pf3_disp/probe, f/wl_pf3_disp/child, f/wl_pf3_disp/probe_flow]

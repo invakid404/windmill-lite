@@ -1,0 +1,59 @@
+finding: WA-14
+scope: core
+note: >-
+  Milestone PF3: flow user state, which the facade answers from the job
+  registry (ADR 0007). A flow step's case runs in the flow run of its
+  case, a live flow job while the case runs, so a later run of the case
+  reads what an earlier one wrote, in warm and in fresh mode alike; with
+  step_id "" the case is a script job, its own root, which has no flow
+  status. Each script makes the calls the stock client's
+  setFlowUserState and getFlowUserState make (the root lookup, then the
+  state route at the root), by fetch at BASE_URL with its token; the
+  helpers' own reactions (the swallowed 404 and its log line, the strict
+  rejection) are checked with windmill-client@1.767.0 by
+  internal/platform/facade's TestFlowUserStateOnTheClient.
+cases:
+  - spec: WA-14/a
+    provenance: source-derived
+    title: a flow step's write is read back by a later step of the run, and a missing key reads null
+    script: |
+      export async function main(op: string) {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        const root = await (await fetch(`${base}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: auth })).json();
+        const state = `${base}/jobs/flow/user_states/${root}`;
+        if (op === "set") {
+          const res = await fetch(`${state}/k`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ n: 1 }) });
+          return [res.status, await res.text()];
+        }
+        const get = async (key: string) => await (await fetch(`${state}/${key}`, { headers: auth })).json();
+        return { k: await get("k"), missing: await get("missing") };
+      }
+    runs:
+      - args: '{"op":"set"}'
+        expect: {status: success, result: [200, Flow job state updated]}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "200 POST /w/{ws}/jobs/flow/user_states/{id}/{key}"]
+      - args: '{"op":"get"}'
+        expect: {status: success, result: {k: {n: 1}, missing: null}}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "200 GET /w/{ws}/jobs/flow/user_states/{id}/{key}", "200 GET /w/{ws}/jobs/flow/user_states/{id}/{key}"]
+  - spec: WA-14/a
+    variant: standalone
+    provenance: source-derived
+    title: a script job is its own root and has no flow status, so the write is refused with 404 and the read gives null
+    step_id: ""
+    path: f/wl_step/standalone
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        const root = await (await fetch(`${base}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: auth })).json();
+        const set = await fetch(`${base}/jobs/flow/user_states/${root}/k`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "1" });
+        const get = await fetch(`${base}/jobs/flow/user_states/${root}/k`, { headers: auth });
+        return { own_root: root === e.WM_JOB_ID, set: [set.status, await set.text()], get: await get.json() };
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {own_root: true, set: [404, "Not found: Flow job not found"], get: null}}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "404 POST /w/{ws}/jobs/flow/user_states/{id}/{key}", "200 GET /w/{ws}/jobs/flow/user_states/{id}/{key}"]

@@ -80,6 +80,59 @@ deferred:
       (ADR 0001 §3), so no windmill-lite run has a schedule trigger and
       the trigger part is always "user" (wa-5.yaml)
     expected_in: none while schedules are out of scope
+  - spec: WA-6/a
+    reason: a loop body's runnable paths need a flow with a for loop; the step level runs no loops
+    expected_in: PF3 (conformance/flows/client-api/flow-path, run seq)
+  - spec: WA-6/b
+    reason: a loop body made non-simple by a retry needs a flow with a for loop and a retry
+    expected_in: PF3's fixture conformance/flows/client-api/flow-path (run retry), which runs once N2's retries have merged
+  - spec: WA-6/c
+    reason: a parallel loop's body sub-flows need a flow with a for loop; the step level runs no loops
+    expected_in: PF3 (conformance/flows/client-api/flow-path, run par)
+  - spec: WA-6/d
+    reason: a branchone's sub-flow numbering needs a flow with a branch
+    expected_in: PF3's fixture conformance/flows/client-api/flow-path (runs branch, branch_default), which runs once N3b's branches have merged
+  - spec: WA-14/b
+    reason: later; the Python setter's reaction to a non-404 failure needs the Python client
+    expected_in: L1
+  - spec: WA-14/c
+    reason: >-
+      later; a read by id after the run needs a completed root, which no
+      step case has. windmill-lite discards the map when the run ends (the
+      design note of WA-14), so the read gives null and a write is refused
+      with the 404 (Q-WA-10); internal/platform's TestFlowUserState checks
+      both
+    expected_in: PF3 (internal/platform TestFlowUserState)
+  - spec: WA-15/a
+    reason: a failed child needs a target in the bundle, which a step case's bundle does not have; its result through the poll waitJob makes is recorded at the flow level
+    expected_in: PF3 (conformance/flows/client-api/dispatch, run wait)
+  - spec: WA-15/b
+    reason: later; Python's null-result defaults need the Python client
+    expected_in: L1
+  - spec: WA-15/c
+    reason: >-
+      the query that runFlow and runFlowAsync send is the stock client's;
+      the dispatch fixture makes both requests at the flow level, and
+      internal/platform/facade's TestDispatchRoutes checks that parent_job
+      and root_job reach the dispatcher
+    expected_in: PF3 (conformance/flows/client-api/dispatch, run wait; TestDispatchRoutes)
+  - spec: WA-15/d
+    reason: later; Python's get_result needs the Python client
+    expected_in: L1
+  - spec: WA-15/e
+    reason: later; Python's get_result needs the Python client; the facade's 404 for an id that names no completed job is checked by internal/platform/facade's TestResultRoutes
+    expected_in: L1
+  - spec: WA-16/b
+    reason: a bare string is refused by the stock client's own parsing, before any request; a script without the client makes none
+    expected_in: PF3 (internal/platform/facade TestObjectsOnTheClient, on windmill-client@1.767.0)
+  - spec: WA-16/d
+    reason: >-
+      an observation of a CE server with no workspace storage (Q-WA-3);
+      windmill-lite's object store is the host's, which the client
+      contract does not settle, so there is nothing of windmill-lite's to
+      compare with it; with none configured the job helpers answer 501
+      (internal/platform/facade TestObjectRoutes)
+    expected_in: none (a CE observation for the reference)
   - spec: WA-31/a
     reason: >-
       a parallel for-loop of 8 steps run 50 times is a flow; the step

@@ -5,8 +5,7 @@ value:
       value:
         type: branchone
         branches:
-          - expr: flow_input.pick === 0
-            modules:
+          - modules:
               - id: s0
                 value:
                   type: rawscript
@@ -14,8 +13,10 @@ value:
                   input_transforms: {}
                   lock: '!inline s0.lock'
                   language: bun
-          - expr: flow_input.pick === 1
-            modules:
+            expr: flow_input.pick === 0
+            parallel: true
+            skip_failure: true
+          - modules:
               - id: s1
                 value:
                   type: rawscript
@@ -23,6 +24,9 @@ value:
                   input_transforms: {}
                   lock: '!inline s1.lock'
                   language: bun
+            expr: flow_input.pick === 1
+            parallel: true
+            skip_failure: true
         default:
           - id: d
             value:
@@ -35,5 +39,7 @@ schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties:
-    pick: {type: number, description: ""}
+    pick:
+      type: number
+      description: ''
   required: []
