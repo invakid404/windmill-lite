@@ -246,8 +246,9 @@ func TestSubflowRetryMovesWhatItRan(t *testing.T) {
 	}
 }
 
-// FX-14, FX-27, JE-V2: a flow step whose input transform throws launches
-// no subflow and fails; its attempt keeps its own record at r:0, and the
+// FX-14, FX-27, JE-V2: a flow step whose input transform throws still
+// launches its subflow's job, which fails before any of its modules runs;
+// that failed attempt, with its never-run child flow, moves to r:0, and the
 // retry runs the subflow with the failed attempt's recorded arguments, an
 // empty object, without evaluating the transform again (recorded by
 // control-flow/subflow-retry's run pre_run).
@@ -261,13 +262,16 @@ func TestSubflowRetryAfterAPreRunFailure(t *testing.T) {
 	wantStatus(t, tr, conformance.RunSuccess, `{"v":null}`)
 	wantCalls(t, s, "m:a/m:x")
 	r0 := record(t, tr, sp(t, "m:a/r:0"))
-	if r0.Status != conformance.StepFailure || r0.Job != "" || !r0.Ran {
+	if r0.Status != conformance.StepFailure || r0.Job == "" || !r0.Ran || errorName(r0.Result) != "ExecutionErr" {
 		t.Fatalf("a/r:0 %+v", r0)
 	}
+	sameJSON(t, "the failed attempt's arguments", r0.RecordedArgs, `{}`)
 	sameJSON(t, "the retry's arguments", record(t, tr, sp(t, "m:a")).RecordedArgs, `{}`)
-	for _, c := range tr.Children {
-		if c.Site.String() != "m:a" {
-			t.Fatalf("a child flow at %s", c.Site)
-		}
+	if c := childAt(t, tr, "m:a/r:0"); c.ID != r0.Job || !slices.Equal(c.Modules, []string{"x"}) {
+		t.Fatalf("the failed attempt's child flow %+v", c)
 	}
+	if _, ok := tr.Step(sp(t, "m:a/r:0/m:x")); ok {
+		t.Fatal("the failed attempt's subflow ran a module")
+	}
+	childAt(t, tr, "m:a")
 }

@@ -808,9 +808,14 @@ the child's id as its job.
   the step's `r:<k>`, with the subflow's records and child flows below
   it, its own retried modules' attempts included, where the walker meets
   them (`attempt`, recorded by `conformance/flows/control-flow/subflow-retry`).
-  The step's status lists the attempts, which a failure module lists
-  again (FX-29), and the step's result is its last subflow's.
-  `subflow_retry_test.go` covers it.
+  The step's status lists the attempts, which a failure module, or the
+  step after a tolerated failure, lists again (FX-29), and the step's
+  result is its last subflow's. A flow step whose input transform throws
+  still launches its subflow's job, which fails before any module of it
+  runs ([FX-14](../../docs/semantics/execution.md#fx-14)): the trace lists
+  that child flow with nothing run, so its modules are `not_run`, at the
+  step's site or, retried, at its `r:<k>`, and the retry runs the subflow
+  with an empty input. `subflow_retry_test.go` covers it.
 
 **Failure modules in bodies (N3c).** In a flow with a failure module,
 every loop iteration and branch runs as a child flow carrying a copy of

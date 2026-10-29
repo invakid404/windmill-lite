@@ -202,6 +202,7 @@
     "conformance/flows/control-flow/subflow-retry/loop_seq": "N5",
     "conformance/flows/control-flow/subflow-retry/nested": "N5",
     "conformance/flows/control-flow/subflow-retry/once": "N5",
+    "conformance/flows/control-flow/subflow-retry/pre_run": "N5",
     "conformance/flows/control-flow/subflow-retry/while_retry": "N5",
     "conformance/flows/control-flow/waits/body_retry_exhausted": "NI",
     "conformance/flows/control-flow/waits/body_retry_par": "NI",

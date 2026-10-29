@@ -557,7 +557,11 @@ waits on an external gate except R1.
   below it (its own retried modules' attempts below those). A failure
   module, or the step after a tolerated failure, lists the step's failed
   attempts again with that subtree (FX-29), and a later step's `results`
-  read the last attempt's result.
+  read the last attempt's result. A run whose step's input transform
+  throws (FX-14) showed that the step's subflow job still launches and
+  fails with none of its modules run, and that the retry runs the
+  subflow with an empty input; the engine now lists that never-run child
+  flow, retried or not.
   The engine moves a failed attempt's child flow to that site, as NI
   moves a retried container's last failed child. The same fixture
   records a retry on a while loop and on a branchone, which NI's engine

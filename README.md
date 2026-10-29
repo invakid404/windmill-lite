@@ -79,8 +79,9 @@ delay arithmetic, jitter and argument reuse, the monitor of flows that
 hang between steps, the pre-write deadline and an injectable clock, and
 (N3a, N3b) its containers: for and while loops, `branchone` and
 `branchall`, and (N3c) subflows by path and the failure module's copy in
-every container body, and (N4) the `cache_ttl` result cache, a store a
-host may replace; `host` runs its flows on it too. PF1 gives every step its job identity
+every container body, (N4) the `cache_ttl` result cache, a store a
+host may replace, and (N5) a retry on a subflow step, recorded on the
+oracle; `host` runs its flows on it too. PF1 gives every step its job identity
 ([internal/platform](internal/platform/README.md)) and a platform facade
 ([internal/platform/facade](internal/platform/facade/README.md)): the
 router behind the stock `windmill-client`, which attributes every call to

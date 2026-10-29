@@ -870,9 +870,11 @@ func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, att
 // of its own, so its attempt has no site. A flow step's job is its
 // subflow's (CF-17), which moves to the attempt's site with everything it
 // ran, its own retried modules' attempts included (milestone N5, recorded
-// by the control-flow/subflow-retry fixture). A container that failed
-// before any child, a flow step whose subflow never started, and a leaf
-// keep their own record there.
+// by the control-flow/subflow-retry fixture), even when its input
+// transform failed and the subflow ran nothing (FX-14). A container that
+// failed before any child, a flow step with no job of its own (one the
+// run's cancellation kept from launching), and a leaf keep their own
+// record there.
 func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.SitePath) bool {
 	m := fr.moduleAt(i)
 	j := o.failedChild
@@ -1295,6 +1297,15 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	o.rec.Start = r.clock.Now()
 	if preRun != nil {
 		o.rec.Ran = true
+		if m.Kind == ir.KindSubflow {
+			// FX-14: a flow step's job, its subflow's, still launches and
+			// fails before any of the subflow's modules runs, which the
+			// walker reads as not_run (recorded by the
+			// control-flow/subflow-retry fixture's run pre_run).
+			c := r.subflowFrame(fr, i, r.e.prog.Flows[m.Subflow.Path], stored)
+			r.addChild(c)
+			o.rec.Job = c.id
+		}
 		out := fail(transformError(preRun, fr.collapsed != nil), OriginEngine)
 		r.recordJob(fr, i, out.rec.Result)
 		r.ended(fr, &out)
