@@ -1,0 +1,23 @@
+summary: 'FX-26/a constant then exponential phases'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          msg:
+            type: static
+            value: e
+        path: f/wl_fx26/fail
+      retry:
+        constant:
+          attempts: 2
+          seconds: 1
+        exponential:
+          attempts: 2
+          multiplier: 1
+          seconds: 2
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

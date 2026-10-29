@@ -1,0 +1,30 @@
+summary: 'FX-28/b a throwing retry_if with a handler'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          msg:
+            type: static
+            value: x
+        path: f/wl_fx28/fail
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+        retry_if:
+          expr: null.x
+  failure_module:
+    id: failure
+    value:
+      type: script
+      input_transforms:
+        x:
+          type: javascript
+          expr: typeof previous_result.error
+      path: f/wl_fx28/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

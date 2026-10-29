@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand/v2"
 	"strconv"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -58,6 +59,21 @@ type frame struct {
 	// iteration has its own, seeded from its loop's frame, since it runs on
 	// a goroutine of its own.
 	rng *rand.Rand
+	// failCount and failed are the flow's retry state (FX-27, FX-29): the
+	// failures of the current retry sequence, and the sites of the failed
+	// attempts its retries recorded, which every module of the flow that
+	// completes lists as its own; a success clears both. succeeded holds,
+	// per module, that its last status is Success, which a retry's
+	// restored previous_result depends on (FX-6, JE-36). spent is what the
+	// flow's current transition, since its last job ended (pinged), has
+	// spent evaluating expressions, against JE-2's monitor. The goroutine
+	// that runs the frame owns them all; a collapsed iteration's monitor
+	// state is its loop's flow's (owner).
+	failCount uint32
+	failed    []conformance.SitePath
+	succeeded []bool
+	spent     time.Duration
+	pinged    time.Time
 	// env is flow_env as the transition that started the frame's current
 	// module resolved it, and envCached the last resolution that succeeded,
 	// which the predicates after a child completes read (JE-38); zero
@@ -83,7 +99,7 @@ func newNodeScope(parent *nodeScope) *nodeScope {
 // sites carry each module's occurrence when an id repeats (OF-2, ADR 0011),
 // and the failure slot's site, s:failure, comes after them.
 func newFrame(ms []*ir.Module, prefix conformance.SitePath) *frame {
-	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1)}
+	fr := &frame{modules: ms, jobs: make([]jsonval.Value, len(ms)+1), succeeded: make([]bool, len(ms)+1)}
 	ids := make([]string, len(ms))
 	for i, m := range ms {
 		ids[i] = m.ID

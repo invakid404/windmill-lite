@@ -1,0 +1,19 @@
+summary: "FX-27/a a retry reuses the failed attempt's args"
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: javascript
+            expr: Math.random()
+        path: f/wl_fx27/once
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

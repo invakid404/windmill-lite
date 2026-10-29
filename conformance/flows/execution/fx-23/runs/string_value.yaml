@@ -1,0 +1,11 @@
+# FX-23/c: a string is a chaining error at a later transition (FX-15
+# context 1): the flow fails with the bare InternalError, and b never gets
+# a job.
+spec: [FX-23/c, JE-28, FX-15]
+target: f/wl_fx23/string_value
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: 'Expected an integer, found: String("1")'}}
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:b": {status: not_run}

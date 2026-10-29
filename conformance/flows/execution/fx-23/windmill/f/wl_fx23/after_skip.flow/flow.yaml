@@ -1,0 +1,28 @@
+summary: 'FX-23 the sleep of a skipped module'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        path: f/wl_fx23/echo
+      skip_if:
+        expr: 'true'
+      sleep:
+        type: static
+        value: 1
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: 2
+        path: f/wl_fx23/echo
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

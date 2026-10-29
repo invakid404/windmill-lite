@@ -1,0 +1,18 @@
+# FX-29/b: s succeeds, so its Success status lists a's two attempts and
+# then the retry state is cleared: b runs 3 times, and the flow still
+# fails.
+spec: [FX-29/b, FX-27]
+target: f/wl_fx29/reset_by_success
+expect:
+  status: failure
+  result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}
+  steps:
+    "m:a/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:a": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:s/r:0": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:s/r:1": {status: failure, args: {msg: a}, result: {error: {message: a, name: Error, stack: "<stack>", step_id: a}}}
+    "m:s": {status: success, args: {x: 0}, result: 0}
+    "m:b/r:0": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}
+    "m:b/r:1": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}
+    "m:b": {status: failure, args: {msg: b}, result: {error: {message: b, name: Error, stack: "<stack>", step_id: b}}}

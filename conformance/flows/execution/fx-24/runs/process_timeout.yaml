@@ -1,0 +1,9 @@
+# FX-24/a: a Bun step that outlives its timeout of 1 s fails with
+# FX-25's error, "job-specific" since 1 s is below the instance maximum.
+spec: [FX-24/a, FX-25]
+target: f/wl_fx24/process_timeout
+expect:
+  status: failure
+  result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}
+  steps:
+    "m:a": {status: failure, args: {ms: 3000}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}}

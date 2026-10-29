@@ -338,7 +338,7 @@ switch through a change to this record, naming the reason.
 | [Q-FX-13](../semantics/execution.md#q-fx-13): how much error text to match | All of it, except the Rust location suffix and stacks. |
 | [Q-WA-9](../semantics/client-api.md#q-wa-9): secret masking in logs | Not in the first release: windmill-lite keeps no log store, and logs are not part of the contract. Hosts that forward logs own their masking. |
 | [Q-WA-11](../semantics/client-api.md#q-wa-11): unsupported platform calls | Fail by default with `UnsupportedPlatformCall`; an `observe` mode keeps stock client behaviour for oracle comparison ([0007](0007-platform-interface.md)). |
-| [JE-2](../semantics/expressions.md#je-2) (`later`): runaway expressions | Keep the message, the 20 s limit and the three attempts with 5 s pauses. windmill-lite also stops the engine instance when an attempt times out, which its design note calls a deviation to list: D8. |
+| [JE-2](../semantics/expressions.md#je-2) (`later`): runaway expressions | Keep the message, the 20 s limit and the three attempts with 5 s pauses. windmill-lite also stops the engine instance when an attempt times out, which its design note calls a deviation to list: D8. It reproduces the zombie-flow monitor's cancel: a run whose transition spends `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s, the engine's `TransitionTimeout`) evaluating expressions is canceled by `monitor`, so the three attempts end the run canceled, as on the oracle (milestone N2). Hooks and waits do not count, since Windmill has no hooks and runs a wait as a scheduled job. |
 | [FX-26](../semantics/execution.md#fx-26): retry arithmetic | Emulate the unsigned 16-bit wrap, saturate and cap steps exactly; the random source is injectable so tests can fix jitter. |
 
 ## Consequences
@@ -463,6 +463,14 @@ switch through a change to this record, naming the reason.
   which deviation D13 replaces with Bun; the runs that report the runtime
   record Node. The catalogue's tags and tracking questions stay the
   semantics team's to update ([README](README.md), request 10).
+
+- Milestone N2 settled §7's JE-2 row: windmill-lite reproduces the
+  zombie-flow monitor's cancel, which recording batch E3a found ends a
+  runaway expression's flow at 60 s, before the third attempt's timeout
+  text could surface. FX-26's arithmetic is emulated exactly, with the
+  jitter source injectable as §7 asks (H10), and no deviation is added:
+  a run on H10's recording clock, a host's choice, records `H10` among
+  its trace's deviations, as H7 does.
 
 ## Spec IDs relied on
 

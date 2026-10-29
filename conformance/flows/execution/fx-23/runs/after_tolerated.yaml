@@ -1,0 +1,12 @@
+# FX-23: the sleep still applies after a failure that continue_on_error
+# tolerates (FX-30).
+spec: [FX-23, FX-30]
+target: f/wl_fx23/after_tolerated
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: failure, args: {msg: x}, result: {error: {message: x, name: Error, stack: "<stack>", step_id: a}}}
+    "m:b": {status: success, args: {x: 2}, result: 2}
+delays:
+  - {from: "m:a", to: "m:b", at_least_ms: 1000}

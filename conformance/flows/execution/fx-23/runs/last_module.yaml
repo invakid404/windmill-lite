@@ -1,0 +1,10 @@
+# FX-23, OF-17: a final module's sleep is applied by the virtual a-v
+# identity step that Windmill appends, which keeps a's result as the
+# flow's; the walker leaves that step out (OR-V7).
+spec: [FX-23, OF-17, FX-4]
+target: f/wl_fx23/last_module
+expect:
+  status: success
+  result: 3
+  steps:
+    "m:a": {status: success, args: {x: 3}, result: 3}

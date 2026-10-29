@@ -1,0 +1,12 @@
+# FX-28: retry_if. A false predicate prevents the retry; one that throws
+# while the completion is decided makes the failure unrecoverable with
+# a string error (as FX-21), which the failure module sees. Steps run
+# the path scripts f/wl_fx28/fail (throws msg) and echo (returns x).
+# Synthetic, written for this repository from
+# docs/semantics/execution.md#fx-28.
+id: execution/fx-28
+spec: [FX-28, FX-28/a, FX-28/b, FX-28/c, FX-21]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}

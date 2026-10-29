@@ -98,18 +98,18 @@ milestones PF, so that no milestone id looks like a deviation id of
 | N1a | engine core, sequential: transforms, the `results` routes, `skip_if`, stops, identity, mock, the hook seams of K1 | A5, B2b, E1, E3b | the E3b cases that [`internal/oracle/testdata/batches/e3b.json`](../../internal/oracle/testdata/batches/e3b.json) gates on N1a (the others need `continue_on_error`, a failure module, an error shape or chaining error, a retry or a sleep, a branch or a provider, and gate the milestone that implements it, as E3a's do); the sequential, context-free subset of E3a end to end: flow cases whose flows use only plain steps, transforms, `skip_if`, `stop_after_if` and identity, with no failure module, container, wait, retry or platform provider. E3a's other flow cases gate the milestones below that implement their features | 5 | yes |
 | E3e | the remaining recordings, among them the run-and-wait HTTP halves of FX-36 and FX-37, the contested `later` cases and the probe-catalogue reconstruction (Q-OR-16) | E3a, E3b, E3c, E3d, E1 | — | 5 | yes |
 | N1b | engine errors: `continue_on_error`, failure module and recovery, error shapes, chaining errors, final result, cancellation outcome | N1a, E3c | the E3c cases whose flows need nothing a later milestone implements (the others gate N3c and NI, below); E3a's failure-module and error-route cases (JE-17/a, JE-35/a–c) and its root-pickup expression cases (JE-24/b, JE-24/d); the E3b cases gated on N1b (FX-6/b, FX-7/d, FX-10/a, FX-19/e–g and /i, FX-21/a and its failure-module variant) | 6 | yes |
-| N2 | engine waits and time: `sleep`, `timeout` and its messages, retry arithmetic, jitter and argument reuse, deadlines, the clock | N1a | FX-23 to FX-29 cases; E3a's wait, timeout and retry cases (JE-2/a, JE-22/a–b, JE-28/a–c, JE-29/a, JE-32/a–b, JE-V2/a and /c); E3b's FX-19/h | 6 | yes |
+| N2 | engine waits and time: `sleep`, `timeout` and its messages, retry arithmetic, jitter and argument reuse, deadlines, the clock | N1a | FX-23 to FX-29 cases, but FX-24/d–e (a loop's `timeout`, NI's) and FX-24/g (`later`); E3a's wait, timeout and retry cases (JE-2/a, JE-22/a–b, JE-28/a–c, JE-29/a, JE-32/a–b, JE-V2/c); E3b's FX-19/h | 6 | yes |
 | N3a | for loops: sequential, collapsed, parallel, `parallelism` | N1a, E3d | the E3d for-loop cases; E3a's for-loop cases (JE-9/e–f, JE-19/a and /c, JE-26/d, JE-27/a–b on loops, JE-30/a–b, JE-36/a–c and /e, JE-37/a, JE-38/c, JE-39/a, JE-V1/a–e) | 6 | yes |
 | N3b | while loops, `branchone`, `branchall` | N1a, E3d | the E3d while and branch cases; E3a's while and branch cases (JE-24/a, JE-27/a–b on `branchall`, JE-31/a–b, JE-36/d and /f); E3b's FX-20/a and its error-stop variant | 6 | yes |
 | G1 | in-repository benchmarks of [0004](0004-harness-protocol.md) and [0005](0005-json-step-boundaries.md), run spans | A1, C1, N1a | a recorded baseline | 6 | yes |
 | PF1 | facade router, interception, attribution and the transport restriction, the 501 policy, job identity | C3b, N1a | the attribution test of [0007](0007-platform-interface.md) | 6 | yes |
 | N3c | subflows by path, `results` across scopes, stop propagation, failure modules in bodies | N1b, N3a, N3b | CF-16 to CF-20, CF-29 and CF-V cases; E3a's cross-scope cases (JE-19/b, JE-38/d) and its child-pickup case (JE-35/d, a subflow by path); the E3c runs that need a subflow by path or a body's failure module (FX-15/c, FX-33's parent view, FX-34/a) | 7 | yes |
-| NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d); E3a's unrecoverable-stop cases on a module with a `retry` (JE-26/b–c); the E3c runs that need a retry, a javascript `timeout` or a container (FX-14/b, FX-15/b, FX-32/b, FX-36's failed `branchall`) | 7 | yes |
+| NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; FX-24/d–e (a loop's `timeout`); the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d); E3a's unrecoverable-stop cases on a module with a `retry` (JE-26/b–c); the E3c runs that need a retry, a javascript `timeout` or a container (FX-14/b, FX-15/b, FX-32/b, FX-36's failed `branchall`) | 7 | yes |
 | PF2 | resources, variables, secrets, the interpolation walker | PF1 | WA-10 to WA-12 and WA-40 to WA-42 cases; the E3b FX-42/h case; E3a's provider cases (JE-11/a, JE-20/a–b, JE-38/b, JE-41/a–c, JE-42/a and /e, JE-V3/a) | 7 | yes |
 | PF3 | flow user state, object store, dispatcher, job registry | PF1 | WA-5, WA-6, WA-14 and WA-16 cases; the dispatch-target restriction case | 7 | yes |
 | E4b | the stub acceptance cases on windmill-lite | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
 | N4 | the `cache_ttl` result cache with the host store interface | N3c | the E3d FX-40 cases | 8 | yes |
-| F1 | `wl`: `Open`, `Run`, `BuildInfo`; `windmill-lite run` | F4, N3c, NI, PF2, PF3 | the flow suite through `wl` in `fresh` and `warm`, including E3a cases that need features of two milestones neither of which depends on the other (JE-V2/b: retry and argument resolution), and E3b's FX-17/b (retry and a variable) | 8 | yes |
+| F1 | `wl`: `Open`, `Run`, `BuildInfo`; `windmill-lite run` | F4, N3c, NI, PF2, PF3 | the flow suite through `wl` in `fresh` and `warm`, including E3a cases that need features of two milestones neither of which depends on the other (JE-V2/a and /b: retry, and a variable read or argument resolution), and E3b's FX-17/b (retry and a variable) | 8 | yes |
 | F2a | hooks as Go callbacks: H1, H2, H6, H8, H9, H12, H13, and mandatory provided sites | F1 | hook cases; the run-time half of the provided-site policy case of [0002](0002-ir-and-loader.md) | 9 | yes |
 | F2b | budgets and latches: H3, H4, H5, H7, H10 | F1 | latch-precedence cases | 9 | yes |
 | F3a | host-mode transport: `run` frames, host-provided-module registration, scope capture, health, drain, the watchdog option, the working-directory checks | F1, C2b, C3b | `workdir_not_writable` and `workdir_mismatch` cases; a codebase script reads its extracted asset in host mode | 9 | yes |
@@ -314,10 +314,12 @@ waits on an external gate except R1.
   WA-14/b (Python) deferred; WA-16/a and /c as step cases (`wa-16.yaml`)
   and on the stock client (`TestObjectsOnTheClient`, which checks WA-16/b,
   the client's own refusal, too), WA-16/d (a CE observation) deferred.
-  WA-6/b needs N2's retries and WA-6/d N3b's branches, neither of which
-  PF3 needs merged, so by the rule above they gate the later of each and
-  PF3: the oracle recorded them with the fixture, and whichever merges
-  second adds them to `flowsuite.json`. "The dispatch-target restriction
+  WA-6/b needs a retry inside a loop's body, which N2 left to NI, and
+  WA-6/d N3b's branches; PF3 needs neither merged, and the job identity
+  they observe is PF1's, so by the rule above they gate NI and N3b, the
+  milestones that implement the last feature each needs: the oracle
+  recorded them with the fixture, and those milestones add them to
+  `flowsuite.json`. "The dispatch-target restriction
   case" is `wa-15.yaml`, whose cases a step case's bundle, which has no
   root to dispatch, refuses, and `TestDispatchRefusedOnTheClient` on the
   stock client. The flow fixture `client-api/dispatch`, on the oracle's
@@ -369,6 +371,44 @@ waits on an external gate except R1.
   deferred to `none`, with the reason. The oracle workflow runs a second
   session with two workers, for the fixtures that need them and for the
   smoke fixture under another `LISTEN_NEW_EVENTS_INTERVAL_SEC`.
+
+- N2 gave the engine Windmill's waits and time: `sleep` (FX-23,
+  JE-28), the step timeout evaluated for every module with the texts of
+  its failures (FX-24, FX-25, JE-29), `retry` and `retry_if` with
+  FX-26's 16-bit delay arithmetic, the flow-wide retry state of FX-27 and
+  FX-29 and the reuse of the failed attempt's arguments (JE-V2), H10's
+  clock (`RunRequest.Clock`, with a recording clock) and jitter source
+  (`RunRequest.Jitter`, else the run's seed), H4's pre-write deadline, and
+  the monitor of flows that hang between steps (JE-2), which cancels a
+  run whose transition spends 60 s evaluating, as Windmill's server
+  cancels it. A failed attempt's record is the site `<module>/r:<k>`, and
+  a module's record lists the flow-wide failed attempts, which the
+  walker meets again under every module whose status lists them; `wltest
+  check` now checks a run's `delays` on the trace's job times and runs
+  JE-2/a, with a run timeout of 150 s. "FX-23 to FX-29 cases" in N2's
+  row is read as the catalogue cases N2's features decide, recorded on
+  the oracle by N2's own fixtures `conformance/flows/execution/fx-23` to
+  `fx-29`, whose manifest is `internal/oracle/testdata/batches/n2.json`:
+  FX-24/d–e need a loop, so they gate NI; FX-24/g is `later`; the delays
+  of FX-26/c–e, hours long, are checked at unit level on the recording
+  clock, since the walker does not capture a queued job's scheduled time.
+  FX-25/a, FX-28/b–c and FX-29/a–b also need N1b's features, which merged
+  first, so N2's gate runs them. JE-V2/a moved from N2's row to F1's,
+  beside JE-V2/b: its transform reads a variable and its script writes one
+  through the job API, which need PF1 and PF2; `fx-27/reuses_args`
+  records the rule it shows, that a retry does not evaluate its
+  transforms again. The E3b and E3c runs that NI's row gates and N2 can
+  run because N1b merged first (FX-6's retry variant, FX-8/b, FX-14/b,
+  FX-19/d, FX-32/b) and E3a's JE-26/b–c are required by `flowsuite.json`
+  under N2; FX-15/b still differs only by the `<loc>` suffix its failure
+  module copies from a generated error, which ADR 0011's location rule
+  does not reach, and stays NI's. N3a merged first, so the engine
+  refuses N2's waits and retries in a for loop's body, on a loop, and as
+  the sleep that delays a loop's start, naming NI, which integrates them
+  with containers (a loop module's retry restarts it, a collapsed loop
+  evaluates its timeout per iteration); each flow, the root and every
+  child flow, keeps its own retry state and transition monitor, so
+  parallel iterations share none.
 
 ## Spec IDs relied on
 

@@ -1,0 +1,9 @@
+# FX-25/a: a's timeout is tolerated, and b sees its error.
+spec: [FX-25/a]
+target: f/wl_fx25/tolerated
+expect:
+  status: success
+  result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}
+  steps:
+    "m:a": {status: failure, args: {ms: 5000}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}}
+    "m:b": {status: success, args: {x: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}}, result: {error: {name: ExecutionErr, message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", step_id: a}}}

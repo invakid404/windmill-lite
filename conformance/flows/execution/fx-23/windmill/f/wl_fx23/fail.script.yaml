@@ -1,0 +1,15 @@
+summary: ''
+description: ''
+lock: '!inline f/wl_fx23/fail.script.lock'
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    msg:
+      type: string
+      description: ''
+      default: null
+      originalType: string
+  required:
+    - msg

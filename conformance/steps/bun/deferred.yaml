@@ -91,7 +91,7 @@ deferred:
     expected_in: PF3 (conformance/flows/client-api/flow-path, run seq)
   - spec: WA-6/b
     reason: a loop body made non-simple by a retry needs a flow with a for loop and a retry
-    expected_in: PF3's fixture conformance/flows/client-api/flow-path (run retry), which runs once N2's retries have merged
+    expected_in: PF3's fixture conformance/flows/client-api/flow-path (run retry), which runs once NI's retries inside containers have merged
   - spec: WA-6/c
     reason: a parallel loop's body sub-flows need a flow with a for loop; the step level runs no loops
     expected_in: PF3 (conformance/flows/client-api/flow-path, run par)
