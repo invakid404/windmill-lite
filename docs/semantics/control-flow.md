@@ -47,9 +47,13 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   CF-12 and CF-19. The recorded job kinds agree with this file: a non-simple
   body runs as a `flownode` child, a simple body that is not collapsed (a
   parallel loop's) stays inline and runs as a `flowpreview` child, and a
-  collapsed iteration is a script job directly under the loop. The other
-  expectations are source-derived; [Q-CF-1](#q-cf-1) and
-  [Q-CF-17](#q-cf-17) track what remains.
+  collapsed iteration is a script job directly under the loop. Milestones
+  N3c, NI and N5 have since recorded, in the same directory, the cases of
+  CF-16 to CF-18, CF-20 to CF-29 and CF-V1 to CF-V5 that the
+  reference configuration allows (oracle runs 40858228112, 40852609901,
+  40857510216, 40915682847 and 40926159329); each case names its run. The
+  other expectations are source-derived; [Q-CF-17](#q-cf-17) tracks what
+  remains.
 
 ## Summary for the design
 
@@ -110,8 +114,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
    handler ids, inline script paths and job kinds; a by-path `script` keeps
    its own path. It reduces only the module lists: the failure and
    preprocessor modules stay as written, get no virtual step, and their
-   `sleep` is never applied ([CF-6](#cf-6), [CF-V4](#cf-v4),
-   [CF-24](#cf-24), [CF-30](#cf-30)).
+   `sleep` is never applied. A container in the failure slot is advanced
+   by bookkeeping meant for list modules: a sequential loop or `branchall`
+   there ends the flow after its first child, an empty one makes the failed
+   step succeed, and a parallel one never completes on its own
+   ([CF-6](#cf-6), [CF-V4](#cf-v4), [CF-24](#cf-24), [CF-30](#cf-30),
+   [CF-31](#cf-31)).
 8. **Errors while starting a container take one of three routes:** a root
    flow at pickup records a step failure and handles it normally; a child
    flow at pickup fails and bypasses its own handler; later chaining aborts
@@ -435,7 +443,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-7"></a>
 ### CF-7 · Parallel `forloopflow`: spawning, `parallelism`, completion
 
-**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1`; all oracle-observed); medium (start order among several eligible iterations); high (`type: ai` and the release delay, source-traced) · **Status:** confirmed; drafted (`type: ai`, the release delay)
+**Scope:** core (`same_worker` error: later) · **Confidence:** high (aggregation, order, `same_worker` condition and error; release order under `parallelism: 1`; all oracle-observed); medium (start order among several eligible iterations); high (`type: ai` and the release delay, source-traced); high (a failed parallel loop under `continue_on_error`, source-traced) · **Status:** confirmed; drafted (`type: ai`, the release delay, `continue_on_error`)
 
 - **Rule:** With `parallel: true`:
   - **Spawning.** All iterations are created at once as child flows; the loop
@@ -468,6 +476,21 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     (`recover: true`) counts as success ([CF-V1](#cf-v1)). The step succeeds
     if `skip_failures` is true or every child counts as success; otherwise
     it fails with the full array as its result.
+  - **A failed parallel loop under `continue_on_error`** (drafted; the same
+    for a parallel `branchall`, [CF-15](#cf-15)). The parallel completion
+    path has no tolerance step: it does not advance the cursor, and the
+    continue decision, which then still sees the loop as a step before the
+    last, continues into it. A `retry` that is due runs first and re-runs
+    the loop ([CF-22](#cf-22)). Otherwise the flow re-enters the failed loop,
+    which cannot start from a `Failure` status, and the flow is aborted by
+    [CF-23](#cf-23) route 3: name `InternalError`, message
+    `Bad request: Unrecognized module status for ForloopFlow Failure { … }`
+    (`BranchAll` for a branchall), the status printed in Rust debug
+    notation, which holds job ids. The next step never runs, at the last
+    position the flow does not succeed with the array, and the flow's
+    failure module does not run. So `continue_on_error` never tolerates a
+    failed parallel container; `skip_failures` (or `skip_failure` per
+    branch) is the only way through.
   - **Stop conditions.** The loop module's own `stop_after_if` is not
     evaluated. A body-level early stop ends only that iteration
     ([CF-12](#cf-12)). `stop_after_all_iters_if` is evaluated once all
@@ -525,8 +548,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-common/src/error.rs:55-56` (`Bad request: ` text),
   `:73-74` (the pickup form); `backend/windmill-types/src/flows.rs:1080-1081`;
   `frontend/src/lib/components/flows/content/FlowModuleEarlyStop.svelte:72`
-  (the UI hides "break" for parallel loops).
-- **Conformance:** [CF-7/a to CF-7/e](conformance.md#cf-7)
+  (the UI hides "break" for parallel loops);
+  `continue_on_error`: `worker_flow.rs:1037-1092` (the parallel completion
+  advances only on success), `:1369-1397` (so the step is not the last),
+  `:1729-1758` (the continue decision), `:3723-3832` (no retry due and
+  `continue_on_error` set: neither a retry nor the failure module),
+  `:5900-5903` (`Unrecognized module status for ForloopFlow …`),
+  `:5603-5605` (the `branchall` counterpart), `:2099-2126` (the chaining
+  abort),
+  `backend/windmill-common/src/error.rs:55-56`.
+- **Conformance:** [CF-7/a to CF-7/f](conformance.md#cf-7)
 - **Revision 2026-10-28 (oracle, batch E3d):** the `same_worker` error's
   recorded form (`Bad request: ` inside the pickup envelope) and the
   observed release timing are added; the release order under
@@ -548,6 +579,10 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   every iteration as with `parallelism: 0`. Added, with the source's reason
   for the observed release delay and why the start order among several
   eligible iterations is not fixed. New source-derived case CF-7/e.
+- **Revision 2026-10-29 (SC4, source re-check):** added what a failed
+  parallel loop or parallel `branchall` does under `continue_on_error`: the
+  flow aborts with an `InternalError` instead of continuing. New
+  source-derived case CF-7/f.
 
 <a id="cf-8"></a>
 ### CF-8 · The simple-loop-body fast path; eligibility follows the executing job's kind
@@ -766,7 +801,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-12"></a>
 ### CF-12 · Early stop raised inside a container body
 
-**Scope:** core · **Confidence:** high (oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed); high (source-traced: the container's settings on a forwarded stop) · **Status:** confirmed; drafted (the container's settings on a forwarded stop, added 2026-10-29 by SC4)
 
 - **Rule:**
   1. **Clean vs error stop.** A body step's `stop_after_if` that fires is a
@@ -802,10 +837,11 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
        far, ending with the `EarlyStopError` entry. Breaking clears the stop
        flag, not the failure. With `skip_failures: true` the loop step
        succeeds and the flow continues with the next step. With
-       `skip_failures: false` the loop step fails and is an ordinary failed
-       step: its own `retry` and `continue_on_error` apply, and without them
-       the enclosing flow fails with the loop's array as its result and its
-       next step does not run ([CF-5](#cf-5));
+       `skip_failures: false` the loop step fails: its own `retry` applies,
+       but its `continue_on_error` does **not**, at any position (see
+       below), so without a retry the enclosing flow fails with the loop's
+       array as its result and its next step does not run
+       ([CF-5](#cf-5));
      - **sequential branchall:** no further branch runs and the enclosing
        flow **stops** right after the branchall. The branchall's status, and
        so the stopped flow's status, follows the stopped branch's
@@ -824,6 +860,14 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 
      Stopping and failing are independent: a propagated stop does not imply
      a failed flow.
+
+     **The container's own settings on that completion** (drafted). The
+     completion that carries a forwarded stop turns the container's
+     `continue_on_error` off, wherever the container stands in its list, so
+     it never tolerates the failure. A loop, which clears the stop when it
+     breaks, still evaluates its `retry`; a `branchone` or sequential
+     `branchall`, which keep the stop, end the flow before any `retry` is
+     considered.
   5. **What the stopped step looks like.** A body step stopped with an
      error keeps its own job result and status: its job succeeded, its
      module is marked failed, and it carries the `EarlyStopError`, which is
@@ -836,12 +880,14 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `:1273-1284` (container success from skip flags), `:1350-1365`,
   `:1734-1736` (a stopped flow does not continue; an error stop continues
   into the handler), `:1734-1757` (a failed loop is an ordinary failed
-  step), `:2006-2047`, `:2135-2150` (stop flag handed to the parent),
+  step), `:670-677` (a forwarded stop sets `continue_on_error` to false for
+  that completion), `:1302-1327`, `:1729-1733` (so the cursor does not
+  advance and the last-step tolerance does not apply), `:2006-2047`, `:2135-2150` (stop flag handed to the parent),
   `:2329-2346` (per-branch `skip_failure`); tests
   `backend/tests/worker.rs:645`, `:700` (stop inside a sequential branchall:
   flow result `[-123]`, later step not run);
   `frontend/src/lib/components/flows/content/FlowModuleEarlyStop.svelte:36-82`.
-- **Conformance:** [CF-12/a to CF-12/f](conformance.md#cf-12)
+- **Conformance:** [CF-12/a to CF-12/g](conformance.md#cf-12)
 - **Revision 2026-10-28 (oracle, batch E3d):** the finding was `DISPUTED`.
   Its draft said that after a sequential loop breaks on an unhandled error
   stop the flow continues after the loop either way; the validation's
@@ -853,6 +899,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   succeeds and the next step runs). The draft's sentence is withdrawn; every
   other point, on which both sides agreed, is recorded as stated. Point 5
   is new: it states what the recordings show of the stopped step.
+- **Revision 2026-10-29 (SC4, source re-check, milestone N3c):** point 4
+  said that after a sequential loop breaks on a forwarded error stop, its
+  own `retry` and `continue_on_error` apply. Only the `retry` does: the
+  completion that carries the forwarded stop sets the container's
+  `continue_on_error` to false, so it is not tolerated at a middle or at
+  the last position, and `branchone` and sequential `branchall` ignore
+  their `retry` too. None of the recorded runs had `continue_on_error` on
+  the loop (CF-12/c and CF-12/f use `skip_failures`). New source-derived
+  case CF-12/g. Point 3's handled case is extended in [CF-16](#cf-16) point
+  8.
 
 <a id="cf-13"></a>
 ### CF-13 · `stop_after_all_iters_if` (loops and branchall)
@@ -1019,7 +1075,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-16"></a>
 ### CF-16 · `failure_module` inside containers
 
-**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id); medium (the inline handler id; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (routing, recovery split); high (oracle-observed: the stored-node handler id, points 1 and 4, the recovery split); medium (the inline handler id; not recorded, outside the reference configuration); high (source-traced: point 8) · **Status:** confirmed; drafted (point 8, added 2026-10-29 by SC4)
 
 - **Rule:**
   1. **Where the handler runs.** Each child flow carries a copy of the flow's
@@ -1056,14 +1112,44 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      single error entry yields that entry's `error`; several yield
      `{"name": "MultipleErrors", "message": "[<step_id|index>] <msg>; …", "errors": <array>}`
      (see [expressions.md](expressions.md)).
+  8. **What the enclosing flow does with a handled failure** (drafted). A
+     child flow whose failure ended in its copy of the handler reports an
+     ordinary failure to its container, marked as handled; an error stop's
+     stop flag is not forwarded ([CF-12](#cf-12) point 3). When the
+     container step then fails, it is an ordinary failed step except for the
+     handler:
+     - its own `retry` is evaluated first and re-runs it
+       ([CF-22](#cf-22));
+     - its `continue_on_error` tolerates the failure at **any** position:
+       at a middle step the flow continues with the container's result as
+       `previous_result`; at the last step the flow succeeds with that
+       result ([FX-30](execution.md#fx-30));
+     - without either, the flow fails with the container's result, does not
+       run its own handler again (point 4), and reports the failure as
+       handled to its own parent, so no outer level runs it either.
+
+     The mark covers only that completion: a later step of the same flow
+     that fails runs the flow's handler normally. A parallel loop or
+     parallel `branchall` that fails is always treated as handled when the
+     flow has a handler, since each failed child ran its copy. A `flow` step
+     by path clears the mark, so the caller's handler runs
+     ([CF-17](#cf-17)). A container as the handler itself is
+     [CF-31](#cf-31).
 - **Evidence:** `worker_flow.rs:5038-5074` (handler copied into children),
   `:940-1035`, `:1018-1035`, `:1138-1192`, `:1734-1757` (a failed step with
   a handler continues into it), `:2006-2047`, `:2135-2150` (the child reports
   `success && !is_failure_step`), `:1082-1092` (parallel: no second run at
   the container); `backend/windmill-worker/src/result_processor.rs:1939-1978`;
   `backend/windmill-worker/src/worker_lockfiles.rs:1554-1591`;
-  `backend/windmill-jseval/src/lib.rs:495-524` (`error` binding over arrays).
-- **Conformance:** [CF-16/a to CF-16/d](conformance.md#cf-16)
+  `backend/windmill-jseval/src/lib.rs:495-524` (`error` binding over arrays);
+  point 8: `worker_flow.rs:163-185` (each completion starts unmarked unless
+  a child reports the mark), `:498-500` (a `flow` step clears it),
+  `:1087-1092` (a failed parallel container is marked), `:1302-1327` (the
+  cursor advances under `continue_on_error` unless a retry is due),
+  `:1729-1758` (retry, then tolerance, then the handler check that the mark
+  blocks), `:2140-2153` (a child that ended in its handler reports the
+  mark).
+- **Conformance:** [CF-16/a to CF-16/f](conformance.md#cf-16)
 - **Note:** handler retry and unrecoverable-error exceptions belong to
   [execution.md](execution.md).
 - **Revision 2026-10-28 (oracle, batch E3c):** point 6 was right; execution's
@@ -1071,11 +1157,28 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   stored-node id was recorded by fixture `conformance/flows/execution/fx-34`
   (run `step_id`, oracle run 40689442792), as was point 1's once-per-failing
   iteration run (run `loop`). The CF-16 cases themselves are not recorded.
+- **Revision 2026-10-29 (SC4, source re-check, milestone N3c):** added
+  point 8, answering N3c's open question 4. N3c treats a handled failure
+  that reaches a flow with a handler as a forwarded error stop, which its
+  `continue_on_error` tolerates only at the last module. In Windmill it is
+  not a stop: it is an ordinary failure marked as handled, so the
+  container's `retry` and `continue_on_error` apply as for any failed step,
+  at a middle step as at the last, and only the flow's handler is skipped.
+  A forwarded error stop proper (a child without a handler) is
+  [CF-12](#cf-12) point 4, corrected the same day. New source-derived cases
+  CF-16/e and CF-16/f.
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-16/a and
+  CF-16/b were recorded as stated (fixture
+  `conformance/flows/control-flow/cf-16`, runs `a` and `b`, oracle run
+  40858228112): one handler job in each failing iteration's child flow,
+  none at the root. CF-16/c and the stored-node half of CF-16/d follow from
+  the recorded CF-V1/a to CF-V1/c and CF-V4/a; the inline half (CF-V4/b)
+  needs an inline child payload and is not recorded.
 
 <a id="cf-17"></a>
 ### CF-17 · Subflows (`type: flow`, by path)
 
-**Scope:** core (scheduler overrides: out) · **Confidence:** high (inputs, result, scope); medium (`recover` across the boundary) · **Status:** confirmed
+**Scope:** core (scheduler overrides: out) · **Confidence:** high (oracle-observed: inputs, result, scope; a `retry` on the step); medium (`recover` across the boundary); medium (source-traced: the version each attempt runs, the subflow's own handler on each attempt, nesting depth) · **Status:** confirmed; drafted (the version each retry runs, the subflow's own handler on each attempt, nesting depth; added 2026-10-29 by SC4)
 
 - **Rule:** A `flow` step:
   - **Resolution.** Resolves `path` to the **latest deployed version** when
@@ -1098,6 +1201,71 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     already ran.
   - **`recover`.** A subflow whose handler returned `recover: true` is still
     a failed step for the parent ([CF-V1](#cf-v1)).
+  - **`retry` on the step** (recorded by milestone N5,
+    [CF-17/b to CF-17/i](conformance.md#cf-17)). The caller's `retry`
+    applies to a failed `flow` step as to any other step
+    ([FX-26](execution.md#fx-26), [FX-27](execution.md#fx-27)):
+    1. **Each attempt is its own subflow job.** A failed attempt's `Flow`
+       job stays as it ended, with its own status and results. When the
+       retry is scheduled, that job's id is appended to the caller's
+       flow-wide retry list, which the step's status entry copies as
+       `failed_retries`. The retry then queues a new `Flow` job of the same
+       path at once, due after the retry's delay ([FX-26](execution.md#fx-26)),
+       with the failed attempt's stored arguments (the subflow's `flow_input` of that attempt): the step's
+       input transforms are not evaluated again. The retry goes through the
+       step's start phase again, so the path is resolved again to its
+       latest deployed version when the retry is queued, not when the
+       delayed job starts (drafted).
+    2. **The last attempt is the step.** The step's status entry names the
+       last attempt's job, so `results.<id>`, the next step's
+       `previous_result` and, at the last step, the flow's result are the
+       last attempt's. Earlier attempts appear only in `failed_retries`.
+       When the attempts run out, the step fails with the last attempt's
+       final result, and the caller's `continue_on_error` and
+       `failure_module` apply to it as above.
+    3. **Retry state belongs to each flow job.** The subflow's own steps
+       keep their retries in the subflow's own status: a failed attempt has
+       spent its steps' retries, and the next attempt starts them afresh.
+    4. **Inside a body,** the step and its retries belong to the child flow
+       that runs the body, so each loop iteration retries its own subflow
+       step (recorded in a sequential and a parallel loop).
+    5. **Later modules list the attempts again**
+       ([FX-27](execution.md#fx-27), [FX-29](execution.md#fx-29)): the
+       caller's retry list is cleared only when a module succeeds, so after
+       the last attempt fails, the failure module's status, or under
+       `continue_on_error` the next module's status, lists the same failed
+       attempts in its own `failed_retries`.
+    6. **A throwing input transform** ([FX-14](execution.md#fx-14)): the
+       step's `Flow` job is still queued, with empty arguments and the
+       transform's error as its pre-run error. It fails when picked up,
+       with that `ExecutionErr`, before any of its modules starts, so all
+       of them stay waiting. The retry re-queues the subflow with that
+       attempt's stored arguments, `{}`, and the subflow then runs with an
+       empty `flow_input`.
+    7. **The subflow's own failure module** (drafted) runs inside each
+       failed attempt that reaches it; the caller still sees a failed step
+       and still retries it, whatever the handler returned: the handler
+       flag is reset at a `flow` step, and a subflow that ended in its
+       handler reports failure even after `recover: true`.
+
+    **What the oracle's walker shows** ([OR-11](oracle.md#or-11)). The
+    harness fetches the job of each `failed_retries[k]` and records it at
+    the typed site `<step>/r:<k>` (design record 0011); since that job is a
+    flow, it walks the job's own status, so a failed attempt's modules
+    appear below it (`m:a/r:0/m:x`), and a retried step inside that attempt
+    nests further (`m:a/r:0/m:x/r:0`). The site path and the nesting are
+    the harness's notation: Windmill keeps only a list of job ids on the
+    step's status entry, each a complete flow job. The same job appears
+    again at the sites of the later modules that list it (`m:b/r:0`,
+    `s:failure/r:0`).
+  - **Nesting depth** (drafted). Nothing bounds how deeply subflows by path
+    nest. Deployment records each `flow` step's path as a dependency
+    without looking for cycles, and the step queues a new `Flow` job
+    whenever it starts, so a flow that calls itself by path, directly or
+    through other flows, deploys and runs, and only its own logic ends the
+    recursion ([CF-17/j](conformance.md#cf-17)). A cancellation marks
+    queued and running descendants only down to 500 levels
+    ([CF-28](#cf-28)): the jobs of a deeper recursion are not marked by it.
   - **Early stop.** A subflow's early stop does not stop the parent
     ([CF-12](#cf-12)).
   - **Start failures.** An unknown path fails the step at start
@@ -1113,16 +1281,64 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `:4140-4150` (caller scheduling overrides);
   `backend/windmill-queue/src/jobs.rs:5912-5980` (preprocessor dropped,
   `:5937`); tests `backend/tests/flow_engine_parity.rs:2584`, `:2664`,
-  `:2771` (subflow `flow_env` own and inherited).
-- **Conformance:** [CF-17/a](conformance.md#cf-17)
+  `:2771` (subflow `flow_env` own and inherited). The retry:
+  `worker_flow.rs:1701-1722`, `:1751` (a failed step is retried while
+  attempts remain), `:3723-3737` (the retry evaluated at the next push),
+  `:3752-3766` (the failed job appended to the flow's retry list and
+  copied to the step's `failed_retries`), `:3793-3795`, `:3891-3905` (the
+  retry's arguments are the last failed job's stored arguments),
+  `:1287-1300`, `:1334-1345` (the completed entry: `job` and the copied
+  list), `:2135-2153` (a finished subflow reports to its caller under its
+  own job id), `:5142-5157`, `:6020-6049` (each start of the step resolves
+  the path and queues a `Flow` job), `:1491-1503` (the list cleared after
+  a successful module), `:498-500` and `:2144` (the handler flag reset at
+  a `flow` step; a subflow ending in its handler reports failure);
+  `backend/windmill-types/src/flow_status.rs:33`, `:48-51` (each flow
+  job's status holds its own retry state). The throwing transform:
+  `worker_flow.rs:4267-4281` (empty arguments and a pre-run error),
+  `:4404-4429` (the job is queued with them);
+  `backend/windmill-worker/src/worker.rs:3647-3649` (a job with a pre-run
+  error fails at pickup, before its kind is looked at). Nesting depth:
+  `backend/windmill-worker/src/worker_lockfiles.rs:1238-1247` (the
+  dependency row, no cycle check); `backend/windmill-queue/src/jobs.rs:327-344`
+  (the cancel walk stops at depth 500). The retry's behaviour is recorded
+  by fixture
+  [`control-flow/subflow-retry`](../../conformance/flows/control-flow/subflow-retry)
+  (oracle runs 40915682847 and 40926159329).
+- **Conformance:** [CF-17/a to CF-17/j](conformance.md#cf-17)
 - **Note:** the subflow job is a `Flow` job whatever the caller's kind, so
   an eligible forloop inside it collapses even when the caller is a raw
-  submission ([CF-8](#cf-8)).
+  submission ([CF-8](#cf-8)). Inside a subflow by path,
+  `WM_ROOT_FLOW_JOB_ID` names the subflow's own job, so each retry attempt
+  has a different one, while `WM_ROOT_JOB_ID` stays the submitted root
+  ([WA-V1](client-api.md#wa-v1), [OR-16](oracle.md#or-16)); N5's recordings
+  show both.
+- **Revision 2026-10-29 (SC4, recordings of milestone N5):** the finding
+  said only that the caller's `retry` applies to a failed subflow. Milestone
+  N5 recorded a retry on a `flow` step on the CE oracle (fixture
+  `control-flow/subflow-retry`, runs `once`, `exhausted`,
+  `exhausted_continue`, `exhausted_failure`, `nested`, `loop_seq`,
+  `loop_par`, `delay` in oracle run 40915682847 and `pre_run` in oracle run
+  40926159329). The rule now says where a failed attempt goes (its own
+  `Flow` job, listed in the step's `failed_retries`), that the last attempt
+  is the step's value, that each flow job keeps its own retry state, that
+  later modules list the attempts again, and what a throwing transform
+  does on a `flow` step; new cases CF-17/b to CF-17/i record them. From the
+  source alone (drafted): each retry resolves the path again, the
+  subflow's own handler runs in each failed attempt without stopping the
+  retry, and nothing bounds the nesting of subflows by path, which answers
+  milestone N3c's question about a self-calling subflow (new case
+  CF-17/j).
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-17/a was
+  recorded as stated (fixture `conformance/flows/control-flow/cf-17`, run
+  `a`, oracle run 40858228112): the subflow job's input was its step's
+  arguments, its result the step's, and the caller's `results.s` was
+  undefined.
 
 <a id="cf-18"></a>
 ### CF-18 · `identity`, skipped containers, mocked containers
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high; high (oracle-observed: a skipped container) · **Status:** confirmed
 
 - **Rule:**
   - **`identity`** returns `previous_result` unchanged; at step 0 that is the
@@ -1143,6 +1359,10 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   short-circuit before the container logic), `:3842-3866` (skip evaluated
   first), `:3874-3890` (mock args); test `backend/tests/worker.rs:307`.
 - **Conformance:** [CF-18/a](conformance.md#cf-18)
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-18/a was
+  recorded as stated (fixture `conformance/flows/control-flow/cf-18`, run
+  `a`, oracle run 40858228112): the skipped loop ran as one identity job
+  whose argument was `{"previous_result": 42}`, with no iteration.
 
 <a id="cf-19"></a>
 ### CF-19 · How `results.<id>` resolves across container boundaries
@@ -1268,7 +1488,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-20"></a>
 ### CF-20 · Values crossing container boundaries are JSON copies
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed for sibling branches) · **Status:** confirmed
 
 - **Rule:** Every child (iteration, branch, subflow, body step) receives its
   inputs as persisted JSON, and every container reads its children's results
@@ -1283,62 +1503,171 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Conformance:** [CF-20/a](conformance.md#cf-20)
 - **Design note (not Windmill behaviour):** equivalence needs a cheap
   normalising JSON copy at body entry and at result collection.
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-20/a was
+  recorded as stated (fixture `conformance/flows/control-flow/cf-20`, run
+  `a`, oracle run 40858228112).
 
 <a id="cf-21"></a>
 ### CF-21 · Evaluation timing of container-level fields
 
-**Scope:** later · **Confidence:** high (once/per-child split); low (mid-loop `skip_if`) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (once/per-child split); high (oracle-observed: the preceding step's `sleep`, the `timeout`'s scope, mid-loop `skip_if` on collapsed, child-flow and while loops, a parallel loop's single `skip_if`); medium (the order of `timeout` and `parallelism`, and a parallel `branchall`'s delayed children, source-traced) · **Status:** confirmed; drafted (the order of `timeout` and `parallelism`, and that a parallel `branchall`'s children all take the preceding step's delay; added 2026-10-29 by SC4)
 
 - **Rule:**
   - **Once, at container start:** the `iterator`, the `branchone`
-    predicates, and the `sleep` of the *preceding* step (the delay applies
-    before the first child only).
-  - **Per child pushed:** `timeout`, evaluated in step scope and assigned to
-    each child job (iteration flow, collapsed body job, branch flow or
-    subflow); `parallelism`, re-evaluated per child. Where the assigned
-    `timeout` is actually enforced is [CF-27](#cf-27).
+    predicates, and the `sleep` of the *preceding* step. That delay is set
+    on every child queued in the container's start phase and on no later
+    one: for a sequential loop (collapsed or not), a while loop, a
+    `branchone` and a sequential `branchall`, which queue one child at a
+    time, it delays only the first child; a parallel loop and a parallel
+    `branchall` queue all their children in that phase, so it delays every
+    child, held ones included.
+  - **Per child pushed:** `timeout`, evaluated in the scope of the
+    container step itself and assigned to each child job (iteration flow,
+    collapsed body job, branch flow or subflow); its `flow_input` is the
+    flow's input, which holds no `iter`, also when it is evaluated again
+    for each body job of a collapsed loop. `parallelism` is re-evaluated
+    per child. Where the assigned `timeout` is actually enforced is
+    [CF-27](#cf-27).
+  - **Order within a child** (drafted). For each child, `timeout` is
+    evaluated before the child is queued and a parallel loop's
+    `parallelism` after it, so for the first child the `timeout` comes
+    first. All children of one start phase are queued in one transaction,
+    committed only after the last, so either expression throwing ends the
+    start phase with no child queued, whichever child it threw for
+    ([CF-23](#cf-23)).
   - **`skip_if` on a sequential loop module is re-evaluated before every
     iteration.** For iterations after the first, `previous_result` is the
-    prior iteration's result. If it turns truthy mid-loop, the loop step ends
-    as a skipped identity whose result is that `previous_result`, and the
-    partial array is lost ([Q-CF-6](#q-cf-6)).
+    prior iteration's result: for a body that runs as child flows, that
+    child flow's final result. If it turns truthy mid-loop, the
+    loop step ends as a skipped identity whose result is that
+    `previous_result`, and the partial array is lost ([Q-CF-6](#q-cf-6)).
 - **Evidence:** `worker_flow.rs:3666-3715` (sleep only while the step waits
-  to start), `:4379-4400` (timeout per pushed child), `:4484-4499`
+  to start), `:4114-4122`, `:4417` (every payload of one start phase is
+  queued with that one delay), `:4379-4400` (timeout per pushed child,
+  evaluated over the flow job's own arguments at `:4379-4389`), `:4484-4499`
   (parallelism per child), `:3842-3866` (`skip_if` evaluated on every
   entry, including continuing iterations), `:5136` (identity/next step
-  replaces the active loop state).
-- **Conformance:** [CF-21/a](conformance.md#cf-21)
+  replaces the active loop state); the order: `:4120` (one transaction for
+  the children), `:4379-4400` before the push at `:4404-4429`, the
+  parallelism after it at `:4481-4499`, `:4569`, `:4800` (the commit after
+  the last child); the next `previous_result`: `:1134-1166` (a completed
+  iteration that continues the loop leaves the module in progress),
+  `:1478-1489`, `:2086-2091` (its result is what the next push receives).
+- **Conformance:** [CF-21/a to CF-21/e](conformance.md#cf-21)
 - **Note:** run the fixture by path with the loop at top level (root kind
   `flow`), where the loop collapses ([CF-8](#cf-8)).
+- **Revision 2026-10-29 (SC4, source re-check, milestone NI):** milestone
+  NI read, without a recording, that a container's `timeout` is evaluated
+  before its `parallelism` and that a mid-loop `skip_if` over child flows
+  sees the previous child's result. Both hold in the source: added the
+  order within a child (and that a throwing one queues no child) and the
+  child flow's final result as the next `previous_result`.
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** milestone NI's
+  fixtures `conformance/flows/control-flow/cf-21` (oracle runs 40852609901
+  and 40857510216) and `conformance/flows/control-flow/waits` (run
+  `sleep_before_branch`, oracle run 40857510216) recorded CF-21/a as stated
+  and the new cases CF-21/b to CF-21/e. One statement is corrected: the
+  rule said that the preceding step's `sleep` applies before the first
+  child only. That holds for containers that queue one child at a time; a
+  parallel loop queues all its children in its start phase with the same
+  delay, and the oracle started both iterations' jobs at least 2 s after
+  the preceding step ended (run `sleep_before_par`). The `timeout`'s scope,
+  which the rule called "step scope", is now spelt out: an expression
+  reading `flow_input.iter` throws, for a collapsed loop as for child
+  flows, and the flow aborts with the chaining `InternalError` before any
+  iteration job exists (runs `timeout_scope_collapsed`,
+  `timeout_scope_flows`). The mid-loop `skip_if` over child flows, drafted
+  above, is recorded (run `skip_mid_flows`), as are a while loop's (run
+  `skip_mid_while`) and a parallel loop's single evaluation at its start
+  (run `skip_parallel`). [Q-CF-6](#q-cf-6) is answered.
 
 <a id="cf-22"></a>
 ### CF-22 · `retry` on a container module
 
-**Scope:** later · **Confidence:** medium (re-run from scratch, restoration); low (`iter_parent` artefact; oracle pending) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed: the re-run, the restored `previous_result`, the `iter_parent` artefact, a collapsed loop's first push, a retried while loop, `branchone` and parallel `branchall`); medium (source-traced: the attempt and retry base of a parallel container; later iterations of a non-collapsed loop) · **Status:** confirmed; drafted (parallel containers, and the inputs of the children after the first at re-entry; added 2026-10-29 by SC4)
 
 - **Rule:**
   1. **Re-run.** A failed container step with `retry` re-runs from scratch
      after the backoff: the iterator or predicates are re-evaluated and all
-     children re-run.
+     children re-run. Recorded for a sequential for loop, a while loop, a
+     `branchone` and a parallel `branchall` (every branch runs again, the
+     one that succeeded before included).
   2. **`previous_result` on retry** is restored to the preceding step's
      stored result, or the flow input when the container is step 0. If the
      preceding step did not succeed (for example it failed under
      `continue_on_error`), the restored value is the JSON **string** `"{}"`.
-  3. **Child inputs on retry** come from the **last failed child job's**
-     stored input, not from a fresh computation.
+  3. **Child inputs on retry.** The re-entry's **first** child is pushed
+     from the **last failed child job's** stored input, not from the
+     flow's input. Only that push: the children a sequential container
+     pushes afterwards (the next iterations, the next branches) start from
+     the flow's input as usual (recorded for a collapsed loop; the same
+     code path for a non-collapsed one, drafted).
      - **Non-collapsed body:** that stored input is the old child's flow
-       input, which already contains `iter`, so the re-run children see the
-       failed child's `iter` moved to `flow_input.iter_parent`.
+       input, which already contains `iter`, so the first re-run child sees
+       the failed child's `iter` moved to `flow_input.iter_parent`.
      - **Collapsed body:** the stored input is the body script's transformed
-       arguments, so no `iter_parent` artefact arises from the loop input.
-       (A body's transformed arguments can still contain an `iter` key the
-       user put there deliberately.)
+       arguments, and the body's input transforms are evaluated again over
+       it (plus the new `iter`) as `flow_input`. So the first re-run
+       iteration's transforms see the failed job's arguments, not the
+       flow's input: a transform reading a flow input the body's arguments
+       do not carry gets `undefined`. No `iter_parent` artefact arises from
+       the loop input. (A body's transformed arguments can still contain an
+       `iter` key the user put there deliberately.)
+     - **`branchone`:** the chosen branch's child flow was pushed with the
+       flow's input, so the re-run branch gets that input again.
+  4. **The failed attempt** is the job whose completion failed the
+     container, and the step's entry lists it in `failed_retries`: a
+     sequential loop's failed iteration (its child flow, or a collapsed
+     body's script job, whose error carries the loop's `step_id`), a
+     `branchone`'s branch child flow. The oracle's walker records it at
+     `<step>/r:<k>` with a child flow's modules below it ([CF-17](#cf-17)
+     explains the notation).
+  5. **Parallel containers** (drafted). A parallel `forloopflow` or
+     `branchall` completes when its last child reports, and its `Failure`
+     entry names that child's job: the last child to **complete**, whatever
+     its own outcome, which under real parallelism is not always the last
+     to fail and can be a child that succeeded. The retry takes that job as
+     the failed attempt and its stored input as the base for **every**
+     child the re-entry pushes: each parallel iteration gets that input
+     with its `iter` moved to `iter_parent` and its own `iter` added; each
+     branch of a parallel `branchall` gets it unchanged, and since every
+     branch was pushed with the flow's input, that is the flow's input
+     again, so the base cannot be seen there. The module lists no failed
+     attempt once its retry has started: a parallel container's completed
+     entry always has an empty `failed_retries`
+     ([FX-27](execution.md#fx-27)). The attempt stays only in the flow-wide
+     list: if the retried container fails for good, the failure module's
+     entry lists it; if the container succeeds, it is listed nowhere.
 - **Evidence:** `worker_flow.rs:3720-3790`, `:3723-3790` (retry: reset,
   restoration; `"{}"` fallback at `:3768-3784`), `:3737`, `:3891-3908`
   (input from the last failed job), `:4158-4170` (`iter` insertion renames
   the existing `iter`), `:6234-6262` (only successful preceding steps are
-  retrieved).
-- **Conformance:** [CF-22/a](conformance.md#cf-22)
+  retrieved). The first push only: `:3737-3795` (the base is taken only
+  while the module's entry is a `Failure`), `:3964` (otherwise a container
+  starts from the flow's input), `:4158-4205` (a sequential iteration's
+  args, then a collapsed body's transforms over them). The attempt:
+  `:1334-1345` (the sequential entry names the completing child and copies
+  the list), `:1037-1061` (a parallel container's entry names the child
+  whose completion finished it, with an empty list), `:766-773`,
+  `:917` (it finishes when the last child reports), `:4152-4157` (each
+  branch of a `branchall` gets the base as is), `:4206-4262` (each parallel
+  iteration gets the base plus its own `iter`).
+- **Conformance:** [CF-22/a to CF-22/h](conformance.md#cf-22)
+- **Revision 2026-10-29 (SC4, recordings of milestones NI and N5, source
+  re-check):** milestone NI recorded five retried containers (fixture
+  `control-flow/cf-22`, runs `iter_parent`, `collapsed_input`, `exhausted`,
+  `branchall` in oracle run 40857510216 and `prev_fallback` in oracle run
+  40852609901) and milestone N5 two more (fixture
+  `control-flow/subflow-retry`, runs `while_retry` and `branchone_retry`,
+  oracle run 40915682847). CF-22/a is recorded as stated
+  ([Q-CF-7](#q-cf-7)), and rule 2 too. Rule 3 said that the re-run children
+  take the failed child's input; the collapsed run showed that only the
+  re-entry's first push does, and that a collapsed body's transforms read
+  the failed job's arguments, so rule 3 is corrected. Rule 4 and the
+  parallel rule 5 are new; rule 5 comes from the source (milestone NI
+  had read the base and the attempt as the last child to fail, with no
+  recording to tell the two readings apart). New cases CF-22/b to
+  CF-22/h.
 
 <a id="cf-23"></a>
 ### CF-23 · Errors raised while starting a container
@@ -1443,11 +1772,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `previous_result` (and `result` in `retry_if`). New source-derived cases
   CF-23/e (a failure module reading both) and CF-23/f (a `retry_if` reading
   both).
+- **Revision 2026-10-29 (SC4, recordings of milestones NI and N3c):**
+  CF-23/a and CF-23/b were recorded as stated by milestone NI (fixture
+  `conformance/flows/control-flow/cf-23`, runs `root_pickup` and
+  `chaining`, oracle run 40852609901), and CF-23/c, which is CF-V3/a, by
+  milestone N3c. CF-23/d to CF-23/f stay unrecorded.
 
 <a id="cf-24"></a>
 ### CF-24 · Child job paths and step ids
 
-**Scope:** later · **Confidence:** high · **Status:** confirmed
+**Scope:** later · **Confidence:** high; high (oracle-observed: the deployed paths, CF-24/a, /b, /d, /e) · **Status:** confirmed
 
 - **Rule:** These values reach scripts as job-path and step-id environment
   values ([languages.md](languages.md)).
@@ -1484,11 +1818,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-worker/src/worker_lockfiles.rs:1612-1643` (lite
   conversion drops `path`); `backend/windmill-queue/src/jobs.rs:5915-5930`.
 - **Conformance:** [CF-24/a to CF-24/e](conformance.md#cf-24)
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** CF-24/a,
+  CF-24/b, CF-24/d and CF-24/e were recorded as stated (fixture
+  `conformance/flows/control-flow/cf-24`, runs `x`, `x_custom`, `d` and `e`,
+  oracle run 40852609901). CF-24/c needs a raw flow payload, outside the
+  reference configuration, and is not recorded.
 
 <a id="cf-25"></a>
 ### CF-25 · `squash`
 
-**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the six recorded CE outcomes, oracle-observed); low (what the CE image's runner does across iterations, [Q-CF-19](#q-cf-19)); low (EE semantics) · **Status:** confirmed; drafted (the conditions, and the stub's error text)
+**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the six recorded CE outcomes, oracle-observed); low (what the CE image's runner does across iterations, [Q-CF-19](#q-cf-19)); low (EE semantics) · **Status:** confirmed; drafted (the conditions, the stub's error text, and the job kinds that request runners)
 
 - **Rule:** `squash: true` on a sequential loop asks Windmill to run all
   iterations on one dedicated runner. The worker decides from public code
@@ -1633,11 +1972,41 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   (`backend/windmill-worker/src/worker_lockfiles.rs:1571-1591`;
   `worker_flow.rs:5038-5073`, `:5364-5380`; the collapse is for
   sequential loops only, `:5298-5300`).
+- **Revision 2026-10-29 (SC4, source re-check, milestone NI):** NI asked
+  whether CE v1.767.0 ever rejects a squashed loop, and in which job kind.
+  As far as the public source goes: **no job kind is singled out.** The
+  runner request is made by whichever flow job runs the loop (a root `Flow`
+  job by path, a `FlowPreview` preview or inline body, a `FlowNode` stored
+  body, a by-path subflow's `Flow` job, or the failure slot,
+  [CF-31](#cf-31)), under the conditions above and nothing else; the only
+  other places that read `squash` are the decoder and the dependency job,
+  which copies the field into the locked flow; nothing at deploy or enqueue
+  refuses it. A build without `private` therefore fails every such loop at
+  its first iteration, in any job kind, by the routes above. Whether the CE
+  image ever rejects one cannot be read from the public source: the
+  runner's module is closed source. Windmill's own runner tests are
+  compiled only with both `private` and `enterprise`, so they describe an
+  EE build, not the CE image: there each step of a squashed loop runs in a
+  dedicated process that writes a log line starting `dedicated worker
+  <language>:` into the iteration jobs' logs, and a step in a language the
+  runners do not support (a Bash step) falls back to ordinary execution for
+  each iteration. The six recorded runs (CF-25/d) show no rejection.
+  [Q-CF-19](#q-cf-19) stays open, with that log line added to what its
+  recording observes. Evidence: `worker_flow.rs:4081-4096`, `:4803-4824`
+  (the request, with no job-kind test), `:5247-5265`, `:5294-5336`;
+  `backend/windmill-worker/src/worker_lockfiles.rs:1055`, `:1087`,
+  `:1126-1154` (the field copied while locking);
+  `backend/windmill-types/src/flows.rs:996-1005`, `:1096-1145` (decoded);
+  `backend/windmill-worker/src/worker.rs:2879-2905` (a job is handed to a
+  runner by its step id, whatever its kind); `backend/tests/dedicated_workers.rs:1`
+  (the tests' features), `:28-71`, `:299-341`, `:711-758`
+  (the log line, a squashed Bun loop, the Bash fallback);
+  `backend/tests/fixtures/dedicated_flows.sql:163-172`.
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details
 
-**Scope:** core (virtual identity, handler id, script path, job kind); out (restart, storage, worker tags) · **Confidence:** high · **Status:** confirmed
+**Scope:** core (virtual identity, handler id, script path, job kind); out (restart, storage, worker tags) · **Confidence:** high; high (oracle-observed: a body's virtual identity step) · **Status:** confirmed
 
 - **Rule:**
   1. **Behaviour-neutral details:** storing iterator arrays out of line; the
@@ -1673,11 +2042,14 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Conformance:** [CF-26/a](conformance.md#cf-26); stored-node effects are
   covered by [CF-V4](conformance.md#cf-v4), [CF-24](conformance.md#cf-24)
   and [CF-8/b](conformance.md#cf-8).
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** CF-26/a was
+  recorded as stated (fixture `conformance/flows/control-flow/cf-26`, run
+  `a`, oracle run 40852609901).
 
 <a id="cf-27"></a>
 ### CF-27 · Container `timeout` enforcement
 
-**Scope:** later · **Confidence:** medium (ordinary worker path); low (other execution modes) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (oracle-observed: points 2 to 4 on the ordinary worker path); medium (the rest of the ordinary worker path); low (other execution modes) · **Status:** confirmed
 
 - **Rule** (ordinary, non-dedicated worker path):
   1. **Where a job timeout is enforced:** by the process supervisor of script
@@ -1718,11 +2090,21 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   effective default or instance deadlines exceed three seconds. The timeout
   findings [FX-24](execution.md#fx-24) and [FX-25](execution.md#fx-25)
   should be read with the same job-kind distinction.
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** CF-27/a to
+  CF-27/c were recorded as stated (fixture
+  `conformance/flows/control-flow/cf-27`, runs `a`, `b` and `c`, oracle run
+  40852609901), as were [FX-24/e](conformance.md#fx-24) and the deployed
+  half of [FX-24/d](conformance.md#fx-24) (runs `fx24_e`, `fx24_d`): a
+  collapsed body job is cut at the loop's `timeout` with the loop's id as
+  `step_id`, and iterations that run as child flows, sequential or
+  parallel, are not timed. CF-27/d needs a raw submission and is not
+  recorded. Where the container's `timeout` is evaluated, and in which
+  scope, is [CF-21](#cf-21).
 
 <a id="cf-28"></a>
 ### CF-28 · Cancellation inside containers
 
-**Scope:** later · **Confidence:** high (marking, pickup and root result); low (timing, deliberately unspecified) · **Status:** confirmed
+**Scope:** later · **Confidence:** high (marking, pickup and root result; oracle-observed: held iterations and the container's entry); low (timing, deliberately unspecified) · **Status:** confirmed; drafted (steps waiting to start, added 2026-10-29 by SC4)
 
 - **Rule:**
   1. **Normal cancel of a running flow.** The flow and every queued or
@@ -1731,7 +2113,10 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      cleared and those jobs are scheduled immediately.
   2. **Queued or held descendants.** When picked up, they complete at once
      as failed with the cancellation error, **without running body code**.
-     Their parents then see failed children.
+     Their parents then see failed children. This includes a step whose job
+     waits on a `sleep`, a retry delay or a `parallelism` hold, and a
+     subflow job that has not started: none of its modules runs
+     ([FX-38](execution.md#fx-38)).
   3. **Running script descendants.** Their worker notices cancellation by
      polling and kills the process. If the process exits first, its normal
      result, success included, is reported. No ordering between cancel and
@@ -1746,7 +2131,14 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
      - on this ordinary route, the cancelled flow's result is
        `{"error":{"name":"Canceled","message":"Job canceled: <reason> by <canceler>","reason":"<reason>","canceler":"<canceler>"}}`;
        absent values are `no reason given` (reason) and `unknown`
-       (canceler).
+       (canceler);
+     - a container whose children were cancelled fails like any container
+       with failed children: its entry is `Failure` and its result is the
+       children's results read back, so a loop whose child flows were all
+       cancelled holds one such `Canceled` object per iteration, the
+       running iteration's included (its child flow completes `Canceled`
+       whatever its killed step reported), and a held iteration's entry is
+       the `Canceled` value it failed with at pickup.
   5. **Direct completion.** A **force cancel** (which first climbs to the
      topmost queued parent) and a root job that is not yet running are
      completed directly with a similar `Canceled` object (default reason
@@ -1761,13 +2153,22 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   `backend/windmill-worker/src/worker.rs:3644-3646` (cancelled job at
   pickup); `backend/windmill-worker/src/handle_child.rs:205-215`,
   `:850-956` (process exit vs cancellation polling);
-  `worker_flow.rs:765-1115`, `:1734-1738`, `:1972-1988`.
+  `worker_flow.rs:765-1115`, `:1734-1738`, `:1972-1988`, `:1478-1489` (a
+  container's result is its children's results read back).
 - **Conformance:** [CF-28/a](conformance.md#cf-28)
+- **Revision 2026-10-29 (SC4, recordings of milestone NI):** CF-28/a was
+  recorded (fixture `conformance/flows/control-flow/cf-28`, run `held`,
+  oracle run 40852609901): canceled 8 s after submission, the held
+  iterations ran no body code, the root ended `Canceled`, and the loop's
+  entry was `Failure` with three `Canceled` entries, iteration 0's
+  included, although its body job had ended with the killed process's
+  `ExecutionErr`. Point 4 now states the container's entry, and CF-28/a's
+  expectation names it.
 
 <a id="cf-29"></a>
 ### CF-29 · An empty container's own `stop_after_if` stops the flow
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: the error stop of an empty loop) · **Status:** confirmed
 
 - **Rule:** For an empty iterator, an empty loop body, or a zero-branch
   branchall, the container's `stop_after_if` is evaluated with
@@ -1787,6 +2188,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Note:** the zero-branch case is recorded on the oracle as
   [CF-15/d](conformance.md#cf-15): the flow stops after the branchall with
   result `[]` and the next step does not run.
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-29/a was
+  recorded as stated (fixture `conformance/flows/control-flow/cf-29`, run
+  `a`, oracle run 40858228112): the flow failed with
+  `{"error":{"name":"EarlyStopError","message":"empty"}}`, the loop's own
+  module ended `failure` with result `[]`, and `n` did not run.
+  [Q-CF-1](#q-cf-1) is answered.
 
 <a id="cf-30"></a>
 ### CF-30 · The failure and preprocessor modules are slots, not list members
@@ -1857,7 +2264,8 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Conformance:** [CF-30/a to CF-30/c](conformance.md#cf-30)
 - **Note:** this answers questions from windmill-lite's IR compiler.
   [FX-23](execution.md#fx-23) and [JE-28](expressions.md#je-28) describe
-  `sleep` on list modules.
+  `sleep` on list modules. What a container in the failure slot does at run
+  time, beyond which of its loops collapse, is [CF-31](#cf-31).
 - **Revision 2026-10-28 (validation round 1):** point 4 said that a
   container-valued slot's bodies always run as `FlowPreview` children, so
   that no forloop in a slot collapses. That confused the absence of a
@@ -1867,12 +2275,169 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   the slot loop from loops nested in its child flows, and
   [CF-30/c](conformance.md#cf-30) checks the direct case.
 
+<a id="cf-31"></a>
+### CF-31 · A container as the `failure_module`
+
+**Scope:** later · **Confidence:** high (the status bookkeeping and its effect on sequential loops, sequential `branchall` and `branchone`; source-traced); medium (empty bodies, a throwing `branchone` predicate, nesting through the copied handler, a retry on the slot: read, not traced end to end); low (how the parallel case finally ends, which depends on the server's monitor) · **Status:** drafted
+
+- **Rule:** nothing refuses a container in the failure slot. The flow
+  decoder checks only `retry` settings and workspace paths inside the
+  slot, the dependency
+  job locks the slot's bodies like any module's ([CF-30](#cf-30) point 1),
+  and OpenFlow's description of the slot ("only supports script/rawscript
+  types") is not enforced. At run time a `forloopflow`, `whileloopflow`,
+  `branchone` or `branchall` in the slot starts like any failure module, but
+  the bookkeeping that advances it was written for list modules, which gives
+  the following behaviour. An `identity` or a `flow` step by path in the slot
+  behaves like a script failure module: its result is the handler's result.
+  1. **Start and scope.** It starts when a script failure module would
+     ([FX-31](execution.md#fx-31)). Its iterator, its `branchone`
+     predicates and its own `skip_if` see what a script failure module's
+     input transforms see ([FX-32](execution.md#fx-32)): `previous_result`
+     and `result` are the triggering value, `error` is derived from it,
+     `flow_input` is the flow input, and `results` treats the failed module
+     as the preceding step. Its bodies run as child flows built from the raw
+     module values: never collapsed and never stored nodes, since the flow
+     has a failure module (point 4 of [CF-30](#cf-30)), so each child is a
+     `flowpreview` job and an inline script in it a `preview` job. A child's
+     `flow_input` is the flow input (plus `iter` for a loop) and its first
+     step's `previous_result` is that input, not the error ([CF-9](#cf-9));
+     a body reaches the error through `iter.value` when the iterator carries
+     it, or through `results.<failed id>` ([CF-19](#cf-19)). Each child
+     carries a copy of the flow's handler, which is this same container
+     ([CF-16](#cf-16)).
+  2. **Its state is looked up by list position.** The slot's state is kept
+     in the flow status's `failure_module` entry while the cursor points
+     past the module list. But the code that advances a loop or a
+     `branchall` after a child completes, and the decision to continue, read
+     the cursor as a list position past the last module. So:
+     - **A sequential `forloopflow` with more than one item, a
+       `whileloopflow`, or a sequential `branchall` with more than one
+       branch** runs its first child only. When that child succeeds, the flow
+       starts no further child and completes at once: its result is that
+       child's result (not an array), the `recover` decode of
+       [FX-33](execution.md#fx-33) is applied to that value, and the
+       `failure_module` entry stays `InProgress`. A while loop in the slot
+       therefore always ends after its first successful iteration; its
+       `stop_after_if` is not evaluated there. When the first child fails,
+       the slot fails with the one-element array `[<child result>]`, and the
+       flow fails with that array (unless the slot's `retry` applies, point
+       6).
+     - **A loop over exactly one item, or a sequential `branchall` with one
+       branch,** completes normally with the one-element array, so the flow
+       recovers only when that child returned exactly `true` (`[true]`
+       decodes as the recovery record, [FX-33](execution.md#fx-33)).
+     - **A `branchone`** behaves like a script failure module: the chosen
+       branch's child-flow result is the handler's result and is decoded for
+       `recover`.
+     - **A parallel `forloopflow` or parallel `branchall`** never records a
+       child's completion: the status update reads the counter from the
+       module list, finds no entry, and fails with
+       `requiring an index in InProgress for flow <id> at step <n>` (`<n>`
+       the module count); the update is retried once with that error and
+       fails the same way. The flow stays running until the server's monitor
+       finds its last ping older than `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s
+       by default) and cancels it, so it ends with a `Canceled` error whose
+       canceler is `monitor` (low: not traced end to end).
+  3. **A body that starts no child.** An empty iterator, a `branchall` with
+     no branches, or a `branchone` whose chosen body is empty records a
+     `Success` entry carrying the slot's id (normally `failure`) **in the
+     failed module's place** in the module list, where the cursor still
+     points. The flow then treats the failed module as having succeeded, with
+     `[]` as its value for a loop or `branchall` and the triggering value for
+     a `branchone`: if it was the last module, the flow **succeeds** with
+     that value and no `recover` decode; otherwise the next module runs with
+     it as `previous_result`. When the slot is entered with the cursor
+     already past the list (a tolerated error stop at the last module,
+     [FX-V4](execution.md#fx-v4)), the entry is appended after the module
+     list instead, the slot is started again, and the flow never completes
+     (medium).
+  4. **Errors while starting it.** An iterator that throws or is not an
+     array aborts the flow by [CF-23](#cf-23) route 3 (`InternalError`,
+     without running anything). A `branchone` predicate that throws is
+     recorded as a new failure of the **failed module**, with the
+     predicate's `{"error": …}` as its value, and the flow re-enters the
+     failure module with that value as `previous_result`; a predicate that
+     throws on it again repeats this without end and creates no job
+     (medium).
+  5. **Failures inside its children.** A body step that fails inside a child
+     runs that child's copy of the handler, the same container, inside the
+     child ([CF-16](#cf-16) point 1), under the same rules; a body that
+     always fails nests a new level each time, with no depth limit, until
+     the flow is canceled (medium). A clean stop inside a body breaks a loop
+     slot, whose result is then the array so far, and ends the flow as
+     stopped in a `branchone` slot ([CF-12](#cf-12)).
+  6. **Settings on the slot.** Its `continue_on_error` is ignored, as for
+     any failure module ([FX-30](execution.md#fx-30)). Its `retry` applies
+     to the failed slot like a script failure module's
+     ([FX-32](execution.md#fx-32)): the container starts again, its
+     iterator is evaluated again with `previous_result` set to the slot's
+     own failed value (the array), and the first child it pushes receives
+     the last failed child's stored input, so its `iter` moves to
+     `iter_parent` ([CF-22](#cf-22) rule 3) (medium).
+  7. **What the rest of the flow sees.** The flow cache stores the final
+     value when the last completion succeeded, before the `recover` check
+     ([FX-40](execution.md#fx-40)): a slot that stopped after a successful
+     first child caches that child's result. A child flow that ended in its
+     container handler (points 2 and 5) reports to its container a failure
+     its handler ended, so the enclosing flow does not run its handler again
+     ([CF-16](#cf-16) point 4, point 8); after point 3's route the child
+     instead succeeds, and its container sees a successful child.
+
+  The preprocessor slot keeps its own status the same way; how a container
+  preprocessor completes is not traced here ([CF-30](#cf-30) point 4 covers
+  only which of its loops collapse).
+- **Evidence:** the slot: `backend/windmill-types/src/flows.rs:222-262`
+  (the decoder walks both slots as module trees, checking only `retry`
+  settings and workspace paths), `:268-272`;
+  `backend/windmill-worker/src/worker_lockfiles.rs:934-963` (locked like a
+  module); `openflow.openapi.yaml:54-56` (the unenforced description). Start
+  and scope: `worker_flow.rs:3796-3829` (the failure module replaces the
+  failed one), `:3325-3327` (triggering value), `:3964` (a container's
+  args are the flow input), `:4152-4170` (`iter` added), `:5038-5074` (the
+  child carries the flow's handler), `:5248-5249`, `:5298-5300`,
+  `:5729-5745` (no collapse with a failure module), `:5450-5481` (predicates),
+  `:5770-5803` (iterator). The position lookup: `:492-496` (no current
+  module for the slot), `:560` (the slot's status), `:565-582` (loop flags;
+  `skip_failures` and `parallelism` come from the absent current module),
+  `:596-597`, `:678-679`, `:1133-1189` (sequential arms: no new status, no
+  advance), `:1195-1201`, `:1369-1397` (the cursor stays at the module
+  count, read as past the last module), `:1399-1430` (the slot's status
+  write), `:1478-1489`, `:1734-1758` (no continuation),
+  `:1807-1811` (the log line), `:1992-2006` (cache store, then `recover`),
+  `:2140-2153` (what the parent hears), `:4723-4742` (the slot's status at
+  start); `:299-301`, `:409-412` (the recovery decode). Parallel:
+  `:774-821` (counter read from the module list; the text at `:821`),
+  `:846-906`, `:163-240` (the update retried once with the error);
+  `backend/windmill-worker/src/result_processor.rs:1520-1541`,
+  `:691-735`, `:1910-2000` (the error is logged, nothing completes the
+  flow); `backend/src/monitor.rs:172-177` (60 s default), `:4867-4890`,
+  `:5142-5170` (the monitor cancels it). Empty bodies: `worker_flow.rs:3998-4042`
+  (the `Success` entry is written at the cursor, the failed module's index),
+  `:3196-3221` (a `Success` entry ends the push with `[]` or the carried
+  value), `backend/windmill-worker/src/result_processor.rs:463-488` (that
+  update); `backend/windmill-types/src/flows.rs:381-389` (a cursor past the
+  list is the failure step). Predicate errors: `worker_flow.rs:4053-4077`,
+  `:5479-5482`. Retry on the slot: `:3723-3796` (no restore of
+  `previous_result` for the failure step, args from the last failed job),
+  `:3891-3905`.
+- **Conformance:** [CF-31/a to CF-31/e](conformance.md#cf-31)
+- **Note:** milestone N3c refuses a container in the slot until the
+  reference records it; this finding states Windmill's behaviour. Windmill's
+  outcome depends on the container kind and on whether the body starts a
+  child, so a refusal remains a defensible windmill-lite policy if recorded
+  as a deviation. Recording requested for batch E3f
+  ([docs/design/README.md](../design/README.md)).
+- **Revision 2026-10-29 (SC4, source re-check, milestone N3c):** new
+  finding, answering N3c's open question 3. It extends [CF-30](#cf-30),
+  which described only which loops in a container slot collapse.
+
 ## B. Findings added during validation
 
 <a id="cf-v1"></a>
 ### CF-V1 · Recovery success differs between sequential propagation and parallel aggregation
 
-**Scope:** core · **Confidence:** high (both paths traced; oracle pending) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (both paths traced; oracle-observed) · **Status:** confirmed
 
 - **Rule:** A successful failure handler returning `{"recover":true}` makes
   its own flow's persisted completion successful. The immediate notification
@@ -1889,11 +2454,17 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   (parallel filtering and persisted-status query), `:1138-1192` (sequential
   decision).
 - **Conformance:** [CF-V1/a to CF-V1/c](conformance.md#cf-v1)
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** recorded as
+  stated, for loops and `branchall` (fixture
+  `conformance/flows/control-flow/cf-v1`, runs `a`, `b`, `c-seq` and
+  `c-par`, oracle run 40858228112): the sequential containers failed with
+  `[{"recover":true}]` after their first child, the parallel ones succeeded
+  with both children's `{"recover":true}`. [Q-CF-1](#q-cf-1) is answered.
 
 <a id="cf-v2"></a>
 ### CF-V2 · Optimized empty containers bypass the all-iterations stop predicate
 
-**Scope:** core · **Confidence:** high (the empty-iterator case oracle-observed) · **Status:** confirmed
+**Scope:** core · **Confidence:** high (oracle-observed: the empty iterator and the zero-branch `branchall`, both predicates) · **Status:** confirmed
 
 - **Rule:** An empty iterator, an empty loop body, or a branchall with zero
   branches completes without child jobs. Its stored module status is already
@@ -1909,11 +2480,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 - **Evidence:** `worker_flow.rs:3998-4052`, `:3197-3221`, `:571-595`,
   `:675-730`, `:1195-1209`, `:5532-5560`.
 - **Conformance:** [CF-V2/a to CF-V2/c](conformance.md#cf-v2)
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** the rest of
+  the cases recorded as stated (fixture `conformance/flows/control-flow/cf-v2`,
+  runs `a`, `b`, `c-all` and `c-stop`, oracle run 40858228112): an empty loop
+  and a zero-branch `branchall` skip `stop_after_all_iters_if`, and their own
+  `stop_after_if` stops the flow with `[]`. [Q-CF-1](#q-cf-1) is answered.
 
 <a id="cf-v3"></a>
 ### CF-V3 · Child-flow startup errors bypass that child's failure module
 
-**Scope:** core (nested error and handler behaviour); later (location-suffix fidelity) · **Confidence:** high (routing traced; the location suffix is build-dependent) · **Status:** confirmed
+**Scope:** core (nested error and handler behaviour); later (location-suffix fidelity) · **Confidence:** high (routing traced; oracle-observed: both cases; the location suffix is build-dependent) · **Status:** confirmed
 
 - **Rule:** When an exception escapes the initial execution of a flow job,
   the error handling depends on whether the job has a parent. A root flow
@@ -1931,11 +2507,19 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   serialized at `backend/windmill-common/src/worker.rs:2228-2232`; anyhow
   conversion at `backend/windmill-common/src/error.rs:145-150`.
 - **Conformance:** [CF-V3/a, CF-V3/b](conformance.md#cf-v3)
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** both cases
+  were recorded (fixture `conformance/flows/control-flow/cf-v3`, runs `a`
+  and `b`, oracle run 40858228112): called by path, the child failed at its
+  first pickup with
+  `{"error":{"name":"Anyhow","message":"Error: Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0 @worker.rs:3822:13"}}`
+  without running its handler, and the caller's handler ran; run directly,
+  its own handler ran and the flow failed with `"child-handled"`. CF-V3/b's
+  expectation, which said the handler "may" run, now gives that outcome.
 
 <a id="cf-v4"></a>
 ### CF-V4 · Stored child nodes do not receive runtime handler-id suffixes
 
-**Scope:** core (observable handler step id); out (worker-tag scheduling) · **Confidence:** high (oracle-observed for the stored-node id) · **Status:** confirmed
+**Scope:** core (observable handler step id); out (worker-tag scheduling) · **Confidence:** high (oracle-observed for the stored-node id, CF-V4/a included) · **Status:** confirmed
 
 - **Rule:** Inline child-flow creation copies and suffixes the parent's
   handler id and preserves its step-tag setting ([CF-1](#cf-1)). A stored
@@ -1960,11 +2544,17 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   (fixture `conformance/flows/execution/fx-34`, run `step_id`, oracle run
   40689442792). This contradicted [FX-34](execution.md#fx-34), which is now
   corrected to this finding. The inline half (CF-V4/b) is not recorded.
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-V4/a was
+  recorded with its own setup (fixture
+  `conformance/flows/control-flow/cf-v4`, run `a`, oracle run 40858228112):
+  the copy of handler `h` in a stored body node at position zero kept the
+  id `h`. CF-V4/b needs an inline child payload, outside the reference
+  configuration, and stays unrecorded.
 
 <a id="cf-v5"></a>
 ### CF-V5 · For-loop fast-path eligibility follows runtime job kind
 
-**Scope:** core · **Confidence:** high · **Status:** confirmed
+**Scope:** core · **Confidence:** high; high (oracle-observed: the by-path collapse) · **Status:** confirmed
 
 - **Rule:** A `forloopflow`'s simple-body collapse requires that the **flow
   currently executing the loop** is not a `FlowPreview` job. A raw flow
@@ -1987,6 +2577,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   (while: no exclusion); `backend/windmill-worker/src/worker_lockfiles.rs:1571-1591`
   (simple bodies stay inline within their stored or deployed flow).
 - **Conformance:** [CF-V5/a, CF-V5/b](conformance.md#cf-v5)
+- **Revision 2026-10-29 (SC4, recordings of milestone N3c):** CF-V5/a was
+  recorded as stated (fixture `conformance/flows/control-flow/cf-v5`, run
+  `a`, oracle run 40858228112): each iteration ran as a script job of the
+  flow, with the previous iteration's result as its `previous_result`.
+  CF-V5/b, a raw-flow preview, is outside the reference configuration and
+  stays unrecorded.
 
 <a id="cf-v6"></a>
 ### CF-V6 · Direct result lookup can ignore surrounding multiline expression text
@@ -2067,6 +2663,15 @@ These are proposals made while studying the behaviour. They bind nothing.
   still open. *2026-10-29 (SC3):* no part of these is left for the source;
   their recording is requested for batch E3f
   ([docs/design/README.md](../design/README.md)).
+  **Answered 2026-10-29 (SC4).** Milestone N3c had already recorded every
+  remaining case, each as the catalogue expects (oracle run 40858228112):
+  CF-V1/a to CF-V1/c (fixture `conformance/flows/control-flow/cf-v1`, runs
+  `a`, `b`, `c-seq` and `c-par`), CF-V2/b and CF-V2/c
+  (`conformance/flows/control-flow/cf-v2`, runs `b`, `c-all` and `c-stop`)
+  and CF-29/a (`conformance/flows/control-flow/cf-29`, run `a`); the cases
+  are now `oracle-observed`. No E3f recording is needed for them. CF-6/c
+  and the raw halves of CF-8 stay outside the reference configuration, and
+  CF-V4's cases are tracked under [CF-V4](#cf-v4). Status: closed.
 <a id="q-cf-2"></a>
 - **Q-CF-2** · affects [CF-6](#cf-6) · How long the window between push and
   dependency-job success lasts. The specification needs only the two
@@ -2120,9 +2725,27 @@ These are proposals made while studying the behaviour. They bind nothing.
 <a id="q-cf-6"></a>
 - **Q-CF-6** · affects [CF-21](#cf-21) · Mid-loop re-evaluation of a loop
   module's `skip_if`. *Settled by:* an oracle run of CF-21/a, by path.
+  **Answered 2026-10-29 (SC4)** by milestone NI's recordings (fixture
+  `conformance/flows/control-flow/cf-21`, runs `skip_mid`, `skip_mid_flows`,
+  `skip_mid_while` and `skip_parallel`, oracle run 40852609901): a
+  sequential loop re-evaluates its `skip_if` before each iteration with the
+  previous iteration's result, collapsed, as child flows and as a while
+  loop, and ends as a skipped identity with that result; a parallel loop
+  evaluates it once ([CF-21/a to CF-21/c](conformance.md#cf-21)). Status:
+  closed.
 <a id="q-cf-7"></a>
-- **Q-CF-7** · affects [CF-22](#cf-22) · The `iter_parent` artefact on
-  container retry. *Settled by:* an oracle run of CF-22/a.
+- **Q-CF-7** · affects [CF-22](#cf-22) · **Answered 2026-10-29 (SC4).**
+  The artefact is real: milestone NI's run `iter_parent` of fixture
+  `conformance/flows/control-flow/cf-22` (oracle run 40857510216) gave
+  `[{"index":0,"value":1}]`, as [CF-22/a](conformance.md#cf-22) predicted.
+  Its other runs and milestone N5's `while_retry` and `branchone_retry`
+  also showed that only the re-entry's first push takes the failed job's
+  input, which corrects CF-22's rule 3 ([CF-22/b to CF-22/g](conformance.md#cf-22)).
+  What a retried **parallel** container re-enters from is traced in the
+  source (rule 5) but not recorded; [CF-22/h](conformance.md#cf-22) is
+  requested for batch E3f ([docs/design/README.md](../design/README.md)).
+  As first asked: the `iter_parent` artefact on container retry, settled
+  by an oracle run of CF-22/a.
 <a id="q-cf-8"></a>
 - **Q-CF-8** · affects [CF-27](#cf-27) · Timeout enforcement outside the
   ordinary worker path (EE dedicated runners, `squash`, agent workers).
@@ -2208,7 +2831,36 @@ These are proposals made while studying the behaviour. They bind nothing.
   CF-20/a; CF-23/b; CF-24/a to CF-24/e; CF-25/a; CF-26/a; CF-27/a to
   CF-27/d; CF-28/a; CF-V3/a and CF-V3/b; CF-V5/a and CF-V5/b. *Settled by:*
   running them on the oracle under the same recording rules as
-  [Q-CF-1](#q-cf-1).
+  [Q-CF-1](#q-cf-1). *2026-10-29 (SC4):* milestone N5 recorded a retry
+  on a `flow` step, now
+  [CF-17/b to CF-17/i](conformance.md#cf-17) (fixture
+  `conformance/flows/control-flow/subflow-retry`, oracle runs 40915682847
+  and 40926159329); the new source-derived CF-17/j (a flow calling itself
+  by path) joins the list above. Still open.
+  *2026-10-29 (SC4, milestone N3c):* the new source-derived cases
+  [CF-31/a to CF-31/e](conformance.md#cf-31) (a container as the failure
+  module), [CF-16/e, CF-16/f](conformance.md#cf-16) (a handled failure
+  under the container's `continue_on_error` and `retry`),
+  [CF-12/g](conformance.md#cf-12) (a forwarded error stop and the loop's
+  `continue_on_error`) and [CF-7/f](conformance.md#cf-7) (a failed parallel
+  loop under `continue_on_error`) join the list; their recording is
+  requested for batch E3f ([docs/design/README.md](../design/README.md)).
+  *2026-10-29 (SC4, recordings of milestones N3c and NI):* the milestones'
+  committed fixtures under `conformance/flows/control-flow/` recorded, as
+  the catalogue states them, CF-16/a and CF-16/b (`cf-16`), CF-17/a
+  (`cf-17`), CF-18/a (`cf-18`), CF-20/a (`cf-20`), CF-21/a (`cf-21`),
+  CF-23/a and CF-23/b (`cf-23`), CF-24/a, CF-24/b, CF-24/d and CF-24/e
+  (`cf-24`), CF-26/a (`cf-26`), CF-27/a to CF-27/c (`cf-27`), CF-28/a
+  (`cf-28`), CF-V3/a and CF-V3/b (`cf-v3`), CF-V4/a (`cf-v4`) and CF-V5/a
+  (`cf-v5`) (oracle runs 40858228112, 40852609901 and 40857510216); CF-16/c,
+  the stored-node half of CF-16/d and CF-23/c follow from the cases they
+  point to, and the new CF-21/b to CF-21/e are recorded too. CF-24/c,
+  CF-27/d, CF-V4/b and CF-V5/b need a raw or inline submission, and CF-25/a
+  a build without the `private` feature: all are outside the reference
+  configuration and will not be recorded. Still to record: CF-1/a (its
+  deployed half), CF-30/a and CF-30/b, and the source-derived cases this
+  revision added (CF-7/f, CF-12/g, CF-16/e, CF-16/f, CF-17/j, CF-22/h,
+  CF-31/a to CF-31/e). Still open.
 <a id="q-cf-18"></a>
 - **Q-CF-18** · affects [CF-7](#cf-7) · With one oracle worker, the
   recordings separate release from worker serialisation for the child
@@ -2292,3 +2944,10 @@ These are proposals made while studying the behaviour. They bind nothing.
   `n`: in the unsquashed controls every iteration should report `n = 1`
   and its own `pid`; in a squashed loop, an `n` above 1 or a `pid`
   repeated across iterations means a reused runtime.
+  *2026-10-29 (SC4):* the public source fixes no job kind for the runner
+  request, so nothing is gained by varying the run mode ([CF-25](#cf-25),
+  revision of this date). Two more observations sharpen the recording:
+  each iteration job's logs (an EE build's runner writes a line starting
+  `dedicated worker bun:` there), and a control whose body is a Bash step
+  `echo $v` (EE runners do not serve Bash, so its iterations would run
+  ordinarily even when the Bun ones are squashed). Still open.

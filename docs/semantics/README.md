@@ -6,13 +6,18 @@ with recording batch E3e and the build milestones' questions, then (SC3)
 with the questions the engine, platform and follow-up milestones left open
 (N1b, N2, N3a, N3b, PF1 to PF3, FU4, FU5), answered from the pinned source,
 with the recordings only the oracle can make requested from a future batch
-E3f ([design README](../design/README.md#recording-requests-for-batch-e3f)).
+E3f ([design README](../design/README.md#recording-requests-for-batch-e3f)),
+and then (SC4) with the questions milestones N3c, NI, N4, N5, F1, E4b and
+FU6 left open and the open questions SC3 listed, answered from the pinned
+source, together with the oracle recordings milestones E1, N2, N3c, NI,
+N5 and PF1 to PF3 had committed but the catalogue had not yet folded in.
 This README covers
 `docs/semantics/`: this index and the area files it links. The reference
 records the Windmill behaviour windmill-lite must reproduce, as numbered
 findings with a scope, a confidence level and a status. Expected outputs were
 first derived from the pinned source; recording batches E3a to E3e (design
-record 0012), with one more by milestone NI (CF-25/d), have since recorded 374 of the catalogue's cases on the CE
+record 0012) and the recordings the build milestones committed with their
+fixtures have since recorded 468 of the catalogue's cases on the CE
 oracle, and the findings and cases they settled or corrected say so in dated
 revision and correction notes. Each pending recording is tracked as an open
 question. Disputed findings are shown with both claims and are not settled.
@@ -65,19 +70,19 @@ and [licensing.md](licensing.md) maps which parts do.
 | Area | Findings | `core` | `later` | `out` | `EE` | Not settled | Question entries | Conformance cases |
 |---|---|---|---|---|---|---|---|---|
 | [openflow.md](openflow.md) | 51 | 42 | 8 | 1 | 0 | 0 | 13 | 149 |
-| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 20 | 145 |
-| [control-flow.md](control-flow.md) | 36 | 30 | 5 | 0 | 1 | 0 | 19 | 93 |
+| [execution.md](execution.md) | 57 | 46 | 9 | 2 | 0 | 0 | 21 | 159 |
+| [control-flow.md](control-flow.md) | 37 | 30 | 6 | 0 | 1 | 0 | 19 | 122 |
 | [expressions.md](expressions.md) | 57 | 40 | 14 | 3 | 0 | 0 | 17 | 193 |
-| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 203 |
-| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 105 |
+| [languages.md](languages.md) | 64 | 45 | 17 | 0 | 2 | 0 | 28 | 205 |
+| [client-api.md](client-api.md) | 41 | 28 | 11 | 1 | 1 | 0 | 13 | 108 |
 | [oracle.md](oracle.md) | 40 | 37 | 2 | 0 | 1 | 4 | 18 | 88 |
 | [licensing.md](licensing.md) | 3 | 3 | 0 | 0 | 0 | 0 | 1 | 3 |
-| **Total** | **349** | **271** | **66** | **7** | **5** | **4** | **129** | **979** |
+| **Total** | **350** | **271** | **67** | **7** | **5** | **4** | **130** | **1027** |
 
 Findings are counted by their primary scope tag; withdrawn stubs are not
 counted (expressions.md has one, `JE-4`). "Not settled" counts findings whose
 status is `DISPUTED`, `needs-evidence` or `open` (listed under
-[Findings that are not settled](#not-settled)). Twenty-three findings are
+[Findings that are not settled](#not-settled)). Twenty-four findings are
 `drafted` and not yet independently checked; they are not counted as
 unsettled. They are the findings a revision added or changed from the
 pinned source alone, with no recording behind the change:
@@ -89,7 +94,8 @@ pinned source alone, with no recording behind the change:
 [FX-51](execution.md#fx-51); [CF-30](control-flow.md#cf-30);
 [JE-50](expressions.md#je-50) to [JE-52](expressions.md#je-52); and
 [WR-51](languages.md#wr-51) to [WR-54](languages.md#wr-54); and, from the
-revision of 2026-10-29, [WR-55](languages.md#wr-55). Confirmed findings may
+revision of 2026-10-29, [WR-55](languages.md#wr-55); and, from the SC4
+revision of the same day, [CF-31](control-flow.md#cf-31). Confirmed findings may
 carry a drafted part, which their status line names (for example
 [WR-15](languages.md#wr-15)). The 2026-10-29 revision added such parts to
 [OF-2](openflow.md#of-2), [FX-42](execution.md#fx-42),
@@ -117,12 +123,24 @@ of the same day added or extended drafted parts in
 [OR-24](oracle.md#or-24) and [OR-V7](oracle.md#or-v7), and extended the
 drafted findings [SY-5](openflow.md#sy-5), [SY-7](openflow.md#sy-7),
 [SY-19](openflow.md#sy-19), [FX-51](execution.md#fx-51),
-[WR-52](languages.md#wr-52) and [WR-54](languages.md#wr-54). The answers to semantics requests 1 to 3
+[WR-52](languages.md#wr-52) and [WR-54](languages.md#wr-54). The SC4
+revision of the same day added or extended drafted parts in
+[FX-27](execution.md#fx-27), [FX-29](execution.md#fx-29),
+[FX-30](execution.md#fx-30), [FX-38](execution.md#fx-38),
+[FX-40](execution.md#fx-40), [FX-42](execution.md#fx-42),
+[CF-7](control-flow.md#cf-7), [CF-12](control-flow.md#cf-12),
+[CF-16](control-flow.md#cf-16), [CF-17](control-flow.md#cf-17),
+[CF-21](control-flow.md#cf-21), [CF-22](control-flow.md#cf-22),
+[CF-25](control-flow.md#cf-25), [CF-28](control-flow.md#cf-28),
+[JE-44](expressions.md#je-44), [WR-40](languages.md#wr-40),
+[WA-11](client-api.md#wa-11), [WA-15](client-api.md#wa-15) and
+[OR-27](oracle.md#or-27), and extended the drafted finding
+[WR-55](languages.md#wr-55). The answers to semantics requests 1 to 3
 ([JE-48](expressions.md#je-48), [JE-49](expressions.md#je-49),
 [WR-40](languages.md#wr-40) to [WR-50](languages.md#wr-50)) passed their
 independent check and are `confirmed`. Question entries include answered
 questions, which keep their numbers; openflow.md's `Q-OF-7` entry points to
-licensing.md, where that question lives. 374 cases are `oracle-observed`,
+licensing.md, where that question lives. 468 cases are `oracle-observed`,
 and seven cases are windmill-lite `policy` checks rather than Windmill
 behaviour ([conformance.md](conformance.md#summary)).
 
