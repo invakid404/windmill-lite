@@ -344,7 +344,9 @@ int wl_compile(wl_slot *s, const char *src, size_t len, uint8_t **bc, size_t *bc
 		memcpy(buf, src, len);
 	buf[len] = '\0';
 	JS_UpdateStackTop(s->rt);
-	fn = JS_Eval(ctx, buf, len, "eval_script", JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
+	// Windmill's embedding evaluates every script it builds as a global
+	// script with strict mode forced (JE-50).
+	fn = JS_Eval(ctx, buf, len, "eval_script", JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT | JS_EVAL_FLAG_COMPILE_ONLY);
 	free(buf);
 	if (JS_IsException(fn))
 		return take_exception(s);
@@ -507,30 +509,35 @@ int wl_run(wl_slot *s)
 	JSContext *ctx = s->ctx, *job_ctx;
 
 	JS_UpdateStackTop(s->rt);
-	for (;;) {
+	// The queue empties before the completion value is read, as rquickjs's
+	// poll empties it (JE-51): a job chain that never ends keeps the
+	// evaluation from finishing even once its value has settled, until the
+	// attempt limit interrupts it. A job that throws (a queueMicrotask
+	// callback, for example) is dropped, and its exception fails nothing.
+	while (JS_IsJobPending(s->rt)) {
 		if (s->interrupted)
 			return WL_INTERRUPTED;
-		// Stop as soon as the completion value is settled: jobs still
-		// queued then never run.
-		if (!JS_IsPromise(s->result))
-			return WL_OK;
-		switch (JS_PromiseState(ctx, s->result)) {
-		case JS_PROMISE_FULFILLED:
-			return WL_OK;
-		case JS_PROMISE_REJECTED:
-			JS_FreeValue(ctx, s->exc);
-			s->exc = JS_PromiseResult(ctx, s->result);
-			return WL_EXCEPTION;
-		case JS_PROMISE_PENDING:
-			break;
+		if (JS_ExecutePendingJob(s->rt, &job_ctx) < 0) {
+			if (s->interrupted)
+				return WL_INTERRUPTED;
+			JS_FreeValue(job_ctx, JS_GetException(job_ctx));
 		}
-		if (!JS_IsJobPending(s->rt))
-			return WL_WAITING;
-		// A job that throws (a queueMicrotask callback, for example) fails
-		// the evaluation with its exception.
-		if (JS_ExecutePendingJob(s->rt, &job_ctx) < 0)
-			return take_exception(s);
 	}
+	if (s->interrupted)
+		return WL_INTERRUPTED;
+	if (!JS_IsPromise(s->result))
+		return WL_OK;
+	switch (JS_PromiseState(ctx, s->result)) {
+	case JS_PROMISE_FULFILLED:
+		return WL_OK;
+	case JS_PROMISE_REJECTED:
+		JS_FreeValue(ctx, s->exc);
+		s->exc = JS_PromiseResult(ctx, s->result);
+		return WL_EXCEPTION;
+	case JS_PROMISE_PENDING:
+		break;
+	}
+	return WL_WAITING;
 }
 
 int wl_take_call(wl_slot *s, uint32_t *id, int *index, wl_text *arg)
@@ -621,24 +628,35 @@ static void readback_headroom(wl_slot *s)
 	JS_SetMemoryLimit(s->rt, s->memory_limit + WL_READBACK_HEADROOM);
 }
 
-// keep_cstr converts v with JS_ToCStringLen and keeps the C string for
-// wl_release. A failed conversion clears its exception and gives "".
-static wl_text keep_cstr(wl_slot *s, JSValueConst v)
+// read_cstr converts v with JS_ToCStringLen into *t and keeps the C string
+// for wl_release. A failed conversion clears its exception, leaves *t "",
+// and returns 0.
+static int read_cstr(wl_slot *s, JSValueConst v, wl_text *t)
 {
-	wl_text t = {"", 0};
 	const char *p;
 	size_t len;
 
+	t->ptr = "";
+	t->len = 0;
 	if (s->ncstr == (int)(sizeof(s->cstr) / sizeof(s->cstr[0])))
-		return t;
+		return 0;
 	p = JS_ToCStringLen(s->ctx, &len, v);
 	if (JS_HasException(s->ctx))
 		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
 	if (p == NULL)
-		return t;
+		return 0;
 	s->cstr[s->ncstr++] = p;
-	t.ptr = p;
-	t.len = len;
+	t->ptr = p;
+	t->len = len;
+	return 1;
+}
+
+// keep_cstr is read_cstr's text, "" when the conversion fails.
+static wl_text keep_cstr(wl_slot *s, JSValueConst v)
+{
+	wl_text t;
+
+	read_cstr(s, v, &t);
 	return t;
 }
 
@@ -673,9 +691,8 @@ int wl_result(wl_slot *s, wl_text *out)
 	return WL_OK;
 }
 
-// prop_text reads obj[name] as text, or "" when it is absent or not a
-// string and want_string is set.
-static wl_text prop_text(wl_slot *s, JSValueConst obj, const char *name, int want_string)
+// prop_text reads obj[name] as text, or "" when it is absent.
+static wl_text prop_text(wl_slot *s, JSValueConst obj, const char *name)
 {
 	wl_text t = {"", 0};
 	JSValue v = JS_GetPropertyStr(s->ctx, obj, name);
@@ -684,10 +701,80 @@ static wl_text prop_text(wl_slot *s, JSValueConst obj, const char *name, int wan
 		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
 		return t;
 	}
-	if (!(want_string && !JS_IsString(v)) && !JS_IsUndefined(v))
+	if (!JS_IsUndefined(v))
 		t = keep_cstr(s, v);
 	JS_FreeValue(s->ctx, v);
 	return t;
+}
+
+// coerced_text reads obj[name] into *t as rquickjs 0.11.0 reads an
+// Error's message and stack (Option<Coerced<String>>), and returns whether
+// there is one: none when reading the property throws, when its value is
+// undefined or null, or when converting it to a string throws. The text is
+// the engine's conversion, an unpaired surrogate in its three-byte form;
+// that it must also be UTF-8 is the pipeline's to check (JE-52).
+static int coerced_text(wl_slot *s, JSValueConst obj, const char *name, wl_text *t)
+{
+	JSValue v = JS_GetPropertyStr(s->ctx, obj, name), str;
+	int ok = 0;
+
+	t->ptr = "";
+	t->len = 0;
+	if (JS_IsException(v)) {
+		JS_FreeValue(s->ctx, JS_GetException(s->ctx));
+		return 0;
+	}
+	if (!JS_IsUndefined(v) && !JS_IsNull(v) && !JS_IsUninitialized(v)) {
+		str = JS_ToString(s->ctx, v);
+		if (JS_IsException(str)) {
+			JS_FreeValue(s->ctx, JS_GetException(s->ctx));
+		} else {
+			ok = read_cstr(s, str, t);
+			JS_FreeValue(s->ctx, str);
+		}
+	}
+	JS_FreeValue(s->ctx, v);
+	return ok;
+}
+
+// value_kind classifies a thrown value that is not an Error as rquickjs
+// 0.11.0's Value::type_of does: by tag, and an object by the first of these
+// tests that holds, in its order: array, constructor, function, promise,
+// proxy (an Error is an exception there, which wl_exception has taken).
+// rquickjs tests a promise by JS_PromiseState >= 0, which works because the
+// quickjs-ng it vendors adds JS_PROMISE_NOT_A_PROMISE = -1 to that enum;
+// this revision's enum has no negative member, so its -1 compares as
+// unsigned, and the class is tested with JS_IsPromise instead.
+static int value_kind(wl_slot *s, JSValueConst v)
+{
+	switch (JS_VALUE_GET_NORM_TAG(v)) {
+	case JS_TAG_BOOL:
+		return WL_KIND_BOOL;
+	case JS_TAG_INT:
+		return WL_KIND_INT;
+	case JS_TAG_FLOAT64:
+		return WL_KIND_FLOAT;
+	case JS_TAG_STRING:
+		return WL_KIND_STRING;
+	case JS_TAG_SYMBOL:
+		return WL_KIND_SYMBOL;
+	case JS_TAG_BIG_INT:
+	case JS_TAG_SHORT_BIG_INT:
+		return WL_KIND_BIG_INT;
+	case JS_TAG_OBJECT:
+		if (JS_IsArray(v))
+			return WL_KIND_ARRAY;
+		if (JS_IsConstructor(s->ctx, v))
+			return WL_KIND_CONSTRUCTOR;
+		if (JS_IsFunction(s->ctx, v))
+			return WL_KIND_FUNCTION;
+		if (JS_IsPromise(v))
+			return WL_KIND_PROMISE;
+		if (JS_IsProxy(v))
+			return WL_KIND_PROXY;
+		return WL_KIND_OBJECT;
+	}
+	return WL_KIND_UNKNOWN;
 }
 
 // symbol_text is a thrown symbol's string form, Symbol(<description>),
@@ -728,12 +815,31 @@ int wl_exception(wl_slot *s, wl_exc *out)
 		out->thrown = WL_THROWN_UNDEFINED;
 	} else if (JS_IsError(v)) {
 		out->thrown = WL_THROWN_ERROR;
-		out->name = prop_text(s, v, "name", 0);
-		out->message = prop_text(s, v, "message", 0);
-		out->stack = prop_text(s, v, "stack", 1);
+		out->name = prop_text(s, v, "name");
+		out->has_message = coerced_text(s, v, "message", &out->message);
+		out->has_stack = coerced_text(s, v, "stack", &out->stack);
 		out->text = keep_cstr(s, v);
 	} else {
 		out->thrown = WL_THROWN_OTHER;
+		out->kind = value_kind(s, v);
+		switch (out->kind) {
+		case WL_KIND_BOOL:
+			out->bool_value = JS_VALUE_GET_BOOL(v);
+			break;
+		case WL_KIND_INT:
+			out->int_value = JS_VALUE_GET_INT(v);
+			break;
+		case WL_KIND_FLOAT:
+			out->float_value = JS_VALUE_GET_FLOAT64(v);
+			break;
+		case WL_KIND_STRING:
+		case WL_KIND_BIG_INT:
+		case WL_KIND_UNKNOWN:
+			break;
+		default:
+			out->address = (uintptr_t)JS_VALUE_GET_PTR(v);
+			break;
+		}
 		out->text = JS_IsSymbol(v) ? symbol_text(s, v) : keep_cstr(s, v);
 	}
 	return s->interrupted ? WL_INTERRUPTED : WL_OK;

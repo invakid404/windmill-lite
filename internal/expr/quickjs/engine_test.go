@@ -98,12 +98,19 @@ func TestEvalRejectsANonStringCompletion(t *testing.T) {
 	}
 }
 
-func TestEvalStopsWhenTheResultSettles(t *testing.T) {
-	e := newEngine(t, Options{Limits: shortLimits(5 * time.Second), Slots: 1})
+func TestEvalRunsEveryQueuedJob(t *testing.T) {
+	// JE-51: the completion value is read only once the queue is empty, so
+	// a job queued before the result settled still runs, and one that never
+	// ends keeps the evaluation going until the attempt limit.
+	e := newEngine(t, Options{Limits: shortLimits(200 * time.Millisecond), Slots: 1})
+	got := mustRun(t, e, `(async () => { const seen = []; Promise.resolve().then(() => queueMicrotask(() => seen.push("late"))); await null; return seen; })().then((seen) => new Promise((resolve) => queueMicrotask(() => resolve(seen.join(",") || "none"))))`, expr.Input{})
+	if got != "late" {
+		t.Errorf("got %q, want the late job to have run", got)
+	}
 	start := time.Now()
-	got := mustRun(t, e, `(async () => { Promise.resolve().then(() => { for (;;) {} }); return "done"; })()`, expr.Input{})
-	if got != "done" || time.Since(start) > 2*time.Second {
-		t.Fatalf("got %q after %v; the queued job should never run", got, time.Since(start))
+	_, err := run(t, e, `(async () => { Promise.resolve().then(() => { for (;;) {} }); return "done"; })()`, expr.Input{})
+	if !errors.Is(err, expr.ErrAttemptTimeout) || time.Since(start) < 200*time.Millisecond {
+		t.Fatalf("got %v after %v; the queued job should run until the limit", err, time.Since(start))
 	}
 }
 
@@ -236,23 +243,41 @@ func TestExceptions(t *testing.T) {
 		source string
 		want   expr.Exception
 	}{
-		{`(() => { throw new TypeError("bad") })()`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "bad", Text: "TypeError: bad"}},
+		{`(() => { throw new TypeError("bad") })()`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "bad", HasMessage: true, HasStack: true, Text: "TypeError: bad"}},
 		// The quickjs-ng texts JE-21 and JE-15 name.
-		{`nope`, expr.Exception{Thrown: expr.ThrownError, Name: "ReferenceError", Message: "nope is not defined", Text: "ReferenceError: nope is not defined"}},
-		{`null.x`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "cannot read property 'x' of null", Text: "TypeError: cannot read property 'x' of null"}},
-		{`undefined.x`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "cannot read property 'x' of undefined", Text: "TypeError: cannot read property 'x' of undefined"}},
-		{`JSON.stringify(10n)`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "BigInt are forbidden in JSON.stringify", Text: "TypeError: BigInt are forbidden in JSON.stringify"}},
-		{`Promise.reject(new RangeError("r"))`, expr.Exception{Thrown: expr.ThrownError, Name: "RangeError", Message: "r", Text: "RangeError: r"}},
-		{`(() => { class E extends Error { constructor() { super("m"); this.name = "Custom"; } } throw new E(); })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Custom", Message: "m", Text: "Custom: m"}},
-		{`(() => { throw "str" })()`, expr.Exception{Thrown: expr.ThrownOther, Text: "str"}},
-		{`(() => { throw {a: 1} })()`, expr.Exception{Thrown: expr.ThrownOther, Text: "[object Object]"}},
-		{`(() => { throw 42 })()`, expr.Exception{Thrown: expr.ThrownOther, Text: "42"}},
+		{`nope`, expr.Exception{Thrown: expr.ThrownError, Name: "ReferenceError", Message: "nope is not defined", HasMessage: true, HasStack: true, Text: "ReferenceError: nope is not defined"}},
+		{`null.x`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "cannot read property 'x' of null", HasMessage: true, HasStack: true, Text: "TypeError: cannot read property 'x' of null"}},
+		{`undefined.x`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "cannot read property 'x' of undefined", HasMessage: true, HasStack: true, Text: "TypeError: cannot read property 'x' of undefined"}},
+		{`JSON.stringify(10n)`, expr.Exception{Thrown: expr.ThrownError, Name: "TypeError", Message: "BigInt are forbidden in JSON.stringify", HasMessage: true, HasStack: true, Text: "TypeError: BigInt are forbidden in JSON.stringify"}},
+		{`Promise.reject(new RangeError("r"))`, expr.Exception{Thrown: expr.ThrownError, Name: "RangeError", Message: "r", HasMessage: true, HasStack: true, Text: "RangeError: r"}},
+		{`(() => { class E extends Error { constructor() { super("m"); this.name = "Custom"; } } throw new E(); })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Custom", Message: "m", HasMessage: true, HasStack: true, Text: "Custom: m"}},
+		// The message and the stack are read by conversion (JE-21): a value
+		// converts, null or undefined is none, and so is one whose
+		// conversion throws.
+		{`(() => { const e = new Error("m"); e.message = 5; e.stack = null; throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", Message: "5", HasMessage: true, Text: "Error: 5"}},
+		{`(() => { const e = new Error("m"); e.message = undefined; e.stack = 7; throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", Stack: "7", HasStack: true, Text: "Error"}},
+		{`(() => { const e = new Error("m"); e.message = Symbol(); throw e })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", HasStack: true}},
+		// Another value: its kind as rquickjs classifies it, and its payload
+		// (JE-21). An object's address changes, so it is checked apart.
+		{`(() => { throw "str" })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindString, String: "str"}, Text: "str"}},
+		{`(() => { throw "\ud83d" })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindString, String: "\xed\xa0\xbd"}, Text: "\xed\xa0\xbd"}},
+		{`(() => { throw {a: 1} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}, Text: "[object Object]"}},
+		{`(() => { throw 42 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindInt, Int: 42}, Text: "42"}},
+		{`(() => { throw 4.5 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFloat, Float: 4.5}, Text: "4.5"}},
+		{`(() => { throw false })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBool}, Text: "false"}},
+		{`(() => { throw 10n })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindBigInt}, Text: "10"}},
+		{`(() => { throw [1] })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindArray}, Text: "1"}},
+		{`(() => { throw class C {} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindConstructor}, Text: "class C {}"}},
+		{`(() => { throw () => 1 })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindFunction}, Text: "() => 1"}},
+		{`(() => { throw Promise.resolve() })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindPromise}, Text: "[object Promise]"}},
+		{`(() => { throw new Proxy({}, {}) })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindProxy}, Text: "[object Object]"}},
+		{`(() => { throw {message: "m", name: "Error"} })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindObject}, Text: "[object Object]"}},
 		{`Promise.reject(null)`, expr.Exception{Thrown: expr.ThrownNull, Text: "null"}},
 		{`(() => { throw undefined })()`, expr.Exception{Thrown: expr.ThrownUndefined, Text: "undefined"}},
 		// A symbol, which ToString refuses, and an Error whose getters throw,
 		// are still reported, with the texts that could be read.
-		{`(() => { throw Symbol("s") })()`, expr.Exception{Thrown: expr.ThrownOther, Text: "Symbol(s)"}},
-		{`(() => { const e = new Error("x"); Object.defineProperty(e, "message", { get() { throw new Error("boom"); } }); throw e; })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error"}},
+		{`(() => { throw Symbol("s") })()`, expr.Exception{Thrown: expr.ThrownOther, Value: expr.ThrownValue{Kind: expr.KindSymbol}, Text: "Symbol(s)"}},
+		{`(() => { const e = new Error("x"); Object.defineProperty(e, "message", { get() { throw new Error("boom"); } }); throw e; })()`, expr.Exception{Thrown: expr.ThrownError, Name: "Error", HasStack: true}},
 	} {
 		_, err := run(t, e, tc.source, expr.Input{})
 		var ex *expr.Exception
@@ -261,11 +286,20 @@ func TestExceptions(t *testing.T) {
 			continue
 		}
 		stack := ex.Stack
-		ex.Stack = ""
+		if ex.HasStack && tc.want.Stack == "" {
+			ex.Stack = ""
+		}
+		switch ex.Value.Kind {
+		case expr.KindSymbol, expr.KindArray, expr.KindConstructor, expr.KindFunction, expr.KindPromise, expr.KindProxy, expr.KindObject:
+			if ex.Value.Address == 0 {
+				t.Errorf("%s: no address for kind %d", tc.source, ex.Value.Kind)
+			}
+			ex.Value.Address = 0
+		}
 		if *ex != tc.want {
 			t.Errorf("%s:\n got  %#v\n want %#v", tc.source, *ex, tc.want)
 		}
-		if tc.want.Thrown == expr.ThrownError && tc.want.Message != "" && !strings.Contains(stack, "eval_script") {
+		if tc.want.Thrown == expr.ThrownError && tc.want.HasStack && tc.want.Stack == "" && !strings.Contains(stack, "eval_script") {
 			t.Errorf("%s: stack %q does not name eval_script (JE-21)", tc.source, stack)
 		}
 	}
@@ -654,16 +688,20 @@ func TestOptions(t *testing.T) {
 }
 
 func TestOverflowDepthAtTheDefaultStack(t *testing.T) {
-	// JE-48 brackets the limit: depth 1 000 fits and 1 000 000 overflows.
-	// The depth in between depends on the compiler and the CPU, so it is
-	// logged for each platform.
+	// JE-48 records depth 600 fitting on the oracle and depth 1 000 000
+	// overflowing, and depth 1 000 overflowing there too. Where this engine
+	// overflows depends on the compiler and the CPU, so it is logged for
+	// each platform; it is above 1 000 on every platform measured (D17).
 	e := newEngine(t, Options{Slots: 1})
 	got := mustRun(t, e, `(() => { let d = 0; const f = n => { d = n; return n === 0 ? 0 : 1 + f(n - 1); }; const g = n => { try { f(n); return -1; } catch (e) { return e.name === "RangeError" ? n - d : -2; } }; return String(g(1000000)); })()`, expr.Input{})
 	var depth int
 	fmt.Sscan(got, &depth)
 	t.Logf("%s/%s: a 1 MiB stack overflows at recursion depth %d", runtime.GOOS, runtime.GOARCH, depth)
-	if depth <= 1000 || depth >= 1000000 {
+	if depth <= 600 || depth >= 1000000 {
 		t.Fatalf("overflow depth %s is outside JE-48's bracket", got)
+	}
+	if depth <= 1000 {
+		t.Logf("depth 1 000 overflows here, as on the oracle: D17 does not apply to this build")
 	}
 }
 

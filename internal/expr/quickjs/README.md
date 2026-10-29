@@ -33,7 +33,7 @@ What the package does not do:
 |---|---|
 | `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache). |
-| `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. It does not force strict mode, which Windmill's evaluator does ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
+| `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode, with strict mode forced, as Windmill's evaluator compiles every script ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the input's preludes, then the bytecode, on a fresh runtime and context, and returns the completion string or an error. |
 | `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and heap blocks that QuickJS-ng leaked and the engine freed. |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
@@ -70,21 +70,33 @@ What the package does not do:
    declarations become global lexical bindings the program sees, which no
    property of `globalThis` gives, and its completion value is discarded. A
    prelude that throws ends the evaluation with its exception. Then the
-   bytecode runs, and pending jobs run until the completion value has
-   settled. A completion value that is not a Promise is
-   settled at once, and so is a Promise that has fulfilled or rejected; jobs
-   still queued then never run. A job that throws (a `queueMicrotask`
-   callback, say) fails the evaluation with its exception. Windmill differs
-   on both ([JE-51](../../../docs/semantics/expressions.md#je-51), `later`):
-   it reads the result only once the queue is empty, and it drops a job
-   that throws.
+   bytecode runs, and every pending job runs, the jobs those jobs queue
+   included, until the queue is empty; only then is the completion value
+   read, as Windmill's evaluator reads it
+   ([JE-51](../../../docs/semantics/expressions.md#je-51)). A job that
+   throws (a `queueMicrotask` callback, say) is dropped, and its exception
+   fails nothing. A completion value that is not a Promise is settled at
+   once, and so is a Promise that has fulfilled or rejected; a pending one
+   waits for a host call to settle, after which the queue empties again. A
+   chain of jobs that never ends runs until the attempt limit.
 5. **The answer.** A fulfilled string is returned as UTF-8, except that
    QuickJS-ng writes an unpaired surrogate as three bytes (WTF-8);
    `JSON.stringify` escapes those, so its text is plain UTF-8. Anything else
    gives `expr.ErrNotString`. A throw or rejection gives an `*expr.Exception`
-   that keeps the thrown kind (`Error`, `null`, `undefined`, other), the
-   Error's `name`, `message` and `stack`, and the value's string form
-   (`Symbol(<description>)` for a symbol).
+   that keeps the thrown kind (`Error`, `null`, `undefined`, other) and the
+   value's string form (`Symbol(<description>)` for a symbol). For an
+   `Error` it keeps the `name`, and the `message` and `stack` as Windmill's
+   embedding reads them: converted to strings, each absent when it is `null`
+   or `undefined` or its conversion throws. For another value it keeps its
+   kind as rquickjs 0.11.0 classifies it (by tag; an object as the first of
+   array, constructor, function, promise and proxy that it is, else
+   object) and its payload: a number, a boolean, a string's bytes, or the
+   engine's address of a symbol or an object. The pipeline writes Windmill's
+   texts from them ([JE-21](../../../docs/semantics/expressions.md#je-21)).
+   rquickjs tests a promise by `JS_PromiseState(…) >= 0`, which works
+   because the quickjs-ng it vendors adds `JS_PROMISE_NOT_A_PROMISE = -1`;
+   this revision's enum has no negative member, so the engine tests the
+   class with `JS_IsPromise`.
 6. **Replenishing.** The slot replies first, then frees the runtime and
    prepares the next one, off the caller's path. A runtime is never reused:
    nothing survives from one evaluation to the next (JE-1). Every block a
@@ -168,7 +180,8 @@ each with mimalloc and with its own `malloc`).
   as an async function that awaits the value and returns
   `JSON.stringify(value ?? null)`, a stand-in for the pipeline's wrapper. A
   test fails unless every catalogue case of those four findings is encoded,
-  with the catalogue's provenance. Cases that show deviation D8 name it.
+  with the catalogue's provenance. Cases that show a deviation (D8, D17)
+  name it.
 - `testdata/globals.json` pins the names the full context defines. JE-1
   lists what Windmill's context lacks and has. Whether it also has
   `queueMicrotask`, `performance` and `DOMException`, which QuickJS-ng's
@@ -178,14 +191,16 @@ each with mimalloc and with its own `malloc`).
   functions (concurrency and its bound, rejection, settling after queued
   jobs, the attempt's end, program code that calls the host while a call
   is settled, arguments counted against the cap, sequential calls whose
-  arguments add up past the cap, record reuse), exceptions, the compile
-  cache, fresh runtimes, leaks, interrupts and cancellations (also when
+  arguments add up past the cap, record reuse), exceptions and the kinds
+  of thrown values, the job queue (every queued job runs, and a throwing
+  one is dropped), the compile cache, fresh runtimes, leaks, interrupts
+  and cancellations (also when
   they come during a long built-in or readback), `Close`, the arrival
   order of waiting callers, concurrent use under `-race`, and the overflow
   depth at the default stack, which they log for each platform and check
-  lies between 1 000 (fits) and 1 000 000 (overflows). On Windmill, JE-48
-  records that depths up to 600 fit and depth 1 000 overflows; that this
-  engine fits deeper is deviation D17 of
+  lies between 600 (fits) and 1 000 000 (overflows), the bracket JE-48
+  records on Windmill, where depth 1 000 overflows too; that this engine
+  fits depth 1 000 (JE-48/a's `depth-1000` case) is deviation D17 of
   [0001](../../../docs/design/0001-equivalence-contract.md). An engine
   started through the tests' shared helper must end with no leaked heap
   block; the one test that makes QuickJS-ng leak uses a helper without that

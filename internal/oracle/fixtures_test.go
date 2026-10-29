@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/openflow"
+	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
 const flowsRoot = "../../conformance/flows"
@@ -33,6 +35,68 @@ func loadFlowFixtures(t *testing.T) []*conformance.Fixture {
 	return out
 }
 
+// treeScripts returns the Windmill paths of the scripts in the sync tree
+// at dir that have a source: a file the sync folder reads as a script's
+// source, whose name has a script extension of some language (SY-3). A
+// flow directory, a resource and a script's metadata alone are not.
+func treeScripts(dir string) (map[string]bool, error) {
+	folder, err := syncfolder.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer folder.Close()
+	out := map[string]bool{}
+	for _, p := range folder.Paths(syncfolder.KindScript) {
+		if _, err := folder.Script(p); err == nil {
+			out[p] = true
+		}
+	}
+	return out, nil
+}
+
+// TestTreeScriptsAreSources: only a script's source file makes a script;
+// a flow directory, a resource or a script's metadata of the same name
+// does not (E3a review R1-2).
+func TestTreeScriptsAreSources(t *testing.T) {
+	dir := t.TempDir()
+	for name, text := range map[string]string{
+		"wmill.yaml":                "defaultTs: bun\n",
+		"f/a/py.py":                 "def main():\n    return 1\n",
+		"f/a/ts.ts":                 "export async function main() { return 1 }\n",
+		"f/a/bun.bun.ts":            "export async function main() { return 1 }\n",
+		"f/a/flow.flow/flow.yaml":   "summary: ''\nvalue:\n  modules: []\nschema: {}\n",
+		"f/a/res.resource.yaml":     "resource_type: any\nvalue: {}\n",
+		"f/a/meta.script.yaml":      "summary: ''\n",
+		"f/a/lock.script.lock":      "",
+		"f/a/var.variable.yaml":     "value: x\nis_secret: false\n",
+		"f/a/folder.meta.yaml":      "display_name: a\n",
+		"f/a/py.script.yaml":        "summary: ''\n",
+		"f/a/notes.txt":             "not a script\n",
+		"f/a/flow.flow/inline.ts":   "export async function main() { return 1 }\n",
+		"f/a/flow.flow/inline.lock": "",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scripts, err := treeScripts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{
+		"f/a/py": true, "f/a/ts": true, "f/a/bun": true,
+		"f/a/flow": false, "f/a/res": false, "f/a/meta": false, "f/a/lock": false, "f/a/var": false, "f/a/notes": false, "f/a/folder": false,
+	} {
+		if scripts[p] != want {
+			t.Errorf("script %s: %v, want %v (scripts %v)", p, scripts[p], want, scripts)
+		}
+	}
+}
+
 // TestFlowFixtureTreesResolve reads every fixture's sync tree as the
 // walker does (yamlx, then Windmill's effective decoder) and requires that
 // each run's target, and every flow or script a module names by path, is
@@ -46,18 +110,15 @@ func TestFlowFixtureTreesResolve(t *testing.T) {
 			t.Errorf("%s: %v", f.ID, err)
 			continue
 		}
-		// A script is its source file in any language (x.ts, x.py, …),
-		// not its generated x.script.yaml or x.script.lock.
-		hasScript := func(p string) bool {
-			base := filepath.Join(f.SyncTree(), filepath.FromSlash(p))
-			matches, _ := filepath.Glob(base + ".*")
-			for _, m := range matches {
-				if m != base+".script.yaml" && m != base+".script.lock" {
-					return true
-				}
-			}
-			return false
+		// A script is its source file in any language (x.ts, x.py, …), as
+		// the sync folder classifies files, not a flow directory, a
+		// resource or a script's generated metadata (SY-3).
+		scripts, err := treeScripts(f.SyncTree())
+		if err != nil {
+			t.Errorf("%s: %v", f.ID, err)
+			continue
 		}
+		hasScript := func(p string) bool { return scripts[p] }
 		for _, r := range f.Runs {
 			if r.IsScript() && !hasScript(r.Target) || !r.IsScript() && tree.flow(r.Target) == nil {
 				t.Errorf("%s run %s: target %s is not in the sync tree", f.ID, r.Name, r.Target)

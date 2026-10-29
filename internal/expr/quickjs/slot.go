@@ -346,16 +346,52 @@ func exception(x *C.wl_exc) *expr.Exception {
 	case C.WL_THROWN_ERROR:
 		ex.Thrown = expr.ThrownError
 		ex.Name = gotext(x.name)
-		ex.Message = gotext(x.message)
-		ex.Stack = gotext(x.stack)
+		ex.Message, ex.HasMessage = gotext(x.message), x.has_message != 0
+		ex.Stack, ex.HasStack = gotext(x.stack), x.has_stack != 0
 	case C.WL_THROWN_NULL:
 		ex.Thrown, ex.Text = expr.ThrownNull, "null"
 	case C.WL_THROWN_UNDEFINED:
 		ex.Thrown, ex.Text = expr.ThrownUndefined, "undefined"
 	default:
 		ex.Thrown = expr.ThrownOther
+		ex.Value = thrownValue(x)
 	}
 	return ex
+}
+
+// valueKinds maps the C side's kinds of a thrown value to expr's.
+var valueKinds = map[C.int]expr.ValueKind{
+	C.WL_KIND_BOOL:        expr.KindBool,
+	C.WL_KIND_INT:         expr.KindInt,
+	C.WL_KIND_FLOAT:       expr.KindFloat,
+	C.WL_KIND_STRING:      expr.KindString,
+	C.WL_KIND_SYMBOL:      expr.KindSymbol,
+	C.WL_KIND_ARRAY:       expr.KindArray,
+	C.WL_KIND_CONSTRUCTOR: expr.KindConstructor,
+	C.WL_KIND_FUNCTION:    expr.KindFunction,
+	C.WL_KIND_PROMISE:     expr.KindPromise,
+	C.WL_KIND_PROXY:       expr.KindProxy,
+	C.WL_KIND_OBJECT:      expr.KindObject,
+	C.WL_KIND_BIG_INT:     expr.KindBigInt,
+}
+
+// thrownValue is what the C side read of a thrown value that is not an
+// Error: its kind and its payload.
+func thrownValue(x *C.wl_exc) expr.ThrownValue {
+	v := expr.ThrownValue{Kind: valueKinds[x.kind]}
+	switch v.Kind {
+	case expr.KindBool:
+		v.Bool = x.bool_value != 0
+	case expr.KindInt:
+		v.Int = int32(x.int_value)
+	case expr.KindFloat:
+		v.Float = float64(x.float_value)
+	case expr.KindString:
+		v.String = gotext(x.text)
+	default:
+		v.Address = uintptr(x.address)
+	}
+	return v
 }
 
 func gotext(t C.wl_text) string { return string(goBytes(unsafe.Pointer(t.ptr), t.len)) }

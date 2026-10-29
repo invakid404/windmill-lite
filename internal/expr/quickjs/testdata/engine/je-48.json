@@ -4,7 +4,22 @@
     {
       "spec": "JE-48/a",
       "provenance": "oracle-observed",
-      "title": "a recursion of depth 1 000 fits",
+      "title": "recursions of depth 600 and less fit",
+      "note": "Part (1) of the catalogue case, the depth bracket E3a recorded.",
+      "given": {
+        "expr": "[10, 100, 300, 600].map(k => ((f) => { try { return f(f, k) } catch (e) { return e instanceof RangeError ? \"RangeError\" : typeof e } })((g, n) => n === 0 ? 0 : 1 + g(g, n - 1)))"
+      },
+      "expect": {
+        "value": "[10,100,300,600]"
+      }
+    },
+    {
+      "spec": "JE-48/a",
+      "variant": "depth-1000",
+      "provenance": "oracle-observed",
+      "deviation": "D17",
+      "title": "the recursion of depth 1 000 that overflows on Windmill fits this engine's frames",
+      "note": "Part (2) of the catalogue case: on the oracle it fails with Maximum call stack size exceeded. Both engines stop at 1 MiB of C stack, and this one's frames are smaller (JE-48's design note).",
       "given": {
         "expr": "(() => { const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()"
       },
@@ -31,6 +46,7 @@
       "spec": "JE-48/c",
       "provenance": "oracle-observed",
       "title": "the overflow is a catchable RangeError",
+      "note": "At the engine level the value is returned; the pipeline runs the catalogue's text, which holds a ;, in statement mode, so its value is null there (JE-13).",
       "given": {
         "expr": "(() => { const f = n => 1 + f(n + 1); try { return f(0); } catch (e) { return [e.name, e.message]; } })()"
       },
@@ -57,8 +73,9 @@
       "spec": "JE-48",
       "variant": "entry-from-job",
       "provenance": "source-derived",
+      "deviation": "D17",
       "title": "a recursion after an await gets the full stack again",
-      "note": "The limit is measured from where each call enters the engine, here the job loop.",
+      "note": "The limit is measured from where each call enters the engine, here the job loop. Depth 1 000 fits only on this engine's frames (D17); on Windmill it overflows wherever it starts.",
       "given": {
         "expr": "(async () => { await null; const f = n => n === 0 ? 0 : 1 + f(n - 1); return f(1000); })()"
       },

@@ -268,77 +268,78 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
      before the timeout error surfaces;
    - JE-33/a and b: an early stop by `skip_expr` leaves the flow `skipped`,
      where JE-33 says it completes successfully.
-8. **The textual pipeline's unstated details** (milestone B2a). The
-   reference leaves these open. Each is decided by the reading named here.
-   All but the last are pinned by a source-derived case in
-   `internal/expr/testdata/pipeline` (the wrapper by `TestWrapperSingleLine`),
-   so a different answer changes one function:
-   - [JE-5](../semantics/expressions.md#je-5): which characters trimming
-     removes. Read as Unicode White_Space, as Rust's `str::trim` removes.
-   - [JE-7](../semantics/expressions.md#je-7): whether the dot form takes an
-     empty key (`flow_input.`). Read as yes; only the bracket form needs a
-     non-empty key.
-   - [JE-9](../semantics/expressions.md#je-9): whether a step id `length`
-     (`results.length`) declines like a last segment `length`. Read as no.
-   - [JE-11](../semantics/expressions.md#je-11): where a call whose
-     parentheses never balance ends. Read as the end of the text.
-   - [JE-13](../semantics/expressions.md#je-13): whether `return` followed by
-     a newline selects statement mode (read as no, the text lists a space
-     or a semicolon), and how the quote scan reads a quote: as opening a
-     quote of its kind or closing the one it is in, unless a backslash
-     precedes it, so another kind of quote inside a string is text.
-   - JE-13 and [JE-14](../semantics/expressions.md#je-14): whether the
-     wrapper is an `async function` or an async arrow, which `arguments`
-     tells apart. Read as a function. Milestone B2b found it settled by
-     E3a's recorded stacks, which place the code at column 28 in
-     expression mode and 21 in statement mode: the opening is
-     `(async function() { return ` or `(async function() { `.
-   - JE-9: where a line ends. Read as at `\n` only, so a line with a
-     trailing `\r` or space does not qualify.
-   - JE-12: whether a `["…"]` read spans lines. Read as no, as a regular
-     expression's `.` does not match a newline.
-   - JE-6 to JE-8 and [JE-44](../semantics/expressions.md#je-44): which text
-     the shortcuts return for a value read from the database (a member of
-     `flow_input`, `previous_result` after a loop or `branchall`): the
-     compact stored text or jsonb's spaced output. JE-9's is spaced
-     ([0005](0005-json-step-boundaries.md)). The windmill-lite engine
-     supplies these texts; the stored text is used until this is answered.
-     Two oracle runs would settle it: `timeout: flow_input.o` with `o` an
-     object, and `timeout: results.l` right after a loop `l`, whose parse
-     errors quote the text.
-9. **The expression program's unstated details** (milestone B2b). Each is
-   decided by the reading named here and pinned by a test in
-   `internal/expr`; [internal/expr](../../internal/expr/README.md) says
-   where:
+8. **The textual pipeline's unstated details** (milestone B2a).
+   **Answered** by the semantics team on 2026-10-28; milestone FU3 follows
+   the answers, which `internal/expr/testdata/pipeline` pins. The readings
+   for [JE-5](../semantics/expressions.md#je-5)'s trimming, JE-7's empty
+   dot key, [JE-9](../semantics/expressions.md#je-9)'s line ends and step
+   id `length`, JE-12's single-line bracket read,
+   [JE-13](../semantics/expressions.md#je-13)'s `return` and quote scan,
+   and the wrapper (an `async function`) are confirmed. Two are corrected:
+   - [JE-11](../semantics/expressions.md#je-11): the inserted `)` goes at
+     a position counted in characters and applied as a byte offset, so text
+     that is not ASCII before it moves it early, and where it falls inside
+     a character Windmill's evaluator panics;
+   - [JE-6](../semantics/expressions.md#je-6) to
+     [JE-8](../semantics/expressions.md#je-8) with
+     [JE-44](../semantics/expressions.md#je-44): a member of `flow_input`
+     and a `previous_result` read back from storage are jsonb's printed
+     text, and a `previous_result` after a loop or `branchall` is a compact
+     array with re-printed numbers ([0005](0005-json-step-boundaries.md)'s
+     routing table).
+
+   Neither is recorded yet
+   ([Q-JE-13](../semantics/expressions.md#q-je-13)).
+9. **The expression program's unstated details** (milestone B2b).
+   **Answered** by the semantics team on 2026-10-28; milestone FU3 follows
+   the answers, which tests in `internal/expr` pin
+   ([internal/expr](../../internal/expr/README.md) says where):
    - [JE-21](../semantics/expressions.md#je-21) ([Q-JE-1](../semantics/expressions.md#q-je-1)):
-     the text of a thrown value that is not an `Error`. The reference gives
-     the engine's debug form; windmill-lite writes the value's string form.
-     An oracle run of `throw "s"`, `throw 1` and `throw {}` would settle
-     the primitives; an object's form may not be reproducible.
-   - [JE-17](../semantics/expressions.md#je-17): whether "or else" in an
-     entry's tag (`error.step_id`, else the position) and text
-     (`error.message`, else `error.name`) means a nullish or a falsy test.
-     Read as nullish.
-   - [JE-49](../semantics/expressions.md#je-49): the position quoted for
-     `flow_input` and for a member of `flow_env`, which Windmill
-     re-serialises (read as counted in the compact text), and which value
-     is reported when several are too deep (read as `flow_input`, then the
-     context values by name, then `flow_env`'s members by key).
-   - [JE-10](../semantics/expressions.md#je-10): whether the lexical
-     `results` and `error` are constants or can be assigned. Read as
-     constants.
-   - [JE-16](../semantics/expressions.md#je-16): whether a `__proto__` key
-     of a context value becomes an own property (as `JSON.parse` makes it)
-     or the object's prototype. Read as an own property.
-   - [JE-15](../semantics/expressions.md#je-15): what Windmill does when
-     the user's code replaces `JSON.stringify` so that the value's text is
-     not JSON. windmill-lite fails the evaluation with its own text.
+     a thrown value that is not an `Error` shows rquickjs's debug form,
+     `String(Ok("s"))`, `Int(1)`, `Float(1.5)`, `Bool(true)`, and for an
+     object its type name and address;
+   - [JE-17](../semantics/expressions.md#je-17): an entry's fallbacks are
+     falsy tests;
+   - [JE-49](../semantics/expressions.md#je-49): `flow_input`'s position
+     counts in the object written out again with its members' texts as
+     held, a `flow_env` member's in its own text, and the context values
+     the text names are reported before `flow_input` and `flow_env`;
+   - [JE-10](../semantics/expressions.md#je-10): `results` is a constant
+     and `error` a `let` binding;
+   - [JE-16](../semantics/expressions.md#je-16): objects are rebuilt by
+     assignment, so a `__proto__` key sets the prototype or is dropped;
+   - [JE-15](../semantics/expressions.md#je-15): a replaced
+     `JSON.stringify`'s string is kept unchecked, and anything else reads as
+     `null`;
    - [JE-48](../semantics/expressions.md#je-48) and
      [JE-1](../semantics/expressions.md#je-1): the overflow depth and the
-     transcendental `Math` digits depend on the engine's build, deviations
-     D16 and D17 of [0001](0001-equivalence-contract.md). Which C library
-     and compiler flags the CE image's engine was built with would say
-     whether a calibration could retire them.
+     `Math` digits follow the engine's build, so D16 and D17 of
+     [0001](0001-equivalence-contract.md) stand; the source does not name
+     the CE image's compiler ([Q-JE-16](../semantics/expressions.md#q-je-16)).
+
+   The reference also added [JE-50](../semantics/expressions.md#je-50)
+   (strict mode), [JE-51](../semantics/expressions.md#je-51) (the job
+   queue) and [JE-52](../semantics/expressions.md#je-52) (unpaired
+   surrogates), which FU3 implements.
+10. **The readings FU3 left open** (milestone FU3). Each is decided by the
+    reading named here and pinned by a test in `internal/expr`:
+    - [JE-11](../semantics/expressions.md#je-11): whether the character
+      count starts at the start of the text or at the call (read as the
+      start of the text, as "ASCII up to the insertion point" says), and
+      whether it also places the `)` of a call that never closes (read as
+      yes). Q-JE-13's runs, calls at the start of the text, cannot tell.
+      Where Windmill panics, windmill-lite fails the evaluation with its
+      own text; what the panic does to Windmill's job is Q-JE-13's.
+    - [JE-16](../semantics/expressions.md#je-16): whether the values of
+      `results` reads and of the helpers are rebuilt by assignment like the
+      context values. Read as no, as `JSON.parse` gives them.
+    - [FX-42](../semantics/execution.md#fx-42) rule 2 and
+      [JE-44](../semantics/expressions.md#je-44): the notation in which the
+      backend's JSON library writes a double, which a `previous_result`
+      after a loop or `branchall` shows. FX-42 gives examples (`1000.0`,
+      `1e+21`, `1.2345678901234568e+29`) but not where the notation turns
+      from decimal to exponent, nor how small numbers are written. The loop
+      milestones need it.
 
 ## Changing the design
 
