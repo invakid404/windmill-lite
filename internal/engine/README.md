@@ -166,8 +166,8 @@ concurrent use.
 
 **What it runs (N1a).** A flow's top-level modules in sequence: `script`
 and `rawscript` Bun steps, `identity`, input transforms, `skip_if`,
-`mock`, `pass_flow_input_directly`, `stop_after_if`, a static `timeout`,
-`flow_env` and `early_return` (which changes only the synchronous HTTP
+`mock`, `pass_flow_input_directly`, `stop_after_if`, a static `timeout`
+or none, `flow_env` and `early_return` (which changes only the synchronous HTTP
 response, [FX-37](../../docs/semantics/execution.md#fx-37)). `New` refuses
 everything else with `ErrUnsupported`, naming the milestone that
 implements it: a failure module and `continue_on_error` (N1b); `sleep`, a
@@ -188,19 +188,32 @@ boundary (C3n); a preprocessor and `skip_expr` (`later`).
    <value or null>}`, [FX-18](../../docs/semantics/execution.md#fx-18)),
    `pass_flow_input_directly` (the flow input), an identity or skipped
    module (`{previous_result: P}`), else the input transforms
-   ([FX-7](../../docs/semantics/execution.md#fx-7)). A launching module's
-   arguments then go through H2, and every module's through the storage
-   boundary.
-4. **Launch.** A mocked, skipped or `identity` module runs an identity job:
-   its result is its stored arguments' `previous_result`, or `{}`
-   ([FX-16](../../docs/semantics/execution.md#fx-16)); it is never
-   intercepted nor timed. A leaf is offered to H1 (`Intercept`), then its
-   entrypoint is chosen (`Entrypoint`), H3 asks `BeforeFirstWrite` once
-   per run before the first write-capable launch, H12 edits the
-   environment, and the step runs through the `StepExecutor` with its
-   timeout as a timer in the engine. `StoreOutcome` maps its outcome.
-5. **`stop_after_if`** after a success, except on a skipped identity
-   ([FX-19](../../docs/semantics/execution.md#fx-19)): a clean stop ends
+   ([FX-7](../../docs/semantics/execution.md#fx-7)). A module that
+   launches its own job, a leaf or an identity module, has its arguments
+   go through H2; a module that `skip_if` or `mock` answered does not
+   ([ADR 0008](../../docs/design/0008-host-hooks.md)). Every module's
+   arguments go through the storage boundary.
+4. **Launch.** A mocked or skipped module is replaced by an identity job,
+   which no hook sees. An `identity` module launches its own identity job,
+   which H1 may answer for like any launch. An identity job's result is
+   its stored arguments' `previous_result`, or `{}`
+   ([FX-16](../../docs/semantics/execution.md#fx-16)), and it is never
+   timed ([FX-24](../../docs/semantics/execution.md#fx-24)). A leaf is
+   offered to H1 (`Intercept`), then its entrypoint is chosen
+   (`Entrypoint`), H3 asks `BeforeFirstWrite` once per run before the
+   first write-capable launch, H12 edits the environment, and the step
+   runs through the `StepExecutor` with its timeout as a timer in the
+   engine. The timeout is the module's static one, else a path script's
+   own timeout metadata; a request strictly below the instance maximum is
+   job-specific, zero included (no time at all); none, or one at or above
+   the maximum, gives the maximum, instance-wide (FX-24, FX-25, WR-37).
+   `StoreOutcome` maps the outcome, H1's included.
+5. **`stop_after_if`** after a success, except on an identity job
+   classified skipped: any identity job of a module with a `skip_if`,
+   whatever the predicate answered, and whether it ran or H1 answered for
+   it ([FX-17](../../docs/semantics/execution.md#fx-17),
+   [FX-18](../../docs/semantics/execution.md#fx-18),
+   [FX-19](../../docs/semantics/execution.md#fx-19)). A clean stop ends
    the flow with the module's result, `skipped` when `skip_if_stopped` (the
    module is then skipped too) and `success` otherwise; an error stop fails
    the module, which carries `{"error": {"name": "EarlyStopError",
@@ -236,9 +249,13 @@ canceled run has no result (the cancellation's `Canceled` value is N1b's).
   `RunRequest.Seed` fixes it; zero draws one.
 - A static value is copied verbatim, an `ai` input left out, a javascript
   one evaluated ([JE-23](../../docs/semantics/expressions.md#je-23)).
-- Each argument becomes its stored text (step 3 of the ADR's pipeline);
-  those are the recorded and the resolved arguments, since `$var:` and
-  `$res:` resolution is PF2's.
+- Each argument, its key and its value, becomes its stored text (step 3
+  of the ADR's pipeline), in the shuffled order, the last of two keys that
+  store alike winning, as in jsonb; a key or a value jsonb refuses fails
+  the push ([FX-48](../../docs/semantics/execution.md#fx-48),
+  [FX-51](../../docs/semantics/execution.md#fx-51)). The stored arguments
+  are the recorded and the resolved ones, since `$var:` and `$res:`
+  resolution is PF2's.
 
 **Expression scopes** ([JE-22](../../docs/semantics/expressions.md#je-22),
 [FX-8](../../docs/semantics/execution.md#fx-8)), P being the previous
@@ -297,8 +314,8 @@ write (D14).
 - A module that occurs twice in one list (OF-2): `Lookup` finds the first
   in the flow.
 - An H1 intercept runs no job (`Ran` false), and H3 asks only before a
-  launch that H1 declined: an intercepted module writes nothing. H2 runs
-  only for a module that launches, never on an identity job's arguments.
+  leaf's launch that H1 declined: an intercepted module or an identity job
+  writes nothing.
 - An argument that jsonb refuses fails the push with PostgreSQL's message
   ([Q-FX-8](../../docs/semantics/execution.md#q-fx-8) leaves the text open).
 - An invalid entrypoint override fails as a pre-run error, with no
@@ -307,10 +324,12 @@ write (D14).
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
 in Go: transforms and the results routes, the shuffled orders, identity,
-`skip_if` and `mock` (a table of their rules), `stop_after_if` (each stop,
-a throw, a non-boolean, the textual `results` condition), the chaining
-errors, the argument failures, repeated ids, every hook seam and its
-precedence, the refusals, and concurrent runs under `-race`. The flow
+`skip_if` and `mock` (a table of their rules), identity jobs with H1 and
+H2 and the skipped classification, `stop_after_if` (each stop, a throw, a
+non-boolean, the textual `results` condition), the chaining errors, the
+argument failures and the keys at the storage boundary, the timeouts'
+precedence, repeated ids, every hook seam and its precedence, the
+refusals, and concurrent runs under `-race`. The flow
 fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), milestone N1a's
 exit gate).

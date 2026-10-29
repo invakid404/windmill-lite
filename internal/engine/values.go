@@ -132,27 +132,47 @@ func flowInputText(stored []byte, rng *rand.Rand) []byte {
 }
 
 // storeMembers is the storage boundary of a job's arguments (ADR 0005
-// step 3): each top-level argument becomes its stored text, in the order
-// they come. An argument jsonb refuses fails the push of the job, whose
-// error is returned with PostgreSQL's message as Windmill's database layer
+// step 3): each top-level argument, its key and its value, becomes its
+// stored text, in the order they come; of two keys that store alike, the
+// last one's value is kept, as jsonb keeps it. A key or value that jsonb
+// refuses (a NUL escape, FX-48; an unpaired surrogate escape or a number
+// beyond numeric's range, FX-51) fails the push of the job, whose error is
+// returned with PostgreSQL's message as Windmill's database layer
 // displays it (FX-48 case 2; the exact text is open, Q-FX-8).
 func storeMembers(args jsonval.Value) (jsonval.Value, error) {
 	ms, ok := members(args.Producer())
 	if !ok {
 		return jsonval.Value{}, errors.New("error returned from database: invalid input syntax for type json")
 	}
-	for i, m := range ms {
-		s, err := jsonval.FromProducer(m.value).Stored()
+	var out []rawMember
+	at := map[string]int{}
+	for _, m := range ms {
+		k, err := jsonval.FromProducer(m.rawKey).Stored()
 		if err != nil {
-			var se *jsonval.StoreError
-			if errors.As(err, &se) {
-				return jsonval.Value{}, errors.New("error returned from database: " + se.DatabaseMessage())
-			}
-			return jsonval.Value{}, err
+			return jsonval.Value{}, databaseError(err)
 		}
-		ms[i].value = s
+		v, err := jsonval.FromProducer(m.value).Stored()
+		if err != nil {
+			return jsonval.Value{}, databaseError(err)
+		}
+		if j, dup := at[string(k)]; dup {
+			out[j].value = v
+			continue
+		}
+		at[string(k)] = len(out)
+		out = append(out, rawMember{key: m.key, rawKey: k, value: v})
 	}
-	return jsonval.FromProducer(writeMembers(ms)), nil
+	return jsonval.FromProducer(writeMembers(out)), nil
+}
+
+// databaseError is the error Windmill's database layer reports for a text
+// jsonb refuses.
+func databaseError(err error) error {
+	var se *jsonval.StoreError
+	if errors.As(err, &se) {
+		return errors.New("error returned from database: " + se.DatabaseMessage())
+	}
+	return err
 }
 
 // identityResult is what an identity job returns: its stored arguments'

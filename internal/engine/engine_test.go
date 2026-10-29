@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
@@ -30,7 +31,8 @@ import (
 //   - f/t/value returns its argument v;
 //   - f/t/obj returns {"zz":1,"b":2,"aaa":3}, in that key order;
 //   - f/t/fail throws an Error named by its argument name, "Error" by
-//     default.
+//     default;
+//   - f/t/zero, whose metadata asks for a timeout of 0 s, is not run here.
 type scripts struct {
 	mu   sync.Mutex
 	invs []Invocation
@@ -82,9 +84,11 @@ func (s *scripts) calls() []string {
 // each a flow value as JSON.
 func testFolder(flows map[string]string) fstest.MapFS {
 	fsys := fstest.MapFS{"wmill.yaml": {Data: []byte("defaultTs: bun\n")}}
-	for _, name := range []string{"echo", "value", "obj", "fail"} {
+	for _, name := range []string{"echo", "value", "obj", "fail", "zero"} {
 		fsys["f/t/"+name+".ts"] = &fstest.MapFile{Data: []byte("export async function main(...a: any[]) { return null }\n")}
 	}
+	// f/t/zero's own metadata asks for a timeout of 0 s (FX-24).
+	fsys["f/t/zero.script.yaml"] = &fstest.MapFile{Data: []byte("summary: ''\ndescription: ''\nkind: script\ntimeout: 0\nschema:\n  type: object\n  properties: {}\n  required: []\n")}
 	for path, value := range flows {
 		fsys[path+".flow/flow.yaml"] = &fstest.MapFile{Data: []byte(`{"summary":"t","value":` + value + `}`)}
 	}
@@ -568,14 +572,166 @@ func TestEngineHooks(t *testing.T) {
 	e, _ = open()
 	wantStatus(t, runIt(t, e, `{}`, &recordingHooks{haltAfter: "c"}), conformance.RunFailure, "")
 
-	// H2 sees a direct-input step's arguments too, and never an identity
-	// job's.
+	// H2 sees a direct-input step's arguments too, and an identity
+	// module's: it launches its own identity job.
 	e = mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "", `"pass_flow_input_directly":true`), `{"id":"b","value":{"type":"identity"}}`)}, &scripts{})
-	tr = runIt(t, e, `{"in":1}`, &recordingHooks{rewrite: map[string]string{"a": `{"r":1}`, "b": `{"previous_result":"never"}`}})
-	wantStatus(t, tr, conformance.RunSuccess, `{"r":1}`)
+	tr = runIt(t, e, `{"in":1}`, &recordingHooks{rewrite: map[string]string{"a": `{"r":1}`, "b": `{"previous_result":"rewritten"}`}})
+	wantStatus(t, tr, conformance.RunSuccess, `"rewritten"`)
 	if a := step(t, tr, "a"); !slices.Equal(a.Hooks, []string{"H2"}) || string(a.ArgsBeforeRewrite.Producer()) != `{"in":1}` {
 		t.Fatalf("a %+v", a)
 	}
+	if b := step(t, tr, "b"); !slices.Equal(b.Hooks, []string{"H2"}) || string(b.ArgsBeforeRewrite.Producer()) != `{"previous_result":{"r":1}}` {
+		t.Fatalf("b %+v", b)
+	}
+}
+
+// interceptAll answers H1 for every module it is asked about with its
+// module id, and counts the questions.
+type interceptAll struct {
+	NoHooks
+	mu    sync.Mutex
+	asked []string
+}
+
+func (h *interceptAll) Intercept(_ context.Context, _ Run, s Site, _ jsonval.Value) (StepOutcome, bool, error) {
+	h.mu.Lock()
+	h.asked = append(h.asked, s.Module)
+	h.mu.Unlock()
+	return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer(jsonString(s.Module))}, true, nil
+}
+
+func (h *interceptAll) RewriteArgs(_ context.Context, _ Run, s Site, args jsonval.Value) (jsonval.Value, error) {
+	h.mu.Lock()
+	h.asked = append(h.asked, "H2 "+s.Module)
+	h.mu.Unlock()
+	return args, nil
+}
+
+// FX-16, FX-17, FX-18, ADR 0008: an identity module launches its own
+// identity job, so H2 and H1 see it like any launching module, its stop
+// applying to what H1 answers; a module that skip_if or mock answered is
+// replaced by an identity job that neither sees. The identity job of a
+// module with any skip_if is classified skipped, even when the predicate
+// says no, so its stop_after_if is not evaluated, whether it runs or H1
+// answers for it.
+func TestEngineIdentityJobs(t *testing.T) {
+	stop := `"stop_after_if":{"expr":"true","skip_if_stopped":false}`
+	for _, c := range []struct {
+		name, module string
+		hooks        Hooks
+		// skipped and result are module a's; next says whether b ran.
+		skipped bool
+		result  string
+		next    bool
+		asked   []string
+	}{
+		{name: "identity, skip_if false", module: `{"id":"a","value":{"type":"identity"},"skip_if":{"expr":"false"},` + stop + `}`, skipped: true, result: `{"previous_result":7}`, next: true},
+		{name: "identity, skip_if false, direct input", module: `{"id":"a","value":{"type":"identity"},"skip_if":{"expr":"false"},"pass_flow_input_directly":true,` + stop + `}`, skipped: true, result: `7`, next: true},
+		{name: "identity, stop", module: `{"id":"a","value":{"type":"identity"},` + stop + `}`, result: `{"previous_result":7}`},
+		{name: "identity, intercepted", module: `{"id":"a","value":{"type":"identity"},` + stop + `}`, hooks: &interceptAll{}, result: `"a"`, asked: []string{"H2 a", "a"}},
+		{name: "identity, skip_if false, intercepted", module: `{"id":"a","value":{"type":"identity"},"skip_if":{"expr":"false"},` + stop + `}`, hooks: &interceptAll{}, skipped: true, result: `"a"`, next: true, asked: []string{"H2 a", "a", "H2 b", "b"}},
+		{name: "skipped leaf, not intercepted", module: mod("a", "value", "", `"skip_if":{"expr":"true"},`+stop), hooks: &interceptAll{}, skipped: true, result: `{"previous_result":7}`, next: true, asked: []string{"H2 b", "b"}},
+		{name: "mocked leaf, not intercepted", module: mod("a", "value", "", `"mock":{"enabled":true,"return_value":3},`+stop), hooks: &interceptAll{}, result: `3`, asked: []string{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.module, mod("b", "value", inputs("v", static(`"b"`)), ""))}, s)
+			tr := runIt(t, e, `{"previous_result":7}`, c.hooks)
+			a := step(t, tr, "a")
+			if a.Skipped != c.skipped || a.Status != conformance.StepSuccess || a.Module != conformance.ModuleSuccess {
+				t.Fatalf("a %+v", a)
+			}
+			sameJSON(t, "a's result", a.Result, c.result)
+			if _, ran := tr.Step(conformance.SitePath{}.Child(conformance.Module("b"))); ran != c.next {
+				t.Fatalf("b ran: %v, want %v (status %s, result %s)", ran, c.next, tr.Status, tr.Result)
+			}
+			if h, ok := c.hooks.(*interceptAll); ok && !slices.Equal(h.asked, c.asked) && !(len(h.asked) == 0 && len(c.asked) == 0) {
+				t.Fatalf("hooks asked %q, want %q", h.asked, c.asked)
+			}
+		})
+	}
+	// A throwing skip_if on an identity module still fails the flow.
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("z", "value", "", ""), `{"id":"a","value":{"type":"identity"},"skip_if":{"expr":"null.x"}}`)}, &scripts{})
+	if tr := runIt(t, e, `{}`, nil); tr.Status != conformance.RunFailure || errorName(tr.Result) != "InternalError" {
+		t.Fatalf("status %s, result %s", tr.Status, tr.Result)
+	}
+}
+
+// ADR 0005 step 3, FX-48, FX-51: the storage boundary checks every
+// argument's key as well as its value, after H2; a key jsonb refuses
+// fails the push before the step runs. A key jsonb accepts is stored in
+// its escaping, and of two keys that store alike the last value stays.
+func TestEngineArgumentKeys(t *testing.T) {
+	for _, c := range []struct {
+		name, args, result string
+		calls              int
+	}{
+		{"NUL key", `{"\u0000":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: error returned from database: unsupported Unicode escape sequence"}}`, 0},
+		{"unpaired surrogate key", `{"\ud800":1,"v":7}`, `{"error":{"name":"Anyhow","message":"Error: error returned from database: invalid input syntax for type json"}}`, 0},
+		{"unusual key", `{"\u00e9\n":1,"v":7}`, `7`, 1},
+		{"duplicate keys", `{"v":1,"\u0076":7}`, `7`, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &scripts{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", ""))}, s)
+			tr := runIt(t, e, `{}`, &recordingHooks{rewrite: map[string]string{"a": c.args}})
+			sameJSON(t, "the result", tr.Result, c.result)
+			if len(s.calls()) != c.calls {
+				t.Fatalf("calls %v", s.calls())
+			}
+			if c.calls == 1 {
+				if args := string(s.invs[0].Args.Producer()); c.name == "unusual key" && !strings.Contains(args, `"é\n":1`) || c.name == "duplicate keys" && args != `{"v":7}` {
+					t.Fatalf("the stored arguments: %s", args)
+				}
+			}
+		})
+	}
+}
+
+// waits answers no invocation: it waits for the invocation's context, as
+// a step that hangs.
+type waits struct{}
+
+func (waits) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	defer inv.Report.Settled(SettleNotStarted)
+	<-ctx.Done()
+	return StepOutcome{}, context.Cause(ctx)
+}
+
+// FX-24, FX-25, WR-37: a leaf's timeout is the module's, else its path
+// script's own timeout metadata, else the instance maximum; a request
+// strictly below the maximum is job-specific, zero included, which leaves
+// the step no time; one at or above it is instance-wide. An identity job
+// is never timed.
+func TestEngineTimeouts(t *testing.T) {
+	const limit = `execution error:\njob process terminated due to timeout after exceeding `
+	for _, c := range []struct {
+		name, module, result string
+	}{
+		{"none", mod("a", "value", "", ""), limit + "instance-wide job duration limit"},
+		{"null", mod("a", "value", "", `"timeout":{"type":"static","value":null}`), limit + "instance-wide job duration limit"},
+		{"zero", mod("a", "value", "", `"timeout":{"type":"static","value":0}`), limit + "job-specific duration limit"},
+		{"at the maximum", mod("a", "value", "", `"timeout":{"type":"static","value":1}`), limit + "instance-wide job duration limit"},
+		{"script metadata", mod("a", "zero", "", ""), limit + "job-specific duration limit"},
+		{"module over metadata", mod("a", "zero", "", `"timeout":{"type":"static","value":5}`), limit + "instance-wide job duration limit"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(c.module)}, waits{})
+			e.cap = 20 * time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"`+c.result+`","name":"ExecutionErr","step_id":"a"}}`)
+			if a := step(t, tr, "a"); !a.Abandoned {
+				t.Fatalf("a %+v", a)
+			}
+		})
+	}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(`{"id":"a","value":{"type":"identity"},"timeout":{"type":"static","value":0}}`)}, waits{})
+	wantStatus(t, runIt(t, e, `{"x":1}`, nil), conformance.RunSuccess, `{"x":1}`)
 }
 
 // The engine refuses at open what later milestones implement, naming the

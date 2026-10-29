@@ -302,21 +302,23 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 
 	// Start step 8: the arguments, by the first rule that applies (FX-2).
 	// A mocked, skipped or identity module runs an identity job, which
-	// returns its arguments' previous_result, or {} (FX-16).
+	// returns its arguments' previous_result, or {} (FX-16). skip_if and
+	// mock answer for the module they replace, which H2 and H1 never see;
+	// an identity module launches its own identity job, which they do
+	// (ADR 0008).
 	var args jsonval.Value
-	identity := false
+	identity, answered := false, false
 	switch {
 	case m.Mock != nil && m.Mock.Enabled:
 		// FX-18: the mock value, whatever the module's kind; skip_if was
-		// still evaluated, and an identity with a skip_if counts as
-		// skipped whatever its answer.
-		identity, skipped = true, m.SkipIf != nil
+		// still evaluated.
+		identity, answered = true, true
 		args = objectOf(member{"previous_result", orNull(m.Mock.ReturnValue)})
 	case m.PassFlowInputDirectly:
-		identity = skipped || m.Kind == ir.KindIdentity
+		identity, answered = skipped || m.Kind == ir.KindIdentity, skipped
 		args = r.input
 	case skipped || m.Kind == ir.KindIdentity:
-		identity = true
+		identity, answered = true, skipped
 		args = objectOf(member{"previous_result", prev.Producer()})
 	default:
 		var err error
@@ -334,9 +336,15 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			return out
 		}
 	}
-	if !identity {
-		// H2 rewrites the arguments of a module that launches; the trace
-		// keeps both.
+	if identity {
+		// FX-18: the identity job of a module with any skip_if is
+		// classified skipped, whatever the predicate answered, so its
+		// stop_after_if is not evaluated (FX-17).
+		skipped = m.SkipIf != nil
+	}
+	if !answered {
+		// H2 rewrites the arguments of a module that launches its own job;
+		// the trace keeps both.
 		rewritten, err := r.hooks.RewriteArgs(ctx, r, site, args)
 		if err != nil {
 			r.latch.Set(HookLatchError(ctx, err))
@@ -352,8 +360,8 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 		}
 	}
 	// The storage boundary: each argument becomes its stored text; one
-	// that jsonb refuses fails the push, a chaining error (ADR 0005 step 3,
-	// FX-48).
+	// that jsonb refuses, by a key or a value, fails the push, a chaining
+	// error (ADR 0005 step 3, FX-48, FX-51).
 	stored, err := storeMembers(args)
 	if err != nil {
 		return r.chaining(i, o, err.Error())
@@ -361,25 +369,11 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	// The resolution of $var: and $res: (JE-41) is the platform providers'
 	// (PF2); until then the resolved arguments are the recorded ones.
 	o.rec.RecordedArgs, o.rec.ResolvedArgs = stored, stored
-
-	if identity {
-		// Start step 10: an identity job, which is never intercepted (H1)
-		// nor timed (FX-24).
-		res := identityResult(stored)
-		o.rec.Ran, o.rec.Skipped = true, skipped
-		o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, res, res
-		o.carried = res
-		r.recordJob(i, res)
-		if skipped {
-			// A skipped identity's stop_after_if is not evaluated (FX-17).
-			return o
-		}
-		return r.stop(ctx, m, site.Path, o)
+	if answered {
+		return r.identityJob(ctx, i, m, site.Path, o, stored, skipped)
 	}
 
-	// Start step 9: the timeout; step 10: the launch, where H1 may answer
-	// for the module.
-	timeout, instanceWide := r.timeout(m)
+	// Start step 10: the launch, where H1 may answer for the module.
 	out, intercepted, err := r.hooks.Intercept(ctx, r, site, stored)
 	if err != nil {
 		r.latch.Set(HookLatchError(ctx, err))
@@ -387,9 +381,12 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	if r.latch.Err() != nil {
 		return notLaunched()
 	}
-	if intercepted {
+	switch {
+	case intercepted:
 		o.rec.Hooks = append(o.rec.Hooks, "H1")
-	} else {
+	case identity:
+		return r.identityJob(ctx, i, m, site.Path, o, stored, skipped)
+	default:
 		entry, _, err := Entrypoint(stored)
 		if err != nil {
 			// WR-12: the job fails before any wrapper runs.
@@ -413,6 +410,8 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			r.trace.MayHaveMutated = true
 			r.mu.Unlock()
 		}
+		// Start step 9: the timeout, of a leaf only (FX-24).
+		timeout, instanceWide := r.timeout(m)
 		o.rec.Ran = true
 		out, err = r.invoke(ctx, m, site, entry, stored, timeout, idx)
 		switch {
@@ -450,7 +449,29 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	}
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, st.Value, st.Value
 	o.carried = st.Value
+	if skipped {
+		// An intercepted identity is classified as its identity job would
+		// have been (FX-18).
+		o.rec.Skipped = true
+		return o
+	}
 	return r.stop(ctx, m, site.Path, o)
+}
+
+// identityJob runs module i's identity job (FX-16), which the worker runs
+// at once, with no timer (FX-24): its result is its stored arguments'
+// previous_result, or {}. A job classified skipped does not evaluate the
+// module's stop_after_if (FX-17, FX-18).
+func (r *run) identityJob(ctx context.Context, i int, m *ir.Module, site conformance.SitePath, o outcome, stored jsonval.Value, skipped bool) outcome {
+	res := identityResult(stored)
+	o.rec.Ran, o.rec.Skipped = true, skipped
+	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, res, res
+	o.carried = res
+	r.recordJob(i, res)
+	if skipped {
+		return o
+	}
+	return r.stop(ctx, m, site, o)
 }
 
 // stop is completion step 1 for a module whose job succeeded: its
@@ -669,15 +690,26 @@ func (r *run) args(ctx context.Context, ins []ir.Input, site conformance.SitePat
 	return objectOf(ms...), nil
 }
 
-// timeout returns the step's deadline, if any, and whether the instance's
-// maximum applies instead of the requested one (WR-37).
+// timeout returns a leaf's timeout and whether it counts as instance-wide
+// (FX-24, WR-37). The request is the module's static timeout, else a path
+// script's own timeout metadata; one strictly below the instance maximum
+// is used as it is, and counts as job-specific, zero included, which
+// leaves the step no time at all. With no request, or one at or above the
+// maximum, the maximum applies (windmill-lite has no instance default job
+// timeout below it).
 func (r *run) timeout(m *ir.Module) (time.Duration, bool) {
-	if m.Timeout == nil {
-		return 0, false
+	var secs *int64
+	if m.Timeout != nil {
+		secs, _ = staticTimeout(m.Timeout.Value)
 	}
-	secs, err := staticTimeout(m.Timeout.Value)
-	if err != nil || secs == nil {
-		return 0, false
+	if secs == nil && m.Kind == ir.KindScript {
+		if s := r.e.prog.Scripts[m.Leaf.Script]; s != nil && s.Metadata != nil && s.Metadata.Timeout != nil {
+			v := int64(*s.Metadata.Timeout)
+			secs = &v
+		}
+	}
+	if secs == nil {
+		return r.e.cap, true
 	}
 	d := time.Duration(*secs) * time.Second
 	if d >= r.e.cap {
@@ -721,7 +753,9 @@ func (r *run) invoke(ctx context.Context, m *ir.Module, site Site, entry string,
 	inv.Report = r.settle.Track(&runReporter{run: r, idx: idx})
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	if timeout > 0 {
+	if timeout <= 0 {
+		cancel(CancelTimeout)
+	} else {
 		t := time.AfterFunc(timeout, func() { cancel(CancelTimeout) })
 		defer t.Stop()
 	}
