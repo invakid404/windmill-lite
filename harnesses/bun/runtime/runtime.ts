@@ -1062,10 +1062,22 @@ function stepId(): string | undefined {
   return process.env.WM_FLOW_STEP_ID || undefined;
 }
 
-function describe(e: unknown): string {
+/** An error as the harness's own texts give it (diagnostics, warnings, a
+ * fresh process's log, an escaped invocation's tail): an Error's stack,
+ * whose first line names the error and its message, or the value as text.
+ * Bun 1.3.10 builds the stack of an Error that a garbage collection
+ * formats before anything read it with the name alone on that line, so a
+ * non-empty message missing from it is put back. It never throws. */
+export function describe(e: unknown): string {
   try {
-    if (e instanceof Error) return e.stack ?? `${e.name}: ${e.message}`;
-    return String(e);
+    if (!(e instanceof Error)) return String(e);
+    const stack = e.stack;
+    if (typeof stack !== "string") return stack ?? `${e.name}: ${e.message}`;
+    const message = e.message;
+    const end = stack.indexOf("\n");
+    const head = end < 0 ? stack : stack.slice(0, end);
+    if (typeof message !== "string" || message === "" || head.includes(":")) return stack;
+    return `${head}: ${message}${stack.slice(head.length)}`;
   } catch {
     return "(an error that cannot be printed)";
   }
