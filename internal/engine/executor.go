@@ -200,6 +200,10 @@ type StepOutcome struct {
 	// Signal names the signal that ended the harness process, such as
 	// "SIGKILL", when one did (OutcomeEscaped, WR-4).
 	Signal string
+	// Origin, when set, is who produced an OutcomeError in place of the
+	// step's code: the platform facade's UnsupportedPlatformCall (ADR 0007,
+	// the 501 policy), which StoreOutcome then reports as its origin.
+	Origin Origin
 }
 
 // CancelReason is why the engine abandons an invocation: the reason of a

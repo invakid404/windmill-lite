@@ -17,7 +17,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 
 | File | Contents | Built on by |
 |---|---|---|
-| `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it |
+| `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `CancelReason`, `Reporter` and `SettleKind`: one leaf run over the harness protocol ([ADR 0004](../../docs/design/0004-harness-protocol.md)), and its settlement | C1 implements it; W1, C3a, N1a call it; PF1's facade wraps it |
 | `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `LogTail`; `Entrypoint` and `ErrInvalidEntrypoint` (below) | C3a; the step-case runner (`wltest check`) and the engine call them |
 | `settle.go` | `RunSettlement`: counts a run's unsettled invocations and says once when the run has settled | N1a calls `Hooks.OnRunSettled` from it |
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
@@ -99,7 +99,7 @@ stores for a Bun step, which is also what the flow sees of a failed one.
 | Outcome | Stored | Origin |
 |---|---|---|
 | `ok` | the result's producer text | — |
-| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user |
+| `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user, or the outcome's `Origin` when set: `facade` for the facade's `UnsupportedPlatformCall` ([ADR 0007](../../docs/design/0007-platform-interface.md), the 501 policy) |
 | `escaped`, by a signal | `execution error:\nprocess terminated by signal: <signal>`, `ExecutionErr`, `step_id` ([WR-4](../../docs/semantics/languages.md#wr-4), [WR-37](../../docs/semantics/languages.md#wr-37)) | harness |
 | `escaped`, by an exit | `exit code for "bun run": <code>, last log lines:\n<tail>`, `ExecutionErr`, `step_id`, `exit_code` ([WR-20](../../docs/semantics/languages.md#wr-20)) | harness |
 | `empty` | `Internal: Result of job is invalid json (empty)`, `InternalErr`, no `step_id` ([WR-V2](../../docs/semantics/languages.md#wr-v2)), and no Rust location (D14) | harness |
@@ -213,7 +213,13 @@ boundary (C3n); a preprocessor and `skip_expr` (`later`).
    own timeout metadata; a request strictly below the instance maximum is
    job-specific, zero included (no time at all); none, or one at or above
    the maximum, gives the maximum, instance-wide (FX-24, FX-25, WR-37).
-   `StoreOutcome` maps the outcome, H1's included.
+   `StoreOutcome` maps the outcome, H1's included. The environment H12
+   edits is the step's job identity
+   ([internal/platform](../platform/README.md), milestone PF1): a fresh
+   `WM_JOB_ID` (the invocation's id), the run as `WM_FLOW_JOB_ID`,
+   `WM_ROOT_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, the flow's path, the module
+   id, the job path, `WM_STATE_PATH`, a fresh `WM_TOKEN`, and the host
+   configuration of `Config.Host` and `Config.Workspace`.
 5. **`stop_after_if`** after a success, except on an identity job
    classified skipped: any identity job of a module with a `skip_if`,
    whatever the predicate answered, and whether it ran or H1 answered for

@@ -279,6 +279,39 @@ function gatedServer() {
   return { server, release: (path: string) => gates.get(path)?.() };
 }
 
+test("a reading method or clone borrowed for another response says nothing of the request it came from (c3b review 4, R4-1)", async () => {
+  const { server, release } = gatedServer();
+  const settled = async (path: string, act: (res: Response, other: Response) => Promise<unknown>) => {
+    const c = context();
+    const res = await invocations.run(c, () => fetch(new URL(path, server.url)));
+    const other = await nativeFetch(new URL("/whole", server.url));
+    const got = await invocations.run(c, () => act(res, other));
+    const reading = res.text();
+    await Bun.sleep(5);
+    const left = c.resources.settle();
+    release(path);
+    return [got, left, await reading.then((v) => v, (e) => `${e.name}`)];
+  };
+  try {
+    // res.text, borrowed for another response, reads that one to its end.
+    expect(await settled("/gate/borrowed-text", (res, other) => res.text.call(other))).toEqual(["whole", { fetch: 1 }, "AbortError"]);
+    // res.clone, borrowed, clones the other response; reading that clone
+    // to its end says nothing of res either.
+    expect(await settled("/gate/borrowed-clone", (res, other) => (res.clone.call(other) as Response).text())).toEqual([
+      "whole",
+      { fetch: 1 },
+      "AbortError",
+    ]);
+    // The control: res's own text() releases it once it has read the body.
+    const c = context();
+    const res = await invocations.run(c, () => fetch(new URL("/whole", server.url)));
+    expect(await res.text()).toBe("whole");
+    expect(c.resources.settle()).toEqual({});
+  } finally {
+    server.stop(true);
+  }
+});
+
 test("a read that fails without reading, or a branch canceled while another reads, leaves the request in flight, and settlement aborts the active read (c3b review 2, R2-1)", async () => {
   const { server, release } = gatedServer();
   // act starts the read that stays active, and returns it in a box: an

@@ -1,0 +1,65 @@
+finding: WA-31
+scope: core
+note: >-
+  Milestone PF1: how a step's platform calls are attributed (ADR 0007,
+  transports). A warm process reaches the facade only through fetch, which
+  the harness intercepts and attributes to the invocation from its async
+  context, never from the token the call carries; its facade origin is a
+  loopback port where nothing listens, so any other transport is refused
+  by the kernel and recorded nowhere (the restriction of ADR 0001 §5a,
+  written 5a below). A fresh process is its invocation: its calls go over
+  loopback TCP and its token names it, and a call with a token the facade
+  does not know answers 401 and is recorded against no invocation. The
+  same rules on the stock client, with two runs at once in one warm
+  process, are internal/platform/facade's TestAttribution.
+cases:
+  - spec: WA-31
+    variant: foreign-token
+    provenance: policy
+    deviation: 5a
+    title: a call carrying a token that is not the invocation's is the invocation's in warm, and refused in fresh
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: { authorization: "Bearer wl_not_this_invocations" } });
+        const body = await res.text();
+        return res.status === 200 ? { status: 200, own_root: body === JSON.stringify(e.WM_ROOT_JOB_ID) } : { status: res.status, body };
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: {status: 200, own_root: true}}
+            calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}"]
+          fresh:
+            expect: {status: success, result: {status: 401, body: "Not authorized: unknown windmill-lite invocation token"}}
+            calls: []
+  - spec: WA-31
+    variant: node-http
+    provenance: policy
+    deviation: 5a
+    title: node:http to the facade is refused in warm, unrecorded, and answered in fresh, by the process's token
+    script: |
+      import http from "node:http";
+
+      export async function main() {
+        const e = process.env;
+        return await new Promise((resolve) => {
+          const url = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`;
+          const req = http.get(url, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } }, (res) => {
+            let body = "";
+            res.on("data", (c) => (body += c));
+            res.on("end", () => resolve({ status: res.statusCode, own_root: body === JSON.stringify(e.WM_ROOT_JOB_ID) }));
+          });
+          req.on("error", (err) => resolve({ error: err.code }));
+        });
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: {error: ECONNREFUSED}}
+            calls: []
+          fresh:
+            expect: {status: success, result: {status: 200, own_root: true}}
+            calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}"]

@@ -12,7 +12,9 @@ engine is the child of a Bun host that is also its harness (`AttachHost`).
 Milestone C3a added the `warning` frame, which hands an unattributed
 process-level error to every invocation in flight. Milestone C3b added
 `fresh` mode and the `left_behind` warning, whose `Left` counts what an
-invocation still had when it settled (the D9 fence).
+invocation still had when it settled (the D9 fence). Milestone PF1 made
+the platform handler two-phase, so the facade sees every platform frame in
+order, and gave each process its facade origin as `BASE_URL`.
 `Pool` and `Process` implement `engine.StepExecutor`; their users are the
 walking skeleton's interpreter in
 [internal/engine](../engine/README.md) and its `windmill-lite host` command
@@ -20,9 +22,9 @@ in [cmd/windmill-lite](../../cmd/windmill-lite/README.md).
 
 Not here yet:
 
-- The facade behind the platform frames: its router, policies and job
-  identity (PF1). A process without a handler answers each call with a
-  501.
+- The facade behind the platform frames is
+  [internal/platform/facade](../platform/facade/README.md) (PF1). A
+  process without a handler answers each call with a 501.
 - The `host_call` and `host_reply` frames, which are refused as
   `unknown_type` until F2c adds them.
 - Host mode's completion (F3a): drain from the engine's side, the working
@@ -68,9 +70,11 @@ milestone C1 fixed the details they left open.
 - **Order per invocation.** A message about an invocation (`invoke`,
   `cancel`, `result`, `late`, `log`, `warning`) queued while a part stream about the
   same invocation is open waits for that stream's last part, so a `cancel`
-  never overtakes the large `invoke` it cancels. Messages about one
-  host-mode run (`run`, `run_done`, `run_cancel`) keep their order the same
-  way, under a key of their own.
+  never overtakes the large `invoke` it cancels. A `platform` frame counts
+  as a message about the invocation its `inv` names (PF1), so a harness
+  never sends a result ahead of a large platform call its invocation made
+  before it. Messages about one host-mode run (`run`, `run_done`,
+  `run_cancel`) keep their order the same way, under a key of their own.
 - **Limits.** `DefaultMaxMessage` is 512 MiB; `ProcessConfig.MaxMessage`
   lowers it and the welcome passes it on. It applies to whole frames and to
   reassembled messages. An invocation whose `invoke` would exceed it is not
@@ -85,16 +89,23 @@ milestone C1 fixed the details they left open.
   of the frame that settles it. The `Process` hands it to the
   invocation's `Reporter.Warning`; one for an invocation that is not in
   flight is dropped with a diagnostics line.
-- **Platform calls** (W1). When `ProcessConfig.Facade` names the facade's
-  origin, the welcome carries it as `facade`, and the harness turns every
-  fetch to that origin into a `platform` frame: `inv` (the invocation whose
-  context made it), `method`, `url`, `headers` (an object of strings,
-  sorted) and an optional `body`, the body's bytes in padded base64.
-  `ProcessConfig.Platform` answers each one on a goroutine of its own, and
-  the reply goes back as `platform_reply` with `status` (a final HTTP
-  status, 200 to 599), `headers` and an optional `body`. A handler that
-  panics or answers another status gets a 502 in its place, so one bad
-  answer never ends the harness.
+- **Platform calls** (W1, PF1). `ProcessConfig.Facade` is the process's
+  facade origin, which it gets as `BASE_URL` (below). A warm process's
+  welcome carries it as `facade`, and the harness turns every fetch to that
+  origin into a `platform` frame: `inv` (the invocation whose context made
+  it), `method`, `url`, `headers` (an object of strings, sorted) and an
+  optional `body`, the body's bytes in padded base64. A fresh process's
+  welcome does not, so its calls go over loopback TCP to an origin that
+  listens ([ADR 0007](../../docs/design/0007-platform-interface.md),
+  transports). `ProcessConfig.Platform` is called on the reader, in frame
+  order, and returns at once with the function that answers the request,
+  which runs on a goroutine of its own; so the facade has seen every
+  platform frame that arrived before an invocation's result when `Execute`
+  returns it. The reply goes back as `platform_reply` with `status` (a
+  final HTTP status, 200 to 599), `headers` and an optional `body`. A
+  handler that panics in either part, gives no answer or answers another
+  status gets a 502 in its place, so one bad answer never ends the
+  harness.
 - **Runs** (W1, host mode). A host submits `run` with `id`, `kind` (`flow`
   or `script`), `path`, `args` (raw) and an optional raw `intercept`
   object, module ids to the results that stand in for them (H1's static
@@ -113,7 +124,12 @@ They go to `ProcessConfig.Diagnostics` as lines prefixed
 `harness pid <pid> stdout:` or `stderr:`. Each process gets
 a private working directory (mode 0700) under `WorkRoot`, removed when it
 exits. Its environment is `ProcessConfig.Env`, or `BaseEnv()`: the part of
-WR-22's base set that needs no later milestone.
+WR-22's base set that needs no other milestone. When `ProcessConfig.Facade`
+is set, `BASE_URL` is appended with its value, over any value of the same
+name, as Windmill's worker sets it last
+([WA-2](../../docs/semantics/client-api.md#wa-2)); `BASE_INTERNAL_URL` is
+never set for Bun. The reference gives no values for
+`BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, so they stay unset.
 
 **The handshake.** The harness's `hello` must match `Kind`, `Runtime`
 (`PinnedBun`, 1.3.10, for Bun), `Bundle` and the protocol version, and its
@@ -267,7 +283,7 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   a host gone before its hello, runs and their invocations, `run_cancel`, a
   lost host, and the watchdog, which signals its parent and spares a pid
   that no longer is. It also checks the 502 that stands in for a bad
-  platform answer.
+  platform answer, from either part of the handler.
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
   the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture

@@ -339,6 +339,15 @@ switch through a change to this record, naming the reason.
   frames. Every other recorded expression case gives the oracle's value or
   text on windmill-lite's engine, error texts byte for byte with their
   stacks. Every bundle lists both deviations.
+- Milestone PF1 gave the `fetch`-only restriction of §5a its cases: a warm
+  step's `node:http` call to the facade gets "connection refused" and is
+  recorded nowhere, while a fresh step's is answered over TCP
+  (`conformance/steps/bun/wa-31.yaml`, whose `by_mode` names the
+  restriction `5a`, and `TestAttribution` in
+  [internal/platform/facade](../../internal/platform/facade/README.md)).
+  The engine's port is held by a loopback connection, not a bound socket,
+  because macOS drops connections to a bound socket that does not listen
+  instead of refusing them ([0007](0007-platform-interface.md)).
 
 ## Spec IDs relied on
 

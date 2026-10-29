@@ -1,0 +1,21 @@
+# Written from the reference before the oracle ran it. Step a, inline: its
+# state path is <flow path>/a_user (WA-5/a, a manual run), it sees BASE_URL
+# but not BASE_INTERNAL_URL (WA-2/a), and the root lookup it makes with its
+# own token answers the flow's job, its effective root (WA-V1), as
+# WM_ROOT_JOB_ID is. Step b, a path script: its job path is its own path
+# (WA-4), its state path still the flow step's (WA-5), and its root the
+# flow's.
+spec: [WA-5/a, WA-2/a, WA-V1, OR-14]
+target: f/wl_pf1_id/identity
+expect:
+  status: success
+  result: {state_path: f/wl_pf1_id/identity/b_user, job_path: f/wl_pf1_id/probe, token: string, root_status: 200, root: "<job:>", root_env: "<job:>"}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result: {state_path: f/wl_pf1_id/identity/a_user, base: [null, string], token: string, root_status: 200, root: "<job:>", root_env: "<job:>"}
+    "m:b":
+      status: success
+      args: {}
+      result: {state_path: f/wl_pf1_id/identity/b_user, job_path: f/wl_pf1_id/probe, token: string, root_status: 200, root: "<job:>", root_env: "<job:>"}

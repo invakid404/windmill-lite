@@ -146,10 +146,19 @@ configuration a case's runs share a harness process of its own, in which
 module state and `globalThis` survive from one run to the next (D1); in
 `fresh` each run has a process of its own, which ends with it, as a
 Windmill job's does. Each run's entrypoint is `engine.Entrypoint`'s, its
-job variables the core `WM_*` ones of a flow step (`WM_FLOW_STEP_ID` is the
-case's `step_id`, default `a`) or of a script job (`step_id: ""`), and its
+job variables the job identity
+([internal/platform](../../internal/platform/README.md)) of step
+`step_id` (default `a`) of the flow `f/wl_step/flow` in workspace
+`wl_step`, or of a script job at the case's path (`step_id: ""`), and its
 outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
-compared by `conformance.CompareStep`. Every run is observed up to its
+compared by `conformance.CompareStep`. Each case has a platform facade of
+its own ([internal/platform/facade](../../internal/platform/facade/README.md),
+milestone PF1), in its default `fail` policy, through whose `Executor` the
+runs go: a warm process gets its non-listening origin as `BASE_URL` and
+intercepts its fetches, a fresh one its listening origin, which it
+reaches over TCP. A run's `calls` compares what the facade recorded
+against the invocation, once it has settled, each as `<status> <METHOD>
+<route template>`. Every run is observed up to its
 settlement (at most 10 s), since an outcome fixed early (an intercepted
 `process.exit`) comes before the call ends: its warnings are those
 collected until then, and `left` compares the counts of its `left_behind`
@@ -208,11 +217,16 @@ a few at a time (`flows.go`):
    that does not load, or a build that fails as a whole, fails them all.
 2. **Run.** Each target flow's program gets an engine of its own
    (`engine.Engine`, milestone N1a), and every run goes to one pool of Bun
-   harness processes per fixture, the `warm` configuration. Runs go in name
+   harness processes per fixture, the `warm` configuration, through the
+   fixture's platform facade (milestone PF1): the pool's processes get its
+   non-listening origin as `BASE_URL` and intercept their fetches to it,
+   and its `Executor` attributes every call and applies the 501 policy in
+   `fail` mode. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run, and a run
    that has not ended after 60 s fails. Each run has its own id, which its
-   steps see as `WM_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, and the checker
+   steps see as `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
+   `WM_ROOT_JOB_ID`, and the checker
    records the id of every invocation it makes (`WM_JOB_ID`) with its site.
    The engine names an invocation's script by its inventory id, as the
    bundle does, and gives its job path as `WM_JOB_PATH`.

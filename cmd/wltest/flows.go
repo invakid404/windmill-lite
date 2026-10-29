@@ -23,6 +23,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform/facade"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
@@ -159,12 +160,21 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		return failRuns(results, "build: "+err.Error())
 	}
 	var diag syncBuffer
+	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
+	// pool reaches it through the intercepted fetch, at an origin where
+	// nothing listens, and every step's calls are attributed to it.
+	fac, err := facade.New(facade.Config{})
+	if err != nil {
+		return failRuns(results, "facade: "+err.Error())
+	}
+	defer fac.Close()
 	path, args := harness.BunCommand(fc.bun, filepath.Join(fc.repo, "harnesses", "bun", "runtime", "main.ts"), b.out)
 	pool, err := harness.NewPool(harness.PoolConfig{
 		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: engine.ModuleStateWarm},
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
 			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
+			Facade: fac.WarmOrigin(), Platform: fac.Platform(),
 		},
 	})
 	if err != nil {
@@ -227,7 +237,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, engines[r.Target], pool, t)
+				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t)
 			}()
 		}
 		wg.Wait()
@@ -552,7 +562,7 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 }
 
 // runOne runs one run on the engine and compares its observation.
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool *harness.Pool, t *target) []string {
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target) []string {
 	rctx, cancel := context.WithTimeout(ctx, flowRunTimeout)
 	defer cancel()
 	if r.CancelAfterMS != nil {

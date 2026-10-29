@@ -71,7 +71,9 @@ type StepCase struct {
 	Title      string `json:"title"`
 	Note       string `json:"note,omitempty"`
 	// Deviation names the deviation of ADR 0001 §5 whose two readings a
-	// run's by_mode gives (D1, D11 and the like).
+	// run's by_mode gives (D1, D11 and the like), or 5a for the
+	// restriction of §5a that a warm process reaches the platform only
+	// through fetch, where a fresh one uses loopback TCP (milestone PF1).
 	Deviation string `json:"deviation,omitempty"`
 	// Script is the script's source, a Bun (TypeScript) file.
 	Script string `json:"script"`
@@ -176,10 +178,19 @@ type StepCheck struct {
 	// when it settled, which the settle-time fence revoked (D9). It is
 	// compared when given, and needs left_behind in Warnings.
 	Left map[string]int `json:"left,omitempty"`
+	// Calls lists the platform calls the facade recorded against the
+	// invocation, in order, each as "<status> <METHOD> <route template>"
+	// with the workspace written {ws} ("501 POST /w/{ws}/jobs/run/p/{path}"),
+	// or with the path as sent where no route of the API matched
+	// (ADR 0007, milestone PF1). It is compared when given; an empty list
+	// says the invocation made none. A call the facade could attribute to
+	// no invocation (refused by the kernel, or a token it does not know)
+	// is never listed.
+	Calls []string `json:"calls,omitempty"`
 }
 
 func (k *StepCheck) empty() bool {
-	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0 && k.Left == nil
+	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0 && k.Left == nil && k.Calls == nil
 }
 
 // StepPending is the Settled of a call that does not settle: the runner

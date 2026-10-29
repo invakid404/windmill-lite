@@ -88,9 +88,14 @@ type ProcessConfig struct {
 	// diagnostics about the process; nil means os.Stderr.
 	Diagnostics io.Writer
 
-	// Facade is the platform facade's origin, sent in the welcome, or ""
-	// when the engine serves no platform calls. Platform answers the
-	// platform frames of fetches to it; nil answers each with a 501.
+	// Facade is the platform facade's origin for this process, or "" when
+	// the engine serves no platform calls (ADR 0007, transports). The
+	// process gets it as BASE_URL, over any value Env has. A warm process
+	// is told it in the welcome and intercepts every fetch to it, which
+	// becomes a platform frame that Platform answers (nil answers each with
+	// a 501); its origin must be one where nothing listens, so any other
+	// transport is refused. A fresh process is not told it, so its calls
+	// go over loopback TCP to an origin that listens.
 	Facade   string
 	Platform PlatformHandler
 
@@ -103,11 +108,15 @@ type ProcessConfig struct {
 	notify func(*Process)
 }
 
-// PlatformHandler answers one platform request, the fetch of an
-// invocation to the facade (ADR 0004, ADR 0007). It runs on a goroutine of
-// its own; ctx ends when the process does. The facade itself, its router
-// and its policies are milestone PF1's.
-type PlatformHandler func(ctx context.Context, req PlatformRequest) PlatformReply
+// PlatformHandler answers platform requests, the fetches of invocations
+// to the facade (ADR 0004, ADR 0007; internal/platform/facade implements
+// it). The Process calls it on the connection's reader, in the order the
+// frames arrive, so it must return at once: it attributes and records the
+// request, and returns the function that answers it, which runs on a
+// goroutine of its own with a context that ends when the process does.
+// Every platform frame that arrived before an invocation's result has
+// therefore been handed to it before Execute returns that result.
+type PlatformHandler func(req PlatformRequest) func(ctx context.Context) PlatformReply
 
 // PinnedBun is the Bun version the harness must run on: the version of
 // Windmill v1.767.0's images (WR-3, ADR 0001).
@@ -123,8 +132,9 @@ func BunCommand(bun, runtimeMain, bundleDir string) (string, []string) {
 // BaseEnv returns the part of a Bun job's base environment (WR-22, WA-2)
 // that needs no other milestone: PATH, HOME (the engine's, or /tmp), TZ
 // when the engine has one, FORCE_COLOR=1, DO_NOT_TRACK=1 and
-// BUN_RUNTIME_TRANSPILER_CACHE_PATH=0. BUN_INSTALL_CACHE_DIR, NODE_PATH and
-// BASE_URL arrive with the milestones that give them values (C3b, PF1).
+// BUN_RUNTIME_TRANSPILER_CACHE_PATH=0. BASE_URL comes from
+// ProcessConfig.Facade (milestone PF1). The reference gives no values for
+// BUN_INSTALL_CACHE_DIR and NODE_PATH, so they stay unset.
 func BaseEnv() []string {
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -345,6 +355,11 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	if cmd.Env == nil {
 		cmd.Env = BaseEnv()
 	}
+	if cfg.Facade != "" {
+		// WA-2: the worker sets BASE_URL last, over any value of the same
+		// name, before any module loads (WA-1).
+		cmd.Env = append(slices.Clone(cmd.Env), "BASE_URL="+cfg.Facade)
+	}
 	cmd.Dir = dir
 	cmd.ExtraFiles = []*os.File{child} // fd 3 in the child
 	// stdout and stderr are pipes of the engine's own, read by its own
@@ -482,7 +497,11 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		ModuleState: string(p.cfg.ModuleState),
 		HeartbeatMS: int(max(p.heartbeat/time.Millisecond, 1)),
 		MaxMessage:  p.maxMessage,
-		Facade:      p.cfg.Facade,
+	}
+	if p.cfg.ModuleState != engine.ModuleStateFresh {
+		// Only a warm or host-mode process intercepts; a fresh one is
+		// its invocation and reaches the facade over TCP (ADR 0007).
+		w.Config.Facade = p.cfg.Facade
 	}
 	p.mu.Lock()
 	if p.state == stateHandshake {
@@ -842,34 +861,56 @@ func (p *Process) Execute(ctx context.Context, inv engine.Invocation) (engine.St
 	return out, err
 }
 
-// onPlatform answers a platform request on a goroutine of its own, so a
-// slow facade never stalls the reader. It runs with p.mu held. A handler
-// that panics or answers with a status no Response can carry gets a 502 in
-// its place: one bad answer must not end the harness and every invocation
-// in it.
+// onPlatform hands a platform request to the handler, on the reader and in
+// frame order, and answers it on a goroutine of its own, so a slow facade
+// never stalls the reader. It runs with p.mu held. A handler that panics or
+// answers with a status no Response can carry gets a 502 in its place: one
+// bad answer must not end the harness and every invocation in it.
 func (p *Process) onPlatform(req PlatformRequest) {
-	h := p.cfg.Platform
+	serve := platformAccept(p.cfg.Platform, req)
 	go func() {
-		rep := platformAnswer(p.life, h, req)
+		rep := platformAnswer(p.life, serve, req)
 		if err := p.conn.send(rep); err != nil && !errors.Is(err, net.ErrClosed) {
 			p.diag.printf("platform reply %q not sent: %v", req.ID, err)
 		}
 	}()
 }
 
-func platformAnswer(ctx context.Context, h PlatformHandler, req PlatformRequest) (rep PlatformReply) {
-	text := func(status int, msg string) PlatformReply {
-		return PlatformReply{ID: req.ID, Status: status, Headers: map[string]string{"content-type": "text/plain"}, Body: []byte(msg)}
-	}
+func platformText(req PlatformRequest, status int, msg string) PlatformReply {
+	return PlatformReply{ID: req.ID, Status: status, Headers: map[string]string{"content-type": "text/plain"}, Body: []byte(msg)}
+}
+
+// platformAccept runs the handler's first part; what it returns answers
+// the request.
+func platformAccept(h PlatformHandler, req PlatformRequest) (serve func(context.Context) PlatformReply) {
 	if h == nil {
-		return text(501, "windmill-lite: this engine serves no platform calls")
+		return func(context.Context) PlatformReply {
+			return platformText(req, 501, "windmill-lite: this engine serves no platform calls")
+		}
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			serve = func(context.Context) PlatformReply {
+				return platformText(req, 502, fmt.Sprintf("windmill-lite: the platform handler failed: %v", r))
+			}
+		}
+	}()
+	if serve = h(req); serve == nil {
+		return func(context.Context) PlatformReply {
+			return platformText(req, 502, "windmill-lite: the platform handler gave no answer")
+		}
+	}
+	return serve
+}
+
+func platformAnswer(ctx context.Context, serve func(context.Context) PlatformReply, req PlatformRequest) (rep PlatformReply) {
+	text := func(status int, msg string) PlatformReply { return platformText(req, status, msg) }
 	defer func() {
 		if r := recover(); r != nil {
 			rep = text(502, fmt.Sprintf("windmill-lite: the platform handler failed: %v", r))
 		}
 	}()
-	rep = h(ctx, req)
+	rep = serve(ctx)
 	rep.ID = req.ID
 	if !finalStatus(rep.Status) {
 		return text(502, fmt.Sprintf("windmill-lite: the platform handler answered status %d", rep.Status))

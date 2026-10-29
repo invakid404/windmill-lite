@@ -108,3 +108,15 @@ test("a closed socket stops the queue", () => {
   expect(r.sender.closed).toBe(true);
   expect(r.messages().length).toBe(1);
 });
+
+test("a result never overtakes a large platform call its invocation made before it (milestone PF1)", () => {
+  const r = rig(1 << 30, true);
+  const body = new Uint8Array(300).fill(65);
+  r.sender.send({ t: "platform", id: "p1", inv: "i1", method: "POST", url: "http://127.0.0.1:1/api/x", headers: {}, body });
+  r.sender.send({ t: "result", id: "i1", outcome: "ok", body: new Raw("1"), settled: true });
+  // Another invocation's result is not held behind it.
+  r.sender.send({ t: "result", id: "i2", outcome: "ok", body: new Raw("2"), settled: true });
+  for (let i = 0; i < 50; i++) r.drain();
+  const order = r.messages().map((m) => `${m.t}:${m.t === "platform" ? m.inv : m.id}`);
+  expect(order).toEqual(["result:i2", "platform:i1", "result:i1"]);
+});

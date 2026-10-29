@@ -35,3 +35,31 @@ deferred:
   - spec: WR-50/e
     reason: later; Node's module-format detection for an ESM bundle sent to Node by //nodejs depends on the Node patch (Q-WR-24)
     expected_in: E3e (the oracle) and C3n
+  - spec: WA-2/b
+    reason: later; an ordinary Python job's base URL, which needs the Python harness
+    expected_in: L1
+  - spec: WA-5/b
+    reason: >-
+      a schedule-triggered run's state path; schedules are out of scope
+      (ADR 0001 §3), so no windmill-lite run has a schedule trigger and
+      the trigger part is always "user" (wa-5.yaml)
+    expected_in: none while schedules are out of scope
+  - spec: WA-31/a
+    reason: >-
+      a parallel for-loop of 8 steps run 50 times is a flow; the step
+      level runs no loops. The attribution it checks is checked on the
+      stock client, with two runs at once in one warm process, by
+      internal/platform/facade's TestAttribution (milestone PF1)
+    expected_in: N3a (parallel loops) and F1 (the flow suite through wl)
+  - spec: WA-31/b
+    reason: >-
+      a bundled step's Bun.env reads with 8-way parallelism is the
+      harness's Q-WA-4 test, 16 concurrent invocations per bundling
+      variant (internal/harness, qwa4_test.go)
+    expected_in: W1 (internal/harness TestQWA4EnvView)
+  - spec: WA-41/a
+    reason: >-
+      a generated service's ApiError needs the stock client, which the
+      step level does not install; its 501 reply is checked on
+      windmill-client@1.767.0's JobService.getJob and getIdToken
+    expected_in: PF1 (internal/platform/facade TestUnsupportedPolicyOnTheClient)

@@ -1,8 +1,9 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1 and N1a of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a and PF1 of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
-    "N1a"
+    "N1a",
+    "PF1"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -68,6 +69,7 @@
     "conformance/flows/cf/cf-19/cf-v6-a": "N1a",
     "conformance/flows/cf/cf-19/cf-v6-b": "N1a",
     "conformance/flows/cf/cf-19/cf19-b": "N1a",
+    "conformance/flows/client-api/identity/identity": "PF1",
     "conformance/flows/client-api/job-env/envs": "E1",
     "conformance/flows/execution/fx-12/error_extra": "E1",
     "conformance/flows/execution/fx-12/object_throw": "E1",

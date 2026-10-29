@@ -503,13 +503,36 @@ export function installFetch(
     try {
       const signal = AbortSignal.any([req.signal, fence.signal]);
       const a = await route.call({ inv: inv.id, method: req.method, url: req.url, headers: Object.fromEntries(req.headers), body }, signal);
-      return new Response(a.body ?? null, { status: a.status, headers: a.headers });
+      // The status line's reason phrase, as the facade's TCP transport
+      // sends it, so that both transports give a client the same response
+      // (WA-30/a; an ApiError carries it as statusText, WA-41/a).
+      return new Response(a.body ?? null, { status: a.status, statusText: REASON[a.status] ?? "", headers: a.headers });
     } finally {
       done?.();
     }
   };
   globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
 }
+
+/** The reason phrases Go's net/http writes on a status line
+ * (http.StatusText), which the facade's TCP transport sends. */
+const REASON: Record<number, string> = {
+  100: "Continue", 101: "Switching Protocols", 102: "Processing", 103: "Early Hints",
+  200: "OK", 201: "Created", 202: "Accepted", 203: "Non-Authoritative Information", 204: "No Content",
+  205: "Reset Content", 206: "Partial Content", 207: "Multi-Status", 208: "Already Reported", 226: "IM Used",
+  300: "Multiple Choices", 301: "Moved Permanently", 302: "Found", 303: "See Other", 304: "Not Modified",
+  305: "Use Proxy", 307: "Temporary Redirect", 308: "Permanent Redirect",
+  400: "Bad Request", 401: "Unauthorized", 402: "Payment Required", 403: "Forbidden", 404: "Not Found",
+  405: "Method Not Allowed", 406: "Not Acceptable", 407: "Proxy Authentication Required", 408: "Request Timeout",
+  409: "Conflict", 410: "Gone", 411: "Length Required", 412: "Precondition Failed", 413: "Request Entity Too Large",
+  414: "Request URI Too Long", 415: "Unsupported Media Type", 416: "Requested Range Not Satisfiable",
+  417: "Expectation Failed", 418: "I'm a teapot", 421: "Misdirected Request", 422: "Unprocessable Entity",
+  423: "Locked", 424: "Failed Dependency", 425: "Too Early", 426: "Upgrade Required", 428: "Precondition Required",
+  429: "Too Many Requests", 431: "Request Header Fields Too Large", 451: "Unavailable For Legal Reasons",
+  500: "Internal Server Error", 501: "Not Implemented", 502: "Bad Gateway", 503: "Service Unavailable",
+  504: "Gateway Timeout", 505: "HTTP Version Not Supported", 506: "Variant Also Negotiates",
+  507: "Insufficient Storage", 508: "Loop Detected", 510: "Not Extended", 511: "Network Authentication Required",
+};
 
 /** Statuses whose responses have no body, whatever Bun gives them. */
 const NO_BODY = new Set([204, 205, 304]);
@@ -551,6 +574,11 @@ function observeTransfer(res: Response, method: string, done: () => void): Respo
   return res;
 }
 
+/** Puts the observing reading methods and clone on res. Each acts on the
+ * evidence only when called on res itself: borrowed for another receiver
+ * (res.text.call(other)), it calls the native method on that receiver and
+ * leaves res's registration alone, since the other body's end says
+ * nothing of res's source; likewise only res's own clone is observed. */
 function observeReads(res: Response, end: () => void) {
   const r = res as unknown as Record<string, TimerFn>;
   for (const m of BODY_METHODS) {
@@ -560,7 +588,7 @@ function observeReads(res: Response, end: () => void) {
       configurable: true,
       writable: true,
       value: function (this: Response, ...args: unknown[]) {
-        const consuming = !this.bodyUsed;
+        const consuming = this === res && !this.bodyUsed;
         const p = real.apply(this, args) as Promise<unknown>;
         if (!consuming) return p;
         return p.then((v) => {
@@ -577,7 +605,7 @@ function observeReads(res: Response, end: () => void) {
     value: function (this: Response) {
       // A clone of a used body reads what is left of it, which says
       // nothing of the source.
-      const unused = !this.bodyUsed;
+      const unused = this === res && !this.bodyUsed;
       const c = clone.call(this) as Response;
       if (unused) observeReads(c, end);
       return c;
