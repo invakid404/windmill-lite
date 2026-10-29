@@ -500,24 +500,30 @@ func TestBunCancelDuringLargeInvoke(t *testing.T) {
 	if err := <-done; !errors.Is(err, engine.CancelCanceled) {
 		t.Fatalf("got %v", err)
 	}
-	// A ping is about no invocation, so it may overtake the invoke; ask
-	// until the harness has the invocation.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		h, err := p.Ping(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if h.InFlight+h.Abandoned == 1 {
-			if h.Abandoned != 1 {
-				t.Fatalf("the harness runs the invocation as in flight: %+v", h)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the harness never had the invocation: %+v", h)
-		}
+	// The cancel waits behind the invoke's parts, which are still going
+	// out, and goes when the last one has (conn.finishLocked). A ping is
+	// about no invocation, so one sent earlier may overtake the invoke;
+	// one sent once the invoke's stream is done goes after the cancel, so
+	// the harness answers it having taken both, however slowly the 24 MiB
+	// reached it. No deadline on the delivery, which CI's load made exceed
+	// one (FU7).
+	streaming := func() bool {
+		p.conn.mu.Lock()
+		defer p.conn.mu.Unlock()
+		return p.conn.latest[inv.ID] != nil
+	}
+	if !streaming() {
+		t.Fatal("the invoke was written whole before the cancel: the case did not cancel during it")
+	}
+	for streaming() {
 		time.Sleep(10 * time.Millisecond)
+	}
+	h, err := p.Ping(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Abandoned != 1 || h.InFlight != 0 {
+		t.Fatalf("after the cancel, the harness reports %+v, want the invocation abandoned", h)
 	}
 	if k := rec.waitSettled(t, 10*time.Second); k != engine.SettleCompleted {
 		t.Fatalf("settled %s", k)

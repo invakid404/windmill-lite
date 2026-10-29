@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -54,10 +55,13 @@ type exStep struct {
 
 	// Expect waits for the next message from the harness and matches it
 	// (see matchJSON). Parts, when set, is how many part frames must have
-	// carried it.
+	// carried it. Ignore lists message types the step drops while it
+	// waits: a harness with a short heartbeat may ping at any time before
+	// it handles a drain.
 	Expect   json.RawMessage `json:"expect"`
 	Parts    int             `json:"parts"`
 	WithinMS int             `json:"within_ms"`
+	Ignore   []string        `json:"ignore"`
 
 	// QuietMS asserts that no message arrives for that long.
 	QuietMS int `json:"quiet_ms"`
@@ -232,19 +236,26 @@ func (r *exRun) step(i int, s exStep) {
 	case s.SendText != nil:
 		r.write([]byte(*s.SendText))
 	case s.Expect != nil:
-		select {
-		case m := <-r.msgs:
-			if m.err != nil {
-				t.Fatalf("step %d: waiting for %s: %v", i, s.Expect, m.err)
+		timeout := time.After(within)
+		for waiting := true; waiting; {
+			select {
+			case m := <-r.msgs:
+				if m.err != nil {
+					t.Fatalf("step %d: waiting for %s: %v", i, s.Expect, m.err)
+				}
+				if slices.Contains(s.Ignore, typeOf(m.payload)) {
+					continue
+				}
+				if err := matchJSON(s.Expect, m.payload, r.vars()); err != nil {
+					t.Fatalf("step %d: %v\n got %s", i, err, abbreviate(m.payload))
+				}
+				if m.parts != s.Parts {
+					t.Fatalf("step %d: carried by %d part frames, want %d", i, m.parts, s.Parts)
+				}
+				waiting = false
+			case <-timeout:
+				t.Fatalf("step %d: no message within %s, want %s", i, within, s.Expect)
 			}
-			if err := matchJSON(s.Expect, m.payload, r.vars()); err != nil {
-				t.Fatalf("step %d: %v\n got %s", i, err, abbreviate(m.payload))
-			}
-			if m.parts != s.Parts {
-				t.Fatalf("step %d: carried by %d part frames, want %d", i, m.parts, s.Parts)
-			}
-		case <-time.After(within):
-			t.Fatalf("step %d: no message within %s, want %s", i, within, s.Expect)
 		}
 	case s.QuietMS > 0:
 		select {

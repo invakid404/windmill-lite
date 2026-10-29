@@ -104,9 +104,12 @@ cases:
       The pool makes its client, and the client's monitor timer, in the
       scope it captured at load, never the borrower's (decisions,
       2026-10-28, the pooler study), so the settle-time fence does not
-      clear the monitor and run 1 leaves nothing behind. Run 2 waits before
-      it borrows, so in fresh mode, where the process is new, it gets a new
-      client whose monitor has not run.
+      clear the monitor and run 1 leaves nothing behind. Run 2 waits, up to
+      2 s, for the client run 1 made to have checked three times, and then
+      borrows: an interval that a busy process holds up does not catch up
+      the ticks it missed, so a fixed wait could see fewer (FU7). In fresh
+      mode, where the process is new, there is no client to wait for, and
+      run 2 gets a new one whose monitor has not run.
     deviation: D9
     host_modules:
       - path: f/wl_step/monitored_pool
@@ -123,10 +126,14 @@ cases:
               return client;
             });
           }
+          export function existing() {
+            return client;
+          }
     script: |
-      import { connect } from "./monitored_pool.ts";
+      import { connect, existing } from "./monitored_pool.ts";
       export async function main(later: boolean) {
-        if (later) await Bun.sleep(60);
+        const until = Date.now() + 2000;
+        while (later && existing() && existing().checks < 3 && Date.now() < until) await Bun.sleep(5);
         const c = connect();
         return [c.primary, c.checks >= 3];
       }

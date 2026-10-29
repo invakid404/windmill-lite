@@ -531,7 +531,7 @@ the harness binds its arguments). Each step does one thing:
 |---|---|
 | `send` | encode a message canonically and send it, as part frames when it is larger than a frame; `fill` stands in for a long string, `split` sends it as small parts with one whole frame between them |
 | `send_text` | send one frame with this exact payload |
-| `expect` | the next message from the harness matches, keys in order; `parts` is how many part frames carried it |
+| `expect` | the next message from the harness matches, keys in order; `parts` is how many part frames carried it; messages whose type `ignore` lists are dropped while it waits (`heartbeat`: a ping may still come before the harness handles the drain) |
 | `quiet_ms` | no message arrives for that long |
 | `exit` | the process exits with this code and sends nothing more |
 | `stdout_contains` | the process's stdout contains the text |

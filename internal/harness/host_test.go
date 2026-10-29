@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -247,8 +248,22 @@ func TestHostRunCancel(t *testing.T) {
 
 // Host mode item 6: when the host's connection ends, its runs are lost
 // with it: an invocation in flight fails with ErrHostLost and settles with
-// the process, the run's context ends, and the engine is done.
+// the process, the run's context ends, and the engine is done. The run's
+// context has its cause before the invocation is failed, so a run reads
+// it whichever wakes it first, here also with a gap between the two
+// (FU7: the run read a nil cause when the outcome came first).
 func TestHostLost(t *testing.T) {
+	for _, gap := range []time.Duration{0, 20 * time.Millisecond} {
+		t.Run(fmt.Sprint("gap ", gap), func(t *testing.T) {
+			old := hostLostGap
+			hostLostGap = func() { time.Sleep(gap) }
+			t.Cleanup(func() { hostLostGap = old })
+			testHostLost(t)
+		})
+	}
+}
+
+func testHostLost(t *testing.T) {
 	type got struct{ exec, ctx error }
 	results := make(chan got, 1)
 	rep := newRecorder()
