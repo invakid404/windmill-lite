@@ -368,10 +368,14 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 //     generic error display: one "Error: " prefix per conversion, and one
 //     location suffix per conversion at the end;
 //   - the string error of a throwing stop_after_if (FX-21), the same
-//     display.
+//     display;
+//   - the error stop of a stop_after_all_iters_if that fails to evaluate
+//     (CF-13, JE-27), an EarlyStopError whose message quotes the
+//     expression and then gives its cause in the same display.
 //
-// For the last two, a message that begins with n "Error: " prefixes loses
-// its last n suffixes, and only when it ends in n of them. The value at a
+// For the last three, a message (or the cause) that begins with n
+// "Error: " prefixes loses its last n suffixes, and only when it ends in n
+// of them. The value at a
 // pointer is the error object, or an object whose error member is it (or,
 // for FX-21, is the string), as a stored failure value is. Nothing else is
 // stripped: the normaliser never masks a location in a user's message, and
@@ -421,6 +425,15 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 			}
 		case "InternalError", "Anyhow":
 			stripDisplay(msg)
+		case "EarlyStopError":
+			if s := msg.str(); strings.HasPrefix(s, allItersPrefix) {
+				if end := strings.Index(s[len(allItersPrefix):], "`: "); end >= 0 {
+					head := len(allItersPrefix) + end + len("`: ")
+					if cause, ok := strippedDisplay(s[head:]); ok {
+						*msg = jnode{kind: kindString, text: quote(s[:head] + cause)}
+					}
+				}
+			}
 		}
 	}
 	var out Observation
@@ -430,28 +443,40 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 	return out, nil
 }
 
+// allItersPrefix begins the message of a stop_after_all_iters_if that
+// fails to evaluate (CF-13).
+const allItersPrefix = "Error evaluating stop_after_all_iters_if expression `"
+
 // stripDisplay removes, from a string node holding Windmill's generic error
 // display (FX-50), one trailing location suffix per leading "Error: "
 // prefix, when the text ends in that many; otherwise it leaves the node,
 // which then shows its difference.
 func stripDisplay(t *jnode) {
-	s := t.str()
+	if out, ok := strippedDisplay(t.str()); ok {
+		*t = jnode{kind: kindString, text: quote(out)}
+	}
+}
+
+// strippedDisplay is s, Windmill's generic error display, without one
+// trailing location suffix per leading "Error: " prefix, and true; or
+// false when s has no such prefix or does not end in that many suffixes.
+func strippedDisplay(s string) (string, bool) {
 	n := 0
 	for rest := s; strings.HasPrefix(rest, anyhowPrefix); rest = rest[len(anyhowPrefix):] {
 		n++
 	}
 	if n == 0 {
-		return
+		return "", false
 	}
 	out := s
 	for range n {
 		loc := trailingLoc.FindStringIndex(out)
 		if loc == nil {
-			return
+			return "", false
 		}
 		out = out[:loc[0]]
 	}
-	*t = jnode{kind: kindString, text: quote(out)}
+	return out, true
 }
 
 // at resolves reference tokens below t, or returns nil.

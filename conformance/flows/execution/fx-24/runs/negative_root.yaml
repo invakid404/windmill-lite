@@ -7,7 +7,6 @@ expect:
   status: failure
   result: {error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}
   steps:
-    "m:a":
-      status: failure
-      ran: false
-      carried: {error: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}
+    # a has no job, so no result; the error it carries is the flow's
+    # (an observation shows no carried value beside no result).
+    "m:a": {status: failure, ran: false}

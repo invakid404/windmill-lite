@@ -47,6 +47,10 @@ type Run interface {
 //
 // NoHooks implements every method as a no-op; embed it to implement a
 // subset.
+//
+// The iterations of a parallel loop run concurrently (ADR 0004, Parallel
+// loops), so the engine calls one run's hooks from several goroutines at
+// once: an implementation must be safe for concurrent use.
 type Hooks interface {
 	// Intercept (H1) runs when a module would launch, after skip_if, mock,
 	// its arguments and its timeout are decided. It returns the outcome that

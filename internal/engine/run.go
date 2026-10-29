@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
@@ -19,28 +20,34 @@ import (
 )
 
 // run is one run of a flow: its state and its trace. One goroutine drives
-// it; the Reporters of its invocations write late output into its trace
-// from others, under mu.
+// it, and one more each running iteration of a parallel loop; the
+// Reporters of its invocations write late output into its trace from
+// others, under mu.
 type run struct {
 	e     *Engine
 	f     *ir.Flow
 	id    string
 	hooks Hooks
 	exec  StepExecutor
-	rng   *rand.Rand
-	// input is the flow input, stored, with its top-level keys shuffled
-	// (FX-42 item 1); env is the flow's flow_env, or zero (JE-38).
-	input jsonval.Value
-	env   jsonval.Value
-	// sites are the site paths of the flow's modules (ADR 0011): m:<id>,
-	// or m:<id>~<k> for an id that occurs more than once (OF-2), then the
-	// failure module's slot, s:failure, at index len(f.Modules), the
-	// cursor Windmill gives it (FX-1).
-	sites  []conformance.SitePath
+	// root is the frame of the flow's own modules, its failure module in
+	// the slot after them; its input is the flow input, stored, with its
+	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env, or
+	// zero (JE-38), which its child flows inherit (CF-1).
+	root   *frame
+	env    jsonval.Value
 	latch  Latch
 	settle *RunSettlement
-	// wrote is set once a write-capable module has launched (H3).
-	wrote bool
+	// halted is set once a module ended the run halted (H8), so that the
+	// iterations of a parallel loop start nothing more; wake is closed, once,
+	// when the run is latched or halted, which wakes a parallel loop whose
+	// iterations are all held.
+	halted   atomic.Bool
+	wake     chan struct{}
+	wakeOnce sync.Once
+	// wrote is set once a write-capable module has launched (H3); writeMu
+	// holds the iterations of a parallel loop back while H3 decides.
+	writeMu sync.Mutex
+	wrote   bool
 	// started is when the run started: the flow's start time, which a
 	// failure module's input transforms see as started_at (JE-35).
 	started time.Time
@@ -51,81 +58,53 @@ type run struct {
 	jitter   Jitter
 	cancel   context.CancelCauseFunc
 	preWrite *time.Timer
-	// failCount and failed are the flow-wide retry state (FX-27, FX-29):
-	// the failures of the current retry sequence, and the sites of the
-	// failed attempts its retries recorded, which every module that
-	// completes lists as its own. A success clears both.
-	failCount uint32
-	failed    []conformance.SitePath
-	// succeeded holds, per module, that its last status is Success, which
-	// a retry's restored previous_result depends on (FX-6, JE-36).
-	succeeded []bool
-	// spent is what the current transition, since the last job ended
-	// (pinged), has spent evaluating expressions: JE-2's monitor cancels
-	// the run when it exceeds the engine's transition timeout.
-	spent  time.Duration
-	pinged time.Time
 
-	mu    sync.Mutex // guards trace and the job results below
+	mu    sync.Mutex // guards trace and the frames' job results
 	trace Trace
-	// jobs holds, per module (the failure module last), the stored result
-	// of its job when it has one (JE-18 step 2); nodes is the node-id map,
-	// written as each module's job finishes, the last write winning
-	// (JE-19).
-	jobs  []jsonval.Value
-	nodes map[string]jsonval.Value
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
-	ids := make([]string, len(f.Modules))
-	for i, m := range f.Modules {
-		ids[i] = m.ID
-	}
 	now := clock.Now()
-	r := &run{e: e, f: f, id: id, hooks: hooks, exec: exec, rng: rng, started: now, pinged: now,
-		clock: clock, jitter: jitter, cancel: cancel, succeeded: make([]bool, len(f.Modules)+1),
-		jobs: make([]jsonval.Value, len(f.Modules)+1), nodes: map[string]jsonval.Value{}}
-	for _, seg := range conformance.ModuleSegments(ids) {
-		r.sites = append(r.sites, conformance.SitePath{}.Child(seg))
-	}
-	r.sites = append(r.sites, conformance.SitePath{}.Child(conformance.FailureSlot()))
+	r := &run{e: e, f: f, id: id, hooks: hooks, exec: exec, wake: make(chan struct{}), started: now, clock: clock, jitter: jitter, cancel: cancel}
+	r.root = newFrame(f.Modules, conformance.SitePath{})
+	r.root.failure = f.FailureModule
+	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
 	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: ModuleStateWarm}
 	r.settle = NewRunSettlement(func() { hooks.OnRunSettled(r.snapshot()) })
 	return r
 }
 
-func (r *run) ID() string      { return r.id }
-func (r *run) Latch(err error) { r.latch.Set(err) }
+func (r *run) ID() string { return r.id }
 
-// moduleAt is the module at cursor i: a top-level module, or the failure
-// module at len(f.Modules) (FX-1).
-func (r *run) moduleAt(i int) *ir.Module {
-	if i == len(r.f.Modules) {
-		return r.f.FailureModule
+// Latch latches err on the run (H5); a nil err latches nothing.
+func (r *run) Latch(err error) {
+	if r.latch.Set(err) {
+		r.signal()
 	}
-	return r.f.Modules[i]
 }
 
-// isFailure reports whether cursor i is the failure module's.
-func (r *run) isFailure(i int) bool { return i == len(r.f.Modules) }
+// halt ends the run halted (H8), wherever its iterations are.
+func (r *run) halt() {
+	r.halted.Store(true)
+	r.signal()
+}
 
-// site is the module at cursor i as hooks see it.
-func (r *run) site(i int) Site {
-	m := r.moduleAt(i)
-	s := Site{Path: r.sites[i], Flow: r.f.Path, Module: m.ID}
+func (r *run) signal() { r.wakeOnce.Do(func() { close(r.wake) }) }
+
+// site is the module at cursor i of fr as hooks see it. Container bodies
+// belong to the enclosing flow, so Flow is the run's flow, and Script is
+// the leaf's static path, <flow path>/<module id> for an inline script.
+func (r *run) site(fr *frame, i int) Site {
+	m := fr.moduleAt(i)
+	s := Site{Path: fr.sites[i], Flow: r.f.Path, Module: m.ID}
 	if m.Leaf != nil {
-		s.Script = r.jobPath(m.Leaf)
+		if sc := r.e.prog.Scripts[m.Leaf.Script]; sc != nil {
+			s.Script = sc.Path
+		} else {
+			s.Script = m.Leaf.Script
+		}
 	}
 	return s
-}
-
-// jobPath is the Windmill path of a leaf's job (WR-29, FX-45): a path
-// script's own, or <flow path>/<module id> for an inline step.
-func (r *run) jobPath(l *ir.Leaf) string {
-	if s := r.e.prog.Scripts[l.Script]; s != nil {
-		return s.Path
-	}
-	return l.Script
 }
 
 // snapshot copies the trace, so that what the run returns never changes
@@ -138,8 +117,16 @@ func (r *run) snapshot() *Trace {
 	for i, st := range r.trace.Steps {
 		st.Late = append([]Late(nil), st.Late...)
 		st.Hooks = append([]string(nil), st.Hooks...)
+		st.ResultNested = append([]string(nil), st.ResultNested...)
+		st.CarriedNested = append([]string(nil), st.CarriedNested...)
 		st.FailedRetries = slices.Clone(st.FailedRetries)
 		t.Steps[i] = st
+	}
+	t.ResultNested = append([]string(nil), r.trace.ResultNested...)
+	t.Children = make([]ChildFlow, len(r.trace.Children))
+	for i, c := range r.trace.Children {
+		c.Modules = append([]string(nil), c.Modules...)
+		t.Children[i] = c
 	}
 	t.Warnings = append([]Warning(nil), r.trace.Warnings...)
 	t.Deviations = append([]string(nil), r.trace.Deviations...)
@@ -149,8 +136,9 @@ func (r *run) snapshot() *Trace {
 
 // end records the run's outcome. A latched run records its latched error
 // and no result, and a halted run no result either. The final result is
-// stored as jsonb (FX-36, FX-42 item 5).
-func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Origin) {
+// stored as jsonb (FX-36, FX-42 item 5); nested points to the generated
+// errors inside it (Trace.ResultNested).
+func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Origin, nested []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.trace.Status = status
@@ -164,7 +152,7 @@ func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Ori
 	if result.IsZero() {
 		return
 	}
-	r.trace.ResultOrigin = origin
+	r.trace.ResultOrigin, r.trace.ResultNested = origin, nested
 	if stored, err := result.Stored(); err == nil {
 		r.trace.Result = jsonval.FromProducer(stored)
 	} else {
@@ -177,10 +165,10 @@ func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Ori
 // was doing.
 func (r *run) endBy(ctx context.Context, status conformance.RunStatus) {
 	if status == conformance.RunCanceled {
-		r.end(status, canceledError(cancellationOf(ctx)), OriginEngine)
+		r.end(status, canceledError(cancellationOf(ctx)), OriginEngine, nil)
 		return
 	}
-	r.end(status, jsonval.Value{}, OriginNone)
+	r.end(status, jsonval.Value{}, OriginNone, nil)
 }
 
 func (r *run) span(site conformance.SitePath, kind SpanKind, start time.Time) {
@@ -206,11 +194,12 @@ const (
 	// the last module.
 	endSucceeded moduleEnd = iota
 	// endFailed: the module is Failure (a failed job, an input-transform
-	// error, a chaining error at the root's first pickup), carrying its
-	// failure value (FX-36).
+	// error, a chaining error at the root's first pickup, a failed loop),
+	// carrying its failure value (FX-36).
 	endFailed
 	// endErrorStop: an error stop (FX-19): the module is Failure, carrying
-	// an EarlyStopError, while its job succeeded (FX-V2).
+	// an EarlyStopError, while its job succeeded (FX-V2); a sequential
+	// loop takes it as a break (CF-12).
 	endErrorStop
 	// endUnrecoverable: a throwing stop_after_if (FX-21): the module is
 	// Failure, carrying the string error, and neither a retry nor
@@ -221,11 +210,16 @@ const (
 	endStopped
 	endStoppedSkipped
 	// endChained: a chaining error at a later transition (FX-15 context
-	// 1): the flow fails at once with the InternalError, carried.
+	// 1), or at a child flow's pickup (context 3): the flow fails at once
+	// with the error, carried.
 	endChained
 	// endInterrupted: the module did not complete because the run was
 	// latched or canceled on its way; the completion check ends the run.
 	endInterrupted
+	// endHalted: a module in the module's loop body ended the run halted
+	// (H8); the completion check still ranks a latch or the cancellation
+	// first.
+	endHalted
 )
 
 // failed reports whether the module is Failure: what H7 and Windmill's
@@ -243,6 +237,13 @@ type outcome struct {
 	// when it is an error.
 	carried jsonval.Value
 	origin  Origin
+	// nested are the pointers, relative to carried, of the errors
+	// windmill-lite generated inside it when it aggregates others: a loop's
+	// array (StepRecord.CarriedNested).
+	nested []string
+	// chain is a chaining error's text, which a collapsed iteration hands
+	// to its loop to route (FX-15).
+	chain string
 }
 
 // next is what Windmill's continue decision asks for after a module's
@@ -270,25 +271,29 @@ type decision struct {
 	// preceding id is empty; otherwise its preceding id is the failed
 	// module's (FX-32).
 	direct bool
-	// status, result and origin are the flow's ending, for nextEnd.
+	// status, result, origin and nested are the flow's ending, for nextEnd.
 	status conformance.RunStatus
 	result jsonval.Value
 	origin Origin
+	nested []string
 }
 
-// decide is Windmill's continue decision for module m (FX-2 completion
-// steps 3, 7 and 8) when no retry is due (decideRetry decides that):
+// decide is Windmill's continue decision for module m of fr (FX-2
+// completion steps 3, 7 and 8) when no retry is due (decideRetry decides
+// that):
 // continue_on_error (FX-30), the error stops (FX-19, FX-V4), the
 // unrecoverable failure of a throwing stop_after_if (FX-21, FX-44) and the
-// failure module (FX-31). last says that m is the flow's last module.
-func (r *run) decide(m *ir.Module, o outcome, last bool) decision {
-	hasFailure := r.f.FailureModule != nil
+// failure module (FX-31). last says that m is the flow's last module. A
+// collapsed iteration's body takes its loop's continue_on_error, not its
+// own: its failure fails the iteration (CF-8 item 5).
+func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
+	hasFailure := fr.failure != nil
 	ends := func(status conformance.RunStatus) decision {
-		return decision{next: nextEnd, status: status, result: o.carried, origin: o.origin}
+		return decision{next: nextEnd, status: status, result: o.carried, origin: o.origin, nested: o.nested}
 	}
 	// A failure is tolerated by continue_on_error unless it is
 	// unrecoverable (FX-30, FX-44); the cursor then advances.
-	tolerated := m.ContinueOnError && o.end != endUnrecoverable
+	tolerated := m.ContinueOnError && o.end != endUnrecoverable && fr.collapsed == nil
 	switch o.end {
 	case endSucceeded:
 		// Rule 3: continue unless this was the last module.
@@ -345,76 +350,126 @@ func (r *run) decide(m *ir.Module, o outcome, last bool) decision {
 		result: engineError("InternalErr", "windmill-lite: a module was interrupted with no latch or cancellation")}
 }
 
-// run runs the flow's modules in order (FX-2): the start checks of the
-// host (Start), the module's own start and completion, then the host's
-// completion checks (Completion) and Windmill's continue decision with its
-// retries (decideRetry, reenter), then haltAfter (AfterContinue). A failure
-// the decision does not tolerate enters the failure module (failure).
+// flowEnd is how a frame's flow ended: its status and result (a host
+// verdict's status has none), whether a stop ended it (CF-12), errorStop
+// for a failure that was an error stop, and the generated errors inside
+// the result.
+type flowEnd struct {
+	status    conformance.RunStatus
+	result    jsonval.Value
+	origin    Origin
+	stopped   bool
+	errorStop bool
+	nested    []string
+	// chain is set when a collapsed iteration's push failed (outcome.chain).
+	chain string
+}
+
+// run runs the flow and records its outcome.
 func (r *run) run(ctx context.Context) {
-	// FX-6, JE-36: the first module's previous_result is the flow input;
-	// FX-3: a flow with no modules returns it.
-	prev, prevID := r.input, ""
+	e := r.runList(ctx, r.root)
+	if ended(e.status) {
+		r.endBy(ctx, e.status)
+		return
+	}
+	r.end(e.status, e.result, e.origin, e.nested)
+}
+
+// runList runs a frame's modules in order (FX-2): the start checks of the
+// host (Start), the module's own start and completion, then the host's
+// completion checks (Completion) and Windmill's continue decision, then
+// haltAfter (AfterContinue). A failure the decision does not tolerate
+// enters the failure module (failure).
+func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
+	// FX-6, JE-36, CF-9: the first module's previous_result is the flow's
+	// input; FX-3: a flow with no modules returns it.
+	prev, prevID := fr.prev, ""
+	if prev.IsZero() {
+		prev = fr.input
+	}
 	// continues is set when the start that follows is what the continue
 	// decision asked for after an error stop that coincided with the
 	// cancellation, which Completion let through (FX-38).
 	continues := false
-	for i, m := range r.f.Modules {
-		site := r.site(i)
+	for i, m := range fr.modules {
+		site := r.site(fr, i)
 		v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues, HaltBefore: r.hooks.HaltBefore(site)})
 		if st, end := v.Status(); end {
-			r.endBy(ctx, st)
-			return
+			if st == conformance.RunHalted {
+				r.halt()
+			}
+			return flowEnd{status: st}
+		}
+		// A halt decided in another iteration of a parallel loop comes
+		// after the latch and the cancellation (ADR 0008).
+		if r.halted.Load() {
+			return flowEnd{status: conformance.RunHalted}
 		}
 		// The root's first pickup is its first module's first start
 		// (FX-15 context 2); the previous module's sleep applies to a
 		// module's first start (FX-23).
 		b := begin{first: i == 0}
-		if i > 0 && r.f.Modules[i-1].Sleep != nil {
-			b.sleep, b.sleepSite = r.f.Modules[i-1].Sleep, r.sites[i-1]
+		if i > 0 && fr.modules[i-1].Sleep != nil {
+			b.sleep, b.sleepSite = fr.modules[i-1].Sleep, fr.sites[i-1]
 		}
-		o, idx, ok := r.complete(ctx, i, prev, prevID, b)
+		o, idx, st, ok := r.complete(ctx, fr, i, prev, prevID, b)
 		if !ok {
-			return
+			return flowEnd{status: st}
 		}
-		last := i == len(r.f.Modules)-1
+		if o.end == endHalted {
+			return flowEnd{status: conformance.RunHalted}
+		}
+		last := i == len(fr.modules)-1
 		var d decision
 		for attempt := 0; ; {
-			if d, ok = r.decideRetry(ctx, i, &o, idx, last); !ok {
-				return
+			var end *flowEnd
+			if d, end = r.decideRetry(ctx, fr, i, &o, idx, last); end != nil {
+				return *end
 			}
 			if d.next != nextRetry {
 				break
 			}
-			if !r.afterContinue(ctx, site, d, false, idx, &continues) {
-				return
-			}
-			// Re-entry: the host's start checks (haltBefore applies to a
-			// module's first attempt only), then start step 6.
+			// A retry is no final outcome, so haltAfter waits
+			// (AfterContinue); re-entry starts with the host's start
+			// checks, where haltBefore applies to a first attempt only.
+			continues = ctx.Err() != nil
 			v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues})
 			if st, end := v.Status(); end {
-				r.endBy(ctx, st)
-				return
+				return flowEnd{status: st}
 			}
-			nb, p, due, ok := r.reenter(ctx, i, o, idx, attempt, prevID)
-			if !ok {
-				return
+			nb, p, due, end := r.reenter(ctx, fr, i, o, idx, attempt)
+			if end != nil {
+				return *end
 			}
 			if !due {
-				d = r.decide(m, o, last)
+				d = r.decide(fr, m, o, last)
 				break
 			}
 			attempt++
-			if o, idx, ok = r.complete(ctx, i, p, prevID, nb); !ok {
-				return
+			if o, idx, st, ok = r.complete(ctx, fr, i, p, prevID, nb); !ok {
+				return flowEnd{status: st}
 			}
 		}
-		if !r.afterContinue(ctx, site, d, true, idx, &continues) {
-			return
+		canceled := ctx.Err() != nil
+		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain,
+			stopped:   o.end == endStopped || o.end == endStoppedSkipped,
+			errorStop: o.end == endErrorStop && d.status == conformance.RunFailure}
+		// When the frame's flow ends, the run goes on when what contains the
+		// frame would start something after that ending (frame.after): a
+		// terminal failure or stop of a loop's body starts nothing more.
+		runContinues := d.next != nextEnd || fr.after != nil && fr.after(end)
+		if AfterContinue(ContinueSignals{RunContinues: runContinues, Final: true, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: r.hooks.HaltAfter(site)}) != Proceed {
+			if canceled {
+				return flowEnd{status: conformance.RunCanceled}
+			}
+			r.mark(idx, "H8")
+			r.halt()
+			return flowEnd{status: conformance.RunHalted}
 		}
+		continues = canceled
 		switch d.next {
 		case nextEnd:
-			r.end(d.status, d.result, d.origin)
-			return
+			return end
 		case nextFailure:
 			// Start step 6: previous_result stays the failing value; the
 			// preceding id is the failed module's, or empty when the
@@ -423,8 +478,7 @@ func (r *run) run(ctx context.Context) {
 			if d.direct {
 				id = ""
 			}
-			r.failure(ctx, o.carried, id, continues)
-			return
+			return r.failure(ctx, fr, o.carried, id, continues)
 		}
 		prev, prevID = o.carried, m.ID
 	}
@@ -432,66 +486,108 @@ func (r *run) run(ctx context.Context) {
 	// (FX-3), through the completion's host checks, the latch and then the
 	// cancel flag (FX-2 completion step 8, FX-38), as every completion does.
 	if st, end := Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
-		r.endBy(ctx, st)
-		return
+		return flowEnd{status: st}
 	}
-	r.end(conformance.RunSuccess, prev, OriginNone)
+	return flowEnd{status: conformance.RunSuccess, result: prev}
 }
 
-// afterContinue applies H8's haltAfter to the continue decision d of the
-// module at site, whose record is idx (AfterContinue), and reports whether
-// the run goes on; final says that no retry of the module is due.
-// continues is set when the run goes on only because Completion let an
-// error stop through under cancellation (FX-38).
-func (r *run) afterContinue(ctx context.Context, site Site, d decision, final bool, idx int, continues *bool) bool {
-	canceled := ctx.Err() != nil
-	if AfterContinue(ContinueSignals{RunContinues: d.next != nextEnd, Final: final, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: r.hooks.HaltAfter(site)}) != Proceed {
-		if canceled {
-			r.endBy(ctx, conformance.RunCanceled)
-			return false
-		}
-		r.mark(idx, "H8")
-		r.endBy(ctx, conformance.RunHalted)
-		return false
+// failure runs fr's failure module (FX-31) with the failing value as its
+// previous_result (FX-32), and ends the flow with its result (FX-33): the
+// flow succeeds only when the failure module's job succeeded and its result
+// recovers; otherwise it fails with that result, or with the failure
+// module's own failure value. The failure module has no stop and ignores
+// its own continue_on_error (FX-19, FX-30), and a chaining error while it
+// starts is a later transition's (FX-15 context 1). Its own retry applies
+// to its failures (FX-32), and starting it resets the retry counter when
+// it has one (FX-27).
+func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID string, continues bool) flowEnd {
+	i := len(fr.modules)
+	m := fr.failure
+	v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues, FailureModule: true, HaltBefore: r.hooks.HaltBefore(r.site(fr, i))})
+	if st, end := v.Status(); end {
+		return flowEnd{status: st}
 	}
-	*continues = canceled
-	return true
+	if m.Retry != nil {
+		fr.failCount = 0
+	}
+	o, idx, st, ok := r.complete(ctx, fr, i, prev, prevID, begin{})
+	if !ok {
+		return flowEnd{status: st}
+	}
+	for attempt := 0; o.end == endFailed && m.Retry != nil; {
+		// FX-2 completion rule 7.6: a retry due re-enters the failure
+		// module; a throwing retry_if makes the failure unrecoverable, and
+		// the failure module, already running, does not start again.
+		allowed, err := r.retryAllowed(ctx, fr, i, o.carried)
+		if err != nil {
+			if ctx.Err() != nil {
+				return flowEnd{status: conformance.RunCanceled}
+			}
+			r.unrecoverable(&o, idx, retryIfText(err))
+			break
+		}
+		if !allowed {
+			break
+		}
+		v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues, FailureModule: true})
+		if st, end := v.Status(); end {
+			return flowEnd{status: st}
+		}
+		nb, p, due, end := r.reenter(ctx, fr, i, o, idx, attempt)
+		if end != nil {
+			return *end
+		}
+		if !due {
+			break
+		}
+		attempt++
+		if o, idx, st, ok = r.complete(ctx, fr, i, p, prevID, nb); !ok {
+			return flowEnd{status: st}
+		}
+	}
+	switch {
+	case o.end == endSucceeded && recovers(o.carried):
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin}
+	case o.end == endSucceeded, o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin}
+	}
+	return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), origin: OriginEngine}
 }
 
 // decideRetry is the continue decision with retries for the module at
-// cursor i, whose attempt o completed with record idx (FX-2 completion
-// steps 3 and 7): a failure, or an error stop under continue_on_error,
-// evaluates the module's retry first, retry_if and then the attempts left
-// (FX-26 to FX-28). A retry due re-enters the module, except after an
-// error stop with no failure module, where the continue decision stops the
-// flow first (FX-19); a throwing retry_if re-processes the completion as an
-// unrecoverable failure (FX-28). An error stop that continue_on_error does
-// not tolerate re-enters a module with a retry when the flow has a failure
-// module, and re-entry evaluates the retry (FX-19). ok is false when the
-// run was canceled while the retry was evaluated.
-func (r *run) decideRetry(ctx context.Context, i int, o *outcome, idx int, last bool) (decision, bool) {
-	m := r.moduleAt(i)
-	hasFailure := r.f.FailureModule != nil
+// cursor i of fr, whose attempt o completed with record idx (FX-2
+// completion steps 3 and 7): a failure, or an error stop under
+// continue_on_error, evaluates the module's retry first, retry_if and then
+// the attempts left (FX-26 to FX-28). A retry due re-enters the module,
+// except after an error stop with no failure module, where the continue
+// decision stops the flow first (FX-19); a throwing retry_if re-processes
+// the completion as an unrecoverable failure (FX-28). An error stop that
+// continue_on_error does not tolerate re-enters a module with a retry when
+// the flow has a failure module, and re-entry evaluates the retry (FX-19).
+// The flow's ending is returned when the run was canceled while the retry
+// was evaluated.
+func (r *run) decideRetry(ctx context.Context, fr *frame, i int, o *outcome, idx int, last bool) (decision, *flowEnd) {
+	m := fr.moduleAt(i)
+	hasFailure := fr.failure != nil
 	if m.Retry != nil && (o.end == endFailed || o.end == endErrorStop && m.ContinueOnError) {
-		allowed, err := r.retryAllowed(ctx, m, o.carried)
+		allowed, err := r.retryAllowed(ctx, fr, i, o.carried)
 		switch {
 		case err != nil && ctx.Err() != nil:
-			r.endBy(ctx, conformance.RunCanceled)
-			return decision{}, false
+			return decision{}, &flowEnd{status: conformance.RunCanceled}
 		case err != nil:
 			r.unrecoverable(o, idx, retryIfText(err))
 		case allowed && o.end == endErrorStop && !hasFailure:
 			// The cursor does not advance, and with no failure module the
 			// stop ends the flow, failed (FX-19).
-			return decision{next: nextEnd, status: conformance.RunFailure, result: o.carried, origin: o.origin}, true
+			return decision{next: nextEnd, status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested}, nil
 		case allowed:
-			return decision{next: nextRetry}, true
+			return decision{next: nextRetry}, nil
 		}
 	}
 	if m.Retry != nil && o.end == endErrorStop && !m.ContinueOnError && hasFailure {
-		return decision{next: nextRetry}, true
+		return decision{next: nextRetry}, nil
 	}
-	return r.decide(m, *o, last), true
+	return r.decide(fr, m, *o, last), nil
 }
 
 // retryIfText is the error of a retry_if that throws while the completion
@@ -506,73 +602,61 @@ func retryIfText(err error) string { return "Error: " + predicateText(err) }
 // FX-21): no retry, no continue_on_error, and the failure module when
 // there is one. The job's stored result stays as it was.
 func (r *run) unrecoverable(o *outcome, idx int, text string) {
-	o.end, o.origin = endUnrecoverable, OriginEngine
+	o.end, o.origin, o.nested = endUnrecoverable, OriginEngine, nil
 	o.carried = objectOf(member{"error", jsonString(text)})
-	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin = conformance.ModuleFailure, o.carried, OriginEngine
+	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested = conformance.ModuleFailure, o.carried, OriginEngine, nil
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rec := &r.trace.Steps[idx]
-	rec.Module, rec.Carried, rec.CarriedOrigin = o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin
+	rec.Module, rec.Carried, rec.CarriedOrigin, rec.CarriedNested = o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, nil
 }
 
-// retryAllowed reports whether module m, whose attempt failed with the
-// value failed, may be retried (FX-26 to FX-28): its retry_if, evaluated
-// first, holds or is absent, and attempts are left by the flow-wide
-// counter. An error is retry_if's failure.
-func (r *run) retryAllowed(ctx context.Context, m *ir.Module, failed jsonval.Value) (bool, error) {
+// retryAllowed reports whether module i of fr, whose attempt failed with
+// the value failed, may be retried (FX-26 to FX-28): its retry_if,
+// evaluated first, holds or is absent, and attempts are left by the
+// flow's counter. An error is retry_if's failure.
+func (r *run) retryAllowed(ctx context.Context, fr *frame, i int, failed jsonval.Value) (bool, error) {
+	m := fr.moduleAt(i)
 	if x := m.Retry.RetryIf; x != nil {
-		ok, err := r.predicate(ctx, x, r.sites[r.indexOf(m)], r.retryScope(x, failed))
+		ok, err := r.predicate(ctx, fr, x, fr.sites[i], r.retryScope(fr, x, failed))
 		if err != nil || !ok {
 			return false, err
 		}
 	}
-	return attemptsLeft(m.Retry, r.failCount), nil
+	return attemptsLeft(m.Retry, fr.failCount), nil
 }
 
-// indexOf is the cursor of module m: its place in the top-level list, or
-// the failure module's.
-func (r *run) indexOf(m *ir.Module) int {
-	for i, x := range r.f.Modules {
-		if x == m {
-			return i
-		}
-	}
-	return len(r.f.Modules)
-}
-
-// reenter is start step 6 for the module at cursor i, re-entered after its
-// attempt o (record idx, its attempt'th retry) failed (FX-2): its retry_if
-// again, then the attempts left (FX-26 to FX-28). When a retry is due, the
-// failed attempt's record moves to <site>/r:<k>, k its place in the
-// flow-wide list of failed attempts (FX-27), the counter goes up, and it
+// reenter is start step 6 for the module at cursor i of fr, re-entered
+// after its attempt o (record idx, its attempt'th retry) failed (FX-2): its
+// retry_if again, then the attempts left (FX-26 to FX-28). When a retry is
+// due, the failed attempt's record moves to <site>/r:<k>, k its place in
+// the flow's list of failed attempts (FX-27), the counter goes up, and it
 // returns the next attempt's start, which reuses the failed attempt's
 // recorded arguments (JE-V2) once the retry's delay has passed, and its
-// previous_result (restored). due is false when no retry is due; ok is
-// false when re-entry ended the run: a throwing retry_if is a chaining
-// error of a later transition (FX-15 context 1, FX-28).
-func (r *run) reenter(ctx context.Context, i int, o outcome, idx, attempt int, prevID string) (begin, jsonval.Value, bool, bool) {
-	m := r.moduleAt(i)
-	allowed, err := r.retryAllowed(ctx, m, o.carried)
+// previous_result (restored). due is false when no retry is due; the
+// flow's ending is returned when re-entry ended it: a throwing retry_if is
+// a chaining error of a later transition (FX-15 context 1, FX-28).
+func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, attempt int) (begin, jsonval.Value, bool, *flowEnd) {
+	m := fr.moduleAt(i)
+	allowed, err := r.retryAllowed(ctx, fr, i, o.carried)
 	switch {
 	case err != nil && ctx.Err() != nil:
-		r.endBy(ctx, conformance.RunCanceled)
-		return begin{}, jsonval.Value{}, false, false
+		return begin{}, jsonval.Value{}, false, &flowEnd{status: conformance.RunCanceled}
 	case err != nil:
-		r.end(conformance.RunFailure, engineError("InternalError", predicateText(err)), OriginEngine)
-		return begin{}, jsonval.Value{}, false, false
+		return begin{}, jsonval.Value{}, false, &flowEnd{status: conformance.RunFailure, result: engineError("InternalError", predicateText(err)), origin: OriginEngine}
 	case !allowed:
-		return begin{}, jsonval.Value{}, false, true
+		return begin{}, jsonval.Value{}, false, nil
 	}
-	delay, _ := retryDelay(m.Retry, r.failCount, r.jitter)
-	site := r.sites[i].Child(conformance.Attempt(len(r.failed)))
+	delay, _ := retryDelay(m.Retry, fr.failCount, r.jitter)
+	site := fr.sites[i].Child(conformance.Attempt(len(fr.failed)))
 	// An attempt's site is not a module: it has no module status and
 	// carries nothing on (StepRecord).
 	r.mu.Lock()
 	rec := &r.trace.Steps[idx]
-	rec.Site, rec.FailedRetries, rec.Module, rec.Carried, rec.CarriedOrigin = site, nil, "", jsonval.Value{}, OriginNone
+	rec.Site, rec.FailedRetries, rec.Module, rec.Carried, rec.CarriedOrigin, rec.CarriedNested = site, nil, "", jsonval.Value{}, OriginNone, nil
 	r.mu.Unlock()
-	r.failed = append(r.failed, site)
-	r.failCount++
+	fr.failed = append(fr.failed, site)
+	fr.failCount++
 	args := o.rec.RecordedArgs
 	if args.IsZero() {
 		// A failure with no job, a chaining error at the root's first
@@ -580,25 +664,28 @@ func (r *run) reenter(ctx context.Context, i int, o outcome, idx, attempt int, p
 		// with an empty map, as after a failed transform (JE-V2).
 		args = jsonObj
 	}
-	return begin{attempt: attempt + 1, reuse: &args, due: r.clock.Now().Add(delay)}, r.restored(i, o.carried), true, true
+	return begin{attempt: attempt + 1, reuse: &args, due: r.clock.Now().Add(delay)}, r.restored(fr, i, o.carried), true, nil
 }
 
 // restored is previous_result as a retry restores it (FX-6, JE-36 rule 3):
-// at the first module, the flow input; at a later one, the preceding
-// module's stored result read back, in jsonb's printed form (JE-44), when
-// that module's status is Success, and otherwise the JSON string "{}". The
-// failure module keeps its own failed attempt's value, failed (FX-32).
-func (r *run) restored(i int, failed jsonval.Value) jsonval.Value {
+// at the first module, the flow's input (or its first module's
+// previous_result); at a later one, the preceding module's stored result
+// read back, in jsonb's printed form (JE-44), when that module's status is
+// Success, and otherwise the JSON string "{}". The failure module keeps
+// its own failed attempt's value, failed (FX-32).
+func (r *run) restored(fr *frame, i int, failed jsonval.Value) jsonval.Value {
 	switch {
-	case r.isFailure(i):
+	case fr.isFailure(i):
 		return failed
+	case i == 0 && !fr.prev.IsZero():
+		return fr.prev
 	case i == 0:
-		return r.input
-	case !r.succeeded[i-1]:
+		return fr.input
+	case !fr.succeeded[i-1]:
 		return jsonval.FromProducer([]byte(`"{}"`))
 	}
 	r.mu.Lock()
-	v := r.jobs[i-1]
+	v := fr.jobs[i-1]
 	r.mu.Unlock()
 	if s, err := v.Stored(); err == nil {
 		return jsonval.FromProducer(expr.DatabaseText(s))
@@ -606,77 +693,11 @@ func (r *run) restored(i int, failed jsonval.Value) jsonval.Value {
 	return v
 }
 
-// failure runs the failure module (FX-31) with the failing value as its
-// previous_result (FX-32), and ends the flow with its result (FX-33): the
-// flow succeeds only when the failure module's job succeeded and its result
-// recovers; otherwise it fails with that result, or with the failure
-// module's own failure value. The failure module has no stop and ignores
-// its own continue_on_error (FX-19, FX-30), and a chaining error while it
-// starts is a later transition's (FX-15 context 1). Its own retry applies
-// to its failures (FX-32), and starting it resets the retry counter when
-// it has one (FX-27).
-func (r *run) failure(ctx context.Context, prev jsonval.Value, prevID string, continues bool) {
-	i := len(r.f.Modules)
-	m := r.f.FailureModule
-	v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues, FailureModule: true, HaltBefore: r.hooks.HaltBefore(r.site(i))})
-	if st, end := v.Status(); end {
-		r.endBy(ctx, st)
-		return
-	}
-	if m.Retry != nil {
-		r.failCount = 0
-	}
-	o, idx, ok := r.complete(ctx, i, prev, prevID, begin{})
-	if !ok {
-		return
-	}
-	for attempt := 0; o.end == endFailed && m.Retry != nil; {
-		// FX-2 completion rule 7.6: a retry due re-enters the failure
-		// module; a throwing retry_if makes the failure unrecoverable, and
-		// the failure module, already running, does not start again.
-		allowed, err := r.retryAllowed(ctx, m, o.carried)
-		if err != nil {
-			if ctx.Err() != nil {
-				r.endBy(ctx, conformance.RunCanceled)
-				return
-			}
-			r.unrecoverable(&o, idx, retryIfText(err))
-			break
-		}
-		if !allowed {
-			break
-		}
-		v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, ContinuesErrorStop: continues, FailureModule: true})
-		if st, end := v.Status(); end {
-			r.endBy(ctx, st)
-			return
-		}
-		nb, p, due, ok := r.reenter(ctx, i, o, idx, attempt, prevID)
-		if !ok {
-			return
-		}
-		if !due {
-			break
-		}
-		attempt++
-		if o, idx, ok = r.complete(ctx, i, p, prevID, nb); !ok {
-			return
-		}
-	}
-	switch {
-	case o.end == endSucceeded && recovers(o.carried):
-		r.end(conformance.RunSuccess, o.carried, o.origin)
-	case o.end == endSucceeded, o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
-		r.end(conformance.RunFailure, o.carried, o.origin)
-	default:
-		r.end(conformance.RunFailure, engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), OriginEngine)
-	}
-}
-
 // begin is how one start phase of a module was entered (FX-2).
 type begin struct {
-	// first says that it is the root's first pickup, where a chaining
-	// error fails the module (FX-15 context 2).
+	// first says that it is the flow's pickup, its first module's first
+	// start, where a chaining error fails that module or the child flow
+	// (FX-15 contexts 2 and 3).
 	first bool
 	// sleep is the previous module's sleep, at sleepSite, which a module's
 	// first start applies (start step 5, FX-23); nil for none.
@@ -690,14 +711,14 @@ type begin struct {
 	due     time.Time
 }
 
-// complete runs one attempt of the module at cursor i, started as b, from
-// its slot in the trace to the host's completion checks (FX-2 completion
-// step 7's precondition): the module's own start and completion,
-// OnModuleEnd (H6), then Completion, which may latch a fatal error name
-// (H7). It returns the outcome and the attempt's record, and false when
-// the checks ended the run.
-func (r *run) complete(ctx context.Context, i int, prev jsonval.Value, prevID string, b begin) (outcome, int, bool) {
-	m, site := r.moduleAt(i), r.site(i)
+// complete runs one attempt of the module at cursor i of fr, started as b,
+// from its slot in the trace to the host's completion checks (FX-2
+// completion step 7's precondition): the module's own start and
+// completion, OnModuleEnd (H6), then Completion, which may latch a fatal
+// error name (H7). It returns the outcome and the attempt's record, and
+// the status and false when the checks end the run.
+func (r *run) complete(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, b begin) (outcome, int, conformance.RunStatus, bool) {
+	site := r.site(fr, i)
 	// The module's slot in the trace is reserved first, so late output of
 	// its invocation always has a record to go to.
 	r.mu.Lock()
@@ -705,25 +726,25 @@ func (r *run) complete(ctx context.Context, i int, prev jsonval.Value, prevID st
 	r.trace.Steps = append(r.trace.Steps, StepRecord{Site: site.Path})
 	r.mu.Unlock()
 	start := r.clock.Now()
-	o := r.module(ctx, i, m, prev, prevID, idx, b)
+	o := r.module(ctx, fr, i, prev, prevID, idx, b)
 	if o.rec.Start.IsZero() {
 		o.rec.Start, o.rec.Duration = start, r.since(start)
 	}
 	o.rec.Attempt = b.attempt
-	// A module's Success or Failure status lists the flow-wide failed
+	// A module's Success or Failure status lists the flow's failed
 	// attempts as its own (FX-27); a Success clears them, and the counter
 	// (FX-2 completion step 5, FX-29).
 	if o.rec.Module == conformance.ModuleSuccess || o.rec.Module == conformance.ModuleFailure {
-		o.rec.FailedRetries = slices.Clone(r.failed)
+		o.rec.FailedRetries = slices.Clone(fr.failed)
 	}
-	r.succeeded[i] = o.rec.Module == conformance.ModuleSuccess && o.end != endInterrupted
-	if r.succeeded[i] {
-		r.failed, r.failCount = nil, 0
+	fr.succeeded[i] = o.rec.Module == conformance.ModuleSuccess && o.end != endInterrupted
+	if fr.succeeded[i] {
+		fr.failed, fr.failCount = nil, 0
 	}
 	r.span(site.Path, SpanModule, start)
 	r.setRecord(idx, o.rec)
 	if err := r.hooks.OnModuleEnd(ctx, r, site, o.rec); err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	fatal := o.end.failed() && r.hooks.FatalErrorName(errorName(o.carried))
 	v := Completion(CompletionSignals{
@@ -732,23 +753,22 @@ func (r *run) complete(ctx context.Context, i int, prev jsonval.Value, prevID st
 		// Windmill's continue decision checks a stop before the cancel
 		// flag, so an error stop in a flow with a failure module goes on
 		// under cancellation (FX-38).
-		ErrorStopWithFailureModule: o.end == endErrorStop && r.f.FailureModule != nil,
+		ErrorStopWithFailureModule: o.end == endErrorStop && fr.failure != nil,
 		FatalName:                  fatal,
 	})
 	if v == EndLatched && r.latch.Err() == nil {
 		// H7: the outcome's error latches the run, which bypasses what the
 		// flow would have done with the failure.
-		r.latch.Set(&FatalError{Site: site.Path, Name: errorName(o.carried), Value: o.carried})
+		r.Latch(&FatalError{Site: site.Path, Name: errorName(o.carried), Value: o.carried})
 		r.mark(idx, "H7")
 		r.mu.Lock()
 		r.trace.Deviations = append(r.trace.Deviations, "H7")
 		r.mu.Unlock()
 	}
 	if st, end := v.Status(); end {
-		r.endBy(ctx, st)
-		return o, idx, false
+		return o, idx, st, false
 	}
-	return o, idx, true
+	return o, idx, "", true
 }
 
 func (r *run) setRecord(idx int, rec StepRecord) {
@@ -766,13 +786,14 @@ func (r *run) mark(idx int, h string) {
 	r.trace.Steps[idx].Hooks = append(r.trace.Steps[idx].Hooks, h)
 }
 
-// module runs the start phase of the module at cursor i (FX-2 start steps
-// 5 and 7 to 10), started as b, and the first step of its completion
-// phase, stop_after_if (FX-19), which the failure module does not have.
-// prev is its previous_result and prevID its preceding id; idx is its
-// record in the trace.
-func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Value, prevID string, idx int, b begin) outcome {
-	site := r.site(i)
+// module runs the start phase of the module at cursor i of fr (FX-2 start
+// steps 5 and 7 to 10), started as b, and the first step of its
+// completion phase, stop_after_if (FX-19), which the failure module does
+// not have. prev is its previous_result and prevID its preceding id; idx
+// is its record in the trace.
+func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, idx int, b begin) outcome {
+	m := fr.moduleAt(i)
+	site := r.site(fr, i)
 	o := outcome{rec: StepRecord{Site: site.Path}}
 	// H5: a hook that latches the run on the way to the launch stops the
 	// module before it runs; the completion check ends the run latched.
@@ -785,8 +806,15 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 		o.end, o.carried, o.origin = endFailed, result, origin
 		return o
 	}
+	// A chaining error fails the module or the child flow at the flow's
+	// pickup (FX-15 contexts 2 and 3); a retry's re-entry, like the
+	// failure module's start, is a later transition (context 1). A
+	// collapsed iteration's loop routes it (sequentialLoop).
+	chaining := func(text string) outcome {
+		return r.chainingAt(fr, b.first && fr.collapsed == nil, o, text)
+	}
 	if err := r.hooks.OnModuleStart(ctx, r, site); err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
 		return notLaunched()
@@ -797,12 +825,12 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	// failure is a chaining error (FX-15).
 	due := b.due
 	if b.sleep != nil {
-		d, err := r.sleep(ctx, b.sleep, b.sleepSite, prev)
+		d, err := r.sleep(ctx, fr, b.sleep, b.sleepSite, prev)
 		if err != nil {
 			if ctx.Err() != nil {
 				return notLaunched()
 			}
-			return r.chaining(b.first, o, err.Error())
+			return chaining(err.Error())
 		}
 		due = r.clock.Now().Add(d)
 	}
@@ -812,14 +840,19 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	// error (FX-15).
 	skipped := false
 	if m.SkipIf != nil {
-		v, err := r.predicate(ctx, m.SkipIf, site.Path, r.startScope(prev, prevID))
+		v, err := r.predicate(ctx, fr, m.SkipIf, site.Path, r.startScope(fr, prev, prevID))
 		if err != nil {
 			if ctx.Err() != nil {
 				return notLaunched()
 			}
-			return r.chaining(b.first, o, predicateText(err))
+			return chaining(predicateText(err))
 		}
 		skipped = v
+	}
+	// A for loop that runs is a container, which launches no job of its
+	// own: no arguments, no H2 and no H1 (CF-1).
+	if m.Kind == ir.KindForLoop && !skipped && (m.Mock == nil || !m.Mock.Enabled) {
+		return r.forLoop(ctx, fr, i, prev, prevID, o)
 	}
 
 	// Start step 8: the arguments, by the first rule that applies (FX-2).
@@ -844,15 +877,15 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 		// identity job of them (FX-17). They went through H2 already.
 		identity, answered, reused = skipped || m.Kind == ir.KindIdentity, skipped, true
 		args = *b.reuse
-	case m.PassFlowInputDirectly:
+	case passDirect(fr, m):
 		identity, answered = skipped || m.Kind == ir.KindIdentity, skipped
-		args = r.input
+		args = fr.input
 	case skipped || m.Kind == ir.KindIdentity:
 		identity, answered = true, skipped
 		args = objectOf(member{"previous_result", prev.Producer()})
 	default:
 		var err error
-		if args, err = r.args(ctx, i, m.Leaf.Inputs, site.Path, prev, prevID); err != nil {
+		if args, err = r.args(ctx, fr, i, m.Leaf.Inputs, site.Path, prev, prevID); err != nil {
 			if ctx.Err() != nil {
 				return notLaunched()
 			}
@@ -867,16 +900,16 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 		// stop_after_if is not evaluated (FX-17). The failure module is
 		// never flagged skipped, even when its skip_if replaced it with a
 		// passthrough (FX-17, FX-32).
-		skipped = m.SkipIf != nil && !r.isFailure(i)
+		skipped = m.SkipIf != nil && !fr.isFailure(i)
 	}
 	if !answered && !reused && preRun == nil {
 		// H2 rewrites the arguments of a module that launches its own job;
 		// the trace keeps both.
 		rewritten, err := r.hooks.RewriteArgs(ctx, r, site, args)
 		if err != nil {
-			r.latch.Set(HookLatchError(ctx, err))
+			r.Latch(HookLatchError(ctx, err))
 		} else if !isObject(rewritten) {
-			r.latch.Set(errors.New("engine: H2 returned arguments that are not a JSON object"))
+			r.Latch(errors.New("engine: H2 returned arguments that are not a JSON object"))
 		}
 		if r.latch.Err() != nil {
 			return notLaunched()
@@ -886,22 +919,22 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			args = rewritten
 		}
 	}
-	// Start step 9: the module's own timeout, which every module
-	// evaluates, though only a leaf's job is timed (FX-24). Its failure is
-	// a chaining error (FX-15).
-	secs, err := r.moduleTimeout(ctx, m, site.Path, prev, prevID)
+	// Start step 9: the module's own timeout (its loop's in a collapsed
+	// iteration), which every module evaluates, though only a leaf's job
+	// is timed (FX-24). Its failure is a chaining error (FX-15).
+	secs, err := r.moduleTimeout(ctx, fr, m, site.Path, prev, prevID)
 	if err != nil {
 		if ctx.Err() != nil {
 			return notLaunched()
 		}
-		return r.chaining(b.first, o, err.Error())
+		return chaining(err.Error())
 	}
 	// The storage boundary: each argument becomes its stored text; one
 	// that jsonb refuses, by a key or a value, fails the push, a chaining
 	// error (ADR 0005 step 3, FX-48, FX-51).
 	stored, err := storeMembers(args)
 	if err != nil {
-		return r.chaining(b.first, o, err.Error())
+		return chaining(err.Error())
 	}
 	// The resolution of $var: and $res: (JE-41) is the platform providers'
 	// (PF2); until then the resolved arguments are the recorded ones.
@@ -919,7 +952,7 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			o.rec.Ran, o.rec.Start = true, r.clock.Now()
 			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepFailure, conformance.ModuleFailure, v, v, OriginEngine
 			o.end, o.carried, o.origin = endInterrupted, v, OriginEngine
-			r.recordJob(i, v)
+			r.recordJob(fr, i, v)
 			return o
 		}
 		if r.latch.Err() != nil {
@@ -929,19 +962,19 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	o.rec.Start = r.clock.Now()
 	if preRun != nil {
 		o.rec.Ran = true
-		out := fail(transformError(preRun), OriginEngine)
-		r.recordJob(i, out.rec.Result)
-		r.ended(&out)
+		out := fail(transformError(preRun, fr.collapsed != nil), OriginEngine)
+		r.recordJob(fr, i, out.rec.Result)
+		r.ended(fr, &out)
 		return out
 	}
 	if answered {
-		return r.identityJob(ctx, i, m, site.Path, o, stored, skipped)
+		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
 	}
 
 	// The launch, where H1 may answer for the module.
 	out, intercepted, err := r.hooks.Intercept(ctx, r, site, stored)
 	if err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
 		return notLaunched()
@@ -951,43 +984,46 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 	case intercepted:
 		o.rec.Hooks = append(o.rec.Hooks, "H1")
 	case identity:
-		return r.identityJob(ctx, i, m, site.Path, o, stored, skipped)
+		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
 	default:
 		entry, _, err := Entrypoint(stored)
 		if err != nil {
 			// WR-12: the job fails before any wrapper runs.
 			o.rec.Ran = true
 			out := fail(engineError("ExecutionErr", err.Error()), OriginEngine)
-			r.recordJob(i, out.rec.Result)
-			r.ended(&out)
+			r.recordJob(fr, i, out.rec.Result)
+			r.ended(fr, &out)
 			return out
 		}
 		// H3: the host may veto the run's first write-capable launch.
 		if r.hooks.WriteCapable(site) {
+			r.writeMu.Lock()
 			if !r.wrote {
 				r.wrote = true
 				if err := r.hooks.BeforeFirstWrite(ctx, r, site); err != nil {
-					r.latch.Set(HookLatchError(ctx, err))
+					r.Latch(HookLatchError(ctx, err))
 				}
-				if r.latch.Err() != nil {
-					return notLaunched()
-				}
-				// H4: the pre-write deadline applies until the first write,
-				// so one that passed while the host decided stops it.
+				// H4: the pre-write deadline applies until the first write.
 				if r.preWrite != nil {
 					r.preWrite.Stop()
 				}
-				if ctx.Err() != nil {
-					return notLaunched()
-				}
+			}
+			r.writeMu.Unlock()
+			if r.latch.Err() != nil {
+				return notLaunched()
+			}
+			// A pre-write deadline that passed while the host decided
+			// stops the write (H4).
+			if errors.Is(context.Cause(ctx), ErrPreWriteDeadline) {
+				return notLaunched()
 			}
 			r.mu.Lock()
 			r.trace.MayHaveMutated = true
 			r.mu.Unlock()
 		}
-		timeout, instanceWide := r.leafTimeout(m, secs)
+		timeout, instanceWide := r.leafTimeout(fr, m, secs)
 		o.rec.Ran = true
-		out, job, err = r.invoke(ctx, m, site, entry, stored, timeout, idx)
+		out, job, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
 		o.rec.Job = job
 		switch {
 		case errors.Is(err, errNotLaunched):
@@ -997,9 +1033,9 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			o.rec.Abandoned = true
 			// The worker's text for a step that ran out of time: WR-37's
 			// for Bun, WR-44's for native.
-			res := fail(TimeoutError(Boundary(m.Leaf.Boundary), m.ID, timeout, instanceWide), OriginEngine)
-			r.recordJob(i, res.rec.Result)
-			r.ended(&res)
+			res := fail(TimeoutError(Boundary(m.Leaf.Boundary), fr.stepID(i), timeout, instanceWide), OriginEngine)
+			r.recordJob(fr, i, res.rec.Result)
+			r.ended(fr, &res)
 			return res
 		case err != nil && ctx.Err() != nil:
 			// The run was canceled (H4): the step's job is canceled, with
@@ -1007,21 +1043,21 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			// completion check ends the run.
 			o.rec.Abandoned = true
 			reason, canceler := cancellationOf(ctx)
-			v := killedError(m.ID, reason, canceler)
+			v := killedError(fr.stepID(i), reason, canceler)
 			o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried, o.rec.ResultOrigin = conformance.StepCanceled, conformance.ModuleFailure, v, v, OriginEngine
 			o.end, o.carried, o.origin = endInterrupted, v, OriginEngine
-			r.recordJob(i, v)
-			r.ended(&o)
+			r.recordJob(fr, i, v)
+			r.ended(fr, &o)
 			return o
 		case err != nil:
 			res := fail(engineError("InternalErr", err.Error()), OriginEngine)
-			r.recordJob(i, res.rec.Result)
-			r.ended(&res)
+			r.recordJob(fr, i, res.rec.Result)
+			r.ended(fr, &res)
 			return res
 		}
 	}
-	r.ended(&o)
-	st := StoreOutcome(out, m.ID)
+	r.ended(fr, &o)
+	st := StoreOutcome(out, fr.stepID(i))
 	if _, err := st.Value.Stored(); err != nil && job != "" {
 		// FX-48 case 1, OR-27: the completion insert refuses a result, or
 		// a failure value, that jsonb rejects, and the job fails with the
@@ -1030,7 +1066,7 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 		// delay windmill-lite does not reproduce (OR-27: out of scope).
 		st = Stored{Failed: true, Value: engineError("InternalErr", "Internal: Could not add completed job "+job+": "+databaseError(err).Error()), Origin: OriginEngine}
 	}
-	r.recordJob(i, st.Value)
+	r.recordJob(fr, i, st.Value)
 	if st.Failed {
 		if intercepted {
 			st.Origin = OriginHost
@@ -1045,46 +1081,58 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 		o.rec.Skipped = true
 		return o
 	}
-	return r.stop(ctx, m, site.Path, o)
+	return r.stop(ctx, fr, i, site.Path, o)
 }
 
-// ended records that the job of o, which started at o.rec.Start, has
-// ended: its duration, and the end of the transition that pushed it, which
-// starts the next one (JE-2's monitor).
-func (r *run) ended(o *outcome) {
+// ended records that the job of o, a job of fr's flow which started at
+// o.rec.Start, has ended: its duration, and the end of the transition that
+// pushed it, which starts the next one (JE-2's monitor, which a collapsed
+// iteration's loop's flow keeps).
+func (r *run) ended(fr *frame, o *outcome) {
 	now := r.clock.Now()
 	o.rec.Duration = now.Sub(o.rec.Start)
-	r.spent, r.pinged = 0, now
+	own := fr.owner()
+	own.spent, own.pinged = 0, now
 }
 
-// identityJob runs module i's identity job (FX-16), which the worker runs
-// at once, with no timer (FX-24): its result is its stored arguments'
-// previous_result, or {}. A job classified skipped does not evaluate the
-// module's stop_after_if (FX-17, FX-18).
-func (r *run) identityJob(ctx context.Context, i int, m *ir.Module, site conformance.SitePath, o outcome, stored jsonval.Value, skipped bool) outcome {
+// passDirect reports whether module m of fr receives its flow's input as
+// its arguments (OF-V4); a collapsed body takes its loop's flag instead of
+// its own (CF-8 item 5), and its flow input is its iteration's.
+func passDirect(fr *frame, m *ir.Module) bool {
+	if fr.collapsed != nil {
+		return fr.collapsed.PassFlowInputDirectly
+	}
+	return m.PassFlowInputDirectly
+}
+
+// identityJob runs the identity job (FX-16) of the module at cursor i of
+// fr, which the worker runs at once, with no timer (FX-24): its result is
+// its stored arguments' previous_result, or {}. A job classified skipped
+// does not evaluate the module's stop_after_if (FX-17, FX-18).
+func (r *run) identityJob(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome, stored jsonval.Value, skipped bool) outcome {
 	res := identityResult(stored)
-	r.ended(&o)
+	r.ended(fr, &o)
 	o.rec.Ran, o.rec.Skipped = true, skipped
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, res, res
 	o.carried = res
-	r.recordJob(i, res)
+	r.recordJob(fr, i, res)
 	if skipped {
 		return o
 	}
-	return r.stop(ctx, m, site, o)
+	return r.stop(ctx, fr, i, site, o)
 }
 
 // stop is completion step 1 for a module whose job succeeded: its
 // stop_after_if, with the module's own result as result and
 // previous_result (FX-19, JE-26). o is the module's successful outcome.
 // The failure module has no stop (FX-2 completion step 1).
-func (r *run) stop(ctx context.Context, m *ir.Module, site conformance.SitePath, o outcome) outcome {
-	s := m.StopAfterIf
-	if s == nil || m == r.f.FailureModule {
+func (r *run) stop(ctx context.Context, fr *frame, i int, site conformance.SitePath, o outcome) outcome {
+	s := fr.moduleAt(i).StopAfterIf
+	if s == nil || fr.isFailure(i) {
 		return o
 	}
 	own := o.carried
-	v, err := r.predicate(ctx, s.Expr, site, r.stopScope(s.Expr, own))
+	v, err := r.predicate(ctx, fr, s.Expr, site, r.stopScope(fr, s.Expr, own))
 	switch {
 	case err != nil && ctx.Err() != nil:
 		o.end = endInterrupted
@@ -1093,92 +1141,97 @@ func (r *run) stop(ctx context.Context, m *ir.Module, site conformance.SitePath,
 		// FX-21: the completion is redone as an unrecoverable failure whose
 		// error is the predicate's text, a string; the job's stored result
 		// stays the step's success (FX-V2).
-		o.rec.Module, o.end = conformance.ModuleFailure, endUnrecoverable
-		o.carried, o.origin = objectOf(member{"error", jsonString(predicateText(err))}), OriginEngine
-		o.rec.Carried, o.rec.CarriedOrigin = o.carried, OriginEngine
-		return o
+		return stopFailed(o, err)
 	case !v:
 		return o
+	}
+	return applyStop(s, o, own)
+}
+
+// stopFailed is a module whose stop_after_if threw (FX-21, JE-26): it
+// fails unrecoverably, carrying the predicate's text as a string.
+func stopFailed(o outcome, err error) outcome {
+	o.rec.Module, o.end = conformance.ModuleFailure, endUnrecoverable
+	o.carried, o.origin, o.nested = objectOf(member{"error", jsonString(predicateText(err))}), OriginEngine, nil
+	o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested = o.carried, OriginEngine, nil
+	return o
+}
+
+// applyStop applies a stop that fired (FX-19): a clean stop ends the flow
+// with the module's result, as skipped with skip_if_stopped, which wins
+// over error_message; an error stop fails the module, which carries an
+// EarlyStopError while its job keeps its result (FX-V2). own is the result
+// that error_include_result adds.
+func applyStop(s *ir.Stop, o outcome, own jsonval.Value) outcome {
+	switch {
 	case s.SkipIfStopped:
-		// A clean stop that marks the module and the flow skipped;
-		// skip_if_stopped wins over error_message.
 		o.rec.Skipped, o.end = true, endStoppedSkipped
 		return o
 	case s.ErrorMessage == nil:
 		o.end = endStopped
 		return o
 	}
-	// An error stop: the module fails, carrying an EarlyStopError, while
-	// its job stays successful (FX-V2).
 	msg := *s.ErrorMessage
 	if msg == "" {
 		msg = "stop after if: " + s.Expr.Text
 	}
+	return errorStop(o, msg, s, own)
+}
+
+// errorStop fails the module with an EarlyStopError whose message is msg,
+// with own as its result when s asks for it (FX-19, FX-V2). own is o's
+// carried value: when it is included, the generated errors inside it keep
+// their provenance below /error/result (ADR 0011); otherwise they go with
+// it.
+func errorStop(o outcome, msg string, s *ir.Stop, own jsonval.Value) outcome {
 	e := []member{{"name", jsonString("EarlyStopError")}, {"message", jsonString(msg)}}
+	var nested []string
 	if s.ErrorIncludeResult != nil && *s.ErrorIncludeResult {
 		e = append(e, member{"result", own.Producer()})
+		for _, p := range o.nested {
+			nested = append(nested, "/error/result"+p)
+		}
 	}
-	o.carried, o.origin = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine
-	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.end = conformance.ModuleFailure, o.carried, OriginEngine, endErrorStop
+	o.carried, o.origin, o.nested = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, nested
+	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested, o.end = conformance.ModuleFailure, o.carried, OriginEngine, nested, endErrorStop
 	return o
 }
 
-// chaining is a chaining error raised while a module starts (FX-15),
-// whose display text is text (without Windmill's Rust location, D14). At
-// the root's first pickup (first), the first module's first start, it is a
-// failure of that module with no job, named Anyhow (context 2), which
-// retry, continue_on_error and the failure module then handle. At a later
-// transition, a retry's re-entry and the failure module's start included,
-// the flow fails at once with it, named InternalError, and the module
-// never starts (context 1).
-func (r *run) chaining(first bool, o outcome, text string) outcome {
-	if first {
+// chaining is a chaining error raised while the module at cursor i of fr
+// starts (FX-15), whose display text is text (without Windmill's Rust
+// location, D14). The start of a flow's first module is its pickup; the
+// failure module's start is a later transition; the push of a collapsed
+// iteration's job is routed again by its loop (sequentialLoop).
+func (r *run) chaining(fr *frame, i int, o outcome, text string) outcome {
+	return r.chainingAt(fr, i == 0 && fr.collapsed == nil, o, text)
+}
+
+// chainingAt routes a chaining error of fr's flow, raised at its pickup or
+// not (FX-15, CF-23):
+//
+//   - at the root's pickup it is a failure of the module with no job, named
+//     Anyhow (context 2), which continue_on_error and the failure module
+//     then handle;
+//   - at a child flow's pickup the child fails at once with that error, and
+//     its first module never starts (context 3, CF-V3);
+//   - at a later transition the flow fails at once with it, named
+//     InternalError, and the module never starts (context 1).
+func (r *run) chainingAt(fr *frame, pickup bool, o outcome, text string) outcome {
+	o.chain = text
+	switch {
+	case pickup && !fr.child:
 		v := engineError("Anyhow", "Error: "+text)
 		o.rec.Status, o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin = conformance.StepFailure, conformance.ModuleFailure, v, OriginEngine
 		o.end, o.carried, o.origin = endFailed, v, OriginEngine
+		return o
+	case pickup:
+		o.rec.Status, o.rec.Module = conformance.StepNotRun, conformance.ModuleNotRun
+		o.end, o.carried, o.origin = endChained, engineError("Anyhow", "Error: "+text), OriginEngine
 		return o
 	}
 	o.rec.Status, o.rec.Module = conformance.StepNotRun, conformance.ModuleNotRun
 	o.end, o.carried, o.origin = endChained, engineError("InternalError", text), OriginEngine
 	return o
-}
-
-// recordJob records the stored result of the job of the module at cursor
-// i, which results lookups read (JE-18, JE-19).
-func (r *run) recordJob(i int, v jsonval.Value) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.jobs[i] = v
-	r.nodes[r.moduleAt(i).ID] = v
-}
-
-// Lookup is a results read on the engine path (JE-18 steps 2 and 3): the
-// first module of the flow with that id, when it has a job, gives its
-// job's result; otherwise the node-id map does (JE-19); anything else is
-// null. Which of two modules with one id step 2 finds (OF-2) is a reading:
-// the first in the flow. The value is read from storage, so the evaluator
-// binds its stored text.
-func (r *run) Lookup(_ context.Context, id string) (jsonval.Value, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i, m := range r.f.Modules {
-		if m.ID == id {
-			if v := r.jobs[i]; !v.IsZero() {
-				return v, nil
-			}
-			break
-		}
-	}
-	return r.nodes[id], nil
-}
-
-// Stored is the result-by-node-id lookup of JE-9's direct path (JE-19):
-// the job of the module with that id that finished last.
-func (r *run) Stored(_ context.Context, id string) (jsonval.Value, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	v, ok := r.nodes[id]
-	return v, ok
 }
 
 // The names every start-phase site binds besides previous_result (FX-7,
@@ -1190,39 +1243,39 @@ var (
 	jsonObj   = jsonval.FromProducer([]byte("{}"))
 )
 
-// startScope is the scope of skip_if (JE-22): P as result and
-// previous_result, the previous id, results with JE-9, flow_input and
-// flow_env.
-func (r *run) startScope(prev jsonval.Value, prevID string) *expr.Scope {
+// startScope is the scope of skip_if and of a for loop's iterator (JE-22,
+// JE-30): P as result and previous_result, the previous id, results with
+// JE-9, flow_input and flow_env.
+func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Scope {
 	return &expr.Scope{
 		PreviousID: prevID,
 		Context: []expr.Named{
 			{Name: "previous_result", Value: prev}, {Name: "result", Value: prev},
 			{Name: "resume", Value: jsonNull}, {Name: "resumes", Value: jsonEmpty}, {Name: "approvers", Value: jsonEmpty},
 		},
-		FlowInput: r.input,
+		FlowInput: fr.input,
 		FlowEnv:   r.env,
-		Results:   r,
+		Results:   r.results(fr),
 	}
 }
 
 // transformScope is the scope of the input transforms of the module at
-// cursor i (FX-7, JE-22, JE-23): P as previous_result and no result, params
-// always {}, the preceding id, results with JE-9, flow_input and flow_env.
-// The failure module's also see started_at, the flow's start time as an
-// RFC 3339 string, and flow_job_id, the run's id (FX-32, JE-35).
-func (r *run) transformScope(i int, prev jsonval.Value, prevID string) *expr.Scope {
+// cursor i of fr (FX-7, JE-22, JE-23): P as previous_result and no result,
+// params always {}, the preceding id, results with JE-9, flow_input and
+// flow_env. The failure module's also see started_at, the flow's start
+// time as an RFC 3339 string, and flow_job_id, the run's id (FX-32, JE-35).
+func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string) *expr.Scope {
 	s := &expr.Scope{
 		PreviousID: prevID,
 		Context: []expr.Named{
 			{Name: "previous_result", Value: prev}, {Name: "params", Value: jsonObj},
 			{Name: "resume", Value: jsonNull}, {Name: "resumes", Value: jsonEmpty}, {Name: "approvers", Value: jsonEmpty},
 		},
-		FlowInput: r.input,
+		FlowInput: fr.input,
 		FlowEnv:   r.env,
-		Results:   r,
+		Results:   r.results(fr),
 	}
-	if r.isFailure(i) {
+	if fr.isFailure(i) {
 		s.Context = append(s.Context,
 			expr.Named{Name: "started_at", Value: jsonval.FromProducer(jsonString(rfc3339(r.started)))},
 			expr.Named{Name: "flow_job_id", Value: jsonval.FromProducer(jsonString(r.id))})
@@ -1230,57 +1283,19 @@ func (r *run) transformScope(i int, prev jsonval.Value, prevID string) *expr.Sco
 	return s
 }
 
-// sleepScope is the scope of a sleep (FX-8, JE-22): the sleeping module's
-// own result as result and previous_result, no other names, no results
-// (results is not defined), flow_input and flow_env.
-func (r *run) sleepScope(own jsonval.Value) *expr.Scope {
-	return &expr.Scope{
-		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
-		FlowInput: r.input,
-		FlowEnv:   r.env,
-	}
-}
-
-// timeoutScope is the scope of a javascript timeout (FX-8, JE-22): P as
-// result and previous_result, no other names, results with JE-9 and the
-// preceding id, flow_input and flow_env.
-func (r *run) timeoutScope(prev jsonval.Value, prevID string) *expr.Scope {
-	return &expr.Scope{
-		PreviousID: prevID,
-		Context:    []expr.Named{{Name: "previous_result", Value: prev}, {Name: "result", Value: prev}},
-		FlowInput:  r.input,
-		FlowEnv:    r.env,
-		Results:    r,
-	}
-}
-
-// retryScope is the scope of retry_if (FX-8, JE-22, JE-32): the failed
-// attempt's value as result and previous_result, whose error is error
-// (JE-17), no other names and no results; flow_env, as at every predicate
-// evaluated after a module completes, only when the text names it.
-func (r *run) retryScope(x *expr.Expr, failed jsonval.Value) *expr.Scope {
-	s := &expr.Scope{
-		Context:   []expr.Named{{Name: "previous_result", Value: failed}, {Name: "result", Value: failed}},
-		FlowInput: r.input,
-	}
-	if strings.Contains(x.Trimmed, "flow_env") {
-		s.FlowEnv = r.env
-	}
-	return s
-}
-
-// stopScope is the scope of stop_after_if (FX-8, JE-22): the module's own
-// result as result and previous_result, in its producer text (FX-42 item
-// 3); an empty previous id; results only when the text holds results.,
-// results[ or results?.; flow_env only when it holds flow_env.
-func (r *run) stopScope(x *expr.Expr, own jsonval.Value) *expr.Scope {
+// stopScope is the scope of stop_after_if and stop_after_all_iters_if
+// (FX-8, JE-22, JE-27): own as result and previous_result, in its producer
+// text (FX-42 item 3); an empty previous id; results only when the text
+// holds results., results[ or results?.; flow_env only when it holds
+// flow_env.
+func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope {
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
-		FlowInput: r.input,
+		FlowInput: fr.input,
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {
-		s.Results = r
+		s.Results = r.results(fr)
 	}
 	if strings.Contains(t, "flow_env") {
 		s.FlowEnv = r.env
@@ -1288,36 +1303,75 @@ func (r *run) stopScope(x *expr.Expr, own jsonval.Value) *expr.Scope {
 	return s
 }
 
-// evaluate evaluates one expression, timed as a span, under the monitor of
-// flows that hang between steps (JE-2): the time a transition spends
-// evaluating counts against the engine's transition timeout, past which
-// the run is canceled by "monitor", as Windmill's server cancels a flow
-// whose transition outlives FLOW_ZOMBIE_TRANSITION_TIMEOUT. Only
-// evaluations count, not hooks or waits, which Windmill does not have or
-// runs as scheduled jobs.
-func (r *run) evaluate(ctx context.Context, x *expr.Expr, site conformance.SitePath, s *expr.Scope) (jsonval.Value, error) {
-	// The monitor's budget is wall time, where its timer runs, whatever
-	// the run's clock (a recording clock shared by several runs moves on
-	// with their waits).
+// sleepScope is the scope of a sleep (FX-8, JE-22): the sleeping module's
+// own result as result and previous_result, no other names, no results
+// (results is not defined), flow_input and flow_env.
+func (r *run) sleepScope(fr *frame, own jsonval.Value) *expr.Scope {
+	return &expr.Scope{
+		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
+		FlowInput: fr.input,
+		FlowEnv:   r.env,
+	}
+}
+
+// timeoutScope is the scope of a javascript timeout (FX-8, JE-22): P as
+// result and previous_result, no other names, results with JE-9 and the
+// preceding id, flow_input and flow_env.
+func (r *run) timeoutScope(fr *frame, prev jsonval.Value, prevID string) *expr.Scope {
+	return &expr.Scope{
+		PreviousID: prevID,
+		Context:    []expr.Named{{Name: "previous_result", Value: prev}, {Name: "result", Value: prev}},
+		FlowInput:  fr.input,
+		FlowEnv:    r.env,
+		Results:    r.results(fr),
+	}
+}
+
+// retryScope is the scope of retry_if (FX-8, JE-22, JE-32): the failed
+// attempt's value as result and previous_result, whose error is error
+// (JE-17), no other names and no results; flow_env, as at every predicate
+// evaluated after a module completes, only when the text names it.
+func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Scope {
+	s := &expr.Scope{
+		Context:   []expr.Named{{Name: "previous_result", Value: failed}, {Name: "result", Value: failed}},
+		FlowInput: fr.input,
+	}
+	if strings.Contains(x.Trimmed, "flow_env") {
+		s.FlowEnv = r.env
+	}
+	return s
+}
+
+// evaluate evaluates one expression of fr's flow, timed as a span, under
+// the monitor of flows that hang between steps (JE-2): the time a
+// transition spends evaluating counts against the engine's transition
+// timeout, past which the run is canceled by "monitor", as Windmill's
+// server cancels a flow whose transition outlives
+// FLOW_ZOMBIE_TRANSITION_TIMEOUT. Only evaluations count, not hooks or
+// waits, which Windmill does not have or runs as scheduled jobs; and the
+// budget is wall time, where its timer runs, whatever the run's clock (a
+// recording clock shared by several runs moves on with their waits).
+func (r *run) evaluate(ctx context.Context, fr *frame, x *expr.Expr, site conformance.SitePath, s *expr.Scope) (jsonval.Value, error) {
+	own := fr.owner()
 	start, wall := r.clock.Now(), time.Now()
 	var monitor *time.Timer
 	if limit := r.e.transition; limit > 0 {
-		hung := &Cancellation{Canceler: "monitor", Reason: fmt.Sprintf("Flow %s was cancelled because it was hanging in between 2 steps. Last ping: %s", r.id, rfc3339(r.pinged))}
-		monitor = time.AfterFunc(max(limit-r.spent, 0), func() { r.cancel(hung) })
+		hung := &Cancellation{Canceler: "monitor", Reason: fmt.Sprintf("Flow %s was cancelled because it was hanging in between 2 steps. Last ping: %s", own.id, rfc3339(own.pinged))}
+		monitor = time.AfterFunc(max(limit-own.spent, 0), func() { r.cancel(hung) })
 	}
 	v, err := r.e.eval.Eval(ctx, x, s)
 	if monitor != nil {
 		monitor.Stop()
 	}
-	r.spent += time.Since(wall)
+	own.spent += time.Since(wall)
 	r.span(site, SpanExpression, start)
 	return v, err
 }
 
-// predicate evaluates a boolean site (JE-24). A value other than JSON true
-// or false fails with Windmill's check.
-func (r *run) predicate(ctx context.Context, x *expr.Expr, site conformance.SitePath, s *expr.Scope) (bool, error) {
-	v, err := r.evaluate(ctx, x, site, s)
+// predicate evaluates a boolean site of fr's flow (JE-24). A value other
+// than JSON true or false fails with Windmill's check.
+func (r *run) predicate(ctx context.Context, fr *frame, x *expr.Expr, site conformance.SitePath, s *expr.Scope) (bool, error) {
+	v, err := r.evaluate(ctx, fr, x, site, s)
 	if err != nil {
 		return false, err
 	}
@@ -1331,24 +1385,25 @@ func (r *run) predicate(ctx context.Context, x *expr.Expr, site conformance.Site
 	}
 }
 
-// args evaluates the input transforms of the module at cursor i into its
-// argument object (FX-7, JE-23): one at a time, in an order the run's seed
-// shuffles (a hash map's on Windmill, JE-V5), stopping at the first error;
-// the object's top-level keys come in that order too (ADR 0005 step 2). A
-// static value is copied verbatim (JE-40), an ai input left out.
-func (r *run) args(ctx context.Context, i int, ins []ir.Input, site conformance.SitePath, prev jsonval.Value, prevID string) (jsonval.Value, error) {
+// args evaluates the input transforms of the module at cursor i of fr into
+// its argument object (FX-7, JE-23): one at a time, in an order the
+// frame's rng shuffles (a hash map's on Windmill, JE-V5), stopping at the
+// first error; the object's top-level keys come in that order too (ADR
+// 0005 step 2). A static value is copied verbatim (JE-40), an ai input
+// left out.
+func (r *run) args(ctx context.Context, fr *frame, i int, ins []ir.Input, site conformance.SitePath, prev jsonval.Value, prevID string) (jsonval.Value, error) {
 	var ms []member
 	var scope *expr.Scope
-	for _, k := range r.rng.Perm(len(ins)) {
+	for _, k := range fr.rng.Perm(len(ins)) {
 		in := ins[k]
 		switch in.Transform.Type {
 		case ir.Static:
 			ms = append(ms, member{in.Name, orNull(in.Transform.Value)})
 		case ir.Javascript:
 			if scope == nil {
-				scope = r.transformScope(i, prev, prevID)
+				scope = r.transformScope(fr, i, prev, prevID)
 			}
-			v, err := r.evaluate(ctx, in.Transform.Expr, site, scope)
+			v, err := r.evaluate(ctx, fr, in.Transform.Expr, site, scope)
 			if err != nil {
 				return jsonval.Value{}, &transformFailure{text: in.Transform.Expr.Text, err: err}
 			}
@@ -1359,14 +1414,18 @@ func (r *run) args(ctx context.Context, i int, ins []ir.Input, site conformance.
 }
 
 // moduleTimeout evaluates the module's own timeout, start step 9 (FX-24,
-// JE-29): its seconds, or nil when it has none or a static null. A static
-// one is an i32 (OF-V2); a javascript one sees P as result and
-// previous_result, results with JE-9 and the preceding id (JE-22), and its
-// value must deserialise as an i32. A negative timeout, a value that does
-// not deserialise and a failed evaluation are chaining errors, whose texts
-// the error carries (FX-15).
-func (r *run) moduleTimeout(ctx context.Context, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) (*int64, error) {
+// JE-29), its loop's in a collapsed iteration (CF-8, CF-27): its seconds,
+// or nil when it has none or a static null. A static one is an i32
+// (OF-V2); a javascript one sees P as result and previous_result, results
+// with JE-9 and the preceding id (JE-22), and its value must deserialise
+// as an i32. A negative timeout, a value that does not deserialise and a
+// failed evaluation are chaining errors, whose texts the error carries
+// (FX-15).
+func (r *run) moduleTimeout(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) (*int64, error) {
 	t := m.Timeout
+	if fr.collapsed != nil {
+		t = fr.collapsed.Timeout
+	}
 	switch {
 	case t == nil:
 		return nil, nil
@@ -1377,7 +1436,7 @@ func (r *run) moduleTimeout(ctx context.Context, m *ir.Module, site conformance.
 		// expr) asks for none.
 		return nil, nil
 	}
-	v, err := r.evaluate(ctx, t.Expr, site, r.timeoutScope(prev, prevID))
+	v, err := r.evaluate(ctx, fr, t.Expr, site, r.timeoutScope(fr, prev, prevID))
 	if err != nil {
 		return nil, evaluationFailure(t.Expr, err)
 	}
@@ -1406,14 +1465,14 @@ func (e *evalFailure) Error() string { return e.text }
 func (e *evalFailure) Unwrap() error { return e.err }
 
 // leafTimeout returns a leaf's timeout and whether it counts as
-// instance-wide (FX-24, WR-37), given the module's own timeout in seconds,
-// secs, or nil. The request is the module's timeout, else a path script's
-// own timeout metadata; one strictly below the instance maximum is used as
-// it is, and counts as job-specific, zero included, which leaves the step
-// no time at all. With no request, or one at or above the maximum, the
-// maximum applies (windmill-lite has no instance default job timeout below
-// it).
-func (r *run) leafTimeout(m *ir.Module, secs *int64) (time.Duration, bool) {
+// instance-wide (FX-24, WR-37), given the module's own timeout in seconds
+// (its loop's in a collapsed iteration), secs, or nil. The request is that
+// timeout, else a path script's own timeout metadata; one strictly below
+// the instance maximum is used as it is, and counts as job-specific, zero
+// included, which leaves the step no time at all. With no request, or one
+// at or above the maximum, the maximum applies (windmill-lite has no
+// instance default job timeout below it).
+func (r *run) leafTimeout(fr *frame, m *ir.Module, secs *int64) (time.Duration, bool) {
 	if secs == nil && m.Kind == ir.KindScript {
 		if s := r.e.prog.Scripts[m.Leaf.Script]; s != nil && s.Metadata != nil && s.Metadata.Timeout != nil {
 			v := int64(*s.Metadata.Timeout)
@@ -1437,13 +1496,13 @@ func (r *run) leafTimeout(m *ir.Module, secs *int64) (time.Duration, bool) {
 // "Expected a number value, had error instead: ExecutionErr(…)", the debug
 // form of the evaluation's error, and a value that is not a delay with
 // sleepDelay's texts, all chaining errors (FX-15).
-func (r *run) sleep(ctx context.Context, t *ir.Transform, site conformance.SitePath, own jsonval.Value) (time.Duration, error) {
+func (r *run) sleep(ctx context.Context, fr *frame, t *ir.Transform, site conformance.SitePath, own jsonval.Value) (time.Duration, error) {
 	text := []byte(orNull(t.Value))
 	if t.Type == ir.Javascript {
 		if t.Expr == nil {
 			return sleepDelay([]byte("null"))
 		}
-		v, err := r.evaluate(ctx, t.Expr, site, r.sleepScope(own))
+		v, err := r.evaluate(ctx, fr, t.Expr, site, r.sleepScope(fr, own))
 		if err != nil {
 			return 0, &evalFailure{text: "Expected a number value, had error instead: ExecutionErr(" + rustDebug(evaluationFailure(t.Expr, err).Error()) + ")", err: err}
 		}
@@ -1484,10 +1543,14 @@ func attemptsLeft(r *ir.Retry, n uint32) bool {
 // errNotLaunched: a hook latched the run before the step launched.
 var errNotLaunched = errors.New("engine: the run latched before the step launched")
 
-// invoke runs the step in its harness, with its timeout as a timer in the
-// engine (ADR 0004 §Cancellation and deadlines item 2), and returns its
-// outcome and its job's id, WM_JOB_ID.
-func (r *run) invoke(ctx context.Context, m *ir.Module, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, error) {
+// invoke runs the module at cursor i of fr in its harness, with its
+// timeout as a timer in the engine (ADR 0004 §Cancellation and deadlines
+// item 2), and returns its outcome and its job's id, WM_JOB_ID. The job
+// identity follows the flow the job runs in (WA-6, WA-V1, ADR 0007): its
+// job id, its innermost scope and its runnable path.
+func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, error) {
+	m := fr.moduleAt(i)
+	in := fr.owner()
 	inv := Invocation{
 		ID:          newUUID(),
 		Run:         r.id,
@@ -1498,21 +1561,22 @@ func (r *run) invoke(ctx context.Context, m *ir.Module, site Site, entry string,
 		Boundary:    Boundary(m.Leaf.Boundary),
 		ModuleState: ModuleStateWarm,
 	}
-	// Job identity (ADR 0007, WA-4, WA-V1): a step directly in the flow
-	// has the run as its parent, its innermost scope and its effective
-	// root.
+	// Job identity (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs in
+	// is its parent (a child flow, or the loop's flow for a collapsed
+	// iteration), with that flow's innermost scope and runnable path, under
+	// the run as its effective root.
 	inv.Env = platform.Identity{
 		JobID:         inv.ID,
-		FlowJobID:     r.id,
-		RootFlowJobID: r.id,
+		FlowJobID:     in.id,
+		RootFlowJobID: in.scope,
 		RootJobID:     r.id,
-		FlowPath:      r.f.Path,
-		StepID:        m.ID,
-		JobPath:       site.Script,
+		FlowPath:      in.path,
+		StepID:        fr.stepID(i),
+		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
 	}.Env(r.e.host)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
-		r.latch.Set(HookLatchError(ctx, err))
+		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
 		return StepOutcome{}, "", errNotLaunched

@@ -3,13 +3,14 @@
 **Current state:** the contracts of milestone K1
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)), the
 mapping of a Bun step's outcome to Windmill's stored value with the
-entrypoint's selection (milestone C3a), and the engine core of milestone
+entrypoint's selection (milestone C3a), the engine core of milestone
 N1a, which runs a compiled program's flows sequentially, with the errors
-of milestone N1b: `continue_on_error`, the failure module and recovery,
+of milestone N1b (`continue_on_error`, the failure module and recovery,
 the error shapes, chaining errors, the final result and the cancellation
-outcome, and the waits and time of milestone N2: `sleep`, the step
-timeout and its messages, retries with their arithmetic, jitter and
-argument reuse, deadlines and the clock. This README
+outcome), the for loops of milestone N3a: sequential, collapsed and
+parallel, with `parallelism`, and the waits and time of milestone N2:
+`sleep`, the step timeout and its messages, retries with their
+arithmetic, jitter and argument reuse, deadlines and the clock. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -28,8 +29,9 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `waits.go` | H10's `Jitter`, `SeededJitter` and `RecordClock`; the values of `sleep` and `timeout` and the retry schedule (below) | N2 calls them; F2b exposes the clock and the jitter to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
-| `trace.go` | `Trace`, `StepRecord`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives. A record's `ResultOrigin` and `CarriedOrigin` say who produced its result and, when the engine set it apart, its carried value | N1a fills it; wl returns it |
+| `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `frame.go`, `loop.go`, `serde.go` | the flows a run executes (the root and its loops' child flows), their results scopes, and for loops (below); the texts of Windmill's JSON library | N3a; N3b and N3c run their containers on frames |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
 Site identities are `conformance.SitePath` values. Run statuses are
@@ -45,6 +47,9 @@ and `halted`. Traces, hooks and observations therefore share one vocabulary.
   to fail a module answers `Intercept` with an error outcome instead.
 - **First latch wins.** `Latch` (H5, reached through `Run.Latch`) keeps the
   first error latched and drops later ones, and is safe for concurrent use.
+- **Concurrent calls.** The iterations of a parallel loop run on
+  goroutines of their own, so one run's hooks are called concurrently: a
+  `Hooks` implementation must be safe for concurrent use.
 - **Not hooks in this interface:**
   - H4 (cancellation and budgets) reaches the engine as the run's context,
     whose deadline is the hard one, and `RunRequest.PreWriteDeadline`
@@ -180,21 +185,28 @@ means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
 concurrent use.
 
-**What it runs (N1a, N1b, N2).** A flow's top-level modules in sequence:
+**What it runs (N1a, N1b, N3a, N2).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
 `skip_if`, `mock`, `pass_flow_input_directly`, `stop_after_if`, `sleep`,
 a static or javascript `timeout`, `retry` and `retry_if`,
 `continue_on_error`, a failure module of those kinds, `flow_env`,
 `early_return` (which changes only the synchronous HTTP response,
-[FX-37](../../docs/semantics/execution.md#fx-37)) and a flow's own
-`timeout`, which nothing enforces: a flow job bypasses every executor
-timer ([FX-24](../../docs/semantics/execution.md#fx-24), path 4). `New`
-refuses everything else with `ErrUnsupported`, naming the milestone that
-implements it, for a top-level module and the failure module alike:
-loops and branches (N3a, N3b); subflows by path (N3c); `cache_ttl` (N4);
-host-provided sites (F2a); a step of another harness than Bun's, whose
-`bun` and `native` boundaries it runs (L1); a preprocessor, `skip_expr`
-and an `ai` sleep or timeout (`later`).
+[FX-37](../../docs/semantics/execution.md#fx-37)), a flow's own `timeout`,
+which nothing enforces: a flow job bypasses every executor timer
+([FX-24](../../docs/semantics/execution.md#fx-24), path 4), and for loops
+with `stop_after_all_iters_if` (below). `New` refuses everything else with
+`ErrUnsupported`, naming the milestone that implements it, for a
+top-level module, a loop body's and the failure module alike: N2's waits
+and retries in a loop's body, on a loop, or as the sleep before a loop
+(a sleep, a retry with attempts or `retry_if`, a javascript or negative
+`timeout`), which NI integrates with containers; while loops and branches
+(N3b); a for loop in a flow with a failure module, whose bodies carry a
+copy of it, and subflows by path (N3c); `cache_ttl`, a path script's own
+included (N4); host-provided sites (F2a); a step of another harness than
+Bun's, whose `bun` and `native` boundaries it runs (L1); a squashed loop
+(EE, [CF-25](../../docs/semantics/control-flow.md#cf-25)); an `ai`
+parallelism, whose error the reference does not give; a preprocessor,
+`skip_expr` and an `ai` sleep or timeout (`later`).
 
 **One module** follows [FX-2](../../docs/semantics/execution.md#fx-2):
 
@@ -243,7 +255,10 @@ and an `ai` sleep or timeout (`later`).
    `WM_JOB_ID` (the invocation's id), the run as `WM_FLOW_JOB_ID`,
    `WM_ROOT_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, the flow's path, the module
    id, the job path, `WM_STATE_PATH`, a fresh `WM_TOKEN`, and the host
-   configuration of `Config.Host` and `Config.Workspace`.
+   configuration of `Config.Host` and `Config.Workspace`. A step in a loop
+   body takes its child flow's job id, innermost scope and path, or its
+   collapsed loop's step id and `<flow path>/loop-<i>` job path (For loops,
+   below).
 6. **`stop_after_if`** after a success, except on the failure module, and
    on an identity job classified skipped: any identity job of a module
    with a `skip_if`, whatever the predicate answered, and whether it ran or
@@ -382,10 +397,14 @@ texts until the platform providers (PF2).
 **The results context.** The run answers the evaluator's lookups
 ([JE-18](../../docs/semantics/expressions.md#je-18),
 [JE-19](../../docs/semantics/expressions.md#je-19)) from the jobs it has
-run: `Lookup` (the engine path) gives the job result of the first module
-with that id that has a job, else the node-id map's; `Stored` (JE-9's
-direct path) gives the node-id map's, where the module that finished
-last wins. Both are job results in storage: after an error stop that is
+run, per flow (a frame, `frame.go`: the root, or a loop iteration's child
+flow): `Lookup` (the engine path) gives the job result of the first module
+of the current flow with that id that has a job (a loop's is the array of
+its iterations' results), else the node-id map's; `Stored` (JE-9's direct
+path) gives the node-id map's, where the module that finished last wins.
+The map has scopes ([CF-19](../../docs/semantics/control-flow.md#cf-19)):
+the root's, and one per parallel iteration; a sequential iteration writes
+into its parent's, and a lookup walks from a scope to the root. Both are job results in storage: after an error stop that is
 the step's success value, not the `EarlyStopError`
 ([FX-10](../../docs/semantics/execution.md#fx-10)). An unknown id is
 `null`. The previous module's own reads from memory are the evaluator's
@@ -399,6 +418,14 @@ the step's success value, not the `EarlyStopError`
 | `skip_if`, or an argument jsonb refuses, at the first module (the root's first pickup) | the module fails, not run: `{"error": {"message": "Error: <text>", "name": "Anyhow"}}` | FX-15 context 2, JE-35 (b) |
 | the same at a later module | the flow fails at once, the module not run: `{"error": {"message": <text>, "name": "InternalError"}}` | FX-15 context 1, JE-35 (a) |
 | `stop_after_if` fails | the module fails unrecoverably with the string `{"error": <text>}` | FX-21, JE-26 |
+| a for loop's iterator throws, is not an array, or is `ai` | a chaining error, routed as above: `Error: <evaluator text>`, ``Expected an array value in the iterator expression, found: <serde's message>``, or `AI input transform not supported for iterator` | CF-2, CF-23, JE-30 |
+| jsonb refuses the iterator's array (a NUL, an unpaired surrogate, a number beyond numeric's range), or a child flow's input | a chaining error, routed as above, before any iteration runs: `error returned from database: <PostgreSQL's message>` | CF-2, FX-48, FX-51 |
+| a parallel loop's `parallelism` throws or is not a u16 | a chaining error: ``Error during evaluation of expression `<text>`:
+<evaluator text>``, `Error parsing result as u16: <serde's message>. Value was: <value>` or `Error parsing static value as u16: <serde's message>` | JE-V1 |
+| a parallel loop of two or more iterations in a `same_worker` flow | a chaining error: `Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker` | CF-7 |
+| a chaining error at a child flow's first module | the child fails at once with the `Anyhow` form, its module not started; the loop sees a failed iteration | FX-15 context 3, CF-V3 |
+| a collapsed body's input transform fails | as an input transform's, the message prefixed `could not transform input using an expr: ` | JE-23, JE-39 |
+| `stop_after_all_iters_if` fails | an error stop of the flow: ``{"error": {"name": "EarlyStopError", "message": "Error evaluating stop_after_all_iters_if expression `<text>`: <predicate text>"}}``, carried by the loop, whose result stays its array | CF-13, JE-27 |
 | an invalid `_ENTRYPOINT_OVERRIDE` | `{"error": {"message": "Invalid entrypoint override: <value>", "name": "ExecutionErr"}}`, before the step runs | WR-12 |
 | the step's timeout | `TimeoutError`'s value for the step's boundary: for Bun, `execution error:\njob process terminated due to timeout after exceeding <job-specific or instance-wide> duration limit`; for native (C3n), `execution error:\nQuery timeout after (>Ns)`, whichever limit applied; `ExecutionErr`, `step_id` | WR-37, WR-44 |
 | a job's result or failure value that jsonb refuses | the job fails: `{"error": {"message": "Internal: Could not add completed job <job id>: error returned from database: <PostgreSQL's message>", "name": "InternalErr"}}`, no `step_id`, at once where Windmill retries the insert for about 30 s first | FX-48 case 1, OR-27 |
@@ -413,9 +440,22 @@ A predicate's `<text>` is `Error: <evaluator text>` for a failed
 evaluation, or `Expected a boolean value, found: "<value's JSON>"`
 ([JE-24](../../docs/semantics/expressions.md#je-24)); an argument's is
 `error returned from database: <PostgreSQL's message>`
-([FX-48](../../docs/semantics/execution.md#fx-48)). Windmill ends the
-generic ones with Rust source locations, which windmill-lite does not
-write (D14).
+([FX-48](../../docs/semantics/execution.md#fx-48)). serde's message is
+what Windmill's JSON library reports for the value (`serde.go`), such as
+``invalid type: map, expected a sequence at line 1 column 0`` or
+``invalid type: floating point `1.5`, expected u16 at line 1 column 3``.
+Windmill ends the generic ones with Rust source locations, which
+windmill-lite does not write (D14); a comparison strips them on the
+oracle's side ([internal/conformance](../conformance/README.md#location-suffixes)).
+The trace records who produced a module's carried value apart from its
+result (`CarriedOrigin`), since an error stop's `EarlyStopError` is the
+engine's over a step's own result; and, for a loop's array, where inside it
+the errors the engine generated are (`ResultNested`, `CarriedNested`,
+`Trace.ResultNested`: JSON pointers such as `/0` or `/1/0` for a nested
+loop's), through every level of nesting up to the run's result, and below
+`/error/result` when an error stop includes the array, so that a
+comparison strips their locations and a user's error beside them keeps
+its own.
 
 **Readings where the reference is silent**, each pinned by a test:
 
@@ -440,6 +480,121 @@ write (D14).
 - A canceled step's killed text and the run's `Canceled` error take the
   same reason and canceler, Windmill's defaults included.
 - N2's readings are listed with its section, below.
+- For loops (N3a): an empty body does not evaluate the iterator; a
+  collapsed iteration's previous id is empty, and a read of its own loop
+  sees the iterations so far, `[]` at first; on a loop that failed only an
+  error stop of `stop_after_all_iters_if` changes its outcome (with no
+  failure module, a clean stop and the failure both end the flow with the
+  array); a loop whose `stop_after_if` throws fails as a step's does
+  (FX-21), with no `stop_after_all_iters_if` after it; a static null
+  `parallelism` is no limit, as a static null timeout is none; a collapsed
+  body takes its loop's `pass_flow_input_directly` instead of its own
+  (CF-8 item 5) and then receives its iteration's flow input; a loop's
+  `skip_if` is evaluated once, not before
+  every iteration ([CF-21](../../docs/semantics/control-flow.md#cf-21) is
+  `later`, [Q-CF-6](../../docs/semantics/control-flow.md#q-cf-6)); the
+  text of P after a loop is the compact array with numbers re-printed
+  ([JE-44](../../docs/semantics/expressions.md#je-44)), written with
+  FX-42's exponent spellings (`1e+21`); an iterator or `parallelism` whose
+  text is not JSON (a replaced `JSON.stringify`,
+  [JE-15](../../docs/semantics/expressions.md#je-15)) fails with serde_json's
+  syntax error for an empty text, a character no value starts with, a
+  broken `true`, `false` or `null` (``expected ident at line 1 column 2``),
+  a leading zero (``invalid number at line 1 column 2``) or more than white
+  space after a value (``trailing characters at line 1 column 2``), which
+  serde_json checks after the value's type and range, and serde_json's
+  other syntax errors are not reproduced; whatever is not one JSON value
+  of the expected kind is refused.
+
+**For loops (N3a, `loop.go`).** A loop module that runs is a container: no
+arguments, no H1 or H2, a record whose status is the loop's own and whose
+result is the array of its iterations' results
+([CF-4](../../docs/semantics/control-flow.md#cf-4)).
+
+1. **Start.** `skip_if` and `mock` answer for it as for any module. The
+   iterator is evaluated once, with `skip_if`'s scope; its elements are
+   kept in their stored form, since Windmill stores the evaluated array
+   ([CF-2](../../docs/semantics/control-flow.md#cf-2),
+   [JE-30](../../docs/semantics/expressions.md#je-30)): an array jsonb
+   refuses fails the loop's start before any iteration runs
+   ([FX-48](../../docs/semantics/execution.md#fx-48),
+   [FX-51](../../docs/semantics/execution.md#fx-51)). An empty array, or
+   an empty body, completes the loop at once with `[]` and no job; its
+   `stop_after_if` is then an ordinary stop of the flow with `result` `[]`
+   and no `all_iters`, and its `stop_after_all_iters_if` is not evaluated
+   ([CF-29](../../docs/semantics/control-flow.md#cf-29),
+   [CF-V2](../../docs/semantics/control-flow.md#cf-v2)).
+2. **Iterations.** Each iteration's flow input is the loop's flow input
+   plus `iter` = `{"index": i, "value": element}`, an `iter` already there
+   moving to `iter_parent` and so on up
+   ([CF-3](../../docs/semantics/control-flow.md#cf-3)). The IR says whether
+   a loop collapses ([CF-8](../../docs/semantics/control-flow.md#cf-8)):
+   - a **collapsed** iteration runs its one body step as a job of the
+     loop's flow: its previous_result is the step before the loop's
+     result, then the previous iteration's (the flow's input every time
+     for a loop at the first module, [JE-36](../../docs/semantics/expressions.md#je-36));
+     its previous id is empty; it takes the loop's `timeout`, and its
+     loop's `continue_on_error` rather than its own, so a failed body
+     fails the iteration (CF-8 item 5); its step id,
+     and its errors' `step_id`, are the loop's; its job path is
+     `<flow path>/loop-<i>` for an inline step; nothing is registered under
+     its own id;
+   - any other iteration runs its body as a **child flow**
+     ([CF-1](../../docs/semantics/control-flow.md#cf-1)), whose input is read
+     back from storage and is its first step's previous_result
+     ([CF-9](../../docs/semantics/control-flow.md#cf-9)). Its steps see
+     the child's job id as `WM_FLOW_JOB_ID` and its path,
+     `<flow path>/loop-<i>` or `<flow path>/forloop-<i>`, as `WM_FLOW_PATH`
+     ([WA-6](../../docs/semantics/client-api.md#wa-6)); a parallel
+     iteration is also their innermost scope (`WM_ROOT_FLOW_JOB_ID`,
+     [WA-V1](../../docs/semantics/client-api.md#wa-v1)). The trace lists
+     each child flow (`Trace.Children`) with its modules, so that a module
+     it never reached is `not_run`, and its id. A chaining error at a
+     child's first module fails the child at its pickup (FX-15 context 3).
+3. **Sequential** ([CF-5](../../docs/semantics/control-flow.md#cf-5),
+   [CF-11](../../docs/semantics/control-flow.md#cf-11),
+   [CF-12](../../docs/semantics/control-flow.md#cf-12)): a failed iteration
+   stops the loop, which fails with the array so far, unless
+   `skip_failures`; a clean stop in the body breaks it, and so does an
+   error stop, which fails it unless `skip_failures`; after each successful
+   iteration the loop's `stop_after_if`, with `all_iters` bound when its
+   text names it, breaks it, `skip_if_stopped` and `error_message` without
+   effect.
+4. **Parallel** ([CF-7](../../docs/semantics/control-flow.md#cf-7),
+   [JE-V1](../../docs/semantics/expressions.md#je-v1)): every iteration is a
+   child flow on a goroutine of its own, each its own results scope.
+   `parallelism`, evaluated per child with the loop's P and its flow's
+   input, holds a child k at or beyond its own N until k − N + 1
+   iterations have completed; the children not held start at once, so one
+   never waits behind a held one, and held ones start in the order of that
+   count, by index among equals; with N = 0 none starts and only the run's
+   end stops the wait. There is no fail-fast: every iteration runs
+   (Windmill's continue-all, decisions Q-18), and the loop fails with the
+   full array unless every iteration succeeded or `skip_failures`. A stop
+   ends only its iteration, and the loop's `stop_after_if` is not
+   evaluated. Each parallel iteration seeds its own shuffles from its
+   loop's flow, in index order, so a seed still fixes every order.
+5. **Completion** ([CF-13](../../docs/semantics/control-flow.md#cf-13),
+   [JE-27](../../docs/semantics/expressions.md#je-27)): an active loop's
+   `stop_after_all_iters_if` is evaluated once with the array; when it
+   fires it acts as an ordinary `stop_after_if` of the flow the loop is
+   in.
+
+The host checks run before every iteration too (`Start`): a latch, the
+cancellation or a halt starts none, and a parallel loop waits for the
+iterations it started. A halt decided in one parallel iteration stops the
+others at their next module, and wakes a loop whose iterations are all
+held; the run's status ranks the latch, then the cancellation, then the
+halt (ADR 0008), whichever iteration met its signal first. A body
+module's halt-after asks the loops that contain it, at every level and
+given how its flow ended, whether the run would start more: a further
+iteration after a success or a failure `skip_failures` tolerates, an
+iteration a parallel loop still holds, or what follows a loop, which a
+stop breaks to and a failure `skip_failures` does not tolerate fails,
+unless the loop's `continue_on_error` takes it. So a halt never hides a
+failure or a stop that ends the run; reading: a parallel iteration still
+running is taken to succeed. A loop so interrupted records the
+array so far.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -455,11 +610,22 @@ skipped or chaining one, no stop), the recovery table, the error-stop
 matrix with and without tolerance and a failure module, the unrecoverable
 stop, chaining errors with a failure module, the storage failures, the
 cancellation outcome and its orderings (an empty flow's included), the
-hooks with a failure module, and the identity job's text.
-`waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
-below. The flow fixtures run the engine on the real Bun harness
-([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), milestone N1a's
-exit gate).
+hooks with a failure module, and the identity job's text. `loop_test.go`
+(N3a) does the same for for loops: child flows and their scopes and job
+identity, collapsing and its previous_result chain, the loop's timeout
+and failure texts, `skip_failures`, every break and stop of the flow, the
+empty loop, the iterator's errors at both routes, nested `iter`, a
+parallel loop's index order, `parallelism`'s release order with a gated
+executor (N = 2, 1 and 0, and a different N per child), continue-all, its
+start errors, an iterator jsonb refuses, chaining errors in a child flow,
+the hooks inside loops, the host signals across parallel iterations,
+halt-after in nested loops and after each kind of iteration outcome, the
+provenance of generated errors in nested arrays and in an included
+result, concurrent runs, and serde's texts. `waits_test.go` and
+`retry_test.go` (N2) are listed with N2's section, below. The flow
+fixtures run the engine on the real Bun harness
+([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
+milestones N1a, N1b, N3a and N2).
 
 ## Waits and time
 
@@ -515,8 +681,8 @@ FX-2, the same in the failure module with its own `retry`:
   constant phase, then the exponential phase, seconds^(n+1) saturating at
   65535, times the multiplier wrapping modulo 65536, jittered when
   `random_factor` is positive, all capped at 21600 s.
-- The retry state is flow-wide (FX-27, FX-29): a counter and the list of
-  failed attempts. Every module's Success or Failure status lists the
+- The retry state is the flow's (FX-27, FX-29), kept on its frame: a
+  counter and the list of failed attempts. Every module's Success or Failure status lists the
   list (`StepRecord.FailedRetries`), so after a tolerated failure the next
   module lists an earlier module's attempts, and an attempt's site counts
   its place in that list; a Success clears both. Starting a failure module
@@ -546,9 +712,10 @@ own `timeout` is accepted and not enforced (FX-24, path 4).
 
 **The monitor of flows that hang between steps** (JE-2). Windmill's
 server cancels a flow job whose transition, the work between two jobs,
-outlives `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s). The engine counts the
-wall time each transition spends evaluating expressions, whatever the
-run's clock, against
+outlives `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s). The engine counts, per
+flow (a frame; a collapsed iteration's is its loop's flow), the wall time
+each transition spends evaluating expressions, whatever the run's clock,
+against
 `Config.TransitionTimeout` (zero means 60 s, negative disables it), and
 past it cancels the run with canceler `monitor` and a reason that begins
 as Windmill's (`Flow <id> was cancelled because it was hanging in between

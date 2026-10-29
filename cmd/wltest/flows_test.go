@@ -14,7 +14,9 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -483,10 +485,191 @@ func TestCompareRun(t *testing.T) {
 	}
 }
 
+// A child flow's modules are sites below its iteration's, a module it
+// has no record of is not_run, and its id is its iteration's site (OR-11);
+// a module with no result shows no carried (FX-15 context 2); a carried
+// value the trace says the engine produced is generated even when it
+// differs from the result (FX-V2).
+func TestObserveChildFlows(t *testing.T) {
+	const child = "44444444-4444-4444-8444-444444444444"
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	p := func(s string) conformance.SitePath {
+		site, err := conformance.ParseSitePath(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return site
+	}
+	stop := `{"error":{"name":"EarlyStopError","message":"halt"}}`
+	tr := &engine.Trace{
+		RunID: "root", Status: conformance.RunFailure, Result: v(`[` + stop + `]`),
+		Children: []engine.ChildFlow{{Site: p("m:l/i:0"), ID: child, Modules: []string{"b", "c"}}},
+		Steps: []engine.StepRecord{
+			{Site: p("m:l"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, Result: v(`[` + stop + `]`), Carried: v(`[` + stop + `]`)},
+			{Site: p("m:l/i:0/m:b"), Status: conformance.StepSuccess, Module: conformance.ModuleFailure, Ran: true, RecordedArgs: v(`{"f":"` + child + `"}`), ResolvedArgs: v(`{"f":"` + child + `"}`),
+				Result: v(`1`), Carried: v(stop), CarriedOrigin: engine.OriginEngine},
+			{Site: p("m:p"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Carried: v(`{"error":{"name":"Anyhow","message":"Error: x"}}`), CarriedOrigin: engine.OriginEngine},
+		},
+	}
+	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, false, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(generated, []string{"/steps/m:l~1i:0~1m:b/carried"}) {
+		t.Fatalf("generated %v", generated)
+	}
+	var want conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"failure","result":[`+stop+`],"steps":{`+
+		`"m:l":{"status":"failure","result":[`+stop+`]},`+
+		`"m:l/i:0/m:b":{"status":"success","module":"failure","args":{"f":"<job:m:l/i:0>"},"result":1,"carried":`+stop+`},`+
+		`"m:l/i:0/m:c":{"status":"not_run"},`+
+		`"m:p":{"status":"failure","ran":false},`+
+		`"m:n":{"status":"not_run"}}}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := conformance.Compare(got, want, conformance.CompareOptions{}); err != nil || len(d) != 0 {
+		t.Fatalf("differences %v %v\ngot %s", d, err, compactJSON(got))
+	}
+}
+
+// Inside a loop's array the location rule reaches exactly the errors the
+// trace points to as generated (StepRecord.ResultNested), on the loop's
+// site and on the run's result; a user's error of the same shape keeps
+// its difference (ADR 0011).
+func TestObserveNestedGenerated(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	site := conformance.SitePath{}.Child(conformance.Module("l"))
+	arr := `[{"error":{"name":"Anyhow","message":"Error: x"}},{"error":{"name":"Anyhow","message":"Error: y"}}]`
+	trace := func(nested []string) *engine.Trace {
+		return &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(arr), ResultNested: nested, Steps: []engine.StepRecord{{
+			Site: site, Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true,
+			Result: v(arr), Carried: v(arr), ResultNested: nested, CarriedNested: nested,
+		}}}
+	}
+	// The oracle's side: both entries end in a pickup location.
+	located := `[{"error":{"name":"Anyhow","message":"Error: x @worker.rs:3822:13"}},{"error":{"name":"Anyhow","message":"Error: y @worker.rs:3822:13"}}]`
+	var expect conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"failure","result":`+located+`,"steps":{"m:l":{"status":"failure","result":`+located+`}}}`), &expect); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		nested, differs []string
+	}{
+		{[]string{"/0", "/1"}, nil},
+		{[]string{"/1"}, []string{"/result/0/error/message", "/steps/m:l/result/0/error/message"}},
+		{nil, []string{"/result/0/error/message", "/result/1/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/result/1/error/message"}},
+	} {
+		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, false, nil, conformance.CompareSpec{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var differs []string
+		for _, p := range compareRun(&conformance.Fixture{}, conformance.Run{Expect: &expect}, got, generated) {
+			if !strings.HasPrefix(p, "observed ") {
+				ptr, _, _ := strings.Cut(p, ": ")
+				differs = append(differs, ptr)
+			}
+		}
+		slices.Sort(differs)
+		if !slices.Equal(differs, c.differs) {
+			t.Fatalf("nested %v: differences at %q, want %q (generated %v)", c.nested, differs, c.differs, generated)
+		}
+	}
+}
+
+// An error stop that includes a loop's array (CF-13): run end to end on
+// the engine, the location rule reaches the engine's error inside the
+// embedded array, on the run's result and on the loop's site, and leaves
+// a user's lookalike beside it, an Anyhow-shaped value a mocked step
+// returns, with its difference (ADR 0011).
+func TestObserveIncludedResult(t *testing.T) {
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	lookalike := `{"error":{"name":"Anyhow","message":"Error: lookalike"}}`
+	stop, include := "stop", true
+	// Iteration 0's inner loop fails its child's pickup with the engine's
+	// Anyhow; iteration 1's returns [lookalike].
+	inner := &ir.Module{ID: "inner", Kind: ir.KindForLoop, ForLoop: &ir.ForLoop{
+		Iterator: ir.Transform{Type: ir.Javascript, Expr: expr.Compile(expr.SiteIterator, "flow_input.iter.value === 0 ? ({}) : [0]")},
+		Modules:  []*ir.Module{{ID: "u", Kind: ir.KindIdentity, Mock: &ir.Mock{Enabled: true, ReturnValue: json.RawMessage(lookalike)}}},
+	}}
+	outer := &ir.Module{ID: "l", Kind: ir.KindForLoop,
+		StopAfterAllItersIf: &ir.Stop{Expr: expr.Compile(expr.SiteStopAfterAllItersIf, "true"), ErrorMessage: &stop, ErrorIncludeResult: &include},
+		ForLoop:             &ir.ForLoop{Iterator: ir.Transform{Type: ir.Static, Value: json.RawMessage(`[0,1]`)}, SkipFailures: true, Modules: []*ir.Module{inner}},
+	}
+	e, err := engine.New(engine.Config{JS: js, Program: &ir.Program{Flows: map[string]*ir.Flow{"f/t/main": {Path: "f/t/main", Modules: []*ir.Module{outer}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), engine.RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, generated, err := observeTrace(tr, []string{"l"}, nil, false, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The oracle's side: the same observation, every Anyhow message with a
+	// pickup location.
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree any
+	if err := json.Unmarshal(raw, &tree); err != nil {
+		t.Fatal(err)
+	}
+	var locate func(any)
+	locate = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			if v["name"] == "Anyhow" {
+				if m, ok := v["message"].(string); ok {
+					v["message"] = m + " @worker.rs:3822:13"
+				}
+			}
+			for _, c := range v {
+				locate(c)
+			}
+		case []any:
+			for _, c := range v {
+				locate(c)
+			}
+		}
+	}
+	locate(tree)
+	raw, _ = json.Marshal(tree)
+	var want conformance.Observation
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	var differs []string
+	for _, p := range compareRun(&conformance.Fixture{}, conformance.Run{Expect: &want}, got, generated) {
+		if !strings.HasPrefix(p, "observed ") {
+			ptr, _, _ := strings.Cut(p, ": ")
+			differs = append(differs, ptr)
+		}
+	}
+	for _, p := range []string{"/result/error/result/0/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/carried/error/result/0/error/message"} {
+		if slices.Contains(differs, p) {
+			t.Fatalf("the engine's error at %s keeps its location (generated %v)", p, generated)
+		}
+	}
+	for _, p := range []string{"/result/error/result/1/0/error/message", "/steps/m:l/result/1/0/error/message", "/steps/m:l/carried/error/result/1/0/error/message"} {
+		if !slices.Contains(differs, p) {
+			t.Fatalf("the lookalike at %s was stripped: differences %v", p, differs)
+		}
+	}
+}
+
 // The location rule reaches a generated error wherever the observation
 // keeps it: its stored result and its carried value, which keeps the
 // producer's member order (ADR 0011). It never reaches a user's error, nor
-// a carried value that is not the generated result.
+// a carried value that is not the generated result and has no generated
+// origin of its own (TestObserveChildFlows has one that does).
 func TestCarriedLocation(t *testing.T) {
 	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
 	const msg = "Internal: Could not add completed job x: error returned from database: unsupported Unicode escape sequence"

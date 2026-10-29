@@ -397,6 +397,16 @@ their root jobs were not in flight together.
   result whose recorded origin is windmill-lite's, and a carried value that
   is the same value. Steps run the scripts the compiler's inventory names,
   never a script found by its job path, which two scripts can share.
+- Milestone N3a added a template to the location rule beside N1b's: the
+  error stop of a `stop_after_all_iters_if` that fails to evaluate, an
+  `EarlyStopError` whose cause, after the quoted expression, is Windmill's
+  generic display and loses its suffixes the same way; a user's
+  `error_message` matches no template. Inside a loop's array the trace
+  points to the errors windmill-lite generated (`ResultNested`), at every
+  depth up to the run's result, and the rule applies there only. A child
+  flow's modules are observed below its iteration's site, `not_run` where
+  the trace has no record of them, its job id is that site, and a site
+  with no result shows no `carried`.
 
 - Recording batch E3e added four harness options, each recorded by its
   fixtures. A run may be submitted through the synchronous run-and-wait

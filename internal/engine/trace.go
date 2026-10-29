@@ -29,7 +29,12 @@ type Trace struct {
 	// (FX-36, FX-42); zero for a latched or halted run.
 	Result jsonval.Value
 	// ResultOrigin is who produced Result when it is an error.
+	// ResultNested lists, when Result aggregates other values (a loop's
+	// array), the JSON pointers relative to it of the errors inside it that
+	// windmill-lite generated, such as "/0" for an iteration's (see
+	// StepRecord.ResultNested).
 	ResultOrigin Origin
+	ResultNested []string
 	// Latched is the error the run latched (H5) when Status is
 	// conformance.RunLatched: the first one latched.
 	Latched error
@@ -40,6 +45,9 @@ type Trace struct {
 	// Steps holds one record per site the run reached, in the order the
 	// engine recorded them; compare them by Site, never by position.
 	Steps []StepRecord
+	// Children are the child flows the run created (CF-1), in the order it
+	// created them.
+	Children []ChildFlow
 	// Warnings are the run's warnings: unattributed process-level errors
 	// and the work invocations left behind when they settled (D9), and
 	// those that hooks appended (H9).
@@ -127,6 +135,15 @@ type StepRecord struct {
 	// result, ResultOrigin is its origin.
 	ResultOrigin  Origin
 	CarriedOrigin Origin
+	// ResultNested and CarriedNested list, for a value that aggregates
+	// others (a loop's array of its iterations' results), the JSON pointers
+	// relative to it of the errors windmill-lite generated inside it: "/0"
+	// for the first iteration's, "/1/0" inside a nested loop's array. An
+	// origin says who produced a value as a whole; these say it of the
+	// parts, so that a comparison applies ADR 0011's location rule there
+	// and nowhere else.
+	ResultNested  []string
+	CarriedNested []string
 	// BranchChosen is the branch a branchone took.
 	BranchChosen *conformance.BranchChosen
 
@@ -139,6 +156,20 @@ type StepRecord struct {
 	// Late holds what the invocation produced after it settled or was
 	// abandoned, up to the snapshot's time (D9).
 	Late []Late
+}
+
+// ChildFlow is a child flow a run created: the body of a for-loop
+// iteration that ran as a flow of its own, not collapsed (CF-1, CF-8).
+type ChildFlow struct {
+	// Site is the iteration's site, <loop>/i:<n> (ADR 0011), under which
+	// the child's modules have theirs.
+	Site conformance.SitePath
+	// ID is the child flow's job id, which its steps see as
+	// WM_FLOW_JOB_ID (WA-6).
+	ID string
+	// Modules are the ids of the child's modules, in order: a module with
+	// no record in Steps never got a job (OR-11).
+	Modules []string
 }
 
 // Origin is who produced an error value (ADR 0001 §2). Only errors that

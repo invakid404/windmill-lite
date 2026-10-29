@@ -250,6 +250,30 @@ waits on an external gate except R1.
   resource of the fixture's `setup.yaml`, or reads the platform through a
   helper or a `$var:`-style reference; the fixture's other runs are
   checked.
+- N3a runs for loops on frames: the engine runs the root flow and each
+  non-collapsed iteration's child flow with one interpreter, each with
+  its own results scope where CF-19 starts one, and a collapsed iteration
+  as a job of its loop's flow. "The E3d for-loop cases" in its row are
+  E3d's runs whose flows hold a for loop and no while loop, branch,
+  failure module or subflow: those of `cf-2` to `cf-9`, `cf-11`, `cf-13`
+  and runs `a`, `c-fail`, `c-skip`, `f` and `f-skip` of `cf-12`; `cf-12`'s
+  `b` needs a failure module in a body (N3c), and `fx-40`'s loop runs need
+  caching (N4, as ADR 0001 §6 says). Their recorded messages end in Rust
+  locations at the pickup and chaining routes, which N1b's location rule
+  strips, and in `stop_after_all_iters_if`'s error stop, for which N3a
+  added a template to the rule of [0011](0011-differential-testing.md);
+  the trace points to the generated errors inside a loop's array
+  (`ResultNested`), at any depth, so that the rule reaches them and a
+  user's error beside them keeps its difference. Of E3a's cross-scope
+  cases the flow suite also requires JE-19/b, a parallel iteration's
+  scope. The trace lists the child flows a run created
+  (`Trace.Children`), from which `wltest check` writes a body module that
+  never got a job as `not_run` and names a child flow's job id by its
+  iteration's site, as the walker does. With N1b merged first, the engine
+  refuses a for loop in a flow with a failure module, since every body
+  then runs as a child flow that carries a copy of it, which is N3c's;
+  it also refuses a path script's own `cache_ttl` (N4), which a loop body
+  made reachable.
 
 - N1b gave the engine core Windmill's continue decision for a flow
   without retries: `continue_on_error`, the error stops, the
@@ -327,7 +351,13 @@ waits on an external gate except R1.
   FX-19/d, FX-32/b) and E3a's JE-26/b–c are required by `flowsuite.json`
   under N2; FX-15/b still differs only by the `<loc>` suffix its failure
   module copies from a generated error, which ADR 0011's location rule
-  does not reach, and stays NI's.
+  does not reach, and stays NI's. N3a merged first, so the engine
+  refuses N2's waits and retries in a for loop's body, on a loop, and as
+  the sleep that delays a loop's start, naming NI, which integrates them
+  with containers (a loop module's retry restarts it, a collapsed loop
+  evaluates its timeout per iteration); each flow, the root and every
+  child flow, keeps its own retry state and transition monitor, so
+  parallel iterations share none.
 
 ## Spec IDs relied on
 

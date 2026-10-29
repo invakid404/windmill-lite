@@ -740,12 +740,24 @@ func TestEngineTimeouts(t *testing.T) {
 // milestone, never midway through a run.
 func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	for name, value := range map[string]string{
-		"failure module loop": `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
-		"ai sleep":            flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
-		"loop":                flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}`),
-		"branch":              flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
-		"subflow":             flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
-		"cache_ttl":           flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		"failure module loop":     `{"modules":[],"failure_module":{"id":"f","value":{"type":"forloopflow","iterator":{"type":"static","value":[]},"skip_failures":true,"modules":[]}}}`,
+		"loop and failure module": `{"modules":[{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", "") + `]}}],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"}}}`,
+		"ai sleep":                flowOf(mod("a", "echo", "", `"sleep":{"type":"ai"}`)),
+		"while loop":              flowOf(`{"id":"l","value":{"type":"whileloopflow","skip_failures":true,"modules":[]}}`),
+		"squashed loop":           flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"squash":true,"modules":[]}}`),
+		"branch":                  flowOf(`{"id":"b","value":{"type":"branchone","branches":[],"default":[]}}`),
+		"subflow":                 flowOf(`{"id":"s","value":{"type":"flow","path":"f/t/sub","input_transforms":{}}}`),
+		"cache_ttl":               flowOf(mod("a", "echo", "", `"cache_ttl":60`)),
+		// N2's waits and retries in or on a container, or delaying one,
+		// are NI's.
+		"loop body retry":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1}}`) + `]}}`),
+		"loop body sleep":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"sleep":{"type":"static","value":1}`) + `]}}`),
+		"loop body js timeout":  flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`) + `]}}`),
+		"loop body negative":    flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`) + `]}}`),
+		"retry on a loop":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"retry":{"constant":{"attempts":1,"seconds":1}}}`),
+		"sleep on a loop":       flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"sleep":{"type":"static","value":1}}`),
+		"a loop's js timeout":   flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]},"timeout":{"type":"javascript","expr":"1"}}`),
+		"a sleep before a loop": flowOf(mod("a", "echo", "", `"sleep":{"type":"static","value":1}`), `{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`),
 	} {
 		_, err := openEngine(t, map[string]string{"f/t/main": value, "f/t/sub": `{"modules":[]}`}, &scripts{})
 		if !errors.Is(err, ErrUnsupported) {
@@ -754,7 +766,8 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 	}
 	// What milestone N2 runs opens: retries, sleeps, javascript and
 	// negative timeouts (whose failure is a chaining error at run time),
-	// a static timeout of null, a failure module's retry.
+	// a static timeout of null, a failure module's retry, a loop's static
+	// timeout and a loop's body's.
 	for name, value := range map[string]string{
 		"failure module retry": `{"modules":[],"failure_module":{"id":"f","value":{"type":"script","path":"f/t/echo"},"retry":{"constant":{"attempts":1,"seconds":0}}}}`,
 		"retry":                flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":1,"seconds":1},"retry_if":{"expr":"true"}}`)),
@@ -762,6 +775,8 @@ func TestEngineRefusesWhatItDoesNotRun(t *testing.T) {
 		"js timeout":           flowOf(mod("a", "echo", "", `"timeout":{"type":"javascript","expr":"1"}`)),
 		"negative timeout":     flowOf(mod("a", "echo", "", `"timeout":{"type":"static","value":-1}`)),
 		"null timeout":         flowOf(mod("a", "echo", "", `"retry":{"constant":{"attempts":0,"seconds":1}},"timeout":{"type":"static","value":null}`)),
+		"loop timeouts":        flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[` + mod("a", "echo", "", `"timeout":{"type":"static","value":5}`) + `]},"timeout":{"type":"static","value":3}}`),
+		"a sleep after a loop": flowOf(`{"id":"l","value":{"type":"forloopflow","iterator":{"type":"static","value":[1]},"skip_failures":true,"modules":[]}}`, mod("a", "echo", "", `"sleep":{"type":"static","value":1}`)),
 	} {
 		if _, err := openEngine(t, map[string]string{"f/t/main": value}, &scripts{}); err != nil {
 			t.Errorf("%s: %v", name, err)
