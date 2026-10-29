@@ -13,6 +13,10 @@ export type HostModuleRequest = {
   // A package module: the specifier and the dependency set it installs from.
   package?: string;
   deps?: string;
+  // A module outside the folder, a file of a codebase entry's
+  // relative_path, by its absolute path (parse only): the helper checks its
+  // source, and the Go build bundles it with esbuild (milestone F3h).
+  source?: string;
   // The generated shim, in the bundle tree, and the scan's export names
   // (build only).
   shim?: string;

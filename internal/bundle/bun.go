@@ -538,7 +538,10 @@ type helperHostModule struct {
 	File    string `json:"file,omitempty"`
 	Package string `json:"package,omitempty"`
 	Deps    string `json:"deps,omitempty"`
-	Shim    string `json:"shim,omitempty"`
+	// Source is the absolute path of a module outside the folder, whose
+	// source the parse checks (OutsideHostModule).
+	Source string `json:"source,omitempty"`
+	Shim   string `json:"shim,omitempty"`
 	// Exports are the scan's export names (build only), which the bundled
 	// copy's entry re-exports.
 	Exports []string `json:"exports,omitempty"`

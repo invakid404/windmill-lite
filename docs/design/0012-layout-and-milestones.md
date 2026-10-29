@@ -114,6 +114,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F2a | hooks as Go callbacks: H1, H2, H6, H8, H9, H12, H13, and mandatory provided sites | F1 | hook cases; the run-time half of the provided-site policy case of [0002](0002-ir-and-loader.md) | 9 | yes |
 | F2b | budgets and latches: H3, H4, H5, H7, H10 | F1 | latch-precedence cases | 9 | yes |
 | F3a | host-mode transport: `run` frames, host-provided-module registration, scope capture, health, drain, the watchdog option, the working-directory checks | F1, C2b, C3b | `workdir_not_writable` and `workdir_mismatch` cases; a codebase script reads its extracted asset in host mode | 9 | yes |
+| F3h | host-provided modules outside the sync folder (a file of a codebase entry's `relative_path`), the codebase build's time with host-provided modules listed, and the load effects a shimmed bundle keeps | F4, C2b | an outside module builds, registers and is shared; listing a module leaves a codebase build's time as it was; shimmed and plain bundles run the same load effects ([0010](0010-packaging.md)) | 9 | yes |
 | F5 | go-plugin adapter, `runner.proto`, `wl/plugin` | F1 | — | 9 | no |
 | F7b | HTTP adapter | F1, E3e | the E3e FX-36 and FX-37 HTTP cases | 9 | no |
 | F7c | `windmill-lite gen go` | F1 | — | 9 | no |
@@ -599,6 +600,17 @@ waits on an external gate except R1.
   would run the real targets. F1's open gap is closed: the engine registers
   every loop iteration, branch and subflow as a flow job of the run's tree
   while it runs, so a dispatch whose `parent_job` names one gets its path.
+
+- F3h came from an embedder building its real folder. A host contract can
+  list a file of a codebase entry's `relative_path` outside the sync root,
+  which esbuild builds as `outside/<n>/...` ([0010](0010-packaging.md)).
+  The esbuild plugin now loads a listed file's shim in place of the file
+  instead of resolving every import a second time, which had made a
+  codebase build 16 to 60 times slower with any module listed. The lost
+  load effects were Bun 1.3.10's: its bundler drops a module that a
+  `sideEffects: false` package re-exports when a plugin's resolve filter
+  matches the package's import, which hit a listed module's copy, so the
+  Bun helper's filter now matches only the specifiers it resolves.
 
 ## Spec IDs relied on
 

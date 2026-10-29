@@ -213,7 +213,7 @@ func (cfg *CodebaseConfig) bundleExports(e CodebaseScript, s *CodebaseSettings, 
 		return nil, false, err
 	}
 	o.Format, o.Target, o.Engines, o.Metafile = api.FormatESModule, api.ESNext, nil, true
-	o.Plugins = []api.Plugin{cfg.plugin("", "", shims, nil)}
+	o.Plugins = []api.Plugin{cfg.plugin("", "", shims, "", nil)}
 	r := api.Build(o)
 	if len(r.Errors) > 0 {
 		return nil, false, errors.New(esbuildMessages(r.Errors))
@@ -594,41 +594,49 @@ const envSpecifier = "windmill-lite:env"
 // support module and the host-provided modules' shims.
 const pluginNamespace = "windmill-lite"
 
-// resolving marks the plugin's own calls of the resolver, which it lets
-// through.
-type resolving struct{}
-
-// plugin is the plugin of a codebase build, which only maps paths: with
+// plugin is the plugin of a codebase build, which only maps modules: with
 // support, the env rewrite's support module (envSpecifier) loads from its
 // namespace under the binding's name; an import that names a listed
-// package, or resolves to a listed module's file, resolves to the module's
-// shim there, and record, when not nil, is told its key. esbuild calls it
-// concurrently.
-func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]string, record func(key string)) api.Plugin {
+// package resolves to the module's shim there; and a listed module's file,
+// wherever esbuild's own resolution finds it, loads as the module's shim,
+// except self's (the module whose bundled copy is being built). record,
+// when not nil, is told the key of each listed module the build takes.
+// esbuild calls it concurrently.
+//
+// A listed file is replaced when it loads, not when an import of it
+// resolves: telling which imports resolve to it at resolve time took a
+// second resolution of every import, which esbuild runs without its
+// directory cache, so a build with any listed module read every directory
+// of its dependency tree once per import, tens of times slower than the
+// same build without (milestone F3h). esbuild resolves the import itself,
+// as in a build with no listed module, so every other module keeps its
+// resolution, its package's sideEffects included.
+func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]string, self string, record func(key string)) api.Plugin {
 	byFile := map[string]string{} // real path of a listed module's file → key
 	byPackage := map[string]string{}
 	for _, m := range cfg.HostModules {
-		if m.Package != "" {
+		switch {
+		case m.Key == self:
+		case m.Package != "":
 			byPackage[m.Package] = m.Key
-			continue
+		default:
+			byFile[realPath(filepath.Join(cfg.Folder, filepath.FromSlash(m.File)))] = m.Key
 		}
-		p := filepath.Join(cfg.Folder, filepath.FromSlash(m.File))
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			p = real
-		}
-		byFile[p] = m.Key
 	}
-	shimPath := func(key string) api.OnResolveResult {
+	use := func(key string) {
 		if record != nil {
 			record(key)
 		}
-		return api.OnResolveResult{Path: "host/" + key, Namespace: pluginNamespace}
 	}
+	// esbuild filters with Go regular expressions: the listed files' real
+	// paths, exactly.
+	files := make([]string, 0, len(byFile))
+	for p := range byFile {
+		files = append(files, regexp.QuoteMeta(p))
+	}
+	slices.Sort(files)
 	return api.Plugin{Name: "windmill-lite", Setup: func(b api.PluginBuild) {
 		b.OnResolve(api.OnResolveOptions{Filter: `.*`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
-			if _, ours := a.PluginData.(resolving); ours {
-				return api.OnResolveResult{}, nil
-			}
 			if a.Path == envSpecifier && support != "" {
 				return api.OnResolveResult{Path: "env-" + binding + ".mjs", Namespace: pluginNamespace}, nil
 			}
@@ -637,22 +645,22 @@ func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]stri
 				return api.OnResolveResult{}, nil
 			}
 			if key, ok := byPackage[a.Path]; ok {
-				return shimPath(key), nil
-			}
-			if len(byFile) == 0 || a.Kind == api.ResolveEntryPoint {
-				return api.OnResolveResult{}, nil
-			}
-			r := b.Resolve(a.Path, api.ResolveOptions{
-				Importer: a.Importer, Namespace: a.Namespace, ResolveDir: a.ResolveDir, Kind: a.Kind, With: a.With, PluginData: resolving{},
-			})
-			if len(r.Errors) > 0 || r.External || r.Namespace != "file" {
-				return api.OnResolveResult{}, nil
-			}
-			if key, ok := byFile[r.Path]; ok {
-				return shimPath(key), nil
+				use(key)
+				return api.OnResolveResult{Path: "host/" + key, Namespace: pluginNamespace}, nil
 			}
 			return api.OnResolveResult{}, nil
 		})
+		if len(files) > 0 {
+			b.OnLoad(api.OnLoadOptions{Filter: `^(?:` + strings.Join(files, "|") + `)$`, Namespace: "file"}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
+				key, ok := byFile[a.Path]
+				if !ok {
+					return api.OnLoadResult{}, nil
+				}
+				use(key)
+				text := shims[key]
+				return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS, ResolveDir: filepath.Dir(a.Path)}, nil
+			})
+		}
 		b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: pluginNamespace}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
 			text := support
 			if key, ok := strings.CutPrefix(a.Path, "host/"); ok {
@@ -661,6 +669,15 @@ func (cfg *CodebaseConfig) plugin(support, binding string, shims map[string]stri
 			return api.OnLoadResult{Contents: &text, Loader: api.LoaderJS}, nil
 		})
 	}}
+}
+
+// realPath is p with its symbolic links resolved, as esbuild names the
+// files it loads, or p when that fails.
+func realPath(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return p
 }
 
 // bundleOne bundles one codebase script into cfg.Out and completes its
@@ -679,7 +696,7 @@ func (cfg *CodebaseConfig) bundleOne(e CodebaseScript, s *CodebaseSettings, meta
 				binding = fmt.Sprintf("%s_%d", base, n)
 			}
 		}
-		out, inputs, used, warnings, p := cfg.esbuild(e, s, binding, shims)
+		out, inputs, used, warnings, p := cfg.esbuild(e, s, binding, shims, "")
 		if p != nil {
 			return p
 		}
@@ -720,14 +737,20 @@ func (cfg *CodebaseConfig) bundleOne(e CodebaseScript, s *CodebaseSettings, meta
 type esbuildOutput struct {
 	text     []byte
 	metafile json.RawMessage
+	// exports are the names the output exports, sorted; commonJS says the
+	// entry is CommonJS source, whose names an ES module output cannot
+	// list.
+	exports  []string
+	commonJS bool
 }
 
 // esbuild runs one build of a codebase script: the CLI's options plus,
-// with a binding, the env rewrite, and the host-provided modules' shims.
+// with a binding, the env rewrite, and the host-provided modules' shims,
+// but self's, the module whose bundled copy the build is.
 // It returns the output, the text of every input of the folder (to check
 // the binding against), the keys of the host-provided modules used, and
 // esbuild's warnings.
-func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, binding string, shims map[string]string) (*esbuildOutput, []string, []string, []string, *Problem) {
+func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, binding string, shims map[string]string, self string) (*esbuildOutput, []string, []string, []string, *Problem) {
 	o, err := s.CLIOptions(cfg.Folder, e.File)
 	if err != nil {
 		return nil, nil, nil, nil, &Problem{ProblemBundleFailed, err.Error()}
@@ -752,7 +775,7 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 	// being resolved, so what they record is kept under a lock.
 	var mu sync.Mutex
 	used := map[string]bool{}
-	o.Plugins = []api.Plugin{cfg.plugin(support, binding, shims, func(key string) {
+	o.Plugins = []api.Plugin{cfg.plugin(support, binding, shims, self, func(key string) {
 		mu.Lock()
 		used[key] = true
 		mu.Unlock()
@@ -772,10 +795,26 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 			"unsupported: a codebase bundle with %d output files (%s); only a single module is supported", len(r.OutputFiles), strings.Join(names, ", "))}
 	}
 	var meta struct {
-		Inputs map[string]json.RawMessage `json:"inputs"`
+		Inputs  map[string]json.RawMessage `json:"inputs"`
+		Outputs map[string]struct {
+			EntryPoint string   `json:"entryPoint"`
+			Exports    []string `json:"exports"`
+		} `json:"outputs"`
 	}
 	if err := json.Unmarshal([]byte(r.Metafile), &meta); err != nil {
 		return nil, nil, nil, nil, &Problem{"internal", "esbuild's metafile: " + err.Error()}
+	}
+	out := &esbuildOutput{text: r.OutputFiles[0].Contents}
+	for _, o := range meta.Outputs {
+		if o.EntryPoint == "" {
+			continue
+		}
+		out.exports = slices.Sorted(slices.Values(o.Exports))
+		var in struct {
+			Format string `json:"format"`
+		}
+		_ = json.Unmarshal(meta.Inputs[o.EntryPoint], &in)
+		out.commonJS = in.Format == "cjs"
 	}
 	// The metafile's inputs, whose paths are relative to the folder; its
 	// outputs name "/" relative to the folder, so they are left out.
@@ -783,6 +822,7 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 	if err != nil {
 		return nil, nil, nil, nil, &Problem{"internal", err.Error()}
 	}
+	out.metafile = mf
 	var inputs []string
 	if binding != "" {
 		for p := range meta.Inputs {
@@ -810,7 +850,7 @@ func (cfg *CodebaseConfig) esbuild(e CodebaseScript, s *CodebaseSettings, bindin
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	return &esbuildOutput{text: r.OutputFiles[0].Contents, metafile: mf}, inputs, keys, warnings, nil
+	return out, inputs, keys, warnings, nil
 }
 
 func esbuildMessages(ms []api.Message) string {

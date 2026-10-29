@@ -689,7 +689,7 @@
       "variant": "codebase-shim",
       "provenance": "policy",
       "title": "a codebase script's import of a host-provided module resolves to its shim, in CommonJS and in ES module output",
-      "note": "esbuild resolves the import (with or without the extension, as esbuild resolves it), and the plugin maps the file it resolves to onto the shim the scan generated, the same file the Bun build uses (ADR 0010). Neither bundle inlines the module: both read the one registered copy, which loads once.",
+      "note": "esbuild resolves the import (with or without the extension, as esbuild resolves it), and the plugin loads the file it resolves to as the shim the scan generated, the same file the Bun build uses (ADR 0010; milestone F3h replaced the file when it loads rather than resolving every import a second time). Neither bundle inlines the module: both read the one registered copy, which loads once.",
       "given": {
         "folder": {
           "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n  - relative_path: f/esm\n    includes: [\"f/esm/**\"]\n    format: esm\n",
@@ -708,7 +708,7 @@
               "f/shared/ctx.ts"
             ],
             "bundle_contains": [
-              "windmill-lite:host/f/shared/ctx.ts",
+              "Symbol.for(\"windmill-lite.hostModules\")",
               "host-provided module not registered: f/shared/ctx.ts"
             ],
             "bundle_not_contains": [
@@ -772,6 +772,173 @@
             }
           ]
         }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside",
+      "provenance": "policy",
+      "title": "a host-provided module outside the folder, in a codebase entry's relative_path, is built with esbuild and shared like one inside it",
+      "note": "The contract names the module by its path relative to the sync root (milestone F3h). Its id is outside/<n>/ and the rest of that path, where n is the number of leading ../; its copy and shim are written as an inside module's are, and it is registered after the inside modules and after the outside modules it imports. The step bundle inlines neither outside module, and tenant.ts's copy reads ctx.ts through its shim, so ctx.ts loads once.",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/shared/flag.ts": "export const flag = \"inside\";\n",
+          "f/cb/read.ts": "import { who } from \"../../../lib/tenant.ts\";\nimport { loads } from \"../../../lib/ctx.ts\";\nimport { flag } from \"../shared/flag.ts\";\nexport function main() { return [who(), loads(), flag]; }\n"
+        },
+        "outside": {
+          "../lib/ctx.ts": "globalThis.wlOutsideLoads = (globalThis.wlOutsideLoads ?? 0) + 1;\nexport function loads() { return globalThis.wlOutsideLoads; }\n",
+          "../lib/tenant.ts": "import { loads } from \"./ctx\";\nexport function who() { return \"tenant \" + loads(); }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/tenant.ts, f/shared/flag.ts, ../lib/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [],
+        "host_module_order": [
+          "f/shared/flag",
+          "outside/1/lib/ctx.ts",
+          "outside/1/lib/tenant.ts"
+        ],
+        "entries": {
+          "f/cb/read": {
+            "format": "cjs",
+            "host_modules": [
+              "../lib/ctx.ts",
+              "../lib/tenant.ts",
+              "f/shared/flag.ts"
+            ],
+            "bundle_contains": [
+              "host-provided module not registered: ../lib/tenant.ts",
+              "host-provided module not registered: ../lib/ctx.ts"
+            ],
+            "bundle_not_contains": [
+              "wlOutsideLoads",
+              "\"tenant \""
+            ]
+          }
+        },
+        "run": {
+          "register": [
+            "f/shared/flag",
+            "outside/1/lib/ctx.ts",
+            "outside/1/lib/tenant.ts"
+          ],
+          "calls": [
+            {
+              "entry": "f/cb/read",
+              "result": [
+                "tenant 1",
+                1,
+                "inside"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-unknown",
+      "provenance": "policy",
+      "title": "a host_modules entry that names no module of the folder or of a codebase entry's relative_path is refused, by its path",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/read.ts": "import { tag } from \"../../../lib/ctx.ts\";\nexport function main() { return tag; }\n"
+        },
+        "outside": {
+          "../lib/ctx.ts": "export const tag = \"ctx\";\n",
+          "../other/x.ts": "export const x = 1;\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/missing.ts, ../lib, ../other/x.ts, f/cb/nope.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module ../lib/missing.ts",
+            "kind": "host_module_unknown",
+            "contains": [
+              "unknown host-provided module ../lib/missing.ts"
+            ]
+          },
+          {
+            "item": "host module ../lib",
+            "kind": "host_module_unknown",
+            "contains": [
+              "unknown host-provided module ../lib:",
+              "not a file"
+            ]
+          },
+          {
+            "item": "host module ../other/x.ts",
+            "kind": "host_module_unknown",
+            "contains": [
+              "unknown host-provided module ../other/x.ts",
+              "no codebases entry's relative_path holds it"
+            ]
+          },
+          {
+            "item": "host module f/cb/nope.ts",
+            "kind": "load",
+            "contains": [
+              "f/cb/nope"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-live-binding",
+      "provenance": "policy",
+      "title": "a host-provided module outside the folder that exports a binding it can reassign is refused, as one inside it is",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/read.ts": "import { count } from \"../../../lib/ctx.ts\";\nexport function main() { return count; }\n"
+        },
+        "outside": {
+          "../lib/ctx.ts": "export let count = 0;\nexport function bump() { count++; }\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.ts]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module ../lib/ctx.ts",
+            "kind": "host_module_live_binding",
+            "contains": [
+              "../lib/ctx.ts"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "D12",
+      "variant": "codebase-outside-commonjs",
+      "provenance": "policy",
+      "title": "a host-provided module outside the folder that is CommonJS is refused, as one inside it is",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: ../lib\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/read.ts": "import { tag } from \"../../../lib/ctx.js\";\nexport function main() { return tag; }\n"
+        },
+        "outside": {
+          "../lib/ctx.js": "module.exports = { tag: \"cjs\" };\n"
+        },
+        "contract": "roots:\n  - script: f/cb/read\nhost_modules: [../lib/ctx.js]\n"
+      },
+      "expect": {
+        "build_problems": [
+          {
+            "item": "host module ../lib/ctx.js",
+            "kind": "host_module_commonjs",
+            "contains": [
+              "../lib/ctx.js"
+            ]
+          }
+        ]
       }
     }
   ]

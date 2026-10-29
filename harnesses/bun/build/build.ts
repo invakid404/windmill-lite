@@ -66,6 +66,19 @@ type Bundled = {
 // modules runs (ADR 0010 step 5).
 const ENV_SPECIFIER = "windmill-lite:env";
 
+// Which specifiers the plugin's onResolve callback sees: relative and
+// absolute ones, the env support module and listed packages, the only ones
+// it resolves. Bun 1.3.10 drops a module that a package marked
+// sideEffects:false re-exports (`export { x } from "./x.js"`) when an
+// onResolve filter matches the import of that package, even one whose
+// callback resolves nothing, so the bundle references a binding it never
+// defines (milestone F3h); every other package import is left to Bun
+// without the callback.
+function resolveFilter(packages: Iterable<string>): RegExp {
+  const exact = [ENV_SPECIFIER, ...packages].map((s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") + "$");
+  return new RegExp(`^(?:\\.|/|${exact.join("|")})`);
+}
+
 // The text of an entry that imports the env support module first, after a
 // hashbang line if it has one.
 function withEnvImport(text: string): string {
@@ -93,6 +106,7 @@ export class Builder {
       if (!validId(hm.id)) throw new BuildProblem("invalid_request", `host module id ${JSON.stringify(hm.id)}`);
       if (hm.package !== undefined) this.hostByPackage.set(hm.package, hm);
       else if (hm.path !== undefined && hm.file !== undefined) this.hostByPath.set(hm.path, hm);
+      else if (hm.source !== undefined && isAbsolute(hm.source) && req.op === "parse") continue;
       else throw new BuildProblem("invalid_request", `host module ${hm.id} names neither a package nor a file`);
     }
     for (const e of req.entries) {
@@ -207,7 +221,7 @@ export class Builder {
     const plugin: BunPlugin = {
       name: "windmill-lite",
       setup: (b) => {
-        b.onResolve({ filter: /.*/ }, (args) => {
+        b.onResolve({ filter: resolveFilter(this.hostByPackage.keys()) }, (args) => {
           if (args.kind === "entry-point-build" || args.kind === "entry-point-run") return undefined;
           const spec = args.path;
           if (spec === ENV_SPECIFIER) {
@@ -330,6 +344,28 @@ export class Builder {
     const source = this.readFolder(hm.file!);
     const entry = this.materialise(dir, join("src", hm.path! + ".ts"), this.workspaceSource(hm.path!));
     return { dir, entry, source, seeds: new Map([[entry, hm.path!]]) };
+  }
+
+  // Parse: what the source of a host-provided module outside the folder
+  // must not do, which only its syntax shows (the Go build bundles it with
+  // esbuild, as the codebase scripts that import it, milestone F3h): export
+  // a binding it can reassign, which a shim cannot follow (ADR 0010).
+  parseHostSource(hm: HostModuleRequest): HostModuleResult {
+    let source: string;
+    try {
+      source = readFileSync(hm.source!, "utf8");
+    } catch (e) {
+      throw new BuildProblem("invalid_request", `cannot read ${hm.key}: ${(e as Error).message}`);
+    }
+    const parsed = parse(source);
+    const live = liveBindings(parsed);
+    if (live.length > 0) {
+      throw new BuildProblem(
+        "host_module_live_binding",
+        `host-provided module ${hm.key} exports a binding it can reassign (export let or export var): ${live.join(", ")}`,
+      );
+    }
+    return { packages: directPackages(parsed) };
   }
 
   // Scan: the exports of each host-provided module, from its bundled copy

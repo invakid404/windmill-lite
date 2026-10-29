@@ -37,7 +37,10 @@ markers, the packages it imports) and a signature for each export of its
 bundle, whose names the Go build reads from esbuild and sends as the
 entry's `exports` (without them, the source's own exports are scanned).
 As for any Bun script, a function the source declares gets its
-parameters and an export it does not declare gets none. It installs,
+parameters and an export it does not declare gets none. A `parse`
+request's host-provided modules each give a `source`, the absolute path of
+a module outside the folder (milestone F3h): the helper reports the
+packages it imports, or `host_module_live_binding`. It installs,
 bundles and writes nothing. A request it cannot serve
 at all (unreadable, another Bun) exits with code 2 and an `error` in the
 response. A problem with one script or module is reported against it, and
@@ -102,7 +105,13 @@ For each script the build:
    included), fails the bundle (`bundle_failed`). Bare specifiers resolve
    from the dependency set's `node_modules`; a bundle that took a file from
    outside the dependency set's directory (a `node_modules` above it, which
-   no lock installed) fails.
+   no lock installed) fails. The plugin's resolve filter matches only the
+   specifiers it resolves (relative and absolute ones, the env support
+   module and listed packages): Bun 1.3.10 drops a module that a package
+   marked `sideEffects: false` re-exports (`export { x } from "./x.js"`)
+   whenever a resolve filter matches the import of that package, even when
+   the callback resolves nothing, which left bundles referencing a binding
+   they never defined (milestone F3h).
 4. **Bundles** with `Bun.build` and Windmill's settings
    ([WR-27](../../../docs/semantics/languages.md#wr-27)): ESM, syntax-only
    minification, only `electron` external, every npm package and workspace
@@ -237,7 +246,9 @@ which the parser's version has dropped.
 ### Host-provided modules
 
 A host-provided module ([ADR 0010](../../../docs/design/0010-packaging.md),
-D12) is a script of the folder or an installed package.
+D12) is a script of the folder or an installed package here. One outside
+the folder is bundled by the Go build with esbuild; the helper only parses
+its source (`parse`, above).
 
 - **Scan.** The module must be an ES module: a CommonJS one, whose names
   are its exports object's properties and are known only when it runs, is

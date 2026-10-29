@@ -33,6 +33,7 @@ runtime.
 | `importbase.go` | `ImportBase`: an inline script's import base |
 | `bun.go` | `BuildBun`: the two helper runs, the shims, the metadata, the registration order and warnings |
 | `esbuild.go` | `CodebaseSettings` (a codebases entry, WR-47), `CLIOptions` and `CLIBundle` (the pinned CLI's build), `BuildCodebase`, assets |
+| `outside.go` | `BuildOutside`: host-provided modules outside the folder; `OutsideID` |
 | `meta.go` | `ScriptMeta` and the other result types, problems and warnings |
 
 ## The bundle
@@ -47,7 +48,7 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 | `scripts/bun/<id>.cjs`, `<id>.meta.json` | a codebase script built as CommonJS (`BuildCodebase`, below); one built as ESM is `<id>.mjs` |
 | `assets/<to>` | every codebase entry's assets, at the path in the working directory they are extracted to |
 | `scripts/native/windmill.js`, `windmill.meta.json` | the native runtime's embedded client, when a script is nativets |
-| `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | each host-provided module's bundled copy and shim, named by its script path |
+| `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | each host-provided module's bundled copy and shim, named by its script path, or `outside/<n>/<path>` for a module outside the folder |
 | `data/resources.json`, `data/resource_types.json`, `data/variables.json` | every resource and resource type the folder keeps, and every variable but secrets, each file an object keyed by path (a resource type by name), with the record of [internal/syncfolder](../syncfolder/README.md) |
 
 `plugins/` (host plugins, F2c) arrives with its milestone. A secret variable is never written: its value in a
@@ -116,14 +117,19 @@ change with what runs. `dir` itself may be a link.
    compiler's errors come back as they are;
 2. reads `data/`;
 3. resolves the contract's `host_modules`: each must be the file of a Bun
-   script of the folder (`f/shared/ctx.ts`), whose path becomes its id; a
-   script that fails to read is refused with its load error;
+   script of the folder (`f/shared/ctx.ts`), whose path becomes its id, or
+   a file outside the folder in a codebase entry's `relative_path`, named
+   by its path from the sync root (`../lib/ctx.ts`), whose id is
+   `OutsideID`'s (`outside/1/lib/ctx.ts`); a script that fails to read is
+   refused with its load error, and an entry that leaves the root but
+   names no such file with `host_module_unknown`;
 4. runs `BuildBun` for every script of the inventory that is not a
    codebase script, with every `.ts` script of the folder available to
-   workspace imports, then `BuildCodebase` for the codebase scripts, each
-   with the settings of the `codebases` entry that selects it
+   workspace imports, then `BuildOutside` for the modules outside the
+   folder, then `BuildCodebase` for the codebase scripts, each with the
+   settings of the `codebases` entry that selects it
    ([SY-8](../../docs/semantics/openflow.md#sy-8)) and the shims the scan
-   wrote;
+   and `BuildOutside` wrote;
 5. checks each script's metadata: workflow-as-code by any detection path is
    refused with `unsupported_feature`, `unsupported: workflow_as_code`
    ([ADR 0001](../../docs/design/0001-equivalence-contract.md) §3;
@@ -139,8 +145,9 @@ change with what runs. `dir` itself may be a link.
 6. writes `ir.json` and `data/`, then the manifest, last.
 
 Before bundling it refuses, with `unsupported_feature`, a host-provided
-module that is not a script of the folder: a host-provided package would
-need a lock, which the contract cannot give yet. Problems with scripts and modules come back
+module that is neither a script of the folder nor outside it: a
+host-provided package would need a lock, which the contract cannot give
+yet. Problems with scripts and modules come back
 together as a `*BuildError`, sorted by item; a path script is named
 `script <path>`, an inline step `<flow> step '<id>' (script <inventory id>)`
 (`ScriptItem`, so a caller can tell which of its roots reach the script).
@@ -209,11 +216,20 @@ CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
   before the entry's own `inject` files, so it runs before any code of the
   bundle; and imports that resolve to a listed host-provided module's file,
   or name a listed package, resolved to that module's shim. Both reach
-  esbuild through a plugin that only maps paths: the support module and
-  the shims load from its `windmill-lite` namespace, so no bundle names a
-  file outside the folder and the output does not depend on where it was
-  built. esbuild calls the plugin concurrently, one call per import
-  being resolved, so what it records is kept under a lock. The binding
+  esbuild through a plugin: the support module and a listed package's
+  shim load from its `windmill-lite` namespace, and a listed file's shim
+  loads in place of the file when esbuild loads it, under its path from
+  the sync root, so the output does not depend on where it was built.
+  Every other import resolves as it would without the plugin, so a
+  listed module costs no extra resolution (resolving each import a
+  second time, outside esbuild's directory cache, made a build that
+  imports a package of many modules 16 to 60 times slower, milestone
+  F3h; `TestCodebaseHostModulesKeepBuildTime` and
+  `BenchmarkCodebaseHostModules` guard it) and the bundle keeps every
+  load effect it would have without the list
+  (`TestHostModulesKeepLoadEffects`). esbuild calls the plugin
+  concurrently, one call per import being resolved, so what it records
+  is kept under a lock. The binding
   name is chosen as the Bun helper chooses it (`spells` applies the same
   rule). `//native` and `//nodejs` scripts are not
   rewritten. A `//native` codebase script runs in the native runtime
@@ -318,6 +334,19 @@ harness registers the bundled copies from `scripts/bun/provided/`, in
 `BunResult.HostModuleOrder`, which puts a module after the modules it
 imports (W1, C3a). Export names are sorted; a name that is not an ASCII
 identifier is written as a string export name.
+
+`BuildOutside(ctx, OutsideConfig)` builds the listed modules outside the
+folder (milestone F3h), which only codebase scripts can import. The
+helper's `parse` op reads each source (`host_module_live_binding` for
+`export let` or `export var`); a first esbuild build of each, with the
+outside modules' shims as CommonJS placeholders that take any import name,
+records which listed modules it imports, which orders them
+(`host_module_cycle`); then each is bundled in that order, as an ES module
+with its codebase entry's settings, the env rewrite and the other modules'
+shims, into `scripts/bun/provided/<id>.mjs`, and its shim is generated from
+the export names of that bundle's metafile (`host_module_commonjs` when the
+entry is CommonJS source). The manifest registers them after the modules
+inside the folder, which cannot import them.
 
 ## BuildBun
 

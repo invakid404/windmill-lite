@@ -109,8 +109,13 @@ rewrote `Bun.env` in both outputs and `import.meta.env` in ESM only.
 
 The host contract can list module paths (source files of the folder or its
 codebase, or package specifiers) whose one instance the host and every
-script must share: typically modules holding an `AsyncLocalStorage` the host
-enters, or a registry the host fills. Without this, each step bundle inlines
+script must share. A codebase entry's `relative_path` may lie outside the
+sync root ([WR-49](../semantics/languages.md#wr-49)), and its scripts may
+import files there, which esbuild bundles
+([WR-47](../semantics/languages.md#wr-47)); the contract names such a file
+by its path relative to the sync root, such as `../lib/ctx.ts`. Listed
+modules typically hold an `AsyncLocalStorage` the host enters, or a
+registry the host fills. Without this, each step bundle inlines
 its own copy, and a scope the host enters is invisible to step code. Measured
 on Bun 1.3.10 and 1.4.2 (prototype outside the repository): a host and a
 step built separately from the same module, in one process, with the host
@@ -133,6 +138,18 @@ the host was a compiled Bun executable.
    detected, and the shim then sees the value as it was when the step's
    module loaded. A listed module that imports another listed module is
    registered after it; a cycle fails the build (`host_module_cycle`).
+   A module outside the folder is reached only by codebase scripts, since a
+   Bun script's relative imports stay in the folder
+   ([WR-28](../semantics/languages.md#wr-28)), so it is built as they are:
+   esbuild bundles its copy as an ES module, with the settings of the
+   codebase entry whose `relative_path` holds it (the deepest, when several
+   do) and the other listed modules resolved to their shims, and its export
+   names come from that bundle's metafile. Its files are named by the id
+   `outside/<n>/` and the rest of its path, where `n` counts the leading
+   `../`, and it is registered after the modules inside the folder, which
+   cannot import it. An entry that leaves the root but names no file of a
+   codebase entry's `relative_path` fails the build with
+   `host_module_unknown`, naming the entry (milestone F3h).
 2. **Host mode.** The Bun host SDK registers the host's own instances (the
    modules the host's program imported) before any step module loads.
 3. **Elsewhere.** The harness loads the bundled copy from
@@ -151,6 +168,22 @@ the host was a compiled Bun executable.
    The build warns (`host_module_shared_dependency`) when a listed module
    imports a package that a step also imports directly, since that package
    then exists twice with different configuration.
+7. **Load effects.** Listing modules changes only where imports of the
+   listed modules go: each bundler resolves and prunes every other import
+   as it would without the list, so a step bundle runs the load effects of
+   every module it still inlines, those of modules in packages marked
+   `sideEffects: false` included. What differs is D12's own: a listed
+   module, and what only it imports, loads once per process, when it is
+   registered (by the host's own import in host mode, from the bundled copy
+   elsewhere) rather than when a step's module loads. So a listed module
+   that a step imports without using, which `sideEffects: false` prunes
+   from a plain bundle, still runs its load effects. Bun 1.3.10 drops a
+   module that a `sideEffects: false` package re-exports
+   (`export { x } from "./x.js"`) whenever a plugin's resolve filter matches
+   the import of that package, even when the callback resolves nothing, and
+   the bundle then references a binding it never defines; the Bun helper's
+   filter therefore matches only the specifiers it resolves (milestone
+   F3h).
 
 This departs from Windmill, which inlines every import into each script's
 bundle ([WR-27](../semantics/languages.md#wr-27)): it is deviation D12, and the
@@ -294,9 +327,13 @@ Windmill image ([OR-3](../semantics/oracle.md#or-3)); a CI lint enforces it
   - **The transforms** reach esbuild through a plugin that only maps
     paths. The env rewrite's support module is injected, before the
     entry's own `inject` files, from the plugin's `windmill-lite`
-    namespace, as are the shims, so no codebase bundle names a file
-    outside the folder or depends on where it was built. The define
-    table's keys take precedence over the entry's own `define`.
+    namespace, as are the shims of listed packages, so no codebase bundle
+    depends on where it was built. The define table's keys take precedence
+    over the entry's own `define`. Milestone F3h loads a listed file's
+    shim in place of the file, under its path from the sync root, when
+    esbuild loads it: mapping each import to the shim by resolving it a
+    second time, outside esbuild's directory cache, had made a build that
+    imports a package of many modules 16 to 60 times slower.
   - **The module** of a CommonJS codebase script is `<id>.cjs`. The
     harness loads a codebase module from a copy in its working directory,
     as Windmill places the bundle as `main.js` in the job directory beside
