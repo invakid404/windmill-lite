@@ -106,7 +106,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/oracle/big-payload`, `nul`, `seeded`, `key-order` | Batch E3e: the probes `big_payload` ([OR-V1](../docs/semantics/oracle.md#or-v1)) and `nul` with the other NUL positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)); a variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31)/a, OR-12/d; `oracle.setup: before_push`); the key-order cases of [OR-24](../docs/semantics/oracle.md#or-24) that E3a left. |
 | `flows/oracle/workers2` | Batch E3e: the two-worker profile ([OR-5](../docs/semantics/oracle.md#or-5)/b): a step that waits for a script it starts, and parallel bodies whose index 0 is slow ([Q-OR-7](../docs/semantics/oracle.md#q-or-7), [Q-OR-15](../docs/semantics/oracle.md#q-or-15)). Recorded by the oracle workflow's two-worker session. |
 | `flows/control-flow/pull` | Batch E3e: CF-6/b and SY-6/c, a flow created through the API as written and read back with the CLI's `sync pull` (`oracle: {deploy: api, pull: true}`); the pulled value is in each recording's provenance. |
-| `flows/je/shortcut-texts` | Batch E3e: B2a's request 8, the text the JE-7 and JE-8 shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error. |
+| `flows/je/shortcut-texts` | Batch E3e: B2a's request 8, the text the JE-7 and JE-8 shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error. Its unit cases (FU5) restate them: a stored `flow_input` member in jsonb's spaced text, and the compact array after a loop. |
 | `flows/je/transform-order`, `transform-order-api` | Batch E3e: the evaluation order of a step's input transforms ([JE-23](../docs/semantics/expressions.md#je-23)), with the transforms in the CLI's name order and, created through the API, as written. |
 
 `internal/oracle/testdata/batches/<batch>.json` names each batch's
@@ -257,8 +257,11 @@ windmill-lite never writes (D14), stays in the recording (JE-35/b).
   database read returns), and the expected `text` or `error`. A
   test ties each one to its flow and recording: the expression is the one
   at the site, the previous id is the module before it, the stored forms of
-  the context's texts are the recorded results, and at an input transform
-  the stored form of the expected text is the recorded argument.
+  the context's texts are the recorded results, at an input transform
+  the stored form of the expected text is the recorded argument, and at a
+  `timeout` site the expected text is exactly the value the recorded i32
+  parse error quotes ([JE-29](../docs/semantics/expressions.md#je-29)),
+  spacing and key order included.
 
 **The JE-8 discriminator.** The key-order example of
 [0003](../docs/design/0003-semantics-placement.md) cannot be told apart in a
@@ -673,8 +676,9 @@ imports a package without a lock
 | `expect.run` | for a clean build, as above: each call's `entry` is a script id, its module the bundle's `.cjs` or `.mjs`; `register` names host-provided modules by id |
 
 The codebase cases are whole-folder cases: `wr-47.json` (how the pinned
-CLI bundles a codebase script, WR-47), `wr-49.json` (assets, WR-49), and
-the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
+CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
+`customBundler` leaves the bundle to esbuild, WR-48/b), `wr-49.json`
+(assets, WR-49), and the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
 output) and `d12.json` (host-provided modules through their shims).
 
 `deferred.json` lists the catalogue cases of these findings that are not

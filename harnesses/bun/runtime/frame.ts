@@ -46,7 +46,7 @@ const FIELDS: Record<string, readonly string[]> = {
   hello: ["proto", "harness", "runtime", "caps", "bundle", "pid"],
   welcome: ["proto", "engine", "bundle", "config", "reject"],
   invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary"],
-  result: ["id", "outcome", "body", "tail", "exit_code", "settled"],
+  result: ["id", "outcome", "body", "origin", "tail", "exit_code", "settled"],
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
   log: ["id", "lines"],
@@ -231,8 +231,12 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "result":
       switch (m.outcome) {
-        case "ok":
         case "error":
+          checkField(m.t, m, "body", "raw");
+          // Only "harness" is named: an error the harness generated.
+          if (m.origin != null && m.origin !== "harness") throw new ProtocolError("bad_field", `result origin ${JSON.stringify(m.origin)}`);
+          break;
+        case "ok":
           checkField(m.t, m, "body", "raw");
           break;
         case "escaped":
@@ -305,13 +309,28 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   run_done: ["result"],
 };
 
+/** Whether a result of this outcome has field k: body for ok and error,
+ * origin for error, tail and exit_code for escaped. */
+function resultField(outcome: unknown, k: string): boolean {
+  switch (k) {
+    case "body":
+      return outcome === "ok" || outcome === "error";
+    case "origin":
+      return outcome === "error";
+    case "tail":
+    case "exit_code":
+      return outcome === "escaped";
+  }
+  return true;
+}
+
 /** The message with only the fields its type has, as Go's decoder keeps
  * them: unknown fields, and fields of another outcome, are dropped. */
 function own(m: Message): Message {
   const out: Message = { t: m.t };
   for (const k of FIELDS[m.t]) {
     if (m[k] === undefined) continue;
-    if (m.t === "result" && (k === "body" ? !["ok", "error"].includes(m.outcome) : (k === "tail" || k === "exit_code") && m.outcome !== "escaped")) continue;
+    if (m.t === "result" && !resultField(m.outcome, k)) continue;
     if ((m.t === "ping" || m.t === "pong") && k !== "id" && (m.in_flight === undefined || m.in_flight === null)) continue;
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;
     if (nested && m[k] !== null) {

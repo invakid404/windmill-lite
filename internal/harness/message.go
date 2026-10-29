@@ -148,6 +148,13 @@ type Result struct {
 	// Body is the serialised result (ok) or error object (error); zero
 	// for escaped and empty.
 	Body jsonval.Value
+	// Origin is OriginHarness when an error outcome's Body is one the
+	// harness generated in place of the worker's: WR-37's signature error,
+	// or a native job's transpile or load failure or //proxy refusal (WR-43,
+	// WR-45; an `execution error:`).
+	// It is "" for the step code's own error, and written only for an
+	// error outcome.
+	Origin string
 	// Tail and ExitCode describe an escaped outcome (WR-20); they are
 	// written only for one.
 	Tail     string
@@ -404,6 +411,9 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 }
 
 func (m Result) appendPayload(b []byte) ([]byte, error) {
+	if m.Origin != "" && (m.Origin != OriginHarness || m.Outcome != OutcomeError) {
+		return b, protoErr(CodeBadField, "%s result origin %q", m.Outcome, m.Origin)
+	}
 	e := newEnvelope(b, TypeResult)
 	e.str("id", m.ID)
 	e.str("outcome", m.Outcome)
@@ -413,6 +423,9 @@ func (m Result) appendPayload(b []byte) ([]byte, error) {
 			return b, protoErr(CodeMissingField, "%s result without body", m.Outcome)
 		}
 		e.raw("body", m.Body.Producer())
+		if m.Origin != "" {
+			e.str("origin", m.Origin)
+		}
 	case OutcomeEscaped:
 		e.str("tail", m.Tail)
 		e.int("exit_code", int64(m.ExitCode))
@@ -572,6 +585,10 @@ const (
 	OutcomeEmpty   = "empty"
 )
 
+// OriginHarness is the one origin a result frame names: an error the
+// harness generated (engine.OriginHarness spells the same).
+const OriginHarness = "harness"
+
 // Decode parses one frame payload into its message. Field order and
 // insignificant whitespace in the envelope do not matter; raw values (args,
 // body) keep their bytes exactly. Keys match exactly, as JavaScript reads
@@ -654,6 +671,11 @@ func Decode(payload []byte) (Message, error) {
 		switch r.Outcome {
 		case OutcomeOK, OutcomeError:
 			r.Body = d.raw("body")
+			if r.Outcome == OutcomeError && d.present("origin") {
+				if r.Origin = d.str("origin"); r.Origin != OriginHarness {
+					d.fail(CodeBadField, "result origin %q", r.Origin)
+				}
+			}
 		case OutcomeEscaped:
 			r.Tail = d.str("tail")
 			r.ExitCode = d.int("exit_code")

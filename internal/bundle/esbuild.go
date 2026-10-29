@@ -66,8 +66,9 @@ type Asset struct {
 
 // ParseCodebaseSettings reads a codebases entry as wmill.yaml gives it
 // (syncfolder.Codebase.Settings). Keys that do not shape the bundle
-// (relative_path, includes, excludes) are ignored; customBundler is the
-// loader's to refuse (WR-48). A value of the wrong type fails, as the
+// (relative_path, includes, excludes) are ignored; a set (truthy)
+// customBundler is the loader's to refuse, and an unset one is ignored
+// (WR-48). A value of the wrong type fails, as the
 // CLI's esbuild call would.
 func ParseCodebaseSettings(raw json.RawMessage) (*CodebaseSettings, error) {
 	var v struct {

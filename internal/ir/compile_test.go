@@ -321,3 +321,16 @@ func TestDeployedLanguage(t *testing.T) {
 		t.Error("a language with no harness class has no boundary")
 	}
 }
+
+// WR-48: customBundler counts as set when it is JavaScript-truthy, number
+// spellings read as JavaScript reads them.
+func TestTruthy(t *testing.T) {
+	for raw, want := range map[string]bool{
+		``: false, `null`: false, `false`: false, `0`: false, `-0`: false, `0.0`: false, `0e5`: false, `1e-400`: false, `""`: false,
+		`true`: true, `1`: true, `-1`: true, `1e400`: true, `"0"`: true, `"false"`: true, `" "`: true, `[]`: true, `{}`: true, `"./bundle.sh"`: true,
+	} {
+		if got := truthy([]byte(raw)); got != want {
+			t.Errorf("truthy(%s) = %v, want %v", raw, got, want)
+		}
+	}
+}

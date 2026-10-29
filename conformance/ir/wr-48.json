@@ -1,0 +1,170 @@
+{
+  "finding": "WR-48",
+  "cases": [
+    {
+      "spec": "WR-48/b",
+      "provenance": "source-derived",
+      "title": "a falsy customBundler counts as unset",
+      "note": "The CLI tests customBundler for JavaScript truthiness, so false leaves esbuild in charge, as with no key; conformance/build/wr-48.json builds and runs the script.",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: false\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "codebase",
+              "/codebase": {
+                "index": 0,
+                "relative_path": ".",
+                "format": "cjs"
+              },
+              "/dependency_set": "codebase:0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-48",
+      "variant": "zero",
+      "provenance": "source-derived",
+      "title": "customBundler: 0 counts as unset",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: 0\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "codebase",
+              "/codebase": {
+                "index": 0,
+                "relative_path": ".",
+                "format": "cjs"
+              },
+              "/dependency_set": "codebase:0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-48",
+      "variant": "empty-string",
+      "provenance": "source-derived",
+      "title": "an empty customBundler counts as unset",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: \"\"\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "codebase",
+              "/codebase": {
+                "index": 0,
+                "relative_path": ".",
+                "format": "cjs"
+              },
+              "/dependency_set": "codebase:0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-48",
+      "variant": "null",
+      "provenance": "source-derived",
+      "title": "a null customBundler counts as unset",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: null\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "scripts": {
+          "f/x/s": {
+            "at": {
+              "/bundling": "codebase",
+              "/codebase": {
+                "index": 0,
+                "relative_path": ".",
+                "format": "cjs"
+              },
+              "/dependency_set": "codebase:0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-48",
+      "variant": "string-zero",
+      "provenance": "policy",
+      "policy": "0001 §5a",
+      "title": "the string \"0\" is truthy, so customBundler is set and refused",
+      "note": "Running the command (WR-48/a) is later; a set customBundler is refused as SY-8's custom-bundler case is.",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: \"0\"\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "script f/x/s",
+              "unsupported: customBundler (codebase entry 0)"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "spec": "WR-48",
+      "variant": "true",
+      "provenance": "policy",
+      "policy": "0001 §5a",
+      "title": "customBundler: true is set, and refused",
+      "note": "On Windmill true becomes the shell command true, which prints nothing, so the bundle is empty (WR-48); windmill-lite refuses it.",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: .\n    customBundler: true\n",
+          "f/x/s.ts": "export async function main() { return 1 }\n"
+        },
+        "contract": "roots:\n  - script: f/x/s\n"
+      },
+      "expect": {
+        "errors": [
+          {
+            "kind": "unsupported_feature",
+            "contains": [
+              "script f/x/s",
+              "unsupported: customBundler (codebase entry 0)"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Which customBundler values count as set (WR-48, later): JavaScript-truthy ones. An unset one leaves the script a codebase script that esbuild builds (C2b); a set one is refused, since windmill-lite does not run the command (WR-48/a, deferred)."
+}
