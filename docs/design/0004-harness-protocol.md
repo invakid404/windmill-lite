@@ -91,7 +91,7 @@ step without failing the others.
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
-| `child` | harness → engine | `id` (the invocation), `pid` (greater than 1) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on; the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
+| `child` | harness → engine | `id` (the invocation), `pid` (from 2 to 2^31 − 1, so that a negated kill target never narrows to `0`, `-1` or another pid) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on, on the socket of a spawned harness or on a host's child channel (fd 4); the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
@@ -305,9 +305,16 @@ microtask see none.
    The engine owns those groups, since the harness's event loop, which the
    step can block, cannot be relied on to kill them. Before the step's
    code goes on, the harness announces each group in a `child` frame,
-   written synchronously through the spawned harness's socket descriptor
-   after what the socket already holds (a host's goes out as other frames
-   do). The engine kills an invocation's announced groups when it abandons
+   written synchronously: through a spawned harness's socket descriptor,
+   after what its socket already took (a Bun socket keeps no buffer of its
+   own), and by a host on a channel of its own, the engine's fd 4, since a
+   host's socket may hold bytes it has not written yet, which a
+   synchronous write would overtake, and a step can back that socket up
+   and then block the loop. The engine holds each group with its leader's
+   start time and kills a group only while it is the original (its leader,
+   or with the leader gone the members the leader left, which keep the id
+   from being reused); every 250 ms it retires the groups that ended or
+   whose id a later process took, so a recycled id is never killed. The engine kills an invocation's announced groups when it abandons
    the invocation (its timeout or cancellation, which also sends `cancel`,
    on which the harness revokes them and kills at once any child the call
    starts afterwards) and when the process ends, a watchdog's kill
@@ -695,7 +702,8 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   it. A run's `id` is its id in the engine, so the host finds the scope of
   each invocation by its `run`. W1 also recorded how host mode starts: the
   SDK passes the engine a socketpair as fd 3 (Node's extra `"pipe"` stdio,
-  a socket on Bun 1.3.10). A host-mode hello must offer the `host`
+  a socket on Bun 1.3.10), and since FU6 a second one as fd 4 for its
+  steps' `child` frames. A host-mode hello must offer the `host`
   capability and name the engine's parent, and the watchdog signals only
   while `getppid()` still names it (review item cl P4-3). A protocol error
   from a host ends the connection, and with it the engine, rather than
@@ -887,7 +895,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     of the process kills. A held fresh result is released only when its
     group empties by itself. Killing at settlement where Windmill would
     wait is the reading recorded as an open question in the
-    [README](README.md).
+    [README](README.md). A host announces its groups on a channel of its
+    own (fd 4), a group is held with its leader's start time and retired
+    once it ends, and a `child` frame's pid is checked against the
+    kernel's 32-bit range, so no kill can reach a recycled id or a special
+    target.
     Each child is now registered once: before, one started through
     `node:child_process` was counted twice, by its own wrapper and by
     `Bun.spawn`'s.

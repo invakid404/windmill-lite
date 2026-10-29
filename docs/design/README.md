@@ -665,8 +665,11 @@ follow SC2's answers (FU6).
     Windmill, and reported as `detached`. Where Windmill would hold the job open until the
     child exits, the warm step completes at once and the child's work is
     cut off. The engine owns the children's groups (the harness announces
-    each in a `child` frame), so a step that blocks the event loop cannot
-    keep them past its timeout or the process's end. A synchronous child
+    each in a `child` frame, a host on a channel of its own), so a step
+    that blocks the event loop, or backs up a host's socket first, cannot
+    keep them past its timeout or the process's end; it holds each with
+    its leader's start time and retires it once it ends, so a recycled id
+    is never killed. A synchronous child
     call gets no group of its own (its pid comes too late to announce): it
     stays in the harness's group, which the end of the process kills, and
     what it leaves running is not attributed. Should a warm process hold

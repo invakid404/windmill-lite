@@ -230,7 +230,8 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
     the engine even if the step then blocks the event loop, and the engine
     kills the group on the invocation's timeout or cancellation and when
     the process ends (a host, whose transport has no synchronous write,
-    sends it as other frames). A `cancel` revokes `child` here too: the
+    writes it on its own channel instead, described under host mode). A
+    `cancel` revokes `child` here too: the
     invocation's groups are killed at once, and any it starts afterwards
     at once (`InvocationResources.revoke`). Settlement kills what is left.
     A synchronous call (`Bun.spawnSync`, and so `spawnSync`, `execSync`
@@ -361,7 +362,15 @@ calls on its current connection.
    stdio, which Bun 1.3.10 makes a socket), or fails with `engine_start`, and
    runs the runtime in this process in host mode. The socket's backpressure
    reaches the runtime's send queue, so a small frame still waits behind at
-   most one part frame.
+   most one part frame. A second socketpair, the engine's fd 4, carries only
+   the `child` frames that announce the steps' child groups (WR-55): the
+   runtime's `children` option writes each, synchronously, to the host's
+   end of it (its descriptor from the socket's handle, `_handle.fd` on Bun
+   1.3.10), waiting for a full channel. The socket may hold bytes it has
+   not written yet, which a synchronous write to it would overtake, and a
+   step can back it up and then block the event loop, so the
+   announcement cannot wait in its queue. Without a descriptor the
+   announcements fall back to the socket, with a diagnostic.
 
 It returns a `Host`:
 

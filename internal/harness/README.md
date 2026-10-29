@@ -160,7 +160,20 @@ abandons the invocation (its timeout or cancellation, in `exec`), when the
 process or the host's connection ends (`failInvocations`), and at once
 for a group announced after that or after the invocation settled. It
 forgets an invocation's groups at its settlement, which killed them in
-the harness. A group id of 1 or less, or the harness's own, is refused.
+the harness. A group id outside 2 to 2^31 − 1, which a negated kill target
+would narrow to another target (`0`, `-1`, another pid), is refused by the
+codec and again before any signal (`validGroupID`), and so is the
+harness's own pid. A group is held with its identity, its leader's start
+time as the engine learns of it (`processStart`: `/proc/<pid>/stat` on
+Linux, `kern.proc.pid` on macOS), and a kill checks it (`childGroup.ours`):
+a process that has the id must be that leader; with no such process, the
+group's members are what the leader started, since the kernel does not
+give a group's id to a new process while the group has a member. Every
+250 ms `watchChildren` retires the groups that ended or whose id a later
+process took, so a long invocation that reaped a child cannot have a
+recycled id killed when it is cancelled. The process operations are
+variables the tests replace, so no test sends a real signal to a fake
+id.
 When a warm process ends, `endGroup` kills what is left in its own group:
 what the steps' synchronous child calls started, which gets no group of
 its own.
@@ -253,7 +266,11 @@ its group.
 `AttachHost` serves host mode on the engine's side (ADR 0004 host mode,
 milestone W1). The Bun host SDK starts the engine with its socket as file
 descriptor 3 (`HostConn`); the host is the harness that every invocation
-goes to.
+goes to. It passes file descriptor 4 too (`HostChildren`,
+`HostConfig.Children`): a channel of `child` frames only, which the host
+writes synchronously and `readChildren` reads on a goroutine of its own,
+so a step's child group reaches the engine even when the host's socket is
+backed up and its event loop then blocks (WR-55).
 
 - **Handshake.** As for a spawned harness, plus: the hello must offer the
   `host` capability (else `harness_mismatch`), and its `pid` must be the

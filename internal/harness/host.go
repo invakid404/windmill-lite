@@ -23,6 +23,12 @@ import (
 type HostConfig struct {
 	// Conn is the socket to the host; HostConn returns fd 3's.
 	Conn net.Conn
+	// Children, when the host passes one, is the side channel on which it
+	// announces its steps' child process groups (Child frames, WR-55):
+	// written synchronously, so an announcement reaches the engine even
+	// when the host's socket is backed up and its event loop then blocks,
+	// and read on a goroutine of its own. HostChildren returns fd 4's.
+	Children io.Reader
 	// Kind, Runtime and Bundle are what the handshake requires of the
 	// host, as for a spawned harness; EngineVersion is sent in the welcome.
 	Kind          string
@@ -82,6 +88,53 @@ func HostConn() (net.Conn, error) {
 	return c, nil
 }
 
+// HostChildren returns the side channel on which the host announces its
+// steps' child groups, file descriptor 4 (HostConfig.Children), or nil when
+// the host passed none.
+func HostChildren() net.Conn {
+	var st syscall.Stat_t
+	if syscall.Fstat(4, &st) != nil {
+		return nil
+	}
+	f := os.NewFile(4, "host-children")
+	c, err := net.FileConn(f)
+	f.Close()
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
+// readChildren reads the host's Child frames from its side channel
+// (HostConfig.Children) until the channel ends, and handles each as one
+// that came over the connection (onChild). Anything else on it stops the
+// reading, with a diagnostic.
+func (p *Process) readChildren(r io.Reader) {
+	for {
+		payload, err := readFrame(r, maxChildFrame)
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+				p.diag.printf("the host's child channel: %v", err)
+			}
+			return
+		}
+		m, err := Decode(payload)
+		c, ok := m.(Child)
+		if err != nil || !ok {
+			p.diag.printf("the host's child channel carries a frame that is not a child frame: %v", err)
+			return
+		}
+		p.mu.Lock()
+		kill := p.onChild(c)
+		p.mu.Unlock()
+		killChildGroups(kill)
+	}
+}
+
+// maxChildFrame bounds a frame on the host's child channel, which carries
+// only Child frames of a few dozen bytes.
+const maxChildFrame = 4096
+
 // AttachHost completes the handshake with the host on cfg.Conn and serves
 // its run frames until the connection ends; Done closes then. The host's
 // hello must name the engine's parent process, which is the process the
@@ -127,6 +180,10 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 	}
 	if p.killAfter > 0 {
 		go p.watchdog()
+	}
+	go p.watchChildren()
+	if cfg.Children != nil {
+		go p.readChildren(cfg.Children)
 	}
 	return p, nil
 }

@@ -30,6 +30,7 @@ import {
   decodeAssembled,
   decodeFrame,
   encode,
+  frame,
   FrameReader,
   type Health,
   type Message,
@@ -124,6 +125,12 @@ export type Options = {
   diag?: (line: string) => void;
   /** Host mode: this process is the host, and submits runs (ADR 0009). */
   host?: boolean;
+  /** Writes one frame, all of it, before it returns or throws: the side
+   * channel on which a host announces its steps' child groups (child
+   * frames, WR-55), whose transport cannot write synchronously in order
+   * with what its socket already holds. Without it, child frames go on
+   * the socket. */
+  children?: (b: Uint8Array) => void;
   /** Called once the engine's welcome has been accepted. */
   onWelcome?: () => void;
 };
@@ -774,15 +781,22 @@ export class Runtime {
   }
 
   /** Announces a child group of invocation id to the engine (a child
-   * frame) and writes it at once, through the synchronous transport when
-   * there is one (the spawned harness's), so it reaches the engine whatever
-   * the step's code does next, a blocked event loop included; the engine
+   * frame) and writes it at once, on the host's child channel (children)
+   * or through the synchronous transport (the spawned harness's), so it
+   * reaches the engine whatever the step's code does next, a blocked event
+   * loop or a backed-up socket included; the engine
    * then kills the group on the invocation's timeout or cancellation and
    * when the process ends (WR-55). A failure is written to the
    * diagnostics, and the spawn goes on. */
   private announceChild(id: string, pid: number) {
     if (this.closing()) return;
     try {
+      // A host's socket may hold bytes it has not written yet, which a
+      // synchronous write would overtake: its own channel takes the frame.
+      if (this.opts.children) {
+        this.opts.children(frame(encode({ t: "child", id, pid })));
+        return;
+      }
       this.sender.send({ t: "child", id, pid });
       const writeSync = this.opts.transport.writeSync;
       if (writeSync) this.sender.flushFramesSync((b) => writeSync(b));

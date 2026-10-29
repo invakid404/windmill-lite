@@ -196,10 +196,17 @@ type Cancel struct {
 type Child struct {
 	// ID is the invocation that started the child.
 	ID string
-	// PID is the child's pid, its process group's id; greater than 1, so
-	// that neither every process nor the caller's own group is named.
+	// PID is the child's pid, its process group's id: from 2 to the
+	// largest pid the kernel's signed 32-bit type holds (validGroupID).
 	PID int
 }
+
+// validGroupID reports whether pid can name a process group of its own
+// when negated for kill: neither 0 nor 1 (-0 is the caller's own group, -1
+// every process the caller may signal), nor a value beyond the kernel's
+// signed 32-bit pid, which would narrow to another target (2^32 + 1 to -1,
+// 2^32 to 0, 2^32 + n to n).
+func validGroupID(pid int) bool { return pid >= 2 && pid <= math.MaxInt32 }
 
 // Log is attributed output of one invocation, batched.
 type Log struct {
@@ -745,7 +752,7 @@ func Decode(payload []byte) (Message, error) {
 		m = w
 	case TypeChild:
 		c := Child{ID: d.str("id"), PID: d.int("pid")}
-		if derr == nil && c.PID <= 1 {
+		if derr == nil && !validGroupID(c.PID) {
 			d.fail(CodeBadField, "child pid %d", c.PID)
 		}
 		m = c

@@ -269,9 +269,10 @@ export function decode(payload: Uint8Array): Message {
       if (!["timeout", "canceled", "run_ended"].includes(m.reason)) throw new ProtocolError("bad_field", `cancel reason ${JSON.stringify(m.reason)}`);
       break;
     case "child":
-      // A process group's id: never every process (-1) nor the caller's
-      // own group (0).
-      if (m.pid <= 1) throw new ProtocolError("bad_field", `child pid ${m.pid}`);
+      // A process group's id that kill can take negated: never every
+      // process (-1) nor the caller's own group (0), nor beyond the
+      // kernel's signed 32-bit pid, which would narrow to another target.
+      if (m.pid <= 1 || m.pid > 2147483647) throw new ProtocolError("bad_field", `child pid ${m.pid}`);
       break;
     case "platform":
     case "platform_reply":
