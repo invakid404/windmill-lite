@@ -1,0 +1,12 @@
+# CF-V4/a, CF-16/d: the loop at position zero runs its body as a stored
+# flow node, whose copy of the handler keeps the id h.
+spec: [CF-V4/a, CF-16/d]
+target: f/wl_cfv4/handler_id
+expect:
+  status: success
+  result: [h]
+  steps:
+    "m:l": {status: success, result: [h]}
+    "m:l/i:0/m:x": {status: failure, args: {}, result: {error: {message: e, name: Error, stack: "<stack>", step_id: x}}}
+    "m:l/i:0/s:failure": {status: success, args: {}, result: h}
+    "s:failure": {status: not_run}

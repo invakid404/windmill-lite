@@ -286,7 +286,7 @@ func TestObserveTrace(t *testing.T) {
 			},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, nil, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"a", "b", "c"}, nil, false, map[string]conformance.SitePath{jobA: site("a"), jobB: site("b")}, conformance.CompareSpec{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestObserveTrace(t *testing.T) {
 		{Site: site("a"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, ResultOrigin: engine.OriginHarness,
 			RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`{"error":{"name":"InternalErr","message":"m"}}`), Carried: v(`{"error":{"name":"InternalErr","message":"m"}}`)},
 	}}
-	got, generated, err = observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{})
+	got, generated, err = observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestObserveTraceRetries(t *testing.T) {
 	// The executor saw every invocation at its module's site; the records
 	// name the attempt's job by its own.
 	jobs := map[string]conformance.SitePath{jobA0: site("a"), jobA: site("a"), jobB: site("b")}
-	got, _, err := observeTrace(tr, []string{"a", "b", "b-v"}, []bool{false, false, true}, false, jobs, conformance.CompareSpec{})
+	got, _, err := observeTrace(tr, []string{"a", "b", "b-v"}, []bool{false, false, true}, false, jobs, conformance.CompareSpec{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestObserveTraceRetries(t *testing.T) {
 
 	// A listed attempt with no record is the engine's fault, reported.
 	tr.Steps = tr.Steps[:1]
-	if _, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}); err == nil {
+	if _, _, err := observeTrace(tr, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil); err == nil {
 		t.Fatal("a listed attempt with no record was observed")
 	}
 }
@@ -455,6 +455,10 @@ func TestCompareRun(t *testing.T) {
 		}
 		return s + `}}}`
 	}
+	notFound := func(loc string) string {
+		return `{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression ` + "`[results.br]`" +
+			`:\nQuickJS evaluation error: Error: Failed to fetch result for step 'br': Not found: Completed Job not found at name x` + loc + `\n"}}`
+	}
 	got := obs(step(internal(""), ""))
 	withLoc := obs(step(internal(" <loc>"), ""))
 	for _, c := range []struct {
@@ -470,6 +474,14 @@ func TestCompareRun(t *testing.T) {
 		{"carried, expect", conformance.Run{Expect: &got}, obs(step(internal(""), `{"other":1}`)), nil, 2},
 		{"carried, recording", conformance.Run{Recorded: &conformance.Recording{Observation: got}}, obs(step(internal(""), `{"other":1}`)), nil, 0},
 		{"nothing to compare", conformance.Run{}, got, nil, 1},
+		// FX-50 rule 3: a declared not-found location goes where
+		// windmill-lite generated the value, and nowhere else.
+		{"declared not-found location", conformance.Run{Recorded: &conformance.Recording{Observation: obs(step(notFound(" (jobs.rs:9074)"), ""))}, NotFoundLocs: []string{"/result", "/steps/m:a/result"}},
+			obs(step(notFound(""), "")), []string{"/result", "/steps/m:a/result"}, 0},
+		{"undeclared not-found location", conformance.Run{Recorded: &conformance.Recording{Observation: obs(step(notFound(" (jobs.rs:9074)"), ""))}, NotFoundLocs: []string{"/result"}},
+			obs(step(notFound(""), "")), []string{"/result", "/steps/m:a/result"}, 1},
+		{"declared at a user value", conformance.Run{Recorded: &conformance.Recording{Observation: obs(step(notFound(" (user.rs:123)"), ""))}, NotFoundLocs: []string{"/result", "/steps/m:a/result"}},
+			obs(step(notFound(""), "")), nil, 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Every failed comparison ends with the observation itself.
@@ -512,7 +524,7 @@ func TestObserveChildFlows(t *testing.T) {
 			{Site: p("m:p"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Carried: v(`{"error":{"name":"Anyhow","message":"Error: x"}}`), CarriedOrigin: engine.OriginEngine},
 		},
 	}
-	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, false, nil, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, false, nil, conformance.CompareSpec{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +572,7 @@ func TestObserveNestedGenerated(t *testing.T) {
 		{[]string{"/1"}, []string{"/result/0/error/message", "/steps/m:l/result/0/error/message"}},
 		{nil, []string{"/result/0/error/message", "/result/1/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/result/1/error/message"}},
 	} {
-		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, false, nil, conformance.CompareSpec{})
+		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, false, nil, conformance.CompareSpec{}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -609,7 +621,7 @@ func TestObserveIncludedResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, generated, err := observeTrace(tr, []string{"l"}, nil, false, nil, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"l"}, nil, false, nil, conformance.CompareSpec{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +721,7 @@ func TestCarriedLocation(t *testing.T) {
 		{"carried is another value", trace(engine.OriginEngine, other), expect(withLoc(msg + " here")), false, []string{"/steps/m:a/carried/error/message"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, false, nil, conformance.CompareSpec{})
+			got, generated, err := observeTrace(c.trace, []string{"a"}, nil, false, nil, conformance.CompareSpec{}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -746,7 +758,7 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 		Site: conformance.SitePath{}.Child(conformance.Module("a")), Status: conformance.StepSuccess, Module: conformance.ModuleFailure, Ran: true,
 		RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`1`), Carried: v(str), CarriedOrigin: engine.OriginEngine,
 	}}}
-	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, true, nil, conformance.CompareSpec{})
+	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, true, nil, conformance.CompareSpec{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -765,9 +777,98 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 		t.Fatalf("problems %q", p)
 	}
 	// Without a failure module there is no s:failure site.
-	got, _, err = observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{})
+	got, _, err = observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{}, nil)
 	if _, ok := got.Steps[conformance.SitePath{}.Child(conformance.FailureSlot())]; err != nil || ok {
 		t.Fatalf("s:failure without a failure module (%v)", err)
+	}
+}
+
+// ADR 0011: a copy of an error windmill-lite generated is generated only
+// where the run declares it (copies), and only when it equals the error of
+// the site it names, its error member or its message: a failure module
+// that echoes a pickup error the observation does not show, or its message
+// (FX-15/b, JE-35/d), loses the reference's suffix at the declared copies.
+// Equality alone never counts: the failure module's own error, an
+// undeclared copy, a copy declared against a site that generated nothing,
+// and one whose value differs keep the reference's text.
+func TestObserveDeclaredCopies(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	const errObj = `{"name":"Anyhow","message":"Error: flow not found"}`
+	const own = `{"error":{"name":"Anyhow","message":"Error: mine"}}`
+	result := `{"copy":{"error":` + errObj + `},"m":"Error: flow not found","own":` + own + `,"undeclared":"Error: flow not found"}`
+	tr := &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(result), Steps: []engine.StepRecord{
+		{Site: conformance.SitePath{}.Child(conformance.Module("p")), Status: conformance.StepFailure, Module: conformance.ModuleFailure,
+			Carried: v(`{"error":` + errObj + `}`), CarriedOrigin: engine.OriginEngine},
+		{Site: conformance.SitePath{}.Child(conformance.FailureSlot()), Status: conformance.StepSuccess, Module: conformance.ModuleSuccess, Ran: true,
+			RecordedArgs: v(`{"e":` + errObj + `}`), ResolvedArgs: v(`{"e":` + errObj + `}`), Result: v(result)},
+	}}
+	copies := []conformance.Copy{
+		{At: "/result/copy", Of: "m:p"}, {At: "/result/m", Of: "m:p"}, {At: "/steps/s:failure/args/e", Of: "m:p"},
+		{At: "/steps/s:failure/result/copy", Of: "m:p"}, {At: "/steps/s:failure/result/m", Of: "m:p"},
+		// Declared against a site that generated nothing, and with a value
+		// that differs from the site's error: neither counts.
+		{At: "/steps/s:failure/result/undeclared", Of: "s:failure"}, {At: "/result/own", Of: "m:p"},
+	}
+	got, generated, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{}, copies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/result/copy", "/result/m", "/steps/s:failure/args/e", "/steps/s:failure/result/copy", "/steps/s:failure/result/m"}
+	if !slices.Equal(generated, want) {
+		t.Fatalf("generated %q, want %q", generated, want)
+	}
+	if _, undeclared, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{}, nil); err != nil || len(undeclared) != 0 {
+		t.Fatalf("generated with no declaration %q (%v)", undeclared, err)
+	}
+	reference := func(text string) conformance.Run {
+		var expect conformance.Observation
+		if err := json.Unmarshal([]byte(text), &expect); err != nil {
+			t.Fatal(err)
+		}
+		return conformance.Run{Expect: &expect}
+	}
+	text := compactJSON(got)
+	withLoc := strings.ReplaceAll(text, `"Error: flow not found"`, `"Error: flow not found @jobs.rs:1:2"`)
+	withLoc = strings.ReplaceAll(withLoc, `"message":"Error: flow not found"`, `"message":"Error: flow not found @jobs.rs:1:2"`)
+	var differs []string
+	for _, p := range compareRun(&conformance.Fixture{}, reference(withLoc), got, generated) {
+		if !strings.HasPrefix(p, "observed ") {
+			differs = append(differs, p)
+		}
+	}
+	// The undeclared copies, in the flow's result and in the failure
+	// module's, keep the reference's location: only they differ.
+	if len(differs) != 2 || !strings.HasPrefix(differs[0], "/result/undeclared") || !strings.HasPrefix(differs[1], "/steps/s:failure/result/undeclared") {
+		t.Fatalf("differences %q", differs)
+	}
+}
+
+// ADR 0001 §2, ADR 0011: a user's own message that happens to equal an
+// error windmill-lite generates later in the run is not generated, so a
+// location in the reference's text at it still differs.
+func TestObserveUserValueEqualToAGeneratedError(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	const msg = "Error: Timeout value cannot be negative"
+	tr := &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(`{"error":{"name":"Anyhow","message":"` + msg + `"}}`), ResultOrigin: engine.OriginEngine,
+		Steps: []engine.StepRecord{
+			{Site: conformance.SitePath{}.Child(conformance.Module("a")), Status: conformance.StepSuccess, Module: conformance.ModuleSuccess, Ran: true,
+				RecordedArgs: v(`{}`), ResolvedArgs: v(`{}`), Result: v(`"` + msg + `"`), Carried: v(`"` + msg + `"`)},
+			{Site: conformance.SitePath{}.Child(conformance.Module("b")), Status: conformance.StepFailure, Module: conformance.ModuleFailure,
+				Carried: v(`{"error":{"name":"Anyhow","message":"` + msg + `"}}`), CarriedOrigin: engine.OriginEngine},
+		}}
+	got, generated, err := observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(generated, []string{"/result"}) {
+		t.Fatalf("generated %q", generated)
+	}
+	var expect conformance.Observation
+	if err := json.Unmarshal([]byte(strings.Replace(compactJSON(got), `"result":"`+msg+`"`, `"result":"`+msg+` @user.rs:1:2"`, 1)), &expect); err != nil {
+		t.Fatal(err)
+	}
+	if p := compareRun(&conformance.Fixture{}, conformance.Run{Expect: &expect}, got, generated); len(p) == 0 || !strings.HasPrefix(p[0], "/steps/m:a/result") {
+		t.Fatalf("problems %q", p)
 	}
 }
 

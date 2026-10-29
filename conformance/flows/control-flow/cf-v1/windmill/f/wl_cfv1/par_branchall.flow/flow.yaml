@@ -1,0 +1,35 @@
+summary: "CF-V1/c: recovered branches in a parallel branchall"
+value:
+  modules:
+    - id: ba
+      value:
+        type: branchall
+        parallel: true
+        branches:
+          - skip_failure: false
+            modules:
+              - id: x
+                value:
+                  type: rawscript
+                  content: "!inline x.ts"
+                  language: bun
+                  input_transforms: {}
+          - skip_failure: false
+            modules:
+              - id: y
+                value:
+                  type: rawscript
+                  content: "!inline y.ts"
+                  language: bun
+                  input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: "!inline failure.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

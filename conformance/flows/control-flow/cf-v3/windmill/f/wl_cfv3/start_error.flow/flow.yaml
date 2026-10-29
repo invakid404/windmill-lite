@@ -1,0 +1,27 @@
+summary: "CF-V3: a loop whose iterator is not an array, first"
+value:
+  modules:
+    - id: l
+      value:
+        type: forloopflow
+        iterator: {type: static, value: {}}
+        parallel: false
+        skip_failures: false
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: "!inline x.ts"
+              language: bun
+              input_transforms: {}
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      content: "!inline failure.ts"
+      language: bun
+      input_transforms: {}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

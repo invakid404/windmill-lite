@@ -1,0 +1,9 @@
+# Recording batch N3c (ADR 0012): CF-29, an empty container's own
+# stop_after_if stops the flow. Synthetic flows written for this repository
+# from docs/semantics/conformance.md#cf-29. Deployed with oracle.deploy api.
+id: control-flow/cf-29
+spec: [CF-29, CF-29/a]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

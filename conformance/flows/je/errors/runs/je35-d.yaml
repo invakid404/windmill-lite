@@ -7,3 +7,11 @@ claims:
     equals: not_run
   - at: /steps/m:T/args/x/error/name
     equals: Anyhow
+# T's argument x is results.S, the failure value windmill-lite generates at
+# S's first pickup, which T's script returns and the flow then ends with:
+# copies of S's generated error, so the location rule reaches them
+# (ADR 0011).
+copies:
+  - {at: "/steps/m:T/args/x", of: "m:S"}
+  - {at: "/steps/m:T/result", of: "m:S"}
+  - {at: /result, of: "m:S"}

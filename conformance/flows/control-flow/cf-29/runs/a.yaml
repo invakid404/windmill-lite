@@ -1,0 +1,12 @@
+# CF-29/a: the loop over [] creates no child and completes with [] at
+# once; its own stop_after_if, true with an error message, is an error
+# stop, which fails its module (as any step's error stop does, CF-29): the
+# flow fails with the EarlyStopError and n does not run.
+spec: [CF-29/a]
+target: f/wl_cf29/empty_stop
+expect:
+  status: failure
+  result: {error: {name: EarlyStopError, message: empty}}
+  steps:
+    "m:l": {status: failure, ran: false, result: [], carried: {error: {name: EarlyStopError, message: empty}}}
+    "m:n": {status: not_run}

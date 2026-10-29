@@ -1,0 +1,12 @@
+# Recording batch N3c (ADR 0012): CF-V4, stored child nodes do not
+# receive runtime handler-id suffixes (CF-16/d). Synthetic flows written
+# for this repository from docs/semantics/conformance.md#cf-v4: the
+# failure module's id is h, and it returns its WM_FLOW_STEP_ID. Deployed
+# with oracle.deploy api, by path after the dependency job, so the body is
+# a stored flow node.
+id: control-flow/cf-v4
+spec: [CF-V4, CF-V4/a, CF-16/d]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, deploy: api}

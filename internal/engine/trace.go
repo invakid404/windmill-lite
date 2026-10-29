@@ -159,12 +159,12 @@ type StepRecord struct {
 }
 
 // ChildFlow is a child flow a run created: the body of a loop iteration
-// that ran as a flow of its own, not collapsed, or of a branch (CF-1,
-// CF-8).
+// that ran as a flow of its own, not collapsed, or of a branch, or the
+// flow a subflow step runs (CF-1, CF-8, CF-17).
 type ChildFlow struct {
-	// Site is the iteration's site, <loop>/i:<n>, or the branch's,
-	// <container>/b:<n> or <container>/b:default (ADR 0011), under which
-	// the child's modules have theirs.
+	// Site is the iteration's site, <loop>/i:<n>, the branch's,
+	// <container>/b:<n> or <container>/b:default, or a subflow step's own
+	// (ADR 0011), under which the child's modules have theirs.
 	Site conformance.SitePath
 	// ID is the child flow's job id, which its steps see as
 	// WM_FLOW_JOB_ID (WA-6).
@@ -172,6 +172,10 @@ type ChildFlow struct {
 	// Modules are the ids of the child's modules, in order: a module with
 	// no record in Steps never got a job (OR-11).
 	Modules []string
+	// Failure says that the child has a failure module, its copy of its
+	// enclosing flow's or a subflow's own, at <Site>/s:failure (CF-16,
+	// FX-34), which never got a job when Steps has no record of it.
+	Failure bool
 }
 
 // Origin is who produced an error value (ADR 0001 §2). Only errors that

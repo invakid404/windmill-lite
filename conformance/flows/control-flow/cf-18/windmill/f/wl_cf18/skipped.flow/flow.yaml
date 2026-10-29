@@ -1,0 +1,35 @@
+summary: "CF-18/a: a skipped loop passes previous_result through"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+    - id: l
+      skip_if: {expr: "true"}
+      value:
+        type: forloopflow
+        iterator: {type: javascript, expr: "[1, 2]"}
+        parallel: false
+        skip_failures: false
+        modules:
+          - id: b
+            value:
+              type: rawscript
+              content: "!inline b.ts"
+              language: bun
+              input_transforms:
+                x: {type: javascript, expr: flow_input.iter.value}
+    - id: n
+      value:
+        type: rawscript
+        content: "!inline n.ts"
+        language: bun
+        input_transforms:
+          x: {type: javascript, expr: previous_result}
+schema:
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}

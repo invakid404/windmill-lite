@@ -12,3 +12,12 @@ expect:
       status: success
       args: {e: {name: Anyhow, message: "Error: Timeout value cannot be negative @worker.rs:3822:13"}}
       result: {n: Anyhow, m: "Error: Timeout value cannot be negative @worker.rs:3822:13"}
+# The failure module's argument e is a's error, which windmill-lite
+# generates at the root's pickup, and its result's m is that error's
+# message, which the flow ends with: copies of a's generated error, so the
+# location rule reaches them (ADR 0011).
+copies:
+  - {at: "/steps/s:failure/args/e", of: "m:a"}
+  - {at: "/steps/s:failure/result/m", of: "m:a"}
+  - {at: "/steps/s:failure/carried/m", of: "m:a"}
+  - {at: /result/m, of: "m:a"}
