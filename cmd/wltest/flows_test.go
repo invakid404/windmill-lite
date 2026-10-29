@@ -362,7 +362,9 @@ func TestObserveTraceRetries(t *testing.T) {
 	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
 	site := func(id string) conformance.SitePath { return conformance.SitePath{}.Child(conformance.Module(id)) }
 	a0 := site("a").Child(conformance.Attempt(0))
-	fail := func(job string) jsonval.Value { return v(`{"error":{"name":"E","message":"` + job + `","step_id":"a"}}`) }
+	fail := func(job string) jsonval.Value {
+		return v(`{"error":{"name":"E","message":"` + job + `","step_id":"a"}}`)
+	}
 	tr := &engine.Trace{
 		RunID: runID, Status: conformance.RunFailure, Result: fail(jobB), ResultOrigin: engine.OriginUser,
 		Steps: []engine.StepRecord{

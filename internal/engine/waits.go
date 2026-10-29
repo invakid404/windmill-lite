@@ -91,7 +91,7 @@ func timeoutResult(text []byte) (int32, error) {
 }
 
 // errNegativeTimeout is the chaining error of a negative timeout (FX-24).
-var errNegativeTimeout = fmt.Errorf("Timeout value cannot be negative")
+var errNegativeTimeout = errors.New("Timeout value cannot be negative")
 
 // retryDelay is FX-26's schedule for a module that has failed n times in
 // the current retry sequence (the flow-wide counter of FX-29): the delay

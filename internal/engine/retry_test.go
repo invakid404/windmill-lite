@@ -68,7 +68,9 @@ func runReq(t *testing.T, e *Engine, req RunRequest) *Trace {
 	return tr
 }
 
-func site(id string) conformance.SitePath { return conformance.SitePath{}.Child(conformance.Module(id)) }
+func site(id string) conformance.SitePath {
+	return conformance.SitePath{}.Child(conformance.Module(id))
+}
 
 func attemptSite(id string, k int) conformance.SitePath {
 	return site(id).Child(conformance.Attempt(k))
@@ -428,7 +430,9 @@ func TestEngineSleep(t *testing.T) {
 	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", "", `"sleep":`+js("results.a")), mod("b", "value", "", ""))}, &scripts{})
 	tr := runReq(t, e, RunRequest{})
 	wantStatus(t, tr, conformance.RunFailure, "")
-	var res struct{ Error struct{ Name, Message string } }
+	var res struct {
+		Error struct{ Name, Message string }
+	}
 	if err := json.Unmarshal(tr.Result.Producer(), &res); err != nil {
 		t.Fatal(err)
 	}
@@ -553,7 +557,9 @@ func TestEngineTransitionMonitor(t *testing.T) {
 			if c.status != conformance.RunCanceled {
 				return
 			}
-			var res struct{ Error struct{ Name, Canceler, Reason string } }
+			var res struct {
+				Error struct{ Name, Canceler, Reason string }
+			}
 			if err := json.Unmarshal(tr.Result.Producer(), &res); err != nil {
 				t.Fatal(err)
 			}
