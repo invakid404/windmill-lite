@@ -26,7 +26,10 @@ in [harnesses/bun](../../harnesses/bun/README.md) and the step level of
 [cmd/wltest](../../cmd/wltest/README.md), milestone C3b the per-invocation
 log, `fetch` and child-process views, the settle-time fence that narrows D9
 of [0001](0001-equivalence-contract.md), and `fresh` mode of
-[0006](0006-module-state.md), milestone C2a the Bun side of the build of
+[0006](0006-module-state.md), milestone C3n the native boundary mode of
+D5 in [0001](0001-equivalence-contract.md) (each `nativets` and `//native`
+step in a realm of its own, behind a boundary to the web APIs that fails
+closed), milestone C2a the Bun side of the build of
 [0010](0010-packaging.md) in [internal/bundle](../../internal/bundle/README.md)
 and [harnesses/bun/build](../../harnesses/bun/build/README.md), milestone
 E2 the oracle harness of
