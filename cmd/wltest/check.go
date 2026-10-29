@@ -26,7 +26,9 @@ import (
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
 	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/openflow"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
 )
@@ -217,6 +219,17 @@ const (
 	lateWindow = 200 * time.Millisecond
 )
 
+// language returns the language a deploy records for a case's script, and
+// the boundary it runs with: bun, or native for bunnative and nativets
+// (ADR 0002, WR-40).
+func language(c *conformance.StepCase) (openflow.Language, engine.Boundary) {
+	lang := ir.DeployedLanguage(openflow.Language(cmp(c.Language, conformance.LangBun)), c.Script)
+	if b, _ := ir.BoundaryOf(lang); b == ir.BoundaryNative {
+		return lang, engine.BoundaryNative
+	}
+	return lang, engine.BoundaryBun
+}
+
 // runFile builds f's scripts into one bundle and runs every case, a few at
 // a time.
 func (sc *stepChecker) runFile(ctx context.Context, f *conformance.StepFile) []caseResult {
@@ -253,7 +266,7 @@ func (sc *stepChecker) runFile(ctx context.Context, f *conformance.StepFile) []c
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			results[i].problems, results[i].diag = sc.runCase(ctx, c, out, digest, caseID(f, c))
-			if wrapper != "" && c.CommonJS() {
+			if wrapper != "" && onNode(c) {
 				results[i].problems = append(results[i].problems, sc.runNodeCase(ctx, c, out, caseID(f, c), wrapper, work)...)
 			}
 		}()
@@ -318,7 +331,8 @@ func (sc *stepChecker) build(ctx context.Context, f *conformance.StepFile, work 
 		if c.Codebase != nil {
 			codebase = append(codebase, bundle.CodebaseScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts", Settings: c.Codebase})
 		} else {
-			cfg.Entries = append(cfg.Entries, bundle.BunScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts"})
+			lang, _ := language(c)
+			cfg.Entries = append(cfg.Entries, bundle.BunScript{ID: caseID(f, c), Path: c.ScriptPath(), File: c.ScriptPath() + ".ts", Language: string(lang)})
 		}
 		for _, h := range c.HostModules {
 			if hosts[h.Path] {
@@ -397,25 +411,7 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 		return []string{"facade: " + err.Error()}, ""
 	}
 	defer f.Close()
-	origin := f.WarmOrigin()
-	if sc.mode == conformance.ModeFresh {
-		origin = f.FreshOrigin()
-	}
-	path, args := harness.BunCommand(sc.bun, filepath.Join(sc.repo, "harnesses", "bun", "runtime", "main.ts"), out)
-	spawn := func() (*harness.Process, error) {
-		return harness.Spawn(ctx, harness.ProcessConfig{
-			Path:          path,
-			Args:          args,
-			Kind:          "bun",
-			Runtime:       harness.PinnedBun,
-			Bundle:        digest,
-			ModuleState:   engine.ModuleState(sc.mode),
-			EngineVersion: "wltest-check",
-			Diagnostics:   &diag,
-			Facade:        origin,
-			Platform:      f.Platform(),
-		})
-	}
+	spawn := func() (*harness.Process, error) { return sc.spawn(ctx, out, digest, &diag, f) }
 	// end drains a warm process; a fresh one ends by itself, and is killed
 	// if it has not within the grace.
 	end := func(p *harness.Process) {
@@ -478,6 +474,31 @@ func (sc *stepChecker) runCase(ctx context.Context, c *conformance.StepCase, out
 	return problems, diag.String()
 }
 
+// spawn starts a harness process on the bundle in out, in the checker's
+// module state, with f's origin for that mode (milestone PF1): a warm
+// process intercepts its fetches to an origin where nothing listens, and a
+// fresh one reaches the listening origin over TCP. A native step reads the
+// same origin as BASE_URL and BASE_INTERNAL_URL (WR-45).
+func (sc *stepChecker) spawn(ctx context.Context, out, digest string, diag io.Writer, f *facade.Facade) (*harness.Process, error) {
+	origin := f.WarmOrigin()
+	if sc.mode == conformance.ModeFresh {
+		origin = f.FreshOrigin()
+	}
+	path, args := harness.BunCommand(sc.bun, filepath.Join(sc.repo, "harnesses", "bun", "runtime", "main.ts"), out)
+	return harness.Spawn(ctx, harness.ProcessConfig{
+		Path:          path,
+		Args:          args,
+		Kind:          "bun",
+		Runtime:       harness.PinnedBun,
+		Bundle:        digest,
+		ModuleState:   engine.ModuleState(sc.mode),
+		EngineVersion: "wltest-check",
+		Diagnostics:   diag,
+		Facade:        origin,
+		Platform:      f.Platform(),
+	})
+}
+
 // runOne runs one invocation and checks what it produced up to its
 // settlement; it returns the recorder, which keeps receiving the run's
 // late reports.
@@ -489,6 +510,7 @@ func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls 
 		return []string{err.Error()}, rec
 	}
 	step := c.ModuleID()
+	_, boundary := language(c)
 	invID := newUUID()
 	inv := engine.Invocation{
 		ID:          invID,
@@ -498,17 +520,31 @@ func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls 
 		Entry:       entry,
 		Args:        args,
 		Env:         jobEnv(c, step, invID, runID),
-		Boundary:    engine.BoundaryBun,
+		Boundary:    boundary,
 		ModuleState: engine.ModuleState(sc.mode),
 	}
 	inv.Report = rec
 	rctx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
-	out, err := p.Execute(rctx, inv)
-	if err != nil {
-		return []string{"execute: " + err.Error()}, rec
+	// The step's own timeout is the engine's (FX-24): it abandons the
+	// invocation (D2), and the step fails with the timeout's text.
+	var timeout time.Duration
+	if c.Timeout != nil {
+		timeout = time.Duration(*c.Timeout) * time.Second
+		var stop context.CancelFunc
+		rctx, stop = context.WithTimeoutCause(rctx, timeout, engine.CancelTimeout)
+		defer stop()
 	}
-	stored := engine.StoreOutcome(out, step)
+	out, err := p.Execute(rctx, inv)
+	var stored engine.Stored
+	switch {
+	case c.Timeout != nil && errors.Is(err, engine.CancelTimeout):
+		stored = engine.Stored{Failed: true, Value: engine.TimeoutError(boundary, step, timeout, false), Origin: engine.OriginEngine}
+	case err != nil:
+		return []string{"execute: " + err.Error()}, rec
+	default:
+		stored = engine.StoreOutcome(out, step)
+	}
 	text, err := stored.Value.Stored()
 	if err != nil {
 		return []string{"the stored value: " + err.Error()}, rec
@@ -550,6 +586,11 @@ func (sc *stepChecker) runOne(ctx context.Context, p engine.StepExecutor, calls 
 			problems = append(problems, fmt.Sprintf("left behind %v, want %v", got, k.Left))
 		}
 	}
+	if k.Untracked != nil {
+		if got := rec.nativeUntracked(); !maps.Equal(got, k.Untracked) {
+			problems = append(problems, fmt.Sprintf("untracked %v, want %v", got, k.Untracked))
+		}
+	}
 	if k.Calls != nil {
 		// The facade hands over the record once the invocation has settled
 		// and its outcome is decided, both of which have happened here.
@@ -589,14 +630,24 @@ func (l *callLog) describe(inv string) []string {
 	return out
 }
 
-// hasCommonJS reports whether a step file has a CommonJS codebase case.
+// hasCommonJS reports whether a step file has a case that also runs on
+// Node (onNode).
 func hasCommonJS(f *conformance.StepFile) bool {
 	for i := range f.Cases {
-		if f.Cases[i].CommonJS() {
+		if onNode(&f.Cases[i]) {
 			return true
 		}
 	}
 	return false
+}
+
+// onNode reports whether a case also runs on Node, where Windmill runs it
+// (D13): a CommonJS codebase script, unless its boundary is native, which
+// Windmill gives to the native runtime whatever its bundle's format
+// (WR-50/c).
+func onNode(c *conformance.StepCase) bool {
+	_, b := language(c)
+	return c.CommonJS() && b == engine.BoundaryBun
 }
 
 // nodeDriver runs one invocation of a CommonJS codebase bundle on Node,
@@ -832,7 +883,9 @@ type stepRecorder struct {
 	late     []engine.Late
 	warnings []string
 	left     map[string]int
-	settled  chan engine.SettleKind
+	// untracked is what native_untracked warnings counted, by kind.
+	untracked map[string]int
+	settled   chan engine.SettleKind
 }
 
 func newStepRecorder() *stepRecorder {
@@ -857,6 +910,14 @@ func (r *stepRecorder) Warning(w engine.Warning) {
 			r.left[k] += n
 		}
 	}
+	if w.Code == harness.WarningNativeUntracked {
+		if r.untracked == nil {
+			r.untracked = map[string]int{}
+		}
+		for k, n := range w.Untracked {
+			r.untracked[k] += n
+		}
+	}
 }
 
 // leftBehind is what the invocation's left_behind warning counted, by
@@ -865,6 +926,14 @@ func (r *stepRecorder) leftBehind() map[string]int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return maps.Clone(r.left)
+}
+
+// nativeUntracked is what the invocation's native_untracked warning
+// counted, by kind; nil when it had none.
+func (r *stepRecorder) nativeUntracked() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return maps.Clone(r.untracked)
 }
 
 func (r *stepRecorder) Settled(k engine.SettleKind) {

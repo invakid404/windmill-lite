@@ -61,7 +61,8 @@ applies, once:
   either direction ([SY-V3](../../docs/semantics/openflow.md#sy-v3),
   [OF-15](../../docs/semantics/openflow.md#of-15),
   [WR-40](../../docs/semantics/languages.md#wr-40)); path scripts get it
-  from syncfolder;
+  from syncfolder. `DeployedLanguage` is the rule, and `BoundaryOf` the
+  boundary of a language, which the step-case runner applies too;
 - **the virtual `<id>-v` identity** after a module list whose last module
   has a `sleep`, at every level, with Windmill's summary
   ([OF-17](../../docs/semantics/openflow.md#of-17),

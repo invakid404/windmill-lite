@@ -4,11 +4,13 @@
 # package.json replaces the placeholder, and on Node its "type" decides how
 # main.js loads. wltest check's Node side lays out the job directory in that
 # order (c2b review 1, finding 3). The case that reads such an asset is in
-# d13.yaml; this file's one case has a bundle of its own, because the
+# d13.yaml; this file's cases have a bundle of their own, because the
 # harness extracts every asset of a bundle into its working directory
 # (D10), and a package.json there declaring "type": "module" also makes
 # Bun import the default export of every CommonJS module in that directory
-# as Node does, the whole exports object.
+# as Node does, the whole exports object. The //native cases (C3n) run in
+# the native runtime, which reads no file, and their control is an ES
+# module, which that package.json does not change.
 finding: WR-50
 scope: core
 cases:
@@ -40,3 +42,51 @@ cases:
             - {at: /result/error/name, equals: ExecutionErr}
             - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\n"}
             - {at: /result/error/exit_code, equals: 1}
+  - spec: WR-50/c
+    provenance: source-derived
+    title: //native takes an ESM codebase script into the native runtime
+    note: >-
+      The catalogue's probe: on Bun ["object","string"], on Node
+      ["undefined","string"], in the native runtime ["undefined","undefined"],
+      whose process has only env (WR-45). The bundle is esbuild's, in its
+      native form (C3n).
+    codebase: {relative_path: f/wl_step, format: esm}
+    path: f/wl_step/cb_native
+    script: |
+      //native
+      export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: ["undefined", "undefined"]}
+  - spec: WR-50
+    variant: native-control
+    provenance: source-derived
+    title: WR-50/c's control, the same ESM entry without the header, runs on Bun
+    codebase: {relative_path: f/wl_step, format: esm}
+    path: f/wl_step/cb_native_control
+    script: |
+      export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version]; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [object, string]}
+  - spec: WR-50
+    variant: native-commonjs
+    provenance: source-derived
+    scope: later
+    title: a CommonJS codebase bundle under //native is evaluated as an ES module, so it fails on its first use of module
+    note: >-
+      WR-50 (medium, Q-WR-21): the native runtime evaluates the bundle as an
+      ES module whatever its format. JavaScriptCore's message names the
+      missing variable.
+    codebase: {relative_path: f/wl_step}
+    path: f/wl_step/cb_native_cjs
+    script: |
+      //native
+      export function main() { return "ran"; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: ReferenceError}
+          - {at: /result/error/message, contains: [module]}
+          - {at: /result/error/step_id, absent: true}

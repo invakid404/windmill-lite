@@ -302,3 +302,31 @@ func TestHelperRefusesPathsOutsideTheFolder(t *testing.T) {
 		t.Errorf("a bad dependency-set key: %v", err)
 	}
 }
+
+// The native runtime resolves specifiers against file:///eval.ts, and only
+// the embedded client loads (WR-40).
+func TestNativeURL(t *testing.T) {
+	for spec, want := range map[string]string{
+		"./windmill.ts":       "file:///windmill.ts",
+		"/windmill.ts":        "file:///windmill.ts",
+		"file:///windmill.ts": "file:///windmill.ts",
+		"../windmill.ts":      "file:///windmill.ts",
+		"./helper.ts":         "file:///helper.ts",
+		"lodash":              "",
+		"npm:lodash":          "npm:lodash",
+	} {
+		if got := nativeURL(spec); got != want {
+			t.Errorf("nativeURL(%q) = %q, want %q", spec, got, want)
+		}
+	}
+	res := &BunResult{Scripts: map[string]*ScriptMeta{
+		"a": {Path: "f/a/a", Native: &NativeMeta{Kind: "nativets", Imports: []string{"./windmill.ts", "./helper.ts"}}},
+		"b": {Path: "f/a/b", Native: &NativeMeta{Kind: "bunnative", Imports: []string{"./windmill.ts"}}},
+		"c": {Path: "f/a/c"},
+	}}
+	cfg := BunConfig{Entries: []BunScript{{ID: "a"}, {ID: "b"}, {ID: "c"}}}
+	w := nativeImportWarnings(cfg, res)
+	if len(w) != 2 || !strings.Contains(w[0].Message, `"./helper.ts"`) || !strings.Contains(w[1].Message, "script b") {
+		t.Fatalf("warnings %+v, want ./helper.ts of a and ./windmill.ts of b", w)
+	}
+}

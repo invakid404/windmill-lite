@@ -12,7 +12,9 @@
 // error, process.exit interception (D11) and the attribution of
 // process-level errors to the invocation whose context raised them. The
 // walking skeleton (W1) added the per-invocation environment, the facade
-// fetch, the process-level handlers and host mode. Milestone C3b added
+// fetch, the process-level handlers and host mode. A step invoked with the
+// native boundary runs in a realm of its own with the native runtime's
+// rules instead (native.ts, milestone C3n). Milestone C3b added
 // per-invocation logs, child-process wrapping, the settle-time fence (D9)
 // with its report of the work an invocation leaves behind, and fresh mode:
 // one invocation per process, which ends with it as Windmill's job process
@@ -57,6 +59,7 @@ import {
   realTimers,
   shadow,
 } from "./context.ts";
+import { Native, type NativeJob } from "./native.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 export { TAIL_LENGTH } from "./context.ts";
@@ -73,6 +76,11 @@ export const UNATTRIBUTED = "unattributed_error";
  * its settlement, which the D9 fence then revoked: its left field counts
  * the handles and requests by kind. */
 export const LEFT_BEHIND = "left_behind";
+/** The code of the warning that reports what the native boundary handed a
+ * native invocation but does not track (ADR 0001, D5), sent when the
+ * invocation settles, its untracked field counting it by kind; and of the
+ * one for what it handed out in no invocation's context. */
+export const NATIVE_UNTRACKED = "native_untracked";
 /** The most bytes of one log frame; longer batches are split. */
 const LOG_FRAME = 64 * 1024;
 
@@ -131,6 +139,8 @@ type Invocation = {
   resources: InvocationResources;
   /** Its log, closed when it settles. */
   log: InvocationLog;
+  /** Its async-context store, which names its native job, if it has one. */
+  context?: InvocationContext;
 };
 
 /** The module-state mode of the process (ADR 0006): a warm process serves
@@ -187,6 +197,7 @@ export class Runtime {
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
   private scopes = new Map<string, <R>(fn: () => R) => R>();
   private diag: (line: string) => void;
+  private native: Native;
 
   constructor(private opts: Options) {
     this.sender = new Sender((b) => opts.transport.write(b));
@@ -195,6 +206,16 @@ export class Runtime {
     // host's own diag writes through console or process.stderr.
     const diag = opts.diag ?? ((line: string) => realStderr(line + "\n"));
     this.diag = (line) => invocations.exit(() => diag(line));
+    // A fresh process is not told the facade, which it reaches over TCP at
+    // the BASE_URL it was spawned with (ADR 0007, milestone PF1); a native
+    // realm reads that origin then.
+    const spawnedBase = process.env.BASE_URL;
+    this.native = new Native({
+      bundleDir: opts.bundleDir,
+      baseURL: () => this.facade ?? spawnedBase,
+      onError: (job, e) => this.guard("an error from a microtask", () => this.nativeError(job, e, "microtask")),
+      onUntracked: (job, kind) => this.guard("an untracked object", () => this.untracked(job, kind)),
+    });
     installEnvView();
     installProcessScope();
     installTimers();
@@ -204,8 +225,11 @@ export class Runtime {
       () => this.facade,
       (c, signal) => this.platformCall(c, signal),
     );
-    installProcessHandlers((kind, e) => this.onProcessError(kind, e));
+    installProcessHandlers((kind, e, promise) => this.onProcessError(kind, e, promise));
     installExit((c, status) => this.onExit(c, status));
+    // Native realms get the web APIs as they are now, the wrapped fetch
+    // included, before any step module can change them.
+    this.native.capture();
   }
 
   /** Sends hello; the engine answers with welcome. */
@@ -216,7 +240,7 @@ export class Runtime {
       harness: { kind: "bun", version: HARNESS_VERSION },
       runtime: Bun.version,
       // Host mode always runs warm (ADR 0006): the steps run in the host.
-      caps: { fetch: true, native: false, fresh: this.opts.host !== true, host: this.opts.host === true },
+      caps: { fetch: true, native: true, fresh: this.opts.host !== true, host: this.opts.host === true },
       bundle: this.opts.bundleDigest,
       pid: process.pid,
     });
@@ -362,6 +386,7 @@ export class Runtime {
     const env: Record<string, string> = Object.assign(Object.create(null), m.env);
     shadow(env);
     const ctx: InvocationContext = { id: m.id, run: m.run, env, signal: inv.controller.signal, resources, work: resources, log: inv.log };
+    inv.context = ctx;
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
     // submitted the run.
@@ -383,10 +408,12 @@ export class Runtime {
    * hydrated, and the entrypoint is called and awaited, its result
    * serialised. A throw from any of those is caught and shaped (WR-18). */
   private async run(m: Message): Promise<Outcome> {
+    if (m.boundary === "native") return this.runNative(m);
     let sig: Signature | undefined;
     let meta: unknown;
     try {
       meta = await this.meta(m.script);
+      if (isNative(meta)) return escaped(`windmill-lite: script ${JSON.stringify(m.script)} is built for the native boundary, not bun`);
       sig = signatureOf(meta, m.entry);
     } catch (e) {
       return escaped(`windmill-lite: cannot read the metadata of script ${JSON.stringify(m.script)}: ${describe(e)}`);
@@ -436,6 +463,23 @@ export class Runtime {
     } catch (e) {
       return caught(e);
     }
+  }
+
+  /** Runs one invocation with the native boundary's rules (native.ts): in
+   * a realm of its own, so no module state survives it in any mode
+   * (WR-41), with outcome ok or error, never escaped (WR-43). */
+  private async runNative(m: Message): Promise<Outcome> {
+    const c = current()!;
+    let meta: unknown;
+    try {
+      meta = await this.meta(m.script);
+    } catch (e) {
+      return escaped(`windmill-lite: cannot read the metadata of script ${JSON.stringify(m.script)}: ${describe(e)}`);
+    }
+    if (!isNative(meta)) return escaped(`windmill-lite: script ${JSON.stringify(m.script)} is not built for the native boundary`);
+    const inv = { id: m.id, script: m.script, entry: m.entry, args: m.args as Record<string, unknown>, env: m.env, resources: c.resources };
+    const r = await this.native.run(inv, meta, c, stepId());
+    return "ok" in r ? { outcome: "ok", body: r.ok } : { outcome: "error", body: r.error };
   }
 
   /** Loads a script's bundled module once per process (warm module state,
@@ -531,24 +575,36 @@ export class Runtime {
    * invocation's context fails nothing: it is counted in health, written
    * to the diagnostics, and attached as a warning to every invocation in
    * flight. In a fresh process either ends the process with exit code 1,
-   * as on Windmill, where nothing handles them. */
-  private onProcessError(kind: string, e: unknown) {
-    // A handler must never throw: its exception would reach the other
-    // handler, and one thrown from there ends the process (Bun exits 7),
-    // which item 1 forbids.
+   * as on Windmill, where nothing handles them; a native invocation's own
+   * fails it as a native job's fails it, in either mode (nativeError). */
+  private onProcessError(kind: string, e: unknown, promise?: unknown) {
+    this.guard(`a ${kind}`, () => this.processError(kind, e, promise));
+  }
+
+  /** Runs a report that must never throw: from a process-level handler, an
+   * exception would reach the other handler, and one thrown from there
+   * ends the process (Bun exits 7), which item 1 forbids. */
+  private guard(what: string, report: () => void) {
     try {
-      this.processError(kind, e);
+      report();
     } catch (err) {
       try {
-        this.diag(`windmill-lite harness: could not report a ${kind}: ${describe(err)}`);
+        this.diag(`windmill-lite harness: could not report ${what}: ${describe(err)}`);
       } catch {
         // Nothing is left to report it to.
       }
     }
   }
 
-  private processError(kind: string, e: unknown) {
+  private processError(kind: string, e: unknown, promise?: unknown) {
     const c = current();
+    // A native invocation's errors are its own, by its async context or,
+    // for a rejection, which has none, by the realm of its promise.
+    const job = c !== undefined ? this.native.jobOfContext(c) : kind === "unhandledRejection" ? this.native.jobOfPromise(promise) : undefined;
+    if (job !== undefined) {
+      this.nativeError(job, e, kind);
+      return;
+    }
     if (this.mode === "fresh") {
       this.diag(`windmill-lite harness: ${kind}: ${describe(e)}`);
       for (const inv of this.invocations.values()) inv.log.lines(describe(e));
@@ -572,11 +628,38 @@ export class Runtime {
     }
   }
 
+  /** A process-level error of a native invocation: it fails a running one
+   * with its WR-43 error object, as a rejection nobody handles or a throw
+   * from a timer fails a native job (the outcome is fixed and the call goes
+   * on); for any other, it is a late error. */
+  private nativeError(job: NativeJob, e: unknown, kind: string) {
+    const id = job.inv.id;
+    this.diag(`windmill-lite harness: ${kind} in native invocation ${JSON.stringify(id)}: ${describe(e)}`);
+    const inv = job.inv.resources.settled ? undefined : this.invocations.get(id);
+    if (inv?.state === "running") this.fix(inv, { outcome: "error", body: job.errorText(e) });
+    else this.lateError(id, e, () => job.errorText(e));
+  }
+
+  /** What the native boundary handed over untracked that no unsettled
+   * job counts (Native.untracked): one handed to a native invocation
+   * after it settled is written to the diagnostics; one handed out in no
+   * invocation's context is reported as an unattributed error is, as a
+   * warning to every invocation in flight, but counts in no health. */
+  private untracked(job: NativeJob | undefined, kind: string) {
+    if (job !== undefined) {
+      this.diag(`windmill-lite harness: native invocation ${JSON.stringify(job.inv.id)} was handed ${kind} after it settled, which the native boundary does not track`);
+      return;
+    }
+    const message = `the native boundary handed out ${kind} in no invocation's context, so it is not tracked (ADR 0001, D5)`;
+    this.diag(`windmill-lite harness: ${message}`);
+    for (const inv of this.invocations.values()) this.sendWarning(inv.id, message, NATIVE_UNTRACKED);
+  }
+
   /** Sends a warning, its message cut to fit max_message: the error's
    * text can be as long as the step made it. A warning that cannot fit at
    * all is only written to the diagnostics. It never throws. */
-  private sendWarning(id: string, message: string) {
-    const m = fitString({ t: "warning", id, code: UNATTRIBUTED, message: "" }, "message", message, this.sender.maxMessage);
+  private sendWarning(id: string, message: string, code = UNATTRIBUTED) {
+    const m = fitString({ t: "warning", id, code, message: "" }, "message", message, this.sender.maxMessage);
     if (m === undefined) {
       this.diag(`windmill-lite harness: a warning for invocation ${JSON.stringify(id)} does not fit max_message`);
       return;
@@ -655,11 +738,12 @@ export class Runtime {
 
   /** Reports an error of an invocation whose outcome is already fixed, as
    * a late error that settles nothing (D9). Its body is the error's WR-18
-   * object, or none when that cannot be built. */
-  private lateError(id: string, e: unknown) {
+   * object (a native invocation's WR-43 one), or none when that cannot be
+   * built. */
+  private lateError(id: string, e: unknown, text: () => string = () => errorText(e, stepId())) {
     let body: Raw | undefined;
     try {
-      body = new Raw(errorText(e, stepId()));
+      body = new Raw(text());
     } catch {
       body = undefined;
     }
@@ -788,6 +872,17 @@ export class Runtime {
         .join(", ");
       try {
         this.send({ t: "warning", id: inv.id, code: LEFT_BEHIND, message: `left at settlement: ${counts}`, left });
+      } catch (e) {
+        this.diag(`windmill-lite harness: ${describe(e)}`);
+      }
+    }
+    // What the native boundary handed it untracked is reported the same
+    // way (ADR 0001, D5).
+    const job = inv.context === undefined ? undefined : this.native.jobOfContext(inv.context);
+    const untracked = job?.untracked ?? {};
+    if (Object.keys(untracked).length > 0) {
+      try {
+        this.send({ t: "warning", id: inv.id, code: NATIVE_UNTRACKED, message: job!.untrackedText()!, untracked });
       } catch (e) {
         this.diag(`windmill-lite harness: ${describe(e)}`);
       }
@@ -923,6 +1018,12 @@ function rawBody(o: Outcome, tail: string): Record<string, unknown> {
     default:
       return { outcome: o.outcome, body: new Raw(o.body) };
   }
+}
+
+/** Whether a script's metadata says it was built for the native boundary. */
+function isNative(meta: unknown): boolean {
+  const m = meta as { boundary?: unknown; native?: unknown } | null;
+  return m?.boundary === "native" && typeof m.native === "object" && m.native !== null;
 }
 
 /** An outcome that escaped the wrapper's error shaping (WR-19), with exit

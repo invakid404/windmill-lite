@@ -90,8 +90,8 @@ type Boundary string
 const (
 	// BoundaryBun is the Bun wrapper's rules (WR-13, WR-18).
 	BoundaryBun Boundary = "bun"
-	// BoundaryNative is the native runtime's rules (deviation D5), which
-	// wait for semantics request 1.
+	// BoundaryNative is the native runtime's rules (WR-40 to WR-45), which
+	// the Bun harness emulates (deviation D5).
 	BoundaryNative Boundary = "native"
 )
 

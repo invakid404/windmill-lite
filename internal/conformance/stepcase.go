@@ -75,8 +75,17 @@ type StepCase struct {
 	// restriction of §5a that a warm process reaches the platform only
 	// through fetch, where a fresh one uses loopback TCP (milestone PF1).
 	Deviation string `json:"deviation,omitempty"`
-	// Script is the script's source, a Bun (TypeScript) file.
+	// Script is the script's source, a TypeScript file.
 	Script string `json:"script"`
+	// Language is the step's language: bun (the default), bunnative or
+	// nativets. A deploy relabels bun and bunnative from the script's
+	// `//native` header (ir.DeployedLanguage), and bunnative and nativets
+	// run with the native boundary (WR-40, deviation D5).
+	Language string `json:"language,omitempty"`
+	// Timeout is the step's static timeout in seconds (FX-24): when it
+	// passes, the run is abandoned and its observation is the engine's
+	// timeout error for the step's boundary (WR-37, WR-44).
+	Timeout *int `json:"timeout,omitempty"`
 	// Path is the script's Windmill path; empty means StepFolder/<name>,
 	// with the case's name in snake case.
 	Path string `json:"path,omitempty"`
@@ -104,7 +113,9 @@ type StepCase struct {
 
 // CommonJS reports whether the case is a codebase script built as
 // CommonJS: a codebases entry whose format is not esm (WR-47), which
-// Windmill runs on Node and windmill-lite on Bun (D13).
+// Windmill runs on Node and windmill-lite on Bun (D13), unless its header
+// makes it native (WR-50/c), which the runner tells by the compiler's
+// rule.
 func (c *StepCase) CommonJS() bool {
 	if c.Codebase == nil {
 		return false
@@ -127,12 +138,23 @@ type StepHostModule struct {
 // StepCompare selects how a case's observations are compared: Stack and
 // Mask as a fixture's compare (OR-14), beyond DefaultStepStack; Unordered
 // arrays as multisets; StrictKeyOrder compares object members in order.
+// KeepStack leaves a failure's stack at DefaultStepStack unmasked, so
+// claims can read its text (WR-43's source line); a case that sets it
+// states the stack in claims only.
 type StepCompare struct {
 	Stack          []string `json:"stack,omitempty"`
 	Mask           []string `json:"mask,omitempty"`
 	Unordered      []string `json:"unordered,omitempty"`
 	StrictKeyOrder bool     `json:"strict_key_order,omitempty"`
+	KeepStack      bool     `json:"keep_stack,omitempty"`
 }
+
+// The languages a step case can give (Language).
+const (
+	LangBun       = "bun"
+	LangBunNative = "bunnative"
+	LangNativeTS  = "nativets"
+)
 
 // StepRun is one invocation of a case's script. Its observation is the
 // step's stored value: status success or failure, and the result or the
@@ -178,6 +200,11 @@ type StepCheck struct {
 	// when it settled, which the settle-time fence revoked (D9). It is
 	// compared when given, and needs left_behind in Warnings.
 	Left map[string]int `json:"left,omitempty"`
+	// Untracked is what the invocation's native_untracked warning counts,
+	// by kind: what the native boundary handed it but does not track (ADR
+	// 0001, D5). It is compared when given, and needs native_untracked in
+	// Warnings.
+	Untracked map[string]int `json:"untracked,omitempty"`
 	// Calls lists the platform calls the facade recorded against the
 	// invocation, in order, each as "<status> <METHOD> <route template>"
 	// with the workspace written {ws} ("501 POST /w/{ws}/jobs/run/p/{path}"),
@@ -190,7 +217,7 @@ type StepCheck struct {
 }
 
 func (k *StepCheck) empty() bool {
-	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0 && k.Left == nil && k.Calls == nil
+	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0 && k.Left == nil && k.Untracked == nil && k.Calls == nil
 }
 
 // StepPending is the Settled of a call that does not settle: the runner
@@ -328,6 +355,14 @@ func (c *StepCase) check() error {
 	}
 	if c.Scope != "" && !validScopes[c.Scope] {
 		return fmt.Errorf("scope %q is not core, later, out or EE", c.Scope)
+	}
+	switch c.Language {
+	case "", LangBun, LangBunNative, LangNativeTS:
+	default:
+		return fmt.Errorf("language %q is not bun, bunnative or nativets", c.Language)
+	}
+	if c.Timeout != nil && *c.Timeout < 1 {
+		return fmt.Errorf("timeout %d is not a positive number of seconds", *c.Timeout)
 	}
 	for _, p := range append([]string{c.ScriptPath()}, hostPaths(c.HostModules)...) {
 		if !validStepPath(p) {
@@ -482,12 +517,26 @@ func (k *StepCheck) check() error {
 			}
 		}
 	}
+	if k.Untracked != nil {
+		if !slices.Contains(k.Warnings, StepNativeUntracked) {
+			return fmt.Errorf("untracked counts a %s warning, which warnings does not list", StepNativeUntracked)
+		}
+		for kind, n := range k.Untracked {
+			if n < 1 {
+				return fmt.Errorf("untracked %s is %d; a kind handed over untracked counts at least 1", kind, n)
+			}
+		}
+	}
 	return nil
 }
 
 // StepLeftBehind is the code of the warning that reports what an
 // invocation left behind when it settled (D9).
 const StepLeftBehind = "left_behind"
+
+// StepNativeUntracked is the code of the warning that reports what the
+// native boundary handed an invocation but does not track (D5).
+const StepNativeUntracked = "native_untracked"
 
 // IsStepFile reports whether path is a step-case file: a .yaml file, other
 // than deferred.yaml, in a language directory of a directory named steps.
@@ -557,7 +606,7 @@ func LoadStepDeferred(path string) ([]StepDeferred, error) {
 // CompareStep compares a step run's observation with what its check in
 // configuration mode expects: each side is masked first, at the case's own
 // stack and mask pointers and, when that side is a failure, at
-// DefaultStepStack; then the two are compared with the case's options, and
+// DefaultStepStack unless the case keeps the stack; then the two are compared with the case's options, and
 // the check's claims are checked against the masked observation. It
 // returns one line per difference or failed claim.
 func CompareStep(c *StepCase, r *StepRun, mode string, got Observation) ([]string, error) {
@@ -581,7 +630,7 @@ func CompareStepNode(c *StepCase, r *StepRun, mode string, got Observation) ([]s
 func CompareStepCheck(c *StepCase, k *StepCheck, got Observation) ([]string, error) {
 	mask := func(o Observation) (Observation, error) {
 		stack := c.Compare.Stack
-		if o.Status == RunFailure {
+		if o.Status == RunFailure && !c.Compare.KeepStack {
 			stack = append([]string{DefaultStepStack}, stack...)
 		}
 		return MaskPaths(o, stack, c.Compare.Mask)

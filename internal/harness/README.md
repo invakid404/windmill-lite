@@ -86,7 +86,11 @@ milestone C1 fixed the details they left open.
 - **Warnings** (C3a). A process-level error that no invocation's context
   raised reaches each invocation in flight as `warning`, with `id`, `code`
   (`unattributed_error`) and `message` (its kind, text and stack), ahead
-  of the frame that settles it. The `Process` hands it to the
+  of the frame that settles it. What the native boundary handed a native
+  invocation but does not track comes the same way, with code
+  `native_untracked` (`WarningNativeUntracked`, D5 in ADR 0001) and
+  `untracked`, its counts by kind (`Warning.Untracked`), just before the
+  frame that settles that invocation. The `Process` hands it to the
   invocation's `Reporter.Warning`; one for an invocation that is not in
   flight is dropped with a diagnostics line.
 - **Platform calls** (W1, PF1). `ProcessConfig.Facade` is the process's
@@ -149,7 +153,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 
 | What happens | `Execute` returns | Reporter |
 |---|---|---|
-| refused before dispatch (a bad entry name, the native boundary, a module-state mode other than the process's, a second invocation of a fresh process, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
+| refused before dispatch (a bad entry name, the native boundary to a harness whose `hello` does not offer it or to a process with no facade origin, which a native step reads as `BASE_URL`, a module-state mode other than the process's, a second invocation of a fresh process, an oversize or non-UTF-8 invoke, ctx already done) | the error | `Settled(not_started)` first |
 | `result` with `settled` true | the outcome | `Settled(completed)` first |
 | `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |

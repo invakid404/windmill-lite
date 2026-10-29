@@ -1,0 +1,75 @@
+# WR-44: the native runtime's limits. A step's timeout ends it with
+# `Query timeout after (>Ns)`, whichever limit chose the duration; stack
+# overflow is an ordinary RangeError. Every case runs once as nativets and
+# once as a bun script whose first line is //native.
+finding: WR-44
+scope: core
+cases:
+  - spec: WR-44/a
+    variant: nativets
+    provenance: source-derived
+    title: the timeout message (nativets)
+    language: nativets
+    timeout: 1
+    script: |
+      export async function main() { await new Promise(r => setTimeout(r, 5000)); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nQuery timeout after (>1s)", name: ExecutionErr, step_id: a}}}
+  - spec: WR-44/a
+    variant: bunnative
+    provenance: source-derived
+    title: the timeout message (bunnative)
+    timeout: 1
+    script: |
+      //native
+      export async function main() { await new Promise(r => setTimeout(r, 5000)); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\nQuery timeout after (>1s)", name: ExecutionErr, step_id: a}}}
+  - spec: WR-44
+    variant: bun-timeout-text
+    provenance: source-derived
+    title: the same step on Bun gets WR-37's text instead
+    timeout: 1
+    script: |
+      export async function main() { await new Promise(r => setTimeout(r, 5000)); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: "execution error:\njob process terminated due to timeout after exceeding job-specific duration limit", name: ExecutionErr, step_id: a}}}
+  - spec: WR-44/b
+    variant: nativets
+    provenance: source-derived
+    scope: later
+    title: stack overflow is an ordinary RangeError (nativets)
+    language: nativets
+    script: |
+      export function main() { const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1); return f(1e6); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError}}}
+  - spec: WR-44/b
+    variant: bunnative
+    provenance: source-derived
+    scope: later
+    title: stack overflow is an ordinary RangeError (bunnative)
+    script: |
+      //native
+      export function main() { const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1); return f(1e6); }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: Maximum call stack size exceeded, stack: "<stack>", name: RangeError}}}
+  - spec: WR-44
+    variant: overflow-caught
+    provenance: source-derived
+    scope: later
+    title: caught, a stack overflow is a value
+    language: nativets
+    script: |
+      export function main() {
+        const f = (n: number): number => n === 0 ? 0 : 1 + f(n - 1);
+        try { return f(1e6); } catch (e) { return [e instanceof RangeError, (e as Error).name]; }
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [true, RangeError]}

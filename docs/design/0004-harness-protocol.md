@@ -92,7 +92,7 @@ step without failing the others.
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
-| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`), `message`, `left` (for `left_behind`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); or what an invocation still had when it settled, sent just before the frame that settles it (item 4) |
+| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
@@ -686,6 +686,54 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the
     engine, not by the harness.
+- Milestone C3n added the native boundary. The Bun harness's `hello`
+  offers `native`, and the engine refuses a native invocation to a harness
+  whose `hello` does not.
+  - **A realm per invocation.** An invocation with boundary `native` runs in
+    a `node:vm` context of its own, with the native runtime's globals and
+    rules ([WR-40](../semantics/languages.md#wr-40) to
+    [WR-45](../semantics/languages.md#wr-45); D5 in
+    [0001](0001-equivalence-contract.md)). Its timers and fetches are
+    registered with the invocation and released when it settles.
+  - **Outcomes.** A native invocation ends `ok` or `error`, never `escaped`
+    or `empty`: a thrown value is the `{message, stack, name}` object, and a
+    failure before the module runs (a transpile, signature, load or link
+    failure, a `//proxy` header) is the worker's `execution error:` object,
+    both as an `error` body. A script built for one boundary and invoked
+    with the other escapes, naming the mismatch.
+  - **Attribution by realm.** Item 2 of the failure model cannot attribute a
+    rejection nobody handles, which carries no async context; for a native
+    invocation the promise's realm names it. The web APIs reach a realm
+    through a boundary that fails closed (D5): each promise a web API
+    hands an invocation is tracked for it, in place, when the boundary
+    hands it over, and so is every continuation `then` derives from it,
+    so a rejection nobody handles of what `Response.json()`, `File.text()`,
+    a stream's iterator or `crypto.subtle` returned, or of a continuation
+    of it, is attributed to that invocation and warns no other. The
+    promise stays the same object, so a rejection the web API's own code
+    handles (a stream's iteration, `closed`) stays handled.
+  - **`native_untracked`.** What the boundary hands an invocation and
+    cannot track, an object of a class WR-45 does not list or a harness
+    function, is counted on it, and the harness sends the count as a
+    `warning` with code `native_untracked`, its `untracked` field counting
+    by kind as `left_behind`'s `left` does, just before the frame that
+    settles the invocation, so it reaches the run's trace. One handed out in no
+    invocation's context goes to every invocation in flight, as an
+    unattributed error does, but health does not count it; one handed out
+    after the invocation settled is a diagnostic line.
+  - **The facade origin is required.** The engine refuses a native
+    invocation to a process with no facade origin, which a native step
+    reads as `BASE_URL` and `BASE_INTERNAL_URL`
+    ([WR-45](../semantics/languages.md#wr-45)), so the preamble always has
+    both. A fetch is the invocation's until
+    its response's body ends, and is aborted when the invocation settles
+    first. Such a rejection, a throw from
+    one of its timers and a throw from a microtask it queued fail a running
+    native invocation with that value's WR-43 object (`settled` false), as
+    they fail a native job, and are `late` errors after its outcome.
+  - **The step's timeout** gives the boundary's text: WR-37's for Bun,
+    `Query timeout after (>Ns)` for native
+    ([WR-44](../semantics/languages.md#wr-44); `engine.TimeoutError`).
 
 - Milestone C3b added the settle-time fence, per-invocation logs,
   child-process wrapping and `fresh` mode, and fixed what they left open:
@@ -738,6 +786,6 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-4, WR-7, WR-12, WR-13, WR-15, WR-18 to WR-23, WR-37, WR-V1,
-WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
+WR-1, WR-2, WR-4, WR-7, WR-12, WR-13, WR-15, WR-18 to WR-23, WR-37, WR-40 to
+WR-45, WR-V1, WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
 CF-4, CF-7, CF-28.

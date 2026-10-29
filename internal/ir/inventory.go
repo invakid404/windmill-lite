@@ -181,17 +181,11 @@ func (fc *flowCompiler) rawScript(m *openflow.Module, v *openflow.RawScript, sit
 	if files == nil {
 		files = &syncfolder.InlineScript{}
 	}
-	lang := v.Language
-	if lang == openflow.LangBun || lang == openflow.LangBunNative {
-		// A deploy relocks a Bun-family rawscript whose language disagrees
-		// with its header, and relabels it from the `native` annotation
-		// (OF-15, SY-V3, WR-40); one whose lock is empty is relocked and
-		// relabelled too.
-		lang = openflow.LangBun
-		if syncfolder.HasNativeAnnotation(v.Content) {
-			lang = openflow.LangBunNative
-		}
-	}
+	// A deploy relocks a Bun-family rawscript whose language disagrees
+	// with its header, and relabels it from the `native` annotation
+	// (OF-15, SY-V3, WR-40); one whose lock is empty is relocked and
+	// relabelled too.
+	lang := DeployedLanguage(v.Language, v.Content)
 	e := &Script{
 		ID:       inlineID(sc.flow, site),
 		Kind:     InlineScript,

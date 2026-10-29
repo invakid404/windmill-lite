@@ -421,12 +421,9 @@ func (r *run) module(ctx context.Context, i int, m *ir.Module, prev jsonval.Valu
 			return notLaunched()
 		case errors.Is(err, CancelTimeout):
 			o.rec.Abandoned = true
-			limit := "job-specific duration limit"
-			if instanceWide {
-				limit = "instance-wide job duration limit"
-			}
-			// WR-37: the worker's text for a step that ran out of time.
-			res := fail(workerError(m.ID, "execution error:\njob process terminated due to timeout after exceeding "+limit), OriginEngine)
+			// The worker's text for a step that ran out of time: WR-37's
+			// for Bun, WR-44's for native.
+			res := fail(TimeoutError(Boundary(m.Leaf.Boundary), m.ID, timeout, instanceWide), OriginEngine)
 			r.recordJob(i, res.rec.Result)
 			return res
 		case err != nil && ctx.Err() != nil:

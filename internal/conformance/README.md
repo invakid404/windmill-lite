@@ -202,12 +202,15 @@ finding, a case whose spec cites a finding without a variant, a run that
 checks nothing, a `by_mode` without both `warm` and `fresh` or without the
 case's `deviation` (a deviation of ADR 0001 §5, or `5a` for its fetch-only
 restriction), a `left` without `left_behind` among its `warnings` or
-with a count below 1, a `codebase` that is not a mapping, `files` without
+with a count below 1, an `untracked` without `native_untracked` among its
+`warnings` or with a count below 1, a `codebase` that is not a mapping, `files` without
 `codebase` or with a path that leaves the sync root, a `node` check on a
 case that is not a CommonJS codebase script or that gives more than
-`expect` and `claims`, and two cases of one file that give one path two
-sources (a file's scripts and files share one bundle). Only `bun` has a language
-directory. `FindStepFiles` finds the files below its roots, `deferred.yaml`
+`expect` and `claims`, a `language` other than `bun`, `bunnative` and
+`nativets`, a `timeout` that is not a positive number of seconds, and two
+cases of one file that give one path two sources (a file's scripts and
+files share one bundle). Only `bun` has a language directory: native steps
+run in the Bun harness (D5). `FindStepFiles` finds the files below its roots, `deferred.yaml`
 aside, and `IsStepFile` tells one by its path. The format is described in
 [conformance](../../conformance/README.md#step-cases).
 
@@ -215,9 +218,10 @@ aside, and `IsStepFile` tells one by its path. The format is described in
 `{"status", "result"}`, with the run's check for a configuration: it masks
 the case's own `stack` and `mask` pointers on both sides, and
 `/result/error/stack` (`DefaultStepStack`) on a side whose status is
-`failure`, since a successful result is data, compares with `Compare` and the case's
+`failure`, since a successful result is data, unless the case sets
+`keep_stack` so that claims read the stack's text, compares with `Compare` and the case's
 `unordered` and `strict_key_order`, and checks the claims. A run's `late`,
-`settled`, `warnings` and `left` are the runner's to check, since only it
+`settled`, `warnings`, `left` and `untracked` are the runner's to check, since only it
 sees the invocation's Reporter, and so are its `calls`, the platform calls
 the facade recorded against the invocation (milestone PF1). `CommonJS` tells a codebase case built as CommonJS
 (its entry's `format` is not `esm`, WR-47), which also runs on Node (D13);

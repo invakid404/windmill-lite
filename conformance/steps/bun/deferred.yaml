@@ -16,6 +16,40 @@ deferred:
   - spec: WR-39/a
     reason: the script the wrapper scan selects is refused at load, so it never runs
     expected_in: A5 and C2a (conformance/build/wr-39.json, conformance/ir)
+  - spec: WR-43/e
+    reason: >-
+      later: the native runtime fails a job whose entrypoint's promise never
+      settles once nothing else is pending; in a shared event loop the
+      harness cannot know that the realm has nothing pending (an untracked
+      web API call may still be), so such a step runs until its timeout
+    expected_in: not planned; ADR 0001 D5 lists it
+  - spec: WR-43/i
+    reason: >-
+      later: JavaScriptCore keeps a thrown error's frames only in its stack
+      text, so a stack replaced by a non-string leaves no source line; the
+      step case WR-43/replaced-stack pins windmill-lite's null
+    expected_in: ADR 0001 D5 (a difference of the native boundary mode)
+  - spec: WR-44/c
+    reason: >-
+      later: native realms share the harness's JavaScriptCore heap, which
+      has no 128 MiB cap per realm
+    expected_in: not planned; ADR 0001 D5 lists it
+  - spec: WR-44/d
+    reason: >-
+      the instance's job_default_timeout is an engine setting; the step
+      runner has only the step's own timeout
+    expected_in: N2 (timeouts and their messages), with engine.TimeoutError
+  - spec: WR-45/g
+    reason: >-
+      later: the case needs a local HTTP endpoint; the user agent is
+      checked against one in the Bun harness's own tests
+    expected_in: harnesses/bun/test/native.test.ts
+  - spec: WR-46/a
+    reason: later; native result streaming is not implemented, so an async-iterable result serialises as {}
+    expected_in: a later milestone that implements result streaming (WR-16, WR-46)
+  - spec: WR-46/b
+    reason: later; native result streaming is not implemented
+    expected_in: a later milestone that implements result streaming (WR-16, WR-46)
   - spec: WR-50/a
     reason: >-
       whether CE standalone deploys and runs a codebase script, and the
@@ -26,12 +60,14 @@ deferred:
   - spec: WR-50/b
     reason: later; the Node patch of Windmill's image is an oracle observation (Q-WR-24), and windmill-lite runs no Node
     expected_in: E3e (the oracle)
-  - spec: WR-50/c
-    reason: a //native codebase script runs at the native boundary
-    expected_in: C3n (gate S1)
   - spec: WR-50/d
-    reason: a //nodejs script's environment is the native boundary's (ADR 0010 step 5)
-    expected_in: C3n (gate S1)
+    reason: >-
+      a //nodejs codebase script runs on Node on Windmill, with Bun's
+      environment (WR-50, rule 2), not at the native boundary; windmill-lite
+      has no Node and runs it on the Bun harness, so its probe gives
+      ["object","string"] where Windmill gives ["undefined","string"], the
+      same runtime difference as D13's
+    expected_in: D13 (ADR 0001 §5), with d13.yaml
   - spec: WR-50/e
     reason: later; Node's module-format detection for an ESM bundle sent to Node by //nodejs depends on the Node patch (Q-WR-24)
     expected_in: E3e (the oracle) and C3n

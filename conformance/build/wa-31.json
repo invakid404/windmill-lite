@@ -146,7 +146,7 @@
       "variant": "not-native",
       "provenance": "policy",
       "title": "//native and //nodejs bundles are not rewritten",
-      "note": "On Windmill these scripts do not run with Bun's globals; their environment is the native boundary's (C3n).",
+      "note": "On Windmill these scripts do not run with Bun's globals; their environment is the native boundary's (C3n). The //native module is in its native form, where import.meta is read from the function's parameter.",
       "given": {
         "entries": [
           {
@@ -167,7 +167,7 @@
             "target": "browser",
             "bundle_contains": [
               "Bun.env.WL_CASE",
-              "import.meta.env"
+              "__windmill_lite_native.meta.env"
             ],
             "bundle_not_contains": [
               "__windmill_lite_Bun"
@@ -498,7 +498,7 @@
       "variant": "codebase-not-bun-target",
       "provenance": "policy",
       "title": "//native and //nodejs codebase scripts are not rewritten",
-      "note": "On Windmill these do not run with Bun's globals; their environment is the native boundary's (C3n).",
+      "note": "On Windmill a //native codebase script runs at the native boundary (WR-50, C3n), as its native form, and a //nodejs one runs on Node with Bun's environment (WR-50; windmill-lite runs it on Bun, D13); neither is rewritten.",
       "given": {
         "folder": {
           "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    format: esm\n",
@@ -511,6 +511,7 @@
         "entries": {
           "f/cb/native": {
             "target": "browser",
+            "boundary": "native",
             "bundle_not_contains": [
               "__windmill_lite_Bun"
             ]

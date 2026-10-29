@@ -50,7 +50,7 @@ const FIELDS: Record<string, readonly string[]> = {
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
   log: ["id", "lines"],
-  warning: ["id", "code", "message", "left"],
+  warning: ["id", "code", "message", "left", "untracked"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
@@ -251,10 +251,12 @@ export function decode(payload: Uint8Array): Message {
       if (m.kind === "log" && m.settled) throw new ProtocolError("bad_field", "a late log cannot settle an invocation");
       break;
     case "warning":
-      // left counts what an invocation left behind, by kind.
-      if (m.left != null) {
-        checkField(m.t, m, "left", "object");
-        if (!Object.values(m.left).every(isInt)) throw new ProtocolError("bad_field", 'field "left" has the wrong type');
+      // left counts what an invocation left behind, and untracked what the
+      // native boundary handed it untracked, by kind.
+      for (const k of ["left", "untracked"]) {
+        if (m[k] == null) continue;
+        checkField(m.t, m, k, "object");
+        if (!Object.values(m[k]).every(isInt)) throw new ProtocolError("bad_field", `field "${k}" has the wrong type`);
       }
       break;
     case "cancel":

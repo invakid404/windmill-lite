@@ -1,0 +1,469 @@
+# WR-43: the native error shapes. An exception that reaches the end of the
+# run is exactly {message, stack, name}, with no step_id and no extra: an
+# Error's name and message decoded together, its stack after the source
+# line its first frame points at; three nulls for any other value. Anything
+# that fails before the module runs is the worker's `execution error:`.
+# "Both kinds" cases run once as nativets and once as a bun script whose
+# first line is //native.
+finding: WR-43
+scope: core
+cases:
+  - spec: WR-43/a
+    variant: nativets
+    provenance: source-derived
+    title: an Error gives exactly three fields; own properties are dropped (nativets)
+    language: nativets
+    script: |
+      export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
+  - spec: WR-43/a
+    variant: bunnative
+    provenance: source-derived
+    title: an Error gives exactly three fields; own properties are dropped (bunnative)
+    script: |
+      //native
+      export function main() { const e = new TypeError("boom"); (e as any).code = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: boom, stack: "<stack>", name: TypeError}}}
+  - spec: WR-43/b
+    variant: nativets
+    provenance: source-derived
+    title: a string, a plain object with message and name, and null each give three nulls (nativets)
+    language: nativets
+    script: |
+      export function main(v: string) {
+        if (v === "s") throw "s";
+        if (v === "o") throw { message: "m", name: "N" };
+        throw null;
+      }
+    runs:
+      - args: '{"v":"s"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"o"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"n"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+  - spec: WR-43/b
+    variant: bunnative
+    provenance: source-derived
+    title: a string, a plain object with message and name, and null each give three nulls (bunnative)
+    script: |
+      //native
+      export function main(v: string) {
+        if (v === "s") throw "s";
+        if (v === "o") throw { message: "m", name: "N" };
+        throw null;
+      }
+    runs:
+      - args: '{"v":"s"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"o"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+      - args: '{"v":"n"}'
+        expect: {status: failure, result: {error: {message: null, stack: null, name: null}}}
+  - spec: WR-43/c
+    variant: nativets
+    provenance: source-derived
+    title: the stack starts with the failing source line, as loaded (nativets)
+    language: nativets
+    compare: {keep_stack: true}
+    script: |
+      export function main() {
+        throw new Error("x");
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, equals: x}
+          - {at: /result/error/stack, contains: ["throw new Error(\"x\");\nError: x\n"]}
+  - spec: WR-43/c
+    variant: bunnative
+    provenance: source-derived
+    title: the stack starts with the failing source line, as the bundle has it (bunnative)
+    note: >-
+      A //native script is bundled with Bun's syntax minification (WR-27,
+      WR-40), which writes `new Error("x")` as `Error("x")`; the line as
+      loaded is the bundle's, so the catalogue's `throw new Error("x")`
+      cannot appear for this kind.
+    compare: {keep_stack: true}
+    script: |
+      //native
+      export function main() {
+        throw new Error("x");
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, equals: x}
+          - {at: /result/error/stack, contains: ["throw Error(\"x\");\nError: x\n"]}
+  - spec: WR-43/d
+    variant: nativets
+    provenance: source-derived
+    title: a rejection nobody handles while main is pending fails the job (nativets)
+    language: nativets
+    script: |
+      export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+  - spec: WR-43/d
+    variant: bunnative
+    provenance: source-derived
+    title: a rejection nobody handles while main is pending fails the job (bunnative)
+    script: |
+      //native
+      export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: late, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-rejection-nativets
+    provenance: source-derived
+    title: a rejection nobody handles from a web API's promise fails the job too (nativets)
+    note: >-
+      WR-43/d with promises the web APIs return (c3n review, finding 1).
+      The error's message is Bun's; the run gets no warning.
+    language: nativets
+    script: |
+      export async function main(api: string) {
+        if (api === "json") new Response("invalid json").json();
+        else crypto.subtle.digest("bad-algorithm", new Uint8Array());
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"api":"json"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: SyntaxError}
+          - {at: /result/error/step_id, absent: true}
+      - args: '{"api":"digest"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: NotSupportedError}
+          - {at: /result/error/step_id, absent: true}
+  - spec: WR-43
+    variant: web-api-rejection-bunnative
+    provenance: source-derived
+    title: a rejection nobody handles from a web API's promise fails the job too (bunnative)
+    note: The same case as a //native step.
+    script: |
+      //native
+      export async function main(api: string) {
+        if (api === "json") new Response("invalid json").json();
+        else crypto.subtle.digest("bad-algorithm", new Uint8Array());
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"api":"json"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: SyntaxError}
+      - args: '{"api":"digest"}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: NotSupportedError}
+  - spec: WR-43
+    variant: web-api-continuation-nativets
+    provenance: source-derived
+    title: a rejection of a continuation of a web API's promise fails the job (nativets)
+    note: >-
+      c3n review round 2, finding 1: File's text is Blob's, inherited, and a
+      continuation that throws is the job's too.
+    language: nativets
+    script: |
+      export async function main() {
+        new File(["x"], "x").text().then(() => { throw new Error("file rejection"); });
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-continuation-bunnative
+    provenance: source-derived
+    title: a rejection of a continuation of a web API's promise fails the job (bunnative)
+    script: |
+      //native
+      export async function main() {
+        new File(["x"], "x").text().then(() => { throw new Error("file rejection"); });
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: file rejection, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: stream-iteration-nativets
+    provenance: source-derived
+    title: a stream's async iterator, read to its end, a next nobody awaits, and an error the script catches (nativets)
+    note: >-
+      c3n review round 2, findings 1 and 4: a detached next() rejection
+      fails the job; a for await whose error the script catches does not.
+    language: nativets
+    script: |
+      const failing = (m: string) => new ReadableStream({ start(c) { c.error(new Error(m)); } });
+      export async function main(how: string) {
+        if (how === "read") {
+          let out = "";
+          for await (const chunk of new ReadableStream({ start(c) { c.enqueue("a"); c.enqueue("b"); c.close(); } })) out += chunk;
+          return out;
+        }
+        if (how === "detached") failing("iterator rejection")[Symbol.asyncIterator]().next();
+        else try { for await (const _ of failing("handled iterator")) {} } catch {}
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"how":"read"}'
+        expect: {status: success, result: ab}
+      - args: '{"how":"detached"}'
+        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error}}}
+      - args: '{"how":"caught"}'
+        expect: {status: success, result: success}
+  - spec: WR-43
+    variant: stream-iteration-bunnative
+    provenance: source-derived
+    title: a stream's async iterator, read to its end, a next nobody awaits, and an error the script catches (bunnative)
+    script: |
+      //native
+      const failing = (m: string) => new ReadableStream({ start(c) { c.error(new Error(m)); } });
+      export async function main(how: string) {
+        if (how === "read") {
+          let out = "";
+          for await (const chunk of new ReadableStream({ start(c) { c.enqueue("a"); c.enqueue("b"); c.close(); } })) out += chunk;
+          return out;
+        }
+        if (how === "detached") failing("iterator rejection")[Symbol.asyncIterator]().next();
+        else try { for await (const _ of failing("handled iterator")) {} } catch {}
+        await new Promise(r => setTimeout(r, 100));
+        return "success";
+      }
+    runs:
+      - args: '{"how":"read"}'
+        expect: {status: success, result: ab}
+      - args: '{"how":"detached"}'
+        expect: {status: failure, result: {error: {message: iterator rejection, stack: "<stack>", name: Error}}}
+      - args: '{"how":"caught"}'
+        expect: {status: success, result: success}
+  - spec: WR-43
+    variant: web-api-channels-nativets
+    provenance: source-derived
+    title: a rejection of a continuation of an object a web API handed over by an iterator, a callback, structuredClone or a message fails the job (nativets)
+    note: >-
+      c3n review round 3, finding 1: FormData's iterators (next().value,
+      spread) and forEach callback, structuredClone's result, and a
+      MessagePort message's data.
+    language: nativets
+    script: |
+      export async function main(how: string) {
+        const fail = (b: Blob) => b.text().then(() => { throw new Error(how); });
+        const form = new FormData();
+        form.append("file", new Blob(["abc"]), "a.txt");
+        const mc = new MessageChannel();
+        if (how === "values") fail(form.values().next().value as Blob);
+        if (how === "entries") fail([...form][0][1] as Blob);
+        if (how === "forEach") form.forEach((v) => { fail(v as Blob); });
+        if (how === "structuredClone") fail(structuredClone({ b: [new Blob(["c"])] }).b[0]);
+        if (how === "message") {
+          mc.port2.onmessage = (e) => { fail(e.data.b); };
+          mc.port1.postMessage({ b: new Blob(["m"]) });
+        }
+        await new Promise(r => setTimeout(r, 100));
+        mc.port1.close();
+        mc.port2.close();
+        return "success";
+      }
+    runs:
+      - args: '{"how":"values"}'
+        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error}}}
+      - args: '{"how":"entries"}'
+        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error}}}
+      - args: '{"how":"forEach"}'
+        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error}}}
+      - args: '{"how":"structuredClone"}'
+        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error}}}
+      - args: '{"how":"message"}'
+        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-channels-bunnative
+    provenance: source-derived
+    title: a rejection of a continuation of an object a web API handed over by an iterator, a callback, structuredClone or a message fails the job (bunnative)
+    script: |
+      //native
+      export async function main(how: string) {
+        const fail = (b: Blob) => b.text().then(() => { throw new Error(how); });
+        const form = new FormData();
+        form.append("file", new Blob(["abc"]), "a.txt");
+        const mc = new MessageChannel();
+        if (how === "values") fail(form.values().next().value as Blob);
+        if (how === "entries") fail([...form][0][1] as Blob);
+        if (how === "forEach") form.forEach((v) => { fail(v as Blob); });
+        if (how === "structuredClone") fail(structuredClone({ b: [new Blob(["c"])] }).b[0]);
+        if (how === "message") {
+          mc.port2.onmessage = (e) => { fail(e.data.b); };
+          mc.port1.postMessage({ b: new Blob(["m"]) });
+        }
+        await new Promise(r => setTimeout(r, 100));
+        mc.port1.close();
+        mc.port2.close();
+        return "success";
+      }
+    runs:
+      - args: '{"how":"values"}'
+        expect: {status: failure, result: {error: {message: values, stack: "<stack>", name: Error}}}
+      - args: '{"how":"entries"}'
+        expect: {status: failure, result: {error: {message: entries, stack: "<stack>", name: Error}}}
+      - args: '{"how":"forEach"}'
+        expect: {status: failure, result: {error: {message: forEach, stack: "<stack>", name: Error}}}
+      - args: '{"how":"structuredClone"}'
+        expect: {status: failure, result: {error: {message: structuredClone, stack: "<stack>", name: Error}}}
+      - args: '{"how":"message"}'
+        expect: {status: failure, result: {error: {message: message, stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-rejection-handled
+    provenance: source-derived
+    title: a web API's rejection the script handles fails nothing
+    language: nativets
+    script: |
+      export async function main() {
+        const r = await new Response("invalid json").json().catch((e: Error) => e.name);
+        const body = await (await fetch("data:text/plain,ok")).text().catch(() => "fetched");
+        return [r, typeof body];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [SyntaxError, string]}
+  - spec: WR-43
+    variant: timer-throw
+    provenance: source-derived
+    title: an exception thrown from a timer callback fails the job too
+    language: nativets
+    script: |
+      export async function main() {
+        setTimeout(() => { throw new RangeError("tick"); }, 1);
+        await new Promise(r => setTimeout(r, 100));
+        return 1;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: tick, stack: "<stack>", name: RangeError}}}
+  - spec: WR-43
+    variant: microtask-throw
+    provenance: source-derived
+    title: an exception thrown from a queued microtask fails the job too
+    language: nativets
+    script: |
+      export async function main() {
+        queueMicrotask(() => { throw new Error("micro"); });
+        await new Promise(r => setTimeout(r, 50));
+        return 1;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: micro, stack: "<stack>", name: Error}}}
+  - spec: WR-43/f
+    provenance: source-derived
+    title: a syntax error fails at the transpile step, before anything loads
+    language: nativets
+    script: |
+      export function main( {
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/message, prefix: "execution error:\nError: ", not_contains: [failed to load module]}
+          - {at: /result/error/name, equals: ExecutionErr}
+          - {at: /result/error/step_id, equals: a}
+  - spec: WR-43/g
+    variant: nativets
+    provenance: source-derived
+    title: a non-string message nulls both message and name (nativets)
+    language: nativets
+    script: |
+      export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43/g
+    variant: bunnative
+    provenance: source-derived
+    title: a non-string message nulls both message and name (bunnative)
+    script: |
+      //native
+      export function main() { const e = new Error("x"); e.name = "Tagged"; (e as any).message = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43/h
+    variant: nativets
+    provenance: source-derived
+    title: a non-string name nulls both as well (nativets)
+    language: nativets
+    script: |
+      export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43/h
+    variant: bunnative
+    provenance: source-derived
+    title: a non-string name nulls both as well (bunnative)
+    script: |
+      //native
+      export function main() { const e = new Error("m"); (e as any).name = 7; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: null, stack: "<stack>", name: null}}}
+  - spec: WR-43
+    variant: null-and-string-objects
+    provenance: source-derived
+    title: a null field is null alone, a String object is its text, a subclass without a name is Error
+    language: nativets
+    script: |
+      class Sub extends Error {}
+      export function main(v: string) {
+        if (v === "null") { const e = new Error("m"); (e as any).name = null; throw e; }
+        if (v === "string-object") { const e = new Error("m"); (e as any).name = new String("S"); throw e; }
+        throw new Sub();
+      }
+    runs:
+      - args: '{"v":"null"}'
+        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: null}}}
+      - args: '{"v":"string-object"}'
+        expect: {status: failure, result: {error: {message: m, stack: "<stack>", name: S}}}
+      - args: '{"v":"subclass"}'
+        expect: {status: failure, result: {error: {message: "", stack: "<stack>", name: Error}}}
+  - spec: WR-43
+    variant: web-api-error
+    provenance: source-derived
+    title: an error a web API throws is an Error too
+    language: nativets
+    script: |
+      export function main() { return new URL("not a url"); }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /status, equals: failure}
+          - {at: /result/error/name, equals: TypeError}
+          - {at: /result/error/step_id, absent: true}
+  - spec: WR-43
+    variant: replaced-stack
+    provenance: policy
+    title: a stack replaced by a non-string is dropped, and with it every frame
+    note: >-
+      WR-43/i, which is deferred: the native runtime keeps the frames apart
+      from the stack property and still writes the source line;
+      JavaScriptCore reads frames only from the stack text, so windmill-lite
+      gives null.
+    language: nativets
+    script: |
+      export function main() { const e = new Error("m"); (e as any).stack = 5; throw e; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {error: {message: m, stack: null, name: Error}}}

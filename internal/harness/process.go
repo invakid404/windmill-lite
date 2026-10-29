@@ -699,7 +699,7 @@ func (p *Process) onWarning(w Warning) (*invocation, []func()) {
 		p.diag.printf("dropped a warning for invocation %q, which is not in flight: %s", w.ID, w.Message)
 		return nil, nil
 	}
-	warning := engine.Warning{Code: w.Code, Message: w.Message, Left: w.Left}
+	warning := engine.Warning{Code: w.Code, Message: w.Message, Left: w.Left, Untracked: w.Untracked}
 	return inv, []func(){func() { inv.report.Warning(warning) }}
 }
 
@@ -922,7 +922,7 @@ func platformAnswer(ctx context.Context, serve func(context.Context) PlatformRep
 // for the invocation (see invocation.fixed), but never for one that was
 // not dispatched.
 func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func()) (engine.StepOutcome, dispatch, error) {
-	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.ModuleState); err != nil {
+	if err := checkInvocation(inv, p.Hello().Caps, p.cfg.ModuleState, p.cfg.Facade); err != nil {
 		return engine.StepOutcome{}, notDispatched, err
 	}
 	payload, err := Encode(Invoke{
@@ -1011,8 +1011,10 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 var entryName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // checkInvocation refuses invocations this harness cannot run. They never
-// reach it.
-func checkInvocation(inv engine.Invocation, caps Caps, mode engine.ModuleState) error {
+// reach it. One must run in the process's module state. A native one
+// needs a harness that offers the native boundary and a facade origin,
+// which a native step reads as BASE_URL and BASE_INTERNAL_URL (WR-45).
+func checkInvocation(inv engine.Invocation, caps Caps, mode engine.ModuleState, facade string) error {
 	switch {
 	case inv.ID == "":
 		return errors.New("harness: invocation without an id")
@@ -1028,6 +1030,9 @@ func checkInvocation(inv engine.Invocation, caps Caps, mode engine.ModuleState) 
 	case engine.BoundaryNative:
 		if !caps.Native {
 			return fmt.Errorf("harness: invocation %q: the harness has no native boundary (milestone C3n)", inv.ID)
+		}
+		if facade == "" {
+			return fmt.Errorf("harness: invocation %q: the native boundary needs the platform facade's origin, its BASE_URL and BASE_INTERNAL_URL (WR-45), and the process has none", inv.ID)
 		}
 	default:
 		return fmt.Errorf("harness: invocation %q: unknown boundary %q", inv.ID, inv.Boundary)
