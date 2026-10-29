@@ -159,14 +159,15 @@ kind (`JobFlow` or `JobScript`), its effective root
 for a script job, its job variables.
 
 - **Who registers what.** The engine registers each flow run it starts,
-  its own root, from start to end
-  ([internal/engine](../engine/README.md)); the facade registers each
+  its own root, from start to end, and each child flow of it (a loop
+  iteration's, a branch's, a subflow's) while it runs, with its runnable
+  path (F2a) ([internal/engine](../engine/README.md)); the facade registers each
   invocation, a script job, from `Register` to the end of its registration
   ([internal/platform/facade](facade/README.md)). A script job's parent
   flow, innermost flow scope and root (`WM_FLOW_JOB_ID`,
   `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID`) become known with it, as flow
-  jobs of its root, live while the root is: a loop iteration's child flow
-  is known while one of its steps has run and its run lives.
+  jobs of its root, live while the root is, unless the engine registered
+  them first.
 - **How long.** A job stays known while its root lives, so a step's job
   can be looked up after it ended. Once the root has ended, the jobs of its
   tree that have ended are forgotten with their user state; a job still
