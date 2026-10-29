@@ -1,3 +1,3 @@
 export async function main() {
-  return 'def';
+  return { k: 1 };
 }

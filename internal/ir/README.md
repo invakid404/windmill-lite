@@ -1,8 +1,11 @@
 # internal/ir
 
 **Current state:** implemented (milestone A5 of
-[0012](../../docs/design/0012-layout-and-milestones.md)); no other package
-calls it yet. This README covers `internal/ir/` and its `testdata/`. The
+[0012](../../docs/design/0012-layout-and-milestones.md)); `ir.Compile` has
+two callers: the build of [internal/bundle](../bundle/README.md),
+`bundle.Build`, and the flow runner of `wltest check`
+([cmd/wltest](../../cmd/wltest/README.md)), which compiles each target flow
+as its only root. This README covers `internal/ir/` and its `testdata/`. The
 package is the compiler of [0002](../../docs/design/0002-ir-and-loader.md):
 `ir.Compile` turns a sync folder, read by
 [internal/syncfolder](../syncfolder/README.md), and a host contract into the
@@ -13,9 +16,10 @@ decided program, and it validates what the contract's roots reach.
 What it does not do, and which milestone does:
 
 - **Expressions:** an expression holds its site and its text as written.
-  The textual pipeline (trimming, shortcuts, rewrites, mode, bound names,
-  the engine source; JE-5 to JE-15) fills the rest of
-  [`expr.Expr`](../expr/README.md) in B2a.
+  B2a's textual pipeline, `expr.Compile` (trimming, shortcuts, rewrites,
+  mode, bound names, the engine source; JE-5 to JE-15), computes the rest
+  of [`expr.Expr`](../expr/README.md), but `compileExpr` still fills only
+  `Site` and `Text`: filling the rest from `expr.Compile` is still to do.
 - **The build:** signatures, the relative-import closure, workflow-as-code
   detection and the refusal of a bundled script that imports a bare
   package with no lock need the Bun helper's scans (C2a), and bundling is
@@ -215,29 +219,44 @@ reading. Otherwise `Compile` returns every error, in walk order: the root
 scripts, then each flow in the order the walk reaches it, module by module,
 and last the provided sites that matched no site or more than one.
 
-## Readings the reference does not settle
+## Readings the compiler takes
 
-Each is the smallest reading consistent with the reference and the design;
-the milestone's pull request lists them as open questions.
+A5 took each as the smallest reading consistent with the reference and the
+design, which did not settle them then. The reference's revision of
+2026-10-28 settles most of them: it states the first three, and it differs
+from the compiler's reading of the import base, `schema_validation` and
+`customBundler`. The compiler still takes the readings below.
 
 - **Collapse in the preprocessor's bodies.** A deploy does not reduce the
   preprocessor module to stored nodes
   ([OF-3](../../docs/semantics/openflow.md#of-3)), so its bodies run as raw
   inline flows, in which a for loop never collapses
   ([CF-V5](../../docs/semantics/control-flow.md#cf-v5)); a while loop
-  there still does.
+  there still does. [CF-30](../../docs/semantics/control-flow.md#cf-30)
+  now states this.
 - **Collapse disqualifiers are presences.** `retry: {}` and `cache_ttl: 0`
-  disqualify a body as any other value does; the reference names the
-  fields, not their values.
+  disqualify a body as any other value does, as
+  [CF-8](../../docs/semantics/control-flow.md#cf-8) now states.
 - **The virtual step** is added for a final `sleep` of any transform type,
-  and not after the failure or preprocessor module, which are slots.
+  and not after the failure or preprocessor module, which are slots
+  ([CF-30](../../docs/semantics/control-flow.md#cf-30)).
 - **The import base** of an inline step with an explicit `path` is that path
-  as written, at any depth.
+  as written, at any depth. [WR-29](../../docs/semantics/languages.md#wr-29)
+  now differs for module lists: a deployed flow drops the field from the
+  inline scripts of its module lists and their container bodies, so the
+  default base applies there; its failure and preprocessor slots stay raw
+  and keep it, as the compiler does (WR-29/c).
 - **`schema_validation`** is read as a header annotation key by the rule of
-  [WR-31](../../docs/semantics/languages.md#wr-31); the reference names the
-  annotation but not its spelling.
+  [WR-31](../../docs/semantics/languages.md#wr-31).
+  [WR-54](../../docs/semantics/languages.md#wr-54) now differs: the line has
+  its own test, which needs exactly `// schema_validation` (for TypeScript)
+  and stops at a blank line.
 - **`customBundler`** counts when it is set to anything but null or `""`.
-- **A pinned `hash`** is refused whatever its value (above).
+  [WR-48](../../docs/semantics/languages.md#wr-48) now differs: `false` and
+  `0` mean unset as well.
+- **A pinned `hash`** is refused whatever its value (above). On Windmill a
+  pin that names no version deploys and fails at run time
+  ([OF-14](../../docs/semantics/openflow.md#of-14)/f).
 - **A provided site** must be mandatory, a call site, and match one module
   in every iteration and branch: `iterations` and `branches` are refused on
   it, since its target is replaced everywhere.

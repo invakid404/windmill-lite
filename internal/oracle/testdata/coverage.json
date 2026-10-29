@@ -44,26 +44,6 @@
       "case": "OR-7/b",
       "milestone": "none",
       "reason": "optional (Q-OR-14): the knob MAX_RESULT_SIZE_MB would change every observation of the session it is set for, and no milestone of ADR 0012 implements the result-size limit's error"
-    },
-    {
-      "case": "OR-24/b",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-12)"
-    },
-    {
-      "case": "OR-24/c",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-11)"
-    },
-    {
-      "case": "OR-24/e",
-      "milestone": "E3a",
-      "reason": "key-order provenance cases are in the JE batch (Q-OR-11)"
-    },
-    {
-      "case": "OR-V2/e",
-      "milestone": "E3d",
-      "reason": "the throwing branchone predicate (Q-OR-8) is in the CF batch"
     }
   ]
 }

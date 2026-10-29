@@ -3,7 +3,7 @@
   "cases": [
     {
       "spec": "JE-2/a",
-      "provenance": "source-derived",
+      "provenance": "oracle-observed",
       "deviation": "D8",
       "slow": true,
       "title": "a CPU-bound loop reaches the 20 s attempt limit and is interrupted",

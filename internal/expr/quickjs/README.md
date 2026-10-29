@@ -4,7 +4,10 @@
 [0012](../../../docs/design/0012-layout-and-milestones.md)); milestone F4
 gave its heap the mimalloc allocator, and milestone B2b runs the expression
 pipeline of [internal/expr](../README.md) on it, with preludes. Outside the
-tests, only `windmill-lite selfcheck` and the walking skeleton call it yet. This README covers `internal/expr/quickjs/`, with its vendored
+tests, only `windmill-lite selfcheck`, `windmill-lite host`
+(`cmd/windmill-lite/host.go`, which serves the walking skeleton's runs) and
+`wltest check` for flow fixtures (`cmd/wltest/check.go`) call it yet. This
+README covers `internal/expr/quickjs/`, with its vendored
 `quickjs-ng/` and `mimalloc/` sources and its `testdata/`. The package is windmill-lite's
 JavaScript engine for flow expressions: QuickJS-ng at revision `be664ca1`,
 the engine Windmill's expressions run on
@@ -30,7 +33,7 @@ What the package does not do:
 |---|---|
 | `New(Options)` | Starts an engine and its pool. It returns once every slot has prepared its first runtime. |
 | `Options` | `Limits` (zero value: `expr.DefaultLimits()`), `Slots` (0: `min(GOMAXPROCS, 8)`), `CacheEntries` (0: 1024; negative: no cache). |
-| `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
+| `(*Engine).Compile(source)` | Compiles a global script named `eval_script`, the script name in Windmill's engine stack frames ([JE-21](../../../docs/semantics/expressions.md#je-21)), to bytecode. It does not force strict mode, which Windmill's evaluator does ([JE-50](../../../docs/semantics/expressions.md#je-50)). A source that does not compile returns an `*expr.Exception`. Results, compile errors included, are cached by source text. |
 | `(*Engine).Eval(ctx, program, input)` | Runs the input's preludes, then the bytecode, on a fresh runtime and context, and returns the completion string or an error. |
 | `(*Engine).Limits()`, `(*Engine).Stats()` | The limits in force, and counters: evaluations, compiles, waits for a slot and their total time, timeouts, cancellations, and heap blocks that QuickJS-ng leaked and the engine freed. |
 | `(*Engine).Close()` | Stops the engine. Callers still waiting get `ErrClosed`; running evaluations finish first. |
@@ -71,7 +74,10 @@ What the package does not do:
    settled. A completion value that is not a Promise is
    settled at once, and so is a Promise that has fulfilled or rejected; jobs
    still queued then never run. A job that throws (a `queueMicrotask`
-   callback, say) fails the evaluation with its exception.
+   callback, say) fails the evaluation with its exception. Windmill differs
+   on both ([JE-51](../../../docs/semantics/expressions.md#je-51), `later`):
+   it reads the result only once the queue is empty, and it drops a job
+   that throws.
 5. **The answer.** A fulfilled string is returned as UTF-8, except that
    QuickJS-ng writes an unpaired surrogate as three bytes (WTF-8);
    `JSON.stringify` escapes those, so its text is plain UTF-8. Anything else
@@ -177,9 +183,13 @@ each with mimalloc and with its own `malloc`).
   they come during a long built-in or readback), `Close`, the arrival
   order of waiting callers, concurrent use under `-race`, and the overflow
   depth at the default stack, which they log for each platform and check
-  against JE-48's bracket. An engine started through the tests' shared
-  helper must end with no leaked heap block; the one test that makes
-  QuickJS-ng leak uses a helper without that check.
+  lies between 1 000 (fits) and 1 000 000 (overflows). On Windmill, JE-48
+  records that depths up to 600 fit and depth 1 000 overflows; that this
+  engine fits deeper is deviation D17 of
+  [0001](../../../docs/design/0001-equivalence-contract.md). An engine
+  started through the tests' shared helper must end with no leaked heap
+  block; the one test that makes QuickJS-ng leak uses a helper without that
+  check.
 - `TestPoolUnderLoad` measures latency under ADR 0003's load shapes and
   prints a table. It runs only with `WL_QUICKJS_LOAD=1`, and CI runs it as a
   report-only step.

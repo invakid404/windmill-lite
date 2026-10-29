@@ -14,14 +14,17 @@ the fixtures of the recording batches, E3c's and E3b's under
 [conformance/flows/execution](../../conformance/flows/execution) and E3d's
 under [conformance/flows/control-flow](../../conformance/flows/control-flow),
 the stub-mode acceptance cases ([conformance/flows/stub](../../conformance/flows/stub),
-see [Stub mode](#stub-mode)), and the expression cases of batch E3a, which
+see [Stub mode](#stub-mode)), milestone E1's first fixtures under
+`conformance/flows/languages` and `conformance/flows/client-api`, and the
+expression cases of batch E3a, which
 `wltest record` lifts into generated flows
 ([conformance](../../conformance/README.md#expression-cases)). E3c extended
 the session and the walker (below), E3b the walker and the batch test, E3d
 the walker and added the API deployment (below), E3a the session and
 its own batch tests, and E3e the run-and-wait submission, the setup
-policies, the pull read-back and the two-worker session (below). Comparing
-windmill-lite against a recording is `wltest check` (milestone E1); stub
+policies, the pull read-back and the two-worker session (below). `wltest
+check` compares windmill-lite's flow runs with each run's `expect` or
+recording (milestone E1, [cmd/wltest](../../cmd/wltest/README.md)); stub
 mode on windmill-lite (E4b) does not exist yet.
 
 ## A session
