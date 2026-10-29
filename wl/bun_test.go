@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +47,7 @@ const setScript = `export async function main(v: string) {
 
 // buildBundle builds a real bundle (bundle.Build) of a folder with the
 // script f/t/set and the flow f/t/flow, which runs it on u/t/v, and the
+// flow f/t/env, whose inline step returns its WL_TENANT variable, and the
 // flow f/t/cached, whose inline step returns a random number with a
 // cache_ttl (FX-40: a path script's step would drop it).
 func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
@@ -60,6 +63,8 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 		"f/t/flow.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/set","input_transforms":{"v":{"type":"static","value":"u/t/v"}}}}]}}`,
 		"f/t/cached.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","cache_ttl":600,"value":{"type":"rawscript","language":"bun",` +
 			`"content":"export async function main() { return Math.random() }","input_transforms":{}}}]}}`,
+		"f/t/env.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { return process.env.WL_TENANT ?? null }","input_transforms":{}}}]}}`,
 	} {
 		f := filepath.Join(folder, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
@@ -219,4 +224,119 @@ func TestRunCanceledKeepsCalls(t *testing.T) {
 			}
 		})
 	}
+}
+
+// H12 and H13 on the Bun harness, in warm and fresh mode: the variable an
+// InvocationEnv hook sets is in the step's environment; a run's own
+// variable is what its step reads through the job API, and its update
+// changes the run's variable, not the runtime's.
+func TestHooksOnBun(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	for _, mode := range []string{ModuleStateWarm, ModuleStateFresh} {
+		t.Run(mode, func(t *testing.T) {
+			rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode, Variables: map[string]Variable{"u/t/v": {Value: "first"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			h := &Hooks{InvocationEnv: func(_ context.Context, _ RunHandle, s Site, env map[string]string) error {
+				env["WL_TENANT"] = "tenant-" + s.Module
+				return nil
+			}}
+			res, err := rt.Run(context.Background(), "f/t/env", nil, RunOptions{Hooks: h})
+			if err != nil || res.Status != StatusSuccess || string(res.Result) != `"tenant-a"` {
+				t.Fatalf("H12: %+v %v", res, err)
+			}
+			if res, err := rt.Run(context.Background(), "f/t/env", nil, RunOptions{}); err != nil || string(res.Result) != `null` {
+				t.Fatalf("a run without the hook: %+v %v", res, err)
+			}
+			p := &RunPlatform{Variables: map[string]Variable{"u/t/v": {Value: "run-own"}}}
+			res, err = rt.Run(context.Background(), "f/t/flow", nil, RunOptions{Platform: p})
+			if err != nil || res.Status != StatusSuccess || string(res.Result) != `"run-own"` {
+				t.Fatalf("H13: %+v %v", res, err)
+			}
+			if v, err := rt.services.VariableValue(context.Background(), "u/t/v"); err != nil || v != "first" {
+				t.Fatalf("the runtime's variable after the run's update: %q %v", v, err)
+			}
+		})
+	}
+}
+
+// H9's traces carry the run's platform calls as the returned trace does
+// (ADR 0008): the trace OnRunEnd gets and the one OnRunSettled gets hold
+// the step's read and update, the calls as of the run's end, in warm and
+// fresh mode, and so do they for a run canceled while its step waits,
+// which settles once its abandoned invocation does (fresh mode, where the
+// cancellation ends the step's process).
+func TestRunEndKeepsCalls(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	check := func(t *testing.T, mode, first string, cancelAfterUpdate bool) {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode, Variables: map[string]Variable{"u/t/v": {Value: first}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		ended := make(chan []PlatformCall, 1)
+		settled := make(chan []PlatformCall, 1)
+		h := &Hooks{
+			OnRunEnd: func(_ context.Context, tr *Trace) []Warning {
+				ended <- tr.PlatformCalls
+				return nil
+			},
+			OnRunSettled: func(tr *Trace) { settled <- tr.PlatformCalls },
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan *Result, 1)
+		go func() {
+			res, err := rt.Run(ctx, "f/t/flow", nil, RunOptions{Hooks: h})
+			if err != nil {
+				t.Error(err)
+			}
+			done <- res
+		}()
+		if cancelAfterUpdate {
+			deadline := time.After(10 * time.Second)
+			for {
+				if v, _ := rt.services.VariableValue(context.Background(), "u/t/v"); v == "second" {
+					break
+				}
+				select {
+				case <-deadline:
+					t.Fatal("the step never updated the variable")
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+		}
+		res := <-done
+		if res == nil {
+			t.Fatal("no result")
+		}
+		var settledCalls []PlatformCall
+		select {
+		case settledCalls = <-settled:
+		case <-time.After(15 * time.Second):
+			t.Fatal("the run never settled")
+		}
+		endCalls := <-ended
+		routes := func(cs []PlatformCall) string {
+			var b strings.Builder
+			for _, c := range cs {
+				b.WriteString(c.Route + " " + strconv.Itoa(c.Status) + ";")
+			}
+			return b.String()
+		}
+		want := "GET /w/{ws}/variables/get_value/{path} 200;POST /w/{ws}/variables/update/{path} 200;"
+		if got := routes(res.Trace.PlatformCalls); got != want || routes(endCalls) != want || routes(settledCalls) != want {
+			t.Fatalf("%s: returned %q, OnRunEnd %q, OnRunSettled %q", res.Status, got, routes(endCalls), routes(settledCalls))
+		}
+	}
+	for _, mode := range []string{ModuleStateWarm, ModuleStateFresh} {
+		t.Run(mode, func(t *testing.T) { check(t, mode, "first", false) })
+	}
+	t.Run("fresh canceled", func(t *testing.T) { check(t, ModuleStateFresh, "slow", true) })
 }

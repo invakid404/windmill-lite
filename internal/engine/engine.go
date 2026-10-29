@@ -57,6 +57,8 @@ type Engine struct {
 	results platform.ResultCache
 	// moduleState is the module-state mode every invocation runs in.
 	moduleState ModuleState
+	// provide answers the named host-provided sites.
+	provide ProvideFunc
 }
 
 // Config configures an Engine.
@@ -101,7 +103,24 @@ type Config struct {
 	// (ADR 0006), which its Exec must serve: ModuleStateWarm, the default,
 	// or ModuleStateFresh.
 	ModuleState ModuleState
+	// Provide answers the program's named host-provided sites (ADR 0002,
+	// ADR 0008): called at a provided site's launch, in place of the job
+	// its target would have run, with the site's stored arguments and the
+	// name of the provider its contract entry gives. It returns the
+	// site's outcome and true, or false to decline, which latches the run
+	// with ErrProviderDeclined; an error latches the run with it. A
+	// static provided site needs no Provide. nil answers every named
+	// site by declining.
+	Provide ProvideFunc
 }
+
+// ProvideFunc is Config.Provide.
+type ProvideFunc func(ctx context.Context, r Run, s Site, provider string, args jsonval.Value) (StepOutcome, bool, error)
+
+// ErrProviderDeclined is the latch of a run whose mandatory host-provided
+// site's provider declined (ADR 0008, provider_declined): a mandatory
+// provider cannot decline, so the run fails closed.
+var ErrProviderDeclined = errors.New("provider_declined")
 
 // ErrUnsupported marks a program that uses a feature the engine does not
 // run yet, because a later milestone of ADR 0012 implements it.
@@ -118,7 +137,7 @@ func New(cfg Config) (*Engine, error) {
 		return nil, errors.New("engine: no expression engine")
 	}
 	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout, platform: cfg.Platform,
-		results: resultCache(cfg.Platform), moduleState: cfg.ModuleState}
+		results: resultCache(cfg.Platform), moduleState: cfg.ModuleState, provide: cfg.Provide}
 	switch e.moduleState {
 	case "":
 		e.moduleState = ModuleStateWarm
@@ -332,7 +351,11 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 			}
 		}
 	case ir.KindProvided:
-		return unsupported("a host-provided site (F2a)")
+		// A host-provided site (ADR 0002): its target is opaque; the
+		// provider answers its launch.
+		if p := m.Provided; p == nil || (p.Static == nil) == (p.Provider == "") {
+			return errors.New("a provided module with neither a static value nor a provider")
+		}
 	default:
 		return unsupported("a %s module", m.Kind)
 	}
@@ -432,6 +455,16 @@ type RunRequest struct {
 	// Jitter is the run's retry-jitter source (H10, FX-26); nil draws from
 	// a source seeded with Seed.
 	Jitter Jitter
+	// Platform, when set, is the platform services the run reads its
+	// providers from in place of Config.Platform's (H13): the resources,
+	// variables, secrets and value resolvers its argument resolution,
+	// flow_env and expression helpers read, and which its invocations carry
+	// to the facade (Invocation.Platform), so that its steps' API reads
+	// answer from them too. It must share Config.Platform's job registry,
+	// flow user state, object store, dispatcher and result cache
+	// (platform.Services.WithProviders), so that the run stays one of the
+	// runtime's. The runs the dispatcher starts read Config.Platform's.
+	Platform *platform.Services
 	// PreWriteDeadline is the run's pre-write deadline (H4): when it passes
 	// before the run's first write-capable module launched (H3), the run
 	// ends canceled, as at its hard deadline, the context's. Zero means
@@ -502,6 +535,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
+	if req.Platform != nil {
+		r.platform, r.own = req.Platform, true
+	}
 	r.rootID = cmp.Or(req.RootJob, req.ParentJob, id)
 	r.root.scope = cmp.Or(req.RootJob, id)
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))

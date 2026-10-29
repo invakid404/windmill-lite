@@ -107,7 +107,7 @@ milestones PF, so that no milestone id looks like a deviation id of
 | NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; FX-24/d–e (a loop's `timeout`); the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d); E3a's unrecoverable-stop cases on a module with a `retry` (JE-26/b–c); the E3c runs that need a retry, a javascript `timeout` or a container (FX-14/b, FX-15/b, FX-32/b, FX-36's failed `branchall`); PF3's WA-6/b run of a retry in a loop's body (`client-api/flow-path/retry`) | 7 | yes |
 | PF2 | resources, variables, secrets, the interpolation walker | PF1 | WA-10 to WA-12 and WA-40 to WA-42 cases; the E3b FX-42/h case; E3a's provider cases (JE-11/a, JE-20/a–b, JE-38/b, JE-41/a–c, JE-42/a and /e, JE-V3/a) | 7 | yes |
 | PF3 | flow user state, object store, dispatcher, job registry | PF1 | WA-5, WA-6, WA-14 and WA-16 cases; the dispatch-target restriction case | 7 | yes |
-| E4b | the stub acceptance cases on windmill-lite | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
+| E4b | the stub acceptance cases on windmill-lite; follow-up E4c, without a row of its own: the copies that `wltest stub`, `check` and `record` make of a sync tree carry what its codebase entries name outside it | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
 | N4 | the `cache_ttl` result cache with the host store interface | N3c | the E3d FX-40 cases | 8 | yes |
 | F1 | `wl`: `Open`, `Run`, `BuildInfo`; `windmill-lite run` | F4, N3c, NI, PF2, PF3 | the flow suite through `wl` in `fresh` and `warm`, including E3a cases that need features of two milestones neither of which depends on the other (JE-V2/a and /b: retry, and a variable read or argument resolution), and E3b's FX-17/b (retry and a variable) | 8 | yes |
 | N5 | retry on a subflow step, in the engine and in stub mode | NI, E4b | the `control-flow/subflow-retry` cases, recorded on the oracle, in `fresh` and `warm`; the `stub/subflow_retry` case on the oracle and on windmill-lite | 9 | yes |
@@ -578,6 +578,27 @@ waits on an external gate except R1.
   both, with a step skipped on the first attempt in its run `skipped`. No catalogue case gates
   N5, so it has no recording-batch manifest; `flowsuite.json` requires
   its runs.
+
+- F2a exposes the engine's hook seams to Go hosts as `wl.Hooks` and runs
+  the host contract's mandatory provided sites with `wl.Options.Providers`.
+  `wltest check` gives its runs the effect sink and run groups through the
+  same `wl.Hooks`, so the runner takes no path a host does not have.
+  ADR 0008 does not say which loop or branching module a selector's
+  `iterations` or `branches` narrow to; F2a reads them as the innermost
+  one around the site. A provided site's record says it ran, with
+  `provided` among its hooks and no job, since the host's value stands for
+  the job its target would have run, while an H1-intercepted site's record
+  keeps saying it did not. Per-run providers (H13) are a run's own
+  resources, variables and resolver over the runtime's, and its steps'
+  API reads answer from them; a variable chain now updates the service a
+  read answers from, so a step's update in such a run changes the run's
+  own variable. The runs a step dispatches still read the runtime's
+  providers. Fixtures declare a host contract's provided sites and named
+  providers (`provided`, `providers`), and `host/provided` holds the
+  run-time half of ADR 0002's policy case as expects, since the oracle
+  would run the real targets. F1's open gap is closed: the engine registers
+  every loop iteration, branch and subflow as a flow job of the run's tree
+  while it runs, so a dispatch whose `parent_job` names one gets its path.
 
 ## Spec IDs relied on
 

@@ -10,6 +10,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/oracle"
+	"github.com/invakid404/windmill-lite/wl"
 )
 
 // effectSinkVar is the variable that names the effect sink to a fixture's
@@ -71,8 +72,8 @@ func (s *effectServer) closeRun(root string) ([]json.RawMessage, []conformance.R
 // launches at (WM_JOB_ID), from which the replay service locates a stub's
 // job while the run is in progress: windmill-lite's side of the oracle's
 // job-tree walk (ADR 0011, the replay service). It uses the engine's
-// invocation-environment hook (H12), a seam that host hooks expose
-// (milestone F2a), so the same wiring serves a run made through wl.
+// invocation-environment hook (H12), which a host gives a run as
+// wl.Hooks.InvocationEnv (milestone F2a), as this runner does.
 type runEffects struct {
 	url   string
 	mu    sync.Mutex
@@ -83,7 +84,7 @@ var _ conformance.Locator = (*runEffects)(nil)
 
 // InvocationEnv sets WL_EFFECT_SINK and records the job's site: the
 // module's, never an attempt, which the replay service counts itself.
-func (h *runEffects) InvocationEnv(_ context.Context, _ engine.Run, s engine.Site, env map[string]string) error {
+func (h *runEffects) InvocationEnv(_ context.Context, _ wl.RunHandle, s wl.Site, env map[string]string) error {
 	env[effectSinkVar] = h.url
 	h.mu.Lock()
 	h.sites[env["WM_JOB_ID"]] = s.Path

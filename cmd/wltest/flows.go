@@ -155,15 +155,19 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	if f.Stub {
 		// Stub mode (ADR 0011, milestone E4b): the runs run the stubbed
 		// copy of the tree that wltest record pushes to the oracle, every
-		// script body replaced by a stub that asks the replay service.
+		// script body replaced by a stub that asks the replay service. The
+		// copy carries what the codebase entries name outside the tree
+		// beside it, as the original has it (oracle.Layout), so its
+		// unchanged wmill.yaml reaches the same files.
 		root, err := syncfolder.Find(tree)
 		if err != nil {
 			return failRuns(results, "stub: "+err.Error())
 		}
-		tree = filepath.Join(work, "stubbed")
-		if _, err := oracle.StubTree(root, tree); err != nil {
+		rep, err := oracle.StubTree(root, filepath.Join(work, "stubbed"))
+		if err != nil {
 			return failRuns(results, "stub: "+err.Error())
 		}
+		tree = filepath.Join(work, "stubbed", filepath.FromSlash(rep.Root))
 	}
 	b, err := fc.build(ctx, f, tree, work)
 	if err != nil {
@@ -188,6 +192,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		rt, err = wl.Open(b.out, wl.Options{
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
+			Providers: fixtureProviders(f),
 		})
 		if err != nil {
 			return failRuns(results, "open: "+err.Error())
@@ -371,6 +376,10 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 	if b.variables, b.resources, err = hostDataOf(folder, f.Setup, f.Oracle.SetupPolicy()); err != nil {
 		return nil, err
 	}
+	provided, err := providedSites(f)
+	if err != nil {
+		return nil, err
+	}
 	// items maps how a build problem names a script (bundle.ScriptItem) to
 	// its inventory id.
 	items := map[string]string{}
@@ -393,7 +402,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 		t := &target{}
 		b.targets[run.Target] = t
 		b.order = append(b.order, run.Target)
-		if fc.compile(folder, run.Target, t) {
+		if fc.compile(folder, run.Target, provided, t) {
 			open(t)
 		}
 	}
@@ -413,13 +422,13 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, 
 				roots = append(roots, ir.Root{Script: p})
 			}
 		}
-		if fc.compileRoots(folder, roots, t) {
+		if fc.compileRoots(folder, roots, provided, t) {
 			open(t)
 		}
 	}
 
 	for attempt := 0; ; attempt++ {
-		var contract ir.Contract
+		contract := ir.Contract{Provided: provided}
 		for _, p := range b.order {
 			if t := b.targets[p]; t.unsupported == "" && t.problem == "" {
 				contract.Roots = append(contract.Roots, ir.Root{Flow: p})
@@ -484,8 +493,8 @@ const rootsTarget = "(roots)"
 // program, its module ids and the scripts it reaches. A feature the
 // compiler or this runner refuses makes t unsupported; a compile error is
 // t's problem. It reports whether t has neither.
-func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target) bool {
-	if !fc.compileRoots(folder, []ir.Root{{Flow: path}}, t) {
+func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, provided []ir.ProvidedSite, t *target) bool {
+	if !fc.compileRoots(folder, []ir.Root{{Flow: path}}, provided, t) {
 		return false
 	}
 	fl := t.prog.Flows[path]
@@ -504,18 +513,32 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target
 // compileRoots compiles the folder with roots as its contract's roots into
 // t: its program and the scripts it reaches. It reports whether t has
 // neither a problem nor a reason to be unsupported.
-func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, t *target) bool {
-	contract, err := json.Marshal(ir.Contract{Roots: roots})
-	if err != nil {
-		t.problem = err.Error()
-		return false
+func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, provided []ir.ProvidedSite, t *target) bool {
+	// The fixture's provided sites that these roots reach: a mandatory
+	// selector that matches no site is a contract error (ADR 0008), so the
+	// ones the compile reports unmatched are left out of this compile.
+	sites := slices.Clone(provided)
+	var prog *ir.Program
+	var err error
+	for {
+		c := &ir.Contract{Roots: roots, Provided: sites}
+		if err = c.Validate(); err != nil {
+			t.problem = err.Error()
+			return false
+		}
+		prog, err = ir.Compile(folder, c, ir.Options{})
+		drop := unmatchedSites(err)
+		if len(drop) == 0 {
+			break
+		}
+		var keep []ir.ProvidedSite
+		for i, p := range sites {
+			if !slices.Contains(drop, i) {
+				keep = append(keep, p)
+			}
+		}
+		sites = keep
 	}
-	c, err := ir.ParseContract(contract)
-	if err != nil {
-		t.problem = err.Error()
-		return false
-	}
-	prog, err := ir.Compile(folder, c, ir.Options{})
 	if err != nil {
 		var ie *ir.Error
 		if errors.As(err, &ie) && unsupportedKinds[ie.Kind] {
@@ -537,6 +560,63 @@ func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, 
 		t.reached = append(t.reached, id)
 	}
 	return true
+}
+
+// providedSites reads the fixture's provided sites (Fixture.Provided) as
+// the host contract's (ADR 0002), which checks them.
+func providedSites(f *conformance.Fixture) ([]ir.ProvidedSite, error) {
+	if len(f.Provided) == 0 {
+		return nil, nil
+	}
+	text, err := json.Marshal(map[string]any{"roots": []ir.Root{{Flow: "(fixture)"}}, "provided": f.Provided})
+	if err != nil {
+		return nil, err
+	}
+	c, err := ir.ParseContract(text)
+	if err != nil {
+		return nil, fmt.Errorf("provided: %w", err)
+	}
+	return c.Provided, nil
+}
+
+// unmatchedSites are the provided sites, by their index in the contract,
+// that a compile reports matching no site: the contract errors about one
+// provided site that name no flow or step.
+func unmatchedSites(err error) []int {
+	var out []int
+	errs := []error{err}
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = j.Unwrap()
+	}
+	for _, e := range errs {
+		var ie *ir.Error
+		if errors.As(e, &ie) && ie.Kind == ir.ErrContract && ie.Selector >= 0 && ie.Flow == "" && ie.Step == "" {
+			out = append(out, ie.Selector)
+		}
+	}
+	return out
+}
+
+// fixtureProviders are the fixture's named providers (Fixture.Providers)
+// as wl registers them: each answers its sites with its result or its
+// error, or declines.
+func fixtureProviders(f *conformance.Fixture) map[string]wl.Provider {
+	if len(f.Providers) == 0 {
+		return nil
+	}
+	out := make(map[string]wl.Provider, len(f.Providers))
+	for name, p := range f.Providers {
+		out[name] = func(context.Context, wl.Call) (wl.Outcome, bool, error) {
+			switch {
+			case p.Decline:
+				return wl.Outcome{}, false, nil
+			case p.Error != nil:
+				return wl.Outcome{Result: p.Error, Failed: true}, true, nil
+			}
+			return wl.Outcome{Result: p.Result}, true, nil
+		}
+	}
+	return out
 }
 
 // hostModuleEntry is a host-provided module in a step or fixture bundle's
@@ -594,11 +674,11 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	id := newUUID()
 	opts := wl.RunOptions{ID: id}
 	if es != nil || gm != nil {
-		h := &runHooks{grp: gm}
+		var fx *runEffects
 		if es != nil {
-			h.fx = es.openRun(id, f.Stub, r.Replay)
+			fx = es.openRun(id, f.Stub, r.Replay)
 		}
-		opts.Hooks = h
+		opts.Hooks = runHooks(fx, gm)
 	}
 	submitted := time.Now()
 	res, err := rt.Run(rctx, r.Target, r.ArgsOrEmpty(), opts)

@@ -1,0 +1,30 @@
+# Each step's call takes its outcome from the table; the second step takes
+# the first's result.
+target: f/wl_stub_out/twice
+args: {name: n-1}
+replay:
+  "m:first": {result: "label:n-1"}
+  "m:second": {result: "label:label:n-1"}
+expect:
+  status: success
+  result: "label:label:n-1"
+  steps:
+    "m:first": {status: success, args: {name: n-1}, result: "label:n-1"}
+    "m:second": {status: success, args: {name: "label:n-1"}, result: "label:label:n-1"}
+  effects:
+    - site: "m:first"
+      attempt: 0
+      step: first
+      job: "<job:m:first>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [n-1]
+    - site: "m:second"
+      attempt: 0
+      step: second
+      job: "<job:m:second>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: ["label:n-1"]

@@ -39,19 +39,19 @@ func (f *Facade) resourceInterpolated(ctx context.Context, c *Call) Reply {
 		}
 		job = platform.APIEnv(env)
 	}
-	body, err := f.platform.InterpolatedResource(ctx, c.Params["path"], job)
+	body, err := f.providers(c).InterpolatedResource(ctx, c.Params["path"], job)
 	return answer(body, err)
 }
 
 // resourceRaw answers GET /w/{ws}/resources/get_value/{path}: contract
 // (a), nothing resolved.
 func (f *Facade) resourceRaw(ctx context.Context, c *Call) Reply {
-	body, err := f.platform.RawResource(ctx, c.Params["path"])
+	body, err := f.providers(c).RawResource(ctx, c.Params["path"])
 	return answer(body, err)
 }
 
 func (f *Facade) resourceExists(ctx context.Context, c *Call) Reply {
-	ok, err := f.platform.ResourceExists(ctx, c.Params["path"])
+	ok, err := f.providers(c).ResourceExists(ctx, c.Params["path"])
 	return answer(boolJSON(ok), err)
 }
 
@@ -59,7 +59,7 @@ func (f *Facade) resourceExists(ctx context.Context, c *Call) Reply {
 // the value as a JSON string, a secret's plaintext through Secrets and
 // the value resolvers.
 func (f *Facade) variableValue(ctx context.Context, c *Call) Reply {
-	v, err := f.platform.VariableValue(ctx, c.Params["path"])
+	v, err := f.providers(c).VariableValue(ctx, c.Params["path"])
 	if err != nil {
 		return answer(nil, err)
 	}
@@ -88,7 +88,7 @@ func (f *Facade) variableUpdate(ctx context.Context, c *Call) Reply {
 	if c.Query.Get("already_encrypted") == "true" || edit.Path != nil && *edit.Path != path {
 		return text(501, UnsupportedPrefix+c.Route.Name())
 	}
-	switch err := f.platform.UpdateVariable(ctx, path, edit.Value, edit.IsSecret); {
+	switch err := f.providers(c).UpdateVariable(ctx, path, edit.Value, edit.IsSecret); {
 	case errors.Is(err, platform.ErrReadOnlyVariables):
 		return text(501, UnsupportedPrefix+c.Route.Name())
 	case err != nil:
@@ -98,13 +98,22 @@ func (f *Facade) variableUpdate(ctx context.Context, c *Call) Reply {
 }
 
 func (f *Facade) variableExists(ctx context.Context, c *Call) Reply {
-	ok, err := f.platform.VariableExists(ctx, c.Params["path"])
+	ok, err := f.providers(c).VariableExists(ctx, c.Params["path"])
 	return answer(boolJSON(ok), err)
 }
 
 func boolJSON(b bool) []byte {
 	out, _ := json.Marshal(b)
 	return out
+}
+
+// providers is the services the resource and variable routes answer c
+// from: those its caller's run chose (H13), or the facade's.
+func (f *Facade) providers(c *Call) *platform.Services {
+	if c.Caller != nil && c.Caller.Platform != nil {
+		return c.Caller.Platform
+	}
+	return f.platform
 }
 
 // answer is a read's reply: the JSON body, or the error as the API

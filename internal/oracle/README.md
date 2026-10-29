@@ -55,7 +55,12 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
 3. **Boot.** Wait for `/api/version`, which must be exactly `CE v1.767.0`,
    then for a healthy status with enough workers; log in as the seeded
    superadmin ([OR-6](../../docs/semantics/oracle.md#or-6)).
-4. **Per fixture.** Refuse a fixture that needs more workers than the
+4. **Per fixture.** Skip a fixture with host-provided sites
+   (`provided`, milestone F2a), reporting its runs as `skipped`
+   (`fixture_has_provided_sites`): windmill-lite replaces those sites with
+   the host's providers, while the oracle would run their real targets,
+   such as a subflow that suspends, so such a fixture holds expects.
+   Refuse a fixture that needs more workers than the
    session has, or, with `SkipUnmetWorkers` (`--skip-unmet-workers`),
    report its runs as `skipped`, and a run whose committed recording names another oracle
    version, image or CLI than the pins (`recording_identity_mismatch`,
@@ -72,7 +77,9 @@ One `Session.Run` is one oracle session ([OR-18](../../docs/semantics/oracle.md#
    `folder add-missing` and `generate-metadata` in the fixture's sync tree
    (the drift gate of [OR-8](../../docs/semantics/oracle.md#or-8)), and
    always in a generated tree, which has no committed metadata; push a
-   copy of the tree with the CLI, or create it through the API for a
+   copy of the tree with the CLI, laid out so that what its codebase
+   entries name outside it still resolves ([Copies of a sync
+   tree](#copies-of-a-sync-tree)), or create it through the API for a
    fixture with `oracle: {deploy: api}` ([API deployment](#api-deployment));
    apply `setup.yaml` after the push
    ([OR-31](../../docs/semantics/oracle.md#or-31)), or before it for a
@@ -139,7 +146,8 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `docker.go` | The docker runner. It drops `COMPOSE_*` and `DOCKER_DEFAULT_PLATFORM` from the environment, which would change the topology behind the compose file. `CheckDockerArgs` allows only the commands the harness needs (`pull`, `image inspect`/`rm`, `compose up`/`down`/`ps`/`logs`, listings); `push`, `tag`, `build`, `commit`, `save` and the rest are refused, so the harness itself can never derive or re-push an image ([OR-3](../../docs/semantics/oracle.md#or-3)). |
 | `disk.go` | The OR-30 policy: `PullNeed`, `CheckPull`, the `Watch` watchdog and `SettledFree`. |
 | `client.go` | The REST client, written against the Apache-2.0 `openapi/openapi.yaml`. Arguments and results stay raw JSON text, because member order and number spelling are observable ([OR-13](../../docs/semantics/oracle.md#or-13)); full values come only from `get_args` and `get_result_maybe` ([OR-V1](../../docs/semantics/oracle.md#or-v1)). `RunWaitFlow` returns the run-and-wait response whatever its status. `Capture` records exchanges for replay. |
-| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. |
+| `cli.go` | Runs the published `windmill-cli@1.767.0` from npm as a black-box tool, with its own HOME, npm cache and config directory and no inherited environment. Its `--version` must report exactly `1.767.0`. It runs `folder add-missing`, `generate-metadata`, `sync push` and, for `oracle.pull`, `sync pull`. `CopyTree` copies a directory. |
+| `layout.go` | Copies of a sync tree (milestone E4c): `PlanLayout` finds the paths outside the tree that its codebase entries name, `CopyLayout` copies the tree with them beside it ([Copies of a sync tree](#copies-of-a-sync-tree)). |
 | `proc_unix.go` | Gives each docker and CLI command its own process group, killed on cancellation, with a bound on draining its pipes. |
 | `deploy.go` | Boot, login, workspaces, `setup.yaml` (`ApplySetup`, `CheckSetup`, `ResetSetup`), the deployment gate and the deployed-module check. |
 | `apideploy.go` | The API deployment of a fixture with `oracle: {deploy: api}` (see below). |
@@ -210,6 +218,56 @@ complete out of index order on two workers, and a loop left canceled with
 its module in progress when the flow's `skip_expr` throws mid-run. The
 other recording batches confirm the rest.
 
+## Copies of a sync tree
+
+The session pushes a copy of a fixture's tree, never the checkout, and
+`wltest stub` and `wltest check` write the stubbed copy the same way
+(milestone E4c). A codebase entry of `wmill.yaml`
+([SY-8](../../docs/semantics/openflow.md#sy-8)) may name paths outside
+the tree: its `relative_path`, whose files the CLI digests into the
+codebase id ([WR-49](../../docs/semantics/languages.md#wr-49)), its
+assets' `from` files, which the CLI uploads with the bundle (WR-49) and
+windmill-lite's build reads, and its `inject` files, which esbuild bundles
+([WR-47](../../docs/semantics/languages.md#wr-47)). Each resolves against
+the tree's root, the CLI's working directory. The copy cannot rewrite
+them, since the CLI digests the entry's settings as written, so
+`CopyLayout` carries them instead:
+
+- `PlanLayout` reads `wmill.yaml` and walks each such path whose target
+  exists, component by component as it is spelled. `..` climbs from the
+  tree's directory with symbolic links resolved, as the CLI's working
+  directory has it; an absolute path resolves the same from a copy, and a
+  path whose target does not exist is skipped. A `wmill.yaml` that is
+  missing or does not parse names nothing; the CLI and the build report
+  it.
+  - The **target**, with `.` and `..` applied, is carried when it lies
+    outside the tree. A target below another carried one (which climbs no
+    further than it) is carried with it.
+  - The furthest the **spelling** climbs above the tree sets `Root`, also
+    when it comes back in: `../windmill/f/cb` from a tree named
+    `windmill` needs the copied tree to be named `windmill` too.
+  - The directories the spelling passes through outside the tree on its
+    way (`../detour` in `../detour/../shared/a.txt`, `../detour/nested`
+    in `../detour/nested/../../shared/a.txt`) are `Dirs` when they exist
+    in the original and no carried path makes them: the deepest of them,
+    since making a directory makes its parents.
+- The tree is copied to `<output>/<Root>`, where `Root` is the last
+  components of the tree's absolute path, as many as the furthest path
+  climbs (`windmill` for `../shared`), or `.` when none climbs out, so a
+  copy of a tree without such paths is unchanged. Each carried path, a
+  directory whole or a file, is copied to its place relative to the copied
+  tree, and each of `Dirs` is made there, empty. `wmill.yaml` is
+  unchanged, and every path it names reaches from the copied tree a copy
+  of what it reaches from the original, whether it is walked on disk as
+  spelled or joined with `.` and `..` applied first, as windmill-lite's
+  build does: the CLI digests the same files under `relative_path` and
+  uploads the same assets. A spelling that climbs above the file system
+  root cannot be laid out inside the copy and is refused.
+- An import of a codebase script that leaves the tree resolves in the copy
+  when it lands below a carried path, as an import of a shared library
+  below the entry's `relative_path` does. esbuild follows imports wherever
+  they lead, and `PlanLayout` does not follow them; a stub has no imports.
+
 ## Stub mode
 
 Stub mode ([ADR 0011](../../docs/design/0011-differential-testing.md))
@@ -237,19 +295,25 @@ service resolved, and a loop's other children are not walked), and a
 source `StubSource` refuses. A retry on a flow step is
 accepted (milestone N5): each attempt's subflow is walked whole below the
 step's `r:<k>`, and the replay service counts its steps' jobs across the
-attempts. The output must not lie inside the tree, which is
+attempts. The copy is laid out as every copy of a sync tree is ([Copies
+of a sync tree](#copies-of-a-sync-tree)): the stubbed tree is at `Root`
+below the output, beside the paths outside it that its codebase entries
+name, which are never stubbed, and the report gives `Root`, the carried
+paths and the stubbed files. The output must not lie inside the tree or a
+carried directory, which is
 decided by file identity (`os.SameFile` against each existing ancestor of
 the output, links resolved), so a symbolic link, another letter case on a
 case-insensitive file system or any other alias of the tree counts; a copy
 that fails removes the output and any parent directory it made. The CLI then runs
-`generate-metadata` in the copy,
+`generate-metadata` in the stubbed tree,
 since its locks and `wmill-lock.yaml` still describe the originals, and
 `CheckStubSignatures` requires every path script's generated schema to
 equal the original's (`stub_signature_changed` otherwise): the CLI derives
 the schema from `main`'s signature, so equal schemas show the stub kept
 what Windmill's parser reads. Inline scripts have no schema; for them the
 scanner's cases and the arguments each recorded call shows are the
-evidence. The deployment report lists the stubbed files.
+evidence. The deployment report lists the stubbed files and the carried
+paths.
 
 **The stub.** `StubSource` keeps `main`'s declaration with its parameter
 list verbatim, because Windmill's parser finds a `function main`
@@ -460,20 +524,22 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestDeployAPI`, `TestDeployAPIRefusals`, `TestDeployAPIResolvesOnlyModules` | the API deployment against a recording server: order, request bodies, an absent field left absent, `!inline` files read and a pinned hash resolved in every module position and nowhere else (module-like static values, iterators and mocks stay as written), and the narrow tree's refusals | — |
 | `TestRecordedDeploymentEvidence` | the API-deployed recordings: CF-6/a's and CF-15/a,b's fields are absent when submitted and filled in the API's answer and in generate-metadata's output; the pulled flow keeps an identity module's extra field and fills the loop's `skip_failures` (CF-6/b, SY-6/c); FX-40/d's body carries the deployed script's hash | `conformance/flows` |
 | `TestRecordedEarlyReturn`, `TestRecordedBigPayload`, `TestRecordedOutOfOrderCompletion` | E3e's recordings: run-and-wait answered `early_return`'s value at least a second before the flow completed (FX-37/a); the big payload is whole in a's result and b's arguments (OR-V1/a); on two workers the slow index-0 body completed after the next one, while results stay in index order (Q-OR-7, Q-OR-15) | `conformance/flows` |
-| `TestSessionRecordsRunAndWait`, `TestSessionRunAndWaitRefused`, `TestRunWaitKeepsARedirect`, `TestObserveKeepsTheResponse`, `TestSessionSetupPolicies`, `TestSessionSkipsUnmetWorkers`, `TestSessionListenInterval`, `TestSessionPullsTheDeployedTree` | E3e's session options against the fake Windmill: a run-and-wait run's response (200 and 422, the failed step's stack masked inside the body) beside its walk, a refused submission failing at once, a redirect kept and not followed, the Content-Type kept with its parameters and a body that is not UTF-8 kept as base64 through observations, raw captures and their replay; `setup.yaml` after the push, before it (read back before and after the push) and before every run, with `setup_not_applied` and `seed_survived_push`; a fixture that needs two workers skipped; the listen-interval knob in compose's environment and the provenance; the pulled flow in the deployment evidence | the smoke fixture |
+| `TestSessionRecordsRunAndWait`, `TestSessionRunAndWaitRefused`, `TestRunWaitKeepsARedirect`, `TestObserveKeepsTheResponse`, `TestSessionSetupPolicies`, `TestSessionSkipsUnmetWorkers`, `TestSessionSkipsProvidedSites`, `TestSessionListenInterval`, `TestSessionPullsTheDeployedTree` | E3e's session options against the fake Windmill: a run-and-wait run's response (200 and 422, the failed step's stack masked inside the body) beside its walk, a refused submission failing at once, a redirect kept and not followed, the Content-Type kept with its parameters and a body that is not UTF-8 kept as base64 through observations, raw captures and their replay; `setup.yaml` after the push, before it (read back before and after the push) and before every run, with `setup_not_applied` and `seed_survived_push`; a fixture that needs two workers skipped, and one with host-provided sites; the listen-interval knob in compose's environment and the provenance; the pulled flow in the deployment evidence | the smoke fixture |
 | `TestRefusalForms`, `TestCheckPull`, `TestWatchAbortsBelowFloor`, `TestSettledFree` | the refusal JSON and the OR-30 policy | — |
 | `TestDockerAllowlist`, `TestComposeFile`, `TestImageIdentity` | the docker allowlist, the compose contract, image identity | — |
 | `TestClientUsesTheOpenAPISurface` | every client call against the vendored schema | `openapi/openapi.yaml` |
 | `TestSinkGroupsByOuterRoot`, `TestSinkKeepsConcurrentRunsApart`, `TestSinkRoutesReplayCalls` | OR-16/c; two open runs each keep their own effects (OR-V6/a); `/replay` goes to the replay service | — |
 | `TestStubSourceCases`, `TestStubSourceGolden` | the stub of each source keeps `main`'s parameter list and the type declarations verbatim and drops the rest, and stubbing is idempotent; or the source is refused with its reason; one whole stub pinned | `testdata/stub/sources.json`, `testdata/stub/book.stub.ts` |
 | `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`, the hash-pinned script step and the `flowscript` step among them; the schema check | `conformance/flows/stub` |
+| `TestPlanLayout`, `TestCopyLayout`, `TestCopiesResolveTheSpellings`, `TestCopyLayoutRefuses`, `TestStubTreeCarriesTheOutsidePaths` | the layout of a copy: spellings that come back into the tree through its own or its parents' names set `Root`, and existing directories a spelling detours through are made, a nested one too and one beside a carried path below the same directory; every configured path read from both copies, `CopyLayout`'s and `StubTree`'s, walked on disk as spelled and joined with `.` and `..` applied, reaches what it reaches from the original, for plain, come-back, detour and nested-detour spellings of `relative_path`, `inject` and assets; which codebase paths are carried (outside the tree after `.` and `..` are applied, existing and not reached through a file, not absolute, not below another carried path, where `../../x` is not below `..`; a value of the wrong type is skipped; `..` climbs from the tree a symbolic link names) and the copied tree's place below its parents' names; a copy's `wmill.yaml` is unchanged and each path it names reaches the same bytes from the copied tree, with nothing else from outside; `relative_path: ..` holds the tree; an output that exists or lies inside a carried directory is refused, and a failed copy removes what it made; the stub of `stub/outside` carries `../shared` beside the stubbed tree | `conformance/flows/stub/outside` |
+| `TestSessionPushesACopyWithTheOutsidePaths` | a session pushes the smoke fixture, given a codebase entry whose `relative_path` and asset lie outside its tree, from a copy that carries them, and lists them in the deployment; the fake CLI, which fails as the real one does when a codebase path does not resolve from its working directory, fails the push when the shared directory is missing | `conformance/flows/oracle/smoke` |
 | `TestStubRunsOnBun` | a generated stub on the pinned Bun (`WL_BUN`) against the real replay service: the request it sends (identities, the hydrated `Date` as its JSON), an error outcome thrown with its name, message and own property, a result returned with its member order, a refusal thrown | `conformance/flows/stub/collapsed` |
 | `TestStubIsolationOnBun` | stubs on the pinned Bun with `fetch` recorded: a default that would call a service or name a dropped binding never runs, and a parameter or destructured binding named `Array` cannot reach the stub's code; the replay call is the only request. Each original runs through the same driver first, to show the recorder sees what a default does | — |
 | `TestStubTreeKeepsItsOutputOutsideTheTree`, `TestStubTreeRefusesACaseAlias` | an output inside the tree, directly, through a symbolic link, or through another letter case where the file system makes it the same directory, is refused with the tree unchanged (where the spellings are two directories, the stub is written); a failed copy removes its output and the parents it made | — |
 | `TestExportListsOnBun` | the scanner accepts a script exactly when importing it on the pinned Bun gives a callable `main` (export lists, type-only entries, aliases), and every accepted script's stub exports one too | — |
 | `TestLocatorFindsALateJob`, `TestLocatorGivesUp`, `TestLocatorSites` | the locator on job trees that change while it looks: a job that appears late, a deadline, repeated module ids, failed attempts (also inside a parallel iteration), the failure slot, a `branchone` body, a `branchall` (also without its `branchall` field), a named subflow, a retried named subflow (its current attempt's steps at the step's site, without `r:`; milestone N5), an empty subflow, a failure handler inside a loop body, a collapsed iteration, a loop that names its parent, a child not known yet, the cache, a leaf iteration without a one-module body (reported at the deadline), a script run | — |
 | `TestCheckReplay`, `TestCheckOverlap` | each failure of `checkReplay`; a group's root jobs in flight together | — |
-| `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes E4a's four stub fixtures (`collapsed`, `nested`, `retry_loop`, `scopes`) job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; runs `r` and `t` run together and keep apart (the fake starts a group's runs once all of them are submitted, as the oracle's runs outlast the gap between submissions, so a slow machine cannot finish one first; a session that submits them one after the other still gets `group_not_concurrent`); `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |
+| `TestSessionRecordsTheStubFixtures`, `TestSessionStubConcurrentRuns`, `TestSessionStubRefusals` | whole stub-mode sessions against a fake Windmill that executes E4a's four stub fixtures (`collapsed`, `nested`, `retry_loop`, `scopes`) and E4c's `outside` job by job, with in-progress statuses, retries, collapsed and parallel loops and subflows, and makes the stubs' calls: every run matches its `expect` and records unchanged on a second session; `outside`'s push carries `../shared`, without which the fake CLI fails; runs `r` and `t` run together and keep apart (the fake starts a group's runs once all of them are submitted, as the oracle's runs outlast the gap between submissions, so a slow machine cannot finish one first; a session that submits them one after the other still gets `group_not_concurrent`); `replay_miss` and `stub_not_called` fail a run | `conformance/flows/stub` |
 | `TestGuardCases`, `TestRepositoryPassesTheChecks` | the image lint and the manifest guard | `testdata/guard/cases.json` |
 | `TestCatalogueCoverage` | every OR and LIC-1 case of the catalogue is cited by a case, checked live by every session, or deferred to a named milestone | `testdata/coverage.json` |
 | `TestSessionDeletesWorkspacesOnFailure` | a workspace whose check after creation or whose deployment gate failed is deleted too, and a workspace that cannot be deleted ends the session | the smoke fixture |

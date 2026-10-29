@@ -1,0 +1,19 @@
+summary: wl codebase paths outside the root
+value:
+  modules:
+    - id: s
+      value:
+        type: script
+        input_transforms:
+          name:
+            type: javascript
+            expr: flow_input.name
+        path: f/wl_cbo/read
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    name:
+      type: string
+  required:
+    - name
