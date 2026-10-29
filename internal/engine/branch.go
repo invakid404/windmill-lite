@@ -100,8 +100,10 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 		// error stop in it is an error stop of the module, which its flow
 		// forwards (CF-12 item 4, FX-20). A branch that ran its copy of the
 		// failure module fails it with that module's result, its job
-		// successful when it recovered (CF-16, CF-V1, FX-33).
-		o.rec.Module, o.handled = conformance.ModuleFailure, o.end == endFailed && e.handled
+		// successful when it recovered (CF-16, CF-V1, FX-33); a failure
+		// such a module handled stays handled through the forwarded stop
+		// that a clean stop of a failed container in it raised.
+		o.rec.Module, o.handled = conformance.ModuleFailure, e.handled
 		if e.status == conformance.RunFailure {
 			o.rec.Status = conformance.StepFailure
 		}
@@ -181,7 +183,11 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcom
 		}
 		it.add(e)
 		if e.stopped || e.errorStop {
-			return r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			// A forwarded stop of a failure that a failure module handled
+			// in the branch keeps it handled (CF-16 item 4).
+			o = r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			o.handled = o.end == endErrorStop && e.handled
+			return o
 		}
 		// A branch that ran its copy of the failure module failed, even when
 		// it recovered (CF-16, CF-V1).

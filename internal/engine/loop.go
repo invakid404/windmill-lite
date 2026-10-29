@@ -266,11 +266,12 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 }
 
 // handledBy marks o, a container that completed, as failed by a failure a
-// child's failure module handled, when handled says so and o failed by it
-// (outcome.handled): an error stop of its stop_after_all_iters_if is a
-// failure of its own.
+// child's failure module handled, when handled says so and o still fails
+// with it (outcome.handled): as a failure, or under a clean stop of its
+// stop_after_all_iters_if, which keeps that failure (endFailedStop); an
+// error stop of it is a failure of its own.
 func handledBy(o outcome, handled bool) outcome {
-	o.handled = handled && o.end == endFailed
+	o.handled = handled && (o.end == endFailed || o.end == endFailedStop)
 	return o
 }
 

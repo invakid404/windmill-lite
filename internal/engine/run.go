@@ -268,7 +268,9 @@ type outcome struct {
 	chain string
 	// handled: the module, a container, failed because a child flow's
 	// failure ended in a failure module (flowEnd.handled), which outer
-	// levels do not run again for it (CF-16 item 4, FX-34).
+	// levels do not run again for it (CF-16 item 4, FX-34): as a failure,
+	// under a clean stop that keeps it (endFailedStop), or as the error
+	// stop a branch's flow forwards for it.
 	handled bool
 }
 
@@ -351,7 +353,10 @@ type decision struct {
 // collapsed iteration's body takes its loop's continue_on_error, not its
 // own: its failure fails the iteration (CF-8 item 5).
 func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
-	hasFailure := fr.failure != nil
+	// A container's failure that a child's copy of the failure module
+	// handled does not run it again: the flow decides as if it had none
+	// (CF-16 item 4, FX-34).
+	hasFailure := fr.failure != nil && !o.handled
 	ends := func(status conformance.RunStatus) decision {
 		return decision{next: nextEnd, status: status, result: o.carried, origin: o.origin, nested: o.nested}
 	}
@@ -405,15 +410,13 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 	case endFailed:
 		// Rule 5, then rules 7 and 8. A tolerated failure at the last
 		// module ends the flow successfully with its failure value, and
-		// the failure module does not run (FX-30); nor does it run again
-		// for a container's failure that a child's copy of it handled
-		// (CF-16 item 4, FX-34).
+		// the failure module does not run (FX-30).
 		switch {
 		case tolerated && last:
 			return ends(conformance.RunSuccess)
 		case tolerated:
 			return decision{next: nextModule}
-		case hasFailure && !o.handled:
+		case hasFailure:
 			return decision{next: nextFailure}
 		}
 		return ends(conformance.RunFailure)

@@ -92,6 +92,59 @@ func TestFailureModuleRecoveryInContainers(t *testing.T) {
 	}
 }
 
+// CF-16 item 4, CF-13, CF-12 item 4: a failed inner loop whose clean
+// stop_after_all_iters_if keeps its failure stops its flow with that
+// failure, which its child's copy already handled, so neither the flow it
+// is in nor any above it runs the failure module again, whether a loop,
+// a branchone or a sequential branchall forwards it. An error stop of the
+// inner loop's predicate is a failure of its own, for which the flow it
+// is in runs its copy, and the levels above still do not run theirs.
+func TestFailureModuleOnceThroughACleanContainerStop(t *testing.T) {
+	copyOf := handler("value", inputs("v", static(`"handled"`)), "")
+	inner := func(stop string) string {
+		return loopOf("inner", []string{mod("x", "fail", "", "")}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`,
+			`"stop_after_all_iters_if":{"expr":"true",`+stop+`"skip_if_stopped":false}`)
+	}
+	for _, c := range []struct {
+		name, outer, at, result string
+	}{
+		{"loop", loopOf("o", []string{inner("")}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, ""), "m:o/i:0/m:inner/i:0/s:failure", `[["handled"]]`},
+		{"branchone", branchOneOf("o", nil, []string{inner("")}, ""), "m:o/b:default/m:inner/i:0/s:failure", `["handled"]`},
+		{"sequential branchall", branchAllOf("o", []string{branch(skipFailure(false), inner(""))}, false, ""), "m:o/b:0/m:inner/i:0/s:failure", `[["handled"]]`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := mustOpen(t, map[string]string{"f/t/main": withFailure(copyOf, c.outer)}, &loopSteps{})
+			tr := runIt(t, e, `{}`, nil)
+			wantStatus(t, tr, conformance.RunFailure, c.result)
+			if h := at(t, tr, c.at); !h.Ran {
+				t.Fatalf("the copy that handled the failure %+v", h)
+			}
+			var ran []string
+			for _, rec := range tr.Steps {
+				if rec.Ran && strings.HasSuffix(rec.Site.String(), "s:failure") {
+					ran = append(ran, rec.Site.String())
+				}
+			}
+			if len(ran) != 1 {
+				t.Fatalf("failure modules that ran: %v", ran)
+			}
+		})
+	}
+	// The predicate's error stop is a failure of its own: the outer
+	// iteration's copy runs for it, and the flow's own does not.
+	e := mustOpen(t, map[string]string{"f/t/main": withFailure(copyOf,
+		loopOf("o", []string{inner(`"error_message":"halt",`)}, `"iterator":{"type":"static","value":[1]},"parallel":false,"skip_failures":false`, ""),
+	)}, &loopSteps{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunFailure, `["handled"]`)
+	for _, p := range []string{"m:o/i:0/m:inner/i:0/s:failure", "m:o/i:0/s:failure"} {
+		if h := at(t, tr, p); !h.Ran {
+			t.Fatalf("%s %+v", p, h)
+		}
+	}
+	noRecord(t, tr, "s:failure")
+}
+
 // CF-12 item 3: an error stop in a body runs the child's copy of the
 // failure module, whose completion does not forward the stop: the
 // container sees an ordinary failed child, so a sequential loop with
