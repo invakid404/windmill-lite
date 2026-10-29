@@ -8,8 +8,9 @@ cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a), with the for loops of milestone N3a, the
 while loops and branches of N3b, the platform providers of milestone PF2
-(`providers.go`), and the job registry, flow user state, object store and
-dispatcher of milestone PF3. This README covers the `wltest` command in
+(`providers.go`), the job registry, flow user state, object store and
+dispatcher of milestone PF3, and the containers' waits, retries and
+cancellation of milestone NI. This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -406,7 +407,7 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  PF2 (with PF1's fixture), N2 and PF3:
+  PF2 (with PF1's fixture), N2, PF3 and NI:
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
@@ -445,6 +446,12 @@ Windmill v1.767.0's image).
   attempts with the attempt's own placeholder, a listed attempt with no
   record, and the virtual step left out; `TestCheckDelays` checks a run's
   `delays` on the trace's job times (milestone N2).
+  `TestObserveContainerAttempts` (milestone NI, end to end on the engine)
+  checks a retried loop's failed attempt, its child flow's modules below
+  `r:0`, the superseded first attempt left out, and a later module's copy
+  of the attempt with its subtree; `TestCompareRunDerived` checks that a
+  run's `derived` pointers strip a generated template's suffix and never
+  a user's.
 
 ## Version
 

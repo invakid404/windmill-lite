@@ -7,8 +7,9 @@ claims and unit cases of recording batch E3a, and the replay table and
 replay service of stub mode, milestone E4a, the step-case format and
 its comparison, milestone C3a, the location rule of comparisons with
 the oracle, milestone E1, which milestones N1b and N3a extended to the
-flow engine's templates, and the run-and-wait response, the setup policies
-and the pull of recording batch E3e
+flow engine's templates and milestone NI to a run's `derived` values, and
+the run-and-wait response, the setup policies and the pull of recording
+batch E3e
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
