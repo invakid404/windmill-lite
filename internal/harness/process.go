@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -132,10 +133,16 @@ func BunCommand(bun, runtimeMain, bundleDir string) (string, []string) {
 
 // BaseEnv returns the part of a Bun job's base environment (WR-22, WA-2)
 // that needs no other milestone: PATH, HOME (the engine's, or /tmp), TZ
-// when the engine has one, FORCE_COLOR=1, DO_NOT_TRACK=1 and
-// BUN_RUNTIME_TRANSPILER_CACHE_PATH=0. BASE_URL comes from
-// ProcessConfig.Facade (milestone PF1). The reference gives no values for
-// BUN_INSTALL_CACHE_DIR and NODE_PATH, so they stay unset.
+// when the engine has one, FORCE_COLOR=1, DO_NOT_TRACK=1,
+// BUN_INSTALL_CACHE_DIR, BUN_RUNTIME_TRANSPILER_CACHE_PATH=0, and NODE_PATH
+// when the engine has one. BASE_URL comes from ProcessConfig.Facade
+// (milestone PF1).
+//
+// The engine stands in for the worker (WR-22/b): BUN_INSTALL_CACHE_DIR is
+// <WINDMILL_DIR>/cache_nomount/bun, with WINDMILL_DIR read from the
+// engine's environment and /tmp/windmill when it is unset or empty, so
+// /tmp/windmill/cache_nomount/bun by default, as on the reference image;
+// NODE_PATH is the engine's own, copied only when the engine has one.
 func BaseEnv() []string {
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -145,7 +152,15 @@ func BaseEnv() []string {
 	if tz, ok := os.LookupEnv("TZ"); ok {
 		env = append(env, "TZ="+tz)
 	}
-	return append(env, "FORCE_COLOR=1", "DO_NOT_TRACK=1", "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0")
+	dir := os.Getenv("WINDMILL_DIR")
+	if dir == "" {
+		dir = "/tmp/windmill"
+	}
+	env = append(env, "FORCE_COLOR=1", "DO_NOT_TRACK=1", "BUN_INSTALL_CACHE_DIR="+dir+"/cache_nomount/bun", "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0")
+	if np, ok := os.LookupEnv("NODE_PATH"); ok {
+		env = append(env, "NODE_PATH="+np)
+	}
+	return env
 }
 
 // HandshakeError is a harness the engine refused in the handshake.
@@ -191,6 +206,13 @@ type Process struct {
 	diag       *diagnostics
 	stdio      *lineWriter
 
+	// group is whether the process leads a process group of its own, as a
+	// fresh process does (WR-55), and groupGone whether the group has been
+	// seen empty since the process exited, after which its id is never
+	// signalled again.
+	group     bool
+	groupGone atomic.Bool
+
 	waitDone chan struct{} // closed when cmd.Wait has returned
 	outR     *os.File      // the read ends of stdout and stderr
 	errR     *os.File
@@ -216,6 +238,7 @@ type Process struct {
 	health     *Health
 	bye        bool
 	ending     bool      // the reader stopped or the process exited
+	holding    bool      // a fresh result waits for the process group (WR-55)
 	exitAt     time.Time // when cmd.Wait returned
 	killReason string
 	readErr    error
@@ -261,6 +284,9 @@ type invocation struct {
 	// slot there, so a Reporter that runs another step does not wait for
 	// its own.
 	fixed func()
+	// held is a fresh process's settled outcome, which waits for the
+	// process to exit and its process group to empty (WR-55).
+	held *engine.StepOutcome
 }
 
 // execResult is what an invocation's outcome channel delivers: an
@@ -364,6 +390,14 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	}
 	cmd.Dir = dir
 	cmd.ExtraFiles = []*os.File{child} // fd 3 in the child
+	if cfg.ModuleState == engine.ModuleStateFresh {
+		// A fresh process is its invocation's job process, which leads a
+		// process group of its own (WR-55): the step's children join it
+		// unless they start a session of their own, its kill reaches them,
+		// and its outcome waits for them (awaitGroup).
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		p.group = true
+	}
 	// stdout and stderr are pipes of the engine's own, read by its own
 	// goroutines, so Wait returns as soon as the harness exits, even while
 	// a child of it still holds them open.
@@ -420,9 +454,16 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 		p.status = exitStatus(cmd.ProcessState)
 		p.exitAt = time.Now()
 		p.ending = true
+		// A fresh process writes nothing after its settled result, so the
+		// reader stops at once; the result waits for the group, not for a
+		// child that holds the socket.
+		grace := exitReadGrace
+		if p.holding {
+			grace = 0
+		}
 		p.mu.Unlock()
 		close(p.waitDone)
-		nc.SetReadDeadline(time.Now().Add(exitReadGrace))
+		nc.SetReadDeadline(time.Now().Add(grace))
 	}()
 	p.conn = newConn(nc, connConfig{maxMessage: p.maxMessage, onMessage: p.handle, onClose: p.readerDone})
 	p.conn.run()
@@ -620,6 +661,16 @@ func (p *Process) onResult(r Result) (*invocation, []func(), error) {
 	switch inv.state {
 	case invPending:
 		out := stepOutcome(r)
+		if r.Settled && p.group {
+			// WR-55: the job of a fresh process completes once the process
+			// has exited and no process is left in its group, so the
+			// outcome is held, and the invocation stays in flight, until
+			// readerDone delivers it. A timeout or a cancellation meanwhile
+			// abandons it and kills the group (exec).
+			inv.held = &out
+			p.holding = true
+			return inv, nil, nil
+		}
 		p.inFlight--
 		var calls []func()
 		if inv.fixed != nil {
@@ -754,6 +805,9 @@ func (p *Process) readerDone(err error) {
 		<-p.waitDone
 	}
 	p.conn.close()
+	if p.group {
+		p.awaitGroup()
+	}
 	status := p.endInvocations()
 	p.mu.Lock()
 	clean := p.readErr == nil && p.killReason == ""
@@ -779,6 +833,54 @@ func (p *Process) readerDone(err error) {
 	p.finishExit()
 }
 
+// groupPoll is how often awaitGroup looks at a process group.
+const groupPoll = 20 * time.Millisecond
+
+// awaitGroup waits, once a fresh process has exited, until no process is
+// left in its process group, while one of its invocations still waits for
+// an outcome (WR-55). Windmill's worker reaps the job's process and then
+// waits for every member of its group that is its own child; as PID 1 of
+// its container, that is every orphan left in the group, so a background
+// child the step started holds the job open until it exits, whether the
+// script returned or failed. The engine is not those orphans' parent, so
+// it looks at the group with signal 0 until none is left; when it is
+// their parent after all (PID 1, or a subreaper), it reaps them, as the
+// worker does, or they would stay in the group as zombies. A child that
+// started a session of its own is in no group of the engine's and is not
+// waited for. A timeout or a cancellation meanwhile abandons the
+// invocation and kills the group (exec), which ends the wait.
+func (p *Process) awaitGroup() {
+	for {
+		p.mu.Lock()
+		waiting := false
+		for _, inv := range p.invs {
+			waiting = waiting || inv.state == invPending
+		}
+		p.mu.Unlock()
+		for {
+			var ws syscall.WaitStatus
+			if pid, err := syscall.Wait4(-p.pid, &ws, syscall.WNOHANG, nil); pid <= 0 || err != nil {
+				break
+			}
+		}
+		if !groupAlive(p.pid) {
+			p.groupGone.Store(true)
+			return
+		}
+		if !waiting {
+			return
+		}
+		time.Sleep(groupPoll)
+	}
+}
+
+// groupAlive reports whether a process is left in the process group pgid.
+// A member the engine may not signal is still a member.
+func groupAlive(pgid int) bool {
+	err := syscall.Kill(-pgid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
 // endInvocations marks the process exited and returns its exit status.
 // What was in flight stays in p.invs for failInvocations.
 func (p *Process) endInvocations() ExitStatus {
@@ -794,8 +896,10 @@ func (p *Process) endInvocations() ExitStatus {
 
 // failInvocations settles every invocation still in the table with the
 // process (SettleProcessExited) and gives each pending one the outcome
-// that result builds, in id order. It runs after endInvocations, and tells
-// the pool of the exit before it queues any Reporter call.
+// that result builds, in id order; a pending one with a held result
+// (WR-55) gets that result instead, settled completed. It runs after
+// endInvocations, and tells the pool of the exit before it queues any
+// Reporter call.
 func (p *Process) failInvocations(result func(*invocation) execResult) {
 	p.mu.Lock()
 	invs := p.invs
@@ -818,9 +922,18 @@ func (p *Process) failInvocations(result func(*invocation) execResult) {
 		if inv.state == invPending && inv.fixed != nil {
 			calls = append(calls, inv.fixed)
 		}
-		calls = append(calls, func() { inv.report.Settled(engine.SettleProcessExited) })
+		// A held result settled its invocation; its delivery waited only
+		// for the process group (WR-55).
+		settle := engine.SettleProcessExited
+		if inv.state == invPending && inv.held != nil {
+			settle = engine.SettleCompleted
+		}
+		calls = append(calls, func() { inv.report.Settled(settle) })
 		if inv.state == invPending {
 			r := result(inv)
+			if inv.held != nil {
+				r = execResult{out: *inv.held}
+			}
 			calls = append(calls, func() { inv.outcome <- r })
 		}
 		inv.calls.do(calls...)
@@ -1122,6 +1235,15 @@ func (p *Process) kill(reason string) {
 	}
 	if p.cmd != nil {
 		p.cmd.Process.Signal(syscall.SIGKILL)
+		if p.group && !p.groupGone.Load() {
+			// The kill reaches the job's whole process group (WR-55,
+			// WR-37). While a member is left, the group's id is not given
+			// to another process; once awaitGroup has seen it empty, it is
+			// never signalled again. The window between the group emptying
+			// and that look is one poll, in which the id would have to be
+			// reused by a new group leader.
+			syscall.Kill(-p.pid, syscall.SIGKILL)
+		}
 	}
 }
 

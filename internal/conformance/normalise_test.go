@@ -219,12 +219,33 @@ func TestStripLocations(t *testing.T) {
 			{"later transition, one suffix", object("InternalError", "Error: "+eval), object("InternalError", "Error: "+eval+" @worker_flow.rs:2451:11"), true},
 			{"pickup, two prefixes and two suffixes", object("Anyhow", "Error: Error: "+eval), object("Anyhow", "Error: Error: "+eval+" @worker_flow.rs:2451:11 @worker.rs:3822:13"), true},
 			{"pickup, a typed error", object("Anyhow", "Error: Timeout value cannot be negative"), object("Anyhow", "Error: Timeout value cannot be negative @worker.rs:3822:13"), true},
-			{"the parenthesised form", object("Anyhow", "Error: not found"), object("Anyhow", "Error: not found (jobs.rs:9074)"), true},
+			// FX-50, masking step 3: a parenthesised location is not a
+			// layer's suffix and is never found by searching the text; the
+			// subtest "written as <loc>" has the expected text that masks it.
+			{"the parenthesised form", object("Anyhow", "Error: not found"), object("Anyhow", "Error: not found (jobs.rs:9074)"), false},
 			{"a throwing stop_after_if", str("Error: " + eval), str("Error: " + eval + " @worker_flow.rs:2451:11"), true},
 			// One suffix per prefix, no more: a user's own text that ends
 			// like a location stays.
 			{"only as many as the prefixes", object("Anyhow", "Error: x @u.rs:1:2"), object("Anyhow", "Error: x @u.rs:1:2 @worker.rs:3822:13"), true},
-			{"fewer suffixes than prefixes", object("Anyhow", "Error: Error: x"), object("Anyhow", "Error: Error: x @worker.rs:3822:13"), false},
+			// At most one suffix per prefix: a layer built without a
+			// location has a prefix and no suffix (FX-50, "Error:
+			// Internal: <text><loc>" at a pickup).
+			{"fewer suffixes than prefixes", object("Anyhow", "Error: Error: x"), object("Anyhow", "Error: Error: x @worker.rs:3822:13"), true},
+			// spec: FX-50/b: every layer prefix counts, not only "Error: ".
+			{"an internal error built without a location", object("Anyhow", "Error: Internal: x"), object("Anyhow", "Error: Internal: x @worker.rs:3822:13"), true},
+			// spec: FX-50/a: a failed push is a database error, one layer
+			// at a later transition and two at a pickup.
+			{"a database error at a later transition", object("InternalError", "SqlErr: error returned from database: unsupported Unicode escape sequence"), object("InternalError", "SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6450:14"), true},
+			{"a database error at a pickup", object("Anyhow", "Error: SqlErr: error returned from database: unsupported Unicode escape sequence"), object("Anyhow", "Error: SqlErr: error returned from database: unsupported Unicode escape sequence @jobs.rs:6450:14 @worker.rs:3822:13"), true},
+			{"a database error keeps a third suffix", object("Anyhow", "Error: SqlErr: d"), object("Anyhow", "Error: SqlErr: d @a.rs:1:2 @jobs.rs:6450:14 @worker.rs:3822:13"), false},
+			// spec: FX-50/c: a suffix the user's message holds sits before
+			// the engine's stack, not at the end, and stays.
+			{"a user's suffix before the stack", object("InternalError", `Error: QuickJS evaluation error: Error: x @worker.rs:1:2\n    at <anonymous> (eval_script:1:20)\n`), object("InternalError", `Error: QuickJS evaluation error: Error: x @worker.rs:1:2\n    at <anonymous> (eval_script:1:20)\n @worker_flow.rs:2451:11`), true},
+			{"a user's suffix is compared", object("InternalError", `Error: QuickJS evaluation error: Error: x\n    at <anonymous> (eval_script:1:20)\n`), object("InternalError", `Error: QuickJS evaluation error: Error: x @worker.rs:1:2\n    at <anonymous> (eval_script:1:20)\n @worker_flow.rs:2451:11`), false},
+			// spec: FX-50/d: a not-found phrase in the user's own message is
+			// compared literally, its parenthesised location included.
+			{"a forged not-found phrase", object("InternalError", `Error: QuickJS evaluation error: Error: Not found: Completed Job not found at name pretend (user.rs:123)\n    at <anonymous> (eval_script:1:20)\n`), object("InternalError", `Error: QuickJS evaluation error: Error: Not found: Completed Job not found at name pretend (user.rs:456)\n    at <anonymous> (eval_script:1:20)\n @worker_flow.rs:2451:11`), false},
+			{"the same forged phrase", object("InternalError", `Error: QuickJS evaluation error: Error: Not found: Completed Job not found at name pretend (user.rs:123)\n    at <anonymous> (eval_script:1:20)\n`), object("InternalError", `Error: QuickJS evaluation error: Error: Not found: Completed Job not found at name pretend (user.rs:123)\n    at <anonymous> (eval_script:1:20)\n @worker_flow.rs:2451:11`), true},
 			{"a typed message has no prefix", object("InternalError", "Expected an integer, found: -1"), object("InternalError", "Expected an integer, found: -1 @worker.rs:1:2"), false},
 			{"another error name", object("Error", "Error: x"), object("Error", "Error: x @worker.rs:3822:13"), false},
 			// spec: JE-42/g, WR-5/b, FX-51/c: an argument resolution's
@@ -240,6 +261,37 @@ func TestStripLocations(t *testing.T) {
 			}
 			// Only where windmill-lite generated the value.
 			if d := differences(t, got, oracle, nil); c.wl != c.oracle && len(d) == 0 {
+				t.Errorf("%s: compared equal without the rule", c.name)
+			}
+		}
+	})
+	t.Run("written as <loc>", func(t *testing.T) {
+		// spec: FX-50, CF-19/c: an expected text the case's author wrote,
+		// already normalised, masks a parenthesised location by writing
+		// <loc> for it, wherever it stands; a trailing <loc> counts as a
+		// layer's suffix.
+		const fetch = `Error during isolated evaluation of expression ` + "`[results.br]`" + `:\nQuickJS evaluation error: Error: Failed to fetch result for step 'br': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000`
+		const frames = `\n    at __throwOrParse (eval_script:5:54)\n    at __getResult (eval_script:11:59)\n`
+		expected := func(result string) Observation {
+			v := json.RawMessage(result)
+			return Observation{Status: RunFailure, Result: v, Steps: map[SitePath]StepObservation{
+				ids[job]: {Status: StepFailure, Args: json.RawMessage(`{}`), Result: v},
+			}}
+		}
+		for _, c := range []struct {
+			name, wl, want string
+			equal          bool
+		}{
+			{"inside a transform error", template("ExecutionErr", fetch+frames), template("ExecutionErr", fetch+" <loc>"+frames), true},
+			{"at the end of a chaining error", template("Anyhow", "Error: not found"), template("Anyhow", "Error: not found <loc>"), true},
+			{"with a layer's suffix after it", template("Anyhow", "Error: not found"), template("Anyhow", "Error: not found <loc> @worker.rs:3822:13"), true},
+			{"the expected text writes the location out", template("ExecutionErr", fetch+frames), template("ExecutionErr", fetch+" (jobs.rs:9074)"+frames), false},
+		} {
+			got := observe(t, c.wl)
+			if d := differences(t, got, expected(c.want), generated); (len(d) == 0) != c.equal {
+				t.Errorf("%s: differences %v", c.name, d)
+			}
+			if d := differences(t, got, expected(c.want), nil); len(d) == 0 {
 				t.Errorf("%s: compared equal without the rule", c.name)
 			}
 		}

@@ -1171,7 +1171,7 @@ func TestLoopConcurrentRuns(t *testing.T) {
 	wg.Wait()
 }
 
-// The texts serde_json writes (CF-2, JE-V1, FX-42 rule 2, JE-44).
+// The texts serde_json writes (CF-2, JE-V1, FX-42 rule 9, JE-44).
 func TestSerdeTexts(t *testing.T) {
 	for in, want := range map[string]string{
 		`{"a":1}`: "invalid type: map, expected a sequence at line 1 column 0",
@@ -1231,19 +1231,24 @@ func TestSerdeTexts(t *testing.T) {
 			t.Errorf("serdeSequenceError(%q) = %q, want %q", in, got, want)
 		}
 	}
-	for f, want := range map[float64]string{
-		1.5: "1.5", 1000: "1000.0", 1e15: "1000000000000000.0", 1e16: "1e+16", 1e21: "1e+21", 123456789012345678901234567890: "1.2345678901234568e+29",
-		0.0001: "0.0001", 1e-5: "0.00001", 1e-6: "1e-6", 1.5e-7: "1.5e-7", -2.25: "-2.25", 0.1: "0.1",
+	// A loop's result is the children's stored results, compact, with
+	// every number written again in the backend's notation (JE-44, FX-42
+	// rule 9): FX-42/j's numbers as Bun wrote them, which jsonb prints in
+	// plain decimal; jsonb's scale (1.50, 2.0) and its plain 1e2; zeros,
+	// which jsonb stores without a sign, beside a negative number too small
+	// for a double, which jsonb keeps exact and the library reads as -0.0;
+	// and a missing child as null.
+	for _, c := range []struct{ in, want string }{
+		{`[100000000000000000000,0.000001,1.5e-7,0.1,1e+21,9223372036854776000,18446744073709552000,0,1.5,0.00001]`,
+			`[[1e+20,1e-6,1.5e-7,0.1,1e+21,9223372036854776000,1.8446744073709552e+19,0,1.5,0.00001]]`},
+		{`{"b": 1.50, "a": [2.0, -3, 1e2, "1.50", 9223372036854775807, 18446744073709551615, 18446744073709551616]}`,
+			`[{"a":[2.0,-3,100,"1.50",9223372036854775807,18446744073709551615,1.8446744073709552e+19],"b":1.5}]`},
+		{`{"n": -0.0, "z": -0, "t": -1e-400, "s": "A\/\u00e9"}`, `[{"n":0.0,"s":"A/é","t":-0.0,"z":0}]`},
 	} {
-		if got := rustFloat(f); got != want {
-			t.Errorf("rustFloat(%v) = %q, want %q", f, got, want)
+		if got := string(arrayOf([]jsonval.Value{jsonval.FromProducer([]byte(c.in))}).Producer()); got != c.want {
+			t.Errorf("arrayOf(%s) = %s, want %s", c.in, got, c.want)
 		}
 	}
-	if got := string(reprintNumbers([]byte(`{"a":1.50,"b":[2.0,-3,1e2,"1.50",9223372036854775807,18446744073709551615,18446744073709551616]}`))); got != `{"a":1.5,"b":[2.0,-3,100.0,"1.50",9223372036854775807,18446744073709551615,1.8446744073709552e+19]}` {
-		t.Errorf("reprintNumbers: %s", got)
-	}
-	// A loop's result is the children's stored results, compact, with
-	// their numbers re-printed (JE-44).
 	if got := string(arrayOf([]jsonval.Value{jsonval.FromProducer([]byte(`{"b": 1.50, "a": 1}`)), {}, jsonval.FromProducer([]byte(`"x"`))}).Producer()); got != `[{"a":1,"b":1.5},null,"x"]` {
 		t.Errorf("arrayOf: %s", got)
 	}

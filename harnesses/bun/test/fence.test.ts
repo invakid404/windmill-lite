@@ -5,7 +5,10 @@
 // run them in the real harness; these pin the rules in one process.
 
 import { expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   installChildProcesses,
@@ -17,6 +20,7 @@ import {
   InvocationLog,
   InvocationResources,
   invocations,
+  setChildGroups,
   shadow,
   TAIL_LENGTH,
 } from "../runtime/context.ts";
@@ -147,6 +151,165 @@ test("a child started without an environment gets the invocation's; one given an
   // promisify(exec) keeps Node's {stdout, stderr} form (c3b review).
   expect(got).toEqual(["inv", "inv", "inv", "", "inv", "inv", '{"child":1}', "{}"]);
   expect(process.env.WL_FENCE_TEST_CHILD).toBeUndefined();
+});
+
+/** The process group of pid, or undefined once no process has pid. */
+function pgidOf(pid: number): number | undefined {
+  const out = require("node:child_process").spawnSync("ps", ["-o", "pgid=", "-p", String(pid)]).stdout;
+  const n = Number(String(out).trim());
+  return String(out).trim() === "" ? undefined : n;
+}
+
+/** Whether a process is left in the process group pgid. */
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Waits until cond holds, or fails after a second. */
+async function until(what: string, cond: () => boolean) {
+  for (let i = 0; i < 100; i++) {
+    if (cond()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+test("a resource with a liveness check counts while it runs; revoke releases a kind now and at once afterwards", () => {
+  const r = new InvocationResources();
+  let alive = true;
+  const released: string[] = [];
+  r.track("child", () => released.push("child"), () => alive);
+  r.track("timeout", () => released.push("timeout"));
+  expect(r.pending()).toEqual({ child: 1, timeout: 1 });
+  alive = false;
+  expect(r.pending()).toEqual({ timeout: 1 });
+  alive = true;
+  // A dead entry was dropped: it neither counts again nor is released.
+  expect(r.pending()).toEqual({ timeout: 1 });
+  r.track("child", () => released.push("child 2"), () => true);
+  r.revoke("child");
+  expect(released).toEqual(["child 2"]);
+  expect(r.pending()).toEqual({ timeout: 1 });
+  r.track("child", () => released.push("child 3"));
+  expect(released).toEqual(["child 2", "child 3"]);
+  expect(r.settle()).toEqual({ timeout: 1 });
+  expect(released).toEqual(["child 2", "child 3", "timeout"]);
+});
+
+test("in a warm process a child leads a process group of its own, which settlement kills, though its first process exited (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const stay = join(mkdtempSync(join(tmpdir(), "wl-fence-")), "stay.mjs");
+  writeFileSync(stay, "setInterval(() => {}, 1000);\n");
+  const c = context();
+  try {
+    const pids = invocations.run(c, () => {
+      const a = cp.spawn("sleep", ["30"], { stdio: "ignore" });
+      // The shell exits at once and leaves its sleep in the group.
+      const b = cp.spawn("sh", ["-c", "sleep 30 &"], { stdio: "ignore" });
+      const d = Bun.spawn(["sleep", "30"], { stdio: ["ignore", "ignore", "ignore"] });
+      const e = cp.fork(stay, [], { stdio: "ignore" });
+      return [a.pid, b.pid, d.pid, e.pid] as number[];
+    });
+    for (const pid of pids) expect(pgidOf(pid) ?? pid).toBe(pid);
+    await until("the shell to exit", () => pgidOf(pids[1]) === undefined);
+    expect(groupAlive(pids[1])).toBe(true);
+    expect(c.resources.pending()).toEqual({ child: 4 });
+    expect(c.resources.settle()).toEqual({ child: 4 });
+    await until("every group to be killed", () => pids.every((pid) => !groupAlive(pid)));
+  } finally {
+    c.resources.settle();
+  }
+});
+
+test("Bun.spawnSync's child leads a group, registered when the child left a process in it (WR-55)", async () => {
+  // spec: WR-55
+  setChildGroups(true);
+  const c = context();
+  const pid = invocations.run(c, () => Bun.spawnSync(["sh", "-c", "sleep 30 > /dev/null 2>&1 &"]).pid);
+  expect(groupAlive(pid)).toBe(true);
+  expect(c.resources.pending()).toEqual({ child: 1 });
+  c.resources.settle();
+  await until("the group to be killed", () => !groupAlive(pid));
+  // One that leaves nothing behind registers nothing.
+  const quiet = context();
+  invocations.run(quiet, () => Bun.spawnSync(["true"]));
+  expect(quiet.resources.pending()).toEqual({});
+});
+
+test("exec, execFile and the sync forms, where Bun ignores the step's detached, start a child in the step's group, as on Windmill (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const c = context();
+  const pids = await invocations.run(c, async () => {
+    const a = cp.exec("sleep 30", { detached: true });
+    const b = cp.execFile("sleep", ["30"], { detached: true });
+    cp.execSync("sleep 30 > /dev/null 2>&1 & echo $! > /dev/null", { detached: true });
+    const s = cp.spawnSync("sh", ["-c", "sleep 30 > /dev/null 2>&1 &"]);
+    return [a.pid, b.pid, s.pid] as number[];
+  });
+  try {
+    for (const pid of pids) expect(pgidOf(pid) ?? pid).toBe(pid);
+    // exec, execFile, execSync's leftover and spawnSync's leftover.
+    expect(c.resources.pending()).toEqual({ child: 4 });
+  } finally {
+    c.resources.settle();
+  }
+  await until("every group to be killed", () => pids.every((pid) => !groupAlive(pid)));
+});
+
+test("a revoked invocation's children are killed now, and one it starts afterwards at once (WR-55, WR-37)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  setChildGroups(true);
+  const c = context();
+  const first = invocations.run(c, () => cp.spawn("sleep", ["30"], { stdio: "ignore" }).pid as number);
+  c.resources.revoke("child");
+  await until("the first child's group to be killed", () => !groupAlive(first));
+  const later = invocations.run(c, () => cp.spawn("sleep", ["30"], { stdio: "ignore" }).pid as number);
+  await until("the later child's group to be killed", () => !groupAlive(later));
+  expect(c.resources.pending()).toEqual({});
+});
+
+test("a child the step starts detached is its own and left running; in a fresh process a child stays in the process's group, which the engine kills (WR-55)", async () => {
+  // spec: WR-55
+  const cp = require("node:child_process");
+  const kept: number[] = [];
+  try {
+    setChildGroups(true);
+    const warm = context();
+    const detached = invocations.run(warm, () => cp.spawn("sleep", ["30"], { stdio: "ignore", detached: true }).pid as number);
+    kept.push(detached);
+    expect(pgidOf(detached)).toBe(detached);
+    expect(warm.resources.settle()).toEqual({ detached: 1 });
+    await Bun.sleep(50);
+    expect(groupAlive(detached)).toBe(true);
+
+    setChildGroups(false);
+    const fresh = context();
+    const inGroup = invocations.run(fresh, () => cp.spawn("sleep", ["30"], { stdio: "ignore" }).pid as number);
+    kept.push(inGroup);
+    expect(pgidOf(inGroup)).toBe(pgidOf(process.pid));
+    expect(fresh.resources.settle()).toEqual({ child: 1 });
+    await Bun.sleep(50);
+    expect(pgidOf(inGroup)).toBe(pgidOf(process.pid));
+  } finally {
+    setChildGroups(true);
+    for (const pid of kept) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // gone
+      }
+    }
+  }
 });
 
 test("a request the invocation leaves in flight is aborted at settlement, and a platform call after it is refused", async () => {

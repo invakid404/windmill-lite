@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -116,7 +118,9 @@ type pipelineExpect struct {
 }
 
 // engineExpect is an evaluation's outcome on the real engine: its exact
-// text, or its error's exact message or the start of it.
+// text, or its error's exact message or the start of it. In an error's
+// message, <n> stands for a decimal number that differs between runs, as
+// the catalogue writes the task number of JE-11/e.
 type engineExpect struct {
 	Text        *string `json:"text,omitempty"`
 	Error       *string `json:"error,omitempty"`
@@ -524,6 +528,13 @@ func TestPipelineCases(t *testing.T) {
 				eng := &fakeEngine{}
 				p := NewPipeline(eng)
 				out, err := p.Eval(context.Background(), e, scope(t))
+				if e.RewritePanic != 0 {
+					// The rewrite panics before anything is bound (JE-11).
+					if _, called := eng.lastCall(); called || !errors.Is(err, ErrRewritePanic) {
+						t.Fatalf("a text whose rewrite panics: %v, engine called %v", err, called)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -608,7 +619,7 @@ func TestPipelineCasesOnEngine(t *testing.T) {
 						t.Errorf("%s, %v; want %s", got, err, *w.Text)
 					}
 				case w.Error != nil:
-					if err == nil || err.Error() != *w.Error {
+					if err == nil || !numberedMatch(*w.Error, err.Error()) {
 						t.Errorf("%s, %q; want the error %q", got, err, *w.Error)
 					}
 				case w.ErrorPrefix != nil:
@@ -624,6 +635,16 @@ func TestPipelineCasesOnEngine(t *testing.T) {
 	if n < 15 {
 		t.Errorf("%d pipeline cases ran on the engine; the cases have gone missing", n)
 	}
+}
+
+// numberedMatch reports whether got is want with each <n> in want standing
+// for a decimal number.
+func numberedMatch(want, got string) bool {
+	parts := strings.Split(want, "<n>")
+	for i, p := range parts {
+		parts[i] = regexp.QuoteMeta(p)
+	}
+	return regexp.MustCompile(`^` + strings.Join(parts, `[0-9]+`) + `$`).MatchString(got)
 }
 
 func checkCompiled(t *testing.T, e *Expr, w pipelineExpect) {

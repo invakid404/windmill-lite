@@ -157,6 +157,7 @@ each record):
 | A step in `fresh` mode (milestone C3b): spawn, handshake, invocation and result of a one-line echo step, 50 sequential runs after 10 warm-up runs, Bun 1.3.10, Apple M4, engine built without the race detector | 21.5 ms p50, 23.4 ms p95, against 48 µs p50 and 131 µs p95 for the same step in a warm process | 0004, 0006 |
 | Which child-process calls see a replaced `process.env` on Bun 1.3.10 (milestone C3b) | `child_process.spawn`, `exec` and `Bun.$` read it at the call; `spawnSync`, `execSync` and `Bun.spawn`/`Bun.spawnSync` pass the process's own environment, so the harness gives every call made in an invocation an explicit one | 0004 |
 | Patching `node:timers` and `node:child_process` on Bun 1.3.10 (milestone C3b) | assignments to the CommonJS object before a module's first import of the builtin reach its named ESM imports; `module.syncBuiltinESMExports()` does not update a namespace imported earlier | 0004 |
+| Which child-process calls honour `detached` on Bun 1.3.10 (milestone FU6) | `spawn`, `fork`, `Bun.spawn` and `Bun.spawnSync` start a detached child in a new session and group; `exec`, `execFile`, `spawnSync`, `execSync` and `execFileSync` ignore it, leaving the child in the caller's group. Every `node:child_process` function starts its child through the global `Bun.spawn` or `Bun.spawnSync`, once, passing `detached` on only from `spawn` and `fork`; `Bun.$` uses neither; `process.kill(-pgid, …)` signals a group | 0004 |
 | `process._getActiveHandles()` on Bun 1.3.10 with a pending timeout and interval (milestone C3a) | an empty list, so leaks are counted in the harness's own per-invocation registry | 0004 |
 | The host-mode watchdog (milestone W1), `killAfter` 1 s, a step that spins forever | the host was killed 1.00 s after the step's run was sent; the restarted host served the next run | 0004 |
 | Per-step latency of the walking skeleton (milestone W1), a one-step flow with one javascript transform, 300 sequential runs on Bun 1.3.10, engine built without the race detector | spawned warm harness: 56 µs p50, 120 µs p95 per run (invoke to result 31 µs p50); host mode in a compiled host, timed around `run`: 78 µs p50, 126 µs p95 | 0003, 0004 |
@@ -164,8 +165,9 @@ each record):
 ## Unsettled findings
 
 Twenty-one findings of the reference were not settled when the design was
-written; the reference's revision of 2026-10-28 settled nine of them, and
-[twelve remain](../semantics/README.md#not-settled). The design does not pick
+written; the reference's revision of 2026-10-28 settled nine of them, the
+revision of 2026-10-29 six more, and
+[six remain](../semantics/README.md#not-settled). The design does not pick
 sides silently: [0001](0001-equivalence-contract.md) §6 lists each contested
 rule, its readings, the default and why, and the recording that settles it.
 Recording batches E3a to E3e record them on the oracle (E3e holds the
@@ -184,19 +186,22 @@ line-anchored, the stated default (request 7 below). 0001 §6 gives the
 results, and the reference now records them (requests 5 to 7 below). E3e
 recorded the contested `later` rows, FX-49 (Q-FX-11), FX-36's array result
 (Q-FX-12) and WR-16 and WR-28 (Q-WR-15, Q-WR-16), each for its stated
-default, and rebuilt the probe catalogue (Q-OR-16); the reference has yet
-to record those (request 10 below).
+default, and rebuilt the probe catalogue (Q-OR-16); the reference records
+those since its revision of 2026-10-29 (request 11 below).
 
 ## Requests to the semantics team
 
 Questions reach the semantics team as requests for the reference to cover a
 behaviour ([AGENTS.md](../../AGENTS.md)). The design depended on these, and
-all nine are answered: 1 to 3 by the semantics requests S1 to S3 (pull
-request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1, pull
-request #36). Each item names the findings that answer it. Where an answer
-differs from a reading a milestone took, that milestone's code follows the
-answer in a follow-up; the sync-folder loader and the import base already
-do (FU4).
+all but the last are answered: 1 to 3 by the semantics requests S1 to S3
+(pull request #8), 4 to 9 by the reference's revision of 2026-10-28 (SC1,
+pull request #36), 10 and 11, and request 1's last question, by its
+revision of 2026-10-29 (SC2, pull request #55). Request 12 is open. Each
+item names the findings that answer it. Where an answer differs from a
+reading a milestone took, that milestone's code follows the answer in a
+follow-up; the sync-folder loader and the import base already do (FU4),
+and `internal/expr`, the engine, the comparison rule and the Bun harness
+follow SC2's answers (FU6).
 
 1. **Native boundary rules** for `bunnative` and `nativets` steps: how a
    result is serialised (in particular object properties holding
@@ -220,6 +225,10 @@ do (FU4).
    ([WR-27](../semantics/languages.md#wr-27)), which writes
    `throw new Error("x")` as `throw Error("x")`, so WR-43/c's source line for
    that kind lacks `new`; please confirm the catalogue's reading.
+   **Answered:** [WR-43](../semantics/languages.md#wr-43) now says that a
+   `bunnative` stack line is the minified bundle's, and WR-43/c gives one
+   expectation per kind, `throw Error("x")` for `bunnative`, as
+   `conformance/steps/bun/wr-43.yaml` already expected.
 2. **Codebase bundling details**: the default `format` of a codebase entry,
    the esbuild version the pinned CLI uses, how `inject` and `customBundler`
    are handled, where `assets` land at run time, and the Node version that
@@ -423,7 +432,7 @@ do (FU4).
    (`conformance/flows/je/shortcut-texts`), and they agree with the
    correction: `flow_input.o` quotes `{"a": 2, "b": 1}`, at the first
    module and after one, and `results.l` right after a loop quotes
-   `[{"a":2,"b":1}]` (request 10). Milestone FU3 follows the answers: the
+   `[{"a":2,"b":1}]` (request 11). Milestone FU3 follows the answers: the
    pipeline cases restate the E3a cases with the texts the worker holds,
    `expr.Scope` and [0005](0005-json-step-boundaries.md)'s routing table
    give those texts, and JE-11's rewrite places its parenthesis at a
@@ -485,8 +494,8 @@ do (FU4).
    [JE-51](../semantics/expressions.md#je-51) (the job queue) and
    [JE-52](../semantics/expressions.md#je-52) (unpaired surrogates), which
    the same revision added.
-10. **The readings FU3 left open** (milestone FU3), open. Each is decided
-    by the reading named here and pinned by a test in `internal/expr`:
+10. **The readings FU3 left open** (milestone FU3). Each was decided by
+    the reading named here and pinned by a test in `internal/expr`:
     - [JE-11](../semantics/expressions.md#je-11): whether the character
       count starts at the start of the text or at the call (read as the
       start of the text, as "ASCII up to the insertion point" says), and
@@ -505,7 +514,29 @@ do (FU4).
       from decimal to exponent, nor how small numbers are written. The loop
       milestones need it.
 
-10. **Fold in recording batch E3e.** E3e recorded on the oracle what its
+    **Answered.** [JE-11](../semantics/expressions.md#je-11) is
+    corrected: the count starts at the call, since the text is cut at each
+    call text and each part is counted on its own, so text before a call
+    moves nothing; a call that never closes gets its `)` by the same rule
+    at the end of its part, as read; and the runtime catches the panic, so
+    the evaluation fails at once with
+    `task <n> panicked with message "assertion failed: self.is_char_boundary(idx)"`,
+    routed like any evaluation error (JE-11/b–e).
+    [JE-16](../semantics/expressions.md#je-16) confirms that fetched
+    values are parsed with `JSON.parse`, looked up when the read runs, and
+    adds that the previous step's read, served from memory, is the rebuilt
+    `previous_result` itself (JE-16/h).
+    [FX-42](../semantics/execution.md#fx-42) rule 9 gives the notation:
+    shortest digits, plain decimal for a leading-digit exponent from −5 to
+    15, `-0` read as `-0.0`, a number too small for a double read as zero
+    with its sign and one too large refused (FX-42/i–l). Milestone FU6
+    follows the answers: `internal/expr` counts from the call, fails a
+    panicked rewrite with the runtime's text and answers the previous
+    step's read from memory with the global; the engine writes a loop's
+    result with the platform's writer of rule 9 (`platform.Reprint`), the
+    one the argument resolution uses.
+
+11. **Fold in recording batch E3e.** E3e recorded on the oracle what its
     manifest, `internal/oracle/testdata/batches/e3e.json`, lists, with
     fixtures under `conformance/flows` (the batch is in
     [internal/oracle](../../internal/oracle/README.md#recording-batches)).
@@ -572,6 +603,61 @@ do (FU4).
     contract, a cap of two needs three workers (JE-V1/a), and the CLI's
     push-and-version decisions for codebase scripts (WR-49/c–g) are a
     deploy pipeline windmill-lite does not reproduce.
+    **Answered.** The reference's revision of 2026-10-29 marks the
+    recorded cases `oracle-observed` and closes
+    [Q-FX-11](../semantics/execution.md#q-fx-11),
+    [Q-FX-12](../semantics/execution.md#q-fx-12),
+    [Q-WR-15](../semantics/languages.md#q-wr-15),
+    [Q-WR-16](../semantics/languages.md#q-wr-16),
+    [Q-WR-24](../semantics/languages.md#q-wr-24),
+    [Q-OR-6](../semantics/oracle.md#q-or-6) (except Deno),
+    [Q-OR-7](../semantics/oracle.md#q-or-7),
+    [Q-OR-11](../semantics/oracle.md#q-or-11) (a) and (b),
+    [Q-OR-12](../semantics/oracle.md#q-or-12),
+    [Q-OR-15](../semantics/oracle.md#q-or-15),
+    [Q-OR-16](../semantics/oracle.md#q-or-16) and
+    [Q-OR-18](../semantics/oracle.md#q-or-18); FX-36, FX-49, WR-16 and
+    WR-28 are `confirmed`, [JE-23](../semantics/expressions.md#je-23) and
+    JE-V5 state that the transform order is not fixed, and Q-JE-13's two
+    runs agree with the corrected JE-6 to JE-8. The reference's other
+    changes in that revision for the build team are in request 10 above and
+    in [FX-50](../semantics/execution.md#fx-50) (which suffixes a
+    comparison masks, followed by `conformance.StripLocations`, FU6),
+    [JE-18](../semantics/expressions.md#je-18) (a repeated id's step 2
+    reads the last module with a job, followed by the engine, FU6),
+    [WR-22](../semantics/languages.md#wr-22) (`BUN_INSTALL_CACHE_DIR` and
+    `NODE_PATH`) and [WR-55](../semantics/languages.md#wr-55) (a job's
+    process group), followed by the Bun harness (FU6, request 12 below).
+
+12. **A child process left behind in a warm process**
+    ([WR-55](../semantics/languages.md#wr-55), milestone FU6), open.
+    Windmill starts each job's process as the leader of its own process
+    group; a timeout or a cancellation kills the whole group, and when the
+    job's process exits by itself nothing is killed, but the job completes
+    only once every child left in its group has exited, since the worker
+    is PID 1 of its container and adopts them; a child that left the group
+    (a detached spawn) is neither waited for nor killed. A `fresh` process
+    is its invocation's job process, and FU6 reproduces all of that
+    ([0004](0004-harness-protocol.md), failure model item 8). A `warm` or
+    host process serves many invocations and cannot wait for one
+    invocation's children without letting its other code run on after the
+    result, and it cannot exit. FU6 gives each child an invocation starts
+    a process group of its own, which stands for the job's, kills those
+    groups on a timeout or cancellation, as Windmill does, and at
+    settlement after a normal return reports a group still holding a
+    process as `left_behind` (`child`) and kills it, the fence's release,
+    so that nothing of the step runs after it settles (D9). A child the
+    step itself starts detached is left running in every mode, as on
+    Windmill, and reported as `detached`. Where Windmill would hold the job open until the
+    child exits, the warm step completes at once and the child's work is
+    cut off. Should a warm process hold the invocation's result until its
+    children's groups are empty, as Windmill holds the job, with the timer,
+    `fetch`, log and platform fences applied at the return? The reference
+    does not settle what a shared process should do, and
+    [Q-WR-28](../semantics/languages.md#q-wr-28) asks the oracle to confirm
+    WR-55 itself. Until it is answered, a script that leaves a child in
+    its group is flagged by the `left_behind` warning in both modes, and
+    one that must let its children finish runs `fresh`.
 
 ## Changing the design
 

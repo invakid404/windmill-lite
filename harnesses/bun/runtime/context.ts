@@ -12,7 +12,9 @@
 //   an invocation leaves pending are cleared when it settles (D9);
 // - the log view: console and process.stdout/stderr writes go to the
 //   invocation's log, and are dropped once it has settled;
-// - child processes started without an environment get the invocation's;
+// - child processes started without an environment get the invocation's,
+//   and in a warm process each leads a process group, killed on a timeout,
+//   a cancellation and at settlement (WR-55);
 // - the process-level error handlers, which never exit;
 // - the process.exit interception, which ends the invocation, not the
 //   process (D11).
@@ -64,9 +66,11 @@ function workOf(): InvocationResources | undefined {
  * The settle-time fence (D9, decisions 2026-10-28) registers here: the
  * timer wrappers each pending setTimeout, setInterval and setImmediate
  * handle, the fetch view each request in flight, the child-process
- * wrappers each child still running, each with a release that clears or
- * aborts it (a child is left running) and is unregistered when the
- * resource ends on its own; the log and platform paths check settled.
+ * wrappers each child still running, each with a release that clears,
+ * aborts or kills it (a detached child is left running, WR-55) and is
+ * unregistered when the resource ends on its own; the log and platform
+ * paths check settled. A child's process group can outlive the child, so
+ * a child registers with a liveness check, which pending() consults.
  * Work started in a process scope (PROCESS_SCOPE) has no invocation, and
  * work a step module starts while it evaluates belongs to the module, so
  * neither registers here or is ever fenced. What pending() counts just
@@ -76,31 +80,61 @@ function workOf(): InvocationResources | undefined {
 export class InvocationResources {
   /** Set once the invocation has settled; it never clears. */
   settled = false;
-  private live = new Map<() => void, string>();
+  private live = new Map<() => void, { kind: string; alive?: () => boolean }>();
+  /** Kinds revoked before settlement (revoke): one registered later is
+   * released at once. */
+  private revoked = new Set<string>();
 
   /** Registers a resource of a kind ("timeout", "fetch" and the like) and
    * the release that revokes it. The returned function unregisters it,
-   * for a resource that ended by itself. After settlement the release runs
-   * at once, since nothing may outlive it. */
-  track(kind: string, release: () => void): () => void {
-    if (this.settled) {
+   * for a resource that ended by itself. alive, if given, says whether the
+   * resource still runs, for one whose end no event reports, such as a
+   * child's process group; a resource it says has ended is dropped. After
+   * settlement, or once its kind is revoked, the release runs at once,
+   * since nothing may outlive it. */
+  track(kind: string, release: () => void, alive?: () => boolean): () => void {
+    if (this.settled || this.revoked.has(kind)) {
       release();
       return () => {};
     }
     // A function of its own, so one release can be tracked twice.
     const key = () => release();
-    this.live.set(key, kind);
+    this.live.set(key, { kind, alive });
     return () => {
       this.live.delete(key);
     };
   }
 
-  /** How many resources of each kind are registered now, by kind in
-   * sorted order: what the call would leave behind if it settled now. */
+  /** How many resources of each kind are registered now and still run, by
+   * kind in sorted order: what the call would leave behind if it settled
+   * now. */
   pending(): Record<string, number> {
     const counts: Record<string, number> = {};
-    for (const kind of this.live.values()) counts[kind] = (counts[kind] ?? 0) + 1;
+    for (const [key, { kind, alive }] of this.live) {
+      if (alive !== undefined && !alive()) {
+        this.live.delete(key);
+        continue;
+      }
+      counts[kind] = (counts[kind] ?? 0) + 1;
+    }
     return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  }
+
+  /** Releases every resource of kind now, and any registered later, before
+   * settlement: the engine's timeout or cancellation kills the step's
+   * process group (WR-55, WR-37), so the runtime revokes "child" when it
+   * abandons an invocation. A release that throws is skipped. */
+  revoke(kind: string) {
+    this.revoked.add(kind);
+    for (const [key, e] of this.live) {
+      if (e.kind !== kind) continue;
+      this.live.delete(key);
+      try {
+        key();
+      } catch {
+        // One failed release must not keep the others.
+      }
+    }
   }
 
   /** Marks the invocation settled and releases what it still held, once.
@@ -876,33 +910,69 @@ function envSnapshot(): Record<string, string> {
   return env;
 }
 
-/** The arguments of a node:child_process call with its options given an
- * env, when called inside an invocation without one. The options are the
- * argument after the command, or after the argument list for the
- * functions that take one (hasArgs), read as Node reads them: an array,
- * null or undefined there is the argument list, an object the options. A
+/** Whether children started in an invocation get a process group of their
+ * own, which stands for the step's process group (WR-55): in a warm or
+ * host process, where steps share the harness's group. A fresh process
+ * leads the job's group itself (the engine spawns it so), so its children
+ * stay in it. The runtime sets it from the welcome's module state. */
+let childGroups = true;
+
+/** Sets whether children started in an invocation get a process group of
+ * their own (see childGroups): false in a fresh process. */
+export function setChildGroups(on: boolean) {
+  childGroups = on;
+}
+
+/** Whether a process is left in the process group pgid. A member the
+ * harness may not signal is still a member. */
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (e) {
+    return (e as { code?: string }).code === "EPERM";
+  }
+}
+
+/** Kills the process group pgid with SIGKILL, as the worker kills a job's
+ * group (WR-55, WR-37), if a process is left in it: while one is, its id
+ * is not given to another group. */
+function killGroup(pgid: number) {
+  if (!groupAlive(pgid)) return;
+  try {
+    process.kill(-pgid, "SIGKILL");
+  } catch {
+    // It emptied in between.
+  }
+}
+
+/** The arguments of a child-process call, inside an invocation, with its
+ * options at index at given an env when they have none, and with group,
+ * detached: true, so the child leads a process group of its own. A
  * callback in their place moves along to make room. */
-function withEnv(args: unknown[], hasArgs: boolean): unknown[] {
+function withOptions(args: unknown[], at: number, group: boolean): unknown[] {
   if (invocations.getStore() === undefined) return args;
   const a = [...args];
-  const at = hasArgs && a.length > 1 && (Array.isArray(a[1]) || a[1] === null || a[1] === undefined) ? 2 : 1;
   const o = a[at];
-  if (o === undefined || o === null) a[at] = { env: envSnapshot() };
-  else if (typeof o === "function") a.splice(at, 0, { env: envSnapshot() });
-  else if (typeof o === "object" && (o as { env?: unknown }).env === undefined) a[at] = { ...o, env: envSnapshot() };
+  const extra = group ? { detached: true } : {};
+  if (o === undefined || o === null) a[at] = { env: envSnapshot(), ...extra };
+  else if (typeof o === "function") a.splice(at, 0, { env: envSnapshot(), ...extra });
+  else if (typeof o === "object") {
+    const env = (o as { env?: unknown }).env === undefined ? { env: envSnapshot() } : {};
+    if (group || "env" in env) a[at] = { ...o, ...env, ...extra };
+  }
   return a;
 }
 
-/** Bun.spawn's arguments with an env, as withEnv: Bun.spawn(cmd, options)
- * or Bun.spawn({cmd, ...options}). */
-function withBunEnv(args: unknown[]): unknown[] {
-  if (invocations.getStore() === undefined) return args;
-  const a = [...args];
-  const at = Array.isArray(a[0]) || typeof a[0] === "string" ? 1 : 0;
-  const o = a[at];
-  if (o === undefined || o === null) a[at] = { env: envSnapshot() };
-  else if (typeof o === "object" && (o as { env?: unknown }).env === undefined) a[at] = { ...o, env: envSnapshot() };
-  return a;
+/** The arguments of a node:child_process call with its options given an
+ * env, when called inside an invocation without one (withOptions). The
+ * options are the argument after the command, or after the argument list
+ * for the functions that take one (hasArgs), read as Node reads them: an
+ * array, null or undefined there is the argument list, an object the
+ * options. */
+function withEnv(args: unknown[], hasArgs: boolean): unknown[] {
+  const at = hasArgs && args.length > 1 && (Array.isArray(args[1]) || args[1] === null || args[1] === undefined) ? 2 : 1;
+  return withOptions(args, at, false);
 }
 
 let childrenInstalled = false;
@@ -912,18 +982,42 @@ let childrenInstalled = false;
  * any step module loads: a child started inside an invocation without an
  * explicit environment gets the invocation's view, not the process
  * environment, which Bun would otherwise pass (spawnSync, execSync and
- * Bun.spawn read neither process.env nor its view). A child that
- * outlives its invocation's settlement is counted as left behind
- * ("child"), and left running: nothing in the reference kills it. */
+ * Bun.spawn read neither process.env nor its view).
+ *
+ * On Bun 1.3.10 every node:child_process function starts its child through
+ * Bun.spawn (the asynchronous ones) or Bun.spawnSync (the sync ones), each
+ * once, with detached set only where Bun honours the step's own: spawn and
+ * fork. So the Bun functions alone register children and give them
+ * groups, and a child is counted once whichever way it started. Bun.$
+ * starts its processes by neither, and is not wrapped.
+ *
+ * Each job of Windmill's leads its own process group, which its children
+ * join, and the group is killed on a timeout or a cancellation (WR-55).
+ * In a warm or host process (childGroups), a child the invocation starts
+ * leads a group of its own instead, which stands for the step's: the
+ * wrapper starts it detached, and it registers as "child", with its group
+ * as what is alive and what the release kills, so the release also reaches
+ * what the child started, after the child itself has exited. The engine's
+ * timeout or cancellation revokes "child" (Runtime.cancel), and settlement
+ * kills what is left, which the left_behind warning reports first: Windmill
+ * would hold the job open until those processes exit, which a warm process
+ * cannot do without letting the step's code run after it settles (an open
+ * question in docs/design/README.md; fresh mode does what Windmill does).
+ * A sync call's child has exited when the call returns; what it left in
+ * its group registers then.
+ *
+ * A child the step itself starts detached, where Bun honours it, is in a
+ * session of its own on Windmill too, outside the job's group: never
+ * waited for, never killed. It registers as "detached", left running at
+ * settlement, so the warning still flags it. In a fresh process the
+ * engine spawned the harness as the group's leader, so a child stays in
+ * that group, which the engine waits for or kills: its "child" release
+ * does nothing. A child started while a step module evaluates is the
+ * module's (ADR 0004, loading) and registers nowhere. */
 export function installChildProcesses() {
   if (childrenInstalled) return;
   childrenInstalled = true;
   const cp = require("node:child_process") as Record<string, TimerFn>;
-  // A child that started (it has a pid) is registered until it exits.
-  const track = (pid: unknown, ended: (done: () => void) => void) => {
-    const done = pid === undefined ? undefined : workOf()?.track("child", () => {});
-    if (done) ended(done);
-  };
   for (const [name, hasArgs] of [
     ["spawn", true],
     ["exec", false],
@@ -933,12 +1027,7 @@ export function installChildProcesses() {
     const real = cp[name];
     const wrapped = Object.defineProperty(
       function (this: unknown, ...args: unknown[]) {
-        const child = real.apply(this, withEnv(args, hasArgs)) as { pid?: number; once(e: string, f: () => void): void };
-        track(child.pid, (done) => {
-          child.once("exit", done);
-          child.once("close", done);
-        });
-        return child;
+        return real.apply(this, withEnv(args, hasArgs));
       },
       "name",
       { value: real.name },
@@ -970,15 +1059,50 @@ export function installChildProcesses() {
     ) as TimerFn;
   }
   syncBuiltinESMExports();
+  /** The child's options and how it starts: at, where its options are
+   * (Bun.spawn(cmd, options) or Bun.spawn({cmd, ...options})); detached,
+   * whether the step asked for a session of its own; group, whether the
+   * wrapper gives it a group. */
+  const plan = (args: unknown[]) => {
+    const at = Array.isArray(args[0]) || typeof args[0] === "string" ? 1 : 0;
+    const o = args[at];
+    const detached = typeof o === "object" && o !== null && Boolean((o as { detached?: unknown }).detached);
+    const group = childGroups && !detached && workOf() !== undefined;
+    return { args: withOptions(args, at, group), detached, group };
+  };
+  /** Registers a child with pid in the caller's registry: a group of its
+   * own (the step's detached one, or the wrapper's), alive while a process
+   * is left in it; or, in a fresh process, a child in the process's group,
+   * alive until ended reports its exit. */
+  const register = (pid: number | undefined, detached: boolean, group: boolean, ended?: (done: () => void) => void) => {
+    const work = workOf();
+    if (pid === undefined || work === undefined) return;
+    if (!detached && !group) {
+      const done = work.track("child", () => {});
+      ended?.(done);
+      return;
+    }
+    const alive = () => groupAlive(pid);
+    const done = work.track(detached ? "detached" : "child", detached ? () => {} : () => killGroup(pid), alive);
+    // The group can outlive its leader; pending() looks again.
+    ended?.(() => {
+      if (!alive()) done();
+    });
+  };
   const spawn = Bun.spawn;
   const spawnSync = Bun.spawnSync;
   (Bun as { spawn: unknown }).spawn = function (...args: unknown[]) {
-    const child = (spawn as TimerFn)(...withBunEnv(args)) as { pid?: number; exited: Promise<unknown> };
-    track(child.pid, (done) => child.exited.then(done, done));
+    const p = plan(args);
+    const child = (spawn as TimerFn)(...p.args) as { pid?: number; exited: Promise<unknown> };
+    register(child.pid, p.detached, p.group, (done) => child.exited.then(done, done));
     return child;
   };
   (Bun as { spawnSync: unknown }).spawnSync = function (...args: unknown[]) {
-    return (spawnSync as TimerFn)(...withBunEnv(args));
+    const p = plan(args);
+    const out = (spawnSync as TimerFn)(...p.args) as { pid?: number };
+    // The child has exited; what it started is left in its group.
+    if ((p.group || p.detached) && out.pid !== undefined && groupAlive(out.pid)) register(out.pid, p.detached, p.group);
+    return out;
   };
 }
 

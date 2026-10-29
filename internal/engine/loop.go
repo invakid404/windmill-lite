@@ -14,6 +14,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // A for loop (milestone N3a) runs as a container: it evaluates its iterator
@@ -588,8 +589,12 @@ func iterInput(parent jsonval.Value, k int, item []byte) jsonval.Value {
 
 // arrayOf is a loop's result: the array of its iterations' results as the
 // worker writes it after decoding each child's stored result (JE-44): no
-// spaces, keys in jsonb's order, and numbers re-printed by the backend's
-// JSON library (FX-42 rule 2).
+// spaces, keys in jsonb's order, and every number written again in the
+// backend's JSON library's notation (FX-42 rule 9, platform.Reprint). A
+// stored result the library cannot read back, one with a number beyond a
+// double's range or nested more than 128 deep, which only an identity
+// child can hold, is kept as stored: Windmill's read of it fails, and the
+// reference does not say with what error (FU6, an open question).
 func arrayOf(entries []jsonval.Value) jsonval.Value {
 	var b strings.Builder
 	b.WriteByte('[')
@@ -603,8 +608,11 @@ func arrayOf(entries []jsonval.Value) jsonval.Value {
 			if s, err := e.Stored(); err == nil {
 				text = s
 			}
+			if out, err := platform.Reprint(text); err == nil {
+				text = out
+			}
 		}
-		b.Write(reprintNumbers(text))
+		b.Write(text)
 	}
 	b.WriteByte(']')
 	return jsonval.FromProducer([]byte(b.String()))

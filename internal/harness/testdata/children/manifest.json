@@ -1,0 +1,4 @@
+{
+  "format": "windmill-lite-protocol-fixture",
+  "note": "A synthetic bundle for the Bun harness's child-process and environment tests (internal/harness, WR-22/b and WR-55). Its digest is the SHA-256 of this file."
+}

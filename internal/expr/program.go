@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -61,10 +62,15 @@ func programSource(e *Expr) string { return e.Source + serialise }
 //
 // Each helper awaits its host function and parses the JSON text it
 // answers; a host function's rejection is thrown again from the helper's
-// own frame, as the Error of JE-20 with the API's text. The intrinsics the
-// helpers call later (JSON.parse, Promise.prototype.then, Reflect.apply)
-// are taken before the user's code runs, so its replacements do not reach
-// them; Error, which the helpers construct, is looked up when they throw.
+// own frame, as the Error of JE-20 with the API's text. resource and
+// flow_user_state parse with JSON.parse as it is when they run, as
+// Windmill's program does with every value it fetches, so a replacement
+// the user's code made reaches them (JE-16); variable answers a string,
+// which Windmill does not parse, so its JSON text is parsed with the
+// JSON.parse taken before the user's code runs. The other intrinsics the
+// helpers call later (Promise.prototype.then, Reflect.apply) are taken
+// then too, so replacements do not reach them; Error, which the helpers
+// construct, is looked up when they throw.
 // The conversion functions come after the helpers, so that the helpers'
 // lines are the ones E3a's stacks show.
 var preludeContext = `{
@@ -75,9 +81,9 @@ var preludeContext = `{
   const variable = async (path) => { const outcome = await settle(getVariable(path));
     if (typeof outcome !== "string") { throw new Error(outcome[0]); } return parse(outcome); };
   const resource = async (path) => { const outcome = await settle(getResource(path));
-    if (typeof outcome !== "string") { throw new Error(outcome[0]); } return parse(outcome); };
+    if (typeof outcome !== "string") { throw new Error(outcome[0]); } return JSON.parse(outcome); };
   const flow_user_state = async (key) => { const outcome = await settle(getFlowUserState(key));
-    if (typeof outcome !== "string") { throw new Error(outcome[0]); } return parse(outcome); };
+    if (typeof outcome !== "string") { throw new Error(outcome[0]); } return JSON.parse(outcome); };
   Object.assign(globalThis, { variable, resource, flow_user_state });
   function convert(name, text) {
     const value = parse(text);
@@ -93,24 +99,34 @@ var preludeContext = `{
 }
 `
 
-// preludeResults declares results: a proxy whose string keys read a step's
-// result through the host lookup and resolve to its value, and whose symbol
-// keys give undefined (JE-18). Its target is an empty object, so that
-// JSON.stringify(results) gives {} (JE-12). A failed read rejects with the
-// read's text as an Error thrown from __throwOrParse.
+// preludeResults declares results: a proxy whose string keys resolve to a
+// step's result, and whose symbol keys give undefined (JE-18). Its target
+// is an empty object, so that JSON.stringify(results) gives {} (JE-12).
+//
+//   - The previous id, when the evaluation binds previous_result (the host
+//     string hostPreviousID names it), resolves to the previous_result
+//     global itself, read when the read runs: the value the context
+//     prelude rebuilt (JE-18 rule 1, JE-16).
+//   - Any other key is read through the host lookup, which answers the
+//     stored result as JSON text, and the text becomes a value through
+//     JSON.parse as it is when the read runs, so a replacement the user's
+//     code made gives the read its return value, and a __proto__ key is an
+//     own property (JE-16). A failed read rejects with the read's text as
+//     an Error thrown from __throwOrParse.
 const preludeResults = `const results = (() => {
-  const parse = JSON.parse, apply = Reflect.apply, then = Promise.prototype.then, lookupResult = globalThis.` + hostResults + `;
-  delete globalThis.` + hostResults + `;
+  const apply = Reflect.apply, then = Promise.prototype.then, lookupResult = globalThis.` + hostResults + `, previousId = globalThis.` + hostPreviousID + `;
+  delete globalThis.` + hostResults + `; delete globalThis.` + hostPreviousID + `;
   function __throwOrParse(readOutcome) {
     if (typeof readOutcome !== "string") { throw new Error(readOutcome[0]); }
-    return parse(readOutcome);
+    return JSON.parse(readOutcome);
   }
   const settleLookup = (promise) => apply(then, promise, [undefined, (failure) => [failure.message]]);
   // A read answers the step's result as JSON text, or fails with the read's text.
   async function __getResult(key) {
     return __throwOrParse(await settleLookup(lookupResult(key)));
   }
-  return new Proxy({}, { get: (_, key) => (typeof key === "symbol" ? undefined : __getResult(key)) });
+  const fromMemory = async () => globalThis.previous_result;
+  return new Proxy({}, { get: (_, key) => (typeof key === "symbol" ? undefined : key === previousId ? fromMemory() : __getResult(key)) });
 })();
 `
 
@@ -175,8 +191,8 @@ type EvalError struct {
 	//   - the time-limit message of JE-2, after the last attempt;
 	//   - serde_json's recursion limit message, for a context value nested
 	//     too deeply (JE-49);
-	//   - windmill-lite's own text for a call rewrite that Windmill's
-	//     evaluator panics on (JE-11).
+	//   - the runtime's report of a panicked task, for a call rewrite that
+	//     Windmill's evaluator panics on (JE-11).
 	Message string
 	// Err is the cause: the engine's *Exception, ErrOutOfMemory,
 	// ErrAttemptTimeout, ErrTooDeep or ErrRewritePanic.
@@ -235,13 +251,19 @@ func windmillError(e *Expr, l Limits, err error) error {
 	return err
 }
 
-// rewritePanicMessage is windmill-lite's text for an evaluation that
-// reaches the engine with a text whose call rewrite Windmill's evaluator
-// panics on (JE-11); what the panic does to Windmill's job is not traced
-// (Q-JE-13).
-func rewritePanicMessage(e *Expr) string {
-	return fmt.Sprintf("Expression evaluation failed: the rewrite of its helper calls inserts a parenthesis at byte %d of `%s`, inside a character, where Windmill's evaluator panics", e.RewritePanic, e.Trimmed)
+// rewritePanicMessage is the text of an evaluation whose call rewrite
+// Windmill's evaluator panics on (JE-11): the rewrite runs on the blocking
+// task the evaluation is given, so the runtime catches the panic and the
+// evaluation fails with its report of the panicked task, the task number
+// in place of <n>. Windmill's number is the runtime's and differs from run
+// to run; windmill-lite numbers its panicked rewrites in order, from 1.
+func rewritePanicMessage() string {
+	return fmt.Sprintf(`task %d panicked with message "assertion failed: self.is_char_boundary(idx)"`, panicTasks.Add(1))
 }
+
+// panicTasks counts the panicked rewrites, which rewritePanicMessage
+// numbers.
+var panicTasks atomic.Uint64
 
 // memoryMessage is JE-3's text.
 func memoryMessage(l Limits) string {

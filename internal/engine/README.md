@@ -389,9 +389,11 @@ one exists. Every site has the helpers of
 ([JE-18](../../docs/semantics/expressions.md#je-18),
 [JE-19](../../docs/semantics/expressions.md#je-19)) from the jobs it has
 run, per flow (a frame, `frame.go`: the root, or a loop iteration's child
-flow): `Lookup` (the engine path) gives the job result of the first module
+flow): `Lookup` (the engine path) gives the job result of the last module
 of the current flow with that id that has a job (a loop's is the array of
-its iterations' results), else the node-id map's; `Stored` (JE-9's direct
+its iterations' results), so a later module of a repeated id that has not
+started is skipped ([JE-18/e](../../docs/semantics/conformance.md#je-18),
+[OF-2](../../docs/semantics/openflow.md#of-2)), else the node-id map's; `Stored` (JE-9's direct
 path) gives the node-id map's, where the module that finished last wins.
 The map has scopes ([CF-19](../../docs/semantics/control-flow.md#cf-19)):
 the root's, and one per parallel iteration; a sequential iteration writes
@@ -450,9 +452,6 @@ its own.
   or identity module carries on, is its `previous_result` in jsonb's
   printed form, as JE-44's table gives a flow input's member (N1b; N1a
   read it as the compact stored text).
-- A module that occurs twice in one list (OF-2): `Lookup` finds the first
-  in the flow. The reference does not say which status entry JE-18 step 2
-  finds; FX-1's statuses are kept in definition order.
 - An H1 intercept runs no job (`Ran` false), and H3 asks only before a
   leaf's launch that H1 declined: an intercepted module or an identity job
   writes nothing.
@@ -478,9 +477,15 @@ its own.
   `skip_if` is evaluated once, not before
   every iteration ([CF-21](../../docs/semantics/control-flow.md#cf-21) is
   `later`, [Q-CF-6](../../docs/semantics/control-flow.md#q-cf-6)); the
-  text of P after a loop is the compact array with numbers re-printed
-  ([JE-44](../../docs/semantics/expressions.md#je-44)), written with
-  FX-42's exponent spellings (`1e+21`); an iterator or `parallelism` whose
+  text of P after a loop is the compact array with every number written
+  again in the backend's notation
+  ([JE-44](../../docs/semantics/expressions.md#je-44),
+  [FX-42](../../docs/semantics/execution.md#fx-42) rule 9: `1e+21`,
+  `1e-6`, `1000.0`, `-0.0`), by `platform.Reprint`, the writer the
+  platform's argument resolution uses; a child result the backend's
+  library could not read back (a number beyond a double, nesting deeper
+  than 128) is kept as stored, since the reference does not say how
+  Windmill's failed read ends; an iterator or `parallelism` whose
   text is not JSON (a replaced `JSON.stringify`,
   [JE-15](../../docs/semantics/expressions.md#je-15)) fails with serde_json's
   syntax error for an empty text, a character no value starts with, a

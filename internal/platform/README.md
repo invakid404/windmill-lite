@@ -19,7 +19,7 @@ PF3.
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
 | `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services` |
 | `interpolate.go` | the walker: `RawResource`, `InterpolatedResource`, `ResourceExists`, `VariableExists`, `VariableValue`, `ResolveArgs`, `APIEnv` |
-| `json.go` | JSON values as Windmill's backend JSON library parses and writes them, `JSONString` |
+| `json.go` | JSON values as Windmill's backend JSON library parses and writes them ([FX-42](../../docs/semantics/execution.md#fx-42) rules 2 and 9), `JSONString`, and `Reprint` and `FormatDouble`, which the engine writes a loop's result and serde's error texts with |
 | `errors.go` | `Error`: the variants of the API's error type, their statuses and displays (WA-42) |
 | `data.go` | `LoadData`: a bundle's `data/` as a `Store` |
 

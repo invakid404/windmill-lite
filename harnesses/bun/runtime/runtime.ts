@@ -18,7 +18,8 @@
 // per-invocation logs, child-process wrapping, the settle-time fence (D9)
 // with its report of the work an invocation leaves behind, and fresh mode:
 // one invocation per process, which ends with it as Windmill's job process
-// does.
+// does. Milestone FU6 gave each invocation's children a process group,
+// which a timeout, a cancellation and settlement kill (WR-55).
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
@@ -57,6 +58,7 @@ import {
   ProcessExit,
   realStderr,
   realTimers,
+  setChildGroups,
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
@@ -74,7 +76,8 @@ export const HARNESS_VERSION = "0.0.0-c1";
 export const UNATTRIBUTED = "unattributed_error";
 /** The code of the warning that reports what an invocation left behind at
  * its settlement, which the D9 fence then revoked: its left field counts
- * the handles and requests by kind. */
+ * the handles, requests and children by kind, a "detached" child being
+ * the one kind left running (WR-55). */
 export const LEFT_BEHIND = "left_behind";
 /** The code of the warning that reports what the native boundary handed a
  * native invocation but does not track (ADR 0001, D5), sent when the
@@ -330,6 +333,9 @@ export class Runtime {
     }
     this.welcomed = true;
     this.mode = c.module_state;
+    // A fresh process leads its job's process group; a warm one gives each
+    // invocation's children groups of their own (WR-55).
+    setChildGroups(this.mode !== "fresh");
     this.facade = c.facade;
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
@@ -765,12 +771,17 @@ export class Runtime {
   }
 
   /** Abandons a running invocation. A cancel that crossed the result of an
-   * invocation whose outcome is already fixed changes nothing. */
+   * invocation whose outcome is already fixed changes nothing. The cancel
+   * is the engine's timeout or cancellation, which kills the job's process
+   * group on Windmill (WR-55, WR-37): the invocation's children are killed
+   * now, and any it starts later at once; the call itself goes on (D9).
+   * windmill-lite has no log limit, WR-37's third trigger. */
   private cancel(m: Message) {
     const inv = this.invocations.get(m.id);
     if (inv?.state !== "running") return;
     inv.state = "abandoned";
     inv.abandonedAt = performance.now();
+    inv.resources.revoke("child");
     inv.controller.abort(m.reason);
   }
 

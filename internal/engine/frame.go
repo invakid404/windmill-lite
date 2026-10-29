@@ -196,22 +196,23 @@ type frameResults struct {
 }
 
 // Lookup is a results read on the engine path (JE-18 steps 2 and 3): the
-// first module of the current flow with that id, when it has a job, gives
-// its job's result (a loop's is the array of its iterations' results);
-// otherwise the result-by-node-id map does, from the frame's scope up to
-// the root's (JE-19); anything else is null. Which of two modules with one
-// id step 2 finds (OF-2) is a reading: the first in the flow. The value is
-// read from storage, so the evaluator binds its stored text.
+// last module of the current flow with that id that has a job gives its
+// job's result (a loop's is the array of its iterations' results), since
+// Windmill collects the step map from the flow's status entries in list
+// order, a later entry of an id replacing an earlier one, and keeps only
+// entries with a job (JE-18/e, OF-2); a later module of the id that has
+// not started is skipped. Otherwise the result-by-node-id map does, from
+// the frame's scope up to the root's (JE-19); anything else is null. The
+// value is read from storage, so the evaluator binds its stored text.
 func (x *frameResults) Lookup(_ context.Context, id string) (jsonval.Value, error) {
 	x.r.mu.Lock()
 	defer x.r.mu.Unlock()
 	own := x.fr.owner()
-	for i, m := range own.modules {
-		if m.ID == id {
+	for i := len(own.modules) - 1; i >= 0; i-- {
+		if own.modules[i].ID == id {
 			if v := own.jobs[i]; !v.IsZero() {
 				return v, nil
 			}
-			break
 		}
 	}
 	v, _ := x.fr.nodes.lookup(id)

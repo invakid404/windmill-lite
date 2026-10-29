@@ -284,8 +284,10 @@ a few at a time (`flows.go`):
    then its `claims` are checked. On the reference's side, the location
    suffixes of a message that matches a catalogue template carrying `<loc>`
    (the recognised internal error, the chaining errors of FX-15, the
-   string of FX-21, a failed `stop_after_all_iters_if`'s error stop) are
-   stripped where windmill-lite generated the value
+   string of FX-21, a failed `stop_after_all_iters_if`'s error stop, the
+   worker's execution error) are stripped by FX-50's rule, at most one per
+   layer prefix, and a parenthesised location only where the expected text
+   writes `<loc>` for it, where windmill-lite generated the value
    (`conformance.StripLocations`, ADR 0011's location rule): a result whose
    origin the trace records as the engine, a harness or the facade; a
    carried value that is the same value, in either member order; a

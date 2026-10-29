@@ -1,0 +1,285 @@
+package harness
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/invakid404/windmill-lite/internal/engine"
+)
+
+// The Bun cache directory is <WINDMILL_DIR>/cache_nomount/bun, and
+// NODE_PATH is the engine's, only when it has one (WR-22/b).
+func TestBaseEnvCacheDirAndNodePath(t *testing.T) {
+	// spec: WR-22/b
+	lookup := func(env []string, k string) (string, bool) {
+		for _, e := range env {
+			if v, ok := strings.CutPrefix(e, k+"="); ok {
+				return v, true
+			}
+		}
+		return "", false
+	}
+	t.Setenv("WINDMILL_DIR", "")
+	t.Setenv("NODE_PATH", "")
+	os.Unsetenv("NODE_PATH")
+	env := BaseEnv()
+	if v, _ := lookup(env, "BUN_INSTALL_CACHE_DIR"); v != "/tmp/windmill/cache_nomount/bun" {
+		t.Errorf("BUN_INSTALL_CACHE_DIR %q, want the reference image's", v)
+	}
+	if v, ok := lookup(env, "NODE_PATH"); ok {
+		t.Errorf("NODE_PATH %q, set though the engine has none", v)
+	}
+	t.Setenv("WINDMILL_DIR", "/srv/wm")
+	t.Setenv("NODE_PATH", "/opt/node")
+	env = BaseEnv()
+	if v, _ := lookup(env, "BUN_INSTALL_CACHE_DIR"); v != "/srv/wm/cache_nomount/bun" {
+		t.Errorf("BUN_INSTALL_CACHE_DIR %q under WINDMILL_DIR=/srv/wm", v)
+	}
+	if v, ok := lookup(env, "NODE_PATH"); !ok || v != "/opt/node" {
+		t.Errorf("NODE_PATH %q (%v), want the engine's", v, ok)
+	}
+}
+
+// childrenConfig is bunConfig on the bundle of testdata/children.
+func childrenConfig(t *testing.T) ProcessConfig {
+	t.Helper()
+	cfg, _ := bunConfig(t)
+	dir, err := filepath.Abs("testdata/children")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	cfg.Bundle = "sha256:" + hex.EncodeToString(sum[:])
+	cfg.Path, cfg.Args = BunCommand(cfg.Path, repoPath(t, "harnesses/bun/runtime/main.ts"), dir)
+	return cfg
+}
+
+// A step on the reference's environment sees the Bun cache directory and
+// no NODE_PATH (WR-22/b).
+func TestBunJobEnvironment(t *testing.T) {
+	// spec: WR-22/b
+	t.Setenv("WINDMILL_DIR", "")
+	t.Setenv("NODE_PATH", "")
+	os.Unsetenv("NODE_PATH")
+	p := spawn(t, childrenConfig(t))
+	out, err := execute(t, p, newInvocation("bun-env", `{}`, newRecorder()), 10*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `["/tmp/windmill/cache_nomount/bun","unset"]` {
+		t.Fatalf("got %s %s, %v", out.Kind, out.Body.Producer(), err)
+	}
+}
+
+// childArgs is spawn-child's or spawn-hold's argument text.
+func childArgs(t *testing.T, v map[string]any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// childPID is the pid a step returned or wrote.
+func childPID(t *testing.T, text []byte) int {
+	t.Helper()
+	pid, err := strconv.Atoi(strings.TrimSpace(string(text)))
+	if err != nil || pid <= 0 {
+		t.Fatalf("child pid %q: %v", text, err)
+	}
+	return pid
+}
+
+// leftover kills a child the test leaves running.
+func leftover(t *testing.T, pid int) {
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+}
+
+// WR-55/a: a fresh process is its job's process and leads its group, so a
+// background child the step started in it holds the job open: the outcome
+// comes only once the child has exited, settled completed. A child that
+// started a session of its own is not waited for.
+func TestBunFreshChildHoldsTheJob(t *testing.T) {
+	// spec: WR-55/a
+	pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: childrenConfig(t)})
+	t.Run("in the group", func(t *testing.T) {
+		rec := newRecorder()
+		start := time.Now()
+		out, err := execute(t, pool, freshInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 1, "detached": false}), rec), 20*time.Second)
+		took := time.Since(start)
+		if err != nil || out.Kind != engine.OutcomeOK {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		pid := childPID(t, out.Body.Producer())
+		if took < 900*time.Millisecond {
+			t.Fatalf("the outcome came after %s, before the child's 1 s sleep ended", took)
+		}
+		if !gone(pid) {
+			t.Fatalf("the child %d still runs after the outcome", pid)
+		}
+		if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+			t.Fatalf("settled %s; calls %s", k, rec.log())
+		}
+		if got := rec.log(); got != "warning left_behind; settled completed" {
+			t.Fatalf("reporter calls %q", got)
+		}
+		if w := rec.warnings[0]; w.Left["child"] != 1 || len(w.Left) != 1 {
+			t.Fatalf("left %v, want one child", w.Left)
+		}
+	})
+	t.Run("detached", func(t *testing.T) {
+		rec := newRecorder()
+		start := time.Now()
+		out, err := execute(t, pool, freshInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 30, "detached": true}), rec), 20*time.Second)
+		took := time.Since(start)
+		if err != nil || out.Kind != engine.OutcomeOK {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		pid := childPID(t, out.Body.Producer())
+		leftover(t, pid)
+		if took > 10*time.Second || gone(pid) {
+			t.Fatalf("the outcome came after %s; the detached child is gone: %v", took, gone(pid))
+		}
+		rec.waitSettled(t, 5*time.Second)
+		if w := rec.warnings[0]; w.Left["detached"] != 1 || len(w.Left) != 1 {
+			t.Fatalf("left %v, want one detached child", w.Left)
+		}
+	})
+}
+
+// WR-55/b: a timeout while the job waits for its group kills the whole
+// group, and the invocation ends with the timeout although the script had
+// returned its result.
+func TestBunFreshTimeoutKillsTheGroup(t *testing.T) {
+	// spec: WR-55/b
+	pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: childrenConfig(t)})
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	rec := newRecorder()
+	ctx, cancel := context.WithTimeoutCause(context.Background(), 2*time.Second, engine.CancelTimeout)
+	defer cancel()
+	start := time.Now()
+	_, err := pool.Execute(ctx, freshInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 30, "detached": false, "pidFile": pidFile}), rec))
+	if !errors.Is(err, engine.CancelTimeout) {
+		t.Fatalf("got %v, want the timeout", err)
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Fatalf("the timeout took %s", took)
+	}
+	b, rerr := os.ReadFile(pidFile)
+	if rerr != nil {
+		t.Fatalf("the step did not run: %v", rerr)
+	}
+	pid := childPID(t, b)
+	leftover(t, pid)
+	waitFor(t, "the group's child to be killed", func() bool { return gone(pid) })
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
+	}
+	if strings.Contains(rec.log(), "late") {
+		t.Fatalf("a fresh invocation reported late output: %s", rec.log())
+	}
+}
+
+// WR-55 in a warm process: a child the step started leads a group of its
+// own, standing for the step's. A normal return settles at once; the
+// child is reported left behind and killed with its group, so nothing of
+// the step runs after it settles. A child the step started detached is
+// reported and left running.
+func TestBunWarmChildren(t *testing.T) {
+	// spec: WR-55
+	p := spawn(t, childrenConfig(t))
+	t.Run("in the group", func(t *testing.T) {
+		rec := newRecorder()
+		start := time.Now()
+		out, err := execute(t, p, newInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 30, "detached": false}), rec), 10*time.Second)
+		if err != nil || out.Kind != engine.OutcomeOK {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		pid := childPID(t, out.Body.Producer())
+		leftover(t, pid)
+		if took := time.Since(start); took > 5*time.Second {
+			t.Fatalf("the outcome took %s", took)
+		}
+		rec.waitSettled(t, 5*time.Second)
+		if got := rec.log(); got != "warning left_behind; settled completed" {
+			t.Fatalf("reporter calls %q", got)
+		}
+		if w := rec.warnings[0]; w.Left["child"] != 1 || len(w.Left) != 1 {
+			t.Fatalf("left %v, want one child", w.Left)
+		}
+		waitFor(t, "the child to be killed at settlement", func() bool { return gone(pid) })
+	})
+	t.Run("detached", func(t *testing.T) {
+		rec := newRecorder()
+		out, err := execute(t, p, newInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 30, "detached": true}), rec), 10*time.Second)
+		if err != nil || out.Kind != engine.OutcomeOK {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		pid := childPID(t, out.Body.Producer())
+		leftover(t, pid)
+		rec.waitSettled(t, 5*time.Second)
+		if w := rec.warnings[0]; w.Left["detached"] != 1 || len(w.Left) != 1 {
+			t.Fatalf("left %v, want one detached child", w.Left)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if gone(pid) {
+			t.Fatal("the detached child was killed")
+		}
+	})
+}
+
+// WR-55, WR-37 in a warm process: the engine's timeout cancels the
+// invocation, and the cancel kills the step's children at once, although
+// the call itself goes on, abandoned (D9).
+func TestBunWarmCancelKillsChildren(t *testing.T) {
+	// spec: WR-55, WR-37
+	p := spawn(t, childrenConfig(t))
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	rec := newRecorder()
+	inv := newInvocation("spawn-hold", childArgs(t, map[string]any{"seconds": 30, "pidFile": pidFile}), rec)
+	var pid int
+	waitPID := func() bool {
+		b, err := os.ReadFile(pidFile)
+		if err != nil || len(b) == 0 {
+			return false
+		}
+		pid = childPID(t, b)
+		return true
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go func() {
+		deadline := time.Now().Add(10 * time.Second)
+		for !waitPID() && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel(engine.CancelTimeout)
+	}()
+	if _, err := p.Execute(ctx, inv); !errors.Is(err, engine.CancelTimeout) {
+		t.Fatalf("got %v", err)
+	}
+	if pid == 0 && !waitPID() {
+		t.Fatal("the step did not start its child")
+	}
+	leftover(t, pid)
+	waitFor(t, "the child to be killed by the cancel", func() bool { return gone(pid) })
+	if in, ab := p.Load(); in != 0 || ab != 1 {
+		t.Fatalf("load %d in flight, %d abandoned", in, ab)
+	}
+	if calls := rec.log(); slices.Contains(strings.Split(calls, "; "), "settled completed") {
+		t.Fatalf("the abandoned call settled: %s", calls)
+	}
+}

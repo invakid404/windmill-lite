@@ -214,79 +214,62 @@ var helperCalls = []string{"variable(", "resource(", "flow_user_state("}
 
 // rewriteCalls applies JE-11: every occurrence of a helper call text, with
 // no word boundary and inside strings and comments too, becomes
-// (await <call>). The inserted ) goes before the call's own closing
-// parenthesis, found by counting parentheses from the call's own, or at
-// the end of the text when they never balance. Windmill counts that
-// position in characters from the start of the text and applies the count
-// as a byte offset: for text that is ASCII up to there the two agree, and
-// otherwise the ) lands earlier by the extra bytes of the characters
-// before it. Where it would land inside a character, Windmill's evaluator
-// panics; rewriteCalls then returns that byte offset as panicAt, with no
-// code.
+// (await <call>). The helpers are rewritten in helperCalls' order, each
+// over the text the one before produced (rewriteCall). Where an inserted )
+// would land inside a character, Windmill's evaluator panics; rewriteCalls
+// then returns that byte offset, in the text the panicking helper's pass
+// rewrites, as panicAt, with no code.
 func rewriteCalls(t string) (code string, panicAt int) {
-	type mark struct {
-		at    int
-		close bool
-	}
-	var marks []mark
 	for _, call := range helperCalls {
-		for from := 0; ; {
-			i := strings.Index(t[from:], call)
-			if i < 0 {
-				break
-			}
-			start := from + i
-			end := len(t)
-			depth := 0
-		scan:
-			for j := start + len(call) - 1; j < len(t); j++ {
-				switch t[j] {
-				case '(':
-					depth++
-				case ')':
-					depth--
-					if depth == 0 {
-						end = j
-						break scan
-					}
-				}
-			}
-			at := utf8.RuneCountInString(t[:end])
-			if at < len(t) && !utf8.RuneStart(t[at]) {
-				return "", at
-			}
-			marks = append(marks, mark{start, false}, mark{at, true})
-			from = start + len(call)
+		var at int
+		if t, at = rewriteCall(t, call); at != 0 {
+			return "", at
 		}
 	}
-	if len(marks) == 0 {
+	return t, 0
+}
+
+// rewriteCall is one helper's pass of JE-11. The text is cut at every
+// occurrence of call; the part before the first is kept, and each later
+// part, from just after one occurrence up to the next or the end of the
+// text, becomes (await <call><part>, with one ) inserted in the part.
+// Parentheses are counted from the part's start, at level 1, and the )
+// goes before the one that brings the level to 0, or at the end of the
+// part when none does. Windmill counts that position in characters from
+// the part's start and applies the count as a byte offset: for a part that
+// is ASCII up to there the two agree, and otherwise the ) lands earlier by
+// the extra bytes of the characters before it, so text before the call
+// moves nothing. Where it would land inside a character the insertion
+// panics; rewriteCall then returns that byte offset in t as panicAt.
+func rewriteCall(t, call string) (code string, panicAt int) {
+	parts := strings.Split(t, call)
+	if len(parts) == 1 {
 		return t, 0
 	}
-	// At one position, a call that ends closes before the next one opens.
-	slices.SortStableFunc(marks, func(a, b mark) int {
-		if a.at != b.at {
-			return a.at - b.at
-		}
-		if a.close == b.close {
-			return 0
-		}
-		if a.close {
-			return -1
-		}
-		return 1
-	})
 	var b strings.Builder
-	last := 0
-	for _, m := range marks {
-		b.WriteString(t[last:m.at])
-		last = m.at
-		if m.close {
-			b.WriteByte(')')
-		} else {
-			b.WriteString("(await ")
+	b.WriteString(parts[0])
+	from := len(parts[0])
+	for _, part := range parts[1:] {
+		from += len(call)
+		at, level := utf8.RuneCountInString(part), 1
+	scan:
+		for n, r := range []rune(part) {
+			switch r {
+			case '(':
+				level++
+			case ')':
+				if level--; level == 0 {
+					at = n
+					break scan
+				}
+			}
 		}
+		if at < len(part) && !utf8.RuneStart(part[at]) {
+			return "", from + at
+		}
+		b.WriteString("(await " + call + part[:at] + ")" + part[at:])
+		from += len(part)
 	}
-	b.WriteString(t[last:])
 	return b.String(), 0
 }
 
