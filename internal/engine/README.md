@@ -273,7 +273,9 @@ parallelism, whose error the reference does not give; a preprocessor,
    below). A Bun step of a path script also gets the script's own `envs`
    entries (`KEY=VALUE`) under them: a name the worker sets later (a
    reserved variable, or a common Bun variable such as `PATH` or
-   `BASE_URL`) or one already set is skipped, and a later entry wins
+   `BASE_URL`, and `NODE_PATH` when the engine's environment has one,
+   which the harness then copies, WR-22/b) or one already set is skipped,
+   and a later entry wins
    ([WR-22](../../docs/semantics/languages.md#wr-22),
    [WA-2](../../docs/semantics/client-api.md#wa-2); `env.go`). A native
    step gets no `envs` ([WR-45](../../docs/semantics/languages.md#wr-45)),
