@@ -1,0 +1,3 @@
+value: hello from the bundle
+is_secret: false
+description: A synthetic non-secret variable the host-mode tests read

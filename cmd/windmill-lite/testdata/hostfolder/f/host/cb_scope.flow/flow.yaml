@@ -1,0 +1,5 @@
+summary: An esbuild CommonJS codebase script reads the host's scope through a host-provided module
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/hostcb/cb_scope, input_transforms: {delay: {type: javascript, expr: flow_input.delay}}}

@@ -1,0 +1,5 @@
+summary: A step that blocks the event loop forever (the watchdog test of ADR 0004)
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/spin, input_transforms: {}}

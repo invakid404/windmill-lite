@@ -2,10 +2,10 @@
 //
 // It reports its version, builds a bundle from a Windmill sync folder,
 // verifies a bundle against its manifest or a release manifest, checks that
-// its expression engine starts, and serves host mode for the Bun host SDK
-// with the walking skeleton (`windmill-lite host`, milestone W1). It runs
-// a bundle's flow or script with package wl and prints the outcome as JSON
-// (`windmill-lite run`, ADR 0009).
+// its expression engine starts, and serves host mode for a host such as
+// the Bun host SDK with package wl (`windmill-lite host`, milestone F3a).
+// It runs a bundle's flow or script with package wl and prints the outcome
+// as JSON (`windmill-lite run`, ADR 0009).
 package main
 
 import (
@@ -29,7 +29,7 @@ const usage = `usage: windmill-lite [version]
        windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
        windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
        windmill-lite selfcheck
-       windmill-lite host --bundle <dir> [--kill-after <duration>]`
+       windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [flags]`
 
 // run executes the command with args (without the program name) and returns
 // the process exit code.

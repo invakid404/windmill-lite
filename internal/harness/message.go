@@ -21,8 +21,9 @@ const ProtocolVersion = 1
 // frames of spawned harnesses; the walking skeleton (W1) added
 // `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
 // and host mode's `run`/`run_done`/`run_cancel`; milestone C3a added
-// `warning`, and FU6 `child`. `host_call`/`host_reply` (F2c) are refused as CodeUnknownType
-// until their milestone.
+// `warning`, FU6 `child`, and F3a host mode's `run_settled`.
+// `host_call`/`host_reply` (F2c) are refused as CodeUnknownType until
+// their milestone.
 const (
 	TypeHello         = "hello"
 	TypeWelcome       = "welcome"
@@ -38,6 +39,7 @@ const (
 	TypeRun           = "run"
 	TypeRunDone       = "run_done"
 	TypeRunCancel     = "run_cancel"
+	TypeRunSettled    = "run_settled"
 	TypePing          = "ping"
 	TypePong          = "pong"
 	TypePart          = "part"
@@ -69,6 +71,11 @@ type Hello struct {
 	// harness itself and not a wrapper that started it (ADR 0004 host mode
 	// item 4).
 	PID int
+	// Workdir is, in host mode, the host's working directory (its
+	// process.cwd()), which must be the directory the host passed to the
+	// engine (ADR 0004, the shared-process failure model, item 5); ""
+	// otherwise.
+	Workdir string
 }
 
 // HarnessInfo names the harness implementation.
@@ -127,6 +134,16 @@ const (
 	RejectRuntime = "runtime_mismatch"
 	RejectBundle  = "bundle_mismatch"
 	RejectPID     = "pid_mismatch"
+	// RejectWorkdirNotWritable and RejectWorkdirMismatch refuse a host
+	// whose working directory the engine cannot use (ADR 0004, the
+	// shared-process failure model, item 5): the directory the host passed
+	// is not a writable directory, or it is not the host's working
+	// directory.
+	RejectWorkdirNotWritable = "workdir_not_writable"
+	RejectWorkdirMismatch    = "workdir_mismatch"
+	// RejectEngine refuses a host when the engine cannot serve the bundle
+	// at all: another engine version built it, or it does not verify.
+	RejectEngine = "engine_refused"
 )
 
 // Invoke asks the harness to run one step.
@@ -316,11 +333,45 @@ type RunRequest struct {
 
 // RunDone is a run's outcome, answering a RunRequest with the same id.
 // Status is a conformance.RunStatus value; Result is the run's final result
-// in stored form, zero when the run has none (canceled, latched, halted).
+// in stored form, zero when the run has none (canceled, latched, halted);
+// MayHaveMutated is ADR 0008 H3's flag; Warnings, if not zero, is the run's
+// warnings as a JSON array of objects with `code` and `message`. A run the
+// engine did not start has Error instead, and no status.
 type RunDone struct {
-	ID     string
-	Status string
-	Result jsonval.Value
+	ID             string
+	Status         string
+	Result         jsonval.Value
+	MayHaveMutated bool
+	Warnings       jsonval.Value
+	Error          *RunError
+	// Settled, which is not part of the frame, closes once the run has
+	// settled (ADR 0004 host mode item 5): the process then sends
+	// RunSettled, after the run_done. Nil means never.
+	Settled <-chan struct{}
+}
+
+// RunError says why the engine did not start a run. Code is one of the
+// RunError constants.
+type RunError struct {
+	Code    string
+	Message string
+}
+
+// RunError codes.
+const (
+	// RunDraining answers a run that arrives while the host drains
+	// (ADR 0004 host mode item 3).
+	RunDraining = "draining"
+	// RunRefused answers a run the engine cannot start: no such target,
+	// arguments that are not an object, a runtime that is closing.
+	RunRefused = "refused"
+)
+
+// RunSettled tells a host that one of its runs has settled: its outcome
+// went out in run_done, and every invocation it started has settled since
+// (ADR 0004 host mode item 5, onRunSettled), which may be never.
+type RunSettled struct {
+	ID string
 }
 
 // RunCancel cancels a run the harness submitted.
@@ -383,6 +434,7 @@ func (PlatformReply) Type() string   { return TypePlatformReply }
 func (RunRequest) Type() string      { return TypeRun }
 func (RunDone) Type() string         { return TypeRunDone }
 func (RunCancel) Type() string       { return TypeRunCancel }
+func (RunSettled) Type() string      { return TypeRunSettled }
 func (Ping) Type() string            { return TypePing }
 func (Pong) Type() string            { return TypePong }
 func (Part) Type() string            { return TypePart }
@@ -405,6 +457,9 @@ func (m Hello) appendPayload(b []byte) ([]byte, error) {
 	})
 	e.str("bundle", m.Bundle)
 	e.int("pid", int64(m.PID))
+	if m.Workdir != "" {
+		e.str("workdir", m.Workdir)
+	}
 	return e.end()
 }
 
@@ -570,12 +625,35 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 }
 
 func (m RunDone) appendPayload(b []byte) ([]byte, error) {
+	if (m.Error == nil) == (m.Status == "") {
+		return b, protoErr(CodeBadField, "run_done needs exactly one of status and error")
+	}
 	e := newEnvelope(b, TypeRunDone)
 	e.str("id", m.ID)
-	e.str("status", m.Status)
+	if m.Status != "" {
+		e.str("status", m.Status)
+	}
 	if !m.Result.IsZero() {
 		e.raw("result", m.Result.Producer())
 	}
+	if m.MayHaveMutated {
+		e.bool("may_have_mutated", true)
+	}
+	if !m.Warnings.IsZero() {
+		e.raw("warnings", m.Warnings.Producer())
+	}
+	if m.Error != nil {
+		e.object("error", func(e *envelope) {
+			e.str("code", m.Error.Code)
+			e.str("message", m.Error.Message)
+		})
+	}
+	return e.end()
+}
+
+func (m RunSettled) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeRunSettled)
+	e.str("id", m.ID)
 	return e.end()
 }
 
@@ -684,6 +762,9 @@ func Decode(payload []byte) (Message, error) {
 		}
 		h.Bundle = d.str("bundle")
 		h.PID = d.int("pid")
+		if d.present("workdir") {
+			h.Workdir = d.str("workdir")
+		}
 		m = h
 	case TypeWelcome:
 		wm := Welcome{Proto: d.int("proto"), Engine: d.str("engine"), Bundle: d.str("bundle")}
@@ -810,17 +891,39 @@ func Decode(payload []byte) (Message, error) {
 		}
 		m = r
 	case TypeRunDone:
-		r := RunDone{ID: d.str("id"), Status: d.str("status")}
-		if !slices.Contains(runStatuses, r.Status) && derr == nil {
-			d.fail(CodeBadField, "run_done status %q", r.Status)
+		r := RunDone{ID: d.str("id")}
+		// A run the engine did not start has an error and no status.
+		if d.present("error") {
+			if ed := d.object("error"); ed != nil {
+				r.Error = &RunError{Code: ed.str("code"), Message: ed.str("message")}
+			}
+			if d.present("status") && derr == nil {
+				d.fail(CodeBadField, "run_done has both status and error")
+			}
+		} else {
+			r.Status = d.str("status")
+			if !slices.Contains(runStatuses, r.Status) && derr == nil {
+				d.fail(CodeBadField, "run_done status %q", r.Status)
+			}
 		}
 		// A result of JSON null is a value: a flow may return null.
 		if _, ok := fields["result"]; ok {
 			r.Result = d.raw("result")
 		}
+		if d.present("may_have_mutated") {
+			r.MayHaveMutated = d.bool("may_have_mutated")
+		}
+		if d.present("warnings") {
+			r.Warnings = d.raw("warnings")
+			if derr == nil && !bytes.HasPrefix(bytes.TrimLeft(r.Warnings.Producer(), " \t\r\n"), []byte("[")) {
+				d.fail(CodeBadField, "run_done warnings is not an array")
+			}
+		}
 		m = r
 	case TypeRunCancel:
 		m = RunCancel{ID: d.str("id")}
+	case TypeRunSettled:
+		m = RunSettled{ID: d.str("id")}
 	case TypePing:
 		m = Ping{ID: d.str("id"), Health: d.health()}
 	case TypePong:

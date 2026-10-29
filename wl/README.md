@@ -1,10 +1,10 @@
 # wl
 
-**Current state:** milestones F1 and F2a of
+**Current state:** milestones F1, F2a and F3a of
 [ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
-[ADR 0009](../docs/design/0009-host-adapters.md), and the host hooks of
+[ADR 0009](../docs/design/0009-host-adapters.md), the host hooks of
 [ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
-bundle's mandatory host-provided sites. This README covers `wl`,
+bundle's mandatory host-provided sites, and host mode. This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
@@ -13,11 +13,13 @@ stops it with `Close`. Every adapter of ADR 0009 is a transport over these
 calls: the command line's `windmill-lite run`
 ([cmd/windmill-lite](../cmd/windmill-lite/README.md)) is the first, and
 `wltest check` ([cmd/wltest](../cmd/wltest/README.md)) runs the flow suite
-through it. Budgets and latches (F2b: H3, H4, H5, H7, H10), host-mode
-transport (F3a), host plugins in TypeScript (F2c) and the go-plugin
-adapter (F5, `wl/plugin`) come later, as fields of `Options` and
-`RunOptions` and as runtimes over the same calls, so a host written
-against this API keeps compiling.
+through it. Host mode (F3a) is `Options.Host`: a runtime whose steps run
+in the host process that started it, and whose runs that host submits;
+`windmill-lite host`, the engine the Bun host SDK starts, is that runtime.
+Budgets and latches (F2b: H3, H4, H5, H7, H10), host plugins in
+TypeScript (F2c) and the go-plugin adapter (F5, `wl/plugin`) come later,
+as fields of `Options` and `RunOptions` and as runtimes over the same
+calls, so a host written against this API keeps compiling.
 
 ## Files
 
@@ -26,6 +28,7 @@ against this API keeps compiling.
 | `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
+| `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs it serves |
 
 ## Open
 
@@ -175,6 +178,57 @@ runtime's where the run has none. The job registry, flow user state,
 object store and result cache stay the runtime's, and the runs a step
 dispatches read the runtime's providers.
 
+## Host mode
+
+`Options.Host` opens the runtime in host mode
+([ADR 0004](../docs/design/0004-harness-protocol.md) host mode,
+[ADR 0009](../docs/design/0009-host-adapters.md)): the runtime is the
+engine of a host process that is also its Bun harness, that started it
+with one end of a socketpair (`Host.Conn`, and `Host.Children` for the
+channel of its steps' child groups, WR-55), and that submits its runs.
+The bundle must be a directory, which the host loads too; steps run warm
+(ADR 0006: a `fresh` `ModuleState` fails `Open`), and `HarnessRuntime` and
+`Bun` are not used, since the host is the harness.
+
+1. **Handshake.** `Open` builds the runtime as for any bundle, then
+   completes the handshake with the host before it returns
+   ([internal/harness](../internal/harness/README.md), host mode): the
+   host must greet it as a Bun harness that offers the host capability,
+   with the pinned Bun and the bundle's digest, from the engine's parent
+   process, and its hello's working directory must be `Host.Workdir`, the
+   directory the host passed, which must be a directory the runtime can
+   write. Otherwise `Open` fails with a `*HandshakeError` whose code is
+   the reject's (`RejectWorkdirNotWritable`, `RejectWorkdirMismatch`, or
+   the protocol's others). When `Open` fails before the handshake (the
+   bundle does not verify, another engine version built it, a fresh
+   module state, an archive, no `Workdir`), it refuses the host in the
+   handshake with `RejectEngine` (`engine_refused`) and the reason, so the
+   host learns why; `Host.Refuse` does the same for an engine that fails
+   before `Open`.
+2. **Runs.** Each run the host submits is a `Run` of its `kind` (flow or
+   script) and `path`, with its `id` as the run's job id, its `intercept`
+   as static stand-ins for the modules it names (H1's no-code form), and
+   the run's invocations sent back to the host, which runs them in the
+   scope it captured at submission (H11). The outcome goes back in
+   `run_done` (status, stored result, `may_have_mutated`, warnings); a run
+   `Run` refuses goes back with its reason (`refused`, or `draining` once
+   `Close` has begun). When the run has settled (H9's `onRunSettled`: for
+   a flow, through the engine's settlement; for a script job, its one
+   invocation), `run_settled` follows. Runs the host's steps dispatch run
+   in the host too, outside every scope it entered.
+3. **The host's steps** reach the facade through their intercepted
+   `fetch`: each invocation carries the facade's origin as `BASE_URL`,
+   since the host was not spawned with the base environment, and its
+   arguments go to `args.json` in the host's working directory (WR-5).
+4. **Drain.** A host's `drain` is answered by the harness side: later runs
+   are refused `draining`, and `bye` follows once none is in flight.
+5. **The watchdog.** `Host.KillAfter` (default 30 s, negative disables it)
+   is the silence after which the runtime sends the host `SIGKILL` (ADR
+   0004 host mode item 4).
+6. **The end.** `Done` closes once the host's connection ends; the runs in
+   flight were lost with the host (`harness_lost`). `Close` cancels the
+   runs in flight and ends the connection.
+
 ## BuildInfo and Close
 
 `BuildInfo()` reports the bundle digest, the engine version, the Bun and
@@ -187,8 +241,9 @@ and D11 are warm mode's, ADR 0006; `bundle.ModeDeviations`, the rule the
 build lists them by).
 
 `Close()` stops admitting runs, cancels the runs in flight and the
-dispatcher's and waits for them, then drains the harness pool, closes the
-facade and the expression engine, and removes the directory an archive was
+dispatcher's and waits for them, then drains the harness pool (in host
+mode, ends the host's connection), closes the facade and the expression
+engine, and removes the directory an archive was
 extracted into and a data directory `Open` made. All of it is bounded by
 10 s; a run still in flight then makes `Close` return an error. It is
 idempotent and safe to call while runs start.
@@ -235,3 +290,12 @@ trace and in the traces `OnRunEnd` and `OnRunSettled` get, for a run
 canceled while its step waits too. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.
+
+`host_test.go` plays a host on a socketpair, so it needs no Bun: `Open`
+in host mode welcomes the host, a run's `run_done` and then its
+`run_settled`, a run that cannot start refused, a drain answered `bye`
+and a later run refused `draining`, and `Close` ending `Done`; and the
+refusals in the handshake: another working directory, one that does not
+exist, a fresh module state, a bundle of another engine version and no
+working directory. cmd/windmill-lite runs host mode end to end with the
+Bun host SDK.

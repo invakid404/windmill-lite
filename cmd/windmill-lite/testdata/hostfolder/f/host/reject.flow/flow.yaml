@@ -1,0 +1,5 @@
+summary: A step that leaves one detached rejection and returns
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/detached, input_transforms: {}}
