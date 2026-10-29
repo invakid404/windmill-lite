@@ -106,9 +106,14 @@ type StepCase struct {
 	// Files are other files of the folder, by path from the sync root,
 	// that a codebase build reads: modules the script imports, inject
 	// files, asset sources.
-	Files   map[string]string `json:"files,omitempty"`
-	Compare StepCompare       `json:"compare,omitempty"`
-	Runs    []StepRun         `json:"runs"`
+	Files map[string]string `json:"files,omitempty"`
+	// Setup holds the variables and resources the case's platform facade
+	// serves (milestone PF2), in setup.yaml's format; a secret's value is
+	// its plaintext, which the runner passes to the facade as a host
+	// would.
+	Setup   *Setup      `json:"setup,omitempty"`
+	Compare StepCompare `json:"compare,omitempty"`
+	Runs    []StepRun   `json:"runs"`
 }
 
 // CommonJS reports whether the case is a codebase script built as

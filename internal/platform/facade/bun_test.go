@@ -250,6 +250,54 @@ func TestUnsupportedPolicyOnTheClient(t *testing.T) {
 	}
 }
 
+// TestProvidersOnTheClient: the stock client's resource and variable
+// helpers against the facade's reads (milestone PF2), in warm and fresh
+// mode, in the default fail mode: none of the reads is unsupported, so
+// the step's own result stands (WA-41/b), and getState() returns
+// undefined only because the state was never written.
+func TestProvidersOnTheClient(t *testing.T) {
+	r := newBunRig(t)
+	store := platform.NewStore()
+	store.SetVariable("u/x/v", platform.Variable{Value: "hello"})
+	store.SetVariable("u/x/pw", platform.Variable{Value: "s3cret", IsSecret: true})
+	for path, v := range map[string]string{
+		"u/x/db":         `{"password":"$var:u/x/pw","tok":"$WM_TOKEN"}`,
+		"u/t/d50":        strings.Repeat(`{"k":`, 50) + "1" + strings.Repeat("}", 50),
+		"u/t/outer":      `{"x":"$res:u/t/missing"}`,
+		"u/test/context": `{"root":"$WM_ROOT_JOB_ID"}`,
+	} {
+		if err := store.SetResource(path, platform.Resource{Type: "object", Value: json.RawMessage(v)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const want = `{"res":{"value":{"tok":"$WM_TOKEN","password":"s3cret"}},` +
+		`"resUrl":{"value":{"tok":"$WM_TOKEN","password":"s3cret"}},` +
+		`"missing":{"thrown":"Resource not found at u/x/none or not visible to you: Not found: Resource u/x/none not found"},` +
+		`"missingUndefined":{"value":"undefined"},` +
+		`"variable":{"value":"hello"},` +
+		`"variablePrefix":{"thrown":"Variable not found at $var:u/x/v or not visible to you: Not found: Variable $var:u/x/v not found"},` +
+		"\"deep\":{\"thrown\":\"Resource not found at u/t/d50 or not visible to you: Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually indicates a circular `$res:` or `$var:` reference\"}," +
+		`"outer":{"thrown":"Resource not found at u/t/outer or not visible to you: Not found: Resource not found at name u/t/missing"},` +
+		`"context":{"value":{"root":"$WM_ROOT_JOB_ID"}},` +
+		`"state":{"value":"undefined"}}`
+	for _, mode := range []engine.ModuleState{engine.ModuleStateWarm, engine.ModuleStateFresh} {
+		t.Run(string(mode), func(t *testing.T) {
+			f := newFacade(t, Config{Platform: &platform.Services{Resources: store, Variables: store}})
+			x := f.Executor(r.pool(t, f, mode))
+			id := r.identity("f/t/providers", "a")
+			out, err := x.Execute(r.ctx(t), r.invocation(id, "attr/providers", `{}`, mode))
+			if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != want {
+				t.Fatalf("%+v\n got %s\nwant %s\n%v\n%s", out, out.Body.Producer(), want, err, r.diag)
+			}
+			for _, c := range r.recorded(id.JobID) {
+				if c.Unsupported {
+					t.Errorf("an unsupported call: %+v", c)
+				}
+			}
+		})
+	}
+}
+
 // On the intercepted path the policy sees a call the step made and never
 // awaited: its platform frame arrives ahead of the step's result, and the
 // facade accepts it on the reader, so the outcome is replaced every time.
@@ -434,6 +482,35 @@ export async function main() {
   const e = process.env;
   void fetch(e.BASE_URL + "/api/w/" + e.WM_WORKSPACE + "/jobs/run/p/u/t/x", { method: "POST", body: "x".repeat(3 << 20) }).catch(() => {});
   return 1;
+}
+`,
+	// The resource and variable reads of milestone PF2 through the stock
+	// client: its prefixes and error wrapping (WA-10/a, WA-11/a, WA-12/c,
+	// WA-42/c), $WM_* left literal by its read (WA-V3/a), and getState()
+	// on a state never written (WA-41/b).
+	"providers": `import * as wmill from "windmill-client";
+
+export async function main() {
+  const attempt = async (f) => {
+    try {
+      const value = await f();
+      return { value: value === undefined ? "undefined" : value };
+    } catch (err) {
+      return { thrown: String(err.message ?? err) };
+    }
+  };
+  return {
+    res: await attempt(() => wmill.getResource("$res:u/x/db")),
+    resUrl: await attempt(() => wmill.getResource("res://u/x/db")),
+    missing: await attempt(() => wmill.getResource("$res:u/x/none")),
+    missingUndefined: await attempt(() => wmill.getResource("u/x/none", true)),
+    variable: await attempt(() => wmill.getVariable("var://u/x/v")),
+    variablePrefix: await attempt(() => wmill.getVariable("$var:u/x/v")),
+    deep: await attempt(() => wmill.getResource("u/t/d50")),
+    outer: await attempt(() => wmill.getResource("u/t/outer")),
+    context: await attempt(() => wmill.getResource("u/test/context")),
+    state: await attempt(() => wmill.getState()),
+  };
 }
 `,
 	// WA-V5/a–c, getIdToken and WA-41/a's JobService.getJob, each answered

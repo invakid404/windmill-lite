@@ -1,0 +1,353 @@
+{
+  "about": "Cases of the interpolation walker (ADR 0007, milestone PF2), each citing the catalogue case or finding it encodes (docs/semantics/conformance.md), run by TestInterpolationCases against platform.Services directly. A read case reads through one contract of WA-40: raw (resources/get_value), interpolated (resources/get_value_interpolated, with job the reserved variables of the job its job_id names), variable (variables/get_value), resource_exists or variable_exists; it expects the API's status and either the body as text (body), the body's JSON value (value), or the body's start (prefix). A resolve case is worker argument resolution of a leaf job's stored arguments (args) with its process environment (env), the API's view of it derived by platform.APIEnv; it expects the resolved arguments' text (text) or JSON value (value), or the failure's display (error, or its start in prefix). A setup value given as nest n is n nested {\"k\": ...} objects around leaf, and args_nest is one argument key holding them, or an object holding them at inner beside the members of beside; one given as repeat is an object whose key holds an array of n copies of item.",
+  "cases": [
+    {
+      "spec": "WA-10/a",
+      "title": "a missing resource is the 404 of the direct path, which the TS client wraps",
+      "read": {"contract": "interpolated", "path": "u/x/none"},
+      "expect": {"status": 404, "body": "Not found: Resource u/x/none not found"}
+    },
+    {
+      "spec": "WA-42/b",
+      "title": "a missing resource, read raw",
+      "read": {"contract": "raw", "path": "u/x/none"},
+      "expect": {"status": 404, "body": "Not found: Resource u/x/none not found"}
+    },
+    {
+      "spec": "WA-11/a",
+      "title": "a variable read returns its value; the client strips var://, so its read is the bare path",
+      "setup": {"variables": [{"path": "u/x/v", "value": "hello"}]},
+      "read": {"contract": "variable", "path": "u/x/v"},
+      "expect": {"status": 200, "value": "hello"}
+    },
+    {
+      "spec": "WA-11/a",
+      "title": "$var: is not stripped, so the path is requested literally and is not found",
+      "setup": {"variables": [{"path": "u/x/v", "value": "hello"}]},
+      "read": {"contract": "variable", "path": "$var:u/x/v"},
+      "expect": {"status": 404, "body": "Not found: Variable $var:u/x/v not found"}
+    },
+    {
+      "spec": "WA-12/a",
+      "title": "$var:, a nested $res:, a literal $WM_* without a job id, and the array depth limit",
+      "setup": {
+        "variables": [{"path": "u/x/pw", "value": "s3cret"}],
+        "resources": [
+          {"path": "u/x/inner", "resource_type": "object", "value": {"k": "$var:u/x/pw"}},
+          {"path": "u/x/db", "resource_type": "object", "value": {"password": "$var:u/x/pw", "nested": {"r": "$res:u/x/inner"}, "tok": "$WM_TOKEN", "deep": {"a": {"b": ["$var:u/x/pw"]}}, "shallow": ["$var:u/x/pw"]}}
+        ]
+      },
+      "read": {"contract": "interpolated", "path": "u/x/db"},
+      "expect": {"status": 200, "value": {"password": "s3cret", "nested": {"r": {"k": "s3cret"}}, "tok": "$WM_TOKEN", "deep": {"a": {"b": ["$var:u/x/pw"]}}, "shallow": ["s3cret"]}}
+    },
+    {
+      "spec": "WA-12",
+      "title": "the body is the stored value in jsonb's key order, written out compact by the backend's JSON library",
+      "setup": {
+        "variables": [{"path": "u/x/pw", "value": "s3cret"}],
+        "resources": [{"path": "u/x/db", "resource_type": "object", "value": {"password": "$var:u/x/pw", "tok": "$WM_TOKEN", "n": 1.50e3, "zz": 1e3}}]
+      },
+      "read": {"contract": "interpolated", "path": "u/x/db"},
+      "expect": {"status": 200, "body": "{\"n\":1500,\"zz\":1000,\"tok\":\"$WM_TOKEN\",\"password\":\"s3cret\"}"}
+    },
+    {
+      "spec": "WA-12/b",
+      "title": "depth 49 is allowed",
+      "setup": {"resources": [{"path": "u/t/d49", "resource_type": "object", "nest": 49, "leaf": 1}]},
+      "read": {"contract": "interpolated", "path": "u/t/d49"},
+      "expect": {"status": 200, "nest": 49, "leaf": 1}
+    },
+    {
+      "spec": "WA-12/c",
+      "title": "depth 50 fails with a 500",
+      "setup": {"resources": [{"path": "u/t/d50", "resource_type": "object", "nest": 50, "leaf": 1}]},
+      "read": {"contract": "interpolated", "path": "u/t/d50"},
+      "expect": {"status": 500, "prefix": "Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually indicates a circular"}
+    },
+    {
+      "spec": "WA-12/d",
+      "title": "$jsonvar: output is terminal",
+      "setup": {
+        "variables": [{"path": "u/t/j", "value": "{\"x\":\"$var:u/t/v\"}"}, {"path": "u/t/v", "value": "never"}],
+        "resources": [{"path": "u/t/r", "resource_type": "object", "value": {"f": "$jsonvar:u/t/j"}}]
+      },
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 200, "value": {"f": {"x": "$var:u/t/v"}}}
+    },
+    {
+      "spec": "WA-12/e",
+      "title": "a nested $res: path without a slash is invalid",
+      "setup": {"resources": [{"path": "u/t/r", "resource_type": "object", "value": {"x": "$res:single"}}]},
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 500, "prefix": "Internal: Invalid resource path: single"}
+    },
+    {
+      "spec": "WA-12/f",
+      "title": "an array of more than 1000 items is not walked",
+      "setup": {
+        "variables": [{"path": "u/x/pw", "value": "s3cret"}],
+        "resources": [{"path": "u/t/r", "resource_type": "object", "repeat": {"key": "a", "item": "$var:u/x/pw", "n": 1001}}]
+      },
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 200, "repeat": {"key": "a", "item": "$var:u/x/pw", "n": 1001}}
+    },
+    {
+      "spec": "WA-12",
+      "title": "an array of exactly 1000 items is walked",
+      "setup": {
+        "variables": [{"path": "u/x/pw", "value": "s3cret"}],
+        "resources": [{"path": "u/t/r", "resource_type": "object", "repeat": {"key": "a", "item": "$var:u/x/pw", "n": 1000}}]
+      },
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 200, "repeat": {"key": "a", "item": "s3cret", "n": 1000}}
+    },
+    {
+      "spec": "WA-12",
+      "title": "with a job id, $WM_* strings are the job's stored fields; an unknown one, and other $ strings, stay",
+      "setup": {"resources": [{"path": "u/t/r", "resource_type": "object", "value": {"job": "$WM_JOB_ID", "ws": "$WM_WORKSPACE", "x": "$WM_NOPE", "price": "$5.00", "custom": "$HOME"}}]},
+      "read": {"contract": "interpolated", "path": "u/t/r", "job": {"WM_JOB_ID": "S", "WM_WORKSPACE": "ws", "HOME": "/h"}},
+      "expect": {"status": 200, "value": {"job": "S", "ws": "ws", "x": "$WM_NOPE", "price": "$5.00", "custom": "$HOME"}}
+    },
+    {
+      "spec": "WA-12",
+      "title": "a missing nested variable fails the whole read with its 404",
+      "setup": {"resources": [{"path": "u/t/r", "resource_type": "object", "value": {"x": "$var:u/t/missing"}}]},
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 404, "body": "Not found: Variable u/t/missing not found"}
+    },
+    {
+      "spec": "WA-12",
+      "title": "a $jsonvar: that is not JSON fails with a 500",
+      "setup": {
+        "variables": [{"path": "u/t/j", "value": "{\"x\":"}],
+        "resources": [{"path": "u/t/r", "resource_type": "object", "value": {"f": "$jsonvar:u/t/j"}}]
+      },
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 500, "body": "Internal: Failed to parse $jsonvar value as JSON: EOF while parsing a value at line 1 column 5"}
+    },
+    {
+      "spec": "WA-12",
+      "title": "a resource whose value is null reads as null",
+      "setup": {"resources": [{"path": "u/t/r", "resource_type": "object", "value": null}]},
+      "read": {"contract": "interpolated", "path": "u/t/r"},
+      "expect": {"status": 200, "body": "null"}
+    },
+    {
+      "spec": "WA-40",
+      "title": "a raw read resolves nothing",
+      "setup": {
+        "variables": [{"path": "u/x/pw", "value": "s3cret"}],
+        "resources": [{"path": "u/x/db", "resource_type": "object", "value": {"password": "$var:u/x/pw", "nested": {"r": "$res:u/x/inner"}}}]
+      },
+      "read": {"contract": "raw", "path": "u/x/db"},
+      "expect": {"status": 200, "body": "{\"nested\":{\"r\":\"$res:u/x/inner\"},\"password\":\"$var:u/x/pw\"}"}
+    },
+    {
+      "spec": "WA-40",
+      "title": "exists answers true or false",
+      "setup": {"resources": [{"path": "u/x/r", "resource_type": "object", "value": 1}]},
+      "read": {"contract": "resource_exists", "path": "u/x/r"},
+      "expect": {"status": 200, "value": true}
+    },
+    {
+      "spec": "WA-40",
+      "title": "exists answers false for a missing variable",
+      "read": {"contract": "variable_exists", "path": "u/x/none"},
+      "expect": {"status": 200, "value": false}
+    },
+    {
+      "spec": "WA-42/c",
+      "title": "a missing nested $res: gives the located not-found, without Windmill's Rust location (D14)",
+      "setup": {"resources": [{"path": "u/t/outer", "resource_type": "object", "value": {"x": "$res:u/t/missing"}}]},
+      "read": {"contract": "interpolated", "path": "u/t/outer"},
+      "expect": {"status": 404, "body": "Not found: Resource not found at name u/t/missing"}
+    },
+    {
+      "spec": "WA-V3/a",
+      "title": "getResource's read, without a job id, leaves $WM_ROOT_JOB_ID literal",
+      "setup": {"resources": [{"path": "u/test/context", "resource_type": "object", "value": {"root": "$WM_ROOT_JOB_ID"}}]},
+      "read": {"contract": "interpolated", "path": "u/test/context"},
+      "expect": {"status": 200, "body": "{\"root\":\"$WM_ROOT_JOB_ID\"}"}
+    },
+    {
+      "spec": "WA-V3/a",
+      "title": "an argument loaded via $res: in a direct step of a top-level flow resolves to the stored root, which is \"\"",
+      "setup": {"resources": [{"path": "u/test/context", "resource_type": "object", "value": {"root": "$WM_ROOT_JOB_ID"}}]},
+      "resolve": {
+        "args": {"c": "$res:u/test/context"},
+        "env": {"WM_JOB_ID": "S", "WM_FLOW_JOB_ID": "F", "WM_ROOT_FLOW_JOB_ID": "F", "WM_ROOT_JOB_ID": "F"}
+      },
+      "expect": {"text": "{\"c\":{\"root\":\"\"}}"}
+    },
+    {
+      "spec": "WA-V3/a",
+      "title": "the same string $WM_ROOT_JOB_ID in a qualifying argument is the process's effective root",
+      "resolve": {
+        "args": {"c": ["$WM_ROOT_JOB_ID", "$var:u/test/v"]},
+        "env": {"WM_JOB_ID": "S", "WM_FLOW_JOB_ID": "F", "WM_ROOT_FLOW_JOB_ID": "F", "WM_ROOT_JOB_ID": "F"}
+      },
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "expect": {"value": {"c": ["F", "s"]}}
+    },
+    {
+      "spec": "WA-V3/b",
+      "title": "$jsonvar: output is not substituted again",
+      "setup": {
+        "variables": [{"path": "u/test/j", "value": "{\"x\":\"$var:u/test/v\"}"}, {"path": "u/test/v", "value": "s"}],
+        "resources": [{"path": "u/test/r", "resource_type": "object", "value": {"f": "$jsonvar:u/test/j"}}]
+      },
+      "read": {"contract": "interpolated", "path": "u/test/r"},
+      "expect": {"status": 200, "body": "{\"f\":{\"x\":\"$var:u/test/v\"}}"}
+    },
+    {
+      "spec": "WA-V3/b",
+      "title": "$jsonvar: output is terminal in worker resolution too",
+      "setup": {"variables": [{"path": "u/test/j", "value": "{\"x\":\"$var:u/test/v\"}"}, {"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args": {"f": "$jsonvar:u/test/j"}},
+      "expect": {"text": "{\"f\":{\"x\":\"$var:u/test/v\"}}"}
+    },
+    {
+      "spec": "JE-42/a",
+      "title": "an array at depth 2 is walked",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args": {"x": {"a": {"b": ["$var:u/test/v"]}}}},
+      "expect": {"value": {"x": {"a": {"b": ["s"]}}}}
+    },
+    {
+      "spec": "JE-42/b",
+      "title": "an array at depth 3 is not walked",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args": {"x": {"a": {"b": {"c": ["$var:u/test/v"]}}}}},
+      "expect": {"value": {"x": {"a": {"b": {"c": ["$var:u/test/v"]}}}}}
+    },
+    {
+      "spec": "JE-42/c",
+      "title": "an argument without a marker is not walked, so its reserved names stay",
+      "resolve": {"args": {"x": ["$WM_WORKSPACE"]}, "env": {"WM_WORKSPACE": "ws"}},
+      "expect": {"text": "{\"x\":[\"$WM_WORKSPACE\"]}"}
+    },
+    {
+      "spec": "JE-42/d",
+      "title": "with a marker, reserved names are looked up",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args": {"x": ["$WM_WORKSPACE", "$var:u/test/v"]}, "env": {"WM_WORKSPACE": "ws"}},
+      "expect": {"text": "{\"x\":[\"ws\",\"s\"]}"}
+    },
+    {
+      "spec": "JE-42/e",
+      "title": "a missing variable fails the step, quoting the API's error",
+      "resolve": {"args": {"x": "$var:u/test/missing"}},
+      "expect": {"error": "Not found: Variable u/test/missing not found for `x`: Not found: Variable u/test/missing not found"}
+    },
+    {
+      "spec": "JE-42/f",
+      "title": "depth 49 is resolved",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args_nest": {"key": "x", "n": 49, "leaf": "$var:u/test/v"}},
+      "expect": {"nest": {"key": "x", "n": 49, "leaf": "s"}}
+    },
+    {
+      "spec": "JE-42/g",
+      "title": "depth 50 fails, naming the innermost key",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args_nest": {"key": "x", "n": 50, "leaf": "$var:u/test/v"}},
+      "expect": {"error": "Internal: Maximum resource/variable interpolation depth (50) exceeded for `k`; this usually indicates a circular `$res:` or `$var:` reference"}
+    },
+    {
+      "spec": "JE-42/h",
+      "title": "the depth guard is not limited to strings",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args_nest": {"key": "x", "inner": "deep", "n": 50, "leaf": 1, "beside": {"m": "$var:u/test/v"}}},
+      "expect": {"error": "Internal: Maximum resource/variable interpolation depth (50) exceeded for `k`; this usually indicates a circular `$res:` or `$var:` reference"}
+    },
+    {
+      "spec": "JE-42",
+      "title": "only a string that starts with a marker is replaced",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args": {"x": "x $var:u/test/v", "y": "$var:u/test/v"}},
+      "expect": {"text": "{\"x\":\"x $var:u/test/v\",\"y\":\"s\"}"}
+    },
+    {
+      "spec": "WR-5/a",
+      "title": "a $res: reference resolves to the resource value; another argument passes through",
+      "setup": {"resources": [{"path": "u/a/pg", "resource_type": "postgresql", "value": {"host": "h"}}]},
+      "resolve": {"args": {"db": "$res:u/a/pg", "n": 1}},
+      "expect": {"text": "{\"db\":{\"host\":\"h\"},\"n\":1}"}
+    },
+    {
+      "spec": "WR-5/b",
+      "title": "a one-segment resource path is rejected",
+      "resolve": {"args": {"x": "$res:pg"}},
+      "expect": {"error": "Internal: Argument `x` is an invalid resource path: pg"}
+    },
+    {
+      "spec": "WR-5/c",
+      "title": "an argument with no trigger pattern is not resolved",
+      "setup": {"variables": [{"path": "u/a/v", "value": "v"}]},
+      "resolve": {"args": {"a": "$WM_WORKSPACE", "b": "$var:u/a/v"}, "env": {"WM_WORKSPACE": "ws"}},
+      "expect": {"text": "{\"a\":\"$WM_WORKSPACE\",\"b\":\"v\"}"}
+    },
+    {
+      "spec": "WR-5/d",
+      "title": "reserved-variable substitution inside a qualifying argument",
+      "setup": {"variables": [{"path": "u/a/v", "value": "v"}]},
+      "resolve": {"args": {"a": ["$WM_WORKSPACE", "$var:u/a/v"]}, "env": {"WM_WORKSPACE": "ws"}},
+      "expect": {"text": "{\"a\":[\"ws\",\"v\"]}"}
+    },
+    {
+      "spec": "WR-5/e",
+      "title": "a missing resource fails the step, quoting the API's error",
+      "resolve": {"args": {"a": "$res:u/a/missing"}},
+      "expect": {"error": "Not found: Resource u/a/missing not found for `a`: Not found: Resource u/a/missing not found"}
+    },
+    {
+      "spec": "WA-12/c",
+      "title": "the API's depth failure inside a $res: argument is quoted as its cause",
+      "setup": {"resources": [{"path": "u/t/d50", "resource_type": "object", "nest": 50, "leaf": 1}]},
+      "resolve": {"args": {"a": "$res:u/t/d50"}},
+      "expect": {"prefix": "Not found: Resource u/t/d50 not found for `a`: Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually"}
+    },
+    {
+      "spec": "WA-V3",
+      "title": "a nested $res: starts a depth counter of its own: a resource of depth 49 resolves under an argument nested 40 deep",
+      "setup": {"resources": [{"path": "u/t/d49", "resource_type": "object", "nest": 49, "leaf": 1}]},
+      "resolve": {"args_nest": {"key": "x", "n": 40, "leaf": "$res:u/t/d49"}},
+      "expect": {"prefix": "{\"x\":{\"k\":"}
+    },
+    {
+      "spec": "FX-42/h",
+      "title": "$jsonvar: output keeps the variable's key order, not its spelling",
+      "setup": {"variables": [{"path": "f/wl_fx42/numbers", "value": "{\"zz\": 1e3, \"b\": 1e21, \"aaa\": 12345678901234567891, \"big\": 123456789012345678901234567890, \"n\": 1.50e3, \"s\": \"A\\/\"}"}]},
+      "resolve": {"args": {"v": "$jsonvar:f/wl_fx42/numbers"}},
+      "expect": {"text": "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"}
+    },
+    {
+      "spec": "FX-51/c",
+      "title": "$jsonvar: refuses a lone surrogate escape",
+      "setup": {"variables": [{"path": "u/t/j", "value": "{\"s\": \"\\ud83d\"}"}]},
+      "resolve": {"args": {"v": "$jsonvar:u/t/j"}},
+      "expect": {"error": "Internal: Failed to parse $jsonvar value as JSON: unexpected end of hex escape at line 1 column 14"}
+    },
+    {
+      "spec": "FX-51/c",
+      "title": "$jsonvar: refuses a number beyond a double",
+      "setup": {"variables": [{"path": "u/t/j", "value": "{\"n\": 1e400}"}]},
+      "resolve": {"args": {"v": "$jsonvar:u/t/j"}},
+      "expect": {"prefix": "Internal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column "}
+    },
+    {
+      "spec": "FX-42",
+      "title": "$jsonvar: parses -0, and an integer beyond a signed 64-bit one below zero, as doubles",
+      "setup": {"variables": [{"path": "u/t/j", "value": "[-0, -9223372036854775808, -9223372036854775809, 0.00001, 1e-7, 1e16, 123456789012345.6]"}]},
+      "resolve": {"args": {"v": "$jsonvar:u/t/j"}},
+      "expect": {"text": "{\"v\":[-0.0,-9223372036854775808,-9.223372036854776e+18,0.00001,1e-7,1e+16,123456789012345.6]}"}
+    },
+    {
+      "spec": "FX-42",
+      "title": "a qualifying argument is written out again by the backend's JSON library; its non-reference parts keep their stored order",
+      "setup": {"variables": [{"path": "u/test/v", "value": "s"}]},
+      "resolve": {"args": {"x": {"zz": 1.50, "aaa": [1e2, "$var:u/test/v"], "big": 12345678901234567891, "neg": -9223372036854775808, "z": -0}}},
+      "expect": {"text": "{\"x\":{\"z\":0,\"zz\":1.5,\"aaa\":[100,\"s\"],\"big\":12345678901234567891,\"neg\":-9223372036854775808}}"}
+    }
+  ]
+}

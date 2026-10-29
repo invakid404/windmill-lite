@@ -8,9 +8,12 @@ N1a, which runs a compiled program's flows sequentially, with the errors
 of milestone N1b (`continue_on_error`, the failure module and recovery,
 the error shapes, chaining errors, the final result and the cancellation
 outcome), the for loops of milestone N3a: sequential, collapsed and
-parallel, with `parallelism`, and the waits and time of milestone N2:
-`sleep`, the step timeout and its messages, retries with their
-arithmetic, jitter and argument reuse, deadlines and the clock. This README
+parallel, with `parallelism`, the platform providers a run reads
+(milestone PF2): a leaf's argument resolution, `flow_env`'s resolution and
+the expression helpers `variable()` and `resource()`, and the waits and
+time of milestone N2: `sleep`, the step timeout and its messages, retries
+with their arithmetic, jitter and argument reuse, deadlines and the clock.
+This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -31,10 +34,8 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
-%%%%%%% diff from: nxuznypz 6a71098f "N3a: for loops: sequential, collapsed, parallel, parallelism (#50)"
-\\\\\\\        to: qmnswpsn e1507082 "FU5: E3e, C2b and C3n follow-ups (JE-7/JE-8 restatements, oracle/nul ratchet, WR-48/b, harness deflake, native error origin, script envs, WR-50/c) (#51)"
- | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
-+| `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
+| `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
+| `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `serde.go` | the flows a run executes (the root and its loops' child flows), their results scopes, and for loops (below); the texts of Windmill's JSON library | N3a; N3b and N3c run their containers on frames |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
 
@@ -381,8 +382,9 @@ latched or halted run has no result.
   store alike winning, as in jsonb; a key or a value jsonb refuses fails
   the push ([FX-48](../../docs/semantics/execution.md#fx-48),
   [FX-51](../../docs/semantics/execution.md#fx-51)). The stored arguments
-  are the recorded and the resolved ones, since `$var:` and `$res:`
-  resolution is PF2's.
+  are the recorded ones (O2); the resolved ones (O3) are the script's,
+  which the job's pickup resolves (below), and are the recorded ones for an
+  identity job or a launch a hook answers.
 
 **Expression scopes** ([JE-22](../../docs/semantics/expressions.md#je-22),
 [FX-8](../../docs/semantics/execution.md#fx-8)), P being the previous
@@ -398,12 +400,12 @@ module:
 | `timeout` (N2) | P, P | — | the previous module's | yes |
 | `retry_if` (N2) | the failed attempt's value, twice, and `error` its error | — | empty | no |
 
-Every site has `flow_input`; `flow_env` is the flow's own, in its stored
-form ([JE-38](../../docs/semantics/expressions.md#je-38)), at
-`stop_after_if` and `retry_if` only when the text names it. No site has helpers yet:
-`variable()`, `resource()` and `flow_user_state()` reject with
-[JE-20](../../docs/semantics/expressions.md#je-20)'s "not available"
-texts until the platform providers (PF2).
+Every site has `flow_input`; `flow_env` is the flow's, as the transition
+that started the module resolved it
+([JE-38](../../docs/semantics/expressions.md#je-38)), at `stop_after_if`
+and `retry_if` only when the text names it, and there the flow's cached
+resolved map once one exists. Every site has the helpers of
+[JE-20](../../docs/semantics/expressions.md#je-20) (below).
 
 **The results context.** The run answers the evaluator's lookups
 ([JE-18](../../docs/semantics/expressions.md#je-18),
@@ -607,6 +609,44 @@ failure or a stop that ends the run; reading: a parallel iteration still
 running is taken to succeed. A loop so interrupted records the
 array so far.
 
+**The platform providers (PF2, `providers.go`).** `Config.Platform`, a
+`*platform.Services` ([internal/platform](../platform/README.md#services)),
+holds the resources, variables and secrets a run reads; nil means none,
+so every read is a not-found. A host gives the facade the same services.
+
+- **A leaf's arguments** are resolved when its job is picked up, after its
+  job identity, its script's `envs` and H12, before the step runs
+  ([JE-41](../../docs/semantics/expressions.md#je-41),
+  [JE-42](../../docs/semantics/expressions.md#je-42),
+  [WR-5](../../docs/semantics/languages.md#wr-5)): worker argument
+  resolution of the stored arguments, with the job's reserved variables
+  (its job identity, without the script's `envs` or H12's changes), which
+  `$<NAME>` strings read, and a `$res:` reading the resource with the
+  job's stored fields (`platform.APIEnv`,
+  [WA-V3](../../docs/semantics/client-api.md#wa-v3)). The step gets the
+  resolved arguments, which the trace records as `ResolvedArgs` however
+  its job then ends (a timeout, a cancellation or an executor's error
+  included), and the job keeps the stored ones (`RecordedArgs`,
+  [JE-V3](../../docs/semantics/expressions.md#je-v3)). Expressions see the
+  markers, whatever produced them. A failure fails the job before it runs,
+  with the worker's execution error, origin `engine`:
+  `{"error":{"message":"execution error:\n<the failure's display>","name":"ExecutionErr","step_id":…}}`,
+  which the flow handles as any failure.
+- **`flow_env`** is resolved the same way, with the flow job's reserved
+  variables, each time a module starts, into the frame that runs it
+  (JE-38): a child flow inherits its flow's map and resolves it as its own
+  transitions come, and a parallel iteration's frame is its own, so no two
+  goroutines share one. Reading: a child flow's `$WM_*` strings are the
+  top-level flow job's. A failure leaves the map as stored, with the
+  warning `flow_env_unresolved` in the trace, and is not cached; a success
+  becomes the frame's cached map.
+- **`variable(path)` and `resource(path)`** answer at every site, which
+  all have an authenticated client: the variable's value (a secret's
+  plaintext), and the resource read as the stock client reads it, without
+  a job id (contract (b); which contract Windmill's helper uses is not in
+  the reference). A failure throws the API's error text.
+  `flow_user_state()` needs PF3 and throws, naming it.
+
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
 in Go: transforms and the results routes, the shuffled orders, identity,
@@ -636,11 +676,17 @@ result, concurrent runs, and serde's texts. `env_test.go` (FU5,
 `TestScriptEnvs`) checks a path script's `envs` in a Bun step's
 environment, a later entry winning and every name the worker sets later
 skipped, and none in a native step's, `nativets` or `//native`.
-`waits_test.go` and `retry_test.go` (N2) are listed with N2's section,
-below. The flow
+`providers_test.go` (PF2) covers the resolved arguments (O2 and O3,
+whatever produced them, `$WM_*` from the reserved variables in an argument
+and from the stored fields in a resource, a secret), O3 after a timeout, a
+cancellation and an executor's error, a resolution failure (whose O3 stays
+its O2) and the run's settlement after it, `flow_env` resolved per transition and
+its unresolved fallback with its warnings, the helpers and a helper's
+failure, and an engine with no platform. `waits_test.go` and
+`retry_test.go` (N2) are listed with N2's section, below. The flow
 fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
-milestones N1a, N1b, N3a and N2).
+milestones N1a, N1b, N3a, PF2 and N2).
 
 ## Waits and time
 

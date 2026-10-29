@@ -3,11 +3,14 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -766,4 +769,39 @@ func TestEngineTimeValuesNotJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+// H4: the deadline's timer can win the expiry and stall before it
+// cancels the run; the interpreter, reading the expired state, cancels it
+// itself before it acts, so the run ends canceled by the deadline, not
+// failed, and nothing launches.
+func TestEnginePreWriteExpiryPublishedBeforeUse(t *testing.T) {
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("1")), ""))}, s)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	stalled, release, timerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	cancelRun := func(err error) {
+		if calls.Add(1) == 1 {
+			// The timer's cancellation, held after its state change.
+			close(stalled)
+			<-release
+		}
+		cancel(err)
+	}
+	r := newRun(e, e.prog.Flows["f/t/main"], "run", writes{at: map[string]bool{"a": true}}, s, rand.New(rand.NewPCG(1, 2)), RealClock{}, SeededJitter(1), cancelRun)
+	r.root.input = jsonObj
+	r.preWriteAt = time.Now().Add(-time.Second)
+	go func() { r.expirePreWrite(); close(timerDone) }()
+	<-stalled
+	r.run(ctx)
+	close(release)
+	<-timerDone
+	tr := r.snapshot()
+	wantStatus(t, tr, conformance.RunCanceled, `{"error":{"message":"Job canceled: no reason given by unknown","name":"Canceled","reason":"no reason given","canceler":"unknown"}}`)
+	if !errors.Is(context.Cause(ctx), ErrPreWriteDeadline) || tr.MayHaveMutated {
+		t.Fatalf("cause %v, mutated %t", context.Cause(ctx), tr.MayHaveMutated)
+	}
+	wantCalls(t, s)
 }

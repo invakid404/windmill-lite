@@ -1,0 +1,12 @@
+{
+  "f/app/db": {
+    "path": "f/app/db",
+    "file": "f/app/db.resource.yaml",
+    "resource_type": "postgresql",
+    "description": null,
+    "value": {
+      "host": "h",
+      "password": "$var:f/app/pw"
+    }
+  }
+}

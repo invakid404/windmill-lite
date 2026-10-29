@@ -68,7 +68,13 @@ platform facade of [0007](0007-platform-interface.md) in
 [internal/platform/facade](../../internal/platform/facade/README.md): the
 router behind the stock client, attribution over the intercepted `fetch`
 and loopback TCP, the 501 policy, and job identity in
-[internal/platform](../../internal/platform/README.md). Milestone N2 adds
+[internal/platform](../../internal/platform/README.md). Milestone PF2 adds
+its resource, variable and secret services, with their local defaults, the
+host secret layer and the one interpolation walker for the three
+resource-read contracts, in
+[internal/platform](../../internal/platform/README.md); the facade serves
+the reads, and the engine resolves a leaf's arguments, `flow_env` and the
+expression helpers through the same services. Milestone N2 adds
 the engine's waits and time: `sleep`, the step timeout and its messages,
 retries with their arithmetic, jitter and argument reuse, deadlines (the
 monitor of flows that hang between steps, the pre-write deadline of

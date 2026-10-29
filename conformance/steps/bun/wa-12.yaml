@@ -1,0 +1,99 @@
+finding: WA-12
+scope: core
+note: >-
+  Milestone PF2: resources/get_value_interpolated, the client interpolated
+  read of WA-40's contract (b), whose walker resolves $var:, $jsonvar: and
+  nested $res: strings and leaves $WM_* literal without a job id
+  (ADR 0007). Each script reads the platform as the stock client does, by fetch at BASE_URL with its token, so the cases need no client: the same reads go through the intercepted fetch (warm) and over loopback TCP (fresh), and the case's setup is what the facade serves. The stock client's own handling of the answers (its prefixes and error wrapping) is checked with windmill-client@1.767.0 by internal/platform/facade's TestProvidersOnTheClient, and the walker's rules at unit level by internal/platform/testdata/interpolation.json.
+cases:
+  - spec: WA-12/a
+    provenance: source-derived
+    title: "$var:, a nested $res:, a literal $WM_* and the array depth limit"
+    setup:
+      variables:
+        - {path: u/x/pw, value: s3cret}
+      resources:
+        - {path: u/x/inner, resource_type: object, value: {"k": "$var:u/x/pw"}}
+        - {path: u/x/db, resource_type: object, value: {"password": "$var:u/x/pw", "nested": {"r": "$res:u/x/inner"}, "tok": "$WM_TOKEN", "deep": {"a": {"b": ["$var:u/x/pw"]}}, "shallow": ["$var:u/x/pw"]}}
+    script: |
+      export async function main(path: string) {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), value: await res.json() };
+      }
+    runs:
+      - args: '{"path":"resources/get_value_interpolated/u/x/db"}'
+        expect:
+          status: success
+          result: {status: 200, type: application/json, value: {"password": "s3cret", "nested": {"r": {"k": "s3cret"}}, "tok": "$WM_TOKEN", "deep": {"a": {"b": ["$var:u/x/pw"]}}, "shallow": ["s3cret"]}}
+        calls: ["200 GET /w/{ws}/resources/get_value_interpolated/{path}"]
+  - spec: WA-12/b
+    provenance: source-derived
+    title: "depth 49 is allowed"
+    setup:
+      resources:
+        - {path: u/t/d49, resource_type: object, value: {"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+    script: |
+      export async function main(path: string) {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{"path":"resources/get_value_interpolated/u/t/d49"}'
+        expect: {status: success, result: {status: 200, type: application/json, body: '{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}'}}
+  - spec: WA-12/c
+    provenance: source-derived
+    title: "depth 50 fails with a 500"
+    setup:
+      resources:
+        - {path: u/t/d50, resource_type: object, value: {"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+    script: |
+      export async function main(path: string) {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{"path":"resources/get_value_interpolated/u/t/d50"}'
+        claims:
+          - {at: /status, equals: success}
+          - {at: /result/status, equals: 500}
+          - {at: /result/type, equals: text/plain}
+          - {at: /result/body, prefix: "Internal: Maximum resource/variable interpolation depth (50) exceeded; this usually indicates a circular"}
+  - spec: WA-12/d
+    provenance: source-derived
+    title: "$jsonvar: output is terminal"
+    setup:
+      variables:
+        - {path: u/t/j, value: '{"x":"$var:u/t/v"}'}
+        - {path: u/t/v, value: never}
+      resources:
+        - {path: u/t/r, resource_type: object, value: {"f": "$jsonvar:u/t/j"}}
+    script: |
+      export async function main(path: string) {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{"path":"resources/get_value_interpolated/u/t/r"}'
+        expect: {status: success, result: {status: 200, type: application/json, body: '{"f":{"x":"$var:u/t/v"}}'}}
+  - spec: WA-12/e
+    provenance: source-derived
+    title: "a nested $res: path without a slash is a 500"
+    setup:
+      resources:
+        - {path: u/t/r, resource_type: object, value: {"x": "$res:single"}}
+    script: |
+      export async function main(path: string) {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/${path}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+      }
+    runs:
+      - args: '{"path":"resources/get_value_interpolated/u/t/r"}'
+        claims:
+          - {at: /status, equals: success}
+          - {at: /result/status, equals: 500}
+          - {at: /result/body, prefix: "Internal: Invalid resource path: single"}

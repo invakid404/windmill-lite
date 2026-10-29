@@ -14,6 +14,10 @@ expect:
     "m:a":
       status: success
       args: {v: "$jsonvar:f/wl_fx42/numbers"}
+      # The arguments the script received (JE-V3 point O3), in the
+      # spelling of the arguments file: what windmill-lite's resolver
+      # writes, milestone PF2.
+      resolved_args: {v: {zz: 1000.0, b: 1e+21, aaa: 12345678901234567891, big: 1.2345678901234568e+29, n: 1500.0, s: A/}}
       result: "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"
 note: >-
   Corrected after recording, within reading (b). The prediction wrote the

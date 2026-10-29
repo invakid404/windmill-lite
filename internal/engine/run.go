@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -31,12 +32,15 @@ type run struct {
 	exec  StepExecutor
 	// root is the frame of the flow's own modules, its failure module in
 	// the slot after them; its input is the flow input, stored, with its
-	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env, or
-	// zero (JE-38), which its child flows inherit (CF-1).
-	root   *frame
-	env    jsonval.Value
-	latch  Latch
-	settle *RunSettlement
+	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env as
+	// stored, or zero (JE-38), which its child flows inherit (CF-1), and
+	// each transition resolves into its frame (resolveEnv) with the flow
+	// job's reserved variables, flowJobEnv.
+	root       *frame
+	env        jsonval.Value
+	flowJobEnv map[string]string
+	latch      Latch
+	settle     *RunSettlement
 	// halted is set once a module ended the run halted (H8), so that the
 	// iterations of a parallel loop start nothing more; wake is closed, once,
 	// when the run is latched or halted, which wakes a parallel loop whose
@@ -824,6 +828,8 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	if r.latch.Err() != nil {
 		return notLaunched()
 	}
+	// The transition that starts the module resolves flow_env again (JE-38).
+	r.resolveEnv(ctx, fr)
 
 	// Start step 5: the previous module's sleep sets when the module's job
 	// may start; a retry's delay set it at re-entry (FX-23, FX-26). Its
@@ -941,8 +947,9 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	if err != nil {
 		return chaining(err.Error())
 	}
-	// The resolution of $var: and $res: (JE-41) is the platform providers'
-	// (PF2); until then the resolved arguments are the recorded ones.
+	// The arguments are resolved when the job is picked up, in invoke
+	// (JE-41); an identity job, or a launch a hook answers, resolves
+	// nothing.
 	o.rec.RecordedArgs, o.rec.ResolvedArgs = stored, stored
 
 	// Start step 10: the job is pushed, scheduled for when a sleep or a
@@ -1017,7 +1024,7 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 				}
 			}
 			r.writeMu.Unlock()
-			if r.latch.Err() != nil || r.preWrite.Load() == preWriteExpired {
+			if r.latch.Err() != nil || r.preWriteExpired() {
 				return notLaunched()
 			}
 			r.mu.Lock()
@@ -1026,12 +1033,26 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		}
 		timeout, instanceWide := r.leafTimeout(fr, m, secs)
 		o.rec.Ran = true
-		out, job, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
+		var resolved jsonval.Value
+		out, job, resolved, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
 		o.rec.Job = job
+		if !resolved.IsZero() {
+			// The script got the resolved arguments, however its job ended
+			// (O3, JE-V3).
+			o.rec.ResolvedArgs = resolved
+		}
+		var rf *resolveFailure
 		switch {
 		case errors.Is(err, errNotLaunched):
 			o.rec.Ran = false
 			return notLaunched()
+		case errors.As(err, &rf):
+			// JE-42 rule 4, WR-5: the job fails before its script runs, with
+			// the worker's execution error.
+			res := fail(workerError(fr.stepID(i), "execution error:\n"+rf.Error()), OriginEngine)
+			r.recordJob(fr, i, res.rec.Result)
+			r.ended(fr, &res)
+			return res
 		case errors.Is(err, CancelTimeout):
 			o.rec.Abandoned = true
 			// The worker's text for a step that ran out of time: WR-37's
@@ -1095,13 +1116,24 @@ const (
 )
 
 // expirePreWrite expires the run's pre-write deadline, unless the first
-// write disarmed it first, and then cancels the run with
-// ErrPreWriteDeadline (H4). It reports whether the deadline is expired.
+// write disarmed it first, and reports whether the deadline is expired;
+// an expired one has cancelled the run (preWriteExpired).
 func (r *run) expirePreWrite() bool {
-	if r.preWrite.CompareAndSwap(preWriteArmed, preWriteExpired) {
-		r.cancel(ErrPreWriteDeadline)
+	r.preWrite.CompareAndSwap(preWriteArmed, preWriteExpired)
+	return r.preWriteExpired()
+}
+
+// preWriteExpired reports whether the run's pre-write deadline has
+// expired, and if so cancels the run with ErrPreWriteDeadline (H4) before
+// it returns. Whoever wins the expiry, the timer or the interpreter, may
+// still be on its way to cancelling; cancelling again is idempotent, so
+// nothing acts on an expired deadline before the run's context says so.
+func (r *run) preWriteExpired() bool {
+	if r.preWrite.Load() != preWriteExpired {
+		return false
 	}
-	return r.preWrite.Load() == preWriteExpired
+	r.cancel(ErrPreWriteDeadline)
+	return true
 }
 
 // preWriteDue reports whether the run's pre-write deadline stops a first
@@ -1111,7 +1143,7 @@ func (r *run) preWriteDue() bool {
 		return false
 	}
 	if time.Now().Before(r.preWriteAt) {
-		return r.preWrite.Load() == preWriteExpired
+		return r.preWriteExpired()
 	}
 	return r.expirePreWrite()
 }
@@ -1119,13 +1151,14 @@ func (r *run) preWriteDue() bool {
 // disarmPreWrite disarms the run's pre-write deadline at its first
 // write-capable launch, once the host has approved it (H3, H4), and
 // reports whether the write may launch: not when the deadline passed
-// first, while the host decided included.
+// first, while the host decided included. A disarmed deadline never
+// expires, so it cannot cancel the run.
 func (r *run) disarmPreWrite() bool {
 	if r.preWriteDue() {
 		return false
 	}
 	r.preWrite.CompareAndSwap(preWriteArmed, preWriteDisarmed)
-	return r.preWrite.Load() != preWriteExpired
+	return !r.preWriteExpired()
 }
 
 // ended records that the job of o, a job of fr's flow which started at
@@ -1306,8 +1339,9 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 			{Name: "resume", Value: jsonNull}, {Name: "resumes", Value: jsonEmpty}, {Name: "approvers", Value: jsonEmpty},
 		},
 		FlowInput: fr.input,
-		FlowEnv:   r.env,
+		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
+		Helpers:   helpers{r.e.platform},
 	}
 }
 
@@ -1324,8 +1358,9 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 			{Name: "resume", Value: jsonNull}, {Name: "resumes", Value: jsonEmpty}, {Name: "approvers", Value: jsonEmpty},
 		},
 		FlowInput: fr.input,
-		FlowEnv:   r.env,
+		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
+		Helpers:   helpers{r.e.platform},
 	}
 	if fr.isFailure(i) {
 		s.Context = append(s.Context,
@@ -1339,57 +1374,71 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 // (FX-8, JE-22, JE-27): own as result and previous_result, in its producer
 // text (FX-42 item 3); an empty previous id; results only when the text
 // holds results., results[ or results?.; flow_env only when it holds
-// flow_env.
+// flow_env, the flow's cached resolved map once one exists (JE-38).
 func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope {
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
+		Helpers:   helpers{r.e.platform},
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {
 		s.Results = r.results(fr)
 	}
 	if strings.Contains(t, "flow_env") {
-		s.FlowEnv = r.env
+		s.FlowEnv = r.envOf(fr)
+		if !fr.envCached.IsZero() {
+			s.FlowEnv = fr.envCached
+		}
 	}
 	return s
 }
 
 // sleepScope is the scope of a sleep (FX-8, JE-22): the sleeping module's
 // own result as result and previous_result, no other names, no results
-// (results is not defined), flow_input and flow_env.
+// (results is not defined), flow_input, flow_env as the transition that
+// starts the next module resolved it (JE-38), and the helpers (JE-20).
 func (r *run) sleepScope(fr *frame, own jsonval.Value) *expr.Scope {
 	return &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
-		FlowEnv:   r.env,
+		FlowEnv:   r.envOf(fr),
+		Helpers:   helpers{r.e.platform},
 	}
 }
 
 // timeoutScope is the scope of a javascript timeout (FX-8, JE-22): P as
 // result and previous_result, no other names, results with JE-9 and the
-// preceding id, flow_input and flow_env.
+// preceding id, flow_input, flow_env as the module's transition resolved
+// it (JE-38), and the helpers (JE-20).
 func (r *run) timeoutScope(fr *frame, prev jsonval.Value, prevID string) *expr.Scope {
 	return &expr.Scope{
 		PreviousID: prevID,
 		Context:    []expr.Named{{Name: "previous_result", Value: prev}, {Name: "result", Value: prev}},
 		FlowInput:  fr.input,
-		FlowEnv:    r.env,
+		FlowEnv:    r.envOf(fr),
 		Results:    r.results(fr),
+		Helpers:    helpers{r.e.platform},
 	}
 }
 
 // retryScope is the scope of retry_if (FX-8, JE-22, JE-32): the failed
 // attempt's value as result and previous_result, whose error is error
-// (JE-17), no other names and no results; flow_env, as at every predicate
-// evaluated after a module completes, only when the text names it.
+// (JE-17), no other names and no results, and the helpers (JE-20);
+// flow_env, as at every predicate evaluated after a module completes,
+// only when the text names it, the flow's cached resolved map once one
+// exists (JE-38), as stopScope binds it.
 func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Scope {
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: failed}, {Name: "result", Value: failed}},
 		FlowInput: fr.input,
+		Helpers:   helpers{r.e.platform},
 	}
 	if strings.Contains(x.Trimmed, "flow_env") {
-		s.FlowEnv = r.env
+		s.FlowEnv = r.envOf(fr)
+		if !fr.envCached.IsZero() {
+			s.FlowEnv = fr.envCached
+		}
 	}
 	return s
 }
@@ -1607,10 +1656,12 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 
 // invoke runs the module at cursor i of fr in its harness, with its
 // timeout as a timer in the engine (ADR 0004 §Cancellation and deadlines
-// item 2), and returns its outcome and its job's id, WM_JOB_ID. The job
-// identity follows the flow the job runs in (WA-6, WA-V1, ADR 0007): its
-// job id, its innermost scope and its runnable path.
-func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, error) {
+// item 2), and returns its outcome, its job's id, WM_JOB_ID, and the
+// arguments its script received: args after the worker's resolution
+// (JE-41, JE-42), which fails it with a *resolveFailure before it runs.
+// The job identity follows the flow the job runs in (WA-6, WA-V1,
+// ADR 0007): its job id, its innermost scope and its runnable path.
+func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
 	in := fr.owner()
 	inv := Invocation{
@@ -1637,13 +1688,25 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
 	}.Env(r.e.host)
+	// The job's reserved variables, which its argument resolution reads
+	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
+	// strings in a resource an argument names; neither the script's own
+	// envs nor H12's changes are among them.
+	reserved := maps.Clone(inv.Env)
 	addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
-		return StepOutcome{}, "", errNotLaunched
+		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
 	}
+	// The worker resolves the arguments once it has picked the job up,
+	// before the script runs (JE-41, JE-42, WR-5).
+	resolved, err := r.e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
+	if err != nil {
+		return StepOutcome{}, inv.ID, jsonval.Value{}, &resolveFailure{err}
+	}
+	inv.Args = resolved
 	inv.Report = r.settle.Track(&runReporter{run: r, idx: idx})
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -1656,7 +1719,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	start := r.clock.Now()
 	out, err := r.exec.Execute(stepCtx, inv)
 	r.span(site.Path, SpanHarness, start)
-	return out, inv.ID, err
+	return out, inv.ID, resolved, err
 }
 
 // runReporter records what an invocation produces late in its module's
