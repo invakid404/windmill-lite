@@ -133,6 +133,13 @@ export type Options = {
   children?: (b: Uint8Array) => void;
   /** Called once the engine's welcome has been accepted. */
   onWelcome?: () => void;
+  /** Called when the engine's welcome refuses this process, with the
+   * reject's code and message, before the process stops. */
+  onReject?: (code: string, message: string) => void;
+  /** Host mode: called with the process's health at every heartbeat, from
+   * the runtime's own timer, outside every invocation (the host SDK's
+   * recycle triggers). */
+  onHeartbeat?: (h: HostHealth) => void;
 };
 
 /** An invocation from invoke until the frame that settles it is queued:
@@ -158,12 +165,25 @@ type Invocation = {
  * any number of invocations; a fresh one serves one, and ends with it. */
 export type Mode = "warm" | "fresh";
 
-/** A run's outcome, as run_done reports it. result is its JSON text. */
-export type RunOutcome = { status: string; result?: string };
+/** A run's outcome, as run_done reports it: result is its JSON text,
+ * warnings its warnings, each with a code and a message. */
+export type RunOutcome = { status: string; result?: string; may_have_mutated: boolean; warnings: { code: string; message: string }[] };
+
+/** A run the engine did not start (run_done with an error): code is
+ * "draining" while the engine drains, else "refused". */
+export class RunError extends Error {
+  constructor(
+    readonly code: string,
+    readonly detail: string,
+  ) {
+    super(`windmill-lite: ${code}: ${detail}`);
+  }
+}
 
 /** The health of this process: what pings report, plus the age of the
- * oldest abandoned invocation, which the host SDK's health() exposes. */
-export type HostHealth = Health & { oldest_abandoned_ms: number };
+ * oldest abandoned invocation and the number of script modules loaded,
+ * which the host SDK's health() exposes. */
+export type HostHealth = Health & { oldest_abandoned_ms: number; modules: number };
 
 /** How an invocation ended. An escaped one's tail is the invocation's log
  * when its frame is sent (WR-20), after print, the error the process would
@@ -210,6 +230,11 @@ export class Runtime {
   private platformCalls = new Map<string, PendingCall>();
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
   private scopes = new Map<string, <R>(fn: () => R) => R>();
+  /** Host mode: what to call when a run settles, from its submission
+   * until run_settled (onRunSettled), bound to the run's scope. */
+  private settledHandlers = new Map<string, () => void>();
+  /** Host mode: called when the engine answers a drain with bye. */
+  private onBye: (() => void) | undefined;
   private diag: (line: string) => void;
   private native: Native;
 
@@ -257,6 +282,9 @@ export class Runtime {
       caps: { fetch: true, native: true, fresh: this.opts.host !== true, host: this.opts.host === true },
       bundle: this.opts.bundleDigest,
       pid: process.pid,
+      // The host's working directory, which the engine checks against the
+      // directory the host passed it (ADR 0004, item 5).
+      workdir: this.opts.host ? process.cwd() : undefined,
     });
   }
 
@@ -318,8 +346,17 @@ export class Runtime {
       case "run_done":
         this.onRunDone(m);
         break;
+      case "run_settled":
+        this.onRunSettled(m);
+        break;
       case "drain":
+        if (this.opts.host) throw new ProtocolError("unexpected_message", "drain from the engine in host mode");
         this.drain();
+        break;
+      case "bye":
+        if (!this.opts.host || !this.onBye) throw new ProtocolError("unexpected_message", "bye from the engine");
+        this.onBye();
+        this.onBye = undefined;
         break;
       default:
         throw new ProtocolError("unexpected_message", `${m.t} from the engine`);
@@ -329,6 +366,7 @@ export class Runtime {
   private onWelcome(m: Message) {
     if (m.reject) {
       this.diag(`windmill-lite harness: rejected: ${m.reject.code}: ${m.reject.message}`);
+      this.opts.onReject?.(m.reject.code, m.reject.message);
       this.stop(EXIT.rejected);
       return;
     }
@@ -365,11 +403,13 @@ export class Runtime {
       this.lagMs = Math.max(0, Math.round(now - last - intervalMs));
       last = now;
       this.send({ t: "ping", id: `h${++this.pingSeq}`, ...this.health() });
+      const on = this.opts.onHeartbeat;
+      if (on) this.guard("a heartbeat observer", () => invocations.exit(() => on(this.hostHealth())));
     }, intervalMs);
   }
 
   private health(): Health {
-    const { oldest_abandoned_ms: _, ...h } = this.hostHealth();
+    const { oldest_abandoned_ms: _, modules: __, ...h } = this.hostHealth();
     return h;
   }
 
@@ -387,7 +427,15 @@ export class Runtime {
       abandoned++;
       oldest = Math.max(oldest, Math.round(now - (inv.abandonedAt ?? now)));
     }
-    return { in_flight: inFlight, abandoned, errors: this.errors, lag_ms: this.lagMs, rss: process.memoryUsage.rss(), oldest_abandoned_ms: oldest };
+    return {
+      in_flight: inFlight,
+      abandoned,
+      errors: this.errors,
+      lag_ms: this.lagMs,
+      rss: process.memoryUsage.rss(),
+      oldest_abandoned_ms: oldest,
+      modules: this.modules.size,
+    };
   }
 
   private invoke(m: Message) {
@@ -861,12 +909,21 @@ export class Runtime {
   }
 
   /** Host mode: submits a run of the flow or script at path with args, a
-   * JSON object's text, and resolves with its outcome. The run's id is a
-   * fresh UUID, which the engine uses as the run's id. The scope the
-   * caller has now is captured, and every invocation of the run re-enters
-   * it (H11). intercept, a JSON object's text, maps module ids to the
-   * results that stand in for them (H1's static form). */
-  submit(kind: "flow" | "script", path: string, args: string, intercept?: string): { id: string; done: Promise<RunOutcome> } {
+   * JSON object's text, and resolves with its outcome, or rejects with a
+   * RunError when the engine does not start it. The run's id is a fresh
+   * UUID, which the engine uses as the run's id. The scope the caller has
+   * now is captured, and every invocation of the run re-enters it (H11).
+   * intercept, a JSON object's text, maps module ids to the results that
+   * stand in for them (H1's static form). onSettled is called once the
+   * run has settled (run_settled, after its outcome): every invocation it
+   * started has settled, which may be never (ADR 0004 host mode item 5). */
+  submit(
+    kind: "flow" | "script",
+    path: string,
+    args: string,
+    intercept?: string,
+    onSettled?: () => void,
+  ): { id: string; done: Promise<RunOutcome> } {
     if (!this.opts.host) throw new Error("windmill-lite: runs are submitted only in host mode");
     if (!this.welcomed || this.stopped) throw new Error("windmill-lite: the engine is not connected");
     const id = crypto.randomUUID();
@@ -874,15 +931,33 @@ export class Runtime {
     const done = new Promise<RunOutcome>((resolve, reject) => {
       this.runs.set(id, { resolve, reject });
       this.scopes.set(id, scope);
+      // onSettled is a host hook of the run, so it runs in the scope the
+      // run was submitted in (H11), outside every invocation; the handler
+      // keeps that scope until the run settles, is refused, or the
+      // connection ends.
+      if (onSettled) this.settledHandlers.set(id, () => scope(() => invocations.exit(onSettled)));
       try {
         this.send({ t: "run", id, kind, path, args: new Raw(args), intercept: intercept === undefined ? undefined : new Raw(intercept) });
       } catch (e) {
         this.runs.delete(id);
         this.scopes.delete(id);
+        this.settledHandlers.delete(id);
         reject(e as Error);
       }
     });
     return { id, done };
+  }
+
+  /** Host mode: asks the engine to drain (ADR 0004 host mode item 3): it
+   * starts no new run, answering each with a RunError "draining", and
+   * says bye once the runs in flight have ended, when onBye is called. */
+  drainEngine(onBye: () => void) {
+    if (!this.opts.host) throw new Error("windmill-lite: only a host drains its engine");
+    if (this.onBye) throw new Error("windmill-lite: the engine is already draining");
+    this.onBye = onBye;
+    // Behind every run submitted before it, whole: the engine starts each
+    // of them, and says bye only once they have ended.
+    if (!this.closing()) this.sender.sendAfter({ t: "drain" }, "run:");
   }
 
   /** Host mode: cancels a run this process submitted. */
@@ -895,7 +970,26 @@ export class Runtime {
     if (!this.opts.host || !run) throw new ProtocolError("unexpected_message", `run_done for unknown run ${JSON.stringify(m.id)}`);
     this.runs.delete(m.id);
     this.scopes.delete(m.id);
-    run.resolve({ status: m.status, result: m.result === undefined ? undefined : JSON.stringify(m.result) });
+    if (m.error) {
+      // Not started: it never settles either.
+      this.settledHandlers.delete(m.id);
+      run.reject(new RunError(m.error.code, m.error.message));
+      return;
+    }
+    const warnings = Array.isArray(m.warnings)
+      ? m.warnings.map((w: { code?: unknown; message?: unknown }) => ({ code: String(w?.code ?? ""), message: String(w?.message ?? "") }))
+      : [];
+    run.resolve({ status: m.status, result: m.result === undefined ? undefined : JSON.stringify(m.result), may_have_mutated: m.may_have_mutated === true, warnings });
+  }
+
+  /** A run settled (ADR 0004 host mode item 5): its handler runs outside
+   * every invocation, and what it throws is only written to the
+   * diagnostics. */
+  private onRunSettled(m: Message) {
+    if (!this.opts.host || this.runs.has(m.id)) throw new ProtocolError("unexpected_message", `run_settled for run ${JSON.stringify(m.id)}, which has no outcome`);
+    const on = this.settledHandlers.get(m.id);
+    this.settledHandlers.delete(m.id);
+    if (on) this.guard("a run's onSettled", on);
   }
 
   /** Reports how the entrypoint call ended: as the result, or, for an
@@ -1013,6 +1107,7 @@ export class Runtime {
     this.platformCalls.clear();
     this.runs.clear();
     this.scopes.clear();
+    this.settledHandlers.clear();
     this.opts.transport.end();
     this.opts.exit(code);
   }

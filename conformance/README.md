@@ -47,7 +47,7 @@ repository to exercise one behaviour each.
 | jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
 | load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
-| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
+| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
 | flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
@@ -566,6 +566,18 @@ a stack. `left-behind` and `platform-left-behind` expect the `left_behind`
 warning ahead of the result; `welcome-fresh`, `fresh-one-invocation` and
 `fresh-exit` run a harness in `fresh` mode, which serves one invocation and
 exits with it.
+
+**`host/workdir.json`** (milestone F3a) holds host mode's working-directory
+cases ([ADR 0004](../docs/design/0004-harness-protocol.md), the
+shared-process failure model, item 5, and host mode item 7), which both
+sides check: the host SDK before it starts the engine (`checkWorkdir` in
+`harnesses/bun/host`, run by `bun test`), and the engine in the handshake
+(`harness.CheckWorkdir`, through `AttachHost` too, run by
+`go test ./internal/harness`). Each case lays out a fresh directory with
+`cwd/` (the host's working directory), `other/`, `link` (to `cwd/`) and
+`file`, sets the modes it names (skipped as root), and passes `workdir`;
+`expect` is the refusal's code (`workdir_not_writable`,
+`workdir_mismatch`) or null.
 
 ## Step cases
 

@@ -32,6 +32,29 @@
       "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":false,\"native\":false,\"fresh\":false,\"host\":false},\"bundle\":\"sha256:00ff\",\"pid\":4242}"
     },
     {
+      "case": "hello-host-workdir",
+      "title": "a host's hello names its working directory, after its pid (ADR 0004, item 5)",
+      "message": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": true,
+          "fresh": false,
+          "host": true
+        },
+        "bundle": "sha256:abc",
+        "pid": 4242,
+        "workdir": "/srv/host"
+      },
+      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\"}"
+    },
+    {
       "case": "welcome-config",
       "title": "the engine accepts a harness",
       "message": {
@@ -508,6 +531,60 @@
         "status": "canceled"
       },
       "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"canceled\"}"
+    },
+    {
+      "case": "run-done-mutated-warnings",
+      "title": "a run's outcome with H3's flag and its warnings, a raw array",
+      "message": {
+        "t": "run_done",
+        "id": "r2",
+        "status": "failure",
+        "result": {
+          "error": {
+            "name": "Error",
+            "message": "m"
+          }
+        },
+        "may_have_mutated": true,
+        "warnings": [
+          {
+            "code": "unattributed_error",
+            "message": "unhandledRejection: x"
+          }
+        ]
+      },
+      "raw": {
+        "warnings": "[{\"code\":\"unattributed_error\",\"message\":\"unhandledRejection: x\"}]"
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"failure\",\"result\":{\"error\":{\"name\":\"Error\",\"message\":\"m\"}},\"may_have_mutated\":true,\"warnings\":[{\"code\":\"unattributed_error\",\"message\":\"unhandledRejection: x\"}]}"
+    },
+    {
+      "case": "run-done-not-mutated",
+      "title": "may_have_mutated false is left out",
+      "message_text": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"success\",\"may_have_mutated\":false}",
+      "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"success\"}"
+    },
+    {
+      "case": "run-done-error",
+      "title": "a run the engine did not start has an error and no status",
+      "message": {
+        "t": "run_done",
+        "id": "r3",
+        "error": {
+          "code": "draining",
+          "message": "the engine is draining and starts no new runs"
+        }
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r3\",\"error\":{\"code\":\"draining\",\"message\":\"the engine is draining and starts no new runs\"}}"
+    },
+    {
+      "case": "run-settled",
+      "title": "a host's run has settled, after its run_done (ADR 0004 host mode item 5)",
+      "message": {
+        "t": "run_settled",
+        "id": "r2"
+      },
+      "payload": "{\"t\":\"run_settled\",\"id\":\"r2\"}"
     },
     {
       "case": "run-cancel",
@@ -1157,6 +1234,54 @@
       "title": "a run_done status is a run status",
       "frames": [
         "{\"t\":\"run_done\",\"id\":\"r1\",\"status\":\"done\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-done-status-and-error",
+      "title": "a run_done has a status or an error, not both",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r3\",\"status\":\"success\",\"error\":{\"code\":\"refused\",\"message\":\"m\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-done-neither",
+      "title": "a run_done without an error needs its status",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r3\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "run-done-error-missing-message",
+      "title": "a run_done's error needs its message",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r3\",\"error\":{\"code\":\"refused\"}}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "run-done-warnings-not-array",
+      "title": "a run_done's warnings are an array",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r3\",\"status\":\"success\",\"warnings\":{}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-done-mutated-not-bool",
+      "title": "may_have_mutated is a boolean",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r3\",\"status\":\"success\",\"may_have_mutated\":1}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "hello-workdir-not-string",
+      "title": "a hello's workdir is a string",
+      "frames": [
+        "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"workdir\":7}"
       ],
       "error": "bad_field"
     },

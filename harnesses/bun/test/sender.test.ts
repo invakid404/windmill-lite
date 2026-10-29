@@ -143,3 +143,42 @@ test("a frame that must reach the engine now goes out synchronously, after the f
   expect(flushed).toBe(true);
   expect(r.messages().map((m) => m.t)).toEqual(["child", "result"]);
 });
+
+const bigRun = (id: string): Outgoing => ({ t: "run", id, kind: "flow", path: "f/x", args: new Raw(JSON.stringify({ x: "x".repeat(200) })) });
+
+test("a host's drain waits behind every run submitted before it, whole, under backpressure", () => {
+  const r = rig(40, true);
+  r.sender.send(bigRun("r1"));
+  r.sender.send(bigRun("r2"));
+  r.sender.send({ t: "run", id: "r3", kind: "flow", path: "f/x", args: new Raw("{}") });
+  r.sender.sendAfter({ t: "drain" }, "run:");
+  // An unrelated small frame still overtakes the large runs.
+  r.sender.send({ t: "pong", id: "p" });
+  for (let i = 0; i < 200; i++) r.drain();
+  const order = r.messages().map((m) => (m.t === "run" ? m.id : m.t));
+  expect(order.indexOf("drain")).toBe(order.length - 1);
+  expect(order.slice(0, -1).sort()).toEqual(["pong", "r1", "r2", "r3"]);
+  const frames = r.frames();
+  const lastPart = frames.findLastIndex((f) => f.startsWith("part:"));
+  expect(frames.indexOf("pong")).toBeLessThan(lastPart);
+  expect(frames.indexOf("drain")).toBeGreaterThan(lastPart);
+});
+
+test("with no run being sent in parts, a drain goes out at once, in order with the frames before it", () => {
+  const r = rig();
+  r.sender.send({ t: "run", id: "r", kind: "flow", path: "f/x", args: new Raw("{}") });
+  r.sender.sendAfter({ t: "drain" }, "run:");
+  expect(r.frames()).toEqual(["run", "drain"]);
+});
+
+test("whenFlushed waits for a held drain", () => {
+  const r = rig(40, true);
+  r.sender.send(bigRun("r1"));
+  r.sender.sendAfter({ t: "drain" }, "run:");
+  let flushed = false;
+  r.sender.whenFlushed(() => (flushed = true));
+  expect(flushed).toBe(false);
+  for (let i = 0; i < 200; i++) r.drain();
+  expect(flushed).toBe(true);
+  expect(r.frames().at(-1)).toBe("drain");
+});

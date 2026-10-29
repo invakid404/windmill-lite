@@ -1,0 +1,5 @@
+summary: A step that reads a variable of the bundle through the platform facade
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/variable, input_transforms: {}}

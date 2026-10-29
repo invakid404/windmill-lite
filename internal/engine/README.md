@@ -26,7 +26,8 @@ that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
 trace) and the interpreter itself. `skeleton.go` is what remains of the
 walking skeleton (W1): the loader of W1's hand-written bundle, which runs
-its flows on the engine core until F3a moves host mode onto `wl`. The
+its flows on the engine core. Since F3a moved host mode onto `wl` and
+built bundles, only its own tests use it. The
 harness that executes steps is [internal/harness](../harness/README.md).
 
 ## Contracts
@@ -47,7 +48,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `cache.go` | The `cache_ttl` result cache (N4, below): the key, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
 | `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `branch.go`, `subflow.go`, `serde.go` | the flows a run executes (the root, its containers' child flows and its subflows by path), their results scopes, for and while loops, branches and subflows (below); the texts of Windmill's JSON library | N3a, N3b, N3c |
-| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
+| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | its own tests (W1's `windmill-lite host` until F3a) |
 
 Site identities are `conformance.SitePath` values. Run statuses are
 `conformance.RunStatus` values, including the windmill-lite-only `latched`
@@ -1435,8 +1436,10 @@ inline step's follows the compiler's rule (`ir.DeployedLanguage`,
 note) and for a `bun` or `bunnative` step whose header says `//native`;
 a path script's is what its metadata in the bundle records
 (`SkeletonConfig.ScriptsDir`, by default the bundle directory), Bun when
-it has none. `windmill-lite host` serves it until F3a moves host mode onto
-`wl` and its bundles.
+it has none. `windmill-lite host` served it until F3a moved host mode onto
+`wl` and its bundles; the host-mode tests now build a sync folder of
+their own (cmd/windmill-lite), and the loader and `testdata/w1/` remain
+for their own tests until a cleanup removes them.
 
 `testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step
 modules written by hand, each with the `.meta.json` signature the build
@@ -1444,9 +1447,9 @@ helper would record (the harness binds arguments by it), among them
 `scope_shim.mjs`, which reads the host-provided module `f/w1/scopes.ts`
 through a hand-written shim, `scope_copy.mjs`, which bundles its own
 copy of it, and `stall.mjs` (flow `f/w1/stall`), which backs up a host's
-socket with a large log, starts a child and blocks the event loop, for
-the host-mode test of WR-55's child groups in `cmd/windmill-lite`
-(milestone FU6).
+socket with a large log, starts a child and blocks the event loop, which
+the host-mode test of WR-55's child groups in `cmd/windmill-lite` used
+until F3a (milestone FU6).
 
 `skeleton_test.go` checks the loader and the interpreter through it with a
 fake executor and the real QuickJS-ng engine: transforms (JE-6's verbatim

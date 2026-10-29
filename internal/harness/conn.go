@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,10 @@ import (
 //   - Messages about one invocation keep their order: one queued behind a
 //     part stream about the same invocation waits until that stream has
 //     sent its last part. A cancel never overtakes its own large invoke.
+//   - A barrier (sendAfter) waits behind every open stream whose key has a
+//     prefix: a host-mode bye goes out only once every run_done queued
+//     before it has gone out whole, while unrelated small frames keep
+//     their priority.
 //   - The reader reassembles part streams and hands each message to
 //     onMessage, in arrival order, on the reader goroutine. It records when
 //     it last received a frame, which is what the watchdog measures; that
@@ -39,6 +44,7 @@ type conn struct {
 	small      [][]byte // whole frames, length prefix included
 	streams    []*outStream
 	latest     map[string]*outStream // the last stream about each invocation
+	barriers   []barrier             // held by sendAfter, in order
 	closed     bool
 	nextStream uint64
 	wake       chan struct{}
@@ -59,6 +65,13 @@ type outStream struct {
 type queued struct {
 	frame  []byte
 	stream *outStream
+}
+
+// barrier is a message that waits until no stream about a key with prefix
+// is open (sendAfter).
+type barrier struct {
+	prefix string
+	q      queued
 }
 
 type connConfig struct {
@@ -141,6 +154,8 @@ func invocationOf(m Message) string {
 		return "run:" + m.ID
 	case RunCancel:
 		return "run:" + m.ID
+	case RunSettled:
+		return "run:" + m.ID
 	}
 	return ""
 }
@@ -180,6 +195,55 @@ func (c *conn) sendPayload(payload []byte, about string) error {
 	return nil
 }
 
+// sendAfter encodes m and queues it behind every message about a key that
+// begins with prefix that is still being sent in parts, and behind what
+// waits about those keys: it goes out once all of them have gone out
+// whole. Other messages are not held by it, nor held behind it, unless it
+// is itself a stream. A host-mode bye waits so behind the run_done frames
+// queued before it ("run:", ADR 0004 host mode item 3).
+func (c *conn) sendAfter(m Message, prefix string) error {
+	payload, err := Encode(m)
+	if err != nil {
+		return err
+	}
+	if int64(len(payload)) > c.maxMessage {
+		return protoErr(CodeMessageTooLarge, "%s message of %d bytes exceeds %d", typeOf(payload), len(payload), c.maxMessage)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return net.ErrClosed
+	}
+	var q queued
+	if len(payload) <= c.maxFrame {
+		q.frame = appendFrame(make([]byte, 0, 4+len(payload)), payload)
+	} else {
+		c.nextStream++
+		q.stream = &outStream{id: strconv.FormatUint(c.nextStream, 10), payload: payload}
+	}
+	if len(c.barriers) > 0 || c.openLocked(prefix) {
+		c.barriers = append(c.barriers, barrier{prefix, q})
+		return nil
+	}
+	c.enqueueLocked(q)
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// openLocked reports whether a stream about a key that begins with prefix
+// has not sent its last part.
+func (c *conn) openLocked(prefix string) bool {
+	for about := range c.latest {
+		if strings.HasPrefix(about, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *conn) enqueueLocked(q queued) {
 	if q.frame != nil {
 		c.small = append(c.small, q.frame)
@@ -195,12 +259,22 @@ func (c *conn) finishLocked(s *outStream) {
 	if c.latest[s.about] == s {
 		delete(c.latest, s.about)
 	}
+	defer c.releaseBarriersLocked()
 	for i, q := range s.after {
 		c.enqueueLocked(q)
 		if q.stream != nil {
 			q.stream.after = append(q.stream.after, s.after[i+1:]...)
 			return
 		}
+	}
+}
+
+// releaseBarriersLocked queues the barriers, in order, whose streams have
+// all gone out; one that still waits keeps the later ones behind it.
+func (c *conn) releaseBarriersLocked() {
+	for len(c.barriers) > 0 && !c.openLocked(c.barriers[0].prefix) {
+		c.enqueueLocked(c.barriers[0].q)
+		c.barriers = c.barriers[1:]
 	}
 }
 
@@ -309,7 +383,7 @@ func (c *conn) close() {
 		return
 	}
 	c.closed = true
-	c.small, c.streams, c.latest = nil, nil, nil
+	c.small, c.streams, c.latest, c.barriers = nil, nil, nil, nil
 	c.mu.Unlock()
 	select {
 	case c.wake <- struct{}{}:

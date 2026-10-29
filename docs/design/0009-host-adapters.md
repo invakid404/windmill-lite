@@ -56,9 +56,11 @@ Every adapter below is a transport over these calls.
    `proto/windmill_lite/v1/runner.proto`.
 2. **Bun host SDK** (host mode). A TypeScript package for hosts that are
    themselves Bun programs: the host process is also the Bun harness. It
-   starts the engine binary as a child (path and digest from the bundle
-   manifest) on a socketpair, registers host plugins as in-process
-   functions, and submits runs (`run` frames, [0004](0004-harness-protocol.md)).
+   starts the engine binary the host names as a child on a socketpair
+   (`windmill-lite host`, which opens the bundle with `wl` in host mode,
+   `wl.Options.Host`), with the bundle digest from the bundle's manifest,
+   registers host plugins as in-process functions, and submits runs (`run`
+   frames, [0004](0004-harness-protocol.md)).
    The steps of those runs execute in the host process, inside the scopes
    captured at submission (H11). This is the adapter for a host whose
    per-run state lives in `AsyncLocalStorage`.
@@ -69,13 +71,16 @@ Every adapter below is a transport over these calls.
      ([0010](0010-packaging.md)) before any step loads.
    - `health()` reports in-flight, abandoned and unattributed-error counts;
      `drain(timeout)` stops new runs and lets the host exit; `onRunSettled`
-     complements `onRunEnd`; and the connect options set the engine's
-     watchdog (`watchdog.killAfter`, default 30 s), which kills the host when
-     its event loop stops answering ([0004](0004-harness-protocol.md), host
-     mode). The host's supervisor only has to restart the host when it exits.
+     complements `onRunEnd` (a run's `onSettled`); and the connect options
+     set the engine's watchdog (`watchdog.killAfter`, default 30 s), which
+     kills the host when its event loop stops answering
+     ([0004](0004-harness-protocol.md), host mode), and recycle triggers that
+     `health()` reports. The host's supervisor only has to restart the host
+     when it exits.
    - The host passes a writable working directory, which must already be its
      working directory; the SDK extracts codebase assets there and refuses to
-     connect otherwise (`workdir_not_writable`, `workdir_mismatch`).
+     connect otherwise (`workdir_not_writable`, `workdir_mismatch`), and the
+     engine checks the same again in the handshake.
    - **Consumption.** Nothing is published to a package registry. A host
      takes the SDK from this repository at the engine release it runs (a git
      dependency on the release tag, or a vendored copy of `harnesses/bun/host`
@@ -123,6 +128,18 @@ a new protocol.
   in Go.
 - go-plugin hosts get the same pinning and build-identity checks they use for
   any plugin.
+- Milestone F3a made host mode a runtime of `wl` (`Options.Host`), so the
+  Bun host SDK and any other host that speaks the protocol share one engine
+  path. The engine binary's path is the host's to give, not the bundle
+  manifest's: a manifest that recorded an engine digest would make the
+  bundle digest differ per platform. What pairs the pieces is that the
+  engine opens only a bundle its own version built (refusing the host with
+  `engine_refused` otherwise), and the handshake checks the protocol
+  version, the harness kind, the pinned Bun and the bundle digest. The
+  SDK's own version is not compared with the engine's yet: that needs the
+  release to stamp it, so an SDK of another release that speaks the same
+  protocol is not refused. A host that pins the engine binary by digest
+  does so itself (as `pack --single --host bun` will, F6).
 
 ## Spec IDs relied on
 
