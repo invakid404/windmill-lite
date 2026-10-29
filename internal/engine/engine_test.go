@@ -187,6 +187,25 @@ func wantStatus(t *testing.T, tr *Trace, st conformance.RunStatus, result string
 	}
 }
 
+// step returns the record of the top-level module id of tr.
+func step(t *testing.T, tr *Trace, id string) StepRecord {
+	t.Helper()
+	rec, ok := tr.Step(conformance.SitePath{}.Child(conformance.Module(id)))
+	if !ok {
+		t.Fatalf("no step %s in %+v", id, tr.Steps)
+	}
+	return rec
+}
+
+// sameJSON fails unless v is the JSON value want, in any member order.
+func sameJSON(t *testing.T, what string, v jsonval.Value, want string) {
+	t.Helper()
+	same, err := conformance.SameJSON(v.Producer(), []byte(want), false)
+	if err != nil || !same {
+		t.Fatalf("%s\n got %s\nwant %s (%v)", what, v, want, err)
+	}
+}
+
 // FX-7, JE-23, JE-40, FX-6, FX-10: input transforms, static values in
 // their stored form, params, the results routes from memory and from
 // storage, and an unknown id.

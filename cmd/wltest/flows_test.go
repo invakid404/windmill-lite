@@ -1109,3 +1109,28 @@ func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
 		}
 	}
 }
+
+// The files a run's steps leave to count their attempts are removed after
+// the run, those named after its root, its child flows and its steps' jobs,
+// and no other run's (N5's follow-up: they piled up in the host's /tmp).
+func TestRemoveCounters(t *testing.T) {
+	dir := t.TempDir()
+	old := counterDir
+	counterDir = dir
+	t.Cleanup(func() { counterDir = old })
+	names := []string{"wl-n5-run1-a", "wl-ni-child1-b", "wl-ni-job1-args", "wl-n5-other-a", "wl-n5-run1", "unrelated"}
+	for _, n := range names {
+		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeCounters(&engine.Trace{RunID: "run1", Children: []engine.ChildFlow{{ID: "child1"}}, Steps: []engine.StepRecord{{Job: "job1"}, {}}})
+	var left []string
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		left = append(left, e.Name())
+	}
+	if want := []string{"unrelated", "wl-n5-other-a", "wl-n5-run1"}; !slices.Equal(left, want) {
+		t.Fatalf("left %v, want %v", left, want)
+	}
+}

@@ -1,4 +1,0 @@
-{
-  "summary": "W1: a javascript transform that throws fails its step without running it (FX-14, JE-23)",
-  "value": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/w1/must_not_run", "input_transforms": {"x": {"type": "javascript", "expr": "flow_input.missing.deeper"}}}}]}
-}

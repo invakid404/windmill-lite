@@ -3,11 +3,14 @@ package harness
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
+	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -335,6 +338,16 @@ func (c *conn) writeLoop() {
 			(*f)(part.about, last)
 		}
 	}
+}
+
+// endOfStream reports whether a read error is the end of the peer's stream
+// rather than a failed connection: EOF, a connection the engine closed, or
+// ECONNRESET, with which Linux ends the reads of a stream socket whose peer
+// closed it with data it had not read, as a harness does that exits right
+// after its last frame while a pong to its heartbeat is still on its way
+// (FU8). Whether the peer itself failed is its exit status's to tell.
+func endOfStream(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET)
 }
 
 func (c *conn) readLoop() {

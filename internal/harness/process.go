@@ -1240,7 +1240,7 @@ func (p *Process) readerDone(err error) {
 		p.hostDone(err)
 		return
 	}
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrDeadlineExceeded) {
+	if err != nil && !endOfStream(err) && !errors.Is(err, os.ErrDeadlineExceeded) {
 		p.mu.Lock()
 		if p.readErr == nil {
 			p.readErr = err

@@ -84,7 +84,11 @@ func fakeHarness(mode string) int {
 	case "slow-hello":
 		time.Sleep(time.Second)
 	}
-	send(Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid})
+	hello := Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid}
+	if mode == "fresh-unread-pong" {
+		hello.Caps.Fresh = true
+	}
+	send(hello)
 	w := recv().(Welcome)
 	if w.Reject != nil {
 		return 2
@@ -180,9 +184,38 @@ func fakeHarness(mode string) int {
 		case "heartbeat-and-answer":
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 			send(Late{ID: inv.ID, Kind: LateError, Body: jsonval.FromProducer([]byte(`{"message":"timer"}`))})
+		case "fresh-unread-pong":
+			// A fresh process whose step outlasts a heartbeat: it pings, the
+			// engine answers with a pong, which this process never reads,
+			// and it exits right after its result, the pong still unread.
+			send(Ping{ID: "h1", Health: &Health{}})
+			time.Sleep(300 * time.Millisecond)
+			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			return 0
 		default:
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
 		}
+	}
+}
+
+// A fresh process that exits right after its result, while a pong the
+// engine sent in answer to its heartbeat is still unread, has its result
+// delivered, settled completed. On Linux a stream socket closed with unread
+// data ends its peer's reads with ECONNRESET instead of EOF; that is the
+// harness's end of stream, not a failed connection, which would discard
+// the held result as killed by SIGKILL (FU8: the 3 s steps of
+// TestFlowSuite/fresh failed that way on ubuntu under -race).
+func TestFreshExitWithAnUnreadPong(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-unread-pong")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	out, err := execute(t, p, freshInvocation("x", `{}`, rec), 10*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `"done"` {
+		t.Fatalf("got %+v, %v; diagnostics %q", out, err, diag.String())
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
 	}
 }
 

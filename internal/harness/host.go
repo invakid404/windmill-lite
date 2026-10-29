@@ -216,7 +216,7 @@ func (p *Process) readChildren(r io.Reader) {
 	for {
 		payload, err := readFrame(r, maxChildFrame)
 		if err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+			if !endOfStream(err) {
 				p.diag.printf("the host's child channel: %v", err)
 			}
 			return
@@ -407,7 +407,7 @@ func (p *Process) maybeByeLocked() {
 // fail with ErrHostLost and their contexts end, and the engine, whose only
 // client was the host, has nothing left to serve.
 func (p *Process) hostDone(err error) {
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+	if err != nil && !endOfStream(err) {
 		p.mu.Lock()
 		if p.readErr == nil {
 			p.readErr = err

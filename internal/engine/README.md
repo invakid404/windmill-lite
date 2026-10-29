@@ -21,13 +21,12 @@ dispatcher, the integration of milestone NI (N2's waits and retries,
 the cancellation and failures inside containers, and the evaluation timing
 of container-level fields), and the `cache_ttl` result cache of milestone
 N4. This README
-covers `internal/engine` and its `testdata/`. The package holds the seams
+covers `internal/engine`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
-trace) and the interpreter itself. `skeleton.go` is what remains of the
-walking skeleton (W1): the loader of W1's hand-written bundle, which runs
-its flows on the engine core. Since F3a moved host mode onto `wl` and
-built bundles, only its own tests use it. The
+trace) and the interpreter itself. The walking skeleton's loader (W1),
+which only its own tests used once F3a moved host mode onto `wl`, was
+removed with its bundle `testdata/w1/` (milestone FU8). The
 harness that executes steps is [internal/harness](../harness/README.md).
 
 ## Contracts
@@ -41,14 +40,13 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `waits.go` | H10's `Jitter`, `SeededJitter` and `RecordClock`; the values of `sleep` and `timeout` and the retry schedule (below) | N2 calls them; F2b exposes the clock and the jitter to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span`, `PlatformCall` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md); the platform calls of a run's steps, which wl fills from the facade's records, since the engine does not see the facade). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
-| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
+| `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; wl (F1) |
 | `provided.go` | `ProvideFunc`, `ErrProviderDeclined`: a mandatory host-provided site's launch ([ADR 0008](../../docs/design/0008-host-hooks.md), below) | wl (F2a) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `cache.go` | The `cache_ttl` result cache (N4, below): the key, the TTL rules, a hit and a store, over the platform's `ResultCache` | the engine core, `RunScript` |
 | `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `branch.go`, `subflow.go`, `serde.go` | the flows a run executes (the root, its containers' child flows and its subflows by path), their results scopes, for and while loops, branches and subflows (below); the texts of Windmill's JSON library | N3a, N3b, N3c |
-| `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | its own tests (W1's `windmill-lite host` until F3a) |
 
 Site identities are `conformance.SitePath` values. Run statuses are
 `conformance.RunStatus` values, including the windmill-lite-only `latched`
@@ -1423,42 +1421,3 @@ a `branchall`, spent attempts), the mid-loop `skip_if` (collapsed, child
 flows, while, parallel, a throw), `squash`, and the waits and retries in a
 parallel loop's child flows with the virtual identity; `while_test.go`
 and `branch_test.go` cover a canceled container's failure.
-
-## The walking skeleton
-
-`Skeleton` (milestone W1) is now a loader: it reads a bundle directory
-that holds each flow as `flows/<flow path>.flow.json`, the flow's OpenFlow
-document as JSON, turns each into the IR, and runs it on an `Engine`. Its
-scripts are named by their job paths (`scripts/bun/<flow path>/<id>.mjs`
-for an inline step, or `.native.js`), which it records as their inventory
-ids. It accepts W1's subset (script steps by path and inline Bun-family
-steps, `bun`, `bunnative` and `nativets`; static, javascript and ai
-transforms; a static step timeout) and refuses anything else with
-`ErrSkeletonUnsupported`, at load. Each step gets its boundary (C3n): an
-inline step's follows the compiler's rule (`ir.DeployedLanguage`,
-`ir.BoundaryOf`), native for a `nativets` step with or without a
-`//native` header ([WR-40](../../docs/semantics/languages.md#wr-40)'s
-note) and for a `bun` or `bunnative` step whose header says `//native`;
-a path script's is what its metadata in the bundle records
-(`SkeletonConfig.ScriptsDir`, by default the bundle directory), Bun when
-it has none. `windmill-lite host` served it until F3a moved host mode onto
-`wl` and its bundles; the host-mode tests now build a sync folder of
-their own (cmd/windmill-lite), and the loader and `testdata/w1/` remain
-for their own tests until a cleanup removes them.
-
-`testdata/w1/` is the synthetic bundle of W1's tests: the flows, and step
-modules written by hand, each with the `.meta.json` signature the build
-helper would record (the harness binds arguments by it), among them
-`scope_shim.mjs`, which reads the host-provided module `f/w1/scopes.ts`
-through a hand-written shim, `scope_copy.mjs`, which bundles its own
-copy of it, and `stall.mjs` (flow `f/w1/stall`), which backs up a host's
-socket with a large log, starts a child and blocks the event loop, which
-the host-mode test of WR-55's child groups in `cmd/windmill-lite` used
-until F3a (milestone FU6).
-
-`skeleton_test.go` checks the loader and the interpreter through it with a
-fake executor and the real QuickJS-ng engine: transforms (JE-6's verbatim
-answer included), the step timeout, H1, failure values, cancellation and
-settlement, and latches. `skeleton_bun_test.go` runs it on the real Bun
-harness and reports W1's first per-step latency figure; it needs `WL_BUN`,
-like the harness tests.
