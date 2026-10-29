@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"os"
 	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -10,9 +11,10 @@ import (
 // environment after the script's own envs, so that one of these names in
 // envs never reaches the job (WR-22, WA-2): the reserved variables, which
 // it always sets (empty when one does not apply), and the common Bun
-// variables, set last. NODE_PATH and BUN_INSTALL_MINIMUM_RELEASE_AGE are
-// set only when the worker configures them, which windmill-lite's harness
-// does not, so they are not among them.
+// variables, set last. NODE_PATH is one of them only when the engine's
+// own environment has it, as the worker copies its own (workerSets);
+// BUN_INSTALL_MINIMUM_RELEASE_AGE is set only when the worker configures
+// it, which windmill-lite's harness does not.
 var laterBunVariables = map[string]bool{
 	// The reserved variables.
 	"WM_WORKSPACE": true, "WM_EMAIL": true, "WM_USERNAME": true, "WM_PERMISSIONED_AS": true,
@@ -24,6 +26,17 @@ var laterBunVariables = map[string]bool{
 	// The common Bun variables.
 	"PATH": true, "HOME": true, "TZ": true, "FORCE_COLOR": true, "DO_NOT_TRACK": true,
 	"BUN_INSTALL_CACHE_DIR": true, "BUN_RUNTIME_TRANSPILER_CACHE_PATH": true, "BASE_URL": true,
+}
+
+// workerSets reports whether the worker sets the variable k after a
+// script's own envs: one of laterBunVariables, or NODE_PATH when the
+// engine has one, which the harness passes on (WR-22/b, harness.BaseEnv).
+func workerSets(k string) bool {
+	if k == "NODE_PATH" {
+		_, ok := os.LookupEnv("NODE_PATH")
+		return ok
+	}
+	return laterBunVariables[k]
 }
 
 // addScriptEnvs adds a path script's own envs, the KEY=VALUE entries of
@@ -40,7 +53,7 @@ func addScriptEnvs(env map[string]string, s *ir.Script, b Boundary) {
 	}
 	own := map[string]string{}
 	for _, e := range s.Metadata.Envs {
-		if k, v, ok := strings.Cut(e, "="); ok && k != "" && !laterBunVariables[k] {
+		if k, v, ok := strings.Cut(e, "="); ok && k != "" && !workerSets(k) {
 			own[k] = v
 		}
 	}

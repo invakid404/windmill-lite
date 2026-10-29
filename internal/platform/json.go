@@ -9,8 +9,10 @@ import (
 )
 
 // This file holds JSON values as Windmill's backend JSON library holds
-// them (FX-42 rule 2): what the API's interpolation and the worker's
-// argument resolution parse and write out again. An object keeps its keys
+// them (FX-42 rules 2 and 9): what the API's interpolation and the
+// worker's argument resolution parse and write out again, and the results
+// of a loop's or branchall's children, which the worker reads into values
+// and writes out as the container's result (Reprint). An object keeps its keys
 // in insertion order, and a repeated key keeps its first position with its
 // last value. A number without a fraction or an exponent is an integer
 // when a signed or an unsigned 64-bit integer holds it exactly (except
@@ -572,3 +574,21 @@ func isRangeError(err error) bool {
 // JSONString writes s as a JSON string as the backend's JSON library does:
 // the body of a variable's value (WA-11).
 func JSONString(s string) []byte { return appendString(nil, s) }
+
+// Reprint parses text, one JSON value, and writes it out again as the
+// backend's JSON library does (FX-42 rule 9): compact, keys in their order,
+// a string's escapes minimal, and numbers in the library's notation (see
+// the top of this file), -0 as -0.0. It fails where the library's parse
+// does, for a number beyond a double's range among others. The engine
+// writes a loop's or branchall's result this way (JE-44).
+func Reprint(text []byte) ([]byte, error) {
+	n, err := parseJSON(text)
+	if err != nil {
+		return nil, err
+	}
+	return n.write(nil), nil
+}
+
+// FormatDouble writes a finite double in the backend's JSON library's
+// notation (see the top of this file).
+func FormatDouble(f float64) string { return formatDouble(f) }

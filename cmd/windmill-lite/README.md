@@ -127,7 +127,10 @@ side of host mode ([ADR 0004](../../docs/design/0004-harness-protocol.md),
 [ADR 0009](../../docs/design/0009-host-adapters.md)). It is not run by
 hand: the Bun host SDK
 ([harnesses/bun](../../harnesses/bun/README.md)) starts it as its child,
-with its socket as file descriptor 3. It loads the flows of the walking
+with its socket as file descriptor 3 and, as file descriptor 4, the
+channel on which the host announces its steps' child process groups
+(`child` frames, WR-55), which the engine reads on its own
+(`harness.HostChildren`). It loads the flows of the walking
 skeleton's test layout (`flows/<path>.flow.json`, not a built bundle) with
 `engine.Skeleton`, which runs them on the engine core
 ([internal/engine](../../internal/engine/README.md)), checks that the host

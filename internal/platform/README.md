@@ -26,7 +26,7 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
 | `results.go` | the `ResultCache` interface and `MemoryResults`, its local default (N4) |
 | `interpolate.go` | the walker: `RawResource`, `InterpolatedResource`, `ResourceExists`, `VariableExists`, `VariableValue`, `ResolveArgs`, `APIEnv`; `UpdateVariable` |
-| `json.go` | JSON values as Windmill's backend JSON library parses and writes them, `JSONString` |
+| `json.go` | JSON values as Windmill's backend JSON library parses and writes them ([FX-42](../../docs/semantics/execution.md#fx-42) rules 2 and 9), `JSONString`, and `Reprint` and `FormatDouble`, which the engine writes a loop's result and serde's error texts with |
 | `errors.go` | `Error`: the variants of the API's error type, their statuses and displays (WA-42) |
 | `data.go` | `LoadData`: a bundle's `data/` as a `Store` |
 

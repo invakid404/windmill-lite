@@ -75,7 +75,7 @@
       "site": "input_transform",
       "text": "Object.keys(results.a)",
       "context": {"previous_id": "a", "previous_result": "{\"b\":1}"},
-      "expect": {"binds": ["result", "results"], "code": "Object.keys((await results.a))", "route": "engine", "bound": {"previous_result": "{\"b\":1}"}, "results_lookup": true}
+      "expect": {"binds": ["result", "results"], "code": "Object.keys((await results.a))", "route": "engine", "bound": {"previous_result": "{\"b\":1}", "__wl_previous_id": "a"}, "results_lookup": true}
     },
     {
       "spec": "JE-10",

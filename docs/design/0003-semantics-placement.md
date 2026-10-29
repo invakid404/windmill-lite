@@ -438,8 +438,8 @@ error, with the database route (a step in between) as its control.
   values, gives the user's code `results`, `error` and the helpers, and
   serialises the value (JE-15). The evaluator binds a host string per
   context value the text names, and the results lookup and the helpers as
-  host functions that answer JSON text; it answers JE-18's previous-step
-  read from memory itself. Its cases are a pipeline level inside the
+  host functions that answer JSON text; JE-18's previous-step read is
+  answered from memory, by the results prelude since FU6 (below). Its cases are a pipeline level inside the
   package, `internal/expr/testdata/pipeline/<finding>.json`: each restates
   an E3a case, whose context it rebuilds from the recording's case, or
   gives its own, and says what `Compile` makes of the text and which route
@@ -480,6 +480,16 @@ error, with the database route (a step in between) as its control.
   where Windmill's evaluator panics. The texts the engine supplies for
   values read from storage follow [0005](0005-json-step-boundaries.md)'s
   corrected routing table.
+- Milestone FU6 followed the answers to FU3's open readings (request 10 of
+  the [README](README.md)), all in the program and the pipeline: JE-11's
+  count starts at each call, each helper's pass cutting the text at its
+  call text, and a panicked rewrite fails with the runtime's report of the
+  panicked task; the previous step's `results` read is the rebuilt
+  `previous_result` itself, which the results prelude returns from memory
+  when the evaluator names the previous id in a host string, while a
+  fetched read and the `resource` and `flow_user_state` helpers parse
+  with `JSON.parse` as it is when they run (JE-16, JE-18). The positions
+  E3a's stacks show are kept.
 - The protocol level was added with milestone C1. The frame codec is a rule
   that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
   for one shared case set that both sides run rather than two codecs that

@@ -90,7 +90,8 @@ step without failing the others.
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
-| `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
+| `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
+| `child` | harness → engine | `id` (the invocation), `pid` (from 2 to 2^31 − 1, so that a negated kill target never narrows to `0`, `-1` or another pid), `token` (the group's guardian's, when it has one: letters, digits and dashes, at most 64) | a child process the invocation started in a warm or host process, the leader of a process group of its own, written before the step's code goes on, on the socket of a spawned harness or on a host's child channel (fd 4); the engine kills the group when the invocation is abandoned and when the process ends (failure model item 7) |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
 | `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
@@ -208,24 +209,46 @@ microtask see none.
      ends it at once.
    - Its later log writes are dropped, and its later platform calls are
      refused with a `TypeError`.
+   - Its child processes still running in a warm or host process, each the
+     leader of a process group of its own that stands for the job's group
+     (item 7), are killed with their groups by the engine, which owns
+     them, when it handles the frame that settles the invocation, together
+     with whatever they started there, even after the child itself exited
+     ([WR-55](../semantics/languages.md#wr-55)).
    - A handle that its queued code creates after settlement is cleared at
-     once.
+     once, and a child it starts then is announced and killed by the
+     engine at once.
 
    Just before the frame that settles the invocation, a `warning` with
    code `left_behind` reports what the fence is about to revoke. Its
    `left` field counts each kind: `timeout`, `interval`, `immediate`,
-   `fetch`, and `child` for a child process still running, which is left
-   to run. The warning is sent in `fresh` mode too, where the exit then
-   cuts the work off, so a script that leaves work behind is flagged in
-   both modes. The counts come from the invocation's own registry, since
-   Bun 1.3.10's `process._getActiveHandles()` lists nothing.
+   `fetch`, `child` for a child's process group that still has a process
+   in it, and `detached` for a child the step itself started in a session
+   of its own that still runs, which is left to run, as it is on Windmill,
+   outside the job's group. The warning is sent in `fresh` mode too, where
+   the exit then cuts the work off and the engine waits for the job's
+   group (item 8), so a script that leaves work behind is flagged in both
+   modes. The counts come from the invocation's own registry, since Bun
+   1.3.10's `process._getActiveHandles()` lists nothing.
+
+   Killing a `child` at settlement is windmill-lite's reading. On
+   Windmill a process left in the job's group after the script returns
+   holds the job open until it exits (WR-55): the result is not stored
+   and the flow does not move on. A warm process cannot wait for it
+   without letting the step's code run after it settles, which the fence
+   exists to prevent, so it reports the child and kills it; `fresh` mode
+   waits as Windmill does. This is an open question to the semantics team
+   ([README](README.md)).
 
    The fence does not reach:
    - promise continuations already queued, `Bun.sleep` and
      `node:timers/promises` waits included (what they do through the
      fenced channels is refused);
    - sockets and clients the step opened itself, and shared objects;
-   - child processes;
+   - a child the step started detached, in a session of its own, and
+     processes `Bun.$` starts, which the harness does not wrap;
+   - what a synchronous child call left running after its child exited,
+     which stays in the harness's group until the process ends (item 7);
    - CPU work.
 
    Their errors are reported as `late` (D9). Work started in a process
@@ -261,6 +284,108 @@ microtask see none.
    `require`. A host whose own modules import `node:child_process` or
    `node:timers` by name before it connects leaves steps' named imports of
    them unwrapped; default imports and `require` always see the wrappers.
+
+   **Process groups** ([WR-55](../semantics/languages.md#wr-55)). Each
+   Windmill job leads its own process group, which the children it starts
+   join unless they start a session of their own; a timeout or a
+   cancellation kills the group, and a normal exit kills nothing. A `fresh`
+   process is its job's process and leads such a group (item 8). In a warm
+   or host process the steps share the harness's group, so a child an
+   invocation starts leads a group of its own instead, which stands for the
+   job's: the wrapper starts it detached and registers it as `child`, its
+   group being what is alive and what is killed, so a child's own children
+   are reached after it has exited. On Bun 1.3.10 every `node:child_process`
+   function starts its child through `Bun.spawn` (the asynchronous ones) or
+   `Bun.spawnSync` (the sync ones), once each, and passes `detached` on
+   only from `spawn` and `fork`, the functions that honour a step's own
+   `detached`; `exec`, `execFile` and the sync forms ignore it, so their
+   children are in the job's group on Windmill. The wrapper of `Bun.spawn`
+   therefore registers every asynchronous child, once, and gives each its
+   group. A child the step started detached where Bun honours it registers
+   as `detached` and is never killed.
+
+   A group's id is reused by the kernel once the group has ended, so the
+   id alone does not name the group. The wrapper starts each grouped child
+   through a `/bin/sh -c` prologue: the shell, the group's leader, runs a
+   subshell that starts a guardian in the background, in the group, and
+   exits; the shell reaps the subshell and then execs the step's command,
+   which keeps the shell's pid, its stdio and its place, so `child.pid`,
+   the child's streams and its exit status are the command's. The
+   guardian's parent is gone before the command starts, so it is no child
+   of the command, and a command that waits for all its children
+   (`wait()`, `waitpid(-1)`) does not wait for it. The guardian closes
+   descriptors 0 to 9, the ones a spawn's stdio and IPC pipes take (dash,
+   Linux's `/bin/sh`, names none above 9), so it holds none of the
+   child's pipes,
+   and sleeps for `999999999.<token>` seconds, with a random token the
+   `child` frame carries. While it lives, the kernel cannot give the
+   group's id to another process. A command that cannot be run as given
+   (no executable at that path, or none PATH finds), or a spawn with an
+   `argv0` of its own, is started without a guardian, so it fails or runs
+   exactly as Bun runs it.
+
+   The engine owns those groups, since the harness's event loop, which the
+   step can block, cannot be relied on to kill them. Before the step's
+   code goes on, the harness announces each group in a `child` frame,
+   written synchronously: through a spawned harness's socket descriptor,
+   after what its socket already took (a Bun socket keeps no buffer of its
+   own), and by a host on a channel of its own, the engine's fd 4, since a
+   host's socket may hold bytes it has not written yet, which a
+   synchronous write would overtake, and a step can back that socket up
+   and then block the loop. The engine alone signals those groups; the
+   harness only counts them for the `left_behind` warning, a guarded child
+   while its own process runs. The engine holds each group with the
+   members it last saw in it, pid and start time, and finds the guardian
+   among them by the token in its arguments: its `sleep` operand, or,
+   from its fork until its exec, a word of the prologue's script, which
+   it carries as a copy of the shell; the group's leader carries the
+   script too until it execs the step's command, so only the operand
+   makes the leader a guardian. So a step's command that exits at once
+   cannot leave the engine a group in which it knows no process. A look
+   that finds neither the guardian nor a member it saw before, while a
+   member other than the leader runs and reads no arguments, as in the
+   middle of an exec, is undecided: the group is kept as it was and
+   looked at again, and a kill looks again for up to 200 ms before it
+   gives the group up. It signals a group only while
+   it is the original: while the guardian is among its members, or, for a
+   group without one, while a member it saw before is still there, the
+   same process, since a group's id is not given to a new process while
+   the group has a member. A group that took the id after the original
+   ended has no process with the token and shares no member with it, so
+   it is never signalled; the only instant left open is between a look at
+   the members and the signal that follows it. A group without a guardian
+   whose members all came and went between two looks (every 50 ms in its
+   first second, every 250 ms after) is given up and left running, rather
+   than risk another owner's processes. When only its guardian is left,
+   the engine kills the guardian and forgets the group. Every kill of a
+   group, the release's included, looks at its members afresh under the
+   group's own lock and ends the group for good, so a group is killed
+   once, by whichever path comes first, and no path signals its id from
+   a look that another path's kill made out of date. The guardian is an
+   orphan from its start, adopted by PID 1 or the nearest subreaper,
+   which is the engine when it runs as PID 1 of a container without an
+   init, or as a subreaper; so is what a member leaves when it exits. The
+   engine reaps those it is the parent of, or each would stay a zombie
+   until the engine exits: what it kills, after the kill and after the
+   harness process has gone too, and a descendant that exits while its
+   group still runs. It waits for each by its own pid, without blocking,
+   only while the pid is still the process it saw in the group (the same
+   start time) and only when it is that process's parent, so no wait
+   takes the exit status of another of its children, an `exec.Cmd`'s
+   included. The engine
+   kills an invocation's announced groups when it abandons the invocation
+   (its timeout or cancellation), at its settlement, when the process
+   ends, a watchdog's kill included, and at once for a group announced
+   after any of these. Every process the engine spawns leads a
+   process group of its own, which its kill and its end reach. A
+   synchronous call's child gets no group of its own, because its pid is
+   known only once it has exited, too late to announce: it stays in the
+   harness's group, which the end of the process kills, so a call that
+   blocks the event loop past the watchdog ends with the process. What a
+   synchronous child leaves running after it exits stays in that group
+   too, unattributed, and runs until the process ends. The call itself
+   goes on after a timeout (D2). windmill-lite has no log limit, the third
+   kill trigger WR-55 names.
 8. **`fresh` mode** restores Windmill's behaviour for all of the above:
    - **One process per invocation**, in its own working directory. The
      engine starts the process for the invocation, and the process offers
@@ -278,6 +403,21 @@ microtask see none.
    - **Killed, not abandoned.** The engine kills it on timeout or
      cancellation, so the invocation settles with the process and reports
      nothing late.
+   - **Its own process group** ([WR-55](../semantics/languages.md#wr-55)).
+     The engine spawns it as the leader of a process group, which the
+     step's children join, and its kill reaches the whole group. A settled
+     result is held until the process has exited and no process is left in
+     its group, so a background child holds the job open as on Windmill.
+     The result is released only when the group empties by itself: a
+     timeout or a cancellation meanwhile kills the group and ends the step
+     with its error, and any other kill (the engine's, a pool's close at
+     its deadline) or a failed connection fails it as killed by `SIGKILL`,
+     settled with the process, although the script returned. A child that
+     started a session of its own is not waited for. The engine is not the
+     orphans' parent, so it watches the group with signal 0, and reaps
+     them when it is their parent (PID 1 of a container, or a subreaper),
+     as Windmill's worker does: each by its own pid, never by the group's
+     id, which another process of the engine's may hold by then.
    - **No watchdog.**
 
    See [0006](0006-module-state.md).
@@ -350,9 +490,10 @@ step, never releases them.
   listening one for `fresh` processes, the non-listening one for warm ones.
 - The base environment of the process follows [WR-22](../semantics/languages.md#wr-22)
   and [WA-2](../semantics/client-api.md#wa-2): `PATH`, `HOME`, `TZ`,
-  `FORCE_COLOR=1`, `DO_NOT_TRACK=1`, `BUN_INSTALL_CACHE_DIR`,
-  `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`, `NODE_PATH` where Windmill would set
-  it, and `BASE_URL` pointing at the facade origin on `127.0.0.1` (Windmill's
+  `FORCE_COLOR=1`, `DO_NOT_TRACK=1`, `BUN_INSTALL_CACHE_DIR` (the engine's
+  `WINDMILL_DIR`, or `/tmp/windmill`, then `/cache_nomount/bun`),
+  `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`, `NODE_PATH` when the engine has one,
+  as the worker copies its own, and `BASE_URL` pointing at the facade origin on `127.0.0.1` (Windmill's
   value is its internal URL with `localhost` replaced by `127.0.0.1`).
   `BASE_INTERNAL_URL` is not set for Bun, as in Windmill. Both are set before
   any step module loads, because the client captures its base URL at import
@@ -619,7 +760,8 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   it. A run's `id` is its id in the engine, so the host finds the scope of
   each invocation by its `run`. W1 also recorded how host mode starts: the
   SDK passes the engine a socketpair as fd 3 (Node's extra `"pipe"` stdio,
-  a socket on Bun 1.3.10). A host-mode hello must offer the `host`
+  a socket on Bun 1.3.10), and since FU6 a second one as fd 4 for its
+  steps' `child` frames. A host-mode hello must offer the `host`
   capability and name the engine's parent, and the watchdog signals only
   while `getppid()` still names it (review item cl P4-3). A protocol error
   from a host ends the connection, and with it the engine, rather than
@@ -796,8 +938,40 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
   - **Intercepted replies** carry the reason phrase Go's `net/http` writes
     for their status as `statusText`, as the TCP transport's do.
 
+- Milestone FU6 followed the reference's revision of 2026-10-29 (SC2):
+  - **Process groups** ([WR-55](../semantics/languages.md#wr-55); failure
+    model items 4, 7 and 8). Before, child processes were outside the
+    fence and left running. A `fresh` process now leads its job's group,
+    which its kill reaches and its outcome waits for. In a warm or host
+    process each child an invocation starts asynchronously leads a group
+    of its own, announced in a new `child` frame: the engine kills it when
+    it abandons the invocation and when the process ends, without the
+    harness's event loop, which the step may block; the harness's `cancel`
+    and settlement kill it too, and `left_behind` counts a child the step
+    started detached as `detached`, the one kind left running. A
+    synchronous call's child stays in the harness's group, which the end
+    of the process kills. A held fresh result is released only when its
+    group empties by itself. Killing at settlement where Windmill would
+    wait is the reading recorded as an open question in the
+    [README](README.md). A host announces its groups on a channel of its
+    own (fd 4). The engine alone signals a child group, the harness only
+    reporting it: each group starts with a guardian that keeps its id
+    reserved, the engine holds a group with the members it last saw and
+    signals it only while the guardian or such a member is still there, and
+    a `child` frame's pid is checked against the kernel's 32-bit range, so
+    no kill reaches a group that took a child's id after its own ended or
+    a special target.
+    Each child is now registered once: before, one started through
+    `node:child_process` was counted twice, by its own wrapper and by
+    `Bun.spawn`'s.
+  - **The base environment** ([WR-22](../semantics/languages.md#wr-22)/b)
+    has `BUN_INSTALL_CACHE_DIR=<WINDMILL_DIR>/cache_nomount/bun`, with the
+    engine's `WINDMILL_DIR`, `/tmp/windmill` when it has none, and the
+    engine's `NODE_PATH` only when it has one; a script's own `NODE_PATH`
+    entry then does not reach the step.
+
 ## Spec IDs relied on
 
 WR-1, WR-2, WR-4, WR-7, WR-12, WR-13, WR-15, WR-18 to WR-23, WR-37, WR-40 to
-WR-45, WR-V1, WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
+WR-45, WR-55, WR-V1, WR-V2, WR-V5, WA-1, WA-2, WA-31, Q-WA-4, Q-WR-2, FX-19, FX-23, FX-24, FX-25, FX-38,
 CF-4, CF-7, CF-28.

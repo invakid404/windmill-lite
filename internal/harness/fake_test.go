@@ -25,6 +25,9 @@ func TestMain(m *testing.M) {
 	if mode := os.Getenv("WL_FAKE_HARNESS"); mode != "" {
 		os.Exit(fakeHarness(mode))
 	}
+	if os.Getenv("WL_WAIT_ALL") != "" {
+		os.Exit(waitAll())
+	}
 	os.Exit(m.Run())
 }
 

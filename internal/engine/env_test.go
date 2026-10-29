@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"os"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -100,4 +101,32 @@ func TestScriptEnvs(t *testing.T) {
 			t.Errorf("native step %s's WM_WORKSPACE is %q", script, env["WM_WORKSPACE"])
 		}
 	}
+}
+
+// The worker copies its own NODE_PATH into a Bun job's environment after
+// the script's envs, and only when it has one (WR-22/b): a script's
+// NODE_PATH entry reaches the step when the engine has none, and is
+// skipped when it has one, which the harness's base environment passes on.
+func TestScriptEnvNodePath(t *testing.T) {
+	s := &ir.Script{Metadata: &ir.Metadata{Envs: []string{"NODE_PATH=/mine", "BUN_INSTALL_CACHE_DIR=/mine"}}}
+	t.Run("the engine has none", func(t *testing.T) {
+		t.Setenv("NODE_PATH", "")
+		os.Unsetenv("NODE_PATH")
+		env := map[string]string{}
+		addScriptEnvs(env, s, BoundaryBun)
+		if got, ok := env["NODE_PATH"]; !ok || got != "/mine" {
+			t.Fatalf("NODE_PATH is %q (%v), want the script's", got, ok)
+		}
+		if v, ok := env["BUN_INSTALL_CACHE_DIR"]; ok {
+			t.Fatalf("BUN_INSTALL_CACHE_DIR is the script's %q; the worker always sets it", v)
+		}
+	})
+	t.Run("the engine has one", func(t *testing.T) {
+		t.Setenv("NODE_PATH", "/engine")
+		env := map[string]string{}
+		addScriptEnvs(env, s, BoundaryBun)
+		if v, ok := env["NODE_PATH"]; ok {
+			t.Fatalf("NODE_PATH is the script's %q, over the engine's", v)
+		}
+	})
 }

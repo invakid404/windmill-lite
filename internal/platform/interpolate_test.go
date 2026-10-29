@@ -146,7 +146,7 @@ func sameJSON(t *testing.T, got, want []byte) bool {
 
 // TestInterpolationCases runs testdata/interpolation.json: the walker's
 // three contracts (WA-40) against the catalogue cases of WA-10 to WA-12,
-// WA-V3, WA-42, JE-42, WR-5, FX-42/h and FX-51/c.
+// WA-V3, WA-42, JE-42, WR-5, FX-42/h, FX-42/i, FX-42/k, FX-42/l and FX-51/c.
 func TestInterpolationCases(t *testing.T) {
 	data, err := os.ReadFile("testdata/interpolation.json")
 	if err != nil {

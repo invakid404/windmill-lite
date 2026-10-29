@@ -14,7 +14,10 @@ process-level error to every invocation in flight. Milestone C3b added
 `fresh` mode and the `left_behind` warning, whose `Left` counts what an
 invocation still had when it settled (the D9 fence). Milestone PF1 made
 the platform handler two-phase, so the facade sees every platform frame in
-order, and gave each process its facade origin as `BASE_URL`.
+order, and gave each process its facade origin as `BASE_URL`. Milestone
+FU6 made a fresh process the leader of its job's process group
+([WR-55](../../docs/semantics/languages.md#wr-55)) and completed the base
+environment (WR-22/b).
 `Pool` and `Process` implement `engine.StepExecutor`; their users are the
 walking skeleton's interpreter in
 [internal/engine](../engine/README.md) and its `windmill-lite host` command
@@ -136,8 +139,79 @@ WR-22's base set that needs no other milestone. When `ProcessConfig.Facade`
 is set, `BASE_URL` is appended with its value, over any value of the same
 name, as Windmill's worker sets it last
 ([WA-2](../../docs/semantics/client-api.md#wa-2)); `BASE_INTERNAL_URL` is
-never set for Bun. The reference gives no values for
-`BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, so they stay unset.
+never set for Bun. The engine stands in for the worker
+([WR-22](../../docs/semantics/languages.md#wr-22)/b):
+`BUN_INSTALL_CACHE_DIR` is the engine's `WINDMILL_DIR` (`/tmp/windmill`
+when unset or empty) followed by `/cache_nomount/bun`, and `NODE_PATH` is
+the engine's, set only when the engine has one.
+
+**Process groups** ([WR-55](../../docs/semantics/languages.md#wr-55)).
+`Spawn` makes every process the leader of a process group of its own, and
+killing it signals the whole group as well. A fresh process is its
+invocation's job process: the step's children join its group unless they
+start a session of their own, and its outcome waits for them (below). In a
+warm or host process the harness gives each child an invocation starts
+asynchronously a group of its own and announces it in a `child` frame,
+written before the step's code goes on
+([harnesses/bun](../../harnesses/bun/README.md)). The engine records the
+groups per invocation (`invocation.children`) and kills them itself,
+without the harness's event loop, which the step may block: when it
+abandons the invocation (its timeout or cancellation, in `exec`), when the
+process or the host's connection ends (`failInvocations`), and at once
+for a group announced after that or after the invocation settled. It
+forgets an invocation's groups at its settlement, which killed them in
+the harness. A group id outside 2 to 2^31 − 1, which a negated kill target
+would narrow to another target (`0`, `-1`, another pid), is refused by the
+codec and again before any signal (`validGroupID`), and so is the
+harness's own pid. The engine alone signals a child group (the harness
+only reports it), and only while it is still the child's (`childGroup`):
+each group is held with the members the engine last saw in it, pid and
+start time (`groupMembersOf`: one pass over `/proc` on Linux,
+`kern.proc.pgrp` on macOS), and with the token of its guardian, the
+process the harness starts in the group so that its id stays reserved,
+which the engine finds among the members by its arguments
+(`processHasGuard`: `/proc/<pid>/cmdline` on Linux, `kern.procargs2` on
+macOS, which gives another process's arguments but not its environment).
+The token counts as the `sleep` operand, or, for a member other than the
+group's leader, as a word of the prologue's script, which the guardian
+carries from its fork until its exec (`hasGuardArg`); the leader carries
+the script too until it execs the step's command, so it is never taken
+for the guardian by it. It looks for the guardian again at each look
+until it finds it, and again once the process it found has exited (the
+prologue's subshell carries the script as well). A look that finds
+neither the guardian nor a member seen before, in a guarded group, while
+a member other than the leader runs and reads no arguments
+(`processArgsUnread`: as in the middle of an exec, when
+`/proc/<pid>/cmdline` reads empty), is `undecided`: the watcher keeps the
+group as it was, and `end` looks again, `endRetry` apart, up to
+`endTries` times (200 ms), before it gives the group up. A listing is not
+taken at one instant (it lists the processes that exist as it starts and
+reads each in turn), so the prologue can run its course during the one
+`newChildGroup` takes, the leader gone before it is read and the guardian
+forked after the listing started; an empty listing is taken again, and
+the second shows the guardian.
+`continues` takes the group for the original while the guardian is among
+its members, or, without one, while a member seen before is still there;
+otherwise the group is given up for good and never signalled. A group
+that took the id after the original ended has no guardian and shares no
+member, so no kill reaches it. `watchChildren` looks at each group every
+50 ms in its first second and every 250 ms after: it renews the members,
+drops the groups that no longer continue, and releases a group whose
+guardian is its only member, killing the guardian and dropping the group.
+Every kill of a group, the release's, a cancellation's, a settlement's or
+the process's end's, goes through `childGroup.end`, which looks at the
+members afresh under the group's lock and ends the group for good: a
+group is killed once, by whichever path comes first, and no path signals
+its id from a look that another path's kill made out of date.
+The engine also kills an invocation's groups at its settlement
+(`settleLocked`), when the harness reported them left behind. A group
+without a guardian whose members all came and went between two looks is
+given up and left running. The process operations are variables the
+tests replace (`groupMembers`, `isGuard`, `argsUnread`, `signalGroup`), so no test
+sends a real signal to a fake id.
+When a warm process ends, `endGroup` kills what is left in its own group:
+what the steps' synchronous child calls started, which gets no group of
+its own.
 
 **The handshake.** The harness's `hello` must match `Kind`, `Runtime`
 (`PinnedBun`, 1.3.10, for Bun), `Bundle` and the protocol version, and its
@@ -161,7 +235,9 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 | `result` with `settled` true | the outcome | `Settled(completed)` first |
 | `result` with `settled` false (an intercepted `process.exit`, an attributed process-level error) | the outcome | later: the final `Late`, then `Settled(completed)`; or `Settled(process_exited)` |
 | ctx ends first | `context.Cause(ctx)`, after sending `cancel` with `engine.CancelReasonOf(ctx)` | later: the final `Late` (`result` or `error`), then `Settled(completed)`; or `Settled(process_exited)` |
-| fresh mode: ctx ends first | `context.Cause(ctx)`, after killing the process | later: `Settled(process_exited)`, nothing late |
+| fresh mode: `result` with `settled` true | the outcome, once the process has exited and its group has emptied by itself (WR-55): a background child holds the job open; a kill or a failed connection before that fails the job as `escaped` by `SIGKILL`, settled `process_exited` | `Settled(completed)` first |
+| warm or host mode: `child` | nothing; the group is recorded for the invocation, or killed at once when the invocation was abandoned or has settled or the process is ending (WR-55) | none |
+| fresh mode: ctx ends first, before the result or while it waits for the group | `context.Cause(ctx)`, after killing the process and its group | later: `Settled(process_exited)`, nothing late |
 | fresh mode: the process exits 0 before a result (`process.exit(0)`), over a connection that never failed | `empty` ([WR-V2](../../docs/semantics/languages.md#wr-v2)) | `Settled(process_exited)` first |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
 | host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
@@ -210,12 +286,48 @@ engine's own blocked writes never make a live harness look silent. The
 signal goes through the `os.Process` handle, which cannot reach a reused
 pid: Go uses a pidfd on Linux and does not signal a reaped child elsewhere.
 
+A fresh process's group is signalled as well, by its id. While a process is
+left in the group, the id is given to no other process; `awaitGroup`,
+which holds a fresh result until the group is empty (looking every 20 ms
+with signal 0, and reaping the group's members when the engine is their
+parent: PID 1, or a subreaper, each by its own pid with `reapMember`, the
+process's own pid excepted), marks it gone once it sees it empty, and it
+is not signalled again. The only window is the one poll between the group
+emptying and that look. When the engine runs as PID 1 of a container
+without reaping orphans otherwise, the reaping matters: a zombie stays in
+its group.
+
+The same holds for the child groups (`reap.go`; review round 5, finding
+1). Every guardian is an orphan from its start, and so is what a member
+leaves when it exits, so the engine, as PID 1 or a subreaper, is their
+parent. `childGroup.end` hands the members it killed to the package's
+reaper (`reapLater`), and so does `endGroup` for the harness's own group,
+the harness itself excepted (its `exec.Cmd` waits for it); a goroutine,
+which outlives the `Process`, reaps them as they exit, on the watcher's
+schedule and at each of its looks (`reapPass`). Before each step it lists
+the group again, and takes the listing only while a member it holds is
+still in the group afterwards: the group was then never empty, so its id
+was never reused, and a process forked as the kill landed is reaped too.
+`reapAdopted` reaps, in a group the engine still holds, a member seen at
+two looks that has exited, a descendant the engine adopted, so it does
+not stay in the group until the group ends. Every wait is
+`wait4(pid, WNOHANG)` for one member, made only while `readProc` shows the
+process with the start time the engine saw and the engine as its parent:
+another child's exit status is never taken, and `ECHILD` means the member
+is not the engine's. A member whose parent is another process is kept
+until that parent reaps it, or until the engine adopts it. `readProc` and
+`reapPID` are variables the tests replace, as are the group operations.
+
 ## Host mode
 
 `AttachHost` serves host mode on the engine's side (ADR 0004 host mode,
 milestone W1). The Bun host SDK starts the engine with its socket as file
 descriptor 3 (`HostConn`); the host is the harness that every invocation
-goes to.
+goes to. It passes file descriptor 4 too (`HostChildren`,
+`HostConfig.Children`): a channel of `child` frames only, which the host
+writes synchronously and `readChildren` reads on a goroutine of its own,
+so a step's child group reaches the engine even when the host's socket is
+backed up and its event loop then blocks (WR-55).
 
 - **Handshake.** As for a spawned harness, plus: the hello must offer the
   `host` capability (else `harness_mismatch`), and its `pid` must be the
@@ -250,10 +362,12 @@ A **fresh** pool (`engine.ModuleStateFresh`,
 [ADR 0006](../../docs/design/0006-module-state.md)) starts one process for
 each `Execute`, which serves that invocation in a working directory of its
 own and exits once it has reported the outcome; one that outlives its
-outcome by 5 s is killed. When the engine stops waiting first, the process
-is killed and the invocation settles with it. `Close` waits for the fresh
-processes until its context ends and kills the rest; one that finishes
-starting after `Close` is killed before it runs anything. None of the rules
+outcome by 5 s is killed. The outcome reaches the caller once no process is
+left in the process's group (WR-55). When the engine stops waiting first,
+the process and its group are killed and the invocation settles with it.
+`Close` waits for the fresh processes until its context ends and kills the
+rest; one that finishes starting after `Close` is killed before it runs
+anything. None of the rules
 below apply to it. The rest of this section is about warm pools.
 
 - **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes;
@@ -348,6 +462,38 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   also holds every start after the first on a gate file. The affinity and
   taint tests turn lag routing off, which is not under test there, so none
   of these depends on timing.
+- `children_test.go` runs the real Bun harness on the bundle of
+  `testdata/children` (milestone FU6): the base environment's
+  `BUN_INSTALL_CACHE_DIR` and `NODE_PATH`, as `BaseEnv` builds them and as
+  a step sees them (WR-22/b), and process groups (WR-55). In fresh mode a
+  child in the group holds the outcome until it exits, settled completed
+  (WR-55/a), a detached child does not, and a timeout while the outcome
+  waits kills the group and ends the step with the timeout (WR-55/b), and
+  a kill that is not the invocation's own (`Kill`, as a pool's close does)
+  fails the held job instead of releasing its result. In warm mode a
+  normal return settles at once, its `child` reported and killed with its
+  group, a `detached` child reported and left running, and a timeout's
+  `cancel` kills the children of the abandoned call. A step that blocks
+  its event loop after it started a child (`stall`) has the child killed
+  by the engine on its timeout, though the harness cannot handle the
+  `cancel`, and with the process when the watchdog kills it; a synchronous
+  child call's child ends with the process too. A child that waits for
+  all its children before it exits (`spawn-waitall`, this test binary run
+  with `WL_WAIT_ALL`, looping on `wait4(-1)`) finishes in both modes, as
+  outside the harness: a warm group's guardian is no child of it.
+- `reap_linux_test.go` re-runs the test binary as a child subreaper
+  (`prctl(PR_SET_CHILD_SUBREAPER)`, skipped where the kernel refuses it)
+  and runs the real Bun harness there, so the test process adopts what
+  the engine of PID 1 without an init would: repeated short spawns whose
+  shell leaves a daemon (`spawn-daemon`), a descendant that exits while
+  its group still runs (`spawn-shell`), a cancellation of a stalled step,
+  the process's end with a child group or a synchronous child, and a
+  fresh job's orphan. Each guardian and child the engine adopted is
+  reaped, the descendant before its group ends, and no zombie of the
+  test process is left. `childgroup_test.go` covers the reaping rules on
+  the fake process table (`TestReapChildGroups`), and the reviewer's probe
+  (`TestReviewOwnedGuardianReaped`): a real guardian, the test's own
+  child, is reaped once the watcher releases its group.
 - `fake_test.go` re-runs the test binary as a fake harness for what Bun
   cannot be made to do on demand: a peer that stops reading, a mute peer,
   outcomes fixed before the call ends, late output, protocol violations, an

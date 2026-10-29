@@ -322,6 +322,27 @@
       "expect": {"text": "{\"v\":{\"zz\":1000.0,\"b\":1e+21,\"aaa\":12345678901234567891,\"big\":1.2345678901234568e+29,\"n\":1500.0,\"s\":\"A/\"}}"}
     },
     {
+      "spec": "FX-42/i",
+      "title": "$jsonvar: where the backend's notation turns to exponent form",
+      "setup": {"variables": [{"path": "u/t/j", "value": "[0.000001, 1e16, 1e15, 100000000000000000000, -0.0, 18446744073709551616, 1.234e-6, 0.00001, 12]"}]},
+      "resolve": {"args": {"v": "$jsonvar:u/t/j"}},
+      "expect": {"text": "{\"v\":[1e-6,1e+16,1000000000000000.0,1e+20,-0.0,1.8446744073709552e+19,1.234e-6,0.00001,12]}"}
+    },
+    {
+      "spec": "FX-42/k",
+      "title": "$jsonvar: the token -0 is negative zero, and a number too small for a double is zero with its sign",
+      "setup": {"variables": [{"path": "u/t/j", "value": "[-0, 0, -1e-400, 1e-400]"}]},
+      "resolve": {"args": {"v": "$jsonvar:u/t/j"}},
+      "expect": {"text": "{\"v\":[-0.0,0,-0.0,0.0]}"}
+    },
+    {
+      "spec": "FX-42/l",
+      "title": "$jsonvar: a number too large for a double is not accepted",
+      "setup": {"variables": [{"path": "u/t/j", "value": "1e400"}]},
+      "resolve": {"args": {"v": "$jsonvar:u/t/j"}},
+      "expect": {"error": "Internal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 5"}
+    },
+    {
       "spec": "FX-51/c",
       "title": "$jsonvar: refuses a lone surrogate escape",
       "setup": {"variables": [{"path": "u/t/j", "value": "{\"s\": \"\\ud83d\"}"}]},
