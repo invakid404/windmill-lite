@@ -29,7 +29,12 @@ type Trace struct {
 	// (FX-36, FX-42); zero for a latched or halted run.
 	Result jsonval.Value
 	// ResultOrigin is who produced Result when it is an error.
+	// ResultNested lists, when Result aggregates other values (a loop's
+	// array), the JSON pointers relative to it of the errors inside it that
+	// windmill-lite generated, such as "/0" for an iteration's (see
+	// StepRecord.ResultNested).
 	ResultOrigin Origin
+	ResultNested []string
 	// Latched is the error the run latched (H5) when Status is
 	// conformance.RunLatched: the first one latched.
 	Latched error
@@ -114,6 +119,15 @@ type StepRecord struct {
 	// error of a module that failed with no job (FX-15 context 2).
 	ResultOrigin  Origin
 	CarriedOrigin Origin
+	// ResultNested and CarriedNested list, for a value that aggregates
+	// others (a loop's array of its iterations' results), the JSON pointers
+	// relative to it of the errors windmill-lite generated inside it: "/0"
+	// for the first iteration's, "/1/0" inside a nested loop's array. An
+	// origin says who produced a value as a whole; these say it of the
+	// parts, so that a comparison applies ADR 0011's location rule there
+	// and nowhere else.
+	ResultNested  []string
+	CarriedNested []string
 	// BranchChosen is the branch a branchone took.
 	BranchChosen *conformance.BranchChosen
 

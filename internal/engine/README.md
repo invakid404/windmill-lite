@@ -319,6 +319,7 @@ the step's success value, not the `EarlyStopError`
 | the same at a later module | the flow fails at once, the module not run: `{"error": {"message": <text>, "name": "InternalError"}}` | FX-15 context 1, JE-35 (a) |
 | `stop_after_if` fails | the module fails unrecoverably with the string `{"error": <text>}` | FX-21, JE-26 |
 | a for loop's iterator throws, is not an array, or is `ai` | a chaining error, routed as above: `Error: <evaluator text>`, ``Expected an array value in the iterator expression, found: <serde's message>``, or `AI input transform not supported for iterator` | CF-2, CF-23, JE-30 |
+| jsonb refuses the iterator's array (a NUL, an unpaired surrogate, a number beyond numeric's range), or a child flow's input | a chaining error, routed as above, before any iteration runs: `error returned from database: <PostgreSQL's message>` | CF-2, FX-48, FX-51 |
 | a parallel loop's `parallelism` throws or is not a u16 | a chaining error: ``Error during evaluation of expression `<text>`:
 <evaluator text>``, `Error parsing result as u16: <serde's message>. Value was: <value>` or `Error parsing static value as u16: <serde's message>` | JE-V1 |
 | a parallel loop of two or more iterations in a `same_worker` flow | a chaining error: `Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker` | CF-7 |
@@ -341,7 +342,12 @@ windmill-lite does not write (D14); a comparison strips them on the
 oracle's side ([internal/conformance](../conformance/README.md#location-suffixes)).
 The trace records who produced a module's carried value apart from its
 result (`CarriedOrigin`), since an error stop's `EarlyStopError` is the
-engine's over a step's own result.
+engine's over a step's own result; and, for a loop's array, where inside it
+the errors the engine generated are (`ResultNested`, `CarriedNested`,
+`Trace.ResultNested`: JSON pointers such as `/0` or `/1/0` for a nested
+loop's), through every level of nesting up to the run's result, so that a
+comparison strips their locations and a user's error beside them keeps
+its own.
 
 **Readings where the reference is silent**, each pinned by a test:
 
@@ -383,7 +389,10 @@ result is the array of its iterations' results
    iterator is evaluated once, with `skip_if`'s scope; its elements are
    kept in their stored form, since Windmill stores the evaluated array
    ([CF-2](../../docs/semantics/control-flow.md#cf-2),
-   [JE-30](../../docs/semantics/expressions.md#je-30)). An empty array, or
+   [JE-30](../../docs/semantics/expressions.md#je-30)): an array jsonb
+   refuses fails the loop's start before any iteration runs
+   ([FX-48](../../docs/semantics/execution.md#fx-48),
+   [FX-51](../../docs/semantics/execution.md#fx-51)). An empty array, or
    an empty body, completes the loop at once with `[]` and no job; its
    `stop_after_if` is then an ordinary stop of the flow with `result` `[]`
    and no `all_iters`, and its `stop_after_all_iters_if` is not evaluated
@@ -427,9 +436,11 @@ result is the array of its iterations' results
    [JE-V1](../../docs/semantics/expressions.md#je-v1)): every iteration is a
    child flow on a goroutine of its own, each its own results scope.
    `parallelism`, evaluated per child with the loop's P and its flow's
-   input, holds the iterations from N on; each completion makes the next
-   held one eligible, in index order; with N = 0 none starts and only the
-   run's end stops the wait. There is no fail-fast: every iteration runs
+   input, holds a child k at or beyond its own N until k − N + 1
+   iterations have completed; the children not held start at once, so one
+   never waits behind a held one, and held ones start in the order of that
+   count, by index among equals; with N = 0 none starts and only the run's
+   end stops the wait. There is no fail-fast: every iteration runs
    (Windmill's continue-all, decisions Q-18), and the loop fails with the
    full array unless every iteration succeeded or `skip_failures`. A stop
    ends only its iteration, and the loop's `stop_after_if` is not
@@ -446,9 +457,10 @@ cancellation or a halt starts none, and a parallel loop waits for the
 iterations it started. A halt decided in one parallel iteration stops the
 others at their next module, and wakes a loop whose iterations are all
 held; the run's status ranks the latch, then the cancellation, then the
-halt (ADR 0008), whichever iteration met its signal first. A body's last
-module may halt after it while iterations of its parallel loop are still
-held, since the run would start them. A loop so interrupted records the
+halt (ADR 0008), whichever iteration met its signal first. A body
+module's halt-after asks the loops that contain it, at every level,
+whether the run would start more: a further iteration, an iteration a
+parallel loop still holds, or what follows a loop. A loop so interrupted records the
 array so far.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
@@ -465,9 +477,11 @@ collapsing and its previous_result chain, the loop's timeout and failure
 texts, `skip_failures`, every break and stop of the flow, the empty
 loop, the iterator's errors at both routes, nested `iter`, a parallel
 loop's index order, `parallelism`'s release order with a gated executor
-(N = 2, 1 and 0), continue-all, its start errors, chaining errors in a
-child flow, the hooks inside loops and the host signals across parallel
-iterations, concurrent runs, and serde's texts.
+(N = 2, 1 and 0, and a different N per child), continue-all, its start
+errors, an iterator jsonb refuses, chaining errors in a child flow, the
+hooks inside loops, the host signals across parallel iterations and
+halt-after in nested loops, the provenance of generated errors in nested
+arrays, concurrent runs, and serde's texts.
 The flow fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
 milestones N1a and N3a).

@@ -449,6 +449,51 @@ func TestObserveChildFlows(t *testing.T) {
 	}
 }
 
+// Inside a loop's array the location rule reaches exactly the errors the
+// trace points to as generated (StepRecord.ResultNested), on the loop's
+// site and on the run's result; a user's error of the same shape keeps
+// its difference (ADR 0011).
+func TestObserveNestedGenerated(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	site := conformance.SitePath{}.Child(conformance.Module("l"))
+	arr := `[{"error":{"name":"Anyhow","message":"Error: x"}},{"error":{"name":"Anyhow","message":"Error: y"}}]`
+	trace := func(nested []string) *engine.Trace {
+		return &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(arr), ResultNested: nested, Steps: []engine.StepRecord{{
+			Site: site, Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true,
+			Result: v(arr), Carried: v(arr), ResultNested: nested, CarriedNested: nested,
+		}}}
+	}
+	// The oracle's side: both entries end in a pickup location.
+	located := `[{"error":{"name":"Anyhow","message":"Error: x @worker.rs:3822:13"}},{"error":{"name":"Anyhow","message":"Error: y @worker.rs:3822:13"}}]`
+	var expect conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"failure","result":`+located+`,"steps":{"m:l":{"status":"failure","result":`+located+`}}}`), &expect); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		nested, differs []string
+	}{
+		{[]string{"/0", "/1"}, nil},
+		{[]string{"/1"}, []string{"/result/0/error/message", "/steps/m:l/result/0/error/message"}},
+		{nil, []string{"/result/0/error/message", "/result/1/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/result/1/error/message"}},
+	} {
+		got, generated, err := observeTrace(trace(c.nested), []string{"l"}, nil, conformance.CompareSpec{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var differs []string
+		for _, p := range compareRun(&conformance.Fixture{}, conformance.Run{Expect: &expect}, got, generated) {
+			if !strings.HasPrefix(p, "observed ") {
+				ptr, _, _ := strings.Cut(p, ": ")
+				differs = append(differs, ptr)
+			}
+		}
+		slices.Sort(differs)
+		if !slices.Equal(differs, c.differs) {
+			t.Fatalf("nested %v: differences at %q, want %q (generated %v)", c.nested, differs, c.differs, generated)
+		}
+	}
+}
+
 // The location rule reaches a generated error wherever the observation
 // keeps it: its stored result and its carried value, which keeps the
 // producer's member order (ADR 0011). It never reaches a user's error, nor

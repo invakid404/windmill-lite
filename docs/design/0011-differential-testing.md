@@ -402,9 +402,11 @@ their root jobs were not in flight together.
   origin apart from its result's, so the rule also applies to a carried
   value windmill-lite generated over a step's own result, such as that
   error stop's `EarlyStopError`; a user's `error_message` matches no
-  template. A child flow's modules are observed below its iteration's
-  site, `not_run` where the trace has no record of them, and its job id is
-  that site.
+  template. Inside a loop's array the trace points to the errors
+  windmill-lite generated (`ResultNested`), at every depth up to the run's
+  result, and the rule applies there only. A child flow's modules are
+  observed below its iteration's site, `not_run` where the trace has no
+  record of them, and its job id is that site.
 
 ## Spec IDs relied on
 

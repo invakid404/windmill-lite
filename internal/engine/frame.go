@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/rand/v2"
 	"strconv"
-	"sync/atomic"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -27,16 +26,18 @@ type frame struct {
 	// parallel one. id is the flow's job id (WM_FLOW_JOB_ID) and scope the
 	// id of its innermost flow scope (WM_ROOT_FLOW_JOB_ID, WA-V1).
 	path, id, scope string
+	// site is a child flow's site, its iteration's (<loop>/i:<n>).
+	site conformance.SitePath
 	// child marks a child flow: a chaining error at its first module fails
 	// it at its pickup (FX-15 context 3), where the root's fails that
 	// module (context 2).
 	child bool
-	// tail reports whether the run goes on once the frame's last module has
-	// completed, which haltAfter needs (AfterContinue); so does a positive
-	// held, the count of a parallel loop's iterations still held, which
-	// the run would start.
-	tail bool
-	held *atomic.Int32
+	// after reports whether the run would start something once the frame's
+	// last module has completed, which haltAfter needs (AfterContinue): a
+	// further iteration of its loop, an iteration its parallel loop still
+	// holds, or what follows the loop, asked of the frames that contain it
+	// when it is asked; nil for the root, after which nothing starts.
+	after func() bool
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
 	collapsed *ir.Module
@@ -78,6 +79,12 @@ func newFrame(ms []*ir.Module, prefix conformance.SitePath) *frame {
 		fr.sites = append(fr.sites, prefix.Child(seg))
 	}
 	return fr
+}
+
+// continues reports whether the run would start something once module i
+// of the frame has completed: the next module, or what follows the frame.
+func (fr *frame) continues(i int) bool {
+	return i < len(fr.modules)-1 || fr.after != nil && fr.after()
 }
 
 // ids returns the ids of the frame's modules, in order.

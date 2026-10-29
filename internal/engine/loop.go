@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -66,7 +68,10 @@ func (r *run) forLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value,
 // scope of skip_if (JE-22), and returns its elements in their stored form:
 // Windmill stores the evaluated array and reads each iteration's element
 // from it. A failure returns the chaining error's text: the evaluator's
-// error in its generic form, the array check's, or the ai one's.
+// error in its generic form, the array check's, the ai one's, or the
+// database's when jsonb refuses the array (a NUL, FX-48; an unpaired
+// surrogate or a number beyond numeric's range, FX-51), which fails the
+// write before any iteration starts.
 func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site conformance.SitePath, prev jsonval.Value, prevID string) ([][]byte, string, error) {
 	it := m.ForLoop.Iterator
 	var text []byte
@@ -82,16 +87,36 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 	default:
 		return nil, "AI input transform not supported for iterator", errIterator
 	}
-	items, ok := elements(text)
-	if !ok {
+	if _, ok := elements(text); !ok {
 		return nil, "Expected an array value in the iterator expression, found: " + serdeError(text, "a sequence"), errIterator
 	}
-	for k, item := range items {
-		if s, err := jsonval.FromProducer(item).Stored(); err == nil {
-			items[k] = s
-		}
+	stored, err := jsonval.FromProducer(text).Stored()
+	if err != nil {
+		return nil, databaseError(err).Error(), errIterator
 	}
+	items, _ := elements(stored)
 	return items, "", nil
+}
+
+// iterations are a loop's results so far, in index order, with the
+// pointers of the errors windmill-lite generated among them, which a
+// comparison needs (ADR 0011, StepRecord.ResultNested).
+type iterations struct {
+	values []jsonval.Value
+	nested []string
+}
+
+// add appends an iteration's result: a generated error at the iteration's
+// index, and the generated errors inside its result below that index.
+func (it *iterations) add(e flowEnd) {
+	at := "/" + strconv.Itoa(len(it.values))
+	it.values = append(it.values, e.result)
+	if e.origin.Generated() {
+		it.nested = append(it.nested, at)
+	}
+	for _, p := range e.nested {
+		it.nested = append(it.nested, at+p)
+	}
 }
 
 // sequentialLoop runs a sequential loop's iterations one after another
@@ -100,7 +125,11 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, items [][]byte, o outcome) outcome {
 	m := fr.modules[i]
 	l := m.ForLoop
-	after := i < len(fr.modules)-1 || fr.tail
+	// After an iteration's last module comes the next iteration, or what
+	// follows the loop.
+	after := func(k int) func() bool {
+		return func() bool { return k < len(items)-1 || fr.continues(i) }
+	}
 	// A collapsed iteration's previous_result is the step before the loop's
 	// result, then the previous iteration's; a loop at the first module of
 	// its flow gives every iteration the flow's input (JE-36 rules 1 and 5).
@@ -108,19 +137,19 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	if i == 0 {
 		iterPrev = fr.input
 	}
-	var entries []jsonval.Value
+	var it iterations
 	failed, ran := false, false
 	var stopErr error
 	r.progress(fr, i, nil)
 	for k, item := range items {
 		if st, ended := r.iterationEnded(ctx); ended {
-			return r.loopInterrupted(o, entries, ran, st)
+			return r.loopInterrupted(o, &it, ran, st)
 		}
 		ran = true
 		var e flowEnd
 		if l.Collapse {
 			c := r.collapsedFrame(fr, i, k, item, iterPrev)
-			c.tail = after || k < len(items)-1
+			c.after = after(k)
 			e = r.runList(ctx, c)
 			if e.chain != "" {
 				// The push of the iteration's job failed: a chaining error
@@ -132,15 +161,20 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 				iterPrev = e.result
 			}
 		} else {
-			c := r.childFrame(fr, i, k, item, false)
-			c.tail = after || k < len(items)-1
+			c, text := r.childFrame(fr, i, k, item, false)
+			if c == nil {
+				// The push of the iteration's child flow failed.
+				return r.chainingAt(fr, k == 0 && i == 0, o, text)
+			}
+			r.addChild(c)
+			c.after = after(k)
 			e = r.runList(ctx, c)
 		}
 		if ended(e.status) {
-			return r.loopInterrupted(o, entries, ran, r.endedStatus(ctx, e.status))
+			return r.loopInterrupted(o, &it, ran, r.endedStatus(ctx, e.status))
 		}
-		entries = append(entries, e.result)
-		r.progress(fr, i, entries)
+		it.add(e)
+		r.progress(fr, i, it.values)
 		if e.status == conformance.RunFailure {
 			// A failed iteration stops the loop unless skip_failures; an
 			// error stop breaks it either way, and the loop fails unless
@@ -158,10 +192,10 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		// The loop's own stop_after_if, after each successful iteration, is
 		// a break; skip_if_stopped and error_message have no effect (CF-11).
 		if s := m.StopAfterIf; s != nil {
-			v, err := r.predicate(ctx, s.Expr, fr.sites[i], r.iterStopScope(fr, s.Expr, e.result, entries))
+			v, err := r.predicate(ctx, s.Expr, fr.sites[i], r.iterStopScope(fr, s.Expr, e.result, it.values))
 			if err != nil {
 				if ctx.Err() != nil {
-					return r.loopInterrupted(o, entries, ran, conformance.RunCanceled)
+					return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
 				}
 				stopErr = err
 				break
@@ -171,15 +205,15 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	return r.loopDone(ctx, fr, i, o, entries, failed, stopErr)
+	return r.loopDone(ctx, fr, i, o, &it, failed, stopErr)
 }
 
 // parallelLoop runs a parallel loop's iterations at once, each a child
-// flow with its own results scope (CF-7, CF-19): parallelism holds the
-// iterations at and beyond it, and each completion releases the next held
-// one, in index order. The loop completes when every iteration has, with
-// no fail-fast (Windmill's continue-all, ADR 0008), and its stop_after_if
-// is not evaluated.
+// flow with its own results scope (CF-7, CF-19): parallelism, evaluated
+// per child, holds the children at and beyond it, and completions release
+// them. The loop completes when every iteration has, with no fail-fast
+// (Windmill's continue-all, ADR 0008), and its stop_after_if is not
+// evaluated.
 func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, prevID string, items [][]byte, o outcome) outcome {
 	m := fr.modules[i]
 	l := m.ForLoop
@@ -207,45 +241,71 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	if r.f.SameWorker && m.Sleep == nil && n > 1 {
 		return r.chaining(fr, i, o, "Bad request: Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker")
 	}
-	// An iteration's last module is followed by whatever comes after the
-	// loop, and by the iterations still held, which the run would start.
-	after := i < len(fr.modules)-1 || fr.tail
-	var held atomic.Int32
-	held.Store(int32(n))
+	// Every child is created at once (CF-7): a child whose input cannot be
+	// stored fails the loop's start, before any runs.
 	children := make([]*frame, n)
 	for k, item := range items {
-		children[k] = r.childFrame(fr, i, k, item, true)
-		children[k].tail, children[k].held = after, &held
+		c, text := r.childFrame(fr, i, k, item, true)
+		if c == nil {
+			return r.chaining(fr, i, o, text)
+		}
+		children[k] = c
 	}
+	// An iteration's last module is followed by the iterations still held,
+	// which the run would start, and by what follows the loop.
+	var held atomic.Int32
+	held.Store(int32(n))
+	for _, c := range children {
+		r.addChild(c)
+		c.after = func() bool { return held.Load() > 0 || fr.continues(i) }
+	}
+	// A child k is held when k is at or beyond its own parallelism N, and
+	// becomes eligible once k - N + 1 iterations have completed (CF-7,
+	// JE-V1). Held children wait by that count, in index order among
+	// equals; the others start at once.
+	type heldChild struct{ k, at int }
+	var queue []heldChild
+	for k, lim := range limits {
+		if lim >= 0 && k >= lim {
+			queue = append(queue, heldChild{k, k - lim + 1})
+		}
+	}
+	slices.SortStableFunc(queue, func(a, b heldChild) int { return cmp.Compare(a.at, b.at) })
 	ends := make([]flowEnd, n)
+	started := make([]bool, n)
 	done := make(chan int, n)
-	started, running, completed, next := 0, 0, 0, 0
+	nStarted, running, completed, q := 0, 0, 0, 0
 	stopped := conformance.RunStatus("")
-	// A held child k becomes eligible once k - N + 1 iterations have
-	// completed (CF-7).
-	eligible := func(k int) bool {
-		lim := limits[k]
-		return lim < 0 || k < lim || completed >= k-lim+1
+	launch := func(k int) bool {
+		if st, ended := r.iterationEnded(ctx); ended {
+			stopped = st
+			return false
+		}
+		started[k] = true
+		nStarted++
+		running++
+		held.Add(-1)
+		go func() {
+			ends[k] = r.runList(ctx, children[k])
+			done <- k
+		}()
+		return true
+	}
+	for k, lim := range limits {
+		if (lim < 0 || k < lim) && !launch(k) {
+			break
+		}
 	}
 	release := func() {
-		for stopped == "" && next < n && eligible(next) {
-			if st, ended := r.iterationEnded(ctx); ended {
-				stopped = st
+		for stopped == "" && q < len(queue) && queue[q].at <= completed {
+			if !launch(queue[q].k) {
 				return
 			}
-			k := next
-			next++
-			started++
-			running++
-			held.Add(-1)
-			go func() {
-				ends[k] = r.runList(ctx, children[k])
-				done <- k
-			}()
+			q++
 		}
 	}
 	release()
-	for running > 0 || (stopped == "" && next < n) {
+	for running > 0 || (stopped == "" && nStarted < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
 			// one (parallelism 0, CF-7): only the run's end stops the wait,
@@ -263,14 +323,16 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		completed++
 		release()
 	}
-	var entries []jsonval.Value
+	var it iterations
 	failed := false
-	for k := 0; k < started; k++ {
-		e := ends[k]
+	for k, e := range ends {
+		if !started[k] {
+			continue
+		}
 		if ended(e.status) && stopped == "" {
 			stopped = e.status
 		}
-		entries = append(entries, e.result)
+		it.add(e)
 		// A clean stop ends only its own iteration (CF-12 item 2); every
 		// iteration that did not succeed fails the loop unless
 		// skip_failures (CF-7).
@@ -278,10 +340,10 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			failed = !l.SkipFailures
 		}
 	}
-	if stopped != "" || started < n {
-		return r.loopInterrupted(o, entries, started > 0, r.endedStatus(ctx, stopped))
+	if stopped != "" || nStarted < n {
+		return r.loopInterrupted(o, &it, nStarted > 0, r.endedStatus(ctx, stopped))
 	}
-	return r.loopDone(ctx, fr, i, o, entries, failed, nil)
+	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
 }
 
 // loopDone completes an active loop: its result is the array of its
@@ -292,12 +354,13 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 // is an error stop (CF-13, JE-27). Reading: on a loop that failed only an
 // error stop changes anything, since with no failure module (N1b) a clean
 // stop and the failure both end the flow with the array.
-func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, entries []jsonval.Value, failed bool, stopErr error) outcome {
+func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *iterations, failed bool, stopErr error) outcome {
 	m := fr.modules[i]
-	arr := arrayOf(entries)
+	arr := arrayOf(it.values)
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.carried = arr, arr, arr
+	o.rec.ResultNested, o.rec.CarriedNested, o.nested = it.nested, it.nested, it.nested
 	o.rec.Status, o.rec.Module = conformance.StepSuccess, conformance.ModuleSuccess
 	if failed || stopErr != nil {
 		o.rec.Status, o.rec.Module, o.end = conformance.StepFailure, conformance.ModuleFailure, endFailed
@@ -330,9 +393,9 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, entries
 // loopInterrupted is a loop that the latch, the cancellation or a halt
 // stopped before it completed (status says which); its result is the
 // array so far.
-func (r *run) loopInterrupted(o outcome, entries []jsonval.Value, ran bool, status conformance.RunStatus) outcome {
+func (r *run) loopInterrupted(o outcome, it *iterations, ran bool, status conformance.RunStatus) outcome {
 	o.rec.Ran = ran
-	o.rec.Status, o.rec.Module, o.rec.Result = conformance.StepCanceled, conformance.ModuleFailure, arrayOf(entries)
+	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultNested = conformance.StepCanceled, conformance.ModuleFailure, arrayOf(it.values), it.nested
 	o.end = endInterrupted
 	if status == conformance.RunHalted {
 		o.end = endHalted
@@ -432,25 +495,32 @@ func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site con
 // which it reads back from storage (JE-44); its first module's
 // previous_result is that input (CF-9). A sequential iteration writes into
 // its parent's results scope and stays in its innermost flow scope; a
-// parallel one starts both (CF-19, WA-V1), and has an rng of its own.
-func (r *run) childFrame(fr *frame, i, k int, item []byte, parallel bool) *frame {
+// parallel one starts both (CF-19, WA-V1), and has an rng of its own. An
+// input jsonb refuses fails the child's push (FX-48, FX-51): childFrame
+// then returns nil and the chaining error's text. Reading: the iterator's
+// own storage check rules that out, since the loop's input is stored too.
+func (r *run) childFrame(fr *frame, i, k int, item []byte, parallel bool) (*frame, string) {
 	m := fr.modules[i]
-	c := newFrame(m.ForLoop.Modules, fr.sites[i].Child(conformance.Iteration(k)))
-	c.child, c.id = true, newUUID()
-	in := iterInput(fr.input, k, item)
-	if stored, err := in.Stored(); err == nil {
-		in = jsonval.FromProducer(flowInputText(stored, fr.rng))
+	stored, err := iterInput(fr.input, k, item).Stored()
+	if err != nil {
+		return nil, databaseError(err).Error()
 	}
-	c.input = in
+	c := newFrame(m.ForLoop.Modules, fr.sites[i].Child(conformance.Iteration(k)))
+	c.site, c.child, c.id = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID()
+	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = fr.path+"/loop-"+strconv.Itoa(k), fr.scope, fr.nodes, fr.rng
 	if parallel {
 		c.path, c.scope, c.nodes = fr.path+"/forloop-"+strconv.Itoa(k), c.id, newNodeScope(fr.nodes)
 		c.rng = rand.New(rand.NewPCG(fr.rng.Uint64(), fr.rng.Uint64()))
 	}
+	return c, ""
+}
+
+// addChild records a child flow the run created in its trace.
+func (r *run) addChild(c *frame) {
 	r.mu.Lock()
-	r.trace.Children = append(r.trace.Children, ChildFlow{Site: fr.sites[i].Child(conformance.Iteration(k)), ID: c.id, Modules: c.ids()})
-	r.mu.Unlock()
-	return c
+	defer r.mu.Unlock()
+	r.trace.Children = append(r.trace.Children, ChildFlow{Site: c.site, ID: c.id, Modules: c.ids()})
 }
 
 // collapsedFrame is iteration k of module i of fr, a collapsed for loop

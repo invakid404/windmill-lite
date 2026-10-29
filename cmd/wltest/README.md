@@ -254,11 +254,13 @@ a few at a time (`flows.go`):
    a templated error is stripped where windmill-lite generated the value
    (`conformance.StripLocations`, ADR 0011's location rule): a result
    whose origin the trace records as the engine, a harness or the facade,
-   a carried value that is the same value, in either member order, and a
+   a carried value that is the same value, in either member order, a
    carried value whose own recorded origin is one of those (the
-   `EarlyStopError` an error stop carries over a step's result, FX-V2). A
-   carried value with no generated origin is never stripped. A run with
-   nothing to compare fails.
+   `EarlyStopError` an error stop carries over a step's result, FX-V2), and,
+   inside a loop's array, the entries the trace points to as generated
+   (`ResultNested`), at any depth. Nothing else is stripped, so a user's
+   error beside them keeps its difference. A run with nothing to compare
+   fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with effects (the effect sink), a script run
@@ -337,7 +339,7 @@ Windmill v1.767.0's image).
   collides fail their own flows, while a flow whose codebase script reads
   its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
   same isolation for codebase step cases. `TestObserveTrace`,
-  `TestObserveChildFlows`, `TestCompareRun` and
+  `TestObserveChildFlows`, `TestObserveNestedGenerated`, `TestCompareRun` and
   `TestCarriedLocation` need no Bun: they check the observation of a trace
   (stored forms, `not_run` sites, a child flow's sites and id, placeholders,
   stack masking, the kept `carried` and `resolved_args`, the generated

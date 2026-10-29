@@ -104,6 +104,12 @@ func (r *run) snapshot() *Trace {
 		st.Hooks = append([]string(nil), st.Hooks...)
 		t.Steps[i] = st
 	}
+	for i, st := range t.Steps {
+		st.ResultNested = append([]string(nil), st.ResultNested...)
+		st.CarriedNested = append([]string(nil), st.CarriedNested...)
+		t.Steps[i] = st
+	}
+	t.ResultNested = append([]string(nil), r.trace.ResultNested...)
 	t.Children = make([]ChildFlow, len(r.trace.Children))
 	for i, c := range r.trace.Children {
 		c.Modules = append([]string(nil), c.Modules...)
@@ -193,6 +199,10 @@ type outcome struct {
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
 	chain string
+	// nested are the pointers, relative to carried, of the errors
+	// windmill-lite generated inside it when it aggregates others: a loop's
+	// array (StepRecord.CarriedNested).
+	nested []string
 }
 
 // flowEnd is how a frame's module list ended: the flow's status and
@@ -206,12 +216,20 @@ type flowEnd struct {
 	errorStop bool
 	// chain is set when a collapsed iteration's push failed (outcome.chain).
 	chain string
+	// nested are the pointers of the generated errors inside result
+	// (outcome.nested).
+	nested []string
 }
 
 // run runs the flow and records its outcome.
 func (r *run) run(ctx context.Context) {
 	e := r.runList(ctx, r.root)
 	r.end(e.status, e.result, e.origin)
+	if e.status == conformance.RunSuccess || e.status == conformance.RunFailure || e.status == conformance.RunSkipped {
+		r.mu.Lock()
+		r.trace.ResultNested = e.nested
+		r.mu.Unlock()
+	}
 }
 
 // runList runs a frame's modules in order (FX-2): the start checks of the
@@ -226,6 +244,7 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		prev = fr.input
 	}
 	result, origin := fr.input, OriginNone
+	var nested []string
 	for i, m := range fr.modules {
 		site := r.site(fr, i)
 		v := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil, HaltBefore: r.hooks.HaltBefore(site)})
@@ -276,26 +295,25 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		// (N2).
 		switch o.end {
 		case endFailed, endChained:
-			return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, stopped: o.errorStop, errorStop: o.errorStop, chain: o.chain}
+			return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, stopped: o.errorStop, errorStop: o.errorStop, chain: o.chain, nested: o.nested}
 		case endStopped:
-			return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, stopped: true}
+			return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, stopped: true, nested: o.nested}
 		case endStoppedSkipped:
-			return flowEnd{status: conformance.RunSkipped, result: o.carried, origin: o.origin, stopped: true}
+			return flowEnd{status: conformance.RunSkipped, result: o.carried, origin: o.origin, stopped: true, nested: o.nested}
 		case endInterrupted:
 			// Only a latch or the cancellation interrupts a module, and the
 			// completion check above ends the run for both.
 			return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: a module was interrupted with no latch or cancellation"), origin: OriginEngine}
 		}
-		continues := i < len(fr.modules)-1 || fr.tail || fr.held != nil && fr.held.Load() > 0
-		if AfterContinue(ContinueSignals{RunContinues: continues, Final: true, HaltAfter: r.hooks.HaltAfter(site)}) == EndHalted {
+		if AfterContinue(ContinueSignals{RunContinues: fr.continues(i), Final: true, HaltAfter: r.hooks.HaltAfter(site)}) == EndHalted {
 			r.mark(idx, "H8")
 			r.halt()
 			return flowEnd{status: conformance.RunHalted}
 		}
 		prev, prevID = o.carried, m.ID
-		result, origin = o.carried, o.origin
+		result, origin, nested = o.carried, o.origin, o.nested
 	}
-	return flowEnd{status: conformance.RunSuccess, result: result, origin: origin}
+	return flowEnd{status: conformance.RunSuccess, result: result, origin: origin, nested: nested}
 }
 
 func (r *run) setRecord(idx int, rec StepRecord) {
@@ -572,8 +590,8 @@ func (r *run) stop(ctx context.Context, fr *frame, m *ir.Module, site conformanc
 // fails unrecoverably, carrying the predicate's text as a string.
 func stopFailed(o outcome, err error) outcome {
 	o.rec.Module, o.end = conformance.ModuleFailure, endFailed
-	o.carried, o.origin = objectOf(member{"error", jsonString(predicateText(err))}), OriginEngine
-	o.rec.Carried, o.rec.CarriedOrigin = o.carried, o.origin
+	o.carried, o.origin, o.nested = objectOf(member{"error", jsonString(predicateText(err))}), OriginEngine, nil
+	o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested = o.carried, o.origin, nil
 	return o
 }
 
@@ -605,8 +623,8 @@ func errorStop(o outcome, msg string, s *ir.Stop, own jsonval.Value) outcome {
 	if s.ErrorIncludeResult != nil && *s.ErrorIncludeResult {
 		e = append(e, member{"result", own.Producer()})
 	}
-	o.carried, o.origin, o.errorStop = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, true
-	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.end = conformance.ModuleFailure, o.carried, o.origin, endFailed
+	o.carried, o.origin, o.errorStop, o.nested = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, true, nil
+	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested, o.end = conformance.ModuleFailure, o.carried, o.origin, nil, endFailed
 	return o
 }
 

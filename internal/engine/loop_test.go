@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -870,6 +871,172 @@ func TestLoopParallelHostSignals(t *testing.T) {
 	// nothing: the run would start nothing more.
 	e = mustOpen(t, map[string]string{"f/t/main": flowOf(parallelLoop(2, `1`, false))}, &loopSteps{})
 	wantStatus(t, runIt(t, e, `{}`, haltAt{after: "m:l/i:1/m:b"}), conformance.RunSuccess, `[0,1]`)
+}
+
+// CF-2, FX-48, FX-51: the evaluated iterator is stored, so an element
+// jsonb refuses fails the loop's start, a chaining error, before any
+// iteration runs, whatever the body reads.
+func TestLoopIteratorStorage(t *testing.T) {
+	for _, iterator := range []string{`[String.fromCharCode(0)]`, `["\ud800"]`} {
+		for _, mode := range []string{"collapsed", "child", "parallel"} {
+			t.Run(mode, func(t *testing.T) {
+				body := []string{mod("b", "value", inputs("v", static("1")), "")}
+				if mode == "child" {
+					body = append(body, mod("c", "value", inputs("v", static("2")), ""))
+				}
+				fields := `"iterator":` + js(iterator) + `,"parallel":` + fmt.Sprint(mode == "parallel") + `,"skip_failures":true`
+				for _, first := range []bool{true, false} {
+					mods := []string{loopOf("l", body, fields, "")}
+					if !first {
+						mods = append([]string{mod("a", "value", inputs("v", static("0")), "")}, mods...)
+					}
+					s := &loopSteps{}
+					e := mustOpen(t, map[string]string{"f/t/main": flowOf(mods...)}, s)
+					tr := runIt(t, e, `{}`, nil)
+					name, msg := errorOf(tr.Result)
+					want, prefix := "InternalError", ""
+					if first {
+						want, prefix = "Anyhow", "Error: "
+					}
+					if tr.Status != conformance.RunFailure || name != want || len(s.invs) != len(mods)-1 || len(tr.Children) != 0 {
+						t.Fatalf("%s, first %v: status %s, result %s, invocations %d", iterator, first, tr.Status, tr.Result, len(s.invs))
+					}
+					// The database's text; its detail is open (Q-FX-8).
+					if !strings.HasPrefix(msg, prefix+"error returned from database: ") {
+						t.Fatalf("%s: the message %q", iterator, msg)
+					}
+				}
+			})
+		}
+	}
+}
+
+// limitsOf answers the parallelism expression "limit" with the next of
+// its values, one per child, and every other expression as the engine
+// does: parallelism is evaluated per child (JE-V1), and an expression may
+// answer each differently.
+type limitsOf struct {
+	expr.Evaluator
+	mu     sync.Mutex
+	values []string
+}
+
+func (v *limitsOf) Eval(ctx context.Context, x *expr.Expr, s *expr.Scope) (jsonval.Value, error) {
+	if x.Text != "limit" {
+		return v.Evaluator.Eval(ctx, x, s)
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	next := v.values[0]
+	v.values = v.values[1:]
+	return jsonval.FromProducer([]byte(next)), nil
+}
+
+// CF-7, JE-V1: each child is held or not by its own parallelism, and a
+// held child waits only for its own count of completions: a child that is
+// not held never waits behind one that is.
+func TestLoopPerChildParallelism(t *testing.T) {
+	for _, c := range []struct {
+		limits, order []string
+	}{
+		{[]string{"0", "2"}, []string{"m:l/i:1/m:b", "m:l/i:0/m:b"}},
+		{[]string{"1", "0", "3"}, []string{"m:l/i:0/m:b", "m:l/i:2/m:b", "m:l/i:1/m:b"}},
+	} {
+		s := &loopSteps{}
+		e := mustOpen(t, map[string]string{"f/t/main": flowOf(parallelLoop(len(c.limits), js("limit"), false))}, s)
+		e.eval = &limitsOf{Evaluator: e.eval, values: c.limits}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := make([]string, len(c.limits))
+		for k := range want {
+			want[k] = fmt.Sprint(k)
+		}
+		wantStatus(t, tr, conformance.RunSuccess, "["+strings.Join(want, ",")+"]")
+		// The first runs alone when the others are held; with two not held
+		// either order can start them, but the held one starts last.
+		got := s.calls()
+		if got[len(got)-1] != c.order[len(c.order)-1] || len(c.limits) == 2 && !slices.Equal(got, c.order) {
+			t.Fatalf("limits %v: calls %v, want %v", c.limits, got, c.order)
+		}
+	}
+}
+
+// ADR 0008 H8 in nested loops: a body module's halt-after asks the
+// containing loops whether the run would start more, an outer parallel
+// loop's held iteration included; with nothing left to start it changes
+// nothing.
+func TestLoopNestedHaltAfter(t *testing.T) {
+	innerOf := func(parallel bool) string {
+		return loopOf("inner", []string{mod("b", "value", inputs("v", static("1")), "")}, fmt.Sprintf(`"iterator":{"type":"static","value":[0]},"parallel":%v,"skip_failures":false`, parallel), "")
+	}
+	outerOf := func(inner string, parallel bool) string {
+		fields := `"iterator":{"type":"static","value":[0,1]},"parallel":false,"skip_failures":false`
+		if parallel {
+			fields = `"iterator":{"type":"static","value":[0,1]},"parallel":true,"parallelism":1,"skip_failures":false`
+		}
+		return loopOf("outer", []string{inner}, fields, "")
+	}
+	for _, c := range []struct {
+		name               string
+		outerPar, innerPar bool
+		at                 string
+		status             conformance.RunStatus
+		invocations        int
+	}{
+		{"sequential in parallel", true, false, "m:outer/i:0/m:inner/i:0/m:b", conformance.RunHalted, 1},
+		{"parallel in parallel", true, true, "m:outer/i:0/m:inner/i:0/m:b", conformance.RunHalted, 1},
+		{"sequential in sequential", false, false, "m:outer/i:0/m:inner/i:0/m:b", conformance.RunHalted, 1},
+		{"parallel in sequential", false, true, "m:outer/i:0/m:inner/i:0/m:b", conformance.RunHalted, 1},
+		{"nothing left", true, false, "m:outer/i:1/m:inner/i:0/m:b", conformance.RunSuccess, 2},
+		{"nothing left, sequential", false, true, "m:outer/i:1/m:inner/i:0/m:b", conformance.RunSuccess, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &loopSteps{}
+			e := mustOpen(t, map[string]string{"f/t/main": flowOf(outerOf(innerOf(c.innerPar), c.outerPar))}, s)
+			tr := runIt(t, e, `{}`, haltAt{after: c.at})
+			if tr.Status != c.status || len(s.invs) != c.invocations {
+				t.Fatalf("status %s, invocations %d", tr.Status, len(s.invs))
+			}
+		})
+	}
+}
+
+// ADR 0011, D14: the errors the engine generates inside a loop's array,
+// and inside nested arrays, keep their provenance as pointers into the
+// array, on the loop's record and on the run's result; a user's error
+// there has none.
+func TestLoopNestedProvenance(t *testing.T) {
+	bad := loopOf("innermost", []string{mod("x", "value", inputs("v", static("1")), "")}, `"iterator":{"type":"static","value":{}},"parallel":false,"skip_failures":false`, "")
+	middle := loopOf("inner", []string{bad, mod("y", "value", inputs("v", static("1")), "")}, `"iterator":{"type":"static","value":[0]},"parallel":false,"skip_failures":false`, "")
+	outer := loopOf("outer", []string{middle, mod("z", "value", inputs("v", static("1")), "")}, `"iterator":{"type":"static","value":[0]},"parallel":true,"skip_failures":false`, "")
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(outer)}, &loopSteps{})
+	tr := runIt(t, e, `{}`, nil)
+	wantStatus(t, tr, conformance.RunFailure, "")
+	if name, msg := errorOf(jsonval.FromProducer([]byte(strings.TrimSuffix(strings.TrimPrefix(string(tr.Result.Producer()), "[["), "]]")))); name != "Anyhow" || !strings.HasPrefix(msg, "Error: Expected an array value") {
+		t.Fatalf("the result %s", tr.Result)
+	}
+	if !slices.Equal(tr.ResultNested, []string{"/0/0"}) || tr.ResultOrigin.Generated() {
+		t.Fatalf("the run's result: nested %v, origin %q", tr.ResultNested, tr.ResultOrigin)
+	}
+	if l := at(t, tr, "m:outer"); !slices.Equal(l.ResultNested, []string{"/0/0"}) || !slices.Equal(l.CarriedNested, []string{"/0/0"}) {
+		t.Fatalf("the outer loop %+v", l)
+	}
+	if l := at(t, tr, "m:outer/i:0/m:inner"); !slices.Equal(l.ResultNested, []string{"/0"}) {
+		t.Fatalf("the inner loop %+v", l)
+	}
+	// A user's error, and an error stop's EarlyStopError over the array,
+	// which replaces the carried value as a whole.
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(
+		loopOf("l", []string{mod("b", "fail", inputs("name", static(`"Anyhow"`)), "")}, `"iterator":{"type":"static","value":[0]},"parallel":true,"skip_failures":true`, `"stop_after_all_iters_if":{"expr":"true","error_message":"e","skip_if_stopped":false}`),
+	)}, &loopSteps{})
+	tr = runIt(t, e, `{}`, nil)
+	if l := at(t, tr, "m:l"); len(l.ResultNested) != 0 || len(l.CarriedNested) != 0 || len(tr.ResultNested) != 0 {
+		t.Fatalf("a user's error: %+v, the run's %v", l, tr.ResultNested)
+	}
 }
 
 // latchAfter latches the run once a module ends.

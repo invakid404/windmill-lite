@@ -35,9 +35,11 @@ import (
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's
 // result, its carried value when the trace records its origin as generated
-// or it is the same value as a generated result, and the root's result.
-// There a comparison with the oracle strips a location suffix
-// (conformance.StripLocations).
+// or it is the same value as a generated result, and the root's result;
+// and, inside a value that aggregates others (a loop's array), the
+// generated errors the trace points to (StepRecord.ResultNested). There a
+// comparison with the oracle strips a location suffix
+// (conformance.StripLocations), and nowhere else.
 func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	for _, c := range t.Children {
@@ -100,6 +102,15 @@ func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance
 		if st.Carried != nil && rec.CarriedOrigin.Generated() {
 			generated = append(generated, carried)
 		}
+		result := conformance.JoinPointer([]string{"steps", rec.Site.String(), "result"})
+		for _, p := range rec.ResultNested {
+			generated = append(generated, result+p)
+		}
+		if st.Carried != nil {
+			for _, p := range rec.CarriedNested {
+				generated = append(generated, carried+p)
+			}
+		}
 		steps[rec.Site] = st
 	}
 	notRun := func(prefix conformance.SitePath, modules []string) {
@@ -116,6 +127,9 @@ func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance
 	}
 	if t.ResultOrigin.Generated() {
 		generated = append(generated, "/result")
+	}
+	for _, p := range t.ResultNested {
+		generated = append(generated, "/result"+p)
 	}
 
 	// Values are normalised once every runtime error is known, as the
