@@ -2,9 +2,12 @@
 # parent and a flow tracked and untracked, and the shape of a dispatched
 # failure's error: the reference does not say them (WA-V1 leaves
 # dispatched jobs out), so no expect is written and the recording is the
-# reference. A tracked script's recording settled windmill-lite's rule:
-# its parent is the dispatching job, its root and innermost scope are the
-# query's root_job (the dispatching step's root), its flow path the
-# dispatching job's runnable path (ADR 0007).
+# reference. It settled windmill-lite's rule (ADR 0007): a job dispatched
+# with parent_job and root_job, as runScriptByPath and runFlow send them,
+# has the dispatching job for its parent if it is a script, or the
+# dispatched flow for its steps' parent if it is a flow; root_job is its
+# innermost scope and its effective root; a script's flow path is the
+# dispatching job's runnable path; a flow dispatched without them is a
+# separate run, its own root.
 spec: [WA-15/a, WA-V1]
 target: f/wl_pf3_disp/identity

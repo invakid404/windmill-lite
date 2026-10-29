@@ -77,6 +77,7 @@
     "conformance/flows/cf/cf-19/cf-v6-a": "N1a",
     "conformance/flows/cf/cf-19/cf-v6-b": "N1a",
     "conformance/flows/cf/cf-19/cf19-b": "N1a",
+    "conformance/flows/client-api/dispatch/identity": "PF3",
     "conformance/flows/client-api/dispatch/wait": "PF3",
     "conformance/flows/client-api/flow-path/par": "PF3",
     "conformance/flows/client-api/flow-path/seq": "PF3",

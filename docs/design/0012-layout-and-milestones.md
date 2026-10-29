@@ -293,6 +293,37 @@ waits on an external gate except R1.
   `client-api/providers`, recorded on the oracle, whose runs the flow suite
   requires; WA-11/b is a write (`later`), deferred with the reason.
 
+- PF3 put the job registry, flow user state, the object store and the
+  dispatcher's interface in `internal/platform`, as the layout says, their
+  routes in the facade, and the default dispatcher in `internal/engine`
+  (`engine.Dispatcher`, with `engine.RunScript` for a root script's run as
+  a script job), since it runs the engine's program and the engine
+  imports `internal/platform`. A flow fixture may list `roots` in its
+  `fixture.yaml`, the bundle's other roots (the targets its steps
+  dispatch, which a host contract lists), which `wltest check` compiles as
+  the default dispatcher's program. "The WA-5, WA-6, WA-14 and WA-16
+  cases" in PF3's row are read as PF2's are, each catalogue case at the
+  level that can run it: WA-5/a and /c as step cases (PF1's `wa-5.yaml`)
+  and, inside bodies, in the flow fixture `client-api/flow-path`, WA-5/b
+  deferred while schedules are out of scope; WA-6/a and /c as that
+  fixture's runs `seq` and `par`, whose recordings the flow suite
+  requires; WA-14/a as step cases (`wa-14.yaml`), on the stock client
+  (`TestFlowUserStateOnTheClient`) and in the flow fixture
+  `client-api/user-state`, recorded on the oracle, whose runs the flow
+  suite requires, WA-14/c by internal/platform's `TestFlowUserState`, and
+  WA-14/b (Python) deferred; WA-16/a and /c as step cases (`wa-16.yaml`)
+  and on the stock client (`TestObjectsOnTheClient`, which checks WA-16/b,
+  the client's own refusal, too), WA-16/d (a CE observation) deferred.
+  WA-6/b needs N2's retries and WA-6/d N3b's branches, neither of which
+  PF3 needs merged, so by the rule above they gate the later of each and
+  PF3: the oracle recorded them with the fixture, and whichever merges
+  second adds them to `flowsuite.json`. "The dispatch-target restriction
+  case" is `wa-15.yaml`, whose cases a step case's bundle, which has no
+  root to dispatch, refuses, and `TestDispatchRefusedOnTheClient` on the
+  stock client. The flow fixture `client-api/dispatch`, on the oracle's
+  second session (two workers, OR-5), records what the reference leaves
+  out of a dispatched job: its identity, which the engine reproduces.
+
 - N1b gave the engine core Windmill's continue decision for a flow
   without retries: `continue_on_error`, the error stops, the
   unrecoverable stop and the failure module at `s:failure` with its

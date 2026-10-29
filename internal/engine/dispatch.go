@@ -238,7 +238,7 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, rec
 	x.mu.Unlock()
 	var res platform.JobResult
 	if d.Kind == platform.DispatchFlow {
-		res = x.runFlow(id, d.Target, args)
+		res = x.runFlow(id, d, args)
 	} else {
 		res = x.runScript(id, d, args)
 	}
@@ -248,8 +248,9 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, rec
 	x.mu.Unlock()
 }
 
-func (x *Dispatcher) runFlow(id, path string, args jsonval.Value) platform.JobResult {
-	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: path, Args: args, Exec: x.exec})
+// runFlow runs a dispatched flow, with the links its dispatch sent.
+func (x *Dispatcher) runFlow(id string, d platform.Dispatch, args jsonval.Value) platform.JobResult {
+	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: d.Target, Args: args, Exec: x.exec, ParentJob: d.ParentJob, RootJob: d.RootJob, ParentPath: x.parentPath(d)})
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
@@ -259,15 +260,22 @@ func (x *Dispatcher) runFlow(id, path string, args jsonval.Value) platform.JobRe
 // runScript runs a dispatched script, with the links its dispatch sent:
 // the parent's runnable path is the job registry's.
 func (x *Dispatcher) runScript(id string, d platform.Dispatch, args jsonval.Value) platform.JobResult {
-	req := ScriptRequest{ID: id, Path: d.Target, Args: args, Exec: x.exec, ParentJob: d.ParentJob, RootJob: d.RootJob}
-	if j, _, ok := x.e.platform.JobRegistry().Job(d.ParentJob); ok && d.ParentJob != "" {
-		req.ParentPath = j.Path
-	}
-	r, err := x.e.RunScript(x.ctx, req)
+	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: d.Target, Args: args, Exec: x.exec, ParentJob: d.ParentJob, RootJob: d.RootJob, ParentPath: x.parentPath(d)})
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: !r.Failed, Result: storedText(r.Result)}
+}
+
+// parentPath is the runnable path of the job a dispatch names as its
+// parent, from the job registry, "" when it names none or one the
+// registry does not know.
+func (x *Dispatcher) parentPath(d platform.Dispatch) string {
+	if d.ParentJob == "" {
+		return ""
+	}
+	j, _, _ := x.e.platform.JobRegistry().Job(d.ParentJob)
+	return j.Path
 }
 
 // storedText is a result's stored form, as the completed job's row holds

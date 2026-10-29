@@ -74,7 +74,13 @@ host secret layer and the one interpolation walker for the three
 resource-read contracts, in
 [internal/platform](../../internal/platform/README.md); the facade serves
 the reads, and the engine resolves a leaf's arguments, `flow_env` and the
-expression helpers through the same services.
+expression helpers through the same services. Milestone PF3 adds the job
+registry, flow user state, the object store and the dispatcher's
+interface there, their routes in the facade, and in the engine each run's
+registration, `flow_user_state()`, a root script's run as a script job
+and the default dispatcher, which runs a bundle's roots as separate runs
+and refuses any other target (the restriction of
+[0001](0001-equivalence-contract.md) §5a).
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

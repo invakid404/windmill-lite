@@ -341,3 +341,58 @@ func cmpOr(a, b string) string {
 	}
 	return b
 }
+
+// A flow dispatched tracked in its parent (runFlow's parent_job and
+// root_job) runs its steps with the identity the oracle recorded (fixture
+// client-api/dispatch, run identity): the dispatched flow is their parent,
+// and the query's root_job their innermost scope and effective root, so
+// they share the dispatching run's flow user state; untracked
+// (runFlowAsync), the flow is its own root and scope. The run is a flow
+// job of its root's tree while it runs.
+func TestDispatchedFlowIdentity(t *testing.T) {
+	services := &platform.Services{}
+	var seen sync.Map
+	x := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		defer inv.Report.Settled(SettleCompleted)
+		j, live, ok := services.JobRegistry().Job(inv.Run)
+		seen.Store(inv.Run, [2]any{inv.Env, ok && live && j.Kind == platform.JobFlow && j.Root == inv.Env["WM_ROOT_JOB_ID"]})
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "{}", ""))}, x, services)
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	const run, step = "00000000-0000-4000-8000-00000000000f", "00000000-0000-4000-8000-0000000000a5"
+	endRun := services.JobRegistry().Begin(platform.Job{ID: run, Kind: platform.JobFlow, Root: run, Path: "f/x/flow"})
+	defer endRun()
+	for _, c := range []struct {
+		parent, root      string
+		rootJob, rootFlow string // "" for the dispatched flow itself
+	}{
+		{step, run, run, run},
+		{"", "", "", ""},
+	} {
+		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchFlow, Target: "f/t/main", Args: []byte(`{}`), ParentJob: c.parent, RootJob: c.root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := waitResult(t, d, id); !r.Success {
+			t.Fatalf("%+v %s", r, r.Result)
+		}
+		v, ok := seen.Load(id)
+		if !ok {
+			t.Fatalf("no step of %s ran", id)
+		}
+		env, registered := v.([2]any)[0].(map[string]string), v.([2]any)[1].(bool)
+		if env["WM_FLOW_JOB_ID"] != id || env["WM_ROOT_JOB_ID"] != cmpOr(c.rootJob, id) || env["WM_ROOT_FLOW_JOB_ID"] != cmpOr(c.rootFlow, id) ||
+			env["WM_FLOW_PATH"] != "f/t/main" || env["WM_STATE_PATH"] != "f/t/main/a_user" || !registered {
+			t.Errorf("parent %q root %q: registered %v, %v", c.parent, c.root, registered, env)
+		}
+	}
+}
+
+// execFunc is a StepExecutor written as a function.
+type execFunc func(ctx context.Context, inv Invocation) (StepOutcome, error)
+
+func (f execFunc) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	return f(ctx, inv)
+}

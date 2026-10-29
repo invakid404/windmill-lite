@@ -8,9 +8,11 @@ N1a, which runs a compiled program's flows sequentially, with the errors
 of milestone N1b (`continue_on_error`, the failure module and recovery,
 the error shapes, chaining errors, the final result and the cancellation
 outcome), the for loops of milestone N3a: sequential, collapsed and
-parallel, with `parallelism`, and the platform providers a run reads
+parallel, with `parallelism`, the platform providers a run reads
 (milestone PF2): a leaf's argument resolution, `flow_env`'s resolution and
-the expression helpers `variable()` and `resource()`. This README
+the expression helpers `variable()` and `resource()`, and (milestone PF3)
+each run's place in the job registry, the helper `flow_user_state()`, a
+root script's run as a script job and the default dispatcher. This README
 covers `internal/engine` and its `testdata/`. The package holds the seams
 that the flow interpreter is built against (the step executor, the hook
 interface with no-op defaults, the precedence of host signals, the run
@@ -31,6 +33,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
+| `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
 | `env.go` | `addScriptEnvs`: a path script's own `envs` in a Bun step's environment, under every variable the worker sets later; none for a native step ([WR-22](../../docs/semantics/languages.md#wr-22), [WR-45](../../docs/semantics/languages.md#wr-45); FU5) | `run.go`, at each launch |
 | `frame.go`, `loop.go`, `serde.go` | the flows a run executes (the root and its loops' child flows), their results scopes, and for loops (below); the texts of Windmill's JSON library | N3a; N3b and N3c run their containers on frames |
 | `skeleton.go` | `Skeleton`, `NewSkeleton`, `SkeletonRun`: W1's bundle loader over the engine (below) | W1's `windmill-lite host`, until F3a |
@@ -617,7 +620,55 @@ so every read is a not-found. A host gives the facade the same services.
   plaintext), and the resource read as the stock client reads it, without
   a job id (contract (b); which contract Windmill's helper uses is not in
   the reference). A failure throws the API's error text.
-  `flow_user_state()` needs PF3 and throws, naming it.
+  `flow_user_state(key)` (PF3) reads the run's flow user state as the
+  API's read gives it: the value stored at key for the run's root, JSON
+  `null` for a missing key ([WA-14](../../docs/semantics/client-api.md#wa-14)).
+
+**The job registry and dispatch (PF3, `engine.go`, `dispatch.go`).**
+
+- **Each run is a flow job** of the job registry
+  (`platform.Services.JobRegistry`, D3) from its start to its end, its own
+  effective root, so that its steps' root lookups, reads with a job id and
+  flow user state find it; the facade registers the steps' jobs. Its user
+  state is discarded when the run ends
+  ([internal/platform](../platform/README.md#the-job-registry-and-flow-user-state)).
+- **`RunScript`** runs a root script of the program as a script job: its
+  arguments stored and resolved as a step's are, its entrypoint and its
+  own `envs` as a step's, its timeout its own or the instance's (WR-37),
+  and its outcome stored by `StoreOutcome` without a step id. Its job
+  identity is a script job's at its path (WA-4, WA-5), its own root;
+  given a dispatch's `parent_job` and `root_job` it is the one the oracle
+  recorded for a script that `runScriptByPath` dispatched
+  (`conformance/flows/client-api/dispatch`, run `identity`): its parent
+  (`WM_FLOW_JOB_ID`) the dispatching job, its innermost scope
+  (`WM_ROOT_FLOW_JOB_ID`) the `root_job`, its effective root the first of
+  `root_job`, `parent_job` and itself that is set, its flow path the
+  dispatching job's runnable path, so its state path is
+  `<that path>/nostep_user`, and no step id.
+- **A dispatched flow** is a `Run` whose `RunRequest` carries the
+  dispatch's links: as the oracle recorded for a flow that `runFlow`
+  dispatched, its steps' effective root is then the first of `root_job`,
+  `parent_job` and the run that is set, and the `root_job`, when set, is
+  their innermost scope, so they share the dispatching run's flow user
+  state; without links (`runFlowAsync`) the run is its own root, as any
+  other. The run's own job is registered in its effective root's tree.
+- **`Dispatcher`** is the default dispatcher of ADR 0007
+  (`platform.Dispatcher`): it runs a dispatched target from the engine's
+  program, a script root through `RunScript` for `jobs/run/p` and a flow
+  root through `Run` for `jobs/run/f`, as a separate run of the same
+  runtime that starts at once (no default cap delays it, D15) and is
+  detached from the call and from the dispatching run; it ends on its own
+  or when the dispatcher closes (`Close`), which cancels what still runs.
+  Any other target is not in the bundle (`platform.NotInBundleError`,
+  ADR 0001 §5a), and arguments that are not a JSON object jsonb could
+  store are a 400. It answers the result polls for its runs; the record of
+  a completed run is kept while the dispatching step's root lives in the
+  registry, and swept after. A host sets it as the services' `Dispatcher`
+  before any run starts, over an executor that is the facade's, so that
+  the dispatched runs' calls are attributed.
+- **A script root is checked when the engine opens**, as every flow is
+  (ADR 0001 §3's rule): a Bun script in either boundary, without its own
+  `cache_ttl` (N4).
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -648,6 +699,15 @@ result, concurrent runs, and serde's texts. `env_test.go` (FU5,
 `TestScriptEnvs`) checks a path script's `envs` in a Bun step's
 environment, a later entry winning and every name the worker sets later
 skipped, and none in a native step's, `nativets` or `//native`.
+`dispatch_test.go` (PF3) covers the dispatcher: a script root and a flow
+root run as separate runs, a failure's value, the arguments resolved and
+stored, the script job's identity on its own and with a dispatch's links
+(as the oracle recorded it), the refusals of a target not in the bundle
+or of the wrong kind and of a hash, arguments that are not an object, a
+run detached from its call that reports started and is canceled by
+`Close`, a scheduled start, a script job's own timeout, the records
+following their root, a script root refused at open, and a run's flow
+user state read by `flow_user_state()` and gone with the run.
 `providers_test.go` (PF2) covers the resolved arguments (O2 and O3,
 whatever produced them, `$WM_*` from the reserved variables in an argument
 and from the stored fields in a resource, a secret), O3 after a timeout, a
@@ -657,7 +717,7 @@ its unresolved fallback with its warnings, the helpers and a helper's
 failure, and an engine with no platform. The flow
 fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
-milestones N1a, N1b, N3a and PF2).
+milestones N1a, N1b, N3a, PF2 and PF3).
 
 ## The walking skeleton
 

@@ -97,6 +97,9 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/client-api/job-env` | Milestone E1: the contextual variables of inline and path steps ([WA-4](../docs/semantics/client-api.md#wa-4)/a, [FX-45](../docs/semantics/execution.md#fx-45)/a, [WR-22](../docs/semantics/languages.md#wr-22)), with each step's job ids normalised to placeholders ([OR-14](../docs/semantics/oracle.md#or-14)): its own job, and the root flow as the parent, the innermost flow scope and the effective root of a step directly in the flow ([WA-V1](../docs/semantics/client-api.md#wa-v1)). |
 | `flows/client-api/identity` | Milestone PF1: the job identity of an inline step and a path script in a flow: the state path ([WA-5](../docs/semantics/client-api.md#wa-5)/a), the base URL variables ([WA-2](../docs/semantics/client-api.md#wa-2)/a), the token, and the root that a lookup with the step's own token answers by fetch at `BASE_URL` (the call `getRootJobId` makes, [WA-14](../docs/semantics/client-api.md#wa-14), WA-V1), which on windmill-lite the platform facade answers. |
 | `flows/client-api/providers` | Milestone PF2: the platform services a step reads, one fixture on the oracle and on windmill-lite ([WA-40](../docs/semantics/client-api.md#wa-40)/b), from its `setup.yaml` (a resource type, variables with a secret, resources): arguments the worker resolved, a `$res:` with a nested `$res:` and a secret `$var:`, `$WM_ROOT_JOB_ID` read with the job's id (`""`, [WA-V3](../docs/semantics/client-api.md#wa-v3)/a) and beside a marker (the flow), and a plain argument ([WR-5](../docs/semantics/languages.md#wr-5)/a, /c); the reads the stock client makes, by fetch at `BASE_URL` with the step's token (WA-10/a, WA-11/a, WA-12, WA-42/b, /c, WA-V3/b); and the failures of a missing resource and an invalid path at argument resolution (WR-5/e, /b). A body that carries a Rust location on Windmill is returned as whether it starts as the reference says (D14). |
+| `flows/client-api/user-state` | Milestone PF3: flow user state ([WA-14](../docs/semantics/client-api.md#wa-14)/a), by the calls the stock helpers make, by fetch at `BASE_URL` with the step's token: the root lookup, then the state routes at the root; a write's answer, the read, a missing key, the routes at a script job (404 and null); the iterations of a parallel loop sharing the root's map although each starts its own innermost scope ([WA-V1](../docs/semantics/client-api.md#wa-v1)); and a key read through the expression helper `flow_user_state()` ([JE-20](../docs/semantics/expressions.md#je-20)). Run `order` records the text a value comes back as: jsonb's key order, numbers as Windmill's JSON library writes them. |
+| `flows/client-api/dispatch` | Milestone PF3, on two workers ([OR-5](../docs/semantics/oracle.md#or-5)): the runs a step dispatches, as `runScriptByPath`, `runFlow` and `runFlowAsync` request them, polled as `waitJob` polls. Run `wait`: a script's result, a failed script's error ([WA-15](../docs/semantics/client-api.md#wa-15)/a), a flow's result, and a UUID that names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b). Run `identity`: the job identity of a dispatched script and flow, tracked in their parent or not, and the keys of a dispatched failure, which the reference leaves out and the recording settles. `fixture.yaml`'s `roots` lists the dispatched targets, which `wltest check` compiles as the default dispatcher's program. |
+| `flows/client-api/flow-path` | Milestone PF3: the runnable paths a body step sees ([WA-6](../docs/semantics/client-api.md#wa-6)/a–d, with [WA-5](../docs/semantics/client-api.md#wa-5) and [FX-46](../docs/semantics/execution.md#fx-46)): a simple sequential body under the flow, a body made non-simple by a retry (N2), a parallel body, and a `branchone`'s numbering (N3b). The catalogue's `WM_FLOW_PATH` is in each run's claims. |
 | `flows/execution/fx-36-http` | Batch E3e: [FX-36](../docs/semantics/execution.md#fx-36)'s HTTP part (`later`), every run submitted through run-and-wait (`submit: run_wait_result`), so its observation holds the HTTP response beside the walk: FX-36/a–g, an array result ([Q-FX-12](../docs/semantics/execution.md#q-fx-12), decoded positionally), a content type with and without a parameter, base64 transfer encoding to text and to bytes that are not UTF-8, a redirect status, FX-12/a over HTTP, FX-V3/a's skipped flow, and FX-37/a's early response. Gates F7b. |
 | `flows/execution/fx-49` | Batch E3e: [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11), `later`): a flow-level `skip_expr` that the loop at module 0 flips from false to true, with a collapsed and a two-step body, and to a throw. `setup.yaml` resets the variable before every run (`oracle.setup: each_run`). |
 | `flows/execution/fx-10-c` | Batch E3e: FX-10/c, `results[""]` inside a step's own `stop_after_if`, which the reference added after E3b. |
@@ -603,6 +606,22 @@ process; and that the file holds no `_MODULES` or `_TEMP_SCRIPT_REFS`
 while every other member keeps its text and place, as the script's
 parameters see it too. WR-5's catalogue cases need the engine's argument resolution and
 are checked at the flow level.
+
+**The services of milestone PF3.** `wa-14.yaml` checks flow user state
+([WA-14](../docs/semantics/client-api.md#wa-14)/a): a flow step's case
+runs in its case's flow run, which the job registry knows while the case
+runs, so a later run reads what an earlier one wrote, and a script job's
+case (`step_id: ""`) is its own root, with no flow status. `wa-16.yaml`
+checks the object store's job helpers for explicit keys
+([WA-16](../docs/semantics/client-api.md#wa-16)/a, /c), each case with a
+store of its own, and the 501 of an upload that asks the server for a
+key. `wa-15.yaml` holds the dispatch-target restriction of
+[ADR 0001](../docs/design/0001-equivalence-contract.md) §5a: a step case's
+bundle has no root to dispatch, so every dispatch is refused with
+`dispatch target not in bundle: <path>`, which fails the step as
+`UnsupportedPlatformCall`, also when the step waits on it as
+`runScriptByPath` does. `wa-v2.yaml` checks the result poll of a UUID that
+names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b).
 
 `steps/bun/deferred.yaml` lists the catalogue cases of these findings that
 are not step cases, with the reason and where each is checked. The step

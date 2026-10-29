@@ -440,6 +440,15 @@ switch through a change to this record, naming the reason.
   The engine's port is held by a loopback connection, not a bound socket,
   because macOS drops connections to a bound socket that does not listen
   instead of refusing them ([0007](0007-platform-interface.md)).
+- Milestone PF3 gave the dispatch-target restriction of §5a its cases: a
+  step case's bundle has no root a step can dispatch, so a dispatch by
+  path, by hash or of a flow, awaited or not, fails the step with
+  `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>`
+  (`conformance/steps/bun/wa-15.yaml`, and `TestDispatchRefusedOnTheClient`
+  on the stock client in
+  [internal/platform/facade](../../internal/platform/facade/README.md)).
+  The facade answers the dispatch with a 501 whose body is that text, and
+  the 501 policy's error quotes it ([0007](0007-platform-interface.md)).
 - Recording batch E3e recorded the contested `later` rows of §6 above, all
   on their defaults: FX-49 on reading (b), FX-36's array result decoded
   positionally (an HTTP adapter's concern, F7b), and the corrected

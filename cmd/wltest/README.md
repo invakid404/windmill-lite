@@ -6,8 +6,10 @@ E3a added expression files, and E3e `--skip-unmet-workers` and
 `--listen-interval`), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
-end to end (milestone N1a), with the for loops of milestone N3a and the
-platform providers of milestone PF2 (`providers.go`). This README covers the `wltest` command in
+end to end (milestone N1a), with the for loops of milestone N3a, the
+platform providers of milestone PF2 (`providers.go`), and the job
+registry, flow user state, object store and dispatcher of milestone PF3.
+This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -156,7 +158,9 @@ in either (D5). Each script is built with the language a deploy records
 job variables the job identity
 ([internal/platform](../../internal/platform/README.md)) of step
 `step_id` (default `a`) of the flow `f/wl_step/flow` in workspace
-`wl_step`, or of a script job at the case's path (`step_id: ""`), and its
+`wl_step`, the case's flow run, or of a script job at the case's path
+(`step_id: ""`), which is its own effective root
+([WA-V1](../../docs/semantics/client-api.md#wa-v1)), and its
 outcome is mapped to Windmill's stored value by `engine.StoreOutcome`, then
 compared by `conformance.CompareStep`; a case's `timeout` abandons the run
 when it passes, and its value is then `engine.TimeoutError`'s for the
@@ -165,7 +169,12 @@ boundary. Each case has a platform facade of its own
 milestone PF1), in its default `fail` policy, through whose `Executor` the
 runs go, and which serves the case's `setup`, its variables and resources
 (milestone PF2; a secret's value is its plaintext, which the runner passes
-in as a host passes its secrets): a warm process gets its non-listening origin as `BASE_URL` and
+in as a host passes its secrets) and an object store in a directory of the
+case's own (milestone PF3). Its job registry knows the case's flow run as
+a live flow job while the case runs, so the runs of a flow step's case
+share its flow user state, in `warm` and `fresh` alike; it has no
+dispatcher, so no dispatch target is in the bundle and every dispatch is
+refused (ADR 0001 §5a): a warm process gets its non-listening origin as `BASE_URL` and
 intercepts its fetches, a fresh one its listening origin, which it
 reaches over TCP. A native step reads the same origin as `BASE_URL` and
 `BASE_INTERNAL_URL`. A run's `calls` compares what the facade recorded
@@ -246,7 +255,15 @@ a few at a time (`flows.go`):
    since the push removes it (OR-31). A secret is held as the folder holds
    it (ciphertext without `plainSecrets`); a setup's secret is its
    plaintext, passed in as a host passes its secrets, never through a
-   bundle. Runs go in name
+   bundle. The services' job registry knows every run and step (milestone
+   PF3), their object store is a directory of the fixture's own, and when
+   the fixture lists `roots`, the bundle's other roots (the targets its
+   steps dispatch, which a host contract lists, ADR 0002), they are
+   compiled together as a program of their own, their scripts built into
+   the same bundle, and an `engine.Dispatcher` over that program and the
+   facade's executor is the services' dispatcher, so a dispatched run goes
+   to the same pool and its calls are attributed; without `roots` no
+   dispatch target is in the bundle. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run with the
    reason and the canceler the oracle's cancellation names
@@ -306,9 +323,7 @@ response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
 names the milestone: waits, retries, while loops and branches, subflows, a
-for loop in a flow with a failure module, caching, a preprocessor), and a
-flow that reads flow user state through the helper `flow_user_state()`
-(its compiled program holds the text), which needs milestone PF3. The
+for loop in a flow with a failure module, caching, a preprocessor). The
 fixture's other runs are checked. So is a run the oracle canceled on its
 own, with no `cancel_after_ms` (JE-2/a: its monitor of flows that hang
 between steps), which has no counterpart on windmill-lite.
@@ -361,8 +376,8 @@ Windmill v1.767.0's image).
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
-- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a and
-  PF2 (with PF1's fixture):
+- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, PF2
+  and PF3 (with PF1's fixture):
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest

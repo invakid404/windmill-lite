@@ -350,8 +350,83 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     ([Q-WA-9](../semantics/client-api.md#q-wa-9), `later`); per-run
     providers (H13) are F2a's.
 
+- Milestone PF3 implemented the job registry, flow user state, the object
+  store and the dispatcher ([internal/platform](../../internal/platform/README.md)),
+  their routes in the facade
+  ([internal/platform/facade](../../internal/platform/facade/README.md)),
+  and the default dispatcher and each run's registration in the engine
+  ([internal/engine](../../internal/engine/README.md)), and fixed what this
+  record left open:
+  - **One registry.** `platform.Services` gained `Jobs`, `UserState`,
+    `Objects` and `Dispatcher`; a nil `Jobs` or `UserState` is one
+    `platform.Registry` per `Services`, made when first needed, so the
+    facade and the engine that share a `*Services` share it. The engine
+    registers each flow run, its own root; the facade registers each
+    invocation as a script job, and the flow scopes its variables name
+    become known with it. A job stays known while its root lives; once the
+    root and every job of its tree have ended, the tree is forgotten. The
+    root lookup and a read's `job_id` answer from it; an id it does not
+    know still answers 501, since what Windmill answers for one is not in
+    the reference.
+  - **Flow user state** is a map per flow job, which the stock helpers
+    address by the effective root. A read gives `null` for a missing key,
+    a job that is not a live flow job and a run that has ended; a write
+    anywhere but a live flow job answers `404` `Not found: Flow job not
+    found` (WA-14). The map is discarded with its run, so a write by id
+    after the run is refused with that 404 where whether Windmill accepts
+    it is Q-WA-10. A value comes back as the oracle recorded it
+    (`conformance/flows/client-api/user-state`, run `order`): in jsonb's
+    key order, with numbers as Windmill's JSON library writes them (`1e3`
+    as `1000.0`). The engine's `flow_user_state()` reads the same map.
+  - **The object store** default, `platform.DirObjects`, is a directory
+    that keeps each object by the SHA-256 of its storage (`_default_` when
+    none) and key, so no key names a path outside it, with its content
+    type and disposition. It serves explicit keys only: an upload without
+    `file_key`, a call with `s3_resource_path`, and every call when the
+    host configured no store answer 501, named; deletion, credentials and
+    presigning have no handler (`later`). Its error texts are
+    windmill-lite's (Q-WA-3).
+  - **The default dispatcher is the engine's** (`engine.Dispatcher`): it
+    runs the program's roots, so it needs the engine, which imports
+    `internal/platform`; the interface and the request types are in
+    `internal/platform`. It runs a script root for `jobs/run/p` as a script
+    job (`engine.RunScript`) and a flow root for `jobs/run/f` as a run,
+    detached from the call and from the dispatching run, at once or after
+    `scheduled_in_secs`; `Close` cancels what still runs. `tag` is
+    recorded and has no effect; `scheduled_for`, `cache_ttl` and `job_id`,
+    which no stock helper sends, answer 501. A hash names no root, since a
+    bundle records no script hash, so `jobs/run/h` is always refused.
+  - **A dispatched job's identity** follows its links, as the oracle
+    recorded for a script that `runScriptByPath` dispatched
+    (`conformance/flows/client-api/dispatch`, run `identity`): its parent
+    (`WM_FLOW_JOB_ID`) is the `parent_job`, the dispatching job; its
+    innermost scope (`WM_ROOT_FLOW_JOB_ID`) the `root_job`; its effective
+    root the first of `root_job`, `parent_job` and itself that is set, so
+    it shares the dispatching run's flow user state; its flow path the
+    dispatching job's runnable path, so its state path is `<that
+    path>/nostep_user`; no step id. A dispatched failure's error is the
+    wrapper's `{message, name, stack}`, without a step id. A flow
+    dispatched with the links (`runFlow`) runs its steps with the
+    dispatched flow as their parent and the `root_job` as their innermost
+    scope and effective root; dispatched without them (`runFlowAsync`), it
+    is its own root and scope, a separate run.
+  - **The refusal.** A target that is not a root answers `501` with the
+    body `dispatch target not in bundle: <path>`, and the 501 policy's
+    error now quotes the first unsupported call's answer, so the step fails
+    with `UnsupportedPlatformCall`, `dispatch target not in bundle:
+    <path>`, as §5a of [0001](0001-equivalence-contract.md) says. A result
+    poll whose id is not a UUID answers `400`, so that a `waitJob` handed
+    the refusal's body as an id fails at once; a UUID that names no job
+    answers WA-V2's shapes; a windmill-lite job the dispatcher did not
+    start answers the polls with a 501, since job introspection beyond
+    dispatched runs (`Jobs`'s `jobs_u/get`, `get_args`) stays `later`.
+  - **Not yet:** a host's per-run services (H13) are F2a's; deletion,
+    generated keys and presigning in the object store, and job
+    introspection beyond the root lookup and dispatched runs, are `later`.
+
 ## Spec IDs relied on
 
-WA-1 to WA-6, WA-8, WA-9, WA-12, WA-30, WA-31, WA-40 to WA-42, WA-50, WA-51,
-WA-V1 to WA-V4, FX-5, FX-40, FX-46, WR-22, JE-43, SY-11, OR-10, LIC-1,
-Q-OF-7, and the client table of client-api.md.
+WA-1 to WA-6, WA-8, WA-9, WA-12, WA-14 to WA-16, WA-30, WA-31, WA-40 to
+WA-42, WA-50, WA-51, WA-V1 to WA-V5, FX-5, FX-40, FX-46, WR-22, JE-20,
+JE-43, SY-11, OR-5, OR-10, LIC-1, Q-OF-7, Q-WA-3, Q-WA-10, and the client
+table of client-api.md.

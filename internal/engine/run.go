@@ -28,6 +28,11 @@ type run struct {
 	id    string
 	hooks Hooks
 	exec  StepExecutor
+
+	// rootID is the effective root of the run's jobs: the run itself,
+	// unless the links of a dispatch tracked in its parent place it in
+	// another run's tree (RunRequest.RootJob).
+	rootID string
 	// root is the frame of the flow's own modules, its failure module in
 	// the slot after them; its input is the flow input, stored, with its
 	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env as
@@ -59,7 +64,7 @@ type run struct {
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand) *run {
-	r := &run{e: e, f: f, id: id, hooks: hooks, exec: exec, wake: make(chan struct{}), started: time.Now()}
+	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, wake: make(chan struct{}), started: time.Now()}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
 	r.root.failure = f.FailureModule
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng = f.Path, id, id, newNodeScope(nil), rng
@@ -1089,7 +1094,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		JobID:         inv.ID,
 		FlowJobID:     in.id,
 		RootFlowJobID: in.scope,
-		RootJobID:     r.id,
+		RootJobID:     r.rootID,
 		FlowPath:      in.path,
 		StepID:        fr.stepID(i),
 		JobPath:       r.jobPath(fr, i),
