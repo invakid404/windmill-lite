@@ -37,11 +37,13 @@ type frame struct {
 	// module (context 2).
 	child bool
 	// after reports whether the run would start something once the frame's
-	// last module has completed, which haltAfter needs (AfterContinue): a
-	// further iteration of its loop, an iteration its parallel loop still
-	// holds, or what follows the loop, asked of the frames that contain it
-	// when it is asked; nil for the root, after which nothing starts.
-	after func() bool
+	// flow has ended as e, which haltAfter needs (AfterContinue): a further
+	// iteration of its loop, which the loop starts only after a success or a
+	// failure skip_failures tolerates, an iteration its parallel loop still
+	// holds, or what follows the loop, given how the loop then ends, asked of
+	// the frames that contain it when it is asked; nil for the root, after
+	// which nothing starts.
+	after func(e flowEnd) bool
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
 	collapsed *ir.Module
@@ -99,10 +101,27 @@ func (fr *frame) moduleAt(i int) *ir.Module {
 // isFailure reports whether cursor i is the failure module's.
 func (fr *frame) isFailure(i int) bool { return i == len(fr.modules) }
 
-// continues reports whether the run would start something once module i
-// of the frame has completed: the next module, or what follows the frame.
-func (fr *frame) continues(i int) bool {
-	return i < len(fr.modules)-1 || fr.after != nil && fr.after()
+// afterModule reports whether the run would start something once module i
+// of the frame, a loop, has completed, as a failure or not: the next module,
+// or what follows the frame; a failure goes on only under the module's
+// continue_on_error (FX-30), and a failure module is not something a halt
+// waits for (AfterContinue).
+func (fr *frame) afterModule(i int, failed bool) bool {
+	m := fr.modules[i]
+	switch {
+	case failed && m.ContinueOnError && fr.collapsed == nil:
+		failed = false
+	case failed && fr.failure != nil:
+		return false
+	}
+	if !failed && i < len(fr.modules)-1 {
+		return true
+	}
+	status := conformance.RunSuccess
+	if failed {
+		status = conformance.RunFailure
+	}
+	return fr.after != nil && fr.after(flowEnd{status: status})
 }
 
 // ids returns the ids of the frame's modules, in order.

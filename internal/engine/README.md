@@ -417,7 +417,8 @@ result (`CarriedOrigin`), since an error stop's `EarlyStopError` is the
 engine's over a step's own result; and, for a loop's array, where inside it
 the errors the engine generated are (`ResultNested`, `CarriedNested`,
 `Trace.ResultNested`: JSON pointers such as `/0` or `/1/0` for a nested
-loop's), through every level of nesting up to the run's result, so that a
+loop's), through every level of nesting up to the run's result, and below
+`/error/result` when an error stop includes the array, so that a
 comparison strips their locations and a user's error beside them keeps
 its own.
 
@@ -461,9 +462,13 @@ its own.
   FX-42's exponent spellings (`1e+21`); an iterator or `parallelism` whose
   text is not JSON (a replaced `JSON.stringify`,
   [JE-15](../../docs/semantics/expressions.md#je-15)) fails with serde_json's
-  syntax error for an empty text, a character no value starts with, or a
+  syntax error for an empty text, a character no value starts with, a
   broken `true`, `false` or `null` (``expected ident at line 1 column 2``),
-  and serde_json's other syntax errors are not reproduced.
+  a leading zero (``invalid number at line 1 column 2``) or more than white
+  space after a value (``trailing characters at line 1 column 2``), which
+  serde_json checks after the value's type and range, and serde_json's
+  other syntax errors are not reproduced; whatever is not one JSON value
+  of the expected kind is refused.
 
 **For loops (N3a, `loop.go`).** A loop module that runs is a container: no
 arguments, no H1 or H2, a record whose status is the loop's own and whose
@@ -545,9 +550,14 @@ iterations it started. A halt decided in one parallel iteration stops the
 others at their next module, and wakes a loop whose iterations are all
 held; the run's status ranks the latch, then the cancellation, then the
 halt (ADR 0008), whichever iteration met its signal first. A body
-module's halt-after asks the loops that contain it, at every level,
-whether the run would start more: a further iteration, an iteration a
-parallel loop still holds, or what follows a loop. A loop so interrupted records the
+module's halt-after asks the loops that contain it, at every level and
+given how its flow ended, whether the run would start more: a further
+iteration after a success or a failure `skip_failures` tolerates, an
+iteration a parallel loop still holds, or what follows a loop, which a
+stop breaks to and a failure `skip_failures` does not tolerate fails,
+unless the loop's `continue_on_error` takes it. So a halt never hides a
+failure or a stop that ends the run; reading: a parallel iteration still
+running is taken to succeed. A loop so interrupted records the
 array so far.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
@@ -572,9 +582,10 @@ empty loop, the iterator's errors at both routes, nested `iter`, a
 parallel loop's index order, `parallelism`'s release order with a gated
 executor (N = 2, 1 and 0, and a different N per child), continue-all, its
 start errors, an iterator jsonb refuses, chaining errors in a child flow,
-the hooks inside loops, the host signals across parallel iterations and
-halt-after in nested loops, the provenance of generated errors in nested
-arrays, concurrent runs, and serde's texts. The flow fixtures run the
+the hooks inside loops, the host signals across parallel iterations,
+halt-after in nested loops and after each kind of iteration outcome, the
+provenance of generated errors in nested arrays and in an included
+result, concurrent runs, and serde's texts. The flow fixtures run the
 engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), the exit gate of
 milestones N1a, N1b and N3a).

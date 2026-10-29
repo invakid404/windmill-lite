@@ -356,7 +356,9 @@ Windmill v1.767.0's image).
   collides fail their own flows, while a flow whose codebase script reads
   its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
   same isolation for codebase step cases. `TestObserveTrace`,
-  `TestObserveChildFlows`, `TestObserveNestedGenerated`, `TestCompareRun`,
+  `TestObserveChildFlows`, `TestObserveNestedGenerated`,
+  `TestObserveIncludedResult` (an error stop's included array, end to end
+  on the engine), `TestCompareRun`,
   `TestCarriedLocation` and `TestObserveFailureSlotAndCarriedOrigin` need
   no Bun: they check the observation of a trace (stored forms, `not_run`
   sites, the failure module's site, a child flow's sites and id,

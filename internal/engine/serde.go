@@ -43,6 +43,11 @@ func serdeError(text []byte, expected string) string {
 	if msg, ok := serdeSyntax(text); ok {
 		return msg
 	}
+	if t := bytes.TrimLeft(text, " \t\r\n"); len(t) > 0 && (t[0] == '-' || t[0] >= '0' && t[0] <= '9') {
+		if msg, bad := serdeNumber(text, len(text)-len(t), numberToken(t)); bad {
+			return msg
+		}
+	}
 	unexp, pos := serdeUnexpected(text)
 	return "invalid type: " + unexp + ", expected " + expected + serdePosition(text, pos)
 }
@@ -75,20 +80,28 @@ func serdeSyntax(text []byte) (string, bool) {
 	return "", false
 }
 
-// parseU16 decodes text as serde_json decodes a u16 (JE-V1): an integer
-// from 0 to 65535, or the error's text.
+// parseU16 decodes text as serde_json decodes a u16 (JE-V1): one JSON
+// integer from 0 to 65535, with only white space after it, or the error's
+// text. As serde_json does, it checks the value's type and range before
+// what follows it.
 func parseU16(text []byte) (int, string) {
 	t := bytes.TrimLeft(text, " \t\r\n")
 	start := len(text) - len(t)
 	if len(t) > 0 && (t[0] == '-' || t[0] >= '0' && t[0] <= '9') {
 		tok := numberToken(t)
 		pos := start + len(tok)
+		if msg, bad := serdeNumber(text, start, tok); bad {
+			return 0, msg
+		}
 		if isInteger(tok) {
 			if u, err := strconv.ParseUint(string(tok), 10, 64); err == nil {
-				if u <= math.MaxUint16 {
-					return int(u), ""
+				if u > math.MaxUint16 {
+					return 0, "invalid value: integer `" + string(tok) + "`, expected u16" + serdePosition(text, pos)
 				}
-				return 0, "invalid value: integer `" + string(tok) + "`, expected u16" + serdePosition(text, pos)
+				if msg, trailing := serdeTrailing(text, pos); trailing {
+					return 0, msg
+				}
+				return int(u), ""
 			}
 			if _, err := strconv.ParseInt(string(tok), 10, 64); err == nil {
 				return 0, "invalid value: integer `" + string(tok) + "`, expected u16" + serdePosition(text, pos)
@@ -96,6 +109,50 @@ func parseU16(text []byte) (int, string) {
 		}
 	}
 	return 0, serdeError(text, "u16")
+}
+
+// serdeNumber is serde_json's error for a number token tok at byte start
+// of text that is not a JSON number's start: a leading zero followed by a
+// digit, where the reader stops on that digit.
+func serdeNumber(text []byte, start int, tok []byte) (string, bool) {
+	d := 0
+	if len(tok) > 0 && tok[0] == '-' {
+		d = 1
+	}
+	if len(tok) > d+1 && tok[d] == '0' && tok[d+1] >= '0' && tok[d+1] <= '9' {
+		return "invalid number" + serdePosition(text, start+d+2), true
+	}
+	return "", false
+}
+
+// serdeTrailing is serde_json's error for text that holds more than white
+// space after its value, which ends at byte end: the reader stops on the
+// first character after it.
+func serdeTrailing(text []byte, end int) (string, bool) {
+	rest := text[end:]
+	t := bytes.TrimLeft(rest, " \t\r\n")
+	if len(t) == 0 {
+		return "", false
+	}
+	return "trailing characters" + serdePosition(text, end+len(rest)-len(t)+1), true
+}
+
+// serdeSequenceError is serde_json's error for text that is not one JSON
+// array, when decoded as a sequence (CF-2): an array followed by more than
+// white space has trailing characters; any other value is serdeError's.
+func serdeSequenceError(text []byte) string {
+	t := bytes.TrimLeft(text, " \t\r\n")
+	start := len(text) - len(t)
+	if len(t) > 0 && t[0] == '[' {
+		dec := json.NewDecoder(bytes.NewReader(t))
+		var v json.RawMessage
+		if err := dec.Decode(&v); err == nil {
+			if msg, trailing := serdeTrailing(text, start+int(dec.InputOffset())); trailing {
+				return msg
+			}
+		}
+	}
+	return serdeError(text, "a sequence")
 }
 
 // serdeUnexpected names the first JSON value of text as serde's

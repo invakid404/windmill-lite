@@ -390,9 +390,13 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		}
 		d := r.decide(fr, m, o, i == len(fr.modules)-1)
 		canceled := ctx.Err() != nil
-		// After the frame's last module the run goes on when what contains
-		// the frame would start something (frame.after).
-		runContinues := d.next != nextEnd || fr.after != nil && fr.after()
+		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain,
+			stopped:   o.end == endStopped || o.end == endStoppedSkipped,
+			errorStop: o.end == endErrorStop && d.status == conformance.RunFailure}
+		// When the frame's flow ends, the run goes on when what contains the
+		// frame would start something after that ending (frame.after): a
+		// terminal failure or stop of a loop's body starts nothing more.
+		runContinues := d.next != nextEnd || fr.after != nil && fr.after(end)
 		if AfterContinue(ContinueSignals{RunContinues: runContinues, Final: true, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: r.hooks.HaltAfter(site)}) != Proceed {
 			if canceled {
 				return flowEnd{status: conformance.RunCanceled}
@@ -404,9 +408,7 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		continues = canceled
 		switch d.next {
 		case nextEnd:
-			return flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain,
-				stopped:   o.end == endStopped || o.end == endStoppedSkipped,
-				errorStop: o.end == endErrorStop && d.status == conformance.RunFailure}
+			return end
 		case nextFailure:
 			// Start step 6: previous_result stays the failing value; the
 			// preceding id is the failed module's, or empty when the
@@ -820,14 +822,21 @@ func applyStop(s *ir.Stop, o outcome, own jsonval.Value) outcome {
 }
 
 // errorStop fails the module with an EarlyStopError whose message is msg,
-// with own as its result when s asks for it (FX-19, FX-V2).
+// with own as its result when s asks for it (FX-19, FX-V2). own is o's
+// carried value: when it is included, the generated errors inside it keep
+// their provenance below /error/result (ADR 0011); otherwise they go with
+// it.
 func errorStop(o outcome, msg string, s *ir.Stop, own jsonval.Value) outcome {
 	e := []member{{"name", jsonString("EarlyStopError")}, {"message", jsonString(msg)}}
+	var nested []string
 	if s.ErrorIncludeResult != nil && *s.ErrorIncludeResult {
 		e = append(e, member{"result", own.Producer()})
+		for _, p := range o.nested {
+			nested = append(nested, "/error/result"+p)
+		}
 	}
-	o.carried, o.origin, o.nested = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, nil
-	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested, o.end = conformance.ModuleFailure, o.carried, OriginEngine, nil, endErrorStop
+	o.carried, o.origin, o.nested = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, nested
+	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested, o.end = conformance.ModuleFailure, o.carried, OriginEngine, nested, endErrorStop
 	return o
 }
 

@@ -13,7 +13,9 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/expr"
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
@@ -490,6 +492,94 @@ func TestObserveNestedGenerated(t *testing.T) {
 		slices.Sort(differs)
 		if !slices.Equal(differs, c.differs) {
 			t.Fatalf("nested %v: differences at %q, want %q (generated %v)", c.nested, differs, c.differs, generated)
+		}
+	}
+}
+
+// An error stop that includes a loop's array (CF-13): run end to end on
+// the engine, the location rule reaches the engine's error inside the
+// embedded array, on the run's result and on the loop's site, and leaves
+// a user's lookalike beside it, an Anyhow-shaped value a mocked step
+// returns, with its difference (ADR 0011).
+func TestObserveIncludedResult(t *testing.T) {
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	lookalike := `{"error":{"name":"Anyhow","message":"Error: lookalike"}}`
+	stop, include := "stop", true
+	// Iteration 0's inner loop fails its child's pickup with the engine's
+	// Anyhow; iteration 1's returns [lookalike].
+	inner := &ir.Module{ID: "inner", Kind: ir.KindForLoop, ForLoop: &ir.ForLoop{
+		Iterator: ir.Transform{Type: ir.Javascript, Expr: expr.Compile(expr.SiteIterator, "flow_input.iter.value === 0 ? ({}) : [0]")},
+		Modules:  []*ir.Module{{ID: "u", Kind: ir.KindIdentity, Mock: &ir.Mock{Enabled: true, ReturnValue: json.RawMessage(lookalike)}}},
+	}}
+	outer := &ir.Module{ID: "l", Kind: ir.KindForLoop,
+		StopAfterAllItersIf: &ir.Stop{Expr: expr.Compile(expr.SiteStopAfterAllItersIf, "true"), ErrorMessage: &stop, ErrorIncludeResult: &include},
+		ForLoop:             &ir.ForLoop{Iterator: ir.Transform{Type: ir.Static, Value: json.RawMessage(`[0,1]`)}, SkipFailures: true, Modules: []*ir.Module{inner}},
+	}
+	e, err := engine.New(engine.Config{JS: js, Program: &ir.Program{Flows: map[string]*ir.Flow{"f/t/main": {Path: "f/t/main", Modules: []*ir.Module{outer}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), engine.RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, generated, err := observeTrace(tr, []string{"l"}, false, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The oracle's side: the same observation, every Anyhow message with a
+	// pickup location.
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree any
+	if err := json.Unmarshal(raw, &tree); err != nil {
+		t.Fatal(err)
+	}
+	var locate func(any)
+	locate = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			if v["name"] == "Anyhow" {
+				if m, ok := v["message"].(string); ok {
+					v["message"] = m + " @worker.rs:3822:13"
+				}
+			}
+			for _, c := range v {
+				locate(c)
+			}
+		case []any:
+			for _, c := range v {
+				locate(c)
+			}
+		}
+	}
+	locate(tree)
+	raw, _ = json.Marshal(tree)
+	var want conformance.Observation
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	var differs []string
+	for _, p := range compareRun(&conformance.Fixture{}, conformance.Run{Expect: &want}, got, generated) {
+		if !strings.HasPrefix(p, "observed ") {
+			ptr, _, _ := strings.Cut(p, ": ")
+			differs = append(differs, ptr)
+		}
+	}
+	for _, p := range []string{"/result/error/result/0/error/message", "/steps/m:l/result/0/error/message", "/steps/m:l/carried/error/result/0/error/message"} {
+		if slices.Contains(differs, p) {
+			t.Fatalf("the engine's error at %s keeps its location (generated %v)", p, generated)
+		}
+	}
+	for _, p := range []string{"/result/error/result/1/0/error/message", "/steps/m:l/result/1/0/error/message", "/steps/m:l/carried/error/result/1/0/error/message"} {
+		if !slices.Contains(differs, p) {
+			t.Fatalf("the lookalike at %s was stripped: differences %v", p, differs)
 		}
 	}
 }

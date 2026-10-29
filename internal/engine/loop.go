@@ -88,7 +88,7 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 		return nil, "AI input transform not supported for iterator", errIterator
 	}
 	if _, ok := elements(text); !ok {
-		return nil, "Expected an array value in the iterator expression, found: " + serdeError(text, "a sequence"), errIterator
+		return nil, "Expected an array value in the iterator expression, found: " + serdeSequenceError(text), errIterator
 	}
 	stored, err := jsonval.FromProducer(text).Stored()
 	if err != nil {
@@ -125,10 +125,20 @@ func (it *iterations) add(e flowEnd) {
 func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, items [][]byte, o outcome) outcome {
 	m := fr.modules[i]
 	l := m.ForLoop
-	// After an iteration's last module comes the next iteration, or what
-	// follows the loop.
-	after := func(k int) func() bool {
-		return func() bool { return k < len(items)-1 || fr.continues(i) }
+	// What the run starts once an iteration has ended as e: the next
+	// iteration after a success or a failure skip_failures tolerates, else
+	// what follows the loop, which a failure that skip_failures does not
+	// tolerate fails, and a stop breaks (CF-5, CF-12). The loop's own
+	// stop_after_if, which may break it, is not known yet: the next
+	// iteration counts.
+	after := func(k int) func(flowEnd) bool {
+		return func(e flowEnd) bool {
+			failed := e.status == conformance.RunFailure
+			if !e.stopped && !e.errorStop && (!failed || l.SkipFailures) && k < len(items)-1 {
+				return true
+			}
+			return fr.afterModule(i, failed && !l.SkipFailures)
+		}
 	}
 	// A collapsed iteration's previous_result is the step before the loop's
 	// result, then the previous iteration's; a loop at the first module of
@@ -254,10 +264,19 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	// An iteration's last module is followed by the iterations still held,
 	// which the run would start, and by what follows the loop.
 	var held atomic.Int32
+	var failedChild atomic.Bool
 	held.Store(int32(n))
 	for _, c := range children {
 		r.addChild(c)
-		c.after = func() bool { return held.Load() > 0 || fr.continues(i) }
+		// An iteration's end is followed by the iterations still held,
+		// which the run would start whatever it was (continue-all), and by
+		// what follows the loop, which a failure skip_failures does not
+		// tolerate fails (CF-7): this iteration's, or one that has already
+		// ended; reading: iterations still running are taken to succeed.
+		c.after = func(e flowEnd) bool {
+			failed := e.status == conformance.RunFailure || failedChild.Load()
+			return held.Load() > 0 || fr.afterModule(i, failed && !l.SkipFailures)
+		}
 	}
 	// A child k is held when k is at or beyond its own parallelism N, and
 	// becomes eligible once k - N + 1 iterations have completed (CF-7,
@@ -287,6 +306,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		held.Add(-1)
 		go func() {
 			ends[k] = r.runList(ctx, children[k])
+			if ends[k].status == conformance.RunFailure {
+				failedChild.Store(true)
+			}
 			done <- k
 		}()
 		return true

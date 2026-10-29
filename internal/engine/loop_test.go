@@ -678,7 +678,24 @@ func TestLoopParallelStartErrors(t *testing.T) {
 		e := mustOpen(t, map[string]string{"f/t/main": flowOf(first, parallelLoop(2, c.parallelism, false))}, &loopSteps{})
 		wantStatus(t, runIt(t, e, `{}`, nil), conformance.RunFailure, `{"error":{"name":"InternalError","message":`+string(jsonString(c.message))+`}}`)
 	}
-	e := mustOpen(t, map[string]string{"f/t/main": flowOf(first, parallelLoop(2, js("flow_input.iter.value"), false))}, &loopSteps{})
+	// One JSON integer and white space only: serde_json checks a value's
+	// type and range before what follows it (JE-V1).
+	for _, c := range []struct{ parallelism, message string }{
+		{js(`(JSON.stringify = () => "1x", 1)`), "Error parsing result as u16: trailing characters at line 1 column 2. Value was: 1x"},
+		{js(`(JSON.stringify = () => "01", 1)`), "Error parsing result as u16: invalid number at line 1 column 2. Value was: 01"},
+		{js(`(JSON.stringify = () => "70000x", 1)`), "Error parsing result as u16: invalid value: integer `70000`, expected u16 at line 1 column 5. Value was: 70000x"},
+	} {
+		s := &loopSteps{}
+		e := mustOpen(t, map[string]string{"f/t/main": flowOf(first, parallelLoop(2, c.parallelism, false))}, s)
+		wantStatus(t, runIt(t, e, `{}`, nil), conformance.RunFailure, `{"error":{"name":"InternalError","message":`+string(jsonString(c.message))+`}}`)
+		if len(s.invs) != 1 {
+			t.Fatalf("%s: invocations %d", c.parallelism, len(s.invs))
+		}
+	}
+	s := &loopSteps{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(first, parallelLoop(2, js(`(JSON.stringify = () => " 2\n", 1)`), false))}, s)
+	wantStatus(t, runIt(t, e, `{}`, nil), conformance.RunSuccess, `[0,1]`)
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(first, parallelLoop(2, js("flow_input.iter.value"), false))}, &loopSteps{})
 	tr := runIt(t, e, `{}`, nil)
 	if name, msg := errorOf(tr.Result); name != "InternalError" || !strings.HasPrefix(msg, "Error during evaluation of expression `flow_input.iter.value`:\nQuickJS evaluation error: Error: cannot read property 'value' of undefined") {
 		t.Fatalf("the result %s", tr.Result)
@@ -1020,6 +1037,60 @@ func TestLoopNestedHaltAfter(t *testing.T) {
 	}
 }
 
+// ADR 0008 H8: a body module's halt-after applies only when the run would
+// start more after that outcome: a further iteration after a success or a
+// failure skip_failures tolerates, an iteration a parallel loop holds, or
+// what follows the loop given how it ends. A failure that ends the loop
+// and the run, or a stop that breaks the loop at the end of the flow,
+// keeps its status (CF-5, CF-12).
+func TestLoopHaltAfterOutcome(t *testing.T) {
+	fail := func(envelope string) string { return mod("b", "fail", "", envelope) }
+	stopAt := func(stop string) string {
+		return mod("b", "value", inputs("v", js("flow_input.iter.value")), `"stop_after_if":{"expr":"result === 0",`+stop+`"skip_if_stopped":false}`)
+	}
+	after := mod("n", "value", inputs("v", static(`"after"`)), "")
+	seq := func(skip bool) string {
+		return fmt.Sprintf(`"iterator":{"type":"static","value":[0,1]},"parallel":false,"skip_failures":%v`, skip)
+	}
+	for _, c := range []struct {
+		name        string
+		flow        string
+		status      conformance.RunStatus
+		invocations int
+	}{
+		{"collapsed failure", flowOf(loopOf("l", []string{fail("")}, seq(false), "")), conformance.RunFailure, 1},
+		{"child failure", flowOf(loopOf("l", []string{fail(`"skip_if":{"expr":"false"}`)}, seq(false), "")), conformance.RunFailure, 1},
+		{"tolerated failure", flowOf(loopOf("l", []string{fail("")}, seq(true), "")), conformance.RunHalted, 1},
+		{"loop's continue_on_error", flowOf(loopOf("l", []string{fail("")}, seq(false), `"continue_on_error":true`), after), conformance.RunHalted, 1},
+		{"error stop, then a module", flowOf(loopOf("l", []string{stopAt(`"error_message":"e",`)}, seq(true), ""), after), conformance.RunHalted, 1},
+		{"error stop ends the flow", flowOf(loopOf("l", []string{stopAt(`"error_message":"e",`)}, seq(true), "")), conformance.RunSuccess, 1},
+		{"error stop fails the loop", flowOf(loopOf("l", []string{stopAt(`"error_message":"e",`)}, seq(false), ""), after), conformance.RunFailure, 1},
+		{"clean stop, then a module", flowOf(loopOf("l", []string{stopAt("")}, seq(false), ""), after), conformance.RunHalted, 1},
+		{"clean stop ends the flow", flowOf(loopOf("l", []string{stopAt("")}, seq(false), "")), conformance.RunSuccess, 1},
+		{"parallel, held", flowOf(parallelLoopOf([]string{fail("")}, `1`, false)), conformance.RunHalted, 1},
+		{"parallel, nothing held", flowOf(parallelLoopOf([]string{fail("")}, "", false)), conformance.RunFailure, 2},
+		{"parallel, tolerated", flowOf(parallelLoopOf([]string{fail("")}, "", true), after), conformance.RunHalted, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &loopSteps{}
+			e := mustOpen(t, map[string]string{"f/t/main": c.flow}, s)
+			tr := runIt(t, e, `{}`, haltAt{after: "m:l/i:0/m:b"})
+			if tr.Status != c.status || len(s.invs) != c.invocations {
+				t.Fatalf("status %s, invocations %d, result %s", tr.Status, len(s.invs), tr.Result)
+			}
+		})
+	}
+}
+
+// parallelLoopOf is a two-iteration parallel loop l with the given body.
+func parallelLoopOf(body []string, parallelism string, skip bool) string {
+	fields := fmt.Sprintf(`"iterator":{"type":"static","value":[0,1]},"parallel":true,"skip_failures":%v`, skip)
+	if parallelism != "" {
+		fields += `,"parallelism":` + parallelism
+	}
+	return loopOf("l", body, fields, "")
+}
+
 // ADR 0011, D14: the errors the engine generates inside a loop's array,
 // and inside nested arrays, keep their provenance as pointers into the
 // array, on the loop's record and on the run's result; a user's error
@@ -1043,6 +1114,19 @@ func TestLoopNestedProvenance(t *testing.T) {
 	if l := at(t, tr, "m:outer/i:0/m:inner"); !slices.Equal(l.ResultNested, []string{"/0"}) {
 		t.Fatalf("the inner loop %+v", l)
 	}
+	// An error stop that includes the array keeps its generated entries'
+	// provenance below /error/result; a user's error beside them has none.
+	inner := loopOf("inner", []string{mod("x", "fail", inputs("name", static(`"Anyhow"`)), `"skip_if":{"expr":"false"}`)},
+		`"iterator":{"type":"javascript","expr":"flow_input.iter.value === 0 ? ({}) : [0]"},"parallel":false,"skip_failures":false`, "")
+	e = mustOpen(t, map[string]string{"f/t/main": flowOf(
+		loopOf("l", []string{inner}, `"iterator":{"type":"static","value":[0,1]},"parallel":false,"skip_failures":true`,
+			`"stop_after_all_iters_if":{"expr":"true","error_message":"stop","error_include_result":true,"skip_if_stopped":false}`),
+	)}, &loopSteps{})
+	tr = runIt(t, e, `{}`, nil)
+	if l := at(t, tr, "m:l"); !slices.Equal(tr.ResultNested, []string{"/error/result/0"}) || !slices.Equal(l.CarriedNested, []string{"/error/result/0"}) || !slices.Equal(l.ResultNested, []string{"/0"}) {
+		t.Fatalf("the included array: run %v, loop %+v, result %s", tr.ResultNested, l, tr.Result)
+	}
+
 	// A user's error, and an error stop's EarlyStopError over the array,
 	// which replaces the carried value as a whole.
 	e = mustOpen(t, map[string]string{"f/t/main": flowOf(
@@ -1112,8 +1196,38 @@ func TestSerdeTexts(t *testing.T) {
 	if _, msg := parseU16([]byte(`65536`)); msg != "invalid value: integer `65536`, expected u16 at line 1 column 5" {
 		t.Errorf("65536: %q", msg)
 	}
-	if _, msg := parseU16([]byte(`[2]`)); msg != "invalid type: sequence, expected u16 at line 1 column 0" {
-		t.Errorf("[2]: %q", msg)
+	for in, want := range map[string]string{
+		`[2]`:   "invalid type: sequence, expected u16 at line 1 column 0",
+		`1x`:    "trailing characters at line 1 column 2",
+		`1 x`:   "trailing characters at line 1 column 3",
+		`01`:    "invalid number at line 1 column 2",
+		`-01`:   "invalid number at line 1 column 3",
+		`1.5x`:  "invalid type: floating point `1.5`, expected u16 at line 1 column 3",
+		`-1 x`:  "invalid value: integer `-1`, expected u16 at line 1 column 2",
+		`true1`: "invalid type: boolean `true`, expected u16 at line 1 column 4",
+	} {
+		if _, msg := parseU16([]byte(in)); msg != want {
+			t.Errorf("parseU16(%q) = %q, want %q", in, msg, want)
+		}
+	}
+	if n, msg := parseU16([]byte(" 2 \n")); n != 2 || msg != "" {
+		t.Errorf("white space around a u16: %d, %q", n, msg)
+	}
+	for in, want := range map[string]string{
+		`[1]x`:  "trailing characters at line 1 column 4",
+		`[1] `:  "",
+		`01`:    "invalid number at line 1 column 2",
+		`{} []`: "invalid type: map, expected a sequence at line 1 column 0",
+	} {
+		if want == "" {
+			if _, ok := elements([]byte(in)); !ok {
+				t.Errorf("elements(%q) refused", in)
+			}
+			continue
+		}
+		if got := serdeSequenceError([]byte(in)); got != want {
+			t.Errorf("serdeSequenceError(%q) = %q, want %q", in, got, want)
+		}
 	}
 	for f, want := range map[float64]string{
 		1.5: "1.5", 1000: "1000.0", 1e15: "1000000000000000.0", 1e16: "1e+16", 1e21: "1e+21", 123456789012345678901234567890: "1.2345678901234568e+29",
