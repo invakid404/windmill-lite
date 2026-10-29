@@ -96,7 +96,13 @@ and refuses any other target (the restriction of
 waits and retries, the cancellation and failures with the containers of
 N3a and N3b, with its fixtures `cf-21` to `cf-28` and `waits` recorded on
 the oracle, and observations of a container's failed attempts as the
-walker of [0011](0011-differential-testing.md) meets them.
+walker of [0011](0011-differential-testing.md) meets them. Milestone F1
+is the core of [0009](0009-host-adapters.md), the public
+[wl](../../wl/README.md) library: `Open` verifies a bundle and owns its
+platform services, `Run` runs a flow or root script in `warm` or `fresh`
+and returns its trace with the platform calls its steps made, and
+`windmill-lite run` is its command line; `wltest check` runs the flow
+suite through it in both modes.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation
