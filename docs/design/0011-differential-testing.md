@@ -278,8 +278,9 @@ place. The paths outside the tree that its codebase entries name (a
 same places relative to the stubbed tree, which is then written below as
 many of the tree's parent directories' names as the furthest of them
 climbs: `wmill.yaml` stays as written, because the CLI digests the entry's
-settings as text ([WR-49](../semantics/languages.md#wr-49)). Because the copy's metadata still describes the
-originals, `record` runs the CLI's `generate-metadata` in it and requires
+settings as text ([WR-49](../semantics/languages.md#wr-49)). Because the
+copy's metadata still describes the originals, `record` runs the CLI's
+`generate-metadata` in it and requires
 every path script's generated schema to equal the original's: the CLI
 derives the schema from the signature, so this checks on the oracle that the
 stub kept it. Inline scripts have no schema; for them the scanner's cases,

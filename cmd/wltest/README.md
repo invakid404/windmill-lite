@@ -101,8 +101,7 @@ bin/wltest stub --out <dir> <sync tree>
 Copies the sync tree (the directory of its `wmill.yaml`) to `<dir>`, which
 must not exist and must not lie inside the tree or a directory the copy
 carries (compared by file identity, so a symbolic link or a case alias
-counts),
-with the source of every Bun script and every `!inline` Bun rawscript
+counts), with the source of every Bun script and every `!inline` Bun rawscript
 replaced by a stub that keeps `main`'s declaration with its parameter list
 and the type declarations, never calls it, and exports a function under
 the name `main` that asks the replay service for its outcome
@@ -117,10 +116,9 @@ per carried path and a `tree <root>` line
 ([internal/oracle](../../internal/oracle/README.md#copies-of-a-sync-tree)).
 The copy's metadata still describes the originals, so run `npx -y
 windmill-cli@1.767.0 generate-metadata` in the stubbed tree before pushing
-it. A tree in which some executed
-script would keep its body is refused, with
-`{"error":"stub_unsupported","file":…,"reason":…}` on standard output and
-exit 1.
+it. A tree in which some executed script would keep its body is refused,
+with `{"error":"stub_unsupported","file":…,"reason":…}` on standard output
+and exit 1.
 
 ## check
 

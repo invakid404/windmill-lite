@@ -230,9 +230,12 @@ them, since the CLI digests the entry's settings as written, so
 
 - `PlanLayout` reads `wmill.yaml` and keeps each such path that, after
   `.` and `..` are applied to its spelling, lies outside the tree and
-  exists; an absolute path resolves the same from a copy, and a path below
-  another kept one is carried with it. A `wmill.yaml` that is missing or
-  does not parse names nothing; the CLI and the build report it.
+  exists. `..` climbs from the tree's directory with symbolic links
+  resolved, as the CLI's working directory has it. An absolute path
+  resolves the same from a copy, and a path below another kept one (which
+  climbs no further than it) is carried with it. A `wmill.yaml` that is
+  missing or does not parse names nothing; the CLI and the build report
+  it.
 - The tree is copied to `<output>/<Root>`, where `Root` is the last
   components of the tree's absolute path, as many as the furthest kept
   path climbs (`windmill` for `../shared`), or `.` when nothing is kept,
@@ -494,7 +497,7 @@ named `testdata`, `node_modules`, `.git` and `.jj` are not scanned.
 | `TestSinkGroupsByOuterRoot`, `TestSinkKeepsConcurrentRunsApart`, `TestSinkRoutesReplayCalls` | OR-16/c; two open runs each keep their own effects (OR-V6/a); `/replay` goes to the replay service | — |
 | `TestStubSourceCases`, `TestStubSourceGolden` | the stub of each source keeps `main`'s parameter list and the type declarations verbatim and drops the rest, and stubbing is idempotent; or the source is refused with its reason; one whole stub pinned | `testdata/stub/sources.json`, `testdata/stub/book.stub.ts` |
 | `TestStubTreeOfTheFixtures`, `TestStubTreeRefuses`, `TestCheckStubSignatures` | the stubbed tree of every stub fixture (only Bun sources change); every refusal of `StubTree`, the hash-pinned script step and the `flowscript` step among them; the schema check | `conformance/flows/stub` |
-| `TestPlanLayout`, `TestCopyLayout`, `TestCopyLayoutRefuses`, `TestStubTreeCarriesTheOutsidePaths` | the layout of a copy: which codebase paths are carried (outside the tree after `.` and `..` are applied, existing, not absolute, not below another carried path; a value of the wrong type is skipped) and the copied tree's place below its parents' names; a copy's `wmill.yaml` is unchanged and each path it names reaches the same bytes from the copied tree, with nothing else from outside; `relative_path: ..` holds the tree; an output that exists or lies inside a carried directory is refused, and a failed copy removes what it made; the stub of `stub/outside` carries `../shared` beside the stubbed tree | `conformance/flows/stub/outside` |
+| `TestPlanLayout`, `TestCopyLayout`, `TestCopyLayoutRefuses`, `TestStubTreeCarriesTheOutsidePaths` | the layout of a copy: which codebase paths are carried (outside the tree after `.` and `..` are applied, existing and not reached through a file, not absolute, not below another carried path, where `../../x` is not below `..`; a value of the wrong type is skipped; `..` climbs from the tree a symbolic link names) and the copied tree's place below its parents' names; a copy's `wmill.yaml` is unchanged and each path it names reaches the same bytes from the copied tree, with nothing else from outside; `relative_path: ..` holds the tree; an output that exists or lies inside a carried directory is refused, and a failed copy removes what it made; the stub of `stub/outside` carries `../shared` beside the stubbed tree | `conformance/flows/stub/outside` |
 | `TestSessionPushesACopyWithTheOutsidePaths` | a session pushes the smoke fixture, given a codebase entry whose `relative_path` and asset lie outside its tree, from a copy that carries them, and lists them in the deployment; the fake CLI, which fails as the real one does when a codebase path does not resolve from its working directory, fails the push when the shared directory is missing | `conformance/flows/oracle/smoke` |
 | `TestStubRunsOnBun` | a generated stub on the pinned Bun (`WL_BUN`) against the real replay service: the request it sends (identities, the hydrated `Date` as its JSON), an error outcome thrown with its name, message and own property, a result returned with its member order, a refusal thrown | `conformance/flows/stub/collapsed` |
 | `TestStubIsolationOnBun` | stubs on the pinned Bun with `fetch` recorded: a default that would call a service or name a dropped binding never runs, and a parameter or destructured binding named `Array` cannot reach the stub's code; the replay call is the only request. Each original runs through the same driver first, to show the recorder sees what a default does | — |

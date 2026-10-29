@@ -63,6 +63,8 @@ func TestPlanLayout(t *testing.T) {
 		{"twice", "  - relative_path: ../shared\n  - relative_path: ../shared/\n", "windmill", []string{"../shared"}},
 		{"two levels up", "  - relative_path: ../shared\n    inject: [../../inject/shim.ts]\n", "repo/windmill", []string{"../../inject/shim.ts", "../shared"}},
 		{"the tree's parent", "  - relative_path: ..\n    assets: [{from: ../shared/lib/label.ts, to: l.ts}]\n", "windmill", []string{".."}},
+		{"climbs past the tree's parent", "  - relative_path: ..\n    inject: [../../inject/shim.ts]\n", "repo/windmill", []string{"..", "../../inject/shim.ts"}},
+		{"through a file", "  - relative_path: ../fixture.yaml/x\n", ".", nil},
 		{"missing and absolute", "  - relative_path: ../nowhere\n    assets: [{from: " + filepath.ToSlash(filepath.Join(abs, "x")) + ", to: x}]\n", ".", nil},
 		{"wrong types", "  - relative_path: 3\n    assets: ../shared\n    inject: ../shared\n  - x\n", ".", nil},
 	}
@@ -84,6 +86,22 @@ func TestPlanLayout(t *testing.T) {
 				t.Fatalf("got root %q outside %q, want %q %q", l.Root, l.Outside, c.root, c.outside)
 			}
 		})
+	}
+	// Through a symbolic link to the tree, ".." climbs from the tree, as
+	// it does from the CLI's working directory.
+	dir := writeFiles(t, t.TempDir(), outsideBase)
+	if err := os.WriteFile(filepath.Join(dir, "top/repo/windmill/wmill.yaml"), []byte("codebases:\n  - relative_path: ../shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Join(dir, "top/repo/windmill"), link); err != nil {
+		t.Fatal(err)
+	}
+	if l, err := PlanLayout(link); err != nil || l.Root != "windmill" || strings.Join(l.Outside, " ") != "../shared" {
+		t.Fatalf("through a link: got %+v %v", l, err)
+	}
+	if l, err := CopyLayout(link, filepath.Join(t.TempDir(), "copy")); err != nil || strings.Join(l.Outside, " ") != "../shared" {
+		t.Fatalf("copy through a link: got %+v %v", l, err)
 	}
 	// A tree without wmill.yaml, or whose wmill.yaml does not parse, names
 	// no paths.
@@ -180,7 +198,7 @@ func TestCopyLayoutRefuses(t *testing.T) {
 	before := listFiles(t, dir)
 	for dst, msg := range map[string]string{
 		filepath.Join(dir, "top/repo/shared"):          "already exists",
-		filepath.Join(dir, "top/repo/shared/lib/copy"): "which the copy carries from outside the sync tree",
+		filepath.Join(dir, "top/repo/shared/lib/copy"): "is inside the carried path",
 		filepath.Join(src, "copy"):                     "is inside the sync tree",
 	} {
 		if _, err := CopyLayout(src, dst); err == nil || !strings.Contains(err.Error(), msg) {

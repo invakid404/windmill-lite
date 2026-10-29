@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/invakid404/windmill-lite/internal/yamlx"
 )
@@ -46,9 +47,11 @@ type Layout struct {
 // import of a shared library below the entry's relative_path does:
 // esbuild follows imports wherever they lead (WR-47), and PlanLayout does
 // not follow them. A wmill.yaml that is missing or does not parse names no
-// paths; the CLI and the build report it themselves.
+// paths; the CLI and the build report it themselves. The paths are taken
+// from src with its symbolic links resolved, as the CLI's working
+// directory has them, so ".." climbs from the directory src names.
 func PlanLayout(src string) (*Layout, error) {
-	abs, err := filepath.Abs(src)
+	abs, err := realDir(src)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +79,7 @@ func PlanLayout(src string) (*Layout, error) {
 		if climbs(rel) == 0 {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(abs, rel)); errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(abs, rel)); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			continue
 		} else if err != nil {
 			return nil, err
@@ -86,9 +89,11 @@ func PlanLayout(src string) (*Layout, error) {
 	sort.Strings(outside)
 	up := 0
 	for _, o := range outside {
+		// o is below k when it starts with k's components and climbs no
+		// further: ../../x is not below .., though it starts with "../".
 		carried := false
 		for _, k := range outside {
-			if k != o && strings.HasPrefix(o, k+"/") {
+			if k != o && strings.HasPrefix(o, k+"/") && climbs(filepath.FromSlash(o)) == climbs(filepath.FromSlash(k)) {
 				carried = true
 				break
 			}
@@ -101,6 +106,8 @@ func PlanLayout(src string) (*Layout, error) {
 	}
 	var names []string
 	for d := abs; len(names) < up; d = filepath.Dir(d) {
+		// Defensive: filepath.Join stops ".." at the file system root, so
+		// no path climbs further than abs is deep.
 		if filepath.Dir(d) == d {
 			return nil, fmt.Errorf("oracle: a codebase path of %s climbs above the file system root", src)
 		}
@@ -143,6 +150,16 @@ func codebasePaths(doc *yamlx.Node) []string {
 	return out
 }
 
+// realDir returns the absolute path of the directory dir with its symbolic
+// links resolved.
+func realDir(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
+}
+
 // climbs returns how many leading ".." components a clean relative path
 // has: 0 for a path inside the directory it is relative to.
 func climbs(rel string) int {
@@ -170,28 +187,37 @@ func (l *Layout) target(src, dst string) (created string, err error) {
 	if created, err = outsideTree(src, dst); err != nil {
 		return "", err
 	}
+	real, err := realDir(src)
+	if err != nil {
+		return "", err
+	}
 	for _, o := range l.Outside {
-		carried := filepath.Join(src, filepath.FromSlash(o))
-		if _, err := outsideOf(carried, carried+", which the copy carries from outside the sync tree", dst); err != nil {
+		carried := filepath.Join(real, filepath.FromSlash(o))
+		if _, err := outsideOf(carried, "the carried path "+carried, dst); err != nil {
 			return "", err
 		}
 	}
 	return created, nil
 }
 
-// copy writes the copy of the tree at src into dst: each outside path at
-// its place relative to the copied root, and then the tree at dst/Root. A
+// copy writes the copy of the tree at src, links in its path resolved,
+// into dst: each outside path at its place relative to the copied root,
+// and then the tree at dst/Root. A
 // carried directory that holds the tree (relative_path ..) writes the
 // tree's files too, and the tree's own copy writes the same files again.
 func (l *Layout) copy(src, dst string) error {
+	real, err := realDir(src)
+	if err != nil {
+		return err
+	}
 	root := filepath.Join(dst, filepath.FromSlash(l.Root))
 	for _, o := range l.Outside {
 		o = filepath.FromSlash(o)
-		if err := copyPath(filepath.Join(src, o), filepath.Join(root, o)); err != nil {
+		if err := copyPath(filepath.Join(real, o), filepath.Join(root, o)); err != nil {
 			return err
 		}
 	}
-	return copyPath(src, root)
+	return copyPath(real, root)
 }
 
 // CopyLayout copies the sync tree at src into dst as PlanLayout lays it
