@@ -319,8 +319,9 @@ Decisions:
    pinned CLI uses, with the settings above. Until the reference states that
    version and the default `format`, the build uses the CLI's documented
    defaults and records the esbuild version in the manifest (semantics
-   request 2, README). A `customBundler` entry is refused at load
-   (`unsupported_feature`). The windmill-lite-specific transforms (the
+   request 2, README). An entry whose `customBundler` is set (JavaScript-
+   truthy, [WR-48](../semantics/languages.md#wr-48)) is refused at load
+   (`unsupported_feature`); a falsy one counts as unset. The windmill-lite-specific transforms (the
    host-provided-module shims and the env rewrite) are the same single
    implementation the Bun path uses ([0010](0010-packaging.md)).
 2. **Runtime.** CJS and ESM codebase bundles run in the Bun harness;

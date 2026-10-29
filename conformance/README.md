@@ -670,8 +670,9 @@ imports a package without a lock
 | `expect.run` | for a clean build, as above: each call's `entry` is a script id, its module the bundle's `.cjs` or `.mjs`; `register` names host-provided modules by id |
 
 The codebase cases are whole-folder cases: `wr-47.json` (how the pinned
-CLI bundles a codebase script, WR-47), `wr-49.json` (assets, WR-49), and
-the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
+CLI bundles a codebase script, WR-47), `wr-48.json` (a falsy
+`customBundler` leaves the bundle to esbuild, WR-48/b), `wr-49.json`
+(assets, WR-49), and the codebase variants of `wa-31.json` (the env rewrite in CommonJS and ESM
 output) and `d12.json` (host-provided modules through their shims).
 
 `deferred.json` lists the catalogue cases of these findings that are not
