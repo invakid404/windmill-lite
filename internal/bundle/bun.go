@@ -488,6 +488,9 @@ type helperEntry struct {
 	File    string `json:"file,omitempty"`
 	Content string `json:"content,omitempty"`
 	Deps    string `json:"deps,omitempty"`
+	// Exports are a codebase script's bundle exports (parse only), which
+	// the signatures cover; nil makes the helper scan the source's.
+	Exports []string `json:"exports,omitempty"`
 }
 
 type helperResponse struct {

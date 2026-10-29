@@ -28,11 +28,17 @@ export type EntryRequest = {
   file?: string;
   content?: string;
   deps?: string;
+  // parse only: the export names of a codebase script's bundle, which the
+  // Go build reads from esbuild; absent, the source's own are scanned.
+  exports?: string[];
 };
 
 export type Request = {
   version: 1;
-  op: "scan" | "build";
+  // scan: the host-provided modules' exports; build: every module; parse:
+  // only what the source of each entry records, for codebase scripts,
+  // which esbuild bundles in Go (C2b).
+  op: "scan" | "build" | "parse";
   require_bun?: string;
   folder: string;
   work: string;

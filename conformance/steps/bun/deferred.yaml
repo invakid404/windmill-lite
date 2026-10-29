@@ -16,3 +16,22 @@ deferred:
   - spec: WR-39/a
     reason: the script the wrapper scan selects is refused at load, so it never runs
     expected_in: A5 and C2a (conformance/build/wr-39.json, conformance/ir)
+  - spec: WR-50/a
+    reason: >-
+      whether CE standalone deploys and runs a codebase script, and the
+      refusal in split mode, are the oracle's to observe; the run's value
+      is WR-47/a's, whose step case (d13.yaml) runs the bundle on Node and
+      on the harness
+    expected_in: E3e (the oracle) and d13.yaml (WR-47/a)
+  - spec: WR-50/b
+    reason: later; the Node patch of Windmill's image is an oracle observation (Q-WR-24), and windmill-lite runs no Node
+    expected_in: E3e (the oracle)
+  - spec: WR-50/c
+    reason: a //native codebase script runs at the native boundary
+    expected_in: C3n (gate S1)
+  - spec: WR-50/d
+    reason: a //nodejs script's environment is the native boundary's (ADR 0010 step 5)
+    expected_in: C3n (gate S1)
+  - spec: WR-50/e
+    reason: later; Node's module-format detection for an ESM bundle sent to Node by //nodejs depends on the Node patch (Q-WR-24)
+    expected_in: E3e (the oracle) and C3n

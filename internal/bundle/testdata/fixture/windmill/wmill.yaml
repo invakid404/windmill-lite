@@ -1,3 +1,12 @@
 defaultTs: bun
 includes:
   - f/**
+codebases:
+  - relative_path: f/cb
+    includes:
+      - f/cb/**
+    define:
+      __FIXTURE_KIND__: '"codebase"'
+    assets:
+      - from: f/cb/greeting.txt
+        to: data/greeting.txt

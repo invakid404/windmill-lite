@@ -7,17 +7,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/invakid404/windmill-lite/internal/bundle"
 )
 
 // These tests run host mode end to end (ADR 0004 host mode, ADR 0009): a
@@ -109,11 +113,18 @@ type generation struct {
 
 func supervise(t *testing.T, killAfterMS int) *supervisor {
 	t.Helper()
-	bin := compiledHost(t)
 	bundle, err := filepath.Abs("../../internal/engine/testdata/w1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return superviseBundle(t, bundle, killAfterMS)
+}
+
+// superviseBundle runs the compiled host on a bundle of W1's skeleton
+// format.
+func superviseBundle(t *testing.T, bundle string, killAfterMS int) *supervisor {
+	t.Helper()
+	bin := compiledHost(t)
 	engineBin, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -344,6 +355,156 @@ func TestHostScopesThroughAHostProvidedModule(t *testing.T) {
 	}
 	if g := s.generations(); g != 1 {
 		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
+// C2b's exit gate (ADR 0012): "an esbuild CJS codebase script that imports
+// a host-provided module reads the host's store 16/16 on Bun 1.3.10 in
+// W1's host-mode skeleton". The script, testdata/codebase/cb_scope.ts, is
+// built by bundle.BuildCodebase as the codebase script of a synthetic sync
+// folder, its import of f/w1/scopes.ts resolved to the module's generated
+// shim, and added to a copy of the W1 bundle with a one-step flow. Sixteen
+// concurrent runs, each submitted inside its own tenant scope, read the
+// host's scope through it before and after awaits, on Bun's CommonJS
+// loader (D13).
+func TestHostScopesThroughACodebaseScript(t *testing.T) {
+	bun := os.Getenv("WL_BUN")
+	if bun == "" {
+		if os.Getenv("WL_REQUIRE_BUN") != "" {
+			t.Fatal("WL_REQUIRE_BUN is set but WL_BUN is not")
+		}
+		t.Skip("WL_BUN is not set; it names the pinned Bun 1.3.10")
+	}
+	bundleDir := codebaseBundle(t, bun)
+	s := superviseBundle(t, bundleDir, 30000)
+	type res struct {
+		i int
+		r runResult
+		e error
+	}
+	results := make(chan res, 16)
+	for i := range 16 {
+		go func() {
+			r, err := s.run("f/w1/cb_scope", fmt.Sprintf("tenant-%d", i), map[string]any{"delay": (i * 5) % 16}, nil)
+			results <- res{i, r, err}
+		}()
+	}
+	read := 0
+	jobs, runs := map[string]bool{}, map[string]bool{}
+	for range 16 {
+		r := <-results
+		if r.e != nil || r.r.Status != "success" {
+			t.Fatalf("run %d: %+v, %v", r.i, r.r, r.e)
+		}
+		var got struct {
+			Tenant, Before, Job, Run string
+			BunEnv, CommonJS         bool
+		}
+		if err := json.Unmarshal(r.r.Result, &got); err != nil {
+			t.Fatal(err)
+		}
+		want := fmt.Sprintf("tenant-%d", r.i)
+		if got.Tenant == want && got.Before == want && got.BunEnv && got.CommonJS {
+			read++
+		}
+		jobs[got.Job], runs[got.Run] = true, true
+	}
+	t.Logf("C2b in a compiled host on Bun 1.3.10: an esbuild CommonJS codebase script read the host's store through the host-provided module %d/16", read)
+	if read != 16 || len(jobs) != 16 || len(runs) != 16 {
+		t.Fatalf("read %d/16, %d job ids, %d run ids", read, len(jobs), len(runs))
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
+// codebaseBundle returns a copy of the W1 bundle with the codebase script
+// f/w1/cb_scope, built by esbuild as CommonJS, and its one-step flow.
+func codebaseBundle(t *testing.T, bun string) string {
+	t.Helper()
+	folder := t.TempDir()
+	scopes, err := os.ReadFile("testdata/host/scopes.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("testdata/codebase/cb_scope.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"wmill.yaml":       []byte("defaultTs: bun\ncodebases:\n  - relative_path: f/w1\n    includes: [\"f/w1/cb_*\"]\n"),
+		"f/w1/scopes.ts":   scopes,
+		"f/w1/cb_scope.ts": script,
+	} {
+		if data == nil {
+			continue
+		}
+		p := filepath.Join(folder, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The shim the scan would generate for the module's one export.
+	shim, err := bundle.Shim("f/w1/scopes.ts", []string{"store"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shimFile := filepath.Join(t.TempDir(), "scopes.mjs")
+	if err := os.WriteFile(shimFile, shim, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "w1")
+	copyDir(t, "../../internal/engine/testdata/w1", out)
+	helper, err := filepath.Abs("../../harnesses/bun/build/main.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := bundle.BuildCodebase(context.Background(), bundle.CodebaseConfig{
+		Bun: bun, Helper: helper, Folder: folder, Out: out, Work: t.TempDir(),
+		Entries: []bundle.CodebaseScript{{ID: "f/w1/cb_scope", Path: "f/w1/cb_scope", File: "f/w1/cb_scope.ts",
+			Settings: json.RawMessage(`{"relative_path":"f/w1","includes":["f/w1/cb_*"]}`)}},
+		HostModules: []bundle.CodebaseHostModule{{Key: "f/w1/scopes.ts", File: "f/w1/scopes.ts", Shim: shimFile}},
+	})
+	if err != nil {
+		t.Fatalf("BuildCodebase: %v", err)
+	}
+	if m := res.Scripts["f/w1/cb_scope"]; m.Format != bundle.CJS || !slices.Equal(m.HostModules, []string{"f/w1/scopes.ts"}) {
+		t.Fatalf("the codebase script's metadata: %+v", m)
+	}
+	flow := `{"summary": "C2b: an esbuild CommonJS codebase script reads the host's scope through a host-provided module",
+  "value": {"modules": [{"id": "a", "value": {"type": "script", "path": "f/w1/cb_scope", "input_transforms": {"delay": {"type": "javascript", "expr": "flow_input.delay"}}}}]}}
+`
+	if err := os.WriteFile(filepath.Join(out, "flows", "f", "w1", "cb_scope.flow.json"), []byte(flow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// copyDir copies the regular files below src into dst.
+func copyDir(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), data, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
