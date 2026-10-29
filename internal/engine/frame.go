@@ -13,16 +13,30 @@ import (
 )
 
 // frame is one flow the run executes (CF-1): the root flow, or the child
-// flow that a loop iteration or a branch runs as. A collapsed iteration
-// (CF-8) is a frame too, of its one body module, but its job runs in the
-// flow of its loop, the frame's parent, whose results context it uses.
+// flow that a loop iteration, a branch or a subflow by path runs as. A
+// collapsed iteration (CF-8) is a frame too, of its one body module, but
+// its job runs in the flow of its loop, the frame's parent, whose results
+// context it uses.
 type frame struct {
 	// modules are the flow's module list, and failure its failure module,
-	// at cursor len(modules) (FX-1): the root's own, since no child flow
-	// runs one before N3c. sites has one more entry, the failure slot's.
+	// at cursor len(modules) (FX-1): the root's own, a body's copy of its
+	// enclosing flow's (CF-1, CF-16, FX-34), or a subflow's own (CF-17).
+	// sites has one more entry, the failure slot's.
 	modules []*ir.Module
 	failure *ir.Module
 	sites   []conformance.SitePath
+	// def is the flow whose module lists hold the frame's modules: the
+	// run's flow, a body's enclosing flow, or the flow a subflow step runs
+	// (CF-17). Hooks name it (Site.Flow, ADR 0008's selectors), and its
+	// same_worker flag is the frame's, which a body copies (CF-1).
+	def *ir.Flow
+	// envSrc is flow_env as stored for the frame's scope: its flow's own,
+	// or, for a body and for a subflow that defines none, its parent's
+	// (CF-1 item 5, CF-17, JE-38); zero when there is none.
+	envSrc jsonval.Value
+	// started is when the frame's flow job started, which its failure
+	// module's started_at reads (FX-32, JE-35).
+	started time.Time
 	// input is the flow's input, flow_input (JE-37); prev is its first
 	// module's previous_result, which is the input except in a collapsed
 	// iteration (CF-8, JE-36).
@@ -33,8 +47,9 @@ type frame struct {
 	// branch. id is the flow's job id (WM_FLOW_JOB_ID) and scope the id of
 	// its innermost flow scope (WM_ROOT_FLOW_JOB_ID, WA-V1).
 	path, id, scope string
-	// site is a child flow's site: its iteration's (<loop>/i:<n>) or its
-	// branch's (<container>/b:<n>, <container>/b:default).
+	// site is a child flow's site: its iteration's (<loop>/i:<n>), its
+	// branch's (<container>/b:<n>, <container>/b:default), or a subflow's
+	// step's own (<step>), below which its modules have theirs.
 	site conformance.SitePath
 	// child marks a child flow: a chaining error at its first module fails
 	// it at its pickup (FX-15 context 3), where the root's fails that

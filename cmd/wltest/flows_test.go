@@ -490,7 +490,8 @@ func TestCompareRun(t *testing.T) {
 // has no record of is not_run, and its id is its iteration's site (OR-11);
 // a module with no result shows no carried (FX-15 context 2); a carried
 // value the trace says the engine produced is generated even when it
-// differs from the result (FX-V2).
+// differs from the result (FX-V2), and so are its copies in the loop's
+// array and the flow's result (ADR 0011).
 func TestObserveChildFlows(t *testing.T) {
 	const child = "44444444-4444-4444-8444-444444444444"
 	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
@@ -516,7 +517,7 @@ func TestObserveChildFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(generated, []string{"/steps/m:l~1i:0~1m:b/carried"}) {
+	if !slices.Equal(generated, []string{"/steps/m:l~1i:0~1m:b/carried", "/result/0", "/steps/m:l/result/0"}) {
 		t.Fatalf("generated %v", generated)
 	}
 	var want conformance.Observation
@@ -768,6 +769,49 @@ func TestObserveFailureSlotAndCarriedOrigin(t *testing.T) {
 	got, _, err = observeTrace(tr, []string{"a", "b"}, nil, false, nil, conformance.CompareSpec{})
 	if _, ok := got.Steps[conformance.SitePath{}.Child(conformance.FailureSlot())]; err != nil || ok {
 		t.Fatalf("s:failure without a failure module (%v)", err)
+	}
+}
+
+// ADR 0011: a copy of an error windmill-lite generated keeps its
+// provenance wherever user code carries it, so the location rule reaches
+// it: a failure module that echoes a pickup error the observation does not
+// show, or its message (FX-15/b, JE-35/d), loses the reference's suffix at
+// the copy, while its own error, which no generated value equals, keeps
+// it.
+func TestObserveCopiedGenerated(t *testing.T) {
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	const errObj = `{"name":"Anyhow","message":"Error: flow not found"}`
+	const own = `{"error":{"name":"Anyhow","message":"Error: mine"}}`
+	result := `{"copy":{"error":` + errObj + `},"m":"Error: flow not found","own":` + own + `}`
+	tr := &engine.Trace{RunID: "root", Status: conformance.RunFailure, Result: v(result), Steps: []engine.StepRecord{
+		{Site: conformance.SitePath{}.Child(conformance.Module("p")), Status: conformance.StepFailure, Module: conformance.ModuleFailure,
+			Carried: v(`{"error":` + errObj + `}`), CarriedOrigin: engine.OriginEngine},
+		{Site: conformance.SitePath{}.Child(conformance.FailureSlot()), Status: conformance.StepSuccess, Module: conformance.ModuleSuccess, Ran: true,
+			RecordedArgs: v(`{"e":` + errObj + `}`), ResolvedArgs: v(`{"e":` + errObj + `}`), Result: v(result), Carried: v(result)},
+	}}
+	got, generated, err := observeTrace(tr, []string{"p"}, nil, true, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/result/copy", "/result/m", "/steps/s:failure/args/e", "/steps/s:failure/result/copy", "/steps/s:failure/result/m",
+		"/steps/s:failure/carried/copy", "/steps/s:failure/carried/m"}
+	if !slices.Equal(generated, want) {
+		t.Fatalf("generated %q, want %q", generated, want)
+	}
+	reference := func(text string) conformance.Run {
+		var expect conformance.Observation
+		if err := json.Unmarshal([]byte(text), &expect); err != nil {
+			t.Fatal(err)
+		}
+		return conformance.Run{Expect: &expect}
+	}
+	withLoc := strings.ReplaceAll(compactJSON(got), `Error: flow not found"`, `Error: flow not found @jobs.rs:1:2"`)
+	if p := compareRun(&conformance.Fixture{}, reference(withLoc), got, generated); len(p) != 0 {
+		t.Fatalf("problems %q", p)
+	}
+	withLoc = strings.ReplaceAll(withLoc, `Error: mine"`, `Error: mine @jobs.rs:3:4"`)
+	if p := compareRun(&conformance.Fixture{}, reference(withLoc), got, generated); len(p) == 0 {
+		t.Fatal("the user's own error lost the reference's location")
 	}
 }
 
