@@ -175,7 +175,7 @@ test("a request the invocation leaves in flight is aborted at settlement, and a 
   }
 });
 
-test("a request stays in flight until its body has been read to the end, canceled or failed, whatever reads it (c3b review 1, R1-2)", async () => {
+test("a request stays in flight until a reading method has read its body to the end; read any other way, it stays counted until settlement (c3b review 1, R1-2; review 3)", async () => {
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -195,9 +195,13 @@ test("a request stays in flight until its body has been read to the end, cancele
     expect(await left((r) => r.json())).toEqual([inFlight, "{}"]);
     expect(await left((r) => r.arrayBuffer())).toEqual([inFlight, "{}"]);
     expect(await left((r) => r.bytes())).toEqual([inFlight, "{}"]);
-    expect(await left(async (r) => { for await (const _ of r.body!) {} })).toEqual([inFlight, "{}"]);
-    expect(await left((r) => r.body!.cancel())).toEqual([inFlight, "{}"]);
+    // A stream's or a cancel's end is no evidence that the transfer ended,
+    // so the request is counted until settlement: too high, never too low.
+    expect(await left(async (r) => { for await (const _ of r.body!) {} })).toEqual([inFlight, inFlight]);
+    expect(await left((r) => r.body!.cancel())).toEqual([inFlight, inFlight]);
     expect(await left(async (r) => r.status)).toEqual([inFlight, inFlight]);
+    // A failed read is no evidence either.
+    expect(await left((r) => r.formData().catch(() => {}))).toEqual([inFlight, inFlight]);
     // Looking at body leaves the reading methods working, and the request
     // ends when one of them has read it.
     expect(await left(async (r) => (r.body, r.json()))).toEqual([inFlight, "{}"]);
@@ -322,26 +326,75 @@ test("a read that fails without reading, or a branch canceled while another read
         return { active: reading };
       }),
     ).toEqual([{ fetch: 1 }, "AbortError"]);
-    // Controls: a body read to its end, piped, or canceled on every branch
-    // ends the request.
-    for (const consume of [
-      (res: Response) => res.text(),
-      (res: Response) => res.body!.pipeTo(new WritableStream()),
-      async (res: Response) => {
-        for await (const _ of res.body!.pipeThrough(new TextDecoderStream())) {
-        }
-      },
-      (res: Response) => Promise.all([res.clone().text(), res.text()]),
-      (res: Response) => {
-        const c = res.clone();
-        return Promise.all([res.body!.cancel(), c.body!.cancel()]);
-      },
-    ]) {
+    // c3b review 3, R3-1: no stream operation ends the request. A cancel
+    // that fails because a reader holds the body:
+    expect(
+      await settled("/gate/locked-cancel", async (res) => {
+        const reading = res.text();
+        expect(await res.body!.cancel().then(() => "canceled", (e) => e.name)).toBe("TypeError");
+        return { active: reading };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // A read on a reader already released, while a new reader reads:
+    expect(
+      await settled("/gate/released-read", async (res) => {
+        const old = res.body!.getReader();
+        old.releaseLock();
+        const reader = res.body!.getReader();
+        expect(await old.read().then(() => "read", (e) => e.name)).toBe("TypeError");
+        return { active: (async () => { for (;;) if ((await reader.read()).done) return "read"; })() };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // A pipe that fails with preventCancel, while a clone reads:
+    expect(
+      await settled("/gate/pipe-prevent-cancel", async (res) => {
+        const reading = res.clone().text();
+        const sink = new WritableStream({ write: () => Promise.reject(new Error("sink")) });
+        expect(await res.body!.pipeTo(sink, { preventCancel: true }).then(() => "piped", (e) => e.message)).toBe("sink");
+        return { active: reading };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // A reader canceled while its read is pending, which then reports done,
+    // while a clone reads:
+    expect(
+      await settled("/gate/canceled-reader", async (res) => {
+        const reading = res.clone().text();
+        const reader = res.body!.getReader();
+        await reader.read();
+        const pending = reader.read();
+        void reader.cancel();
+        expect((await pending).done).toBe(true);
+        return { active: reading };
+      }),
+    ).toEqual([{ fetch: 1 }, "AbortError"]);
+    // Controls: a reading method that reads the body to its end, on the
+    // response or a clone, ends the request; a pipe or a cancel on every
+    // branch reads it natively, but is no evidence, so it stays counted.
+    for (const [consume, left] of [
+      [(res: Response) => res.text(), {}],
+      [(res: Response) => Promise.all([res.clone().text(), res.text()]), {}],
+      [(res: Response) => res.clone().clone().text(), {}],
+      [(res: Response) => res.body!.pipeTo(new WritableStream()), { fetch: 1 }],
+      [
+        async (res: Response) => {
+          for await (const _ of res.body!.pipeThrough(new TextDecoderStream())) {
+          }
+        },
+        { fetch: 1 },
+      ],
+      [
+        (res: Response) => {
+          const c = res.clone();
+          return Promise.all([res.body!.cancel(), c.body!.cancel()]);
+        },
+        { fetch: 1 },
+      ],
+    ] as const) {
       const c = context();
       const res = await invocations.run(c, () => fetch(new URL("/whole", server.url)));
       await invocations.run(c, () => consume(res));
       await Bun.sleep(1);
-      expect(c.resources.pending()).toEqual({});
+      expect(c.resources.pending()).toEqual(left);
     }
   } finally {
     server.stop(true);
@@ -390,10 +443,20 @@ test("the response of the fetch view is Bun's own: locking, disturbance, bodyUse
       return [String(res.bodyUsed), String(body === res.body), String(body!.locked)];
     },
     blob: async (res) => [await settle(res.blob())],
+    "a read's own reaction": async (res) => {
+      // A rejection reaches the step as the native one does.
+      const p = res.json();
+      return [await settle(p), String(p instanceof Promise)];
+    },
     "json of text": async (res) => [await settle(res.json())],
     "pipeThrough while locked": async (res) => (res.body!.getReader(), [call(() => res.body!.pipeThrough(new TransformStream()))]),
     "pipeThrough of no pair": async (res) => [call(() => res.body!.pipeThrough({} as TransformStream))],
     "pipeTo while locked": async (res) => (res.body!.getReader(), [await settle(res.body!.pipeTo(new WritableStream()))]),
+    // c3b review 3, R3-2: the pipes are Bun's own, their option checks too.
+    "pipeThrough with a signal that is not one": async (res) => [call(() => res.body!.pipeThrough(new TransformStream(), { signal: {} as AbortSignal }))],
+    "pipeTo with a signal that is not one": async (res) => [await settle(res.body!.pipeTo(new WritableStream(), { signal: {} as AbortSignal }))],
+    "pipeThrough, read": async (res) => [await settle(new Response(res.body!.pipeThrough(new TransformStream())).text())],
+    "pipeTo, then bodyUsed": async (res) => [await settle(res.body!.pipeTo(new WritableStream())), String(res.bodyUsed)],
     "Bun.readableStreamToText": async (res) => [await settle(Bun.readableStreamToText(res.body!))],
     "metadata": async (res) => [res.url === server.url.href + "whole" ? "url" : res.url, res.type, String(res.redirected), String(res.status), String(res instanceof Response)],
   };

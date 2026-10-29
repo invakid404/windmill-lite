@@ -186,19 +186,23 @@ microtask see none.
      fired and was re-armed with `refresh()` is pending again, and still
      the invocation's.
    - Its requests in flight through the `fetch` view are aborted with an
-     `AbortError`. A request is in flight until its body's transfer has
-     ended, since the body may still be arriving after the headers. The
-     transfer ends when a consumer has read the body to its end or failed,
-     or when every branch of it (the response, its clones, the branches of
-     a `tee`) has been canceled; a read that fails without reading, because
-     the body is already used or locked, ends nothing. The step gets Bun's
-     own response, observed through own properties of it, of its body
-     stream and of that stream's readers, so its locking, `bodyUsed`,
-     `clone` and `tee` semantics are unchanged. A body the step never
-     reads, or reads only through Bun's internals
-     (`Bun.readableStreamToText`, a new `Response` of it), is in flight
-     until settlement. A response with no body (a 204, 205 or 304, or the
-     answer to `HEAD`) ends it at once.
+     `AbortError`. A request is in flight until there is positive evidence
+     that its body's transfer has ended, since the body may still be
+     arriving after the headers. The one evidence is a reading method
+     (`text`, `json` and the rest) of the response, or of a clone made
+     while the body was unused, that consumed the body (it was unused when
+     called) and fulfilled: such a read fulfils only once the source has
+     reached its end. No stream, reader or pipe event, no rejection and no
+     cancellation counts, since each can come from one consumer while the
+     source still feeds another. A body read any other way, whose read
+     fails, or that is never read, stays counted until settlement: the
+     count may be too high, never too low, and settlement's abort changes
+     nothing for a body that has arrived. The step gets Bun's own
+     response; only its reading methods and `clone` are own properties
+     calling the native ones, so its body, stream, readers and pipes, and
+     their locking, `bodyUsed`, `clone`, `tee` and validation, are Bun's.
+     A response with no body (a 204, 205 or 304, or the answer to `HEAD`)
+     ends it at once.
    - Its later log writes are dropped, and its later platform calls are
      refused with a `TypeError`.
    - A handle that its queued code creates after settlement is cleared at

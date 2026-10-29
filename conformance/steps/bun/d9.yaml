@@ -438,3 +438,33 @@ cases:
         by_mode:
           warm: {expect: {status: success, result: [TypeError, AbortError, AbortError]}}
           fresh: {expect: {status: success, result: [null, null, null]}}
+  - spec: D9
+    variant: fetch-read-unhandled
+    provenance: policy
+    title: a reading method's rejection that the step leaves unhandled stays unhandled through the fetch view, so it is the unattributed error a detached rejection is
+    note: >-
+      The module's server answers text that is not JSON; the step calls
+      json() and neither awaits nor catches it. The failed read is no
+      evidence that the transfer ended, so the request is also counted at
+      settlement (c3b review 3).
+    deviation: D9
+    script: |
+      const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("not json") });
+      export async function main() {
+        const res = await fetch(server.url);
+        res.json();
+        await Bun.sleep(100);
+        return "done";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            expect: {status: success, result: done}
+            warnings: [unattributed_error, left_behind]
+            left: {fetch: 1}
+          fresh:
+            claims:
+              - {at: /status, equals: failure}
+              - {at: /result/error/name, equals: ExecutionErr}
+              - {at: /result/error/exit_code, equals: 1}

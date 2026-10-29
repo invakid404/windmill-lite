@@ -125,21 +125,23 @@ loads ([WA-31](../../docs/semantics/client-api.md#wa-31)):
   refused with a `TypeError`, and one whose signal has already aborted is
   not sent. One still waiting when its invocation settles is aborted, and
   the reply that comes later is dropped. Any other request stays
-  registered until its body's transfer has ended (`observeTransfer`). The
-  step gets Bun's own response, so its locking, `bodyUsed`, `clone` and
-  `tee` semantics are unchanged; the observers are own properties of it,
-  of its body stream and of that stream's readers, each calling the native
-  one. The transfer ends when a consumer reads the body to its end or
-  fails: a reading method that was the call that consumed it (Bun marks a
-  body used once a read starts or a reader is taken, so a call on a used
-  or locked body, which fails without reading, ends nothing), a reader's
-  `read`, `pipeTo` or `pipeThrough`. It ends too when every branch (the
-  response, each clone, each `tee` branch) has been canceled; canceling
-  one while another reads ends nothing. A body the step never reads, or
-  reads only through Bun's internals (`Bun.readableStreamToText`, a new
-  `Response` of it), stays registered until settlement, which aborts what
-  is still arriving. A response with no body (a 204, 205 or 304, or the
-  answer to `HEAD`) ends the request at once.
+  registered until there is positive evidence that its body's transfer
+  has ended (`observeTransfer`): a reading method (`text`, `json` and the
+  rest) of the response, or of a clone made while the body was unused,
+  that consumed the body and fulfilled, which it does only once the
+  source has reached its end. Bun marks a body used as soon as a read
+  starts, a reader is taken, or it is canceled, teed or piped, so a call
+  on a used body is no evidence. Nothing else is: no stream, reader or
+  pipe event, no rejection, no cancellation. A body read any other way,
+  whose read fails, or that is never read, stays registered until
+  settlement, which counts it and aborts whatever is still arriving: too
+  high a count, never too low. The step gets Bun's own response: only its
+  reading methods and `clone` are own properties, calling the native
+  ones, and a reading method returns the native promise's continuation, so
+  a rejection reaches the step unchanged, unhandled if the step leaves it
+  so (case `D9/fetch-read-unhandled`). Its body, stream, readers and pipes
+  are untouched. A response with no body (a 204, 205 or 304, or the answer
+  to `HEAD`) ends the request at once.
 - **The timer fence.** `setTimeout`, `setInterval` and `setImmediate`, on
   `globalThis` and on `node:timers`, register each handle a step creates
   in its invocation's registry; the clear functions, and a timeout or
@@ -386,9 +388,9 @@ priority, the order per invocation, partial writes and `whenFlushed`.
 `test/context.test.ts` checks the environment view's rules in one process
 (a first write of a process variable included), the registry, the process
 scope and the exit status; `test/fence.test.ts` the settle-time fence (the
-timers and `refresh()`, the fetch view and a body's transfer, with a
-native-versus-fenced comparison of the response's semantics, and a
-refused platform call), the log view, the `Bun.env` write trap and the
+timers and `refresh()`, the fetch view and the evidence that ends a
+body's transfer, with a native-versus-fenced comparison of the
+response's semantics, and a refused platform call), the log view, the `Bun.env` write trap and the
 environment of child processes;
 and `test/host.test.ts` the SDK's refusals: the working directory and an
 engine that cannot start. `test/build.test.ts` checks the build helper's
