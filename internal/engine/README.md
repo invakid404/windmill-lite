@@ -218,12 +218,13 @@ outside the Bun boundary (C3n); a preprocessor and `skip_expr`
    own timeout metadata; a request strictly below the instance maximum is
    job-specific, zero included (no time at all); none, or one at or above
    the maximum, gives the maximum, instance-wide (FX-24, FX-25, WR-37).
-   `StoreOutcome` maps the outcome, H1's included.
+   `StoreOutcome` maps the outcome, H1's included; a leaf's result or
+   failure value that jsonb refuses fails its job instead (FX-48 case 1,
+   below).
 5. **`stop_after_if`** after a success, except on the failure module, and
    on an identity job classified skipped: any identity job of a module
-   with a `skip_if`,
-   whatever the predicate answered, and whether it ran or H1 answered for
-   it ([FX-17](../../docs/semantics/execution.md#fx-17),
+   with a `skip_if`, whatever the predicate answered, and whether it ran or
+   H1 answered for it ([FX-17](../../docs/semantics/execution.md#fx-17),
    [FX-18](../../docs/semantics/execution.md#fx-18),
    [FX-19](../../docs/semantics/execution.md#fx-19)). A clean stop ends
    the flow with the module's result, `skipped` when `skip_if_stopped` (the
