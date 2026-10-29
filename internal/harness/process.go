@@ -877,7 +877,8 @@ func newChildGroup(pid int, token string) (g *childGroup, ok bool) {
 }
 
 // findGuard looks for the guardian among now, with g.mu held or g not yet
-// shared, until it is found.
+// shared, until it is found: a guardian whose exec of sleep has not yet
+// set up its arguments shows no token, and a later look finds it.
 func (g *childGroup) findGuard(now []groupMember) {
 	if g.token == "" || g.guard != nil {
 		return

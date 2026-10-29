@@ -258,7 +258,10 @@ func TestRetireChildren(t *testing.T) {
 }
 
 // processHasGuard finds a guardian's token in a real sleeping process's
-// arguments, as the harness starts it, and no other token.
+// arguments, as the harness starts it, and no other token. On Linux the
+// arguments can still read empty just after Start returns, until the exec
+// has set them up, so the test waits for them, as the engine looks again
+// at each look (findGuard).
 func TestGuardianToken(t *testing.T) {
 	cmd := exec.Command("sleep", guardArg("012345678901234"))
 	if err := cmd.Start(); err != nil {
@@ -266,7 +269,8 @@ func TestGuardianToken(t *testing.T) {
 	}
 	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
 	pid := cmd.Process.Pid
-	if !processHasGuard(pid, "012345678901234") || processHasGuard(pid, "01234567890123") || processHasGuard(os.Getpid(), "012345678901234") {
+	waitFor(t, "the guardian's token", func() bool { return processHasGuard(pid, "012345678901234") })
+	if processHasGuard(pid, "01234567890123") || processHasGuard(os.Getpid(), "012345678901234") {
 		t.Fatal("the guardian's token is not told apart")
 	}
 }
