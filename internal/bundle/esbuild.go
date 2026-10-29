@@ -427,7 +427,13 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 	}
 	res.BunVersion, res.NonconformantRuntime = resp.BunVersion, resp.BunVersion != harness.PinnedBun
 
+	// An entry that fails is reported, and the others are still built:
+	// each entry whose module and assets succeed gets its metadata and
+	// assets written, as BuildBun writes the metadata of every script that
+	// built, so a caller that runs the scripts that built can run them
+	// (c2b review 3, finding 5).
 	var problems []ItemProblem
+	var built []CodebaseScript
 	assets := map[string]assetSource{} // to → where it came from
 	for _, e := range cfg.Entries {
 		item := "script " + e.ID
@@ -456,24 +462,26 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 			problems = append(problems, ItemProblem{item, *p})
 			continue
 		}
-		for _, a := range settings.Assets {
-			if p := collectAsset(cfg.Folder, e.ID, a, assets); p != nil {
-				problems = append(problems, ItemProblem{item, *p})
-			}
+		own, p := entryAssets(cfg.Folder, e.ID, settings.Assets, assets)
+		if p != nil {
+			problems = append(problems, ItemProblem{item, *p})
+			continue
 		}
+		for to, a := range own {
+			assets[to] = a
+		}
+		built = append(built, e)
 	}
-	if len(problems) == 0 {
-		// Paths that would not extract to one tree (a file that is also a
-		// directory of another) collide too.
-		tree := map[string]string{}
-		for to := range assets {
-			tree[to] = ""
-		}
-		if err := portablePaths(tree); err != nil {
-			problems = append(problems, ItemProblem{"assets", Problem{ProblemAssetCollision, err.Error()}})
-		}
+	// Paths that would not extract to one tree (a file that is also a
+	// directory of another) collide too. The working directory is the
+	// process's, so that is the bundle's problem, not one script's: no
+	// asset or metadata is written.
+	tree := map[string]string{}
+	for to := range assets {
+		tree[to] = ""
 	}
-	if len(problems) > 0 {
+	if err := portablePaths(tree); err != nil {
+		problems = append(problems, ItemProblem{"assets", Problem{ProblemAssetCollision, err.Error()}})
 		return res, &BuildError{Problems: problems}
 	}
 	for to, a := range assets {
@@ -483,7 +491,7 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 		res.Assets[to] = a.from
 	}
 	res.Warnings = append(res.Warnings, unknown...)
-	for _, e := range cfg.Entries {
+	for _, e := range built {
 		meta := res.Scripts[e.ID]
 		for _, w := range meta.esbuildWarnings {
 			res.Warnings = append(res.Warnings, Warning{WarningEsbuild, fmt.Sprintf("script %s (%s): %s", e.ID, e.Path, w)})
@@ -495,6 +503,9 @@ func BuildCodebase(ctx context.Context, cfg CodebaseConfig) (*CodebaseResult, er
 		if err := writeFile(filepath.Join(cfg.Out, "scripts", "bun", filepath.FromSlash(e.ID)+".meta.json"), append(b, '\n')); err != nil {
 			return nil, err
 		}
+	}
+	if len(problems) > 0 {
+		return res, &BuildError{Problems: problems}
 	}
 	return res, nil
 }
@@ -749,34 +760,41 @@ type assetSource struct {
 	data         []byte
 }
 
-// collectAsset reads one asset of a script's entry into assets, by its
-// path in the working directory, or returns its problem: an unreadable
-// source, a `to` that is not a clean relative path, or another script's
-// different content at the same path (ADR 0002, decision 3).
-func collectAsset(folder, script string, a Asset, assets map[string]assetSource) *Problem {
-	if !validID(a.To) || path.IsAbs(a.To) {
-		return &Problem{ProblemInvalidAsset, fmt.Sprintf("the asset's to %q is not a clean relative path", a.To)}
-	}
-	from := filepath.FromSlash(a.From)
-	if !filepath.IsAbs(from) {
-		from = filepath.Join(folder, from)
-	}
-	data, err := os.ReadFile(from)
-	if err != nil {
-		return &Problem{ProblemInvalidAsset, fmt.Sprintf("the asset %q: %v", a.From, err)}
-	}
-	if prev, ok := assets[a.To]; ok {
-		if !bytes.Equal(prev.data, data) {
-			return &Problem{ProblemAssetCollision, fmt.Sprintf(
-				"the asset %q of script %s (from %q) and of script %s (from %q) have different content", a.To, prev.script, prev.from, script, a.From)}
+// entryAssets reads the assets of one script's entry, all or none, by
+// their paths in the working directory, or returns its problem: a source
+// that does not read, a `to` that is not a clean relative path, or a path
+// that an earlier script, or the same entry, takes with different content
+// (ADR 0002, decision 3). The same content at one path is shared.
+func entryAssets(folder, script string, list []Asset, taken map[string]assetSource) (map[string]assetSource, *Problem) {
+	own := map[string]assetSource{}
+	for _, a := range list {
+		if !validID(a.To) || path.IsAbs(a.To) {
+			return nil, &Problem{ProblemInvalidAsset, fmt.Sprintf("the asset's to %q is not a clean relative path", a.To)}
 		}
-		return nil
+		from := filepath.FromSlash(a.From)
+		if !filepath.IsAbs(from) {
+			from = filepath.Join(folder, from)
+		}
+		data, err := os.ReadFile(from)
+		if err != nil {
+			return nil, &Problem{ProblemInvalidAsset, fmt.Sprintf("the asset %q: %v", a.From, err)}
+		}
+		for _, prev := range []map[string]assetSource{taken, own} {
+			if p, ok := prev[a.To]; ok && !bytes.Equal(p.data, data) {
+				return nil, &Problem{ProblemAssetCollision, fmt.Sprintf(
+					"the asset %q of script %s (from %q) and of script %s (from %q) have different content", a.To, p.script, p.from, script, a.From)}
+			}
+		}
+		if _, ok := taken[a.To]; !ok {
+			if _, ok := own[a.To]; !ok {
+				own[a.To] = assetSource{from: a.From, script: script, data: data}
+			}
+		}
 	}
-	assets[a.To] = assetSource{from: a.From, script: script, data: data}
-	return nil
+	return own, nil
 }
 
-// unicodeEscape matches an identifier's Unicode escapes, `u` and
+// unicodeEscape matches an identifier's Unicode escapes, `\u0075` and
 // `\u{75}`.
 var unicodeEscape = regexp.MustCompile(`\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})`)
 

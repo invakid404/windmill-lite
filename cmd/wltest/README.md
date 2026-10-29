@@ -271,7 +271,11 @@ Windmill v1.767.0's image).
   a flow the skeleton refuses is unsupported, that an inline step and a
   path script sharing a job path both run and both see it, that a script
   that does not build fails only the runs that reach it, and that a run
-  that holds passes. `TestObserveTrace`, `TestCompareRun` and
+  that holds passes. `TestFlowCheckerIsolatesCodebaseFailures` does the
+  same for codebase scripts: one that does not bundle and one whose asset
+  collides fail their own flows, while a flow whose codebase script reads
+  its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
+  same isolation for codebase step cases. `TestObserveTrace`, `TestCompareRun` and
   `TestCarriedLocation` need no Bun: they check the observation of a trace
   (stored forms, `not_run` sites, placeholders, stack masking, the kept
   `carried` and `resolved_args`, the generated values) and which reference

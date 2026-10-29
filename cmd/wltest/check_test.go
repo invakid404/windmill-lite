@@ -250,6 +250,68 @@ cases:
 	}
 }
 
+// A codebase case whose script fails to build fails alone (c2b review 3,
+// finding 5): the codebase build writes the metadata and assets of every
+// script that built, so another case of the file, which reads its asset in
+// the harness's working directory, still runs and passes.
+func TestStepCheckerIsolatesCodebaseFailures(t *testing.T) {
+	bun := bunOrSkip(t)
+	dir := filepath.Join(t.TempDir(), "steps", "bun")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "wr-49.yaml")
+	if err := os.WriteFile(path, []byte(`finding: WR-49
+scope: core
+cases:
+  - spec: WR-49
+    variant: does-not-build
+    provenance: policy
+    title: a codebase script that imports a missing module
+    codebase: {relative_path: f/wl_step, format: esm}
+    script: |
+      import { x } from "./missing";
+      export function main() { return x; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 0}
+  - spec: WR-49
+    variant: builds
+    provenance: policy
+    title: a codebase script that reads its asset
+    codebase:
+      relative_path: f/wl_step
+      format: esm
+      assets: [{from: f/wl_step/data/a.txt, to: data/a.txt}]
+    files:
+      f/wl_step/data/a.txt: asset
+    script: |
+      import { readFileSync } from "node:fs";
+      export function main() { return readFileSync("data/a.txt", "utf8"); }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: asset}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), path}, &stdout, &stderr)
+	out := stdout.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\n%s%s", code, out, stderr.String())
+	}
+	for _, want := range []string{
+		"fail wr-49-does-not-build ",
+		"build: bundle_failed: ",
+		"pass wr-49-builds ",
+		"1 passed, 1 failed, 0 unsupported (mode warm)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 var catalogueEntry = regexp.MustCompile(`(?m)^- \*\*((?:WR|WA|FX)-[0-9V]+/[a-z])\*\* · ([a-z-]+)`)
 
 // Every catalogue case of a finding with a step file is a step case or

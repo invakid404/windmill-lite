@@ -262,7 +262,22 @@ process.stdout.write("\n@@" + JSON.stringify(out) + "\n");
 // (key and module file, in order) when register is not nil.
 func runModules(t testing.TB, bun string, env map[string]string, register [][2]string, calls []call) []callResult {
 	t.Helper()
+	return runModulesAt(t, bun, "", env, register, calls)
+}
+
+// runModulesIn runs calls as runModules does, in the working directory
+// cwd, where a harness extracts a bundle's assets.
+func runModulesIn(t testing.TB, bun, cwd string, calls []call) []callResult {
+	t.Helper()
+	return runModulesAt(t, bun, cwd, nil, nil, calls)
+}
+
+func runModulesAt(t testing.TB, bun, cwd string, env map[string]string, register [][2]string, calls []call) []callResult {
+	t.Helper()
 	dir := t.TempDir()
+	if cwd == "" {
+		cwd = dir
+	}
 	runner := filepath.Join(dir, "runner.mjs")
 	specPath := filepath.Join(dir, "spec.json")
 	spec, err := json.Marshal(map[string]any{"env": env, "register": register, "calls": calls})
@@ -278,7 +293,7 @@ func runModules(t testing.TB, bun string, env map[string]string, register [][2]s
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bun, runner, specPath)
-	cmd.Dir = dir
+	cmd.Dir = cwd
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("running the bundles: %v\n%s", err, out)

@@ -234,9 +234,20 @@ CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
   ([WR-49](../../docs/semantics/languages.md#wr-49), `unsupported_feature`);
   an asset whose `to` is not a clean relative path or whose source does not
   read (`invalid_asset`); and two scripts that extract different content to
-  one path, or paths that would not extract to one tree (`asset_collision`,
+  one path (`asset_collision`,
   [ADR 0002](../../docs/design/0002-ir-and-loader.md), decision 3). Two
   scripts that extract the same content to one path share it.
+- **Partial success.** Scripts build in id order, and one that fails
+  does not stop the others: as `BuildBun` writes the metadata of every
+  script that built, each script whose module and assets succeed gets its
+  metadata and its assets written, so a caller that runs only the scripts
+  that built (the step and flow checkers of `wltest check`) can run them.
+  An entry's assets are taken all or none, and one that collides with an
+  asset an earlier script took is the later script's problem. Paths that
+  would not extract to one tree (a file that is also another's directory)
+  are the bundle's problem, reported as the item `assets`
+  (`asset_collision`); then no asset or metadata is written. `Build` still
+  refuses the whole folder on any problem.
 
 The harness runs a CommonJS bundle on Bun's CommonJS loader (D13), from a
 copy in its working directory, where it has extracted the assets
@@ -427,6 +438,10 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestBuildCodebaseConcurrentHostImports` builds 64 modules that each
   import a listed folder module and a listed package, which esbuild
   resolves concurrently (run under `-race` in CI), and runs the bundle.
+  `TestBuildCodebasePartialSuccess` builds a script that fails, one that
+  builds and reads its asset, and one whose asset collides, and checks that
+  only the one that built has its metadata and asset, and runs; and that
+  assets that cannot form one tree write nothing.
 - `TestBuildIsReproducible`, `TestMetaFile`, `TestBuildLocks`,
   `TestBuildRefusesAnotherBun`, `TestBuildIgnoresNodeEnv`,
   `TestBuildRefusesAncestorPackages`, `TestHelperRefusesPathsOutsideTheFolder`,
