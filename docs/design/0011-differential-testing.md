@@ -204,6 +204,26 @@ location compares equal to windmill-lite's. Negative test: a user error
 `Error("boom @a.rs:1:2")` against `Error("boom @b.rs:3:4")` still differs,
 because windmill-lite's value at that path has user provenance.
 
+Two refinements (milestone N3c):
+
+- **Copies keep their provenance.** A value that user code passes on
+  unchanged, such as a failure module or a later step echoing a pickup
+  error ([FX-15](../semantics/execution.md#fx-15)/b,
+  [JE-35](../semantics/expressions.md#je-35)/d), is a copy of the
+  generated error. An argument, a result or a carried value that holds at
+  any depth a value equal to a generated one, to its error, or to that
+  error's message is generated too. User code cannot write the engine's
+  wording without reading it. A user's own error, which equals no
+  generated value, keeps its user provenance.
+- **The parenthesised not-found form is declared.** The location
+  ` (<file>.rs:<line>)` that ends the lookup helper's not-found text can
+  stand inside a message, as in [CF-19](../semantics/control-flow.md#cf-19)/c's
+  transform error. No textual template tells it from a user's own phrase
+  of the same shape ([FX-50](../semantics/execution.md#fx-50)/d), so the
+  run declares the values where Windmill generated it (`not_found_locs`,
+  FX-50 rule 3). It is stripped there only, and only where windmill-lite's
+  value is generated.
+
 ### Stub mode
 
 `wltest stub <folder>` rewrites a sync tree so that every executed script

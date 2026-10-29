@@ -29,7 +29,7 @@ fixtures on windmill-lite.
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
-| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations`, the rule a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
+| `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`: stub mode's replay table and the run-scoped service that answers stubs (see [Stub mode](#stub-mode)) |
 
@@ -196,7 +196,11 @@ other run runs alone. The oracle fails a group as a whole when one of its
 runs fails or when they were not in flight together.
 
 A run may also carry `claims`, `delays` and `unit`, which the comparator
-does not read (see [Claims](#claims)). A fixture whose tree is generated
+does not read (see [Claims](#claims)), and `not_found_locs`, the values
+whose parenthesised not-found location Windmill generated, which only
+the comparison with windmill-lite reads (see
+[Location suffixes](#location-suffixes)); the recorder ignores it, and
+loading checks that each entry is a JSON Pointer. A fixture whose tree is generated
 sets `Tree`, `RecordedIn` and `Generated` instead of using `windmill/` and
 `recorded/` under its directory.
 
@@ -418,6 +422,22 @@ ADR 0011's positive case (a generated `Internal:` error compares equal to
 the oracle's with its location) and its negative one (two user errors
 that differ only in such a suffix still differ), that an escaped literal
 is never stripped, and each template's positive and negative cases.
+
+The parenthesised not-found location ` (<file>.rs:<line>)` that ends the
+lookup helper's text, `<kind> not found at name <name>`, can stand inside
+a message, as in a transform error quoting a failed fetch of a step's
+result ([CF-19](../../docs/semantics/control-flow.md#cf-19)/c), and no
+textual rule tells it from a user's own phrase of the same shape
+([FX-50](../../docs/semantics/execution.md#fx-50)/d). So it is stripped
+only where the case's expected text writes `<loc>` for it (FX-50 rule 3):
+the run lists those values in `not_found_locs` (milestone N3c), and
+`StripNotFoundLocations(o, at)` removes, at each pointer that names an
+error object, a value whose `error` member is one, or the message itself,
+the location of the first not-found text in the message, with its leading
+space. `wltest check` passes it only the declared pointers at or below a
+value windmill-lite generated. `TestStripNotFoundLocations` covers a
+declared value, an undeclared user phrase that keeps its location, and
+pointers that name no such message.
 
 ## Comparison
 

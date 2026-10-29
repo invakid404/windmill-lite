@@ -326,6 +326,38 @@ waits on an external gate except R1.
   second session (two workers, OR-5), records what the reference leaves
   out of a dispatched job: its identity, which the engine reproduces.
 
+- N3c runs subflows by path as child flows at their step's site
+  (`internal/engine/subflow.go`), each its own results scope (whose
+  lookups still walk up, Q-CF-12 matched), its own innermost flow scope
+  and path, with its own failure module and `flow_env`; each frame now
+  carries its flow, its stored `flow_env` and its start, which replace
+  the run-wide ones. Every loop iteration and branch of a flow with a
+  failure module runs a copy of it, and a container whose child ran its
+  copy no longer runs the flow's own failure module again (CF-16 item 4),
+  except across a subflow boundary. "CF-16 to CF-20, CF-29 and CF-V
+  cases" in its row are read as CF-19's cases, recorded by E3a and E3d
+  (`cf/cf-19`), plus the cases of CF-16 to CF-18, CF-20, CF-29 and CF-V1
+  to CF-V5. N3c records the latter with its own fixtures under
+  `conformance/flows/control-flow` (cf-16 to cf-v5), whose manifest is
+  `internal/oracle/testdata/batches/n3c.json`. CF-V6's cases are CF-19's
+  and already required since N1a. CF-V4/b and CF-V5/b need an inline or
+  raw-preview submission, which windmill-lite never runs, so they are
+  deferred to `none` (and CF-16/d's inline half with them). CF-19/c passes
+  through a new run field, `not_found_locs`: it is FX-50 rule 3, the
+  case declaring where the parenthesised not-found location is generated.
+  A copy of a generated error that user code passes on keeps its
+  provenance (ADR 0011, amended), which makes JE-35/d and FX-15/b pass;
+  so FX-15/b, which N2 left to NI, is required under N3c. E3a's JE-19/b
+  has been required since N3a; its run `je19-d`, a subflow's read of its
+  caller's results, passes too. The E3c runs of the row (FX-15/c, FX-33's
+  parent view, FX-34/a's `loop` and `step_id`) and `cf-12`'s `b` are
+  required under N3c. An empty container's error stop now fails its
+  record's status, as the walker reads a container with no child
+  (CF-29/a). A container as the failure module (CF-30, source-traced only)
+  and a retry on a subflow step (whose attempts' subflows NI places under
+  the attempt's site) are refused. The N2 and N3b merge resolution
+  (2dfbae10) was reviewed with this milestone.
+
 - N3b runs while loops on N3a's sequential loop, with no iterator, and
   `branchone` and `branchall` on frames: each branch that runs is a child
   flow of its own, which the trace lists under `b:<n>` or `b:default`.
