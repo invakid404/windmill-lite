@@ -607,7 +607,14 @@ func TestHostChildUnderBackpressure(t *testing.T) {
 		if syscall.Kill(pid, 0) == syscall.ESRCH {
 			return true
 		}
-		// A killed child of the blocked host stays unreaped.
+		// A killed child of the blocked host stays unreaped. Its state is
+		// field 3 of /proc/<pid>/stat, after the command name's last ')',
+		// where there is a /proc, so a slim Linux image without ps can run
+		// this (FU7); ps elsewhere.
+		if st, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
+			i := bytes.LastIndexByte(st, ')')
+			return i >= 0 && i+2 < len(st) && st[i+2] == 'Z'
+		}
 		out, err := exec.Command("ps", "-o", "stat=", "-p", fmt.Sprint(pid)).Output()
 		return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 	}

@@ -531,7 +531,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// (JE-38), a subflow's included: a top-level flow, with no parent, its
 	// own effective root, at the flow's path; or a dispatched one's, with
 	// the links its dispatch sent.
-	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken()}.Env(e.host)
+	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken(), Start: clock.Now()}.Env(e.host)
 	// The run is a flow job of the job registry while it runs, in its
 	// effective root's tree, so that its steps' root lookups, reads with
 	// a job id and flow user state find it (ADR 0007, D3, WA-14); its user

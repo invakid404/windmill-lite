@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -334,13 +335,43 @@ func TestBunWarmCancelKillsChildren(t *testing.T) {
 
 // ended reports whether pid has exited: it is gone, or a zombie its parent
 // has not reaped, as a child of a harness whose event loop is blocked
-// stays.
+// stays. It reads the process's state as the engine does (procInfoOf:
+// /proc on Linux, kern.proc.pid on macOS), so it needs no ps, which a slim
+// Linux image lacks; elsewhere, where the engine reads no process, it
+// falls back to ps.
 func ended(pid int) bool {
 	if gone(pid) {
 		return true
 	}
+	if info, ok := procInfoOf(pid); ok {
+		return info.zombie
+	}
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		return gone(pid) // it exited and was reaped meanwhile
+	}
 	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
 	return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
+}
+
+// ended tells a zombie from a running process without ps: here with no
+// PATH to find one (FU7; a slim Linux image has none).
+func TestEnded(t *testing.T) {
+	t.Setenv("PATH", "")
+	live := exec.Command("/bin/sleep", "5")
+	if err := live.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { live.Process.Kill(); live.Wait() })
+	dead := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := dead.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dead.Wait() })
+	// Not waited for, it stays a zombie of this process.
+	waitFor(t, "the exited child to be a zombie", func() bool { return ended(dead.Process.Pid) })
+	if ended(live.Process.Pid) {
+		t.Fatal("a running process was taken for ended")
+	}
 }
 
 // readPID waits for the pid a step writes to pidFile.
