@@ -336,11 +336,17 @@ attempt `k` at `<module>/r:<k>`: the oracle's walk, or windmill-lite's
 trace. `scripts` are the jobs that executed a script. It fails the run on
 the first refused call (`replay_miss`, `replay_unresolved`, as the stub
 received it), and on a call whose site and attempt disagree with where its
-job was walked (`replay_site_mismatch`: a failed attempt `k` at
-`<site>/r:<k>`, the last job at `<site>` with `k` the number of failed
-attempts before it). It also fails a run in which a script job never
-called (`stub_not_called`, with the sorted sites). The error's text is the
-refusal as one JSON object. `TestCheckReplay` covers each case.
+job was walked (`replay_site_mismatch`). The call's site must be the job's
+walked site without attempt segments, and its attempt the job's place
+among the jobs walked at that site, in walk order. That puts a failed
+attempt `k` at `<site>/r:<k>` and the last job at `<site>`, with `k` the
+number of failed attempts before it. Below a retried flow step (milestone
+N5), each attempt's subflow is walked below the step's `r:<k>`, so a
+subflow step's jobs are ordered by the flow step's attempt first, then by
+their own. It also fails a run in which a script job never called
+(`stub_not_called`, with the sorted sites). The error's text is the
+refusal as one JSON object. `TestCheckReplay` and
+`TestCheckReplayAcrossFlowStepAttempts` cover each case.
 
 The locator differs by side. On the oracle it walks the job tree
 ([internal/oracle](../oracle/README.md#stub-mode)). On windmill-lite,

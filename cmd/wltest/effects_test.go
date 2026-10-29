@@ -22,9 +22,10 @@ const stubDir = "../../conformance/flows/stub"
 // TestStubCasesMatchTheOracle is the exit gate of milestone E4b: the stub
 // acceptance cases of ADR 0011 (a retry inside a loop, a collapsed body,
 // nested loops, a named subflow and a parallel loop under one outer run,
-// two concurrent outer runs), and E4b's retry inside a loop on codebase
-// scripts, run on windmill-lite, stubbed, with the replay service
-// answering from each run's table, and every run matches both its expect
+// two concurrent outer runs), E4b's retry inside a loop on codebase
+// scripts and N5's retried flow step, run on windmill-lite, stubbed, with
+// the replay service answering from each run's table, and every run
+// matches both its expect
 // and the oracle's recording of it, effects included: where each stub
 // call resolved, its attempt, the job, flow, root flow and root ids the
 // step saw, and the arguments it received. They run in fresh mode, one

@@ -1,4 +1,4 @@
-summary: "N5 a retried branchone whose chosen branch fails once"
+summary: N5 a retried branchone whose chosen branch fails once
 value:
   modules:
     - id: br
@@ -10,17 +10,19 @@ value:
                 value:
                   type: script
                   input_transforms:
-                    tag:
-                      type: static
-                      value: br
                     fails:
                       type: static
                       value: 1
+                    tag:
+                      type: static
+                      value: br
                     v:
                       type: static
                       value: 1
                   path: f/cfsr/flaky
             expr: 'true'
+            parallel: true
+            skip_failure: true
         default: []
       retry:
         constant:

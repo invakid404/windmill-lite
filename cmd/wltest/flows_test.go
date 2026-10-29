@@ -200,6 +200,44 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	}
 }
 
+// Milestone N5's gate (ADR 0012): the control-flow/subflow-retry runs, a
+// retry on a flow step recorded on the oracle, and a retry on a while loop
+// and a branchone, match their recordings on windmill-lite in fresh and in
+// warm mode. Every run of the fixture runs and passes in both.
+func TestSubflowRetryFixturesFreshAndWarm(t *testing.T) {
+	bun := bunOrSkip(t)
+	root := repo(t)
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	dir := filepath.Join(flowsDir, "control-flow", "subflow-retry")
+	for _, mode := range []string{conformance.ModeFresh, conformance.ModeWarm} {
+		t.Run(mode, func(t *testing.T) {
+			fc := &flowChecker{bun: bun, repo: root, mode: mode, js: js}
+			n := 0
+			for _, fr := range fc.runFixtures(context.Background(), []string{dir}) {
+				if fr.err != nil {
+					t.Fatalf("fixture %s does not load: %v", fr.dir, fr.err)
+				}
+				for _, r := range fr.runs {
+					n++
+					switch {
+					case r.unsupported != "":
+						t.Errorf("run %s is unsupported: %s", r.run, r.unsupported)
+					case len(r.problems) > 0:
+						t.Errorf("run %s failed:\n  %s\nharness diagnostics:\n%s", r.run, strings.Join(r.problems, "\n  "), r.diag)
+					}
+				}
+			}
+			if n != 10 {
+				t.Fatalf("%d runs, want the fixture's 10", n)
+			}
+		})
+	}
+}
+
 func mustAbs(t *testing.T, p string) string {
 	t.Helper()
 	a, err := filepath.Abs(p)

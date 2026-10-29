@@ -1,0 +1,66 @@
+# The first subflow's check reports that the stock moved, so the subflow
+# and the reserve step fail, and the step's retry runs the subflow again;
+# its check passes. The table gives each subflow step's outcomes by the
+# number of its jobs already seen in the run, across the attempts.
+target: f/wl_stub_sr/order
+args: {order: o-9}
+replay:
+  "m:reserve/m:hold":
+    - {result: 2}
+    - {result: 2}
+  "m:reserve/m:check":
+    - {error: {message: "stock moved"}}
+    - {result: {order: o-9, held: 2}}
+  "m:confirm": {result: {order: o-9, confirmed: true}}
+expect:
+  status: success
+  result: {order: o-9, confirmed: true}
+  steps:
+    "m:reserve/r:0": {status: failure, args: {order: o-9}, result: {error: {name: Error, message: "stock moved", stack: "<stack>", step_id: check}}}
+    "m:reserve/r:0/m:hold": {status: success, args: {order: o-9}, result: 2}
+    "m:reserve/r:0/m:check": {status: failure, args: {order: o-9, held: 2}, result: {error: {name: Error, message: "stock moved", stack: "<stack>", step_id: check}}}
+    "m:reserve": {status: success, args: {order: o-9}, result: {order: o-9, held: 2}}
+    "m:reserve/m:hold": {status: success, args: {order: o-9}, result: 2}
+    "m:reserve/m:check": {status: success, args: {order: o-9, held: 2}, result: {order: o-9, held: 2}}
+    "m:confirm": {status: success, args: {order: o-9, hold: {order: o-9, held: 2}}, result: {order: o-9, confirmed: true}}
+  effects:
+    - site: "m:reserve/m:hold"
+      attempt: 0
+      step: hold
+      job: "<job:m:reserve/r:0/m:hold>"
+      flow: "<job:m:reserve/r:0>"
+      root_flow: "<job:m:reserve/r:0>"
+      root: "<job:>"
+      args: [o-9]
+    - site: "m:reserve/m:check"
+      attempt: 0
+      step: check
+      job: "<job:m:reserve/r:0/m:check>"
+      flow: "<job:m:reserve/r:0>"
+      root_flow: "<job:m:reserve/r:0>"
+      root: "<job:>"
+      args: [o-9, 2]
+    - site: "m:reserve/m:hold"
+      attempt: 1
+      step: hold
+      job: "<job:m:reserve/m:hold>"
+      flow: "<job:m:reserve>"
+      root_flow: "<job:m:reserve>"
+      root: "<job:>"
+      args: [o-9]
+    - site: "m:reserve/m:check"
+      attempt: 1
+      step: check
+      job: "<job:m:reserve/m:check>"
+      flow: "<job:m:reserve>"
+      root_flow: "<job:m:reserve>"
+      root: "<job:>"
+      args: [o-9, 2]
+    - site: "m:confirm"
+      attempt: 0
+      step: confirm
+      job: "<job:m:confirm>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [o-9, {order: o-9, held: 2}]

@@ -866,8 +866,12 @@ func (r *run) reenter(ctx context.Context, fr *frame, i int, o outcome, idx, att
 // job (CF-22, recorded by the cf-22 fixture): a child flow's record, with
 // its modules below the attempt's site, or a collapsed iteration's body
 // job's; what else the attempt ran is superseded. A branchall has no job
-// of its own, so its attempt has no site; a container that failed before
-// any child, and a leaf, keep their own record there.
+// of its own, so its attempt has no site. A flow step's job is its
+// subflow's (CF-17), which moves to the attempt's site with everything it
+// ran, its own retried modules' attempts included (milestone N5, recorded
+// by the control-flow/subflow-retry fixture). A container that failed
+// before any child, a flow step whose subflow never started, and a leaf
+// keep their own record there.
 func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.SitePath) bool {
 	m := fr.moduleAt(i)
 	j := o.failedChild
@@ -896,6 +900,13 @@ func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.Sit
 		*rec = StepRecord{Site: site, Attempt: rec.Attempt, Ran: true, Status: flowStepStatus(j.end.status), Start: rec.Start, Duration: rec.Duration,
 			RecordedArgs: j.input, ResolvedArgs: j.input, Result: j.end.result, ResultOrigin: j.end.origin, ResultNested: j.end.nested, Late: rec.Late}
 		return true
+	case m.Kind == ir.KindSubflow && rec.Job != "":
+		r.supersedeLocked(fr.sites[i], fr.sites[i], site)
+		for k := range r.trace.Children {
+			if c := &r.trace.Children[k]; c.ID == rec.Job && !c.Superseded {
+				c.Site = site
+			}
+		}
 	}
 	rec.Site, rec.FailedRetries, rec.Module, rec.Carried, rec.CarriedOrigin, rec.CarriedNested = site, nil, "", jsonval.Value{}, OriginNone, nil
 	return true

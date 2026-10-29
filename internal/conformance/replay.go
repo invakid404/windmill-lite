@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -386,34 +389,53 @@ func (s *ReplayService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //   - every call was answered: a call the table had no outcome for
 //     (replay_miss) or whose job was not found in time (replay_unresolved)
 //     fails the run, since the fixture's table or tree is wrong;
-//   - every call was resolved where the observation puts its job: a failed
-//     attempt k at <site>/r:<k>, the module's last job at <site> itself
-//     with k equal to the number of failed attempts before it
-//     (replay_site_mismatch);
+//   - every call was resolved where the observation puts its job
+//     (replay_site_mismatch): its site is the job's walked site without
+//     attempt segments, and its attempt is the job's place among the jobs
+//     walked at that site, in walk order. For a module's own attempts,
+//     that puts a failed attempt k at <site>/r:<k> and the module's last
+//     job at <site> itself, with k the number of failed attempts before
+//     it. Below a retried flow step (milestone N5), each attempt's
+//     subflow is walked whole below the step's r:<k>, so the jobs of one
+//     of its modules are ordered by the step's attempt first, then by
+//     their own;
 //   - every job that executed a script called the service, so no original
 //     body ran (stub_not_called).
 //
 // The error's text is the refusal as one JSON object.
 func CheckReplay(calls []ReplayCall, walked map[string]SitePath, scripts []string) error {
-	called := map[string]bool{}
-	attempts := map[SitePath]bool{}
-	for _, site := range walked {
-		if segs := site.Segments(); len(segs) > 0 && segs[len(segs)-1].Kind() == KindAttempt {
-			attempts[site] = true
+	type place struct {
+		job string
+		key []int
+	}
+	at := map[SitePath][]place{}
+	for job, w := range walked {
+		base, key := attemptKey(w)
+		at[base] = append(at[base], place{job, key})
+	}
+	order := map[string]int{}
+	for _, ps := range at {
+		slices.SortFunc(ps, func(a, b place) int {
+			if c := slices.Compare(a.key, b.key); c != 0 {
+				return c
+			}
+			return strings.Compare(a.job, b.job)
+		})
+		for n, p := range ps {
+			order[p.job] = n
 		}
 	}
+	called := map[string]bool{}
 	for _, c := range calls {
 		if c.Err != "" {
 			return errors.New(c.Err)
 		}
 		called[c.Job] = true
-		at, ok := walked[c.Job]
-		failed := c.Site.Child(Attempt(c.Attempt))
-		last := at == c.Site && !attempts[failed] && (c.Attempt == 0 || attempts[c.Site.Child(Attempt(c.Attempt-1))])
-		if !ok || at != failed && !last {
+		w, ok := walked[c.Job]
+		if base, _ := attemptKey(w); !ok || base != c.Site || order[c.Job] != c.Attempt {
 			got := "(not walked)"
 			if ok {
-				got = at.String()
+				got = w.String()
 			}
 			return fmt.Errorf(`{"error":"replay_site_mismatch","job":%s,"resolved":%s,"attempt":%d,"walked":%s}`,
 				jsonText(c.Job), jsonText(c.Site.String()), c.Attempt, jsonText(got))
@@ -439,6 +461,29 @@ func CheckReplay(calls []ReplayCall, walked map[string]SitePath, scripts []strin
 		return errors.New(b.String())
 	}
 	return nil
+}
+
+// attemptKey splits a walked site into the module site it is a job of,
+// without attempt segments, and its place in walk order there: for each
+// module segment of the site, the attempt it is in, the module's last job
+// (no r:<k> after it) after all of its failed attempts.
+func attemptKey(p SitePath) (SitePath, []int) {
+	var base []Segment
+	var key []int
+	for _, seg := range p.Segments() {
+		switch seg.Kind() {
+		case KindAttempt:
+			if k, ok := seg.Index(); ok && len(key) > 0 {
+				key[len(key)-1] = k
+			}
+		case KindModule, KindSlot:
+			base = append(base, seg)
+			key = append(key, math.MaxInt)
+		default:
+			base = append(base, seg)
+		}
+	}
+	return SitePath{}.Child(base...), key
 }
 
 func reply(w http.ResponseWriter, c *ReplayCall) {

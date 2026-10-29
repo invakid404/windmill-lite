@@ -6,15 +6,15 @@ schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties:
+    fails:
+      type: number
+      description: ''
+      default: null
     tag:
       type: string
       description: ''
       default: null
       originalType: string
-    fails:
-      type: number
-      description: ''
-      default: null
     v:
       type: ''
       description: ''

@@ -50,9 +50,13 @@ func ErrStubUnsupported(file, step, reason string) *Refusal {
 // the native annotation, a rawscript whose content is written in
 // flow.yaml rather than in a file, a step whose target is a hub path or
 // is not in the tree, a script step pinned by hash, a flowscript step,
-// and AI-agent steps; a retry on a subflow, loop or
-// branch step, whose failed attempts' inner sites a table cannot address;
-// and a source StubSource refuses.
+// and AI-agent steps; a retry on a loop or branch step, whose failed
+// attempt the walk keeps as its last failed child alone, so that the
+// other children's calls are walked nowhere (CF-22); and a source
+// StubSource refuses. A retry on a flow step is accepted (milestone N5):
+// each attempt's subflow is walked whole below the step's r:<k>, and the
+// replay service counts its steps' jobs across the attempts
+// (conformance.CheckReplay).
 func StubTree(src, dst string) (*StubReport, error) {
 	if _, err := os.Stat(filepath.Join(src, "wmill.yaml")); err != nil {
 		return nil, fmt.Errorf("oracle: %s is not a sync tree root (no wmill.yaml): %w", src, err)
@@ -107,8 +111,8 @@ func StubTree(src, dst string) (*StubReport, error) {
 		}
 		for m := range fl.Document.Value.AllModules() {
 			step := fmt.Sprintf("flow %s step '%s'", p, m.ID)
-			if m.Retry != nil && m.Retry.MaxRetries() > 0 && !leafModule(m) {
-				return nil, ErrStubUnsupported(fl.File, step, "a retry on a subflow, loop or branch step: the walk puts a failed attempt's inner steps under r:<k>, which a replay table does not address")
+			if _, flowStep := m.Value.(*openflow.PathFlow); m.Retry != nil && m.Retry.MaxRetries() > 0 && !leafModule(m) && !flowStep {
+				return nil, ErrStubUnsupported(fl.File, step, "a retry on a loop or branch step: the walk keeps a failed attempt as its last failed child alone, under r:<k>, so the other children's calls are walked nowhere")
 			}
 			switch v := m.Value.(type) {
 			case *openflow.RawScript:

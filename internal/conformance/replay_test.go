@@ -425,3 +425,49 @@ func TestCheckReplay(t *testing.T) {
 		}
 	}
 }
+
+// Below a retried flow step (milestone N5), each attempt's subflow is
+// walked below the step's r:<k>: the replay service resolves a step of
+// the subflow at its site without the attempt and counts its jobs across
+// the attempts, which CheckReplay holds to the walk's order, the step's
+// attempt first, then the inner module's own.
+func TestCheckReplayAcrossFlowStepAttempts(t *testing.T) {
+	site := func(s string) SitePath {
+		p, err := ParseSitePath(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	walked := map[string]SitePath{
+		"R": {}, "s0": site("m:a/r:0"), "s1": site("m:a/r:1"), "s2": site("m:a"),
+		"x00": site("m:a/r:0/m:x/r:0"), "x01": site("m:a/r:0/m:x"),
+		"x1":  site("m:a/r:1/m:x"),
+		"x20": site("m:a/m:x/r:0"), "x21": site("m:a/m:x"),
+		"y": site("m:a/m:y"),
+	}
+	scripts := []string{"x00", "x01", "x1", "x20", "x21", "y"}
+	call := func(job, s string, attempt int) ReplayCall {
+		return ReplayCall{Job: job, Site: site(s), Attempt: attempt}
+	}
+	good := []ReplayCall{
+		call("x00", "m:a/m:x", 0), call("x01", "m:a/m:x", 1), call("x1", "m:a/m:x", 2),
+		call("x20", "m:a/m:x", 3), call("x21", "m:a/m:x", 4), call("y", "m:a/m:y", 0),
+	}
+	if err := CheckReplay(good, walked, scripts); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		calls []ReplayCall
+		want  string
+	}{
+		{"a later attempt's job counted first", []ReplayCall{call("x1", "m:a/m:x", 0), good[1], good[0], good[3], good[4], good[5]}, `"job":"x1","resolved":"m:a/m:x","attempt":0,"walked":"m:a/r:1/m:x"`},
+		{"a job resolved at the attempt's site", []ReplayCall{call("x00", "m:a/r:0/m:x", 0)}, `"job":"x00","resolved":"m:a/r:0/m:x"`},
+		{"a job of another module", []ReplayCall{call("y", "m:a/m:x", 5)}, `"walked":"m:a/m:y"`},
+	} {
+		if err := CheckReplay(c.calls, walked, scripts); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want %q", c.name, err, c.want)
+		}
+	}
+}

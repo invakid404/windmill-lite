@@ -223,9 +223,7 @@ a top-level module, a container body's and the failure module alike:
 a container as the failure module, whose
 bodies run raw with a suffixed copy of it
 ([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
-only); a retry on a subflow step, whose attempts' subflows would go
-below the attempt's site, which no case of NI covers (`later`);
-`cache_ignore_s3_path` (`later`), since the object store keeps no ETag to
+only); `cache_ignore_s3_path` (`later`), since the object store keeps no ETag to
 hash an S3 object's argument with
 ([FX-40](../../docs/semantics/execution.md#fx-40)); host-provided
 sites (F2a); a step of another harness than Bun's, whose `bun` and
@@ -786,10 +784,18 @@ the child's id as its job.
   subflow's first module fails it at its pickup, bypassing its failure
   module ([CF-V3](../../docs/semantics/control-flow.md#cf-v3), FX-15
   context 3).
-- **Refused.** A retry with attempts or `retry_if` on a subflow step,
-  whose attempts' subflows belong under the attempt's site
-  ([ADR 0011](../../docs/design/0011-differential-testing.md)): N3c left
-  it to NI, whose cases do not cover it, so it is `later`.
+- **Retried (milestone N5).** A flow step with `retry` runs its subflow
+  again when it fails, as any step is retried
+  ([FX-26](../../docs/semantics/execution.md#fx-26),
+  [FX-27](../../docs/semantics/execution.md#fx-27)): a new child flow,
+  whose input is the failed attempt's recorded arguments, after the
+  retry's delay. The failed attempt's job is its subflow's. It moves to
+  the step's `r:<k>`, with the subflow's records and child flows below
+  it, its own retried modules' attempts included, where the walker meets
+  them (`attempt`, recorded by `conformance/flows/control-flow/subflow-retry`).
+  The step's status lists the attempts, which a failure module lists
+  again (FX-29), and the step's result is its last subflow's.
+  `subflow_retry_test.go` covers it.
 
 **Failure modules in bodies (N3c).** In a flow with a failure module,
 every loop iteration and branch runs as a child flow carrying a copy of

@@ -230,9 +230,12 @@ in which an executed script would keep its real body: another language, the
 step whose target is a hub path or not in the tree, a script step pinned by
 hash (it runs that deployed version, not the stub pushed at its path,
 [OF-14](../../docs/semantics/openflow.md#of-14)), a `flowscript` step, an
-AI-agent step, a retry on a subflow, loop or branch step (a failed attempt's inner steps
-are walked under `r:<k>`, which a table does not address), and a source
-`StubSource` refuses. The output must not lie inside the tree, which is
+AI-agent step, a retry on a loop or branch step (a failed attempt is walked as its last
+failed child alone, under `r:<k>`, so the other children's calls are walked
+nowhere), and a source `StubSource` refuses. A retry on a flow step is
+accepted (milestone N5): each attempt's subflow is walked whole below the
+step's `r:<k>`, and the replay service counts its steps' jobs across the
+attempts. The output must not lie inside the tree, which is
 decided by file identity (`os.SameFile` against each existing ancestor of
 the output, links resolved), so a symbolic link, another letter case on a
 case-insensitive file system or any other alias of the tree counts; a copy

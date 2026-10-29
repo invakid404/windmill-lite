@@ -1,4 +1,4 @@
-summary: "N5 a retried subflow step in a sequential loop"
+summary: N5 a retried subflow step in a sequential loop
 value:
   modules:
     - id: l
@@ -9,15 +9,15 @@ value:
             value:
               type: flow
               input_transforms:
-                tag:
-                  type: javascript
-                  expr: "'seq-' + flow_input.iter.value"
                 fails:
                   type: static
                   value: 1
+                tag:
+                  type: javascript
+                  expr: "'seq-' + flow_input.iter.value"
                 v:
                   type: javascript
-                  expr: "flow_input.iter.value"
+                  expr: flow_input.iter.value
               path: f/cfsr/child
             retry:
               constant:

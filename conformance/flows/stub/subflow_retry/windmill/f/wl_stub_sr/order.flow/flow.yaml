@@ -1,0 +1,36 @@
+summary: wl stub retried subflow step
+value:
+  modules:
+    - id: reserve
+      value:
+        type: flow
+        input_transforms:
+          order:
+            type: javascript
+            expr: flow_input.order
+        path: f/wl_stub_sr/reserve
+      retry:
+        constant:
+          attempts: 1
+          seconds: 0
+    - id: confirm
+      value:
+        type: rawscript
+        content: '!inline confirm.ts'
+        input_transforms:
+          order:
+            type: javascript
+            expr: flow_input.order
+          hold:
+            type: javascript
+            expr: results.reserve
+        lock: '!inline confirm.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    order:
+      type: string
+  required:
+    - order
