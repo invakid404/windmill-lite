@@ -28,13 +28,101 @@
       }
     },
     {
+      "spec": "SY-11/b",
+      "provenance": "source-derived",
+      "title": "a variable without value",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/v.variable.yaml": "is_secret: false\ndescription: d\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "variable": [
+            "f/a/v"
+          ]
+        },
+        "items": {
+          "variable": {
+            "f/a/v": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "missing field `value`"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "invalid_metadata",
+          "contains": [
+            "missing field `value`"
+          ]
+        }
+      }
+    },
+    {
+      "spec": "SY-11",
+      "provenance": "source-derived",
+      "title": "the first missing field is named, in the order value, is_secret, description",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/a.variable.yaml": "description: d\n",
+          "f/a/b.variable.yaml": "value: v\ndescription: d\n",
+          "f/a/c.variable.yaml": "value: v\nis_secret: false\n",
+          "f/a/d.variable.yaml": "value: null\nis_secret: false\ndescription: d\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "variable": {
+            "f/a/a": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "missing field `value`"
+                ]
+              }
+            },
+            "f/a/b": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "missing field `is_secret`"
+                ]
+              }
+            },
+            "f/a/c": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "missing field `description`"
+                ]
+              }
+            },
+            "f/a/d": {
+              "error": {
+                "kind": "invalid_metadata",
+                "contains": [
+                  "value must be a string, not null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "spec": "SY-11",
       "provenance": "source-derived",
       "title": "a plain variable",
       "given": {
         "files": {
           "wmill.yaml": "defaultTs: bun\n",
-          "f/a/v.variable.yaml": "value: hello\nis_secret: false\naccount: null\n"
+          "f/a/v.variable.yaml": "value: hello\nis_secret: false\ndescription: ''\naccount: null\n"
         }
       },
       "expect": {
@@ -58,7 +146,7 @@
       "given": {
         "files": {
           "wmill.yaml": "defaultTs: bun\nplainSecrets: true\n",
-          "f/a/pw.variable.yaml": "is_secret: true\nvalue: hunter2\n"
+          "f/a/pw.variable.yaml": "is_secret: true\nvalue: hunter2\ndescription: ''\n"
         }
       },
       "expect": {
@@ -83,7 +171,7 @@
         "files": {
           "wmill.yaml": "defaultTs: bun\nskipSecrets: true\n",
           "f/a/pw.variable.yaml": "is_secret: true\nvalue: x\n",
-          "f/a/v.variable.yaml": "value: y\n"
+          "f/a/v.variable.yaml": "value: y\nis_secret: false\ndescription: ''\n"
         }
       },
       "expect": {
@@ -105,7 +193,8 @@
           }
         },
         "check_ok": true
-      }
+      },
+      "note": "a filtered secret is never sent, so its missing description does not matter"
     },
     {
       "spec": "SY-11",

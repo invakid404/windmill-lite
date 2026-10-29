@@ -20,11 +20,6 @@
       "spec": "CF-V5/b",
       "reason": "a raw-flow preview request; windmill-lite has no preview mode (0001 §1)",
       "expected_in": "not applicable"
-    },
-    {
-      "spec": "WR-29/c",
-      "reason": "a deployed failure module keeps its explicit path; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A5"
     }
   ]
 }

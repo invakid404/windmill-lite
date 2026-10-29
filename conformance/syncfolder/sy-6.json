@@ -118,7 +118,7 @@
     {
       "spec": "SY-6",
       "provenance": "policy",
-      "title": "a flow folder without flow.yaml",
+      "title": "a flow folder whose files the walk drops is not a flow",
       "given": {
         "files": {
           "wmill.yaml": "defaultTs: bun\n",
@@ -126,19 +126,27 @@
         }
       },
       "expect": {
+        "paths": {
+          "flow": []
+        },
+        "filtered": {
+          "flow": []
+        },
         "items": {
           "flow": {
             "f/a/x": {
               "error": {
-                "kind": "flow_layout",
-                "contains": [
-                  "no flow.yaml"
-                ]
+                "kind": "not_in_folder"
               }
             }
           }
-        }
-      }
+        },
+        "warnings": [
+          "f/a/x.flow is ignored: no file in it selects the flow"
+        ],
+        "check_ok": true
+      },
+      "note": "the walk drops .json files in YAML mode (SY-18), so no file selects the folder (SY-17) and the CLI pushes nothing from it"
     },
     {
       "spec": "SY-6",
@@ -190,6 +198,116 @@
             }
           }
         }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "the inline file selects the folder (SY-17), and the push then reads flow.yaml, which is missing",
+      "title": "a flow folder without flow.yaml",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/x.flow/a.inline_script.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/x": {
+              "error": {
+                "kind": "flow_layout",
+                "contains": [
+                  "no flow.yaml"
+                ]
+              }
+            }
+          }
+        },
+        "check_error": {
+          "kind": "flow_layout"
+        }
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "only the folder marker that ends the name is stripped, so __flow before .flow is part of the flow path (SY-1)",
+      "title": "a dotted flow whose name ends in __flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/a/report__flow.flow/flow.yaml": "summary: suffixed\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/report.flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/report",
+            "f/a/report__flow"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/report__flow": {
+              "at": {
+                "/dir": "f/a/report__flow.flow",
+                "/flow/summary": "suffixed"
+              }
+            },
+            "f/a/report": {
+              "at": {
+                "/dir": "f/a/report.flow",
+                "/flow/summary": "one step"
+              }
+            }
+          }
+        },
+        "check_ok": true
+      }
+    },
+    {
+      "spec": "SY-6",
+      "provenance": "source-derived",
+      "note": "under nonDottedPaths the __flow marker alone is stripped",
+      "title": "a non-dotted flow whose name ends in .flow",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\nnonDottedPaths: true\n",
+          "f/a/x.flow__flow/flow.yaml": "summary: one step\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n",
+          "f/a/x__flow/flow.yaml": "summary: plain\nvalue:\n  modules:\n    - id: a\n      value:\n        type: identity\n"
+        }
+      },
+      "expect": {
+        "paths": {
+          "flow": [
+            "f/a/x",
+            "f/a/x.flow"
+          ]
+        },
+        "items": {
+          "flow": {
+            "f/a/x.flow": {
+              "at": {
+                "/dir": "f/a/x.flow__flow",
+                "/flow/summary": "one step"
+              }
+            },
+            "f/a/x": {
+              "at": {
+                "/dir": "f/a/x__flow",
+                "/flow/summary": "plain"
+              }
+            }
+          }
+        },
+        "check_ok": true
       }
     }
   ]

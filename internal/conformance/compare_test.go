@@ -141,6 +141,66 @@ func TestUnorderedCountingAgreesWithMatching(t *testing.T) {
 	}
 }
 
+// A subset comparison of an unordered array matches groups of
+// interchangeable elements; the complete matching of the elements must give
+// the same answer on every input. The actual elements are the expected ones
+// with members added, reshuffled and sometimes one replaced, so an expected
+// element often equals several actual ones, and a greedy pairing would
+// often fail where a complete matching exists.
+func TestUnorderedSubsetGroupsAgreeWithMatching(t *testing.T) {
+	r := rand.New(rand.NewPCG(3, 4))
+	c := comparer{opt: CompareOptions{Subset: true}, unordered: map[string]bool{"/result": true}}
+	var equal, different int
+	for range 20000 {
+		want := make([]*jnode, r.IntN(7))
+		for j := range want {
+			want[j] = randomNode(t, r, 3)
+		}
+		got := make([]*jnode, len(want))
+		for i, w := range want {
+			got[i] = reshuffled(r, widened(t, r, w))
+		}
+		r.Shuffle(len(got), func(i, j int) { got[i], got[j] = got[j], got[i] })
+		if len(got) > 0 && r.IntN(3) == 0 {
+			got[r.IntN(len(got))] = randomNode(t, r, 3)
+		}
+		grouped, matched := c.matchGroups([]string{"result"}, got, want), c.match([]string{"result"}, got, want)
+		if grouped != matched {
+			t.Fatalf("grouping says %v, matching %v\n got  %s\n want %s", grouped, matched, elemsText(got), elemsText(want))
+		}
+		if grouped {
+			equal++
+		} else {
+			different++
+		}
+	}
+	if equal < 2000 || different < 2000 {
+		t.Fatalf("%d equal and %d different inputs; the generator lost its mix", equal, different)
+	}
+	t.Logf("%d equal and %d different inputs agree", equal, different)
+}
+
+// widened copies n with a random member added to some of its objects, at
+// any depth, so that n is a subset of the copy.
+func widened(t *testing.T, r *rand.Rand, n *jnode) *jnode {
+	c := *n
+	c.members = slices.Clone(n.members)
+	for i := range c.members {
+		c.members[i].value = widened(t, r, c.members[i].value)
+	}
+	if n.kind == kindObject && r.IntN(2) == 0 {
+		key := []string{"a", "b", "c", "d"}[r.IntN(4)]
+		if c.member(key) == nil {
+			c.members = append(c.members, jmember{key: key, value: randomNode(t, r, 1)})
+		}
+	}
+	c.elems = slices.Clone(n.elems)
+	for i := range c.elems {
+		c.elems[i] = widened(t, r, c.elems[i])
+	}
+	return &c
+}
+
 // randomNode parses a small random JSON value, built from few enough
 // choices that equal values are common.
 func randomNode(t *testing.T, r *rand.Rand, depth int) *jnode {
@@ -194,13 +254,17 @@ func elemsText(elems []*jnode) string {
 }
 
 // BenchmarkCompareUnordered compares arrays at an unordered pointer
-// (OR-23): repeated scalars, the worst case of the complete matching (E2
-// review item P3-7), and distinct objects in reverse order. Exact
-// comparisons count the elements' canonical texts; the subset comparison
-// keeps the complete matching.
+// (OR-23): repeated scalars, the worst case of a complete matching of the
+// elements (E2 review item P3-7), and distinct objects in reverse order.
+// Exact comparisons count the elements' canonical texts; subset
+// comparisons match groups of equal elements, and the actual objects carry
+// a member the expected ones lack.
 func BenchmarkCompareUnordered(b *testing.B) {
 	repeated := func(n int) string { return "[" + strings.Repeat("0,", n-1) + "0]" }
-	objects := func(n int, reverse bool) string {
+	repeatedObjects := func(n int, extra string) string {
+		return "[" + strings.Repeat(`{"id":1`+extra+`},`, n-1) + `{"id":1` + extra + `}]`
+	}
+	objects := func(n int, reverse bool, extra string) string {
 		var s strings.Builder
 		s.WriteByte('[')
 		for k := range n {
@@ -211,7 +275,7 @@ func BenchmarkCompareUnordered(b *testing.B) {
 			if k > 0 {
 				s.WriteByte(',')
 			}
-			fmt.Fprintf(&s, `{"id":%d,"tags":["x","y"],"meta":{"z":true,"a":null}}`, i)
+			fmt.Fprintf(&s, `{"id":%d,"tags":["x","y"],"meta":{"z":true,"a":null}%s}`, i, extra)
 		}
 		s.WriteByte(']')
 		return s.String()
@@ -223,8 +287,11 @@ func BenchmarkCompareUnordered(b *testing.B) {
 	}{
 		{"exact/repeated-scalars/500", repeated(500), repeated(500), false},
 		{"exact/repeated-scalars/2000", repeated(2000), repeated(2000), false},
-		{"exact/distinct-objects/500", objects(500, true), objects(500, false), false},
+		{"exact/distinct-objects/500", objects(500, true, ""), objects(500, false, ""), false},
 		{"subset/repeated-scalars/500", repeated(500), repeated(500), true},
+		{"subset/repeated-scalars/2000", repeated(2000), repeated(2000), true},
+		{"subset/repeated-objects/500", repeatedObjects(500, `,"x":2`), repeatedObjects(500, ""), true},
+		{"subset/distinct-objects/500", objects(500, true, `,"x":2`), objects(500, false, ""), true},
 	} {
 		got := Observation{Status: RunSuccess, Result: json.RawMessage(bc.got)}
 		want := Observation{Status: RunSuccess, Result: json.RawMessage(bc.want)}

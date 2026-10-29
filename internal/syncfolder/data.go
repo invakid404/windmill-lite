@@ -50,12 +50,14 @@ func (f *Folder) readData(k ItemKind, p string) (*entry, fields, error) {
 		return nil, fields{}, err
 	}
 	item := string(k) + " " + p
-	data, found, err := f.readFile(e.file)
-	if err != nil {
-		return nil, fields{}, err.(*Error).withItem(item)
-	}
-	if !found {
+	data, found, refused, rerr := f.readDecoded(e.file)
+	switch {
+	case rerr != nil:
+		return nil, fields{}, rerr.withItem(item)
+	case !found:
 		return nil, fields{}, &Error{Kind: ErrIO, Item: item, File: e.file, Msg: "the file is missing"}
+	case refused != nil:
+		return nil, fields{}, refused.withItem(item)
 	}
 	m, err := parseMapping(e.file, ErrMetadata, data)
 	if err != nil {
@@ -73,23 +75,35 @@ func (f *Folder) Resource(p string) (*Resource, error) {
 		return nil, err
 	}
 	item := "resource " + p
-	r := &Resource{Path: p, File: e.file, Value: json.RawMessage("null")}
-	rt, err := m.str("resource_type")
-	if err != nil {
-		return nil, err.(*Error).withItem(item)
-	}
-	if rt != nil {
-		r.ResourceType = *rt
-	}
-	if r.Description, err = m.str("description"); err != nil {
-		return nil, err.(*Error).withItem(item)
-	}
-	if v := m.get("value"); v != nil {
+	r := &Resource{Path: p, File: e.file}
+	// The CLI looks for a `content` reference in the value before it
+	// sends anything, and reading a field of a missing or null value
+	// throws, so the push stops at this item (SY-10).
+	switch v := m.m.Get("value"); {
+	case v == nil:
+		return nil, &Error{Kind: ErrMetadata, Item: item, File: e.file,
+			Msg: "the resource has no value, which fails the CLI's push: TypeError: Cannot read properties of undefined (reading 'content') (SY-10)"}
+	case v.Kind == yamlx.Null:
+		return nil, &Error{Kind: ErrMetadata, Item: item, File: e.file, Line: v.Line, Column: v.Column,
+			Msg: "the resource's value is null, which fails the CLI's push: TypeError: Cannot read properties of null (reading 'content') (SY-10)"}
+	default:
 		if feature := fileResource(v); feature != "" {
 			return nil, &Error{Kind: ErrUnsupported, Item: item, File: e.file, Line: v.Line, Column: v.Column,
 				Msg: "unsupported: " + feature + " (SY-10, later scope)"}
 		}
 		r.Value = v.AppendJSON(nil)
+	}
+	rt, err := m.str("resource_type")
+	switch {
+	case err != nil:
+		return nil, err.(*Error).withItem(item)
+	case rt == nil:
+		return nil, &Error{Kind: ErrMetadata, Item: item, File: e.file,
+			Msg: "the resource has no resource_type, which the server requires (SY-10)"}
+	}
+	r.ResourceType = *rt
+	if r.Description, err = m.str("description"); err != nil {
+		return nil, err.(*Error).withItem(item)
 	}
 	return r, nil
 }
@@ -143,16 +157,30 @@ func (f *Folder) Variable(p string) (*Variable, error) {
 		return nil, &Error{Kind: ErrFiltered, Item: item, File: e.file,
 			Msg: "filtered out: a secret, and wmill.yaml sets skipSecrets"}
 	}
+	// The CLI sends the file's keys as they are, and the server refuses to
+	// create a variable without value, is_secret or description, naming
+	// the first one missing (SY-11). A value of the wrong type, null
+	// included, is refused first.
+	required := []struct{ key, want string }{{"value", "a string"}, {"is_secret", "a boolean"}, {"description", "a string"}}
+	for _, k := range required {
+		if n := m.m.Get(k.key); n != nil && n.Kind == yamlx.Null {
+			return nil, m.wrong(n, k.key, k.want).withItem(item)
+		}
+	}
 	val, err := m.str("value")
 	if err != nil {
 		return nil, err.(*Error).withItem(item)
 	}
-	if val != nil {
-		v.Value = *val
-	}
 	if v.Description, err = m.str("description"); err != nil {
 		return nil, err.(*Error).withItem(item)
 	}
+	for _, k := range required {
+		if !m.has(k.key) {
+			return nil, &Error{Kind: ErrMetadata, Item: item, File: e.file,
+				Msg: fmt.Sprintf("missing field `%s`: the server refuses a new variable without value, is_secret and description (SY-11)", k.key)}
+		}
+	}
+	v.Value = *val
 	v.Encrypted = v.IsSecret && !f.Config.PlainSecrets
 	return v, nil
 }
