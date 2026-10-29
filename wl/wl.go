@@ -114,11 +114,18 @@ var ErrUnsupported = engine.ErrUnsupported
 // ErrEngineVersion marks a bundle that another engine version built.
 var ErrEngineVersion = errors.New("wl: the bundle was built by another engine version")
 
+// ErrClosed is Run's error once Close has begun.
+var ErrClosed = errors.New("wl: the runtime is closed")
+
+// closing is the cause Close cancels the runs in flight with (FX-38).
+var closing = &Cancellation{Reason: "the runtime is closing", Canceler: "windmill-lite"}
+
 // Runtime is an opened bundle. It is safe for concurrent use.
 type Runtime struct {
 	dir       string // the bundle directory
 	data      string // the data directory
 	ownData   bool
+	extracted string // the directory an archive was extracted into, if any
 	digest    string
 	manifest  *bundle.Manifest
 	state     engine.ModuleState
@@ -130,8 +137,28 @@ type Runtime struct {
 	exec      *recorder
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
-	closeOnce sync.Once
-	closeErr  error
+
+	// mu guards closed: once Close begins, Run admits no run. active counts
+	// the runs admitted, which stop's cancellation ends.
+	mu         sync.Mutex
+	closed     bool
+	active     sync.WaitGroup
+	stop       context.Context
+	cancelStop context.CancelCauseFunc
+	closeOnce  sync.Once
+	closeErr   error
+}
+
+// admit admits a run unless Close has begun; an admitted run calls
+// active.Done when it ends.
+func (rt *Runtime) admit() bool {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.closed {
+		return false
+	}
+	rt.active.Add(1)
+	return true
 }
 
 // version is set at link time with
@@ -176,6 +203,7 @@ func Version() string {
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
 	rt := &Runtime{version: opts.EngineVersion}
+	rt.stop, rt.cancelStop = context.WithCancelCause(context.Background())
 	if rt.version == "" {
 		rt.version = Version()
 	}
@@ -212,7 +240,16 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		rt.dir = path
 		v, err = bundle.Verify(path, bundle.VerifyOptions{Digest: opts.Digest})
 	} else {
-		rt.dir = filepath.Join(rt.data, "bundle")
+		// Each runtime extracts into a directory of its own, which Close
+		// removes, so a data directory a host keeps (its object store)
+		// opens again, however the last open ended.
+		if rt.extracted, err = os.MkdirTemp(rt.data, "bundle-"); err != nil {
+			return nil, err
+		}
+		if err := os.Chmod(rt.extracted, 0o755); err != nil {
+			return nil, err
+		}
+		rt.dir = rt.extracted
 		v, err = bundle.Extract(path, rt.dir, bundle.VerifyOptions{Digest: opts.Digest})
 	}
 	if err != nil {
@@ -252,7 +289,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	}
 	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
-	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Recorded: rt.exec.released}); err != nil {
+	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released}); err != nil {
 		return nil, err
 	}
 
@@ -371,9 +408,10 @@ type BuildInfo struct {
 	// Contract is the host contract the bundle was compiled against, as
 	// the manifest holds it (JSON).
 	Contract json.RawMessage
-	// Deviations are the deviations of ADR 0001 in effect for the bundle,
-	// as its manifest lists them; those that depend on a run-time setting
-	// are each run's trace's.
+	// Deviations are the deviations of ADR 0001 in effect for the bundle:
+	// those its manifest lists, with the module state's in place of the
+	// manifest's mode's when Options overrode it (ADR 0006); those that
+	// depend on a run-time setting are each run's trace's.
 	Deviations []string
 	// NonconformantRuntime says that the bundle was built on a Bun other
 	// than the pin.
@@ -396,27 +434,44 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 		HarnessRuntimes:      runtimes,
 		ModuleState:          string(rt.state),
 		Contract:             contract,
-		Deviations:           append([]string(nil), rt.manifest.Deviations...),
+		Deviations:           bundle.ModeDeviations(rt.manifest.Deviations, rt.state),
 		NonconformantRuntime: rt.manifest.NonconformantRuntime,
 	}
 }
 
-// closeTimeout bounds the drain of the dispatcher's runs and of the
-// harness pool at Close.
+// closeTimeout bounds the drain of the runs in flight, the dispatcher's
+// runs and the harness pool at Close.
 const closeTimeout = 10 * time.Second
 
-// Close stops the runtime: the dispatcher's runs, the harness pool (a warm
-// process is drained), the facade and the expression engine, and removes
-// the data directory when Open made it. A run in flight is not waited
-// for. Close is idempotent.
+// Close stops the runtime: Run admits no more runs, the runs in flight and
+// the dispatcher's are canceled (the reason "the runtime is closing", by
+// "windmill-lite") and waited for, then the harness pool (a warm process
+// is drained), the facade and the expression engine are closed, and the
+// directory an archive was extracted into, and the data directory when
+// Open made it, are removed. All of it is bounded by 10 s; a run still in
+// flight then makes Close return an error. Close is idempotent.
 func (rt *Runtime) Close() error {
 	rt.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
 		defer cancel()
+		rt.mu.Lock()
+		rt.closed = true
+		rt.mu.Unlock()
+		rt.cancelStop(closing)
+		var errs []error
 		if rt.dispatch != nil {
 			rt.dispatch.Close(ctx)
 		}
-		var errs []error
+		drained := make(chan struct{})
+		go func() {
+			rt.active.Wait()
+			close(drained)
+		}()
+		select {
+		case <-drained:
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("wl: runs still in flight %s after Close canceled them", closeTimeout))
+		}
 		if rt.pool != nil {
 			errs = append(errs, rt.pool.Close(ctx))
 		}
@@ -425,6 +480,9 @@ func (rt *Runtime) Close() error {
 		}
 		if rt.js != nil {
 			errs = append(errs, rt.js.Close())
+		}
+		if rt.extracted != "" {
+			errs = append(errs, os.RemoveAll(rt.extracted))
 		}
 		if rt.ownData && rt.data != "" {
 			errs = append(errs, os.RemoveAll(rt.data))

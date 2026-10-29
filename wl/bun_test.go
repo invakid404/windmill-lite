@@ -28,7 +28,8 @@ func bunOrSkip(t *testing.T) string {
 }
 
 // setScript reads the variable v through the job API, sets it to "second"
-// and returns what it read (WA-11).
+// and returns what it read (WA-11); when it read "slow", it waits a minute
+// first, after the update.
 const setScript = `export async function main(v: string) {
   const base = ` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables`" + `;
   const headers = { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" };
@@ -37,6 +38,7 @@ const setScript = `export async function main(v: string) {
   const old = await r.json();
   const u = await fetch(` + "`${base}/update/${v}`" + `, { method: "POST", headers, body: JSON.stringify({ value: "second" }) });
   if (!u.ok) throw new Error("update: " + u.status);
+  if (old === "slow") await new Promise((r) => setTimeout(r, 60000));
   return old;
 }
 `
@@ -163,5 +165,58 @@ func TestRunSharedResultCache(t *testing.T) {
 	}
 	if results[0] != results[1] || cache.puts != 1 {
 		t.Fatalf("results %q, %d stores", results, cache.puts)
+	}
+}
+
+// A run canceled while its step waits keeps the platform calls the step
+// was answered before (ADR 0008 H9, FX-38): the read and the update of the
+// variable, which the store already holds, in warm mode, where the step is
+// abandoned, and in fresh mode, where its process is killed.
+func TestRunCanceledKeepsCalls(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	for _, mode := range []string{ModuleStateWarm, ModuleStateFresh} {
+		t.Run(mode, func(t *testing.T) {
+			rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode, Variables: map[string]Variable{"u/t/v": {Value: "slow"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan *Result, 1)
+			go func() {
+				res, err := rt.Run(ctx, "f/t/flow", nil, RunOptions{})
+				if err != nil {
+					t.Error(err)
+				}
+				done <- res
+			}()
+			deadline := time.After(10 * time.Second)
+			for {
+				if v, err := rt.services.VariableValue(context.Background(), "u/t/v"); err != nil {
+					t.Fatal(err)
+				} else if v == "second" {
+					break
+				}
+				select {
+				case <-deadline:
+					t.Fatal("the step never updated the variable")
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			// The update's answer reaches the step after the store changed.
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+			res := <-done
+			if res == nil || res.Status != StatusCanceled {
+				t.Fatalf("%+v", res)
+			}
+			calls := res.Trace.PlatformCalls
+			if len(calls) != 2 || calls[0].Route != "GET /w/{ws}/variables/get_value/{path}" || calls[1].Route != "POST /w/{ws}/variables/update/{path}" ||
+				calls[1].Status != 200 || calls[1].Site.String() != "m:a" || calls[1].Job == "" {
+				t.Fatalf("platform calls %+v", calls)
+			}
+		})
 	}
 }

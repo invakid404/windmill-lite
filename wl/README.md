@@ -21,7 +21,7 @@ compiling.
 
 | File | Contents |
 |---|---|
-| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion` |
+| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `Result`, `Run`; the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
 
 ## Open
@@ -33,9 +33,10 @@ compiling.
    The data directory is `Options.DataDir`, or a temporary one that `Close`
    removes.
 2. **Verification.** A directory is verified in place
-   (`bundle.Verify`); an archive is verified and extracted into
-   `<data>/bundle` (`bundle.Extract`). `Options.Digest` pins the bundle
-   digest.
+   (`bundle.Verify`); an archive is verified and extracted
+   (`bundle.Extract`) into a directory of its own, `<data>/bundle-*`, which
+   `Close` removes, so a data directory the host keeps opens again,
+   however the last open ended. `Options.Digest` pins the bundle digest.
 3. **Engine version.** The manifest's engine version must be the runtime's:
    `Options.EngineVersion`, or `Version()`, the version linked in with
    `-ldflags "-X github.com/invakid404/windmill-lite/wl.version=<v>"`, else
@@ -86,19 +87,24 @@ no such target, or arguments that are not an object or cannot be stored.
 
 The context bounds the run: when it ends, the run ends canceled, with the
 reason and canceler of a `*Cancellation` cause
-(`context.WithCancelCause`), else Windmill's defaults (FX-38).
+(`context.WithCancelCause`), else Windmill's defaults (FX-38). `Close`
+cancels it too, with the reason `the runtime is closing` by
+`windmill-lite`; once `Close` has begun, `Run` refuses a run with
+`ErrClosed`.
 
 `Result` holds the job id, the status (`success`, `failure`, `canceled`,
 `skipped`), the final result in its stored form (FX-36), `MayHaveMutated`
 (ADR 0008 H3), the warnings, and for a flow its `Trace`: per site what
 happened and why, with provenance and timings, and `PlatformCalls`, every
 platform call the run's steps made as the facade recorded it, with the
-step's site and job, the route it matched and the answer's status. The
-runtime collects them per run: its executor maps each invocation to its
-run and site, and the facade hands over each invocation's calls when it
-releases the invocation, after it settled and before the engine sees its
-outcome. An invocation released after its run ended, an abandoned one, and
-the runs the dispatcher starts are not in the run's trace.
+step's site and job, the route it matched and the answer's status, in the
+order the facade answered them. The runtime collects them per run: its
+executor maps each invocation to its run and site, and the facade hands
+over each call as soon as its answer is decided (`Config.Answered`), before
+the step sees the answer. So a run's trace has every call its steps were
+answered before it ended, those of a step that the run's cancellation
+abandoned included; a call answered after the run ended, and the calls of
+the runs the dispatcher starts, are not in it.
 
 `Run` is safe for concurrent use: runs of one runtime share its harness
 pool, its services and its expression engine.
@@ -107,12 +113,19 @@ pool, its services and its expression engine.
 
 `BuildInfo()` reports the bundle digest, the engine version, the Bun and
 esbuild versions, the harness runtime digests, the module state in effect,
-the host contract, the deviations the manifest lists and whether the
-bundle was built on another Bun (`nonconformant_runtime`).
+the host contract, the deviations in effect and whether the bundle was
+built on another Bun (`nonconformant_runtime`). The deviations are the
+manifest's, with those of the module state in effect in place of the
+manifest's mode's when `Options.ModuleState` overrode it (D1, D2, D9, D10
+and D11 are warm mode's, ADR 0006; `bundle.ModeDeviations`, the rule the
+build lists them by).
 
-`Close()` stops the dispatcher's runs, drains the harness pool, closes the
-facade and the expression engine within 10 s, and removes a data directory
-`Open` made. It does not wait for runs in flight. It is idempotent.
+`Close()` stops admitting runs, cancels the runs in flight and the
+dispatcher's and waits for them, then drains the harness pool, closes the
+facade and the expression engine, and removes the directory an archive was
+extracted into and a data directory `Open` made. All of it is bounded by
+10 s; a run still in flight then makes `Close` return an error. It is
+idempotent and safe to call while runs start.
 
 ## Tests
 
@@ -122,12 +135,19 @@ archive extracted into a given data directory, the host's variables
 replacing the bundle's, the refusals (another engine version, a pinned
 digest, an unknown module state, a changed file, another IR version, an
 unknown target or kind, arguments that are not an object), and a canceled
-run. `bun_test.go` builds a real bundle with `bundle.Build` and runs it on
+run; `Close` ending a run in its 30 s sleep, canceled with the runtime's
+reason, and refusing later runs (`ErrClosed`); runs racing `Close`, each
+run or refused; an archive opened twice with one data directory, and
+again after an open that failed once it was extracted; and `BuildInfo`'s
+deviations under an override both ways. `bun_test.go` builds a real
+bundle with `bundle.Build` and runs it on
 the pinned Bun in `warm` and `fresh` mode: a step reads a host's variable
 and updates it through the job API, both calls are in the trace with the
 step's site and job, the next run reads the update, the script runs as a
 script job too, and a bundle with steps does not open without its harness
-runtime or with another; and two runtimes that share a host's result
-cache share a `cache_ttl` step's result, which the first stores once. It needs
+runtime or with another; two runtimes that share a host's result
+cache share a `cache_ttl` step's result, which the first stores once; and
+a run canceled while its step waits, after the step read and updated the
+variable, keeps both calls in its trace, in `warm` and `fresh`. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.

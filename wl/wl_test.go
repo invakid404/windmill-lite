@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -23,9 +26,11 @@ import (
 
 // testFlows are synthetic flows, each a flow value as JSON. f/t/which
 // returns "host" when the variable u/t/v reads "host", and "bundle"
-// otherwise (ADR 0007: a host's variable replaces the bundle's).
+// otherwise (ADR 0007: a host's variable replaces the bundle's); f/t/sleep
+// sleeps 30 s before its step.
 var testFlows = map[string]string{
-	"f/t/echo": `{"modules":[{"id":"a","value":{"type":"identity"}}]}`,
+	"f/t/echo":  `{"modules":[{"id":"a","value":{"type":"identity"}}]}`,
+	"f/t/sleep": `{"modules":[{"id":"a","value":{"type":"identity"},"sleep":{"type":"static","value":30}}]}`,
 	"f/t/which": `{"modules":[{"id":"b","value":{"type":"branchone","branches":[{"expr":"variable(\"u/t/v\") === \"host\"","modules":[` +
 		`{"id":"h","value":{"type":"identity"},"mock":{"enabled":true,"return_value":"host"}}]}],` +
 		`"default":[{"id":"d","value":{"type":"identity"},"mock":{"enabled":true,"return_value":"bundle"}}]}}]}`,
@@ -65,7 +70,7 @@ func writeTestBundle(t *testing.T, version string, variables map[string]string, 
 		Engine:          bundle.Engine{Version: version, ExpressionStackBytes: 1 << 20},
 		Bundlers:        bundle.Bundlers{Bun: "1.3.10"},
 		ModuleState:     engine.ModuleStateWarm,
-		Deviations:      []string{"D3", "D14"},
+		Deviations:      []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"},
 		Contract:        ir.Contract{Roots: []ir.Root{{Flow: "f/t/echo"}, {Flow: "f/t/which"}}},
 		HostModules:     []bundle.HostModuleEntry{},
 		HarnessRuntimes: map[string]string{"bun": bundle.Digest([]byte("runtime"))},
@@ -118,7 +123,7 @@ func TestOpenAndRun(t *testing.T) {
 	bi := rt.BuildInfo()
 	digest, _ := os.ReadFile(filepath.Join(dir, bundle.ManifestFile))
 	if bi.BundleDigest != bundle.Digest(digest) || bi.EngineVersion != Version() || bi.BunVersion != "1.3.10" || bi.ModuleState != ModuleStateWarm ||
-		!slices.Equal(bi.Deviations, []string{"D3", "D14"}) || !strings.Contains(string(bi.Contract), "f/t/which") {
+		!slices.Equal(bi.Deviations, []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}) || !strings.Contains(string(bi.Contract), "f/t/which") {
 		t.Fatalf("build info %+v", bi)
 	}
 	data := rt.data
@@ -132,37 +137,79 @@ func TestOpenAndRun(t *testing.T) {
 		t.Fatalf("the data directory %s is still there: %v", data, err)
 	}
 
-	// A module-state override is in effect.
+	// A module-state override is in effect, with its mode's deviations
+	// (ADR 0006) in place of the manifest's mode's, both ways.
 	rt, err = Open(dir, Options{ModuleState: ModuleStateFresh})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rt.Close()
-	if rt.BuildInfo().ModuleState != ModuleStateFresh {
-		t.Fatalf("module state %s", rt.BuildInfo().ModuleState)
+	if bi := rt.BuildInfo(); bi.ModuleState != ModuleStateFresh || !slices.Equal(bi.Deviations, []string{"D3", "D14"}) {
+		t.Fatalf("fresh override: %s %v", bi.ModuleState, bi.Deviations)
 	}
-}
-
-// A .wlb archive is extracted into the data directory, which a given
-// DataDir keeps after Close.
-func TestOpenArchive(t *testing.T) {
-	dir := writeTestBundle(t, Version(), nil, nil)
-	archive := filepath.Join(t.TempDir(), "b"+bundle.ArchiveExt)
-	if err := bundle.WriteArchiveFile(dir, archive); err != nil {
-		t.Fatal(err)
-	}
-	data := filepath.Join(t.TempDir(), "data")
-	rt, err := Open(archive, Options{DataDir: data})
+	fresh := writeTestBundle(t, Version(), nil, func(m *bundle.Manifest) {
+		m.ModuleState, m.Deviations = engine.ModuleStateFresh, []string{"D3", "D8", "D14"}
+	})
+	rt2, err := Open(fresh, Options{ModuleState: ModuleStateWarm})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res, err := rt.Run(context.Background(), "f/t/echo", nil, RunOptions{}); err != nil || res.Status != StatusSuccess || string(res.Result) != `{}` {
-		t.Fatalf("%+v %v", res, err)
+	defer rt2.Close()
+	if bi := rt2.BuildInfo(); bi.ModuleState != ModuleStateWarm || !slices.Equal(bi.Deviations, []string{"D1", "D2", "D3", "D8", "D9", "D10", "D11", "D14"}) {
+		t.Fatalf("warm override: %s %v", bi.ModuleState, bi.Deviations)
+	}
+}
+
+// A .wlb archive is extracted into a directory of its own under the data
+// directory, which Close removes while a given DataDir, with its object
+// store, stays: the same DataDir opens again, after a clean Close and after
+// an open that failed once the archive was extracted.
+func TestOpenArchive(t *testing.T) {
+	archiveOf := func(dir string) string {
+		archive := filepath.Join(t.TempDir(), "b"+bundle.ArchiveExt)
+		if err := bundle.WriteArchiveFile(dir, archive); err != nil {
+			t.Fatal(err)
+		}
+		return archive
+	}
+	archive := archiveOf(writeTestBundle(t, Version(), nil, nil))
+	data := filepath.Join(t.TempDir(), "data")
+	extracted := func() []string {
+		m, _ := filepath.Glob(filepath.Join(data, "bundle-*"))
+		return m
+	}
+	for i := range 2 {
+		rt, err := Open(archive, Options{DataDir: data})
+		if err != nil {
+			t.Fatalf("open %d: %v", i, err)
+		}
+		if len(extracted()) != 1 {
+			t.Fatalf("open %d: extracted into %v", i, extracted())
+		}
+		if res, err := rt.Run(context.Background(), "f/t/echo", nil, RunOptions{}); err != nil || res.Status != StatusSuccess || string(res.Result) != `{}` {
+			t.Fatalf("open %d: %+v %v", i, res, err)
+		}
+		if err := rt.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if m := extracted(); len(m) != 0 {
+			t.Fatalf("open %d: Close left %v", i, m)
+		}
+		if _, err := os.Stat(filepath.Join(data, "objects")); err != nil {
+			t.Fatalf("open %d: the object store: %v", i, err)
+		}
+	}
+	if _, err := Open(archiveOf(writeTestBundle(t, "v9.9.9", nil, nil)), Options{DataDir: data}); !errors.Is(err, ErrEngineVersion) {
+		t.Fatalf("another engine version: %v", err)
+	}
+	if m := extracted(); len(m) != 0 {
+		t.Fatalf("a failed open left %v", m)
+	}
+	rt, err := Open(archive, Options{DataDir: data})
+	if err != nil {
+		t.Fatalf("open after a failed one: %v", err)
 	}
 	rt.Close()
-	if _, err := os.Stat(filepath.Join(data, "bundle", "ir.json")); err != nil {
-		t.Fatalf("the extracted bundle: %v", err)
-	}
 }
 
 // The host's variables replace the bundle's data/ (ADR 0007): the bundle's
@@ -252,5 +299,85 @@ func TestRunCanceled(t *testing.T) {
 	}
 	if res.Status != StatusCanceled || !strings.Contains(string(res.Result), `"Job canceled: r by u"`) {
 		t.Fatalf("%+v", res)
+	}
+}
+
+// Close ends a run in flight: one in a 30 s sleep ends canceled, with the
+// runtime's reason, before Close returns; a run after Close is refused.
+func TestCloseActiveRun(t *testing.T) {
+	rt, err := Open(writeTestBundle(t, Version(), nil, nil), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan *Result, 1)
+	go func() {
+		res, err := rt.Run(context.Background(), "f/t/sleep", nil, RunOptions{})
+		if err != nil {
+			t.Error(err)
+		}
+		done <- res
+	}()
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case res := <-done:
+		t.Fatalf("the run did not sleep: %+v", res)
+	default:
+	}
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case res := <-done:
+		if res == nil || res.Status != StatusCanceled || !strings.Contains(string(res.Result), `"Job canceled: the runtime is closing by windmill-lite"`) {
+			t.Fatalf("%+v", res)
+		}
+	default:
+		t.Fatal("Close returned with the run still in its sleep")
+	}
+	if _, err := rt.Run(context.Background(), "f/t/echo", nil, RunOptions{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("a run after Close: %v", err)
+	}
+	if _, err := rt.Run(context.Background(), "f/t/echo", nil, RunOptions{Kind: KindScript}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("a script run after Close: %v", err)
+	}
+}
+
+// Runs that race Close each either run, to success or canceled, or are
+// refused with ErrClosed; Close waits for every run it admitted.
+func TestCloseRacesRuns(t *testing.T) {
+	rt, err := Open(writeTestBundle(t, Version(), nil, nil), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	var ran, refused atomic.Int32
+	for i := range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			path := "f/t/echo"
+			if i%2 == 1 {
+				path = "f/t/sleep"
+			}
+			res, err := rt.Run(context.Background(), path, nil, RunOptions{})
+			switch {
+			case errors.Is(err, ErrClosed):
+				refused.Add(1)
+			case err != nil:
+				t.Error(err)
+			case res.Status == StatusSuccess || res.Status == StatusCanceled:
+				ran.Add(1)
+			default:
+				t.Errorf("%+v", res)
+			}
+		}()
+	}
+	time.Sleep(5 * time.Millisecond)
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	if ran.Load()+refused.Load() != 32 {
+		t.Fatalf("%d ran, %d refused", ran.Load(), refused.Load())
 	}
 }

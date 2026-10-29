@@ -210,6 +210,10 @@ environment, and its registration ends when it settles (`Session.End`).
 sent, headers, body, the matched route's name, the status and whether it
 was unsupported. A session's records go to `Config.Recorded` when they are
 released, once the invocation has settled and its outcome is decided.
+`Config.Answered` receives each call of a registered invocation as soon as
+its answer is decided, in the order the facade answers them, so a runtime
+that keeps a run's calls ([wl](../../../wl/README.md), F1) has those of a
+step that is abandoned and never released.
 
 ## The 501 policy
 
@@ -246,7 +250,8 @@ comparison. An abandoned invocation has no outcome to replace.
 - `routes_test.go`: the table against the vendored schema, and matching
   (trailing parameters, literals over parameters, unescaping, misses).
 - `facade_test.go`, without Bun: attribution on the intercepted path (two
-  invocations sending one token), over TCP (own token, another live
+  invocations sending one token), each answered call given to `Answered`
+  before any release, a stray one not (F1), over TCP (own token, another live
   invocation's, none, an unknown one, an ended one, a shared one, and its
   sole owner once the sharers have ended), the warm origin refusing a
   connection at once, the 501 bodies and names, the policy in both modes

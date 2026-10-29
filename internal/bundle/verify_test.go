@@ -57,6 +57,15 @@ func TestManifestDeviations(t *testing.T) {
 		[]string{"D3", "D7", "D8", "D14", "D16", "D17"}; !slices.Equal(got, want) {
 		t.Errorf("fresh: %q, want %q", got, want)
 	}
+	// A runtime that overrides the bundle's mode swaps the mode's
+	// deviations and keeps the others, both ways.
+	warm := manifestDeviations([]string{"D12"}, engine.ModuleStateWarm)
+	if got, want := ModeDeviations(warm, engine.ModuleStateFresh), manifestDeviations([]string{"D12"}, engine.ModuleStateFresh); !slices.Equal(got, want) {
+		t.Errorf("warm to fresh: %q, want %q", got, want)
+	}
+	if got, want := ModeDeviations([]string{"D14", "D3", "D3"}, engine.ModuleStateWarm), []string{"D1", "D2", "D3", "D9", "D10", "D11", "D14"}; !slices.Equal(got, want) {
+		t.Errorf("fresh to warm: %q, want %q", got, want)
+	}
 }
 
 // writeBundle writes a bundle directory by hand: its files and a manifest

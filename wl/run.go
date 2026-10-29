@@ -85,10 +85,18 @@ type Result struct {
 // Run runs the flow or script at path with args, a JSON object, and
 // returns how it ended (ADR 0009). The run's context bounds it: when it
 // ends, the run ends canceled, with its cause's reason and canceler when
-// that is a *Cancellation (FX-38). An error means the run could not start:
-// no such target, or arguments that are not a JSON object or that cannot
-// be stored.
+// that is a *Cancellation (FX-38); Close cancels it too, with the reason
+// "the runtime is closing" by "windmill-lite". An error means the run
+// could not start: the runtime is closed (ErrClosed), no such target, or
+// arguments that are not a JSON object or that cannot be stored.
 func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error) {
+	if !rt.admit() {
+		return nil, ErrClosed
+	}
+	defer rt.active.Done()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	defer context.AfterFunc(rt.stop, func() { cancel(context.Cause(rt.stop)) })()
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage("{}")
 	}
@@ -158,9 +166,9 @@ func storedText(v jsonval.Value) json.RawMessage {
 // recorder is the runtime's step executor: it passes each invocation on to
 // the facade's executor over the harness pool, and keeps, for the runs
 // that are in flight, the platform calls of their invocations, which the
-// facade hands over when it releases each invocation's record (after it
-// settled and its outcome was decided, so before the engine sees the
-// outcome, for any invocation that is not abandoned).
+// facade hands over as it answers each (Config.Answered): before the
+// step's outcome, so the trace of a run that ends has every call its
+// steps were answered, an abandoned step's included, until the run ends.
 type recorder struct {
 	inner engine.StepExecutor
 	mu    sync.Mutex
@@ -206,13 +214,12 @@ func (x *recorder) Execute(ctx context.Context, inv engine.Invocation) (engine.S
 	return x.inner.Execute(ctx, inv)
 }
 
-// released is the facade's Config.Recorded: an invocation's calls, which
-// go to its run while the run is in flight. An invocation released after
-// its run ended, an abandoned one, takes its calls with it.
-func (x *recorder) released(inv string, calls []facade.Record) {
+// answered is the facade's Config.Answered: a call, which goes to its
+// invocation's run while the run is in flight. A call answered after its
+// run ended, an abandoned step's, is dropped.
+func (x *recorder) answered(inv string, c facade.Record) {
 	x.mu.Lock()
 	in, ok := x.invs[inv]
-	delete(x.invs, inv)
 	l := x.runs[in.run]
 	x.mu.Unlock()
 	if !ok || l == nil {
@@ -220,10 +227,16 @@ func (x *recorder) released(inv string, calls []facade.Record) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, c := range calls {
-		l.calls = append(l.calls, PlatformCall{
-			Site: in.site, Job: inv, Method: c.Method, Path: c.Path, Query: c.Query, Route: c.Route,
-			Status: c.Status, Unsupported: c.Unsupported, Message: c.Message,
-		})
-	}
+	l.calls = append(l.calls, PlatformCall{
+		Site: in.site, Job: inv, Method: c.Method, Path: c.Path, Query: c.Query, Route: c.Route,
+		Status: c.Status, Unsupported: c.Unsupported, Message: c.Message,
+	})
+}
+
+// released is the facade's Config.Recorded: the invocation's record is
+// dropped, and so is what the recorder knows of it.
+func (x *recorder) released(inv string, _ []facade.Record) {
+	x.mu.Lock()
+	delete(x.invs, inv)
+	x.mu.Unlock()
 }

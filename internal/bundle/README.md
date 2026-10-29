@@ -25,7 +25,7 @@ runtime.
 | File | Contents |
 |---|---|
 | `build.go` | `Build` and `Config`: the whole build, its refusals, `data/` |
-| `manifest.go` | `Manifest`, `Canonicalize`, `Digest`, `ParseManifest`, the deviations a bundle lists |
+| `manifest.go` | `Manifest`, `Canonicalize`, `Digest`, `ParseManifest`, the deviations a bundle lists, `ModeDeviations` |
 | `sources.go` | the recording file system behind the source inventory; `TreeDigest` |
 | `archive.go` | `WriteArchive`, `WriteArchiveFile`, `Verify` and `Extract` |
 | `env.go` | `EnvRewrite`: the define table and support module of the env rewrite |
@@ -65,7 +65,7 @@ supplies secrets (PF2).
 | `bundlers` | the Bun version that built the scripts; esbuild's (`EsbuildVersion`, 0.28.0) when the bundle has codebase scripts |
 | `nonconformant_runtime` | set when the Bun was not the pin (`-bun-mismatch`) |
 | `module_state` | `warm` or `fresh` ([ADR 0006](../../docs/design/0006-module-state.md)) |
-| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's |
+| `deviations` | the deviations of [ADR 0001](../../docs/design/0001-equivalence-contract.md) §5 in effect: the program's (D5, D6, D7, D12, D13), D1, D2 and D9 to D11 in `warm` mode, and D3, D8, D14, D16 and D17, which every bundle has. Those that depend on a run-time setting (D4, D15, D2's watchdog) are the run trace's. `ModeDeviations` swaps the mode's deviations for another mode's and keeps the rest, which `wl` reports when a runtime overrides the bundle's mode |
 | `contract` | the host contract compiled against; with none, every flow and script of the folder is a root |
 | `host_modules` | the host-provided modules (D12), `key` and `id`, in registration order: a module after the modules it imports |
 | `harness_runtimes` | by harness class, the `TreeDigest` of the harness runtime the bundle was built for |
@@ -446,7 +446,7 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestExtract` (an archive extracted into an empty directory verifies with
   the archive's digest; a non-empty directory is refused),
   `TestParseManifest`, `TestTreeDigest`, `TestCanonicalize` and
-  `TestManifestDeviations` need
+  `TestManifestDeviations` (with `ModeDeviations` both ways) need
   no Bun: they cover a changed, extra or missing file, a symbolic link, a
   forgery whose own manifest matches, archive entries that repeat or escape,
   directory entries that collide with a file or lie below one, in the same

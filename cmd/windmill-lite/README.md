@@ -88,7 +88,7 @@ SIGINT and SIGTERM cancel the run.
 
 | Flag | Meaning |
 |---|---|
-| `--bundle` | the bundle: a directory, or a `.wlb` archive, which is extracted into the data directory. It is required |
+| `--bundle` | the bundle: a directory, or a `.wlb` archive, which is extracted into a directory of its own under the data directory and removed afterwards. It is required |
 | `--args` | the arguments: a JSON object, or `@file` holding one; `{}` by default |
 | `-kind` | `flow` (default) or `script` |
 | `-id` | the run's job id; a new UUID by default |
