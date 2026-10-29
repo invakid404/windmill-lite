@@ -40,8 +40,9 @@ type Layout struct {
 	// Dirs are the directories outside the tree, and not carried, that a
 	// path's spelling passes through on its way (the detour of
 	// ../detour/../shared/a.txt), relative to the tree's root, in slash
-	// form and sorted. The copy makes each one, empty, so that the
-	// spelling resolves when it is walked on disk.
+	// form and sorted: the deepest of them, since making a directory makes
+	// its parents. The copy makes each one, empty, so that the spelling
+	// resolves when it is walked on disk.
 	Dirs []string `json:"dirs,omitempty"`
 }
 
@@ -118,8 +119,8 @@ func PlanLayout(src string) (*Layout, error) {
 			outside = append(outside, filepath.ToSlash(rel))
 		}
 	}
-	l.Outside = outermost(outside, nil)
-	l.Dirs = outermost(through, l.Outside)
+	l.Outside = outermost(outside)
+	l.Dirs = deepest(through, l.Outside)
 	var names []string
 	for d := abs; len(names) < up; d = filepath.Dir(d) {
 		if filepath.Dir(d) == d {
@@ -193,19 +194,30 @@ func walkSpelling(p string) (peak int, dirs []string) {
 	return peak, dirs
 }
 
-// outermost returns the slash paths of list that are not below another of
-// list, sorted and once each, leaving out those that a carried path
-// holds, is, or lies below, since copying it makes them. A path is below k
-// when it starts with k's components and climbs no further: ../../x is not
-// below .., though it starts with "../".
-func outermost(list, carried []string) []string {
-	below := func(o, k string) bool {
-		return strings.HasPrefix(o, k+"/") && climbs(filepath.FromSlash(o)) == climbs(filepath.FromSlash(k))
-	}
+// outermost returns the carried paths of list that are not below another
+// of list, sorted and once each: copying a directory copies everything
+// below it.
+func outermost(list []string) []string {
 	sort.Strings(list)
 	var out []string
 	for i, o := range list {
 		if i > 0 && list[i-1] == o || slices.ContainsFunc(list, func(k string) bool { return below(o, k) }) {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// deepest returns the directories of list that the copy must make, sorted
+// and once each: those that no other of list lies below, since making a
+// directory makes its parents, and that no carried path supplies, by
+// being it, holding it or lying below it.
+func deepest(list, carried []string) []string {
+	sort.Strings(list)
+	var out []string
+	for i, o := range list {
+		if i > 0 && list[i-1] == o || slices.ContainsFunc(list, func(k string) bool { return below(k, o) }) {
 			continue
 		}
 		if slices.ContainsFunc(carried, func(k string) bool { return k == o || below(o, k) || below(k, o) }) {
@@ -214,6 +226,13 @@ func outermost(list, carried []string) []string {
 		out = append(out, o)
 	}
 	return out
+}
+
+// below reports whether the slash path o lies below k: it starts with k's
+// components and climbs no further, so ../../x is not below .., though it
+// starts with "../".
+func below(o, k string) bool {
+	return strings.HasPrefix(o, k+"/") && climbs(filepath.FromSlash(o)) == climbs(filepath.FromSlash(k))
 }
 
 // missing reports whether a Stat error says the path does not resolve: it

@@ -41,6 +41,8 @@ var outsideBase = map[string]string{
 	"top/repo/shared-x/a.txt":              "a\n",
 	"top/repo/assets/b.txt":                "b\n",
 	"top/repo/detour/d.txt":                "d\n",
+	"top/repo/detour/nested/n.txt":         "nested\n",
+	"top/repo/detour/side/s.txt":           "side\n",
 	"top/inject/shim.ts":                   "export const shim = 1;\n",
 	"top/repo/fixture.yaml":                "id: x\n",
 }
@@ -51,7 +53,8 @@ var outsideBase = map[string]string{
 // many of its parents' names as the furthest path climbs as spelled, also
 // when it comes back into the tree; the directories a spelling passes
 // through outside the tree are made when they exist in the original and
-// no carried path makes them.
+// no carried path makes them, the deepest of them, whose parents making
+// it makes.
 func TestPlanLayout(t *testing.T) {
 	abs := t.TempDir()
 	cases := []struct {
@@ -67,6 +70,8 @@ func TestPlanLayout(t *testing.T) {
 		{"detour through a missing directory", "  - relative_path: f/cb\n    assets: [{from: ../nowhere/../shared-x/a.txt, to: a.txt}]\n", "windmill", []string{"../shared-x/a.txt"}, nil},
 		{"detour a carried path makes", "  - relative_path: ../shared/lib/../lib/assets\n    inject: [../shared/lib/label.ts]\n", "windmill", []string{"../shared/lib/assets", "../shared/lib/label.ts"}, nil},
 		{"detour into the tree", "  - relative_path: ../detour/../windmill/f/cb\n", "windmill", nil, []string{"../detour"}},
+		{"nested detour", "  - relative_path: f/cb\n    assets: [{from: ../detour/nested/../../shared-x/a.txt, to: a.txt}]\n", "windmill", []string{"../shared-x/a.txt"}, []string{"../detour/nested"}},
+		{"detour beside a carried path", "  - relative_path: f/cb\n    assets: [{from: ../detour/side/../nested/n.txt, to: n.txt}, {from: ../detour/d.txt, to: d.txt}]\n", "windmill", []string{"../detour/d.txt", "../detour/nested/n.txt"}, []string{"../detour/side"}},
 		{"relative_path and its asset", "  - relative_path: ../shared\n    assets: [{from: ../shared/lib/assets/child.mjs, to: child.mjs}]\n", "windmill", []string{"../shared"}, nil},
 		{"asset alone", "  - relative_path: f/cb\n    assets: [{from: ../assets/b.txt, to: b.txt}]\n", "windmill", []string{"../assets/b.txt"}, nil},
 		{"a name that starts like another", "  - relative_path: ../shared\n    assets: [{from: ../shared-x/a.txt, to: a.txt}, {from: ../shared/lib/label.ts, to: l.ts}]\n", "windmill", []string{"../shared", "../shared-x/a.txt"}, nil},
@@ -201,13 +206,17 @@ func TestCopyLayout(t *testing.T) {
 // spelled, walked on disk by the operating system, and with "." and ".."
 // applied first, as windmill-lite's build joins it. Each reaches what it
 // reaches from the original: plain outside paths, spellings that come back
-// into the tree through its own name or its parents', and detours through
-// a directory outside the tree, for relative_path, inject and assets.
+// into the tree through its own name or its parents', detours through a
+// directory outside the tree or a directory nested in one, and a detour
+// beside a carried path below the same directory, for relative_path,
+// inject and assets.
 func TestCopiesResolveTheSpellings(t *testing.T) {
 	for _, c := range []struct{ name, entry string }{
 		{"outside", "relative_path: ../shared\n    inject: [../../inject/shim.ts]\n    assets: [{from: ../shared/lib/assets/child.mjs, to: c.mjs}, {from: ../assets/b.txt, to: b.txt}]"},
 		{"come back in", "relative_path: ../windmill/data\n    inject: [../windmill/data/n.txt]\n    assets: [{from: ../../repo/windmill/data/n.txt, to: n.txt}]"},
 		{"detour", "relative_path: ../detour/../shared\n    inject: [../detour/../../inject/shim.ts]\n    assets: [{from: ../detour/../assets/b.txt, to: b.txt}, {from: ../detour/../windmill/data/n.txt, to: n.txt}]"},
+		{"nested detour", "relative_path: ../detour/nested/../../shared\n    inject: [../detour/nested/../../../inject/shim.ts]\n    assets: [{from: ../detour/nested/../../assets/b.txt, to: b.txt}]"},
+		{"detour beside a carried path", "relative_path: data\n    assets: [{from: ../detour/side/../nested/n.txt, to: n.txt}, {from: ../detour/side/../../assets/b.txt, to: b.txt}]"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			wmill := "defaultTs: bun\ncodebases:\n  - " + c.entry + "\n"
