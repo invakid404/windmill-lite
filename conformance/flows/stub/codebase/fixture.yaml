@@ -9,7 +9,7 @@
 id: stub/codebase
 spec: [SY-8, WR-47, WR-50, FX-26, CF-4, OR-11]
 scope: core
-provenance: policy
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1, effects: true}
 stub: true

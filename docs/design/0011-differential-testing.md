@@ -471,13 +471,20 @@ their root jobs were not in flight together.
   service on loopback for every fixture that declares effects or stub
   mode. Each invocation gets `WL_EFFECT_SINK` through the engine's
   invocation-environment hook (H12), the seam host hooks expose. That
-  hook also records the site each job launches at, and this record is
-  the windmill-lite locator, read from the trace's own sites. The check
-  after a run (`conformance.CheckReplay`) is one function that both
-  sides apply: to the oracle's walk, and to windmill-lite's trace, where
-  a leaf's job is any record's job that is no child flow's. The effect
-  sink also made the probe catalogue's effect runs (OR-16/a) checkable on
-  windmill-lite.
+  hook also records the site each job launches at, which is the site
+  the trace records for it, and that record is the windmill-lite
+  locator. The check after a run (`conformance.CheckReplay`) is one
+  function that both sides apply: to the oracle's walk, and to
+  windmill-lite's trace. On the trace, a leaf's job is any record's job
+  that is no child flow's, and a script leaf's job that launched but
+  never reached an invocation (FX-14) is walked too, as it is on the
+  oracle; the module-start hook (H6) says which modules run a script. A
+  fixture with `roots` and effects stays unsupported, because the
+  default dispatcher's runs get no run hooks. The effect sink also made
+  the probe catalogue's effect runs (OR-16/a) checkable on
+  windmill-lite. The new fixture `stub/codebase` (a retry inside a loop
+  on a CommonJS codebase script, then an ESM one) recorded on the oracle
+  exactly as its `expect` and windmill-lite's run give it.
 
 ## Spec IDs relied on
 

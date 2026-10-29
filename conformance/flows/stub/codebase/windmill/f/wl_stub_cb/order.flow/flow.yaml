@@ -29,23 +29,23 @@ value:
       value:
         type: script
         input_transforms:
-          order:
-            type: javascript
-            expr: flow_input.order
           held:
             type: javascript
             expr: results.each
+          order:
+            type: javascript
+            expr: flow_input.order
         path: f/wl_stub_cb/esm/confirm
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties:
+    items:
+      type: array
     order:
       type: string
     qty:
       type: number
-    items:
-      type: array
   required:
     - order
     - qty

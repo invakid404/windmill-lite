@@ -144,6 +144,15 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 		return results
 	}
+	if len(f.Roots) > 0 && (f.Stub || f.Oracle.Effects) {
+		// The default dispatcher's runs (milestone PF3) run without a
+		// run's hooks, so their jobs would get no WL_EFFECT_SINK, while on
+		// the oracle every job gets it.
+		for i := range results {
+			results[i].unsupported = "a fixture with roots gets no effect sink in its dispatched runs yet (ADR 0011, Effects)"
+		}
+		return results
+	}
 	work, err := os.MkdirTemp("", "wltest-flows-")
 	if err != nil {
 		return failRuns(results, err.Error())
@@ -616,8 +625,10 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	}
 	id := newUUID()
 	var hooks engine.Hooks
+	var fx *runEffects
 	if es != nil {
-		hooks = es.open(id, f.Stub, r.Replay)
+		fx = es.openRun(id, f.Stub, r.Replay)
+		hooks = fx
 	}
 	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
 	tr, err := e.Run(rctx, engine.RunRequest{
@@ -630,7 +641,7 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	var effects []json.RawMessage
 	var calls []conformance.ReplayCall
 	if es != nil {
-		effects, calls = es.close(id, f.Stub)
+		effects, calls = es.closeRun(id)
 	}
 	if err != nil {
 		return []string{"run: " + err.Error()}
@@ -638,19 +649,25 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
+	// A run whose calls disagree with its trace fails, and its observation
+	// is still compared, so that what made its steps fail is shown too.
+	var problems []string
 	if f.Stub {
-		if err := checkStub(tr, calls); err != nil {
-			return []string{"stub: " + err.Error()}
+		if err := checkStub(tr, fx.leafSites(), calls); err != nil {
+			problems = append(problems, "stub: "+err.Error())
 		}
 		for _, c := range calls {
-			effects = append(effects, c.Effect)
+			if c.Effect != nil {
+				effects = append(effects, c.Effect)
+			}
 		}
 	}
 	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies, effects)
 	if err != nil {
-		return []string{"observe: " + err.Error()}
+		return append(problems, "observe: "+err.Error())
 	}
-	return append(compareRun(f, r, got, generated), checkDelays(tr, r.Delays)...)
+	problems = append(problems, compareRun(f, r, got, generated)...)
+	return append(problems, checkDelays(tr, r.Delays)...)
 }
 
 // checkDelays checks a run's delays on windmill-lite's side (JE-28, FX-23,

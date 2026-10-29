@@ -6,11 +6,6 @@ schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object
   properties:
-    order:
-      type: string
-      description: ''
-      default: null
-      originalType: string
     held:
       type: array
       description: ''
@@ -18,6 +13,11 @@ schema:
       items:
         type: number
       originalType: number[]
+    order:
+      type: string
+      description: ''
+      default: null
+      originalType: string
   required:
     - order
     - held
