@@ -1,0 +1,6 @@
+# The job identity of a run a step dispatched tracked in its parent, and
+# the shape of a dispatched failure's error: the reference does not say
+# them (WA-V1 leaves dispatched jobs out), so no expect is written and the
+# recording is the reference.
+spec: [WA-15/a, WA-V1]
+target: f/wl_pf3_disp/identity

@@ -1,0 +1,7 @@
+# WA-6/c: a parallel loop always runs each iteration as a sub-flow at
+# <flow>/forloop-<index>.
+spec: [WA-6/c]
+target: f/wl_pf3_fp/par
+claims:
+  - {at: /result/0/flow_path, equals: f/wl_pf3_fp/par/forloop-0}
+  - {at: /result/1/flow_path, equals: f/wl_pf3_fp/par/forloop-1}

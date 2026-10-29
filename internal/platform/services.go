@@ -178,18 +178,67 @@ func (c VariableChain) Variable(ctx context.Context, path string) (Variable, boo
 	return Variable{}, false, nil
 }
 
-// Services are the platform services of ADR 0007 that milestone PF2
-// implements, resources, variables and secrets, with the host's value
-// resolvers: what the facade answers the resource and variable routes
-// from, and what the engine resolves a leaf's arguments, flow_env and the
-// expression helpers through. A nil field takes its default: no resources,
-// no variables, LocalSecrets, no resolvers. A nil *Services is the zero
-// one. Services are safe for concurrent use when their services are.
+// Services are the platform services of ADR 0007: the resources,
+// variables and secrets of milestone PF2, with the host's value resolvers,
+// and the job registry, flow user state, object store and dispatcher of
+// milestone PF3. They are what the facade answers its routes from, and
+// what the engine resolves a leaf's arguments, flow_env and the
+// expression helpers through and registers its runs with; a host gives
+// both the same *Services. A nil field takes its default: no resources,
+// no variables, LocalSecrets, no resolvers; one Registry per Services for
+// Jobs and UserState, made when first needed, so the facade and the
+// engine that share a *Services share it; no object store, whose calls
+// answer 501; and no dispatcher, so that no target is in the bundle. A
+// nil *Services has no registry either: it keeps no job. Services are
+// safe for concurrent use when their services are; a field is set before
+// any run starts, and never after.
 type Services struct {
 	Resources Resources
 	Variables Variables
 	Secrets   Secrets
 	Resolvers []ValueResolver
+
+	Jobs       Jobs
+	UserState  FlowUserState
+	Objects    ObjectStore
+	Dispatcher Dispatcher
+
+	localOnce sync.Once
+	local     *Registry
+}
+
+// Registry returns the services' own registry, the default of Jobs and
+// UserState, making it when first needed; nil for a nil *Services.
+func (s *Services) Registry() *Registry {
+	if s == nil {
+		return nil
+	}
+	s.localOnce.Do(func() { s.local = NewRegistry() })
+	return s.local
+}
+
+// JobRegistry returns the job registry: Jobs, or the services' own
+// registry.
+func (s *Services) JobRegistry() Jobs { return s.jobs() }
+
+func (s *Services) jobs() Jobs {
+	switch {
+	case s == nil:
+		return noJobs{}
+	case s.Jobs != nil:
+		return s.Jobs
+	}
+	return s.Registry()
+}
+
+func (s *Services) userState() FlowUserState {
+	switch {
+	case s == nil:
+		return NewRegistry()
+	case s.UserState != nil:
+		return s.UserState
+	}
+	return s.Registry()
 }
 
 func (s *Services) resource(ctx context.Context, path string) (Resource, bool, error) {

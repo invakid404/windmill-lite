@@ -21,7 +21,10 @@ import (
 //
 //	{"name":"UnsupportedPlatformCall","message":"Not implemented in windmill-lite: <first call>","calls":[<every call>, …]}
 //
-// with origin facade, which the engine stores as {"error": …}. The calls
+// with origin facade, which the engine stores as {"error": …}. The message
+// is the first unsupported call's answer (Record.Message), which for a
+// refused dispatch is "dispatch target not in bundle: <path>" (ADR 0001
+// §5a). The calls
 // counted are those accepted before the outcome: on the intercepted path
 // every platform frame that arrived ahead of the invocation's result, and
 // the answers of the calls still being answered are waited for, until the
@@ -65,19 +68,19 @@ func (x *executor) Execute(ctx context.Context, inv engine.Invocation) (engine.S
 	if err != nil || x.f.policy != PolicyFail {
 		return out, err
 	}
-	if calls := s.Unsupported(ctx); len(calls) > 0 {
-		return unsupportedOutcome(calls), nil
+	if calls, message := s.unsupported(ctx); len(calls) > 0 {
+		return unsupportedOutcome(message, calls), nil
 	}
 	return out, nil
 }
 
 // unsupportedOutcome is the 501 policy's error (ADR 0007).
-func unsupportedOutcome(calls []string) engine.StepOutcome {
+func unsupportedOutcome(message string, calls []string) engine.StepOutcome {
 	body, err := json.Marshal(struct {
 		Name    string   `json:"name"`
 		Message string   `json:"message"`
 		Calls   []string `json:"calls"`
-	}{"UnsupportedPlatformCall", UnsupportedPrefix + calls[0], calls})
+	}{"UnsupportedPlatformCall", message, calls})
 	if err != nil {
 		panic(err)
 	}

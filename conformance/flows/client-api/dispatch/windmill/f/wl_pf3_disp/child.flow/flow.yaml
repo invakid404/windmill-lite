@@ -1,0 +1,19 @@
+summary: PF3 a dispatched flow
+value:
+  modules:
+    - id: c
+      value:
+        type: rawscript
+        content: '!inline c.ts'
+        input_transforms:
+          v:
+            type: javascript
+            expr: flow_input.v
+        lock: '!inline c.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    v: {type: number, description: ""}
+  required: []

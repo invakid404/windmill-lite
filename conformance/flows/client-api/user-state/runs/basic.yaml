@@ -1,0 +1,44 @@
+# Written from the reference before the oracle ran it. Step a's root lookup
+# answers its effective root, WM_ROOT_JOB_ID (WA-V1); a write at the root
+# answers 200 text/plain "Flow job state updated", the read gives the
+# value back and a missing key JSON null; at a script job the write is
+# refused with 404 "Not found: Flow job not found" and the read gives null,
+# since the job has no flow status (WA-14). The parallel iterations find
+# the same root although each starts its own innermost scope (WA-V1), set
+# their keys there and see k (WA-14, sharing). Step b reads p1 through the
+# helper and p2 through the route; the helper gives null for a missing key
+# (JE-20).
+spec: [WA-14/a, WA-V1, JE-20]
+target: f/wl_pf3_us/basic
+expect:
+  status: success
+  result: {p1: 1, none: null, p2: 2}
+  steps:
+    "m:a":
+      status: success
+      args: {}
+      result:
+        root_is_env: true
+        set: {status: 200, type: text/plain, text: Flow job state updated}
+        set_order: {status: 200, type: text/plain, text: Flow job state updated}
+        get: {status: 200, type: application/json, text: '{"n":1}'}
+        missing: {status: 200, type: application/json, text: "null"}
+        own_set: {status: 404, type: text/plain, text: "Not found: Flow job not found"}
+        own_get: {status: 200, type: application/json, text: "null"}
+    "m:l":
+      status: success
+      result:
+        - {v: 1, set: 200, root_is_env: true, own_scope: true, k: {n: 1}}
+        - {v: 2, set: 200, root_is_env: true, own_scope: true, k: {n: 1}}
+    "m:l/i:0/m:x":
+      status: success
+      args: {v: 1}
+      result: {v: 1, set: 200, root_is_env: true, own_scope: true, k: {n: 1}}
+    "m:l/i:1/m:x":
+      status: success
+      args: {v: 2}
+      result: {v: 2, set: 200, root_is_env: true, own_scope: true, k: {n: 1}}
+    "m:b":
+      status: success
+      args: {p1: 1, none: null}
+      result: {p1: 1, none: null, p2: 2}
