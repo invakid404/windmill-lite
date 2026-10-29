@@ -3,6 +3,8 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -17,7 +19,9 @@ var internalArgs = map[string]bool{"_MODULES": true, "_TEMP_SCRIPT_REFS": true}
 // other member kept as its raw text, in its order. Windmill's wrapper
 // binds the script's parameters from args.json, so the invoke frame
 // carries the same text. Arguments that are not an object, or not JSON,
-// are kept as they are, for the harness to refuse.
+// are kept as they are, for the harness to refuse: the object must close
+// with its own brace and nothing may follow it, or a malformed text whose
+// internal key was dropped would come out valid.
 func scriptArgs(args jsonval.Value) jsonval.Value {
 	text := args.Producer()
 	// A key can only match with an underscore or an escape in its text.
@@ -49,6 +53,12 @@ func scriptArgs(args jsonval.Value) jsonval.Value {
 		// comma and the whitespace before it.
 		m := bytes.TrimLeft(text[start:dec.InputOffset()], " \t\r\n")
 		kept = append(kept, bytes.TrimLeft(bytes.TrimPrefix(m, []byte(",")), " \t\r\n"))
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return args
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return args
 	}
 	if !dropped {
 		return args

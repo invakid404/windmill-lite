@@ -101,6 +101,52 @@ describe("conformance/protocol/frames.json", () => {
   }
 });
 
+/** readAll, with the stream pushed size bytes at a time. */
+function readPieces(bytes: Uint8Array, size: number, maxFrame = MAX_FRAME, maxMessage = DEFAULT_MAX_MESSAGE): Message[] {
+  const r = new FrameReader(maxFrame);
+  const payloads: Uint8Array[] = [];
+  for (let i = 0; i < bytes.length; i += size) payloads.push(...r.push(bytes.subarray(i, i + size)));
+  r.end();
+  return decodeAll(payloads, maxMessage);
+}
+
+// The reader keeps what a push leaves of a frame and the next completes,
+// so a stream read in pieces gives the messages, or the error, it gives
+// read whole, however it is cut (FU7: the reader's buffer).
+describe("conformance/protocol/frames.json read in pieces", () => {
+  for (const c of cases.filter((c) => c.error || c.messages)) {
+    for (const size of [1, 3, 4096]) {
+      test(`${c.case}, ${size} bytes at a time`, () => {
+        const bytes = stream(c);
+        if (c.error) {
+          expect(() => readPieces(bytes, size, c.max_frame, c.max_message)).toThrow(ProtocolError);
+          try {
+            readPieces(bytes, size, c.max_frame, c.max_message);
+          } catch (e) {
+            expect((e as ProtocolError).code).toBe(c.error);
+          }
+          return;
+        }
+        expect(readPieces(bytes, size).map((m) => encodeText(outgoing(m)))).toEqual(c.messages!.map((m) => encodeText(outgoing(m))));
+      });
+    }
+  }
+});
+
+test("frames a reader keeps across pushes come out whole and apart, and a stream that ends inside one is truncated", () => {
+  const payloads = [new Uint8Array(70_000).fill(1), new Uint8Array(3).fill(2), new Uint8Array(9000).fill(3)];
+  const bytes = Buffer.concat(payloads.map((p) => frame(p)));
+  const r = new FrameReader(MAX_FRAME);
+  const got: Uint8Array[] = [];
+  for (let i = 0; i < bytes.length; i += 8192) got.push(...r.push(bytes.subarray(i, i + 8192)));
+  r.end();
+  expect(got.map((p) => [p.length, p[0], p[p.length - 1]])).toEqual(payloads.map((p) => [p.length, p[0], p[p.length - 1]]));
+  // A payload is a copy: what the reader reads next does not change it.
+  r.push(frame(new Uint8Array(70_000).fill(9)).subarray(0, 100));
+  expect(got[0].every((b) => b === 1)).toBe(true);
+  expect(() => r.end()).toThrow(ProtocolError);
+});
+
 test("an assembler refuses a stream past its limit before buffering it", () => {
   const a = new Assembler(4);
   expect(() => a.add({ t: "part", id: "1", seq: 0, last: false, chunk: new Uint8Array(5) })).toThrow(ProtocolError);

@@ -250,7 +250,7 @@ heartbeat that is not shorter than `KillAfter`, and negative values.
 | fresh mode: ctx ends first, before the result or while it waits for the group | `context.Cause(ctx)`, after killing the process and its group | later: `Settled(process_exited)`, nothing late |
 | fresh mode: the process exits 0 before a result (`process.exit(0)`), over a connection that never failed | `empty` ([WR-V2](../../docs/semantics/languages.md#wr-v2)) | `Settled(process_exited)` first |
 | the process dies | `escaped`, with the exit code, or `Signal` and `ExitCode` -1, and the tail | `Settled(process_exited)` first |
-| host mode: the host's connection ends | `ErrHostLost` | `Settled(process_exited)` first |
+| host mode: the host's connection ends | `ErrHostLost`; the run's context has ended with that cause before the invocation fails, so the run reads it whichever wakes it first | `Settled(process_exited)` first |
 
 Reporter calls for one invocation run in the order the contract fixes, one
 at a time, on a goroutine of their own; `Settled(not_started)` runs on the
@@ -270,7 +270,10 @@ resolution) to `args.json` (`ArgsFile`) in its working directory, as
 Windmill's worker writes them into a job's directory: without the
 worker's internal keys `_MODULES` and `_TEMP_SCRIPT_REFS`, every other
 member, underscore keys included, kept as its raw text in its place
-(`scriptArgs`, `args.go`), written beside the file and renamed over it,
+(`scriptArgs`, `args.go`); a text that is not one whole object, closed by
+its own brace with nothing after it, is kept as it is, for the harness to
+refuse, though dropping a key would leave the rest looking whole. The file
+is written beside its final name and renamed over it,
 so a script never reads it half written. Windmill's wrapper binds the
 script's parameters from that file, so the invoke frame carries the same
 text. A fresh process's file is its one invocation's; a warm
@@ -451,7 +454,8 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   holds that client.
 - `host_test.go` plays a host on a socketpair: the handshake's parent check,
   a host gone before its hello, runs and their invocations, `run_cancel`, a
-  lost host, and the watchdog, which signals its parent and spares a pid
+  lost host (also with a gap between the end of the runs' contexts and the
+  failure of their invocations, `hostLostGap`), and the watchdog, which signals its parent and spares a pid
   that no longer is. It also checks the 502 that stands in for a bad
   platform answer, from either part of the handler.
 - `hostmode_test.go` (F3a) runs the shared working-directory cases through
@@ -473,8 +477,13 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   `platform-left-behind`, whose late reply is dropped), of a platform
   call refused after settlement, and of `fresh` mode (`welcome-fresh`,
   `fresh-one-invocation`, `fresh-exit`).
-- `bun_test.go` runs `Process` and `Pool` against the real Bun harness:
-  handshake rejections and the pid check, outcomes, process death (through
+- `bun_test.go` runs `Process` and `Pool` against the real Bun harness.
+  `TestBunCancelDuringLargeInvoke` holds a 24 MiB invoke's delivery after
+  its first part (`partWritten`, a hook every connection's writer calls
+  after a part frame), cancels while the stream is open, checks that the
+  cancel waits behind it, and runs a gate step, so the invocation is still
+  abandoned when the harness answers the ping that follows the cancel. It
+  also covers handshake rejections and the pid check, outcomes, process death (through
   `process.reallyExit`, which the harness does not intercept), a
   `process.exit` that ends only its invocation, the attribution of a
   timer's error and the warning of an unattributed rejection, one whose
@@ -519,7 +528,9 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   child call's child ends with the process too. A child that waits for
   all its children before it exits (`spawn-waitall`, this test binary run
   with `WL_WAIT_ALL`, looping on `wait4(-1)`) finishes in both modes, as
-  outside the harness: a warm group's guardian is no child of it.
+  outside the harness: a warm group's guardian is no child of it. Its
+  `ended` helper reads a process's state through `procInfoOf`, not `ps`,
+  which a slim Linux image lacks (`TestEnded` runs without a `PATH`).
 - `reap_linux_test.go` re-runs the test binary as a child subreaper
   (`prctl(PR_SET_CHILD_SUBREAPER)`, skipped where the kernel refuses it)
   and runs the real Bun harness there, so the test process adopts what

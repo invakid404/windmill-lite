@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"runtime/cgo"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -196,6 +197,9 @@ func (s *slot) eval(j *job) reply {
 		s.disarm()
 	}()
 	r := s.runAttempt(j, attempt)
+	if f := attemptReturned.Load(); f != nil {
+		(*f)(j.ctx)
+	}
 	// The interrupt stops running JavaScript, but a built-in or a readback
 	// can run past the limit without reaching the handler. Whatever the
 	// program got to, an attempt that has ended reports its end (JE-2, D8).
@@ -204,6 +208,11 @@ func (s *slot) eval(j *job) reply {
 	}
 	return r
 }
+
+// attemptReturned, when set, is called with the caller's context once an
+// attempt has run and read its outcome back, before eval checks whether the
+// attempt ended meanwhile; tests end it there.
+var attemptReturned atomic.Pointer[func(ctx context.Context)]
 
 // runAttempt binds j's input, runs its preludes and program and reads the
 // outcome back.

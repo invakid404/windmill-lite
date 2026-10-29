@@ -49,22 +49,41 @@ step case ([cmd/wltest](../../cmd/wltest/README.md)).
 | `WM_JOB_PATH` | the runnable path: `<flow path>/<step id>` for an inline step, the script's path for a path script |
 | `WM_STATE_PATH` | `StatePath`, below |
 | `WM_TOKEN` | a fresh `NewToken()`: `wl_` and 128 random bits in hex |
-| `WM_WORKSPACE`, `WM_USERNAME`, `WM_EMAIL`, `WM_PERMISSIONED_AS`, `WM_BASE_URL` | the `Host` configuration |
+| `WM_WORKSPACE`, `WM_USERNAME`, `WM_EMAIL`, `WM_PERMISSIONED_AS`, `WM_BASE_URL`, `WM_WORKER_GROUP` | the `Host` configuration |
+| `WM_SCHEDULED_FOR` | the job's `Start`, which is its scheduled time, as RFC 3339 in whole seconds, UTC |
+| `WM_OBJECT_PATH` | `ObjectPath`, below |
+| `WM_SCHEDULE_PATH`, `WM_END_USER_EMAIL`, `WM_TESTED_RUNNABLE`, `WM_RUNNABLE_ID` | `""` |
 
 A step directly in a flow has the run as its parent, its innermost scope
 and its effective root; the containers of milestones N3a to N3c give their
-bodies other scopes. The `later` variables of WA-4's table
-(`WM_SCHEDULED_FOR`, `WM_OBJECT_PATH`, `WM_RUNNABLE_ID` and the rest) are not
-set. `BASE_URL` is the process's, not the invocation's: the harness sets it
-at spawn ([internal/harness](../harness/README.md)).
+bodies other scopes. Every variable of WA-4's table is set, the `later`
+ones too (milestone FU7), as OR-29's environment probe records them on the
+oracle: a job's `Start` is when the engine launches it, after any sleep or
+retry delay, which is its scheduled time, since windmill-lite schedules
+every job to start at once; no schedule, app or CI test starts a job, so
+`WM_SCHEDULE_PATH`, `WM_END_USER_EMAIL` and `WM_TESTED_RUNNABLE` are empty;
+and windmill-lite keeps no script hashes, so `WM_RUNNABLE_ID` is empty, as
+for a flow step Windmill did not reduce
+([WA-V10](../../docs/semantics/client-api.md#wa-v10)). `BASE_URL` is the
+process's, not the invocation's: the harness sets it at spawn
+([internal/harness](../harness/README.md)).
 
 **Host configuration.** `Host` holds what an instance and the run's user
 would supply. A zero field takes `DefaultHost`'s: workspace and username
 `windmill-lite`, email `windmill-lite@localhost`, `WM_PERMISSIONED_AS`
-`u/<username>`, and `WM_BASE_URL` `http://localhost:3000`, which is the
+`u/<username>`, `WM_BASE_URL` `http://localhost:3000`, which is the
 stock client's own default for an unset `WM_BASE_URL`
-([WA-1](../../docs/semantics/client-api.md#wa-1)). These are windmill-lite's
-placeholders, not Windmill's.
+([WA-1](../../docs/semantics/client-api.md#wa-1)), and `WM_WORKER_GROUP`
+`default`, the group of the reference configuration's one worker
+([OR-29](../../docs/semantics/oracle.md#or-29)); windmill-lite has no worker
+groups. The others are windmill-lite's placeholders, not Windmill's, so a
+comparison with the oracle masks them, as OR-29 has the harness do.
+
+**The object path** ([WA-4](../../docs/semantics/client-api.md#wa-4)).
+`ObjectPath` is the formula for a job no schedule triggered, with the
+job's start in epoch milliseconds: `<flow path, each / an _>/manual/<step
+id>/<ms>_<job id>` for a flow step, `<runnable path, each / an
+_>/manual/<ms>_<job id>` otherwise.
 
 **The state path** ([WA-5](../../docs/semantics/client-api.md#wa-5)). No
 schedule triggers a windmill-lite run (schedules are out of scope,
@@ -244,6 +263,9 @@ entry that expired by the latest time a `Get` gave, so it holds only
 entries still live then, whatever their number, and the heap, which
 keeps the older expiries of keys stored again until they come up, is
 rebuilt from the live entries once it has outgrown twice their number.
+Its backing array keeps no key it has given up: a popped slot is
+cleared, a rebuild clears the slots past the live expiries, and a heap
+that a drain empties gives its array up.
 A hit compares an entry's expiry with its own `Get`'s time; only the
 reclaiming uses the latest one, so with clocks that disagree (H10's
 record mode) an entry may go before its own run's clock reaches its
@@ -320,7 +342,8 @@ One walker implements resolution for the three contracts of
 - `results_test.go` (N4) checks `MemoryResults`: a value until its expiry
   and not at it, a replacing write, copies kept and returned, a burst of
   expired entries reclaimed while a small working set goes on, a key
-  stored again many times keeping the heap bounded, the services' one
+  stored again many times keeping the heap bounded, the heap's array
+  holding no key it gave up (`TestMemoryResultsReleasesKeys`), the services' one
   default and a host's cache, and concurrent writers and readers seeing
   whole values.
 - `interpolate_test.go` runs `testdata/interpolation.json`, the walker's

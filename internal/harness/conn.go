@@ -206,6 +206,11 @@ func (c *conn) finishLocked(s *outStream) {
 	}
 }
 
+// partWritten, when set, is called by every connection's writer after it
+// has written a part frame of a message about an invocation, with the
+// invocation and whether the part was the last; tests hold delivery there.
+var partWritten atomic.Pointer[func(about string, last bool)]
+
 func (c *conn) writeLoop() {
 	var scratch []byte
 	for {
@@ -220,6 +225,8 @@ func (c *conn) writeLoop() {
 			return
 		}
 		var bufs net.Buffers
+		var part *outStream
+		var last bool
 		if len(c.small) > 0 {
 			bufs, c.small = c.small, nil
 		} else {
@@ -236,6 +243,7 @@ func (c *conn) writeLoop() {
 			binary.BigEndian.PutUint32(frame, uint32(len(frame)-4))
 			scratch = frame
 			s.off, s.seq = end, s.seq+1
+			part, last = s, end == len(s.payload)
 			c.streams = c.streams[1:]
 			if s.off < len(s.payload) {
 				c.streams = append(c.streams, s)
@@ -250,6 +258,9 @@ func (c *conn) writeLoop() {
 			// reports it; the writer only stops.
 			c.close()
 			return
+		}
+		if f := partWritten.Load(); f != nil && part != nil && part.about != "" {
+			(*f)(part.about, last)
 		}
 	}
 }

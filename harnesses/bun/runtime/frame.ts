@@ -379,31 +379,56 @@ const KEEP_NULL = new Set(["invoke.args", "result.body", "late.body", "run.args"
 
 /** Splits a byte stream into frame payloads. */
 export class FrameReader {
+  // The bytes read and not yet returned are buf[from, to). The buffer
+  // grows by doubling and is compacted before it grows, so each byte is
+  // copied a bounded number of times however finely a frame arrives: a
+  // copy of the whole partial frame at every read made a large invoke's
+  // delivery quadratic, about 2 GB copied for 24 MiB read 8 KiB at a time
+  // (FU7, TestBunCancelDuringLargeInvoke).
   private buf = new Uint8Array(0);
+  private from = 0;
+  private to = 0;
   constructor(private maxFrame = MAX_FRAME) {}
 
   /** Adds bytes and returns the payloads they complete. */
   push(data: Uint8Array): Uint8Array[] {
-    const merged = new Uint8Array(this.buf.length + data.length);
-    merged.set(this.buf);
-    merged.set(data, this.buf.length);
+    this.append(data);
+    const view = new DataView(this.buf.buffer, this.buf.byteOffset, this.buf.byteLength);
     const out: Uint8Array[] = [];
-    let off = 0;
-    while (merged.length - off >= 4) {
-      const n = new DataView(merged.buffer, merged.byteOffset + off, 4).getUint32(0);
+    while (this.to - this.from >= 4) {
+      const n = view.getUint32(this.from);
       if (n === 0) throw new ProtocolError("frame_empty", "frame of length 0");
       if (n > this.maxFrame) throw new ProtocolError("frame_too_large", `frame of ${n} bytes exceeds ${this.maxFrame}`);
-      if (merged.length - off - 4 < n) break;
-      out.push(merged.slice(off + 4, off + 4 + n));
-      off += 4 + n;
+      if (this.to - this.from - 4 < n) break;
+      out.push(this.buf.slice(this.from + 4, this.from + 4 + n));
+      this.from += 4 + n;
     }
-    this.buf = merged.slice(off);
+    if (this.from === this.to) this.from = this.to = 0;
     return out;
+  }
+
+  /** Appends data after the unread bytes: compacted to the buffer's start
+   * when that makes room, or into a buffer twice as large. */
+  private append(data: Uint8Array) {
+    if (this.to + data.length > this.buf.length) {
+      const live = this.to - this.from;
+      if (live + data.length <= this.buf.length) {
+        this.buf.copyWithin(0, this.from, this.to);
+      } else {
+        const grown = new Uint8Array(Math.max(2 * this.buf.length, live + data.length, 4096));
+        grown.set(this.buf.subarray(this.from, this.to));
+        this.buf = grown;
+      }
+      this.from = 0;
+      this.to = live;
+    }
+    this.buf.set(data, this.to);
+    this.to += data.length;
   }
 
   /** Reports a stream that ended inside a frame. */
   end() {
-    if (this.buf.length > 0) throw new ProtocolError("truncated", "stream ended inside a frame");
+    if (this.to > this.from) throw new ProtocolError("truncated", "stream ended inside a frame");
   }
 }
 

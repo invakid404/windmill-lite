@@ -415,14 +415,25 @@ func (p *Process) hostDone(err error) {
 	p.conn.close()
 	p.host.closeTarget()
 	p.endInvocations()
-	p.failInvocations(func(*invocation) execResult { return execResult{err: ErrHostLost} })
+	// The runs' contexts end first, with the cause: an Execute that is
+	// given its invocation's outcome next finds the cause already set, and
+	// one woken by its context abandons the invocation, which
+	// failInvocations then settles with the process (FU7: TestHostLost
+	// read a nil cause when the outcome came first).
 	p.mu.Lock()
 	for _, cancel := range p.runs {
 		cancel(ErrHostLost)
 	}
 	p.mu.Unlock()
+	hostLostGap()
+	p.failInvocations(func(*invocation) execResult { return execResult{err: ErrHostLost} })
 	p.finishExit()
 }
+
+// hostLostGap runs between the end of the runs' contexts and the failure
+// of their invocations when the host's connection ends (hostDone); tests
+// widen it.
+var hostLostGap = func() {}
 
 // killHost is host mode's watchdog: the host's event loop has stopped
 // answering, so nothing in it can recover (ADR 0004 host mode item 4). The

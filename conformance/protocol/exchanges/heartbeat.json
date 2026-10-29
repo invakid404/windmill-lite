@@ -1,6 +1,6 @@
 {
   "case": "heartbeat",
-  "title": "the harness pings on its own every heartbeat_ms, with its health",
+  "title": "the harness pings on its own every heartbeat_ms, with its health, until it handles a drain, which may come after one more ping",
   "provenance": "policy",
   "relies_on": [],
   "design": "docs/design/0004-harness-protocol.md#host-mode",
@@ -69,7 +69,10 @@
     {
       "expect": {
         "t": "bye"
-      }
+      },
+      "ignore": [
+        "ping"
+      ]
     },
     {
       "exit": 0

@@ -101,6 +101,66 @@ func TestMemoryResultsReclaim(t *testing.T) {
 	}
 }
 
+// The expiry heap keeps no key it has given up in its backing array, which
+// Go still scans: a popped slot is cleared, a rebuild clears the slots
+// past the live entries' expiries, and a heap that a drain empties gives
+// its array up (N4 review, P3).
+func TestMemoryResultsReleasesKeys(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	// held lists the keys in the heap's backing array past its length.
+	held := func(m *MemoryResults) []string {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		var out []string
+		for _, x := range m.byExpiry[len(m.byExpiry):cap(m.byExpiry)] {
+			if x.key != "" {
+				out = append(out, x.key)
+			}
+		}
+		return out
+	}
+	t.Run("popped", func(t *testing.T) {
+		m := NewMemoryResults()
+		for i := range 128 {
+			_ = m.Put(ctx, fmt.Sprint("k", i), []byte("v"), t0.Add(time.Duration(i%2+1)*time.Second))
+		}
+		// Half of them expire, and are popped.
+		m.Get(ctx, "x", t0.Add(time.Second))
+		if n, h := m.size(); n != 64 || h != 64 {
+			t.Fatalf("%d entries, %d expiries", n, h)
+		}
+		if keys := held(m); len(keys) != 0 {
+			t.Fatalf("the backing array holds %d popped keys: %v", len(keys), keys[:min(4, len(keys))])
+		}
+	})
+	t.Run("rebuilt", func(t *testing.T) {
+		m := NewMemoryResults()
+		for i := range 2 * minResultRebuild {
+			_ = m.Put(ctx, fmt.Sprint("k", i%4), []byte("v"), t0.Add(time.Hour+time.Duration(i)*time.Millisecond))
+		}
+		if n, h := m.size(); n != 4 || h >= 2*minResultRebuild {
+			t.Fatalf("%d entries, %d expiries: no rebuild", n, h)
+		}
+		if keys := held(m); len(keys) != 0 {
+			t.Fatalf("the backing array holds %d discarded keys", len(keys))
+		}
+	})
+	t.Run("drained", func(t *testing.T) {
+		m := NewMemoryResults()
+		for i := range 4096 {
+			_ = m.Put(ctx, fmt.Sprint("k", i), []byte("v"), t0.Add(time.Second))
+		}
+		m.Get(ctx, "x", t0.Add(time.Minute))
+		m.mu.Lock()
+		c := cap(m.byExpiry)
+		m.mu.Unlock()
+		if n, h := m.size(); n != 0 || h != 0 || c != 0 {
+			t.Fatalf("%d entries, %d expiries, a backing array of %d", n, h, c)
+		}
+	})
+}
+
 // Services answer the result cache the host gives them, or their own
 // in-memory one, the same for every caller; a nil *Services has none.
 func TestServicesResultCache(t *testing.T) {

@@ -36,7 +36,7 @@ cases:
       The facade origin is the loopback one wltest check gives the harness,
       whose port the facade picks (milestone PF1); on Windmill it is the
       worker's internal base URL. The job's variables are those of PF1's job
-      identity.
+      identity: every reserved variable of WR-22 (milestone FU7).
     language: nativets
     script: |
       export function main() { return [/^http:\/\/127\.0\.0\.1:[0-9]+$/.test(process.env.BASE_URL), Object.keys(process.env).sort()]; }
@@ -46,7 +46,7 @@ cases:
           status: success
           result:
             - true
-            - [BASE_INTERNAL_URL, BASE_URL, WM_BASE_URL, WM_EMAIL, WM_FLOW_JOB_ID, WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_ID, WM_JOB_PATH, WM_PERMISSIONED_AS, WM_ROOT_FLOW_JOB_ID, WM_ROOT_JOB_ID, WM_STATE_PATH, WM_TOKEN, WM_USERNAME, WM_WORKSPACE]
+            - [BASE_INTERNAL_URL, BASE_URL, WM_BASE_URL, WM_EMAIL, WM_END_USER_EMAIL, WM_FLOW_JOB_ID, WM_FLOW_PATH, WM_FLOW_STEP_ID, WM_JOB_ID, WM_JOB_PATH, WM_OBJECT_PATH, WM_PERMISSIONED_AS, WM_ROOT_FLOW_JOB_ID, WM_ROOT_JOB_ID, WM_RUNNABLE_ID, WM_SCHEDULED_FOR, WM_SCHEDULE_PATH, WM_STATE_PATH, WM_TESTED_RUNNABLE, WM_TOKEN, WM_USERNAME, WM_WORKER_GROUP, WM_WORKSPACE]
   - spec: WR-45
     variant: own-copy
     provenance: source-derived

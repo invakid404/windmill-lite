@@ -25,6 +25,14 @@ func TestScriptArgs(t *testing.T) {
 		// Not an object, or not JSON: kept, for the harness to refuse.
 		{`[1]`, `[1]`},
 		{`{"_MODULES":`, `{"_MODULES":`},
+		// An object that does not close with its own brace, or that a
+		// value follows, is not valid either, though a dropped key would
+		// leave the rest looking whole (PF2 review round 2, P3).
+		{`{"_MODULES":1]`, `{"_MODULES":1]`},
+		{`{"a":1,"_MODULES":1`, `{"a":1,"_MODULES":1`},
+		{`{"_MODULES":1} true`, `{"_MODULES":1} true`},
+		{`{"_MODULES":1}{}`, `{"_MODULES":1}{}`},
+		{`{"a":1,"_MODULES":1} x`, `{"a":1,"_MODULES":1} x`},
 	} {
 		if got := string(scriptArgs(jsonval.FromProducer([]byte(c.in))).Producer()); got != c.want {
 			t.Errorf("%s: %s, want %s", c.in, got, c.want)
