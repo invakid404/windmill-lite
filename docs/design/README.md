@@ -123,6 +123,9 @@ each record):
 | esbuild CJS and ESM bundles resolving a host-provided module to the generated shim, Bun 1.3.10 and 1.4.2 | 16 of 16 isolated; `import.meta.env` rewritten in ESM only | 0010 |
 | The Q-WA-4 env-view test (milestone W1), Bun 1.3.10, the stock `windmill-client@1.767.0`: 16 concurrent invocations per variant, steps unbundled, bundled by `Bun.build` and bundled with the define rewrite, by namespace and default import | 16 of 16 on every channel (`process.env`, `Bun.env`, `import.meta.env`, a copy of `process.env`, a written variable, a deleted process variable, an unbundled dependency's `Bun.env`, the client's call), with and without the variables in the process environment; `Bun.env` and `import.meta.env` are isolated at run time, without the define rewrite | 0004, 0010 |
 | H11 through a host-provided module with a hand-written shim, in a host compiled with `bun build --compile`, Bun 1.3.10 (milestone W1) | 16 of 16 concurrent runs read their own scope; a separately bundled copy reads nothing | 0008, 0010 |
+| H11 through an esbuild CommonJS codebase script whose import of the host-provided module resolves to the generated shim, in a host compiled with `bun build --compile`, Bun 1.3.10 (milestone C2b) | 16 of 16 concurrent runs read their own scope, on Bun's CommonJS loader | 0002, 0010 |
+| The same esbuild CommonJS codebase bundle on Node 20 and on the Bun harness, with the harness's wrapper rules on both (milestone C2b, D13) | agree on named exports and overrides, `__dirname`, run-time `require` of assets and of the bundle's own file, thrown errors and assets; differ on the runtime's identity, an override naming `default`, and a `package.json` asset declaring `"type": "module"` (Node fails to load the bundle) | 0001, 0002 |
+| The pinned `windmill-cli@1.767.0`'s codebase uploads against esbuild 0.28.0 through its Go API with the settings of WR-47 (milestone C2b's parity check) | the same bytes for seven fixtures (each WR-47 setting, an inlined package, an asset in a tar); a text upload's line breaks are CRLF, the form-data encoding's | 0002 |
 | `process.exit(code)` on Bun 1.3.10 (milestone C3a) | a safe integer, or a string other than `""` that `Number` reads as one (`" "` is 0), exits with it modulo 256 (`258` exits 2, `-1` and `"-1"` 255, `9007199254740991` 255); `2^53`, `"9007199254740993"`, `1.5`, `NaN`, `"x"`, `""`, `true`, `{}` and `[5]` throw a `RangeError` or `TypeError` before exiting and leave `process.exitCode` as it was | 0004 |
 | A step in `fresh` mode (milestone C3b): spawn, handshake, invocation and result of a one-line echo step, 50 sequential runs after 10 warm-up runs, Bun 1.3.10, Apple M4, engine built without the race detector | 21.5 ms p50, 23.4 ms p95, against 48 µs p50 and 131 µs p95 for the same step in a warm process | 0004, 0006 |
 | Which child-process calls see a replaced `process.env` on Bun 1.3.10 (milestone C3b) | `child_process.spawn`, `exec` and `Bun.$` read it at the call; `spawnSync`, `execSync` and `Bun.spawn`/`Bun.spawnSync` pass the process's own environment, so the harness gives every call made in an invocation an explicit one | 0004 |
@@ -170,9 +173,13 @@ behaviour ([AGENTS.md](../../AGENTS.md)). The design depends on these:
    the esbuild version the pinned CLI uses, how `inject` and `customBundler`
    are handled, where `assets` land at run time, and the Node version that
    runs CJS bundles. [WR-30](../semantics/languages.md#wr-30) gives the
-   outline. Until it is answered, milestone C2b uses the CLI's documented
-   defaults and records the esbuild version in the manifest; an answer
-   refines those settings but does not hold C2b.
+   outline. Answered by [WR-47](../semantics/languages.md#wr-47) to
+   [WR-50](../semantics/languages.md#wr-50): esbuild `0.28.0`, `cjs` by
+   default, `inject` and the other settings passed through, assets beside
+   `main.js` in the job directory, Node 20 with its patch unpinned
+   (Q-WR-24). Milestone C2b builds to those settings and checks its
+   bundles against the pinned CLI's uploads
+   ([0002](0002-ir-and-loader.md), decision 4).
 3. **The expression engine's stack limit**: which maximum stack size
    Windmill's QuickJS-ng embedding uses, since stack-overflow depth is
    observable. Answered by [JE-48](../semantics/expressions.md#je-48):

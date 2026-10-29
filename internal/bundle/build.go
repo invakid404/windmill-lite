@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -176,13 +177,15 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	slices.Sort(ids)
 	var entries []BunScript
+	var codebase []CodebaseScript
 	names := map[string]string{} // script id → how problems name it
 	for _, id := range ids {
 		s := prog.Scripts[id]
 		names[id] = scriptName(s)
 		if s.Bundling == ir.BundlingCodebase {
-			problems = append(problems, ItemProblem{names[id], Problem{ProblemUnsupportedFeature,
-				"unsupported: codebase script: bundling codebase scripts with esbuild is not implemented yet"}})
+			// esbuild bundles it with its entry's settings (C2b).
+			codebase = append(codebase, CodebaseScript{ID: id, Path: s.Path, File: s.File,
+				Settings: folder.Config.Codebases[s.Codebase.Index].Settings})
 			continue
 		}
 		e := BunScript{ID: id, Path: s.ImportBase, Lock: lockText(s.Lock)}
@@ -224,15 +227,37 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil && !errors.As(err, &be) {
 		return nil, err
 	}
-	if be != nil {
-		for _, p := range be.Problems {
+	// Codebase scripts, with esbuild, once the scan has written the shims
+	// of the host-provided modules their imports resolve to.
+	cres := &CodebaseResult{Scripts: map[string]*ScriptMeta{}}
+	var cbe *BuildError
+	if len(codebase) > 0 && be == nil {
+		var chosts []CodebaseHostModule
+		for _, m := range hosts {
+			chosts = append(chosts, CodebaseHostModule{Key: m.Key, File: m.File, Package: m.Package,
+				Shim: filepath.Join(stage, "scripts", "bun", "provided", "shims", filepath.FromSlash(m.ID)+".mjs")})
+		}
+		cres, err = BuildCodebase(ctx, CodebaseConfig{
+			Bun: cfg.Bun, Helper: cfg.Helper, AllowBunMismatch: cfg.AllowBunMismatch,
+			Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
+			Folder: root, Out: stage, Work: cfg.Work, Entries: codebase, HostModules: chosts,
+		})
+		if err != nil && !errors.As(err, &cbe) {
+			return nil, err
+		}
+	}
+	for _, e := range []*BuildError{be, cbe} {
+		if e == nil {
+			continue
+		}
+		for _, p := range e.Problems {
 			if id, ok := strings.CutPrefix(p.Item, "script "); ok && names[id] != "" {
 				p.Item = names[id]
 			}
 			problems = append(problems, p)
 		}
 	}
-	for _, w := range bres.Warnings {
+	for _, w := range append(bres.Warnings, cres.Warnings...) {
 		res.Warnings = append(res.Warnings, w.Code+": "+w.Message)
 	}
 	listed := map[string]bool{}
@@ -243,6 +268,9 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	for _, id := range ids {
 		meta := bres.Scripts[id]
+		if meta == nil {
+			meta = cres.Scripts[id]
+		}
 		if meta == nil {
 			continue
 		}
@@ -268,6 +296,23 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	for _, meta := range bres.Scripts {
 		for _, p := range meta.Imports {
 			if err := src.add(files[p]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	// What esbuild read from the folder, and the assets' sources in it.
+	// Packages and files outside the folder reach the bundle only through
+	// the modules and assets the manifest digests.
+	for _, meta := range cres.Scripts {
+		for _, p := range codebaseInputs(meta) {
+			if err := src.add(p); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, from := range cres.Assets {
+		if p := path.Clean(filepath.ToSlash(from)); inside(p) {
+			if err := src.add(p); err != nil {
 				return nil, err
 			}
 		}
@@ -305,7 +350,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			ExpressionStackBytes: expr.DefaultLimits().StackBytes,
 		},
 		Bundlers:             Bundlers{Bun: bres.BunVersion},
-		NonconformantRuntime: bres.NonconformantRuntime,
+		NonconformantRuntime: bres.NonconformantRuntime || cres.NonconformantRuntime,
 		ModuleState:          cfg.ModuleState,
 		Deviations:           manifestDeviations(prog.Deviations, cfg.ModuleState),
 		Contract:             prog.Contract,
@@ -313,6 +358,9 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		HarnessRuntimes:      map[string]string{string(ir.ClassBun): runtime},
 		Sources:              sources,
 		Files:                bundleFiles,
+	}
+	if len(codebase) > 0 {
+		m.Bundlers.Esbuild = EsbuildVersion
 	}
 	for _, id := range bres.HostModuleOrder {
 		m.HostModules = append(m.HostModules, HostModuleEntry{Key: bres.HostModules[id].Key, ID: id})
@@ -390,6 +438,27 @@ func addScriptSources(src *sourceFS, scripts map[string]*syncfolder.Script, p st
 	return nil
 }
 
+// codebaseInputs are the files of the folder a codebase bundle read, from
+// its metafile: inputs that are not the build's own modules, outside
+// node_modules and inside the folder.
+func codebaseInputs(meta *ScriptMeta) []string {
+	var mf struct {
+		Inputs map[string]json.RawMessage `json:"inputs"`
+	}
+	if json.Unmarshal(meta.Metafile, &mf) != nil {
+		return nil
+	}
+	var out []string
+	for p := range mf.Inputs {
+		if strings.HasPrefix(p, pluginNamespace+":") || !inside(p) || slices.Contains(strings.Split(p, "/"), "node_modules") {
+			continue
+		}
+		out = append(out, p)
+	}
+	slices.Sort(out)
+	return out
+}
+
 func lockText(l *string) string {
 	if l == nil {
 		return ""
@@ -409,13 +478,15 @@ func scriptName(s *ir.Script) string {
 // scriptProblems are the rules the build checks on a script's metadata:
 // workflow-as-code is refused (ADR 0001 §3; WA-33, WR-32), and so is a
 // script that imports a package and has no lock (ADR 0002, validation 5).
-// Listed host-provided packages resolve to their shims and need no lock.
+// Listed host-provided packages resolve to their shims and need no lock,
+// and a codebase script has none: esbuild inlines its packages from the
+// folder's node_modules, as the CLI does (WR-47, WR-50).
 func scriptProblems(name string, s *ir.Script, meta *ScriptMeta, listed map[string]bool) []ItemProblem {
 	var out []ItemProblem
 	if meta.WorkflowAsCode.Any() {
 		out = append(out, ItemProblem{name, Problem{ProblemUnsupportedFeature, "unsupported: workflow_as_code"}})
 	}
-	if strings.TrimSpace(lockText(s.Lock)) == "" {
+	if s.Bundling != ir.BundlingCodebase && strings.TrimSpace(lockText(s.Lock)) == "" {
 		var pkgs []string
 		for _, p := range meta.Packages {
 			if !listed[p] {

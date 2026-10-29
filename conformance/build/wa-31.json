@@ -289,6 +289,243 @@
           ]
         }
       }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "codebase-cjs",
+      "provenance": "policy",
+      "title": "in a codebase script's CommonJS output, every read through Bun reads process.env, and import.meta stays empty",
+      "note": "ADR 0010 step 5 for esbuild's CJS output: the define table without import.meta.env, and the support module injected before the entry's code. As in the CLI's bundles, import.meta is an empty object in CommonJS output, so import.meta.env is undefined (esbuild warns).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/env.ts": "export function main() {\n  const { env } = Bun;\n  const B = Bun;\n  const { env: e2 } = globalThis.Bun;\n  return [Bun.env.WL_CASE, Bun[\"env\"].WL_CASE, globalThis.Bun.env.WL_CASE, global.Bun.env.WL_CASE, env.WL_CASE, B.env.WL_CASE, e2.WL_CASE, Bun.env === process.env, typeof (import.meta as any).env];\n}\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "warnings": [
+          "esbuild_warning"
+        ],
+        "entries": {
+          "f/cb/env": {
+            "format": "cjs",
+            "bundle_contains": [
+              "__windmill_lite_Bun.env.WL_CASE",
+              "var import_meta = {};"
+            ]
+          }
+        },
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "entry": "f/cb/env",
+              "result": [
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                true,
+                "undefined"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "codebase-cjs-import-meta-env",
+      "provenance": "policy",
+      "title": "a CommonJS codebase script that reads a variable through import.meta.env fails as it would on Windmill",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/meta.ts": "export function main() { return (import.meta as any).env.WL_CASE; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "entry": "f/cb/meta",
+              "error": "TypeError"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "codebase-esm",
+      "provenance": "policy",
+      "title": "in a codebase script's ES module output, every read through Bun and import.meta.env reads process.env",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    format: esm\n",
+          "f/cb/env.ts": "export function main() {\n  const { env } = Bun;\n  const B = Bun;\n  const { env: e2 } = globalThis.Bun;\n  return [Bun.env.WL_CASE, Bun[\"env\"].WL_CASE, globalThis.Bun.env.WL_CASE, global.Bun.env.WL_CASE, env.WL_CASE, B.env.WL_CASE, e2.WL_CASE, Bun.env === process.env, (import.meta as any).env.WL_CASE];\n}\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "warnings": [],
+        "entries": {
+          "f/cb/env": {
+            "format": "esm",
+            "bundle_contains": [
+              "__windmill_lite_Bun.env.WL_CASE"
+            ],
+            "bundle_not_contains": [
+              "import.meta"
+            ]
+          }
+        },
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "entry": "f/cb/env",
+              "result": [
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                "view",
+                true,
+                "view"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "codebase-dependency",
+      "provenance": "policy",
+      "title": "a package a codebase bundle inlines reads the environment through Bun too, in either format",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n  - relative_path: f/esm\n    includes: [\"f/esm/**\"]\n    format: esm\n",
+          "node_modules/fixture-env/package.json": "{\"name\":\"fixture-env\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "node_modules/fixture-env/index.js": "const { env } = Bun;\nexports.read = () => [env.WL_CASE, Bun.env.WL_CASE];\n",
+          "f/cb/dep.ts": "import { read } from \"fixture-env\";\nexport function main() { return read(); }\n",
+          "f/esm/dep.ts": "import { read } from \"fixture-env\";\nexport function main() { return read(); }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "entry": "f/cb/dep",
+              "result": [
+                "view",
+                "view"
+              ]
+            },
+            {
+              "entry": "f/esm/dep",
+              "result": [
+                "view",
+                "view"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "codebase-shadowed-names",
+      "provenance": "policy",
+      "title": "a codebase script that spells the binding name, or binds the support module's globals, still reads the view",
+      "note": "The esbuild build picks the binding name as the Bun helper does: a name no input spells (c2a review 1).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+          "f/cb/shadow.ts": "const process = { env: { WL_CASE: \"local\" } };\nconst Reflect = 1;\nconst __windmill_lite_Bun = \"mine\";\nconst name = \"n\";\nexport function main() {\n  const Bun = { env: { WL_CASE: \"inner\" } };\n  return [process.env.WL_CASE, Reflect, __windmill_lite_Bun, name, Bun.env.WL_CASE, outer()];\n}\nfunction outer() { return Bun.env.WL_CASE; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/shadow": {
+            "bundle_contains": [
+              "__windmill_lite_Bun_2.env.WL_CASE"
+            ]
+          }
+        },
+        "run": {
+          "env": {
+            "WL_CASE": "view"
+          },
+          "calls": [
+            {
+              "entry": "f/cb/shadow",
+              "result": [
+                "local",
+                1,
+                "mine",
+                "n",
+                "inner",
+                "view"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "spec": "WA-31",
+      "variant": "codebase-not-bun-target",
+      "provenance": "policy",
+      "title": "//native and //nodejs codebase scripts are not rewritten",
+      "note": "On Windmill these do not run with Bun's globals; their environment is the native boundary's (C3n).",
+      "given": {
+        "folder": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n    format: esm\n",
+          "f/cb/native.ts": "//native\nexport function main() { return typeof (globalThis as any).Bun; }\n",
+          "f/cb/node.ts": "//nodejs\nexport function main() { return Bun.env.WL_CASE; }\n"
+        }
+      },
+      "expect": {
+        "build_problems": [],
+        "entries": {
+          "f/cb/native": {
+            "target": "browser",
+            "bundle_not_contains": [
+              "__windmill_lite_Bun"
+            ]
+          },
+          "f/cb/node": {
+            "target": "node",
+            "bundle_contains": [
+              "Bun.env.WL_CASE"
+            ],
+            "bundle_not_contains": [
+              "__windmill_lite_Bun"
+            ]
+          }
+        }
+      }
     }
   ]
 }

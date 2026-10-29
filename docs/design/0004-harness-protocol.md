@@ -674,7 +674,11 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     top-level function declaration, exported or not, beside every export's
     ([0002](0002-ir-and-loader.md)), so an entrypoint whose declaration
     does not parse fails before its module loads even when the module does
-    not export it ([WR-7](../semantics/languages.md#wr-7)).
+    not export it ([WR-7](../semantics/languages.md#wr-7)). A codebase
+    script's callable export that its metadata does not sign (CommonJS
+    source has no static export list) is called with an empty parameter
+    list, as Windmill's parser gives a function it does not find in the
+    script's content (milestone C2b; [0010](0010-packaging.md)).
   - **Results above `max_message`** stay a protocol refusal (an `escaped`
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the

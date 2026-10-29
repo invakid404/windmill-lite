@@ -49,6 +49,7 @@ function inside(rel: string): boolean {
 }
 
 const exportScanner = new Bun.Transpiler({ loader: "js" });
+const sourceScanner = new Bun.Transpiler({ loader: "ts" });
 
 type Bundled = {
   text: string;
@@ -419,6 +420,42 @@ export class Builder {
       if (err instanceof BuildProblem) return { meta, error: err.problem() };
       throw err;
     }
+  }
+
+  // What a codebase script's source records, which esbuild bundles in Go
+  // (C2b): its annotations and bundler target, the workflow-as-code
+  // markers, the packages it imports, and a signature for each export of
+  // its bundle (e.exports, which the Go build reads from esbuild, or the
+  // source's own exports without it). As for any Bun script, a function the
+  // source declares gets its parameters, as Windmill parses the script's
+  // content (WR-6, WR-7; SY-8 sends the source with the bundle), and an
+  // export it does not declare, such as one `export *` brings in, gets none.
+  // Nothing is installed, bundled or written.
+  parseEntry(e: EntryRequest): EntryResult {
+    const source = e.file !== undefined ? this.readFolder(e.file) : (e.content ?? "");
+    const meta: Record<string, unknown> = { path: e.path };
+    let parsed;
+    try {
+      parsed = parse(source);
+    } catch (err) {
+      return { meta, error: (err as BuildProblem).problem() };
+    }
+    const annotations = parseAnnotations(source);
+    let exports: string[];
+    try {
+      exports = e.exports ?? sourceScanner.scan(source).exports;
+    } catch (err) {
+      return { meta, error: { kind: "parse_failed", message: buildMessage(err) } };
+    }
+    Object.assign(meta, {
+      target: targetFor(annotations),
+      annotations,
+      workflow_as_code: detectWorkflowAsCode(source, parsed),
+      packages: directPackages(parsed),
+      exports,
+      signatures: signatures(parsed, exports),
+    });
+    return { meta };
   }
 
   private writeOut(rel: string, text: string): void {

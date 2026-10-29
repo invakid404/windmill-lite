@@ -19,7 +19,8 @@
 // does.
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { join } from "node:path";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   Assembler,
@@ -173,6 +174,9 @@ export class Runtime {
   private invocations = new Map<string, Invocation>();
   private modules = new Map<string, Promise<Record<string, unknown>>>();
   private metas = new Map<string, Promise<unknown>>();
+  /** The working directory the process started in (ADR 0004): codebase
+   * modules load from copies there. */
+  private workdir = process.cwd();
   private heartbeat: ReturnType<typeof setInterval> | undefined;
   private pingSeq = 0;
   private lagMs = 0;
@@ -380,8 +384,10 @@ export class Runtime {
    * serialised. A throw from any of those is caught and shaped (WR-18). */
   private async run(m: Message): Promise<Outcome> {
     let sig: Signature | undefined;
+    let meta: unknown;
     try {
-      sig = signatureOf(await this.meta(m.script), m.entry);
+      meta = await this.meta(m.script);
+      sig = signatureOf(meta, m.entry);
     } catch (e) {
       return escaped(`windmill-lite: cannot read the metadata of script ${JSON.stringify(m.script)}: ${describe(e)}`);
     }
@@ -391,7 +397,7 @@ export class Runtime {
     if (sig?.error !== undefined) return { outcome: "error", body: signatureErrorText(sig.error, stepId()) };
     let mod: Record<string, unknown>;
     try {
-      mod = await this.load(m.script);
+      mod = await this.load(m.script, meta);
     } catch (e) {
       // A module that fails to load or evaluate escapes the wrapper
       // (WR-19), and Bun prints its error on the way out, so the error
@@ -403,7 +409,15 @@ export class Runtime {
     }
     const fn = mod[m.entry];
     if (typeof fn === "function" && sig === undefined) {
-      return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
+      // A Bun-built module's metadata signs every export of its bundle. A
+      // codebase module's cannot always: CommonJS source has no static
+      // export list, so a callable export its source does not declare gets
+      // an empty parameter list, as Windmill's parser gives a function it
+      // does not find in the script's content (WR-6, WR-7).
+      if (!isCodebase(meta)) {
+        return escaped(`windmill-lite: the bundle records no signature for export ${JSON.stringify(m.entry)} of script ${JSON.stringify(m.script)}`);
+      }
+      sig = { params: [] };
     }
     let value: unknown;
     try {
@@ -425,17 +439,18 @@ export class Runtime {
   }
 
   /** Loads a script's bundled module once per process (warm module state,
-   * ADR 0006), on its first invocation. The module evaluates in that
-   * invocation's context, so its top-level code reads the invocation's
-   * environment (WA-1) and writes to its log, and a throw fails it; but
-   * the timers, requests and children its evaluation starts belong to the
-   * module, which outlives the invocation (D1), so they are registered in
-   * no invocation and never fenced (ADR 0004, loading). */
-  private load(script: string): Promise<Record<string, unknown>> {
+   * ADR 0006), on its first invocation, from the file its metadata names
+   * (moduleFile). The module evaluates in that invocation's context, so
+   * its top-level code reads the invocation's environment (WA-1) and
+   * writes to its log, and a throw fails it; but the timers, requests and
+   * children its evaluation starts belong to the module, which outlives
+   * the invocation (D1), so they are registered in no invocation and never
+   * fenced (ADR 0004, loading). */
+  private load(script: string, meta: unknown): Promise<Record<string, unknown>> {
     let p = this.modules.get(script);
     if (!p) {
       const c = current();
-      const evaluate = () => scriptPath(this.opts.bundleDir, script, ".mjs").then((path) => import(pathToFileURL(path).href));
+      const evaluate = () => moduleFile(this.opts.bundleDir, script, meta, this.workdir).then((path) => import(pathToFileURL(path).href));
       p = c === undefined ? evaluate() : invocations.run({ ...c, work: undefined }, evaluate);
       this.modules.set(script, p);
     }
@@ -964,6 +979,62 @@ function describe(e: unknown): string {
  * or more `/`-separated segments, none empty, `.` or `..`. */
 async function scriptPath(bundleDir: string, script: string, ext: string): Promise<string> {
   return join(bundleDir, "scripts", "bun", ...idSegments(script)) + ext;
+}
+
+/** Whether a script's metadata is a codebase script's, which esbuild
+ * bundled (milestone C2b). */
+function isCodebase(meta: unknown): boolean {
+  return (meta as { bundler?: unknown } | null)?.bundler === "esbuild";
+}
+
+/** The file a script's module loads from. A module of the Bun build is
+ * scripts/bun/<id>.mjs in the bundle. A codebase script's (its metadata's
+ * bundler is esbuild, milestone C2b) is scripts/bun/<id>.cjs for CommonJS,
+ * which Bun's CommonJS loader runs (D13), or .mjs for ESM; it loads from a
+ * copy in the working directory, as Windmill places a codebase bundle as
+ * main.js in the job directory beside its assets (WR-50), so its
+ * __dirname, __filename and import.meta, and the relative paths its own
+ * require resolves at run time, are the working directory's. The copy is
+ * named by a digest of the id, with a leading dot. */
+export async function moduleFile(bundleDir: string, script: string, meta: unknown, workdir: string): Promise<string> {
+  const m = meta as { bundler?: unknown; format?: unknown } | null;
+  const ext = m?.format === "cjs" ? ".cjs" : ".mjs";
+  const file = await scriptPath(bundleDir, script, ext);
+  if (!isCodebase(meta)) return file;
+  const copy = join(workdir, ".windmill-lite-" + new Bun.CryptoHasher("sha256").update(script).digest("hex").slice(0, 16) + ext);
+  copyFileSync(file, copy);
+  return copy;
+}
+
+/** Extracts a bundle's codebase assets, assets/ in the bundle (ADR 0010),
+ * into the working directory at their paths there, before any module
+ * loads: Windmill unpacks them beside main.js in the job directory, which
+ * is its working directory (WR-50); here every codebase entry's assets
+ * share the process's one working directory (D10). The bundle holds only
+ * regular files and directories. */
+export function extractAssets(bundleDir: string, workdir: string) {
+  const root = join(bundleDir, "assets");
+  const walk = (rel: string) => {
+    let entries;
+    try {
+      entries = readdirSync(join(root, rel), { withFileTypes: true });
+    } catch (e) {
+      if (rel === "" && (e as { code?: string }).code === "ENOENT") return;
+      throw e;
+    }
+    for (const d of entries) {
+      const r = rel === "" ? d.name : join(rel, d.name);
+      if (d.isDirectory()) {
+        walk(r);
+      } else if (d.isFile()) {
+        mkdirSync(dirname(join(workdir, r)), { recursive: true });
+        copyFileSync(join(root, r), join(workdir, r));
+      } else {
+        throw new Error(`assets/${r} is not a regular file`);
+      }
+    }
+  };
+  walk("");
 }
 
 /** The segments of an inventory id or a host-provided module's id, which

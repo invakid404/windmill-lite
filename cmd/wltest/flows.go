@@ -57,17 +57,12 @@ type runResult struct {
 	// failed. A run with neither passed.
 	unsupported string
 	problems    []string
-	// notes say where the run depended on a stand-in.
-	notes []string
-	diag  string
+	diag        string
 }
 
 // flowRunTimeout bounds one run; a run that exceeds it is canceled and
 // fails.
 const flowRunTimeout = 60 * time.Second
-
-// codebaseNote is the note of a run whose flow reaches a codebase script.
-const codebaseNote = "codebase script %s built by the Bun build helper as an ordinary Bun script, a stand-in for C2b's esbuild bundle"
 
 // fixtureResult is how one fixture went: the fixture failed to load, or
 // its runs' results.
@@ -206,7 +201,6 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 				res.problems = []string{t.problem}
 				continue
 			}
-			res.notes = t.notes
 			// Runs of one group are concurrent outer runs (OR-15).
 			wg.Add(1)
 			go func() {
@@ -258,7 +252,6 @@ type target struct {
 	// unsupported or problem, when set, is why the flow's runs are not
 	// checked, or fail.
 	unsupported, problem string
-	notes                []string
 }
 
 // unsupportedKinds are the compile errors of features windmill-lite does
@@ -269,8 +262,10 @@ var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLang
 // build compiles each run's target flow and builds the Bun scripts they
 // reach into one bundle below work: scripts/bun/<id>.mjs and
 // <id>.meta.json, named by each script's inventory id (ir.Script.ID), as a
-// bundle names them (ADR 0010). Codebase scripts are built the same way,
-// by the Bun build helper, until milestone C2b builds them with esbuild.
+// bundle names them (ADR 0010). Codebase scripts are built with esbuild
+// (bundle.BuildCodebase, milestone C2b), each with the settings of the
+// codebases entry that selects it: scripts/bun/<id>.cjs (or .mjs) and
+// <id>.meta.json, with their assets.
 // Its manifest lists the host-provided modules, none, which is all the
 // harness reads of it besides its digest; the bundle format is F4's.
 //
@@ -295,6 +290,7 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 
 	b := &fixtureBundle{out: filepath.Join(work, "bundle"), targets: map[string]*target{}}
 	entries := map[string]bundle.BunScript{}
+	codebase := map[string]bundle.CodebaseScript{}
 	users := map[string][]string{} // inventory id → the targets that reach it
 	for _, run := range f.Runs {
 		if run.IsScript() || b.targets[run.Target] != nil {
@@ -311,6 +307,15 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 			continue
 		}
 		for _, s := range t.reached {
+			if s.Bundling == ir.BundlingCodebase {
+				// One inventory id is one script, and its file one entry.
+				if _, ok := codebase[s.ID]; !ok {
+					codebase[s.ID] = bundle.CodebaseScript{ID: s.ID, Path: s.Path, File: s.File,
+						Settings: folder.Config.Codebases[s.Codebase.Index].Settings}
+				}
+				users[s.ID] = append(users[s.ID], run.Target)
+				continue
+			}
 			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock)}
 			if s.Kind == ir.PathScript {
 				e.File = s.File
@@ -342,15 +347,15 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 	if err := os.MkdirAll(b.out, 0o755); err != nil {
 		return nil, err
 	}
-	if len(cfg.Entries) > 0 {
-		_, err := bundle.BuildBun(ctx, cfg)
+	// A problem of one script is the problem of the targets that reach it.
+	attribute := func(err error) error {
 		var be *bundle.BuildError
 		switch {
 		case errors.As(err, &be):
 			for _, p := range be.Problems {
 				id, isScript := strings.CutPrefix(p.Item, "script ")
 				if !isScript {
-					return nil, err
+					return err
 				}
 				for _, tp := range users[id] {
 					if t := b.targets[tp]; t.problem == "" {
@@ -359,6 +364,21 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 				}
 			}
 		case err != nil:
+			return err
+		}
+		return nil
+	}
+	if len(cfg.Entries) > 0 {
+		if _, err := bundle.BuildBun(ctx, cfg); attribute(err) != nil {
+			return nil, err
+		}
+	}
+	if len(codebase) > 0 {
+		cc := bundle.CodebaseConfig{Bun: cfg.Bun, Helper: cfg.Helper, Folder: root, Out: b.out, Work: filepath.Join(work, "codebase")}
+		for _, id := range slices.Sorted(maps.Keys(codebase)) {
+			cc.Entries = append(cc.Entries, codebase[id])
+		}
+		if _, err := bundle.BuildCodebase(ctx, cc); attribute(err) != nil {
 			return nil, err
 		}
 	}
@@ -414,9 +434,6 @@ func (fc *flowChecker) compile(folder *syncfolder.Folder, r *os.Root, path strin
 		if s.Harness != ir.ClassBun || s.Boundary != ir.BoundaryBun {
 			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which is milestone C3n's", s.Path, s.Boundary, s.Harness)
 			return nil
-		}
-		if s.Bundling == ir.BundlingCodebase {
-			t.notes = append(t.notes, fmt.Sprintf(codebaseNote, s.Path))
 		}
 		t.reached = append(t.reached, s)
 		t.names[id] = s.Path
