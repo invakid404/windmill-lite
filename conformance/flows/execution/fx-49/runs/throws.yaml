@@ -1,7 +1,7 @@
 # Q-FX-11's throwing variant: the second start phase's evaluation throws,
 # a chaining InternalError at that transition (FX-15) that fails the flow;
 # the loop is left canceled, its module in progress, with [1].
-spec: [FX-49, FX-15]
+spec: [FX-49, FX-49/b, FX-15]
 cancel_after_ms: 20000
 target: f/wl_fx49/throws
 expect:

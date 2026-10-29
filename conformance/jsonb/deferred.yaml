@@ -13,12 +13,33 @@ deferred:
   - spec: FX-42/h
     reason: 'contested (Q-FX-16); the spelling of a $jsonvar: value is decided by resolution, and the case is recorded before it is encoded (ADR 0001 §6)'
     expected_in: E3b records it; PF2 implements it
+  - spec: FX-42/i
+    reason: 'later; a resolved $jsonvar: value is written again in the backend''s number notation (FX-42 rule 9), which is not jsonb''s stored text; the semantics reference added the case on 2026-10-29'
+    expected_in: PF2, which resolves $jsonvar references (FX-42/h)
+  - spec: FX-42/j
+    reason: a loop's result text writes its children's stored numbers again in the backend's notation (FX-42 rule 9; ADR 0005, the routing table), which is not jsonb's stored text; the semantics reference added the case on 2026-10-29
+    expected_in: N3a, with N2's javascript timeout, which quotes the text
+  - spec: FX-42/k
+    reason: 'later; the backend parses a $jsonvar: variable''s text as written, so the token -0 is negative zero, written -0.0, and a number too small for a double is a zero with its sign (FX-42 rule 9); jsonb, which has no negative zero, is not involved; the semantics reference added the case on 2026-10-29'
+    expected_in: PF2, which resolves $jsonvar references (FX-42/h)
+  - spec: FX-42/l
+    reason: 'later; a $jsonvar: variable holding a number too large for a double fails the step with the backend''s parse error (FX-42 rule 9, FX-51), so no text is stored; the semantics reference added the case on 2026-10-29'
+    expected_in: PF2, which resolves $jsonvar references (FX-42/h)
   - spec: FX-48/c
     reason: its text is FX-48/b's; that the push failure is an InternalError at a later transition is the engine's routing (FX-15)
     expected_in: N1b
   - spec: OR-27/b
-    reason: the catalogue sets no expectation; recording batch E3e recorded Q-OR-6 (conformance/flows/oracle/nul) - a NUL in a key or a nested value of a Bun result fails like OR-27/a, and a Python result's NUL is stored as the text " null " - and jsonb's rejection of a NUL in a key and in a nested value is checked here by the FX-48 variants nul-in-key and nul-nested
+    reason: the catalogue's expectations are step outcomes, which recording batch E3e recorded (conformance/flows/oracle/nul, Q-OR-6) - a NUL in a key or a nested value of a Bun result fails like OR-27/a, and a Python result's NUL is stored as the text " null " - and jsonb's rejection of a NUL in a key and in a nested value is checked here by the FX-48 variants nul-in-key and nul-nested; the flow-argument variant is refused at submission, so no run records it
     expected_in: E3e (conformance/flows/oracle/nul); the step's outcome is N1b's
+  - spec: JE-44/d
+    reason: a stored flow input's member is jsonb's printed text, a space after each colon and comma, which the engine writes (ADR 0005, the routing table); internal/jsonval holds only the producer and stored texts
+    expected_in: E3e records it (conformance/flows/je/shortcut-texts, runs fi_first and fi_later); the engine's texts are N1a's, the javascript timeout that quotes them N2's
+  - spec: JE-44/e
+    reason: right after a loop, previous_result is the loop's re-printed compact array (ADR 0005, the routing table), not a text internal/jsonval holds
+    expected_in: E3e records it (conformance/flows/je/shortcut-texts, run loop_prev); N3a, with N2's javascript timeout, which quotes the text
+  - spec: JE-44/f
+    reason: after an identity job, previous_result is jsonb's printed text (ADR 0005, the routing table), not a text internal/jsonval holds; the semantics reference added the case on 2026-10-29
+    expected_in: N1b, whose identity job reads its argument back in jsonb's printed form (internal/engine), with N2's javascript timeout, which quotes the text
   - spec: WR-10/c
     reason: the preprocessor's output reaches main in memory inside the harness; no producer or stored text is involved
     expected_in: the step suite, once script preprocessors (WR-11, later scope) have a milestone; none in docs/design/0012 yet

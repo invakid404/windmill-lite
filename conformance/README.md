@@ -102,10 +102,10 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/execution/fx-49` | Batch E3e: [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11), `later`): a flow-level `skip_expr` that the loop at module 0 flips from false to true, with a collapsed and a two-step body, and to a throw. `setup.yaml` resets the variable before every run (`oracle.setup: each_run`). |
 | `flows/execution/fx-10-c` | Batch E3e: FX-10/c, `results[""]` inside a step's own `stop_after_if`, which the reference added after E3b. |
 | `flows/languages/wr-16` | Batch E3e: [WR-16](../docs/semantics/languages.md#wr-16) ([Q-WR-15](../docs/semantics/languages.md#q-wr-15), `later`): result streaming, WR-16/a–g, each one inline step. |
-| `flows/languages/wr-28` | Batch E3e: [WR-28](../docs/semantics/languages.md#wr-28) ([Q-WR-16](../docs/semantics/languages.md#q-wr-16)): static and dynamic imports of workspace scripts, WR-28/a–e, each a flow running the importing script by path. Created through the API in path order (`oracle: {deploy: api}`), so each imported script exists before the script that imports it. |
+| `flows/languages/wr-28` | Batch E3e: [WR-28](../docs/semantics/languages.md#wr-28) ([Q-WR-16](../docs/semantics/languages.md#q-wr-16)): static and dynamic imports of workspace scripts, WR-28/a–c and e, each a flow running the importing script by path; WR-28/d's script, whose only import is a dynamic extensionless path, cannot be deployed, so the batch defers it, and WR-28/f–g (source-derived) have no run. Created through the API in path order (`oracle: {deploy: api}`), so each imported script exists before the script that imports it. |
 | `flows/languages/codebase-cases` | Batch E3e: codebase scripts in the shape of `flows/languages/codebase`, one `wmill.yaml` entry per case: CommonJS on Node and ESM on Bun ([WR-47](../docs/semantics/languages.md#wr-47)/a–b), esbuild's `define`, `inject`, `loader` and `banner` (WR-47/c–f), assets and a multi-file output ([WR-49](../docs/semantics/languages.md#wr-49)/a–b), the runtime `//native` and `//nodejs` select and the Node version ([WR-50](../docs/semantics/languages.md#wr-50)/b–e), and in both formats a relative import and the step's environment. The runs that report Node are deviation D13 on windmill-lite. |
 | `flows/oracle/probes` | Batch E3e: the [probe catalogue](../docs/semantics/oracle.md#probe-catalogue) rebuilt as executable fixtures with every binding written out ([Q-OR-16](../docs/semantics/oracle.md#q-or-16), [OR-V9](../docs/semantics/oracle.md#or-v9)/a–d), and its OR cases (key order, loops, branches, retries, failure modules, stops, `skip_if`, `$var:`, effects, `delete_after_use`, a subflow's `delete_after_use`, `sleep`, response metadata asynchronously and through run-and-wait, the environment). |
-| `flows/oracle/big-payload`, `nul`, `seeded`, `key-order` | Batch E3e: the probes `big_payload` ([OR-V1](../docs/semantics/oracle.md#or-v1)) and `nul` with the other NUL positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)); a variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31)/a, OR-12/d; `oracle.setup: before_push`); the key-order cases of [OR-24](../docs/semantics/oracle.md#or-24) that E3a left. |
+| `flows/oracle/big-payload`, `nul`, `seeded`, `key-order` | Batch E3e: the probes `big_payload` ([OR-V1](../docs/semantics/oracle.md#or-v1)) and `nul` with the other NUL positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)); a variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31)/a, OR-12/d; `oracle.setup: before_push`); the key-order cases of [OR-24](../docs/semantics/oracle.md#or-24) that E3a left (OR-24/b, OR-24/c) and OR-24/f, an object a flow's preprocessor built. |
 | `flows/oracle/workers2` | Batch E3e: the two-worker profile ([OR-5](../docs/semantics/oracle.md#or-5)/b): a step that waits for a script it starts, and parallel bodies whose index 0 is slow ([Q-OR-7](../docs/semantics/oracle.md#q-or-7), [Q-OR-15](../docs/semantics/oracle.md#q-or-15)). Recorded by the oracle workflow's two-worker session. |
 | `flows/control-flow/pull` | Batch E3e: CF-6/b and SY-6/c, a flow created through the API as written and read back with the CLI's `sync pull` (`oracle: {deploy: api, pull: true}`); the pulled value is in each recording's provenance. |
 | `flows/je/shortcut-texts` | Batch E3e: B2a's request 8, the text the JE-7 and JE-8 shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error. Its unit cases (FU5) restate them: a stored `flow_input` member in jsonb's spaced text, and the compact array after a loop. |
@@ -223,11 +223,13 @@ writes its metadata with the CLI before each push. The recordings are
 `exprs/recorded/<finding>/<case>.json`, with the finding in lower case.
 
 `exprs/deferred.yaml` lists the JE, CF-19 and CF-V6 catalogue cases that
-recording batch E3a encodes neither here nor as a flow fixture, and those
-it records only in part, each with the reason and where it is checked.
-The cases the semantics reference added after E3a are checked at
+no expression case here and no flow fixture encodes, and those recorded
+only in part, each with the reason and where it is checked.
+The cases the semantics reference added on 2026-10-28 are checked at
 evaluator level in the meantime, by the pipeline cases of
-[internal/expr](../internal/expr/README.md) that run on the engine.
+[internal/expr](../internal/expr/README.md) that run on the engine; those
+it added on 2026-10-29 that no recording holds (JE-11/b–e, JE-16/h,
+JE-18/e and JE-44/f) are not encoded yet.
 
 ## Claims and unit cases
 

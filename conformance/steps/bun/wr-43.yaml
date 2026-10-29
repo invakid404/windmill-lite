@@ -86,8 +86,8 @@ cases:
     note: >-
       A //native script is bundled with Bun's syntax minification (WR-27,
       WR-40), which writes `new Error("x")` as `Error("x")`; the line as
-      loaded is the bundle's, so the catalogue's `throw new Error("x")`
-      cannot appear for this kind.
+      loaded is the bundle's, so it holds `throw Error("x")`, as the
+      catalogue states for this kind since its correction of 2026-10-29.
     compare: {keep_stack: true}
     script: |
       //native
