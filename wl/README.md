@@ -1,8 +1,10 @@
 # wl
 
-**Current state:** milestone F1 of
+**Current state:** milestones F1 and F2a of
 [ADR 0012](../docs/design/0012-layout-and-milestones.md): the core of
-[ADR 0009](../docs/design/0009-host-adapters.md). This README covers `wl`,
+[ADR 0009](../docs/design/0009-host-adapters.md), and the host hooks of
+[ADR 0008](../docs/design/0008-host-hooks.md) as Go callbacks with the
+bundle's mandatory host-provided sites. This README covers `wl`,
 the public Go library API and the only exported engine package
 (`github.com/invakid404/windmill-lite/wl`). A host opens a built bundle
 ([ADR 0010](../docs/design/0010-packaging.md)) with `Open`, runs its flows
@@ -11,18 +13,19 @@ stops it with `Close`. Every adapter of ADR 0009 is a transport over these
 calls: the command line's `windmill-lite run`
 ([cmd/windmill-lite](../cmd/windmill-lite/README.md)) is the first, and
 `wltest check` ([cmd/wltest](../cmd/wltest/README.md)) runs the flow suite
-through it. Hooks as Go callbacks and per-run services (F2a), budgets and
-latches (F2b), host-mode transport (F3a) and the go-plugin adapter
-(F5, `wl/plugin`) come later, as fields of `Options` and `RunOptions` and
-as runtimes over the same calls, so a host written against this API keeps
-compiling.
+through it. Budgets and latches (F2b: H3, H4, H5, H7, H10), host-mode
+transport (F3a), host plugins in TypeScript (F2c) and the go-plugin
+adapter (F5, `wl/plugin`) come later, as fields of `Options` and
+`RunOptions` and as runtimes over the same calls, so a host written
+against this API keeps compiling.
 
 ## Files
 
 | File | Contents |
 |---|---|
 | `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `Runtime`, `Open`, `BuildInfo`, `Close`, `Version`, `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
-| `run.go` | `RunOptions`, `Result`, `Run`; the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
+| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the trace types (`Trace`, `PlatformCall`, `Warning`, `Cancellation`, aliases of the engine's); the executor that collects each run's platform calls |
+| `hooks.go` | `Hooks`, `Interceptor`, `ArgRewriter`, `Provider`, `Call`, `Outcome`, `Selector`, `Site`, `SitePath`, `StepRecord`, `RunHandle`, `ErrMissingProvider`, `ErrProviderDeclined`, `ErrAmbiguousSelector`, `ErrSelector`: the hooks and providers as Go callbacks, selector matching, and their adapter to the engine's hook seams |
 
 ## Open
 
@@ -75,6 +78,12 @@ compiling.
    ([ADR 0003](../docs/design/0003-semantics-placement.md)), and a flow the
    engine does not run yet fails `Open` with `ErrUnsupported`, naming the
    milestone that runs it.
+8. **Providers.** Every provider the bundle's host contract names for a
+   mandatory host-provided site
+   ([ADR 0002](../docs/design/0002-ir-and-loader.md)) must be in
+   `Options.Providers`, or `Open` fails with `ErrMissingProvider`
+   (`missing_provider`), so no run reaches an unprovided site. A static
+   site needs none.
 
 ## Run
 
@@ -82,12 +91,11 @@ compiling.
 `Kind: KindScript` the root script, as a script job (WA-4), with `args`, a
 JSON object (empty means `{}`). `RunOptions.ID` is the run's job id (a new
 UUID by default) and `Seed` fixes the shuffles of the orders Windmill leaves
-unspecified and the retry jitter. `Hooks` are a flow run's host hooks
-([ADR 0008](../docs/design/0008-host-hooks.md)): the engine's hook
-interface, which only this module's own tools implement (`wltest check`'s
-effect sink, stub replay and run groups) until milestone F2a gives hosts
-Go callbacks for them. An error means the run could not start:
-no such target, or arguments that are not an object or cannot be stored.
+unspecified and the retry jitter. `Hooks` are the flow run's host hooks
+and `Platform` its own platform providers (below). An error means the run
+could not start: no such target, arguments that are not an object or
+cannot be stored, or a selector of `Hooks` that is not well formed
+(`ErrSelector`) or is ambiguous (`ErrAmbiguousSelector`).
 
 The context bounds the run: when it ends, the run ends canceled, with the
 reason and canceler of a `*Cancellation` cause
@@ -114,7 +122,57 @@ cancellation abandoned included; a call answered after the run ended, and
 the calls of the runs the dispatcher starts, are not in it.
 
 `Run` is safe for concurrent use: runs of one runtime share its harness
-pool, its services and its expression engine.
+pool, its services and its expression engine. A run latched by a hook, a
+provider or the engine (H5) has status `latched` and its error in
+`Result.Latched`; a halted one (H8) has status `halted`.
+
+## Hooks
+
+`RunOptions.Hooks` gives a run the host hooks of ADR 0008 as Go
+callbacks, each optional, over the engine's hook seams, with ADR 0008's
+precedence. A hook's error latches the run with it (H5), and so does
+`RunHandle.Latch`; a hook never fails a module by returning an error,
+which an `Outcome` with `Failed` does. The callbacks of one run can be
+called from several goroutines at once (a parallel loop's iterations).
+
+| Hook | Field | What it does |
+|---|---|---|
+| H1 | `Intercept` | answers for a matching site's job when its module would launch, after `skip_if`, `mock`, its arguments and its timeout are decided: `Static`, a fixed result, or `Func`, which returns an `Outcome` or declines; the first matching interceptor answers, and the completion phase applies to its outcome. The record lists `H1` |
+| H2 | `RewriteArgs` | rewrites the arguments of a matching site whose module launches its own job, every matching rewriter in order; the record keeps both and lists `H2` |
+| H6 | `OnModuleStart`, `OnModuleEnd` | observe every module, nested ones and iterations included, the end with the site's record |
+| H8 | `HaltBefore`, `HaltAfter` | end the run halted before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module |
+| H9 | `OnRunEnd`, `OnRunSettled` | the run's end, whose warnings join the run's, and its settlement, once its abandoned invocations have settled |
+| H12 | `InvocationEnv` | sets or deletes variables of each invocation's job environment before it runs |
+
+**Selectors** (`Selector`, the host contract's selector type) name call
+sites: `{Flow, Module}` names the module with that id in any module list
+of the flow (container bodies belong to their enclosing flow), and
+`{Script}` every call of a script, a script step by its path and an inline
+step by `<flow path>/<module id>`. A module selector may add `Occurrence`,
+required for an id repeated in one module list (otherwise
+`ErrAmbiguousSelector` before the run starts), and `Iterations` or
+`Branches`, which match within those iterations or branches of the
+innermost loop or branching module around the site.
+
+**Providers.** A mandatory host-provided site (ADR 0002, ADR 0008) runs
+with its own envelope, its transforms, `skip_if`, `mock`, `stop_after_if`,
+retries and `continue_on_error`, and at its launch the site's provider
+answers in place of the job its target would have run: a static
+contract value, or `Options.Providers[name]`, which gets a `Call` with the
+site's stored arguments and returns an `Outcome`, once per attempt. A
+mandatory provider cannot decline: declining latches the run with
+`ErrProviderDeclined` (`provider_declined`), and the run fails closed. The
+site's record has `Ran` set, no job, and `provided` among its hooks.
+
+**Per-run providers** (H13). `RunOptions.Platform` gives a run its own
+resources and variables, over the runtime's at the same paths, and its
+own resolver (`Resolve`, the host secret layer of ADR 0007), which a host
+chooses from its run data, for example per tenant. The run's argument
+resolution, `flow_env`, expression helpers and its steps' API reads answer
+from them; a step's variable update changes the run's own variable, or the
+runtime's where the run has none. The job registry, flow user state,
+object store and result cache stay the runtime's, and the runs a step
+dispatches read the runtime's providers.
 
 ## BuildInfo and Close
 
@@ -149,7 +207,15 @@ again after an open that failed once it was extracted; and `BuildInfo`'s
 deviations under an override both ways; and an unawaited call answered
 after its step's invocation was released, which still goes to the run in
 flight, with nothing of the invocation kept after the run ends.
-`bun_test.go` builds a real
+`hooks_test.go` covers the hooks without Bun: H1 by function and static,
+H2 with the trace's arguments before and after, H6's observers, H9's
+warnings and settlement, H8 before and after, a hook's error and a latch,
+an interception narrowed to one iteration, the selector checks
+(`ErrSelector`, `ErrAmbiguousSelector`, an occurrence), the run-time half
+of ADR 0002's provided-site policy case (the provider's value from the
+site's arguments, with the site's `stop_after_if`; `missing_provider`;
+`provider_declined`; a provider's error), and H13's variables and
+resolver. `bun_test.go` builds a real
 bundle with `bundle.Build` and runs it on
 the pinned Bun in `warm` and `fresh` mode: a step reads a host's variable
 and updates it through the job API, both calls are in the trace with the
@@ -158,6 +224,9 @@ script job too, and a bundle with steps does not open without its harness
 runtime or with another; two runtimes that share a host's result
 cache share a `cache_ttl` step's result, which the first stores once; and
 a run canceled while its step waits, after the step read and updated the
-variable, keeps both calls in its trace, in `warm` and `fresh`. It needs
+variable, keeps both calls in its trace, in `warm` and `fresh`; and, in
+both, an `InvocationEnv` hook's variable in the step's environment (H12)
+and a run's own variable read and updated through the job API (H13), the
+runtime's left as it was. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.

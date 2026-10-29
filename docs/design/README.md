@@ -112,6 +112,10 @@ library: `Open` verifies a bundle and owns its platform services, `Run`
 runs a flow or root script in `warm` or `fresh` and returns its trace with
 the platform calls its steps made, and `windmill-lite run` is its command
 line; `wltest check` runs the flow suite through it in both modes.
+Milestone F2a exposes the hook seams of [0008](0008-host-hooks.md) to
+hosts through `wl` as Go callbacks with selectors (H1, H2, H6, H8, H9,
+H12, H13) and runs the mandatory host-provided sites of
+[0002](0002-ir-and-loader.md)'s host contract with the host's providers.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

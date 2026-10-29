@@ -1,0 +1,12 @@
+# A mandatory provider cannot decline: one that does latches the run with
+# provider_declined (ADR 0008), so the run ends latched, a status only
+# windmill-lite has. The site launches nothing: its arguments were decided,
+# and it is not_run, as is everything after it.
+spec: [FX-39]
+target: f/wl_provided/declined
+args: {key: k3}
+expect:
+  status: latched
+  steps:
+    "m:wait": {status: not_run, ran: false, args: {key: k3}}
+    "m:work": {status: not_run, ran: false}

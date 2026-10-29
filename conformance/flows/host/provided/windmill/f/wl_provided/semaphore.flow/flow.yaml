@@ -1,0 +1,16 @@
+summary: A semaphore wait that suspends until a permit is granted
+value:
+  modules:
+    - id: acquire
+      value:
+        type: identity
+      suspend:
+        required_events: 1
+        timeout: 3600
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    key:
+      type: string
+  required: [key]

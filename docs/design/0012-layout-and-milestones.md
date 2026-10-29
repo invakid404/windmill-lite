@@ -542,6 +542,27 @@ waits on an external gate except R1.
   parent path; no case of F1's row needs it, and it stays open. A retry
   on a subflow step stays refused.
 
+- F2a exposes the engine's hook seams to Go hosts as `wl.Hooks` and runs
+  the host contract's mandatory provided sites with `wl.Options.Providers`.
+  `wltest check` gives its runs the effect sink and run groups through the
+  same `wl.Hooks`, so the runner takes no path a host does not have.
+  ADR 0008 does not say which loop or branching module a selector's
+  `iterations` or `branches` narrow to; F2a reads them as the innermost
+  one around the site. A provided site's record says it ran, with
+  `provided` among its hooks and no job, since the host's value stands for
+  the job its target would have run, while an H1-intercepted site's record
+  keeps saying it did not. Per-run providers (H13) are a run's own
+  resources, variables and resolver over the runtime's, and its steps'
+  API reads answer from them; a variable chain now updates the service a
+  read answers from, so a step's update in such a run changes the run's
+  own variable. The runs a step dispatches still read the runtime's
+  providers. Fixtures declare a host contract's provided sites and named
+  providers (`provided`, `providers`), and `host/provided` holds the
+  run-time half of ADR 0002's policy case as expects, since the oracle
+  would run the real targets. F1's open gap is closed: the engine registers
+  every loop iteration, branch and subflow as a flow job of the run's tree
+  while it runs, so a dispatch whose `parent_job` names one gets its path.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records
