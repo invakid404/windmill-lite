@@ -16,12 +16,12 @@ value:
         type: rawscript
         content: '!inline check.ts'
         input_transforms:
-          order:
-            type: javascript
-            expr: flow_input.order
           held:
             type: javascript
             expr: results.hold
+          order:
+            type: javascript
+            expr: flow_input.order
         lock: '!inline check.lock'
         language: bun
 schema:

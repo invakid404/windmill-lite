@@ -1,2 +1,7 @@
 version: v2
-locks: {}
+locks:
+  f/wl_stub_sr/order.flow+__flow_hash: 453ee7472b286b9db1aad30d2b67cbc8501138551dea14d325143789f21ede2a
+  f/wl_stub_sr/order.flow+confirm.ts: ad580ebb0238a4e5f70bd9bca756171de9abb8b810aa61c0f31b7519177aeedb
+  f/wl_stub_sr/reserve.flow+__flow_hash: 43ffba224a04300ad1e5f5418d83f45ec96e4afba744a6634a9d573655b3a45d
+  f/wl_stub_sr/reserve.flow+check.ts: 4a058f07246397999aa16bb3e0a772c6d6dee64b4d24fee3c4ebbaf79f1632ad
+  f/wl_stub_sr/reserve.flow+hold.ts: 774ce12700889e7f31a1c6bf83aac3773875cb6a668615ac9682f7e2724ed6fc

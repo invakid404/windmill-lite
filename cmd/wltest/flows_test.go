@@ -231,8 +231,8 @@ func TestSubflowRetryFixturesFreshAndWarm(t *testing.T) {
 					}
 				}
 			}
-			if n != 10 {
-				t.Fatalf("%d runs, want the fixture's 10", n)
+			if n != 11 {
+				t.Fatalf("%d runs, want the fixture's 11", n)
 			}
 		})
 	}

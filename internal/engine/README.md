@@ -223,8 +223,8 @@ a top-level module, a container body's and the failure module alike:
 a container as the failure module, whose
 bodies run raw with a suffixed copy of it
 ([CF-30](../../docs/semantics/control-flow.md#cf-30), source-traced
-only); `cache_ignore_s3_path` (`later`), since the object store keeps no ETag to
-hash an S3 object's argument with
+only); `cache_ignore_s3_path` (`later`), since the object store keeps no
+ETag to hash an S3 object's argument with
 ([FX-40](../../docs/semantics/execution.md#fx-40)); host-provided
 sites (F2a); a step of another harness than Bun's, whose `bun` and
 `native` boundaries it runs (L1); an `ai`

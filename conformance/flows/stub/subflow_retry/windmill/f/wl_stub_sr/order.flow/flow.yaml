@@ -18,12 +18,12 @@ value:
         type: rawscript
         content: '!inline confirm.ts'
         input_transforms:
-          order:
-            type: javascript
-            expr: flow_input.order
           hold:
             type: javascript
             expr: results.reserve
+          order:
+            type: javascript
+            expr: flow_input.order
         lock: '!inline confirm.lock'
         language: bun
 schema:

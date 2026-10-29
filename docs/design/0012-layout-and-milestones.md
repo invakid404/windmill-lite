@@ -108,9 +108,9 @@ milestones PF, so that no milestone id looks like a deviation id of
 | PF2 | resources, variables, secrets, the interpolation walker | PF1 | WA-10 to WA-12 and WA-40 to WA-42 cases; the E3b FX-42/h case; E3a's provider cases (JE-11/a, JE-20/a–b, JE-38/b, JE-41/a–c, JE-42/a and /e, JE-V3/a) | 7 | yes |
 | PF3 | flow user state, object store, dispatcher, job registry | PF1 | WA-5, WA-6, WA-14 and WA-16 cases; the dispatch-target restriction case | 7 | yes |
 | E4b | the stub acceptance cases on windmill-lite | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
-| N5 | retry on a subflow step, in the engine and in stub mode | NI, E4b | the `control-flow/subflow-retry` cases, recorded on the oracle, in `fresh` and `warm`; the `stub/subflow_retry` case on the oracle and on windmill-lite | 9 | yes |
 | N4 | the `cache_ttl` result cache with the host store interface | N3c | the E3d FX-40 cases | 8 | yes |
 | F1 | `wl`: `Open`, `Run`, `BuildInfo`; `windmill-lite run` | F4, N3c, NI, PF2, PF3 | the flow suite through `wl` in `fresh` and `warm`, including E3a cases that need features of two milestones neither of which depends on the other (JE-V2/a and /b: retry, and a variable read or argument resolution), and E3b's FX-17/b (retry and a variable) | 8 | yes |
+| N5 | retry on a subflow step, in the engine and in stub mode | NI, E4b | the `control-flow/subflow-retry` cases, recorded on the oracle, in `fresh` and `warm`; the `stub/subflow_retry` case on the oracle and on windmill-lite | 9 | yes |
 | F2a | hooks as Go callbacks: H1, H2, H6, H8, H9, H12, H13, and mandatory provided sites | F1 | hook cases; the run-time half of the provided-site policy case of [0002](0002-ir-and-loader.md) | 9 | yes |
 | F2b | budgets and latches: H3, H4, H5, H7, H10 | F1 | latch-precedence cases | 9 | yes |
 | F3a | host-mode transport: `run` frames, host-provided-module registration, scope capture, health, drain, the watchdog option, the working-directory checks | F1, C2b, C3b | `workdir_not_writable` and `workdir_mismatch` cases; a codebase script reads its extracted asset in host mode | 9 | yes |
@@ -382,8 +382,8 @@ waits on an external gate except R1.
   record's status, as the walker reads a container with no child
   (CF-29/a). A container as the failure module (CF-30, source-traced only)
   and a retry on a subflow step (whose attempts' subflows NI places under
-  the attempt's site) are refused; N5 runs the latter. The N2 and N3b merge resolution
-  (2dfbae10) was reviewed with this milestone.
+  the attempt's site) are refused; N5 runs the latter. The N2 and N3b
+  merge resolution (2dfbae10) was reviewed with this milestone.
 
 - N3b runs while loops on N3a's sequential loop, with no iterator, and
   `branchone` and `branchall` on frames: each branch that runs is a child
@@ -534,8 +534,9 @@ waits on an external gate except R1.
   child that retries its own step. Every recording puts a failed
   attempt's subflow job at the step's `r:<k>`, with that subflow's modules
   below it (its own retried modules' attempts below those). A failure
-  module lists the step's failed attempts again with that subtree
-  (FX-29), and a later step's `results` read the last attempt's result.
+  module, or the step after a tolerated failure, lists the step's failed
+  attempts again with that subtree (FX-29), and a later step's `results`
+  read the last attempt's result.
   The engine moves a failed attempt's child flow to that site, as NI
   moves a retried container's last failed child. The same fixture
   records a retry on a while loop and on a branchone, which NI's engine

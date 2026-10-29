@@ -185,3 +185,89 @@ func TestSubflowRetryInLoops(t *testing.T) {
 		}
 	}
 }
+
+// A retried flow step inside a retried flow step's subflow, and a retried
+// loop inside one: the inner attempts, their child flows and their
+// modules move with the outer attempt below its r:<k>, each keeping its
+// own attempts there (FX-27, CF-22).
+func TestSubflowRetryMovesWhatItRan(t *testing.T) {
+	f := &flaky{}
+	e := mustOpen(t, map[string]string{
+		"f/t/inner": flowOf(mod("x", "flaky", inputs("k", static(`"x"`)), "")),
+		// b's first subflow fails at x and its retry recovers; y fails its
+		// first invocation, which fails mid's first run.
+		"f/t/mid":  flowOf(subflowOf("b", "f/t/inner", "", retryOnce), mod("y", "flaky", inputs("k", static(`"y"`)), "")),
+		"f/t/main": flowOf(subflowOf("a", "f/t/mid", "", retryOnce)),
+	}, f)
+	tr := runReq(t, e, RunRequest{})
+	wantStatus(t, tr, conformance.RunSuccess, `{"k":"y"}`)
+	for s, st := range map[string]conformance.StepStatus{
+		"m:a/r:0":             conformance.StepFailure,
+		"m:a/r:0/m:b/r:0":     conformance.StepFailure,
+		"m:a/r:0/m:b/r:0/m:x": conformance.StepFailure,
+		"m:a/r:0/m:b":         conformance.StepSuccess,
+		"m:a/r:0/m:b/m:x":     conformance.StepSuccess,
+		"m:a/r:0/m:y":         conformance.StepFailure,
+		"m:a":                 conformance.StepSuccess,
+		"m:a/m:b":             conformance.StepSuccess,
+		"m:a/m:b/m:x":         conformance.StepSuccess,
+		"m:a/m:y":             conformance.StepSuccess,
+	} {
+		if rec := record(t, tr, sp(t, s)); rec.Status != st || rec.Superseded {
+			t.Fatalf("%s %+v, want %s", s, rec, st)
+		}
+	}
+	if b := record(t, tr, sp(t, "m:a/r:0/m:b")); !slices.Equal(b.FailedRetries, []conformance.SitePath{sp(t, "m:a/r:0/m:b/r:0")}) {
+		t.Fatalf("the first run of mid lists %v for b", b.FailedRetries)
+	}
+	for _, s := range []string{"m:a/r:0", "m:a/r:0/m:b/r:0", "m:a/r:0/m:b", "m:a", "m:a/m:b"} {
+		childAt(t, tr, s)
+	}
+
+	f = &flaky{}
+	e = mustOpen(t, map[string]string{
+		// l's first iteration fails at z and the loop's retry recovers; w
+		// fails its first invocation, which fails lsub's first run.
+		"f/t/lsub": flowOf(loopOf("l", []string{mod("z", "flaky", inputs("v", js("flow_input.iter.value")), ""), value("c", "1", "")}, `"iterator":{"type":"static","value":[1]},"skip_failures":false`, retryOnce), mod("w", "flaky", inputs("k", static(`"w"`)), "")),
+		"f/t/main": flowOf(subflowOf("a", "f/t/lsub", "", retryOnce)),
+	}, f)
+	tr = runReq(t, e, RunRequest{})
+	wantStatus(t, tr, conformance.RunSuccess, `{"k":"w"}`)
+	for _, s := range []string{"m:a/r:0/m:l/r:0", "m:a/r:0/m:l/r:0/m:z", "m:a/r:0/m:l", "m:a/r:0/m:l/i:0/m:z", "m:a/r:0/m:w", "m:a/m:l", "m:a/m:l/i:0/m:z", "m:a/m:w"} {
+		if rec := record(t, tr, sp(t, s)); rec.Superseded {
+			t.Fatalf("%s superseded", s)
+		}
+	}
+	if l := record(t, tr, sp(t, "m:a/r:0/m:l")); !slices.Equal(l.FailedRetries, []conformance.SitePath{sp(t, "m:a/r:0/m:l/r:0")}) {
+		t.Fatalf("the first run of lsub lists %v for l", l.FailedRetries)
+	}
+	for _, s := range []string{"m:a/r:0", "m:a/r:0/m:l/r:0", "m:a/r:0/m:l/i:0", "m:a", "m:a/m:l/i:0"} {
+		childAt(t, tr, s)
+	}
+}
+
+// FX-14, FX-27, JE-V2: a flow step whose input transform throws launches
+// no subflow and fails; its attempt keeps its own record at r:0, and the
+// retry runs the subflow with the failed attempt's recorded arguments, an
+// empty object, without evaluating the transform again (recorded by
+// control-flow/subflow-retry's run pre_run).
+func TestSubflowRetryAfterAPreRunFailure(t *testing.T) {
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{
+		"f/t/child": flowOf(mod("x", "echo", inputs("v", js("flow_input.v ?? null")), "")),
+		"f/t/main":  flowOf(subflowOf("a", "f/t/child", inputs("v", js("flow_input.missing.x")), retryOnce)),
+	}, s)
+	tr := runReq(t, e, RunRequest{})
+	wantStatus(t, tr, conformance.RunSuccess, `{"v":null}`)
+	wantCalls(t, s, "m:a/m:x")
+	r0 := record(t, tr, sp(t, "m:a/r:0"))
+	if r0.Status != conformance.StepFailure || r0.Job != "" || !r0.Ran {
+		t.Fatalf("a/r:0 %+v", r0)
+	}
+	sameJSON(t, "the retry's arguments", record(t, tr, sp(t, "m:a")).RecordedArgs, `{}`)
+	for _, c := range tr.Children {
+		if c.Site.String() != "m:a" {
+			t.Fatalf("a child flow at %s", c.Site)
+		}
+	}
+}
