@@ -62,3 +62,16 @@ cases:
           - {at: /result/error/name, equals: ExecutionErr}
           - {at: /result/error/exit_code, equals: 1}
           - {at: /result/error/message, contains: [cyclic]}
+  - spec: WR-19
+    variant: tail-is-the-log
+    provenance: source-derived
+    title: an escaped failure quotes the step's last log lines (WR-20), which end with the error the process printed
+    note: The exact text of the tail is later (WR-20); the step's own lines and the error are in it.
+    script: |
+      export function main() { console.log("line one"); console.warn("line two"); throw null; }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, prefix: "exit code for \"bun run\": 1, last log lines:\nline one\nline two\n"}
+          - {at: /result/error/message, contains: [TypeError]}
+          - {at: /result/error/exit_code, equals: 1}

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -86,8 +87,31 @@ type StepCase struct {
 	// HostModules are scripts registered as host-provided modules (D12),
 	// which the script imports by their path.
 	HostModules []StepHostModule `json:"host_modules,omitempty"`
-	Compare     StepCompare      `json:"compare,omitempty"`
-	Runs        []StepRun        `json:"runs"`
+	// Codebase makes the script a codebase script, which esbuild bundles
+	// (milestone C2b): the settings of its codebases entry as wmill.yaml
+	// gives them (format, define, inject, loader, banner, external,
+	// assets). Its runs of a CommonJS bundle also run on Node (D13).
+	Codebase json.RawMessage `json:"codebase,omitempty"`
+	// Files are other files of the folder, by path from the sync root,
+	// that a codebase build reads: modules the script imports, inject
+	// files, asset sources.
+	Files   map[string]string `json:"files,omitempty"`
+	Compare StepCompare       `json:"compare,omitempty"`
+	Runs    []StepRun         `json:"runs"`
+}
+
+// CommonJS reports whether the case is a codebase script built as
+// CommonJS: a codebases entry whose format is not esm (WR-47), which
+// Windmill runs on Node and windmill-lite on Bun (D13).
+func (c *StepCase) CommonJS() bool {
+	if c.Codebase == nil {
+		return false
+	}
+	var v struct {
+		Format string `json:"format"`
+	}
+	json.Unmarshal(c.Codebase, &v)
+	return v.Format != "esm"
 }
 
 // StepHostModule is one host-provided module of a case: a script of the
@@ -119,7 +143,12 @@ type StepRun struct {
 	Args string `json:"args"`
 	StepCheck
 	ByMode map[string]*StepCheck `json:"by_mode,omitempty"`
-	Note   string                `json:"note,omitempty"`
+	// Node is what the same bundle shows on Node, where Windmill runs a
+	// CommonJS codebase bundle, when it differs from the run's own check
+	// (deviation D13): its expect and claims. A CommonJS codebase case's
+	// run without it must show its own check on Node too.
+	Node *StepCheck `json:"node,omitempty"`
+	Note string     `json:"note,omitempty"`
 }
 
 // StepCheck is what a run must show in a configuration.
@@ -129,21 +158,28 @@ type StepCheck struct {
 	// Claims are partial assertions about the observation, for what the
 	// catalogue states only in part (a name, a message prefix).
 	Claims []Claim `json:"claims,omitempty"`
-	// Late lists what the invocation reports after its outcome, in order,
-	// before it settles (an intercepted process.exit, D11); it is compared
-	// when Late or Settled is given. Settled is how it settles: completed,
-	// not_started or process_exited, or StepPending for a call that must
-	// still be running at the end of the observation window.
+	// Late lists what the invocation reports after its outcome, in order
+	// (an intercepted process.exit, D11, and anything later): all of it up
+	// to the end of the case, so a late report of work it left running
+	// after it settled counts too (D9). It is compared when Late or Settled
+	// is given. Settled is how it settles: completed, not_started or
+	// process_exited, or StepPending for a call that must still be running
+	// at the end of the observation window.
 	Late    []StepLate `json:"late,omitempty"`
 	Settled string     `json:"settled,omitempty"`
 	// Warnings lists the codes of the warnings the invocation gets while
 	// in flight (D9), all of them up to its settlement (or the end of the
 	// observation window): no warnings when empty.
 	Warnings []string `json:"warnings,omitempty"`
+	// Left is what the invocation's left_behind warning counts, by kind
+	// (timeout, interval, immediate, fetch, child): the work it still had
+	// when it settled, which the settle-time fence revoked (D9). It is
+	// compared when given, and needs left_behind in Warnings.
+	Left map[string]int `json:"left,omitempty"`
 }
 
 func (k *StepCheck) empty() bool {
-	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0
+	return k.Expect == nil && len(k.Claims) == 0 && len(k.Late) == 0 && k.Settled == "" && len(k.Warnings) == 0 && k.Left == nil
 }
 
 // StepPending is the Settled of a call that does not settle: the runner
@@ -260,6 +296,9 @@ func (c *StepCase) scripts() map[string]string {
 	for _, h := range c.HostModules {
 		m[h.Path] = h.Script
 	}
+	for p, text := range c.Files {
+		m["file:"+p] = text
+	}
 	return m
 }
 
@@ -291,6 +330,20 @@ func (c *StepCase) check() error {
 			}
 		}
 	}
+	if c.Codebase != nil {
+		var settings map[string]json.RawMessage
+		if err := json.Unmarshal(c.Codebase, &settings); err != nil || settings == nil {
+			return errors.New("codebase is the settings of a codebases entry, a mapping")
+		}
+	}
+	for p := range c.Files {
+		if c.Codebase == nil {
+			return errors.New("files are read by a codebase build, so they need codebase")
+		}
+		if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "..") || strings.Contains(p, "\\") {
+			return fmt.Errorf("file %q is not a clean path relative to the sync root", p)
+		}
+	}
 	if len(c.Runs) == 0 {
 		return errors.New("a step case has no runs")
 	}
@@ -299,6 +352,9 @@ func (c *StepCase) check() error {
 		r := &c.Runs[i]
 		if err := r.check(); err != nil {
 			return fmt.Errorf("run %d: %w", i+1, err)
+		}
+		if r.Node != nil && !c.CommonJS() {
+			return fmt.Errorf("run %d: node states what Node shows of a CommonJS codebase bundle (D13); the case is not one", i+1)
 		}
 		byMode = byMode || r.ByMode != nil
 	}
@@ -340,6 +396,17 @@ func (r *StepRun) check() error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(r.Args), &obj); err != nil || obj == nil {
 		return fmt.Errorf("args %q is not a JSON object text", r.Args)
+	}
+	if k := r.Node; k != nil {
+		if k.Expect == nil && len(k.Claims) == 0 {
+			return errors.New("node checks nothing; it gives expect or claims")
+		}
+		if len(k.Late) > 0 || k.Settled != "" || len(k.Warnings) > 0 {
+			return errors.New("node gives only expect and claims: Node runs the bundle once per process, as Windmill does")
+		}
+		if err := k.check(); err != nil {
+			return fmt.Errorf("node: %w", err)
+		}
 	}
 	if r.ByMode == nil {
 		if r.StepCheck.empty() {
@@ -394,8 +461,22 @@ func (k *StepCheck) check() error {
 	default:
 		return fmt.Errorf("settled %q is not completed, not_started, process_exited or pending", k.Settled)
 	}
+	if k.Left != nil {
+		if !slices.Contains(k.Warnings, StepLeftBehind) {
+			return fmt.Errorf("left counts a %s warning, which warnings does not list", StepLeftBehind)
+		}
+		for kind, n := range k.Left {
+			if n < 1 {
+				return fmt.Errorf("left %s is %d; a kind left behind counts at least 1", kind, n)
+			}
+		}
+	}
 	return nil
 }
+
+// StepLeftBehind is the code of the warning that reports what an
+// invocation left behind when it settled (D9).
+const StepLeftBehind = "left_behind"
 
 // IsStepFile reports whether path is a step-case file: a .yaml file, other
 // than deferred.yaml, in a language directory of a directory named steps.
@@ -469,7 +550,24 @@ func LoadStepDeferred(path string) ([]StepDeferred, error) {
 // the check's claims are checked against the masked observation. It
 // returns one line per difference or failed claim.
 func CompareStep(c *StepCase, r *StepRun, mode string, got Observation) ([]string, error) {
-	k := r.Check(mode)
+	return CompareStepCheck(c, r.Check(mode), got)
+}
+
+// CompareStepNode compares what a run of a CommonJS codebase bundle shows
+// on Node with its node check, or, without one, with its own check in
+// configuration mode: only the expect and the claims, since Node runs the
+// bundle once per process (D13).
+func CompareStepNode(c *StepCase, r *StepRun, mode string, got Observation) ([]string, error) {
+	k := r.Node
+	if k == nil {
+		k = &StepCheck{Expect: r.Check(mode).Expect, Claims: r.Check(mode).Claims}
+	}
+	return CompareStepCheck(c, k, got)
+}
+
+// CompareStepCheck compares a step run's observation with a check, as
+// CompareStep does.
+func CompareStepCheck(c *StepCase, k *StepCheck, got Observation) ([]string, error) {
 	mask := func(o Observation) (Observation, error) {
 		stack := c.Compare.Stack
 		if o.Status == RunFailure {

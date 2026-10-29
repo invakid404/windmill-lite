@@ -19,6 +19,7 @@ import (
 
 const (
 	flowsDir    = "../../conformance/flows"
+	exprsDir    = "../../conformance/exprs"
 	suiteFile   = "testdata/flowsuite.json"
 	batchesGlob = "../../internal/oracle/testdata/batches/*.json"
 )
@@ -79,12 +80,13 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite is milestone E1's exit gate: every run the flow suite
-// requires passes in warm mode, on the walking skeleton and the real Bun
+// TestFlowSuite is the exit gate of milestones E1 and N1a: every run the
+// flow suite requires passes in warm mode, on the engine and the real Bun
 // harness on the pinned Bun, each compared with its expect or recording.
-// Every other fixture under conformance/flows also runs: each must load,
-// and its runs are reported as passing, failing or unsupported, with the
-// reason.
+// Every other fixture under conformance/flows, and every expression file
+// under conformance/exprs as its generated one-step flow fixture, also
+// runs: each must load, and its runs are reported as passing, failing or
+// unsupported, with the reason.
 func TestFlowSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	req := requiredRuns(t)
@@ -99,6 +101,11 @@ func TestFlowSuite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	exprs, err := conformance.FindExprFiles(exprsDir)
+	if err != nil || len(exprs) == 0 {
+		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
+	}
+	dirs = append(dirs, exprs...)
 	type outcome struct {
 		res  runResult
 		seen bool
@@ -137,7 +144,7 @@ func TestFlowSuite(t *testing.T) {
 		o := got[key]
 		switch {
 		case !o.seen:
-			t.Errorf("required run %s (%s) is not a run of a fixture under %s", key, req[key], flowsDir)
+			t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
 		case o.res.unsupported != "":
 			t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
 		case len(o.res.problems) > 0:
@@ -177,7 +184,7 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 
 // The flow checker fails a run whose observation differs from its expect,
 // its recording or a claim, names the job placeholders it compared, and
-// reports a run the skeleton cannot run as unsupported, not failed. Two
+// reports a run the engine cannot run yet as unsupported, not failed. Two
 // scripts that share a job path both run, each seeing that path, and a
 // script that does not build fails only the runs that reach it.
 func TestFlowCheckerReportsDifferences(t *testing.T) {
@@ -217,7 +224,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"runs/g_same_job_path.yaml":          "target: f/t/same\nexpect:\n  status: success\n  result: [2, f/t/same/a]\n  steps:\n    \"m:a\": {status: success, args: {}, result: [1, f/t/same/a]}\n    \"m:b\": {status: success, args: {}, result: [2, f/t/same/a]}\n",
 		"runs/h_build_problem.yaml":          "target: f/t/broken\nexpect: {status: success, result: 1}\n",
 		"runs/f_holds.yaml":                  "target: f/t/two\nexpect:\n  status: failure\n  result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}\n  steps:\n    \"m:a\": {status: failure, args: {}, result: {error: {name: Error, message: \"no\", stack: \"<stack>\", step_id: a}}}\n    \"m:b\": {status: not_run}\n",
-		// The recording says b ran; the skeleton's run stops at a.
+		// The recording says b ran; the engine's run stops at a.
 		"recorded/c_wrong_recording.json": `{"observation":{"status":"failure","result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}},"steps":{"m:a":{"status":"failure","args":{},"result":{"error":{"name":"Error","message":"no","stack":"<stack>","step_id":"a"}}},"m:b":{"status":"success","args":{},"result":2}}},"provenance":{}}`,
 	})
 	var stdout, stderr bytes.Buffer
@@ -232,7 +239,7 @@ func TestFlowCheckerReportsDifferences(t *testing.T) {
 		"fail " + dir + " c_wrong_recording\n  /steps/m:b/args: (absent) != {}\n  /steps/m:b/ran: false != true\n  /steps/m:b/result: (absent) != 2\n  /steps/m:b/status: \"not_run\" != \"success\"\n",
 		"fail " + dir + " d_wrong_claim\n  /steps/m:b/status: \"not_run\" (want \"success\")\n",
 		`observed {"status":"success","result":"<job:m:a>",`,
-		"unsupported " + dir + " e_unsupported: the walking skeleton does not run it: engine: flow f/t/branch: module \"o\": branchone modules",
+		"unsupported " + dir + " e_unsupported: the engine does not run it yet: engine: flow f/t/branch: module \"o\": a branchone (N3b)",
 		"pass " + dir + " f_holds\n",
 		"pass " + dir + " g_same_job_path\n",
 		// A script that does not build fails only the runs of the flows
@@ -467,5 +474,58 @@ func TestCompactJSON(t *testing.T) {
 	const want = `{"status":"success","result":["<job:m:a>","a&b",">","\\u003c","\"q\"","\u00e9"]}`
 	if got := compactJSON(o); got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}
+
+// A codebase script that fails to build fails only the flows that reach it
+// (c2b review 3, finding 5): the codebase build writes the metadata and
+// assets of every script that built, so an unrelated flow whose codebase
+// script reads its asset still runs and passes. A script whose asset
+// collides with one an earlier script took fails its own flow.
+func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
+	bun := bunOrSkip(t)
+	dir := filepath.Join(t.TempDir(), "flows", "c2b", "isolation")
+	flow := func(script string) string {
+		return "summary: t\nvalue:\n  modules:\n    - id: a\n      value:\n        type: script\n        path: f/t/" + script +
+			"\n        input_transforms: {}\nschema: {type: object, properties: {}}\n"
+	}
+	meta := "summary: ''\ndescription: ''\nkind: script\nschema: {type: object, properties: {}}\n"
+	writeTree(t, dir, map[string]string{
+		"fixture.yaml": "id: c2b/isolation\nspec: [WR-47]\nscope: core\nprovenance: policy\nlanguages: [bun]\n",
+		"windmill/wmill.yaml": "defaultTs: bun\ncodebases:\n" +
+			"  - relative_path: f/t\n    includes: [\"f/t/good.ts\", \"f/t/bad.ts\"]\n    assets: [{from: f/t/a.txt, to: data/a.txt}]\n" +
+			"  - relative_path: f/t\n    includes: [\"f/t/other.ts\"]\n    assets: [{from: f/t/another.txt, to: data/a.txt}]\n",
+		"windmill/f/t/a.txt":                    "asset",
+		"windmill/f/t/another.txt":              "another asset",
+		"windmill/f/t/good.ts":                  "import { readFileSync } from \"node:fs\";\nexport function main() { return readFileSync(\"data/a.txt\", \"utf8\"); }\n",
+		"windmill/f/t/bad.ts":                   "import { x } from \"./missing\";\nexport function main() { return x; }\n",
+		"windmill/f/t/other.ts":                 "export function main() { return 2; }\n",
+		"windmill/f/t/good.script.yaml":         meta,
+		"windmill/f/t/bad.script.yaml":          meta,
+		"windmill/f/t/other.script.yaml":        meta,
+		"windmill/f/t/goodflow.flow/flow.yaml":  flow("good"),
+		"windmill/f/t/badflow.flow/flow.yaml":   flow("bad"),
+		"windmill/f/t/otherflow.flow/flow.yaml": flow("other"),
+		"runs/bad.yaml":                         "target: f/t/badflow\nexpect: {status: success, result: 0}\n",
+		"runs/other.yaml":                       "target: f/t/otherflow\nexpect:\n  status: success\n  result: 2\n  steps:\n    \"m:a\": {status: success, args: {}, result: 2}\n",
+		"runs/good.yaml":                        "target: f/t/goodflow\nexpect:\n  status: success\n  result: asset\n  steps:\n    \"m:a\": {status: success, args: {}, result: asset}\n",
+	})
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), dir}, &stdout, &stderr)
+	out := stdout.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\n%s%s", code, out, stderr.String())
+	}
+	for _, want := range []string{
+		"pass " + dir + " good\n",
+		"fail " + dir + " bad\n",
+		"build: script f/t/bad: bundle_failed: ",
+		"fail " + dir + " other\n",
+		"build: script f/t/other: asset_collision: ",
+		"1 passed, 2 failed, 0 unsupported (mode warm)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
 }

@@ -89,7 +89,7 @@ step without failing the others.
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation |
 | `log` | harness → engine | `id`, `lines` | attributed output, batched |
-| `warning` | harness → engine | `id`, `code` (`unattributed_error`), `message` | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3) |
+| `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`), `message`, `left` (for `left_behind`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); or what an invocation still had when it settled, sent just before the frame that settles it (item 4) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
@@ -178,10 +178,56 @@ microtask see none.
    attached as a warning to every run that had an invocation in flight in
    that process at that moment (D9), as a `warning` frame for each
    invocation then in flight.
-4. **Work after the result** (unawaited promises, timers, open handles)
-   keeps running; Windmill cuts it off at `process.exit`
-   ([WR-2](../semantics/languages.md#wr-2)). Its output and errors are
-   reported as `late` (D9).
+4. **Work after the result.** Windmill cuts it off at `process.exit`
+   ([WR-2](../semantics/languages.md#wr-2)). A warm process cannot exit,
+   so it fences each invocation when the invocation settles (D9):
+   - Its pending `setTimeout`, `setInterval` and `setImmediate` handles,
+     on `globalThis` and on `node:timers`, are cleared. A timeout that
+     fired and was re-armed with `refresh()` is pending again, and still
+     the invocation's.
+   - Its requests in flight through the `fetch` view are aborted with an
+     `AbortError`. A request is in flight until there is positive evidence
+     that its body's transfer has ended, since the body may still be
+     arriving after the headers. The one evidence is a reading method
+     (`text`, `json` and the rest) of the response, or of a clone made
+     while the body was unused, that consumed the body (it was unused when
+     called) and fulfilled: such a read fulfils only once the source has
+     reached its end. No stream, reader or pipe event, no rejection and no
+     cancellation counts, since each can come from one consumer while the
+     source still feeds another. A body read any other way, whose read
+     fails, or that is never read, stays counted until settlement: the
+     count may be too high, never too low, and settlement's abort changes
+     nothing for a body that has arrived. The step gets Bun's own
+     response; only its reading methods and `clone` are own properties
+     calling the native ones, so its body, stream, readers and pipes, and
+     their locking, `bodyUsed`, `clone`, `tee` and validation, are Bun's.
+     A response with no body (a 204, 205 or 304, or the answer to `HEAD`)
+     ends it at once.
+   - Its later log writes are dropped, and its later platform calls are
+     refused with a `TypeError`.
+   - A handle that its queued code creates after settlement is cleared at
+     once.
+
+   Just before the frame that settles the invocation, a `warning` with
+   code `left_behind` reports what the fence is about to revoke. Its
+   `left` field counts each kind: `timeout`, `interval`, `immediate`,
+   `fetch`, and `child` for a child process still running, which is left
+   to run. The warning is sent in `fresh` mode too, where the exit then
+   cuts the work off, so a script that leaves work behind is flagged in
+   both modes. The counts come from the invocation's own registry, since
+   Bun 1.3.10's `process._getActiveHandles()` lists nothing.
+
+   The fence does not reach:
+   - promise continuations already queued, `Bun.sleep` and
+     `node:timers/promises` waits included (what they do through the
+     fenced channels is refused);
+   - sockets and clients the step opened itself, and shared objects;
+   - child processes;
+   - CPU work.
+
+   Their errors are reported as `late` (D9). Work started in a process
+   scope, or while a step module evaluates (item 2 of the lifecycle),
+   belongs to no invocation and is never fenced.
 5. **Working directory.** Each harness process the engine spawns gets one
    private directory, created at spawn, as its working directory for all
    invocations ([WR-1](../semantics/languages.md#wr-1) gives each job its
@@ -197,15 +243,41 @@ microtask see none.
    `catch` can swallow the sentinel and keep going; whatever the code does
    afterwards is reported as `late` (D11).
 7. **Child processes and other output paths.** The harness wraps
-   `child_process.spawn`, `exec`, `execFile` (and their sync forms) and
-   `Bun.spawn`/`Bun.spawnSync` so that a child started without an explicit
-   environment receives the invocation's view, not the process environment.
-   Output written through `Bun.stdout`, a raw file descriptor or a child's
-   inherited stdio is not attributed: it reaches the process log, not the
-   invocation's log tail.
-8. **`fresh` mode** restores Windmill's behaviour for all of the above: one
-   process per invocation, its own working directory, and the process ends
-   with the invocation ([0006](0006-module-state.md)).
+   `child_process.spawn`, `exec`, `execFile` and `fork` (and the sync
+   forms) and `Bun.spawn`/`Bun.spawnSync`, so that a child started without
+   an explicit environment receives the invocation's view, not the process
+   environment. On Bun 1.3.10, `spawnSync`, `execSync` and `Bun.spawn`
+   would otherwise pass the process's own environment, since they read
+   neither `process.env` nor its view. Output written through
+   `Bun.stdout`, a raw file descriptor or a child's inherited stdio is not
+   attributed: it reaches the process log, not the invocation's log tail.
+   The wrappers, like the timer fence's, replace the functions on the
+   builtins' CommonJS objects before any step module loads. On Bun 1.3.10
+   the first named import of a builtin fixes its named bindings for every
+   later importer, so the host SDK reaches `node:child_process` through
+   `require`. A host whose own modules import `node:child_process` or
+   `node:timers` by name before it connects leaves steps' named imports of
+   them unwrapped; default imports and `require` always see the wrappers.
+8. **`fresh` mode** restores Windmill's behaviour for all of the above:
+   - **One process per invocation**, in its own working directory. The
+     engine starts the process for the invocation, and the process offers
+     the `fresh` capability and refuses a second `invoke`.
+   - **Exit after the result.** The process exits as soon as its result
+     frame has been written to the socket, however large, as the wrapper
+     exits after writing `result.json`.
+   - **No handlers, no interception.** An uncaught error or an unhandled
+     rejection ends it with exit code 1, and `process.exit` ends it with
+     its code, at the call: the harness writes the invocation's log, and
+     whatever else it had queued, straight to its socket, waiting for the
+     socket if it is full, and then exits, so no `catch` or `finally`
+     block of the step runs. An exit 0 before any result is
+     [WR-V2](../semantics/languages.md#wr-v2)'s empty result.
+   - **Killed, not abandoned.** The engine kills it on timeout or
+     cancellation, so the invocation settles with the process and reports
+     nothing late.
+   - **No watchdog.**
+
+   See [0006](0006-module-state.md).
 
 Each of D9, D10 and D11 has a case that runs in `warm` and in `fresh` and
 expects the two to differ as stated.
@@ -241,13 +313,22 @@ step, never releases them.
   dependency or a host's own module, is therefore covered too; the build's
   define rewrite ([0010](0010-packaging.md)) stays.
 - `console.*`, `process.stdout.write` and `process.stderr.write` are
-  attributed to the current invocation. Lines are merged, empty lines
+  attributed to the current invocation. A console call is formatted by a
+  Console of the invocation's own (Node's, without colours), so its
+  counters, timers and groups are its own. Lines are merged, empty lines
   dropped ([WR-23](../semantics/languages.md#wr-23)), batched into `log`
-  frames, and the last 600 characters are kept for the WR-20 tail.
-- `globalThis.fetch` is wrapped before any plugin or step module loads:
-  requests to the facade origin become `platform` frames attributed to the
-  invocation; all other requests pass through unchanged. Host plugins that
-  wrap `fetch` themselves wrap this one, so facade requests pass through the
+  frames that go out before any other frame about the invocation, and the
+  last 600 characters are kept for the WR-20 tail. An escaped outcome's
+  tail is the invocation's log, ending with the error the process would
+  have printed on its way out. Once the invocation has settled, its writes
+  are dropped (failure model item 4). Outside every invocation, writes
+  reach the process's own streams, as do the harness's diagnostics.
+- `globalThis.fetch` is wrapped before any plugin or step module loads.
+  Requests to the facade origin become `platform` frames attributed to the
+  invocation; one made after the invocation settled is refused. Every other
+  request passes through, with a signal of the fence's added to its own, so
+  that the invocation's settlement aborts it. Host plugins that wrap
+  `fetch` themselves wrap this one, so facade requests pass through the
   plugin's wrapper first and must be passed on.
 - **Platform transports.** In `warm` and host-mode processes, `fetch` is the
   only way to reach the platform. The facade origin in `BASE_URL` is a
@@ -295,11 +376,20 @@ sequenceDiagram
    runtime pin or bundle digest differs from the bundle manifest
    ([0010](0010-packaging.md)).
 2. **Loading.** In `warm` mode a script's module is evaluated on its first
-   invocation, inside that invocation's context, so top-level code sees a job
-   environment as it would in Windmill ([WR-2](../semantics/languages.md#wr-2)).
-   Host-provided modules are registered before that
-   ([0010](0010-packaging.md)). A host may ask for eager loading to move the
-   cost off the first run. [0006](0006-module-state.md) covers the modes.
+   invocation, inside that invocation's context, so top-level code sees a
+   job environment as it would in Windmill
+   ([WR-2](../semantics/languages.md#wr-2)). Its logs are that invocation's
+   too, and a throw fails it. What the evaluation starts (timers,
+   requests, children) is the module's, not the invocation's: it is not
+   fenced or reported when the invocation settles. Module state outlives
+   invocations in `warm` mode (D1), and a client a module makes at load
+   keeps its maintenance timers that way. Once the loading invocation has
+   settled, what that work writes goes to the process's own streams and it
+   cannot reach the platform, as with work in a process scope; its errors
+   are still attributed to the loading invocation, as `late`. Host-provided modules are
+   registered before that ([0010](0010-packaging.md)). A host may ask for
+   eager loading to move the cost off the first run.
+   [0006](0006-module-state.md) covers the modes.
 3. **Serving.** A process serves any number of concurrent invocations,
    unless the host sets a cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
@@ -584,11 +674,46 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     top-level function declaration, exported or not, beside every export's
     ([0002](0002-ir-and-loader.md)), so an entrypoint whose declaration
     does not parse fails before its module loads even when the module does
-    not export it ([WR-7](../semantics/languages.md#wr-7)).
+    not export it ([WR-7](../semantics/languages.md#wr-7)). A codebase
+    script's callable export that its metadata does not sign (CommonJS
+    source has no static export list) is called with an empty parameter
+    list, as Windmill's parser gives a function it does not find in the
+    script's content (milestone C2b; [0010](0010-packaging.md)).
   - **Results above `max_message`** stay a protocol refusal (an `escaped`
     outcome whose tail says so). Windmill's size limits are applied at
     completion ([WR-15](../semantics/languages.md#wr-15), `later`), by the
     engine, not by the harness.
+
+- Milestone C3b added the settle-time fence, per-invocation logs,
+  child-process wrapping and `fresh` mode, and fixed what they left open:
+  - **The fence** (failure model item 4) narrows D9 as the anchor decided
+    on 2026-10-28. It never touches sockets or shared objects, so a client
+    kept in module state keeps working; connections are a pooled layer's,
+    made in its captured process scope.
+  - **`left_behind`**, a new warning code with a `left` field, reports
+    what an invocation still had when it settled.
+  - **Step-module evaluation** runs in the loading invocation's context
+    but outside its fence (lifecycle item 2). The alternative, running it
+    in a process scope, was weighed and rejected: the stock client reads
+    its configuration at import
+    ([WA-1](../semantics/client-api.md#wa-1)), top-level logs belong to
+    the job, and a top-level throw must fail it. Fencing what evaluation
+    starts was rejected too: it would clear the maintenance timers of
+    every client a module makes at load after the first run, which is the
+    breakage the owner's correction of the fence forbids.
+  - **The environment view** keeps a step's `Bun.env.X = …` write of a
+    variable the process lacks in the invocation's copy (a `set` trap on
+    the prototype). A delete through `Bun.env`, and a write of an
+    unshadowed process variable, still reach the process: an ordinary
+    object cannot trap them. Enumerating `Bun.env` lists the process's
+    variables; `process.env`, which the build's define rewrite puts in its
+    place, and a child's environment list the invocation's.
+  - **`fresh` mode** (failure model item 8). The engine treats the exit 0
+    of a fresh process before any result as
+    [WR-V2](../semantics/languages.md#wr-v2)'s empty result, and kills a
+    fresh process whose invocation it stops waiting for. Case
+    `watchdog/finite-cpu` holds in `fresh` and `warm`
+    (`TestBunWatchdogFiniteCPU`).
 
 ## Spec IDs relied on
 

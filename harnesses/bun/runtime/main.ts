@@ -6,9 +6,10 @@
 // which carries every protocol frame (ADR 0004); stdout and stderr stay
 // free for output no invocation owns.
 
+import { writeSync } from "node:fs";
 import { join } from "node:path";
 import { exitProcess } from "./context.ts";
-import { registerHostModules, Runtime } from "./runtime.ts";
+import { extractAssets, registerHostModules, Runtime } from "./runtime.ts";
 
 const EXIT_STARTUP = 4;
 
@@ -48,6 +49,21 @@ const runtime = new Runtime({
   bundleDigest,
   transport: {
     write: (b) => socket!.write(b),
+    // A fresh process ends synchronously once its last frames are on the
+    // socket: they go straight to file descriptor 3, which the socket
+    // shares, after what the socket already took (a Bun socket keeps no
+    // buffer of its own). A socket that is full is waited for.
+    writeSync: (b) => {
+      const deadline = Date.now() + 30_000;
+      for (let off = 0; off < b.length; ) {
+        try {
+          off += writeSync(3, b, off, b.length - off);
+        } catch (e) {
+          if ((e as { code?: string }).code !== "EAGAIN" || Date.now() > deadline) throw e;
+          Bun.sleepSync(1);
+        }
+      }
+    },
     end: () => {
       socket!.flush();
       socket!.end();
@@ -62,6 +78,14 @@ const runtime = new Runtime({
     Promise.race([closed, Bun.sleep(1000)]).then(() => exitProcess(code));
   },
 });
+
+// The bundle's codebase assets are extracted into the working directory
+// before any module loads (WR-50, D10).
+try {
+  extractAssets(bundleDir, process.cwd());
+} catch (e) {
+  fail(`cannot extract the bundle's assets: ${(e as Error).message}`);
+}
 
 // The bundle's copies of its host-provided modules are registered before
 // any step loads, so each shim finds its module (D12), and before the

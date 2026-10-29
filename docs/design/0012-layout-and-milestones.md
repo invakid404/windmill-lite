@@ -184,6 +184,13 @@ waits on an external gate except R1.
   [0003](0003-semantics-placement.md) that milestone C3a gave its format
   and its runner, `wltest check`; C3a runs them in `warm`, and C3b adds
   `fresh`.
+- C2b placed codebase bundling in `internal/bundle` (`BuildCodebase`,
+  esbuild through its Go API) beside the Bun build, and gave the step
+  cases a `codebase` field and a per-run `node` check: `wltest check` runs
+  each CommonJS codebase bundle on Node as well, which is how its D13
+  cases compare Node against Bun. Its CLI parity check runs the pinned CLI
+  in a workflow of its own, `parity.yml`, which branch protection does not
+  require; the fallback runs in the Go jobs.
 - F4 added `windmill-lite selfcheck`, which starts the expression engine and
   runs a few probes, to the CLI: it is how its exit gate starts the static
   Linux engine on an empty base ([0010](0010-packaging.md), drift guard 5).
@@ -201,10 +208,38 @@ waits on an external gate except R1.
   milestone adds itself there, and a required run stays required. A run the
   engine cannot run yet is reported as unsupported and never compared.
   `flows/languages/codebase` is the codebase-script fixture that C2b drops
-  its esbuild bundles into: until then `wltest check` builds codebase
-  scripts with the Bun build helper as ordinary Bun scripts. The `diff`
+  its esbuild bundles into: E1 built codebase scripts with the Bun build
+  helper as ordinary Bun scripts, and since C2b `wltest check` builds them
+  with esbuild (`bundle.BuildCodebase`), the CommonJS one running on Bun's
+  CommonJS loader (D13). The `diff`
   verb of [0011](0011-differential-testing.md) is in no milestone's row,
   and E1 left it out.
+- N1a's engine core runs a compiled program (`engine.New`, `Engine.Run`
+  on an `ir.Program`); the compiler runs every expression's textual stages,
+  and the engine compiles their bytecode when it opens the program. W1's
+  skeleton became a loader of its own test layout over that engine, which
+  `windmill-lite host` serves until F3a. The engine refuses at open, with
+  the milestone's name, what later milestones implement. The "sequential,
+  context-free subset of E3a" in N1a's row is read as both of E3a's kinds
+  of case: its flow fixtures whose flows use only the features the row
+  lists, and its context-free expression cases end to end, which
+  `wltest check` runs as the one-step flows `wltest record` lifts them
+  into and compares with their recordings (B2a's row asks for the same
+  fixtures "end to end in N1a's gate"); `flowsuite.json` keys such a run
+  `<file>/<case>`. Nine of the 69 expression cases are not required: the
+  four transcendental `Math` cases of JE-1 can differ in their last digit
+  with the C library (D16), on either CI runner (pow-roots on the Linux
+  runner's glibc, hyperbolic and trig on macOS), and JE-48/a by D17, as at
+  unit level, where B2b holds them; JE-2/a recorded
+  the oracle's own cancellation of a hanging flow; JE-11/a reads a
+  variable (PF2); and JE-24/b and /d fail the root at its first pickup,
+  whose recorded messages carry Rust locations that ADR 0011's location
+  rule does not strip yet, which is N1b's, with the chaining errors and
+  JE-35/b. The flow runner decides per run whether
+  a run needs the platform providers (PF2): its flow names a variable or
+  resource of the fixture's `setup.yaml`, or reads the platform through a
+  helper or a `$var:`-style reference; the fixture's other runs are
+  checked.
 
 - E3e, the last recording batch, holds what the earlier batches left to it
   and the contested `later` rows of [0001](0001-equivalence-contract.md)

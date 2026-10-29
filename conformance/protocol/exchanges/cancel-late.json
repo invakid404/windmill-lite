@@ -20,7 +20,7 @@
         "caps": {
           "fetch": true,
           "native": false,
-          "fresh": false,
+          "fresh": true,
           "host": false
         },
         "bundle": "<bundle>",

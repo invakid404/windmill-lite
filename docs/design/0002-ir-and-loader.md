@@ -342,7 +342,12 @@ Decisions:
    for the same fixture must match them after normalising paths. If the CLI
    needs more of a server than a stub can answer, the check compares the
    esbuild settings and the semantics request's answer instead, and says so
-   in the case.
+   in the case. Milestone C2b found that a stub suffices: `wmill script
+   push` asks for the user, the deployed script (a 404 makes it new) and one
+   multipart `create_snapshot`; the uploaded bundles equal windmill-lite's,
+   with no path to normalise, once a text upload's CRLF line breaks (the
+   form-data encoding's) are read as LF. The settings comparison runs too,
+   as the fallback where the CLI does not (`TestCLIOptionsFollowWR47`).
 
 Loader divergences from the CLI, each labelled in the loader's diagnostics:
 reject a script file with a dot before its script extension, and always use
@@ -403,7 +408,10 @@ only hand-written files.
   refused every hash pin, since rule 6 cannot be decided from a folder; and
   fixed the host contract's provided sites to mandatory call sites that
   match one module everywhere. Its expressions hold their site and text;
-  the textual pipeline of milestone B2a fills in the rest.
+  the textual pipeline of milestone B2a fills in the rest. Milestone N1a
+  made the compiler call it: every `Expr` of a program is compiled
+  (`ir.Version` 2), and the engine compiles each one's bytecode when it
+  opens the program.
 - Milestone F4's build applies rule 5 (`missing_lock`, for a script whose
   own source imports a package and that has no lock or a blank one) and the
   workflow-as-code refusal, from the Bun helper's scans; the relative-import

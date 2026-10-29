@@ -1,7 +1,13 @@
-// Returns "done" and throws from a timer ms later, after the result.
+// Returns "done" and throws ms later, after the result, from work the
+// settle-time fence cannot stop: a continuation of a promise-based wait
+// (Bun.sleep), which keeps the invocation's context. It throws from a
+// process.nextTick callback, whose throw keeps that context too, so the
+// error is attributed to the settled invocation (D9).
 export function main(ms) {
-  setTimeout(() => {
-    throw new Error("after the result");
-  }, ms ?? 10);
+  Bun.sleep(ms ?? 10).then(() =>
+    process.nextTick(() => {
+      throw new Error("after the result");
+    }),
+  );
   return "done";
 }

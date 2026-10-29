@@ -1,6 +1,8 @@
-# The host contract of the build fixture: one flow, one script a host
-# dispatches by path, and one host-provided module (ADR 0010, D12).
+# The host contract of the build fixture: one flow, two scripts a host
+# dispatches by path (one of them a codebase script), and one
+# host-provided module (ADR 0010, D12).
 roots:
   - flow: f/app/main
   - script: f/app/report
+  - script: f/cb/stamp
 host_modules: [f/shared/ctx.ts]

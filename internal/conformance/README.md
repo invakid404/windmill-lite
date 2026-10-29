@@ -23,7 +23,7 @@ fixtures on windmill-lite.
 | `observation.go` | `Observation`, `StepObservation`, `BranchChosen` and `Response`: the normalised observation of [OR-15](../../docs/semantics/oracle.md#or-15), plus the module status, carried value and resolved arguments, and a run-and-wait run's HTTP response (see below) |
 | `fixture.go` | `Fixture`, `Run`, `Setup`, `Recording`: the flow-fixture format of [OR-15](../../docs/semantics/oracle.md#or-15), with `LoadFixture`, `FindFixtures` and `WriteRecording` (see [Fixtures](#fixtures)) |
 | `exprcase.go` | `ExprFile`, `ExprCase`, `ExprExpect`: the expression level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadExprFile`, `FindExprFiles` and `LiftExprFile` (see [Expression cases](#expression-cases)) |
-| `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred` and `CompareStep` (see [Step cases](#step-cases)) |
+| `stepcase.go` | `StepFile`, `StepCase`, `StepRun`, `StepCheck`, `StepLate`: the step level of [ADR 0003](../../docs/design/0003-semantics-placement.md), with `LoadStepFile`, `FindStepFiles`, `LoadStepDeferred`, `CompareStep` and `CompareStepNode` (see [Step cases](#step-cases)) |
 | `claims.go` | `Claim`, `CheckClaims`, `Delay`, `ValueAt`, `SameJSON`: partial assertions about an observation |
 | `unit.go` | `UnitCase`, `UnitContext`, `MessageMatch`: a flow fixture's expressions restated at unit level |
 | `compare.go` | `Compare`, `CompareOptions`, `Difference`: the comparator; JSON Pointer helpers; `IndentJSON` |
@@ -221,8 +221,12 @@ read from and written to `conformance/exprs/recorded/<finding>/`.
 strictly: unknown keys are refused, as is a file not named after its
 finding, a case whose spec cites a finding without a variant, a run that
 checks nothing, a `by_mode` without both `warm` and `fresh` or without the
-case's `deviation`, and two cases of one file that give one path two
-sources (a file's scripts share one bundle). Only `bun` has a language
+case's `deviation`, a `left` without `left_behind` among its `warnings` or
+with a count below 1, a `codebase` that is not a mapping, `files` without
+`codebase` or with a path that leaves the sync root, a `node` check on a
+case that is not a CommonJS codebase script or that gives more than
+`expect` and `claims`, and two cases of one file that give one path two
+sources (a file's scripts and files share one bundle). Only `bun` has a language
 directory. `FindStepFiles` finds the files below its roots, `deferred.yaml`
 aside, and `IsStepFile` tells one by its path. The format is described in
 [conformance](../../conformance/README.md#step-cases).
@@ -233,8 +237,12 @@ the case's own `stack` and `mask` pointers on both sides, and
 `/result/error/stack` (`DefaultStepStack`) on a side whose status is
 `failure`, since a successful result is data, compares with `Compare` and the case's
 `unordered` and `strict_key_order`, and checks the claims. A run's `late`,
-`settled` and `warnings` are the runner's to check, since only it sees the
-invocation's Reporter.
+`settled`, `warnings` and `left` are the runner's to check, since only it
+sees the invocation's Reporter. `CommonJS` tells a codebase case built as CommonJS
+(its entry's `format` is not `esm`, WR-47), which also runs on Node (D13);
+`CompareStepNode` compares what Node showed with the run's `node` check,
+or with its own `expect` and `claims` when the two runtimes agree, as
+`CompareStepCheck` does for any check.
 
 ## Claims
 

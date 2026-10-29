@@ -21,7 +21,7 @@
         "caps": {
           "fetch": true,
           "native": false,
-          "fresh": false,
+          "fresh": true,
           "host": false
         },
         "bundle": "<bundle>",
@@ -58,6 +58,13 @@
     },
     {
       "expect": {
+        "t": "log",
+        "id": "i1",
+        "lines": "<any>"
+      }
+    },
+    {
+      "expect": {
         "t": "result",
         "id": "i1",
         "outcome": "escaped",
@@ -83,6 +90,13 @@
     },
     {
       "expect": {
+        "t": "log",
+        "id": "i2",
+        "lines": "<any>"
+      }
+    },
+    {
+      "expect": {
         "t": "result",
         "id": "i2",
         "outcome": "escaped",
@@ -104,6 +118,13 @@
           "WM_FLOW_STEP_ID": "a"
         },
         "boundary": "bun"
+      }
+    },
+    {
+      "expect": {
+        "t": "log",
+        "id": "i3",
+        "lines": "<any>"
       }
     },
     {
