@@ -1096,8 +1096,11 @@ it has none. `windmill-lite host` serves it until F3a moves host mode onto
 modules written by hand, each with the `.meta.json` signature the build
 helper would record (the harness binds arguments by it), among them
 `scope_shim.mjs`, which reads the host-provided module `f/w1/scopes.ts`
-through a hand-written shim, and `scope_copy.mjs`, which bundles its own
-copy of it.
+through a hand-written shim, `scope_copy.mjs`, which bundles its own
+copy of it, and `stall.mjs` (flow `f/w1/stall`), which backs up a host's
+socket with a large log, starts a child and blocks the event loop, for
+the host-mode test of WR-55's child groups in `cmd/windmill-lite`
+(milestone FU6).
 
 `skeleton_test.go` checks the loader and the interpreter through it with a
 fake executor and the real QuickJS-ng engine: transforms (JE-6's verbatim
