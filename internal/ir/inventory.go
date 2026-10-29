@@ -1,11 +1,13 @@
 package ir
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
@@ -150,8 +152,9 @@ func (c *compiler) pathScript(s *syncfolder.Script, flow, step string) *Script {
 			CustomBundler json.RawMessage `json:"customBundler"`
 		}
 		_ = json.Unmarshal(cb.Settings, &settings)
-		if b := string(settings.CustomBundler); b != "" && b != "null" && b != `""` {
-			// The reference does not cover customBundler yet (WR-48), so
+		if truthy(settings.CustomBundler) {
+			// A set customBundler runs a shell command whose output is the
+			// bundle (WR-48, later), which windmill-lite does not do, so
 			// it is refused (0001 §5a).
 			c.fail(&Error{Kind: ErrUnsupported, Flow: flow, Step: step, Script: s.Path, Selector: -1,
 				Msg: "unsupported: customBundler (codebase entry " + fmt.Sprint(cb.Index) + ")"})
@@ -294,6 +297,37 @@ func hasFlag(fs []string, f string) bool {
 		}
 	}
 	return false
+}
+
+// truthy reports whether a wmill.yaml value is JavaScript-truthy, the test
+// the CLI applies to a codebase entry's customBundler (WR-48): absent,
+// null, false, 0 and "" are not; any other value is, "0", "false", an empty
+// array and an empty object included.
+func truthy(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil {
+		// Settings are JSON the sync-folder loader wrote; anything else
+		// counts as set, so that it is refused rather than ignored.
+		return true
+	}
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case json.Number:
+		// As JavaScript reads it: 1e-400 is 0, 1e400 is Infinity.
+		f, _ := strconv.ParseFloat(string(x), 64)
+		return f != 0
+	case string:
+		return x != ""
+	}
+	return true
 }
 
 func languageError(l openflow.Language, flow, step, script string) *Error {

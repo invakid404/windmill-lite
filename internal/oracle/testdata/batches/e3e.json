@@ -81,7 +81,7 @@
     {
       "case": "WR-50/c",
       "milestone": "C3n",
-      "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no observation exists; C3n checks the native runtime from the reference's native cases"
+      "reason": "on the oracle a //native codebase script's job never completed: canceled after 20 s, the run was still not complete after two minutes, in two sessions (oracle runs 40794872025, 40798097155), so no observation exists; windmill-lite follows the reference: C3n's step case (conformance/steps/bun/wr-50.yaml, WR-50/c and its control) and FU5's flow-level check (cmd/wltest TestNativeCodebaseFlowStep) run the //native ESM codebase script in the native runtime"
     },
     {
       "case": "WR-49/c",

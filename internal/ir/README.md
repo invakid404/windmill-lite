@@ -211,7 +211,7 @@ sites.
 | `Kind` | When |
 |---|---|
 | `load` | the folder cannot supply an item the closure reaches, or it fails to read: the wrapped `*syncfolder.Error` says which (`not_in_folder`, `filtered`, `hub_path`, `invalid_flow`, …, [SY-15](../../docs/semantics/openflow.md#sy-15)); an inline step's files (`missing_inline_file`, `invalid_text`, `path_escape`) fail that step |
-| `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler`, and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a) |
+| `unsupported_feature` | `unsupported: <feature>` for `suspend` ([FX-39](../../docs/semantics/execution.md#fx-39)), `aiagent`, `flowscript` (the lite form's internal reference, which a folder cannot hold), a codebase entry's `customBundler` when it is set (JavaScript-truthy, [WR-48](../../docs/semantics/languages.md#wr-48)), and a `schema_validation` annotation ([0001](../../docs/design/0001-equivalence-contract.md) §3, §5a) |
 | `unsupported_language` | a leaf whose language has no harness in this release |
 | `pinned_hash` | a `script` step with a `hash` ([OF-14](../../docs/semantics/openflow.md#of-14)): a folder never records the hash Windmill gave its version, so no pin can be shown to be the folder's |
 | `absent_skip_flag` | under `Strict`, an absent or null for-loop `skip_failures` or branchall branch `skip_failure` |
@@ -228,9 +228,9 @@ and last the provided sites that matched no site or more than one.
 A5 took each as the smallest reading consistent with the reference and the
 design, which did not settle them then. The reference's revision of
 2026-10-28 settles most of them: it states the first three, and it differs
-from the compiler's readings of `schema_validation` and `customBundler`,
-which the compiler still takes. It differed on the import base too, which
-the compiler now follows.
+from the compiler's readings of `schema_validation` and `customBundler`.
+The compiler still takes the first; it now follows the reference on
+`customBundler` (milestone FU5) and on the import base.
 
 - **Collapse in the preprocessor's bodies.** A deploy does not reduce the
   preprocessor module to stored nodes
@@ -257,9 +257,11 @@ the compiler now follows.
   [WR-54](../../docs/semantics/languages.md#wr-54) now differs: the line has
   its own test, which needs exactly `// schema_validation` (for TypeScript)
   and stops at a blank line.
-- **`customBundler`** counts when it is set to anything but null or `""`.
-  [WR-48](../../docs/semantics/languages.md#wr-48) now differs: `false` and
-  `0` mean unset as well.
+- **`customBundler`** counts as set when it is JavaScript-truthy, as
+  [WR-48](../../docs/semantics/languages.md#wr-48) says: absent, null,
+  `false`, `0` and `""` leave the entry to esbuild, and any other value,
+  `"0"` and `true` included, is refused. A5 refused `false` and `0` too
+  (`conformance/ir/wr-48.json`, `conformance/build/wr-48.json`).
 - **A pinned `hash`** is refused whatever its value (above). On Windmill a
   pin that names no version deploys and fails at run time
   ([OF-14](../../docs/semantics/openflow.md#of-14)/f).

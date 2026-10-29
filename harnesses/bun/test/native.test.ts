@@ -5,6 +5,9 @@
 // pin the parts it cannot reach, such as the fetch user agent (WR-45/g).
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import vm from "node:vm";
 import { nativeHeader, nativeModule, transpile } from "../build/native.ts";
 import { type InvocationContext, InvocationResources, invocations } from "../runtime/context.ts";
@@ -590,5 +593,47 @@ describe("a native realm", () => {
     const odd = new j.g.Error("x");
     odd.message = 7;
     expect(shape(odd)).toMatchObject({ message: null, name: null });
+  });
+});
+
+describe("the errors the harness generates", () => {
+  // The worker's errors before the module loads (a transpile error, a
+  // signature that did not parse, //proxy on CE) and a load failure are
+  // written by the harness in place of the worker's, so run marks them
+  // generated and the result frame names the harness as their origin (WR-43,
+  // WR-45, ADR 0004, D14); a script's own exception is not. The load
+  // failure's mark is checked end to end in cmd/wltest
+  // (TestNativeGeneratedErrorsAreGenerated).
+  const form: NativeForm = { kind: "nativets", param: "P", preamble_at: 0, imports: [], links: [] };
+  const run = async (bundleDir: string, meta: unknown) => {
+    const native = new Native({ bundleDir, baseURL: () => "http://127.0.0.1:9", onError: () => {}, onUntracked: () => {} });
+    native.capture();
+    const resources = new InvocationResources();
+    const ctx: InvocationContext = { id: "i", run: "r", env: {}, signal: new AbortController().signal, resources };
+    const inv = { id: "i", script: "s", entry: "main", args: {}, env: {}, resources };
+    return invocations.run(ctx, () => native.run(inv, meta, ctx, "a"));
+  };
+
+  test("the worker's errors before the module loads are generated", async () => {
+    const generated = (message: string) => ({ error: JSON.stringify({ message: `execution error:\n${message}`, name: "ExecutionErr", step_id: "a" }), generated: true });
+    expect(await run("/nonexistent", { native: { ...form, transpile_error: "Expected identifier" } })).toEqual(generated("Error: Expected identifier"));
+    expect(await run("/nonexistent", { native: form, signatures: { main: { error: "parameter syntax unsupported: a rest parameter" } } })).toEqual(
+      generated("parameter syntax unsupported: a rest parameter"),
+    );
+    expect(await run("/nonexistent", { native: { ...form, proxy: "http://127.0.0.1:3128" } })).toEqual(generated("Proxy is an EE feature"));
+  });
+
+  test("a script's own exception is not", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wl-native-"));
+    try {
+      const m = nativeModule('export function main() { throw new Error("mine"); }\n', "nativets");
+      mkdirSync(join(dir, "scripts", "bun"), { recursive: true });
+      writeFileSync(join(dir, "scripts", "bun", "s.native.js"), m.text);
+      const r = (await run(dir, { native: m.form, signatures: { main: { params: [] } } })) as { error: string; generated?: true };
+      expect(r.generated).toBeUndefined();
+      expect(JSON.parse(r.error)).toMatchObject({ message: "mine", name: "Error" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

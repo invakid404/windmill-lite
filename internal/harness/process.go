@@ -1232,7 +1232,11 @@ func stepOutcome(r Result) engine.StepOutcome {
 	case OutcomeOK:
 		return engine.StepOutcome{Kind: engine.OutcomeOK, Body: r.Body}
 	case OutcomeError:
-		return engine.StepOutcome{Kind: engine.OutcomeError, Body: r.Body}
+		out := engine.StepOutcome{Kind: engine.OutcomeError, Body: r.Body}
+		if r.Origin == OriginHarness {
+			out.Origin = engine.OriginHarness
+		}
+		return out
 	case OutcomeEscaped:
 		return engine.StepOutcome{Kind: engine.OutcomeEscaped, Tail: r.Tail, ExitCode: r.ExitCode}
 	default:

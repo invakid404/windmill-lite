@@ -10,6 +10,8 @@ import (
 	"os"
 	"slices"
 	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files in conformance/protocol from this run")
@@ -306,5 +308,26 @@ func TestFrameCaseCodesAreKnown(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("no reject cases")
+	}
+}
+
+// Only an error result names an origin, and only the harness (ADR 0004,
+// FU5): Encode refuses any other, so the engine never writes a frame the
+// harness would reject.
+func TestEncodeRefusesAMisplacedOrigin(t *testing.T) {
+	body := jsonval.FromProducer([]byte(`{"message":"m"}`))
+	for _, r := range []Result{
+		{ID: "i1", Outcome: OutcomeOK, Body: body, Origin: OriginHarness},
+		{ID: "i1", Outcome: OutcomeEscaped, Origin: OriginHarness},
+		{ID: "i1", Outcome: OutcomeEmpty, Origin: OriginHarness},
+		{ID: "i1", Outcome: OutcomeError, Body: body, Origin: "user"},
+	} {
+		var pe *ProtocolError
+		if _, err := Encode(r); !errors.As(err, &pe) || pe.Code != CodeBadField {
+			t.Errorf("Encode(%+v) = %v, want %s", r, err, CodeBadField)
+		}
+	}
+	if _, err := Encode(Result{ID: "i1", Outcome: OutcomeError, Body: body, Origin: OriginHarness}); err != nil {
+		t.Errorf("an error result from the harness: %v", err)
 	}
 }
