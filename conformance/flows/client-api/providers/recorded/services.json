@@ -1,0 +1,274 @@
+{
+  "observation": {
+    "status": "success",
+    "result": {
+      "db": {
+        "type": "application/json",
+        "value": {
+          "host": "h",
+          "nested": {
+            "r": {
+              "root": "$WM_ROOT_JOB_ID"
+            }
+          },
+          "password": "pw-value"
+        },
+        "status": 200
+      },
+      "raw": {
+        "type": "application/json",
+        "value": {
+          "host": "h",
+          "nested": {
+            "r": "$res:f/wl_pf2_prov/context"
+          },
+          "password": "$var:f/wl_pf2_prov/pw"
+        },
+        "status": 200
+      },
+      "args": {
+        "n": 1,
+        "db": {
+          "host": "h",
+          "nested": {
+            "r": {
+              "root": ""
+            }
+          },
+          "password": "pw-value"
+        },
+        "ctx": {
+          "root": ""
+        },
+        "names": [
+          "<job:>",
+          "s3cr3t"
+        ],
+        "plain": "$WM_WORKSPACE"
+      },
+      "deep": {
+        "type": "text/plain",
+        "status": 500,
+        "internal": true
+      },
+      "outer": {
+        "type": "text/plain",
+        "status": 404,
+        "located": true
+      },
+      "exists": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "secret": {
+        "type": "application/json",
+        "value": "pw-value",
+        "status": 200
+      },
+      "context": {
+        "type": "application/json",
+        "value": {
+          "root": "$WM_ROOT_JOB_ID"
+        },
+        "status": 200
+      },
+      "missing": {
+        "text": "Not found: Resource f/wl_pf2_prov/none not found",
+        "type": "text/plain",
+        "status": 404
+      },
+      "root_env": "<job:>",
+      "terminal": {
+        "type": "application/json",
+        "value": {
+          "f": {
+            "n": 1000,
+            "x": "$var:f/wl_pf2_prov/v"
+          }
+        },
+        "status": 200
+      },
+      "variable": {
+        "type": "application/json",
+        "value": "s3cr3t",
+        "status": 200
+      },
+      "var_prefixed": {
+        "text": "Not found: Variable $var:f/wl_pf2_prov/v not found",
+        "type": "text/plain",
+        "status": 404
+      }
+    },
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {
+          "n": 1,
+          "db": "$res:f/wl_pf2_prov/db",
+          "ctx": "$res:f/wl_pf2_prov/context",
+          "names": [
+            "$WM_ROOT_JOB_ID",
+            "$var:f/wl_pf2_prov/v"
+          ],
+          "plain": "$WM_WORKSPACE"
+        },
+        "result": {
+          "db": {
+            "type": "application/json",
+            "value": {
+              "host": "h",
+              "nested": {
+                "r": {
+                  "root": "$WM_ROOT_JOB_ID"
+                }
+              },
+              "password": "pw-value"
+            },
+            "status": 200
+          },
+          "raw": {
+            "type": "application/json",
+            "value": {
+              "host": "h",
+              "nested": {
+                "r": "$res:f/wl_pf2_prov/context"
+              },
+              "password": "$var:f/wl_pf2_prov/pw"
+            },
+            "status": 200
+          },
+          "args": {
+            "n": 1,
+            "db": {
+              "host": "h",
+              "nested": {
+                "r": {
+                  "root": ""
+                }
+              },
+              "password": "pw-value"
+            },
+            "ctx": {
+              "root": ""
+            },
+            "names": [
+              "<job:>",
+              "s3cr3t"
+            ],
+            "plain": "$WM_WORKSPACE"
+          },
+          "deep": {
+            "type": "text/plain",
+            "status": 500,
+            "internal": true
+          },
+          "outer": {
+            "type": "text/plain",
+            "status": 404,
+            "located": true
+          },
+          "exists": [
+            true,
+            false,
+            true,
+            false
+          ],
+          "secret": {
+            "type": "application/json",
+            "value": "pw-value",
+            "status": 200
+          },
+          "context": {
+            "type": "application/json",
+            "value": {
+              "root": "$WM_ROOT_JOB_ID"
+            },
+            "status": 200
+          },
+          "missing": {
+            "text": "Not found: Resource f/wl_pf2_prov/none not found",
+            "type": "text/plain",
+            "status": 404
+          },
+          "root_env": "<job:>",
+          "terminal": {
+            "type": "application/json",
+            "value": {
+              "f": {
+                "n": 1000,
+                "x": "$var:f/wl_pf2_prov/v"
+              }
+            },
+            "status": 200
+          },
+          "variable": {
+            "type": "application/json",
+            "value": "s3cr3t",
+            "status": 200
+          },
+          "var_prefixed": {
+            "text": "Not found: Variable $var:f/wl_pf2_prov/v not found",
+            "type": "text/plain",
+            "status": 404
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.767.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.767.0@sha256:9239264a7a849deedda87868147e65eb910456039fe9d961901e2e5b143ebd43",
+      "image_id": "sha256:893798936ea61693380037d4979cf381ffb2fe5050388047d31a7756681f5734",
+      "image_revision": "6de4ec0f665ad856002495c4d86269105ec28ad7",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:6a2e324ebe59af6031c4c1cd96c1d5072c2ebc36563d2196365e43b8297c062d",
+      "cli": "windmill-cli@1.767.0",
+      "cli_version_output": "CLI version: 1.767.0\nCLI is outdated. Latest version 1.853.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261029054007-240849b10c28",
+      "revision": "240849b10c289cbfa77f38f7b6449911c96291f2",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/40824738438"
+    },
+    "recorded_at": "2026-10-29T05:42:31Z",
+    "workers": 1,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "1",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:46645"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 211,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-10-29T05:42:31.128117Z",
+          "started_at": "2026-10-29T05:42:31.169729Z",
+          "completed_at": "2026-10-29T05:42:31.283833Z",
+          "duration_ms": 114
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-10-29T05:42:31.171056Z",
+          "started_at": "2026-10-29T05:42:31.173932Z",
+          "completed_at": "2026-10-29T05:42:31.279004Z",
+          "duration_ms": 103
+        }
+      }
+    }
+  }
+}

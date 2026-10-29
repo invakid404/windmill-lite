@@ -1,15 +1,15 @@
 # WR-5/b: a one-segment $res: path fails the job before its script runs.
-# Windmill's message ends in a Rust location, which the reference does not
-# give and windmill-lite's does not carry (D14): the expect is written
-# without it, which the location rule equates with the oracle's
-# (ADR 0011).
+# Windmill's message ends in a Rust location, which windmill-lite's does
+# not carry (D14) and the location rule strips where windmill-lite
+# generated the value (ADR 0011). The location is the one oracle run
+# 40824738438 observed; the reference gives only the message's start.
 spec: [WR-5/b]
 target: f/wl_pf2_prov/invalid_path
 expect:
   status: failure
-  result: {error: {name: ExecutionErr, message: "execution error:\nInternal: Argument `x` is an invalid resource path: pg", step_id: a}}
+  result: {error: {name: ExecutionErr, message: "execution error:\nInternal: Argument `x` is an invalid resource path: pg @common.rs:306:28", step_id: a}}
   steps:
     "m:a":
       status: failure
       args: {x: "$res:pg"}
-      result: {error: {name: ExecutionErr, message: "execution error:\nInternal: Argument `x` is an invalid resource path: pg", step_id: a}}
+      result: {error: {name: ExecutionErr, message: "execution error:\nInternal: Argument `x` is an invalid resource path: pg @common.rs:306:28", step_id: a}}

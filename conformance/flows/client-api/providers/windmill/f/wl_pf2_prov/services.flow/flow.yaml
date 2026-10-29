@@ -15,14 +15,14 @@ value:
           n:
             type: static
             value: 1
-          plain:
-            type: static
-            value: $WM_WORKSPACE
           names:
             type: static
             value:
               - $WM_ROOT_JOB_ID
               - $var:f/wl_pf2_prov/v
+          plain:
+            type: static
+            value: $WM_WORKSPACE
         lock: '!inline a.lock'
         language: bun
 schema:
