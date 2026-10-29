@@ -82,7 +82,7 @@ directories, each file is classified by the first rule that matches
 | `P.script.yaml`, `P.script.lock` | script `P` (its metadata and lock) |
 | `P.resource.yaml`, `P.variable.yaml` | resource or variable `P` |
 | `<name>.resource-type.yaml`, at the root only | resource type `name` |
-| `*.resource.file.*`, `*.fileset/` | the data of file and fileset resources, which are refused (below), so never read |
+| `*.resource.file.*`, `*.fileset/` | the data of file and fileset resources, which are refused (below); `Check` reads only the first bytes of a `*.resource.file.*` the walk keeps |
 
 The CLI's walk keeps a file only when the text after its last dot is one of
 `yaml`, `go`, `sh`, `ts`, `py`, `sql`, `gql`, `ps1`, `php`, `js`, `lock`,

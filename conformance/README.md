@@ -377,9 +377,9 @@ Case fields beyond those of the decode cases:
 The runner writes each case to a temporary directory, with a `.git`
 directory at its root so that the upward search for `wmill.yaml` stays in the
 case; a case without `wmill.yaml` thus has its start directory as the root
-([SY-13](../docs/semantics/openflow.md#sy-13)). `deferred.json` lists the catalogue's SY and PA cases that are not
-load cases here, each with the reason and where it is expected to be
-checked; the SY-9 cases are the YAML dialect's, in
+([SY-13](../docs/semantics/openflow.md#sy-13)). `deferred.json` lists the
+catalogue's SY and PA cases that are not load cases here, each with the
+reason and where it is expected to be checked; the SY-9 cases are the YAML dialect's, in
 [internal/yamlx](../internal/yamlx/README.md).
 
 ## Compile cases
@@ -592,7 +592,7 @@ Case fields beyond those of the decode cases:
 | Field | Meaning |
 |---|---|
 | `given.source`, `given.path` | the script, and its Windmill path (default `f/case/main`), written as `<path>.ts` |
-| `given.inline`, `given.flow` | the script is inline; `flow` gives `path`, `module` and `explicit_path`, from which the import base is computed (WR-29) |
+| `given.inline`, `given.flow` | the script is inline; `flow` gives `path`, `module` and `explicit_path`, from which the import base is computed (WR-29); `explicit_path` is the module's `path` where a deployed flow keeps it, in the failure and preprocessor slots |
 | `given.entries` | more scripts, each with `id` and the fields above |
 | `given.files` | other folder files; every `.ts` file is a script at its path without the extension |
 | `given.dependencies`, `given.packages` | a script's npm dependencies, and the synthetic packages (`name@version` and their files) that a registry the test serves holds; the runner makes the lock |
