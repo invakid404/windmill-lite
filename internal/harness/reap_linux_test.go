@@ -64,7 +64,8 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 		}
 	}
 	t.Run("repeated short spawns", func(t *testing.T) {
-		p := spawn(t, childrenConfig(t))
+		diagnose(t)
+		p := spawn(t, subreaperConfig(t))
 		dir := t.TempDir()
 		for i := range 10 {
 			pidFile := filepath.Join(dir, strconv.Itoa(i))
@@ -76,7 +77,8 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 		noZombies(t)
 	})
 	t.Run("a descendant that exits while its group runs", func(t *testing.T) {
-		p := spawn(t, childrenConfig(t))
+		diagnose(t)
+		p := spawn(t, subreaperConfig(t))
 		pidFile := filepath.Join(t.TempDir(), "pid")
 		script := fmt.Sprintf("(sleep 0.3 & echo $! > '%s'); sleep 3", pidFile)
 		done := make(chan error, 1)
@@ -108,7 +110,8 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 		noZombies(t)
 	})
 	t.Run("cancel", func(t *testing.T) {
-		cfg := childrenConfig(t)
+		diagnose(t)
+		cfg := subreaperConfig(t)
 		cfg.KillAfter = WatchdogOff
 		p := spawn(t, cfg)
 		pidFile := filepath.Join(t.TempDir(), "pid")
@@ -131,8 +134,9 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 		noZombies(t)
 	})
 	t.Run("shutdown", func(t *testing.T) {
+		diagnose(t)
 		for _, sync := range []bool{false, true} {
-			cfg := childrenConfig(t)
+			cfg := subreaperConfig(t)
 			cfg.KillAfter = WatchdogOff
 			p := spawn(t, cfg)
 			pidFile := filepath.Join(t.TempDir(), "pid")
@@ -150,7 +154,8 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 		noZombies(t)
 	})
 	t.Run("a fresh job's orphan", func(t *testing.T) {
-		pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: childrenConfig(t)})
+		diagnose(t)
+		pool := newPool(t, PoolConfig{Key: Key{ModuleState: engine.ModuleStateFresh}, Process: subreaperConfig(t)})
 		start := time.Now()
 		out, err := execute(t, pool, freshInvocation("spawn-child", childArgs(t, map[string]any{"seconds": 0.5, "detached": false}), newRecorder()), 10*time.Second)
 		if err != nil || out.Kind != engine.OutcomeOK {
@@ -160,6 +165,62 @@ func TestReapAdoptedOrphansAsSubreaper(t *testing.T) {
 			t.Fatalf("the outcome came after %s: the orphan was not reaped when it exited", took)
 		}
 		noZombies(t)
+	})
+}
+
+// subreaperConfig is childrenConfig, with the harness's diagnostics logged
+// when t fails.
+func subreaperConfig(t *testing.T) ProcessConfig {
+	t.Helper()
+	cfg := childrenConfig(t)
+	diag := &syncBuffer{}
+	cfg.Diagnostics = diag
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("harness diagnostics:\n%s", diag.String())
+		}
+	})
+	return cfg
+}
+
+// diagnose logs, when t fails, the processes the test is about: every
+// descendant of this process and every guardian, with its parent, group
+// and state, so a failure shows who holds what.
+func diagnose(t *testing.T) {
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ents, _ := os.ReadDir("/proc")
+		infos := map[int]procInfo{}
+		for _, e := range ents {
+			if pid, err := strconv.Atoi(e.Name()); err == nil {
+				if info, ok := statOf(pid); ok {
+					infos[pid] = info
+				}
+			}
+		}
+		descends := func(pid int) bool {
+			for range 64 {
+				info, ok := infos[pid]
+				if !ok || info.ppid <= 1 {
+					return false
+				}
+				if info.ppid == os.Getpid() {
+					return true
+				}
+				pid = info.ppid
+			}
+			return false
+		}
+		t.Logf("this process: %d", os.Getpid())
+		for pid, info := range infos {
+			b, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+			cmd := string(bytes.ReplaceAll(bytes.TrimRight(b, "\x00"), []byte{0}, []byte{' '}))
+			if descends(pid) || bytes.Contains(b, []byte(guardArg(""))) {
+				t.Logf("pid %d ppid %d pgid %d zombie %v: %s", pid, info.ppid, info.pgid, info.zombie, cmd)
+			}
+		}
 	})
 }
 
