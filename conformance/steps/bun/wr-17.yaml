@@ -20,3 +20,31 @@ cases:
     runs:
       - args: '{}'
         expect: {status: success, result: {wm_failure: true}}
+  - spec: WR-17
+    variant: null-label
+    provenance: source-derived
+    title: a null element in wm_labels is not a string, so the markers are disabled
+    note: Only a null marker counts as absent (WR-17); an element of wm_labels must be a string.
+    script: |
+      export function main() { return { wm_failure: "x", wm_labels: [null] }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {wm_failure: x, wm_labels: [null]}}
+  - spec: WR-17
+    variant: mixed-labels
+    provenance: source-derived
+    title: a string and a null element in wm_labels disable the markers too
+    script: |
+      export function main() { return { wm_failure: "x", wm_labels: ["a", null], y: 1 }; }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: {wm_failure: x, wm_labels: [a, null], y: 1}}
+  - spec: WR-17
+    variant: null-marker
+    provenance: source-derived
+    title: a null wm_labels marker counts as absent, so wm_failure still fails the run
+    script: |
+      export function main() { return { wm_failure: "x", wm_labels: null }; }
+    runs:
+      - args: '{}'
+        expect: {status: failure, result: {wm_failure: x, wm_labels: null, error: {name: ManualFailure, message: x}}}

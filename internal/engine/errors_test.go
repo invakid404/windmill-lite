@@ -439,6 +439,35 @@ func TestEngineCancellation(t *testing.T) {
 	}
 }
 
+// FX-3, FX-38: a flow with no modules completes with its input, unless its
+// run is canceled, which the completion checks first: an already canceled
+// context names its cause's reason and canceler, and an expired deadline
+// takes Windmill's defaults.
+func TestEngineCanceledEmptyFlow(t *testing.T) {
+	e := mustOpen(t, map[string]string{"f/t/main": `{"modules":[]}`}, &scripts{})
+	run := func(ctx context.Context) *Trace {
+		t.Helper()
+		tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{"a":1}`))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tr
+	}
+	wantStatus(t, run(context.Background()), conformance.RunSuccess, `{"a":1}`)
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(&Cancellation{Reason: "r", Canceler: "u"})
+	tr := run(ctx)
+	wantStatus(t, tr, conformance.RunCanceled, canceledRU)
+	if tr.ResultOrigin != OriginEngine || len(tr.Steps) != 0 {
+		t.Fatalf("origin %q, steps %+v", tr.ResultOrigin, tr.Steps)
+	}
+
+	ctx, stop := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer stop()
+	wantStatus(t, run(ctx), conformance.RunCanceled, `{"error":{"message":"Job canceled: no reason given by unknown","name":"Canceled","reason":"no reason given","canceler":"unknown"}}`)
+}
+
 // ADR 0008 with a failure module: H6 observes it; H7 latches a fatal error
 // name before the failure module runs; haltAfter never applies to a
 // completion that enters the failure module, and haltBefore never to the

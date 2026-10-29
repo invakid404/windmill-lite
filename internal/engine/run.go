@@ -359,6 +359,13 @@ func (r *run) run(ctx context.Context) {
 		}
 		prev, prevID = o.carried, m.ID
 	}
+	// Only a flow with no modules gets here: it completes with its input
+	// (FX-3), through the completion's host checks, the latch and then the
+	// cancel flag (FX-2 completion step 8, FX-38), as every completion does.
+	if st, end := Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
+		r.endBy(ctx, st)
+		return
+	}
 	r.end(conformance.RunSuccess, prev, OriginNone)
 }
 

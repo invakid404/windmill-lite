@@ -101,7 +101,7 @@ stores for a Bun step, which is also what the flow sees of a failed one.
 
 | Outcome | Stored | Origin |
 |---|---|---|
-| `ok` | the result's producer text; an object whose top-level `wm_failure` is a string fails, kept as it is with `"error": {"name": "ManualFailure", "message": <wm_failure>}` put in, in place of an `error` member or else last (`ManualFailure`, [WR-17](../../docs/semantics/languages.md#wr-17), [FX-13](../../docs/semantics/execution.md#fx-13)); a `null` marker marks nothing, and a `wm_failure` that is not a string or a `wm_labels` that is not an array of strings disables both | — or user |
+| `ok` | the result's producer text; an object whose top-level `wm_failure` is a string fails, kept as it is with `"error": {"name": "ManualFailure", "message": <wm_failure>}` put in, in place of an `error` member or else last (`ManualFailure`, [WR-17](../../docs/semantics/languages.md#wr-17), [FX-13](../../docs/semantics/execution.md#fx-13)); a `null` marker marks nothing, and a `wm_failure` that is not a string or a `wm_labels` that is not `null` or an array of strings (a `null` element included) disables both | — or user |
 | `error` | `{"error": E}` with the wrapper's object `E` (it carries `step_id` itself, [WR-18](../../docs/semantics/languages.md#wr-18)), unless it is a pre-shaped `ManualFailure`, kept as it is ([WR-21](../../docs/semantics/languages.md#wr-21), [WR-V5](../../docs/semantics/languages.md#wr-v5)); text that is not JSON is `Non serializable error: <text>` | user |
 | `escaped`, by a signal | `execution error:\nprocess terminated by signal: <signal>`, `ExecutionErr`, `step_id` ([WR-4](../../docs/semantics/languages.md#wr-4), [WR-37](../../docs/semantics/languages.md#wr-37)) | harness |
 | `escaped`, by an exit | `exit code for "bun run": <code>, last log lines:\n<tail>`, `ExecutionErr`, `step_id`, `exit_code` ([WR-20](../../docs/semantics/languages.md#wr-20)) | harness |
@@ -308,8 +308,9 @@ completion.
 
 The flow's result is what the decision ends it with, stored as jsonb
 (FX-36); a flow with no modules returns its input
-([FX-3](../../docs/semantics/execution.md#fx-3)). A latched or halted run
-has no result.
+([FX-3](../../docs/semantics/execution.md#fx-3)), through the same
+completion checks, so it ends canceled when its context has ended. A
+latched or halted run has no result.
 
 **The argument pipeline** ([ADR 0005](../../docs/design/0005-json-step-boundaries.md)):
 
@@ -422,8 +423,8 @@ covers `continue_on_error`, the failure module (its scope, a failing,
 skipped or chaining one, no stop), the recovery table, the error-stop
 matrix with and without tolerance and a failure module, the unrecoverable
 stop, chaining errors with a failure module, the storage failures, the
-cancellation outcome and its orderings, the hooks with a failure module,
-and the identity job's text. The flow
+cancellation outcome and its orderings (an empty flow's included), the
+hooks with a failure module, and the identity job's text. The flow
 fixtures run the engine on the real Bun harness
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures), milestone N1a's
 exit gate).

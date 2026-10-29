@@ -115,9 +115,9 @@ func FailureValue(raw []byte) jsonval.Value {
 // error member it had or else last, its other members kept. It is then a
 // pre-shaped failure, stored and passed on as it is (WR-21, WR-V5). A
 // wm_failure that is null or absent marks nothing, and a marker of the wrong
-// type (a wm_failure that is not a string, a wm_labels that is not an array
-// of strings or null) disables both markers, so the result stays a
-// success. ok is false when the result stays one.
+// type (a wm_failure that is not a string, a wm_labels that is not null or
+// an array of strings, a null element included) disables both markers, so
+// the result stays a success. ok is false when the result stays one.
 func ManualFailure(result []byte) (jsonval.Value, bool) {
 	ms, ok := members(bytes.TrimSpace(result))
 	if !ok {
@@ -134,9 +134,17 @@ func ManualFailure(result []byte) (jsonval.Value, bool) {
 			}
 			message = s
 		case "wm_labels":
-			var labels []string
+			// An array of strings, or null for none; a null element is
+			// not a string, so it disables both markers.
+			var labels []json.RawMessage
 			if json.Unmarshal(v, &labels) != nil {
 				return jsonval.Value{}, false
+			}
+			for _, l := range labels {
+				var label string
+				if l = bytes.TrimSpace(l); len(l) == 0 || l[0] != '"' || json.Unmarshal(l, &label) != nil {
+					return jsonval.Value{}, false
+				}
 			}
 		}
 	}
