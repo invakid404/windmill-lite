@@ -33,8 +33,10 @@ import (
 // and each outcome is mapped to the value Windmill stores
 // (engine.StoreOutcome) and compared with the case's expectation
 // (conformance.CompareStep). For a flow fixture, each run's flow runs on
-// the walking skeleton's interpreter (flowChecker) and its observation is
-// compared with the run's expect or recording (milestone E1).
+// the engine (flowChecker) and its observation is compared with the run's
+// expect or recording (milestones E1 and N1a). An expression-case file
+// runs as the generated one-step flow fixture that wltest record lifts it
+// into, compared with its recordings (milestone N1a).
 func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -46,7 +48,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() == 0 {
-		fmt.Fprintln(stderr, "usage: wltest check [flags] <step file, fixture or directory>...")
+		fmt.Fprintln(stderr, "usage: wltest check [flags] <step file, fixture, expression file or directory>...")
 		return 2
 	}
 	if *mode != conformance.ModeWarm {
@@ -54,8 +56,8 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	for _, a := range fs.Args() {
-		if info, err := os.Stat(a); err == nil && !info.IsDir() && !conformance.IsStepFile(a) {
-			fmt.Fprintf(stderr, "wltest check: %s is not a step file (steps/<lang>/<finding>.yaml); a flow fixture is named by its directory, and expression cases are checked by go test ./internal/expr\n", a)
+		if info, err := os.Stat(a); err == nil && !info.IsDir() && !conformance.IsStepFile(a) && !conformance.IsExprFile(a) {
+			fmt.Fprintf(stderr, "wltest check: %s is neither a step file (steps/<lang>/<finding>.yaml) nor an expression file (exprs/<finding>.yaml); a flow fixture is named by its directory\n", a)
 			return 2
 		}
 	}
@@ -69,8 +71,14 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "wltest check:", err)
 		return 1
 	}
+	exprs, err := conformance.FindExprFiles(fs.Args()...)
+	if err != nil {
+		fmt.Fprintln(stderr, "wltest check:", err)
+		return 1
+	}
+	dirs = append(dirs, exprs...)
 	if len(files)+len(dirs) == 0 {
-		fmt.Fprintln(stderr, "wltest check: no step files or flow fixtures found")
+		fmt.Fprintln(stderr, "wltest check: no step files, flow fixtures or expression files found")
 		return 2
 	}
 	root := *repo

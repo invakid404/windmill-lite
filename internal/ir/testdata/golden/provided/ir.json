@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "roots": {
     "flows": [
       "f/app/root"
@@ -54,7 +54,19 @@
                   "type": "javascript",
                   "expr": {
                     "site": "input_transform",
-                    "text": "flow_input.user"
+                    "text": "flow_input.user",
+                    "trimmed": "flow_input.user",
+                    "shortcut": {
+                      "flow_key": {
+                        "env": false,
+                        "key": "user"
+                      }
+                    },
+                    "mode": "expression",
+                    "binds": [
+                      "flow_input"
+                    ],
+                    "source": "(async function() { return flow_input.user; })()"
                   }
                 }
               }
@@ -66,12 +78,24 @@
           "kind": "provided",
           "skip_if": {
             "site": "skip_if",
-            "text": "flow_input.trusted === true"
+            "text": "flow_input.trusted === true",
+            "trimmed": "Boolean(flow_input.trusted === true)",
+            "mode": "expression",
+            "binds": [
+              "flow_input"
+            ],
+            "source": "(async function() { return Boolean(flow_input.trusted === true); })()"
           },
           "stop_after_if": {
             "expr": {
               "site": "stop_after_if",
-              "text": "!result.granted"
+              "text": "!result.granted",
+              "trimmed": "Boolean(!result.granted)",
+              "mode": "expression",
+              "binds": [
+                "result"
+              ],
+              "source": "(async function() { return Boolean(!result.granted); })()"
             },
             "skip_if_stopped": false,
             "error_message": "permit denied"
@@ -96,7 +120,23 @@
                   "type": "javascript",
                   "expr": {
                     "site": "input_transform",
-                    "text": "results.prepare.user"
+                    "text": "results.prepare.user",
+                    "trimmed": "results.prepare.user",
+                    "shortcut": {
+                      "previous_id": "prepare.user",
+                      "results_path": {
+                        "step": "prepare",
+                        "segments": [
+                          "user"
+                        ]
+                      }
+                    },
+                    "mode": "expression",
+                    "binds": [
+                      "result",
+                      "results"
+                    ],
+                    "source": "(async function() { return (await results.prepare).user; })()"
                   }
                 }
               }

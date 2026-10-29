@@ -5,8 +5,9 @@
 walking skeleton's host command (milestone W1). This README covers the
 `windmill-lite` command in this directory and its `testdata/`. The command
 prints its version, builds a bundle from a Windmill sync folder, verifies a
-bundle, checks that its expression engine starts, and serves host mode with
-the walking skeleton. The commands that run a bundle (`run`, `serve`), pack
+bundle, checks that its expression engine starts, and serves host mode on
+the walking skeleton's layout, whose flows the engine core runs
+(milestone N1a). The commands that run a bundle (`run`, `serve`), pack
 it (`pack`, `image`) or generate clients (`gen`) do not exist yet.
 
 ## Usage
@@ -88,15 +89,15 @@ side of host mode ([ADR 0004](../../docs/design/0004-harness-protocol.md),
 hand: the Bun host SDK
 ([harnesses/bun](../../harnesses/bun/README.md)) starts it as its child,
 with its socket as file descriptor 3. It loads the flows of the walking
-skeleton's test layout (`flows/<path>.flow.json`, not a built bundle) into
-the walking skeleton's interpreter
+skeleton's test layout (`flows/<path>.flow.json`, not a built bundle) with
+`engine.Skeleton`, which runs them on the engine core
 ([internal/engine](../../internal/engine/README.md)), checks that the host
 greeting it is its parent process, and serves the host's runs, whose steps
 run in the host, until the host's connection ends
 ([internal/harness](../../internal/harness/README.md), host mode).
 `--kill-after` is the watchdog's threshold of silence from the host
 (default 30 s; `0` disables it). Milestone F3a replaces this command's
-skeleton with host mode on the `wl` library.
+loader with host mode on the `wl` library and its bundles.
 
 ## Version
 

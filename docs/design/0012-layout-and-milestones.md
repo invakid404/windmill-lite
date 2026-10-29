@@ -205,6 +205,30 @@ waits on an external gate except R1.
   scripts with the Bun build helper as ordinary Bun scripts. The `diff`
   verb of [0011](0011-differential-testing.md) is in no milestone's row,
   and E1 left it out.
+- N1a's engine core runs a compiled program (`engine.New`, `Engine.Run`
+  on an `ir.Program`); the compiler runs every expression's textual stages,
+  and the engine compiles their bytecode when it opens the program. W1's
+  skeleton became a loader of its own test layout over that engine, which
+  `windmill-lite host` serves until F3a. The engine refuses at open, with
+  the milestone's name, what later milestones implement. The "sequential,
+  context-free subset of E3a" in N1a's row is read as both of E3a's kinds
+  of case: its flow fixtures whose flows use only the features the row
+  lists, and its context-free expression cases end to end, which
+  `wltest check` runs as the one-step flows `wltest record` lifts them
+  into and compares with their recordings (B2a's row asks for the same
+  fixtures "end to end in N1a's gate"); `flowsuite.json` keys such a run
+  `<file>/<case>`. Seven of the 69 expression cases are not required:
+  two transcendental `Math` cases of JE-1 differ by D16 on a C library
+  other than glibc and JE-48/a by D17, as at unit level; JE-2/a recorded
+  the oracle's own cancellation of a hanging flow; JE-11/a reads a
+  variable (PF2); and JE-24/b and /d fail the root at its first pickup,
+  whose recorded messages carry Rust locations that ADR 0011's location
+  rule does not strip yet, which is N1b's, with the chaining errors and
+  JE-35/b. The flow runner decides per run whether
+  a run needs the platform providers (PF2): its flow names a variable or
+  resource of the fixture's `setup.yaml`, or reads the platform through a
+  helper or a `$var:`-style reference; the fixture's other runs are
+  checked.
 
 ## Spec IDs relied on
 
