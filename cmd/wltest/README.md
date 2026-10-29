@@ -310,7 +310,16 @@ a few at a time (`flows.go`):
    placeholder of the site whose record names it, an attempt's own. The
    virtual `<id>-v` step of a final sleep is left out, as the walker leaves
    it ([OF-17](../../docs/semantics/openflow.md#of-17),
-   [OR-V7](../../docs/semantics/oracle.md#or-v7)).
+   [OR-V7](../../docs/semantics/oracle.md#or-v7)), a child flow's included
+   (`ChildFlow.Virtual`, milestone NI). A record or child flow the trace
+   marks superseded is left out too, since the walker no longer reaches it
+   (milestone NI): what a retried container's failed attempt ran besides
+   the job the attempt is recorded as, at `<container>/r:<k>` with a child
+   flow's modules below it
+   ([CF-22](../../docs/semantics/control-flow.md#cf-22)); what a loop ran
+   before its `skip_if` held mid-loop
+   ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
+   iteration's job that was never pushed.
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location
@@ -325,7 +334,9 @@ a few at a time (`flows.go`):
    trace records too (an error stop's, a throwing `stop_after_if`'s, a
    chaining error with no job, milestone N1b); and, inside a loop's or a
    branchall's array, the entries the trace points to as generated
-   (`ResultNested`), at any depth (milestones N3a and N3b). A carried
+   (`ResultNested`), at any depth (milestones N3a and N3b); and the values
+   a run's `derived` pointers name, which a step copied from such an error
+   (FX-15/b, milestone NI). A carried
    value that differs from the result with no recorded origin is never
    stripped, nor a user's error beside generated ones. Claims are checked
    on windmill-lite's observation as it is, so a claim about a location
@@ -342,8 +353,7 @@ response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
 names the milestone: subflows, a container in a flow with a failure
-module, N2's waits and retries in or on a container (NI), caching, a
-preprocessor). The fixture's other runs are checked.
+module, caching, a preprocessor). The fixture's other runs are checked.
 
 ### Expression files
 

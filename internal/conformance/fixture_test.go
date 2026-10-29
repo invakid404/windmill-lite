@@ -137,6 +137,7 @@ func TestLoadFixtureRejects(t *testing.T) {
 		"no target":           {"runs/r.yaml", "args: {}\n"},
 		"bad expect status":   {"runs/r.yaml", "target: f/x/y\nexpect: {status: fine, result: 1}\n"},
 		"bad expect site":     {"runs/r.yaml", "target: f/x/y\nexpect: {status: success, result: 1, steps: {a: {status: success}}}\n"},
+		"bad derived pointer": {"runs/r.yaml", "target: f/x/y\nderived: [result/m]\n"},
 	} {
 		files := map[string]string{}
 		for k, v := range good {

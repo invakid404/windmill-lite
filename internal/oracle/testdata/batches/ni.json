@@ -1,5 +1,5 @@
 {
-  "about": "Milestone NI of ADR 0012, the integration slice of N1b, N2 and N3: the catalogue cases of CF-21 to CF-28 and FX-24/d and /e, recorded on the CE oracle by the fixtures below, which NI wrote and whose runs its exit gate runs on windmill-lite, with control-flow/waits, N2's waits and retries inside containers. Each case is recorded by a run or deferred with a milestone and a reason. CF-23/a and /b put a failure module beside a container, which windmill-lite runs from milestone N3c; ADR 0012's NI bullet says who requires them. TestRecordingBatches enforces it.",
+  "about": "Milestone NI of ADR 0012, the integration slice of N1b, N2 and N3: the catalogue cases of CF-21 to CF-28 and FX-24/d and /e, recorded on the CE oracle by the fixtures below, which NI wrote and whose runs its exit gate runs on windmill-lite, with control-flow/waits, N2's waits and retries inside containers. Each case is recorded by a run or deferred with a milestone and a reason. CF-23/a and /b put a failure module beside a container, which windmill-lite runs from milestone N3c; ADR 0012's NI bullet says who requires them. The oracle contradicted CF-25/a: a squashed loop runs on CE as an ordinary loop. TestRecordingBatches enforces it.",
   "batch": "NI",
   "findings": ["CF-21", "CF-22", "CF-23", "CF-24", "CF-25", "CF-26", "CF-27", "CF-28"],
   "cases": ["FX-24/d", "FX-24/e"],
@@ -24,5 +24,7 @@
     {"case": "FX-24/d", "part": "the same flow as a preview, which does not collapse and so is not timed", "milestone": "none", "reason": "a preview is a raw submission, outside the reference configuration (ADR 0001 sections 1 and 6); the deployed half is recorded"}
   ],
   "prefixes": [],
-  "contradictions": []
+  "contradictions": [
+    {"case": "CF-25/a", "catalogue": "the run fails with the message Squashing flow loops is not available in OSS (CE rejects a squashed sequential loop that starts runners)", "run": "conformance/flows/control-flow/cf-25/later", "pointer": "/status", "observed": "success"}
+  ]
 }

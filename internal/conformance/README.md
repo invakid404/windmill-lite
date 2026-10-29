@@ -196,7 +196,14 @@ other run runs alone. The oracle fails a group as a whole when one of its
 runs fails or when they were not in flight together.
 
 A run may also carry `claims`, `delays` and `unit`, which the comparator
-does not read (see [Claims](#claims)). A fixture whose tree is generated
+does not read (see [Claims](#claims)), and `derived` (milestone NI): RFC
+6901 pointers into the observation at values a step copied from an error
+windmill-lite generates, such as a failure module that returns its
+error's message (FX-15/b). `wltest check` adds them to the pointers the
+trace gives `StripLocations`, whose templates alone decide what loses a
+location suffix, so a user's own message there still shows its
+difference ([ADR 0011](../../docs/design/0011-differential-testing.md),
+Location suffixes). A fixture whose tree is generated
 sets `Tree`, `RecordedIn` and `Generated` instead of using `windmill/` and
 `recorded/` under its directory.
 

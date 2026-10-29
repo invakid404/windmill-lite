@@ -431,6 +431,23 @@ their root jobs were not in flight together.
   [Q-OR-16](../semantics/oracle.md#q-or-16): the recipes OR-V9 disputes
   run with their bindings written out.
 
+- Milestone NI extended the location rule to values a step derives from
+  an error windmill-lite generated, which no trace can follow through a
+  user's script: a failure module that returns its error's message
+  carries Windmill's suffix into its own result (FX-15/b). A run names
+  such values in `derived`, JSON pointers into the observation, and the
+  rule applies there as at the values the trace says windmill-lite
+  generated, by its templates only, so a user's own message with a
+  location still differs; the fixture's author, who wrote the flow, takes
+  responsibility for each pointer. The observation also leaves out what
+  the trace marks superseded, which Windmill's job tree no longer
+  reaches: what a retried container's failed attempt ran besides the job
+  the walker fetches as that attempt, at `<container>/r:<k>` with a child
+  flow's modules below it (CF-22); what a sequential loop ran before its
+  `skip_if` held mid-loop (CF-21); and a collapsed iteration's job that
+  was never pushed. A child flow's virtual `<id>-v` step is left out as
+  the root's is (OR-V7).
+
 ## Spec IDs relied on
 
 OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-10, Q-OR-16, Q-OR-17, LIC-1,
