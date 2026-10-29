@@ -33,45 +33,71 @@ func TestMemoryResults(t *testing.T) {
 		}
 	}
 	// The expired entry is gone; another key never was there.
-	if m.size() != 0 {
-		t.Fatalf("%d entries after the expired Get", m.size())
+	if n, _ := m.size(); n != 0 {
+		t.Fatalf("%d entries after the expired Get", n)
 	}
 	if _, ok, _ := m.Get(ctx, "other", t0); ok {
 		t.Fatal("a hit for a key never stored")
 	}
-	_ = m.Put(ctx, "k", []byte("1"), t0.Add(time.Second))
-	_ = m.Put(ctx, "k", []byte("2"), t0.Add(time.Second))
-	got, ok, _ := m.Get(ctx, "k", t0)
+	t1 := t0.Add(2 * time.Minute)
+	_ = m.Put(ctx, "k", []byte("1"), t1.Add(time.Second))
+	_ = m.Put(ctx, "k", []byte("2"), t1.Add(time.Second))
+	got, ok, _ := m.Get(ctx, "k", t1)
 	if !ok || string(got) != "2" {
 		t.Fatalf("after a replace: %q %v", got, ok)
 	}
 	got[0] = 'X'
-	if again, _, _ := m.Get(ctx, "k", t0); string(again) != "2" {
+	if again, _, _ := m.Get(ctx, "k", t1); string(again) != "2" {
 		t.Fatalf("the cached value changed with the returned slice: %q", again)
 	}
 }
 
-// The cache does not grow without bound: once it has doubled since its
-// last sweep, a Put drops every entry that expired by the latest time a
-// Get gave, and only live ones stay.
-func TestMemoryResultsSweep(t *testing.T) {
+// The cache does not keep what has expired: every call drops each entry
+// that expired by the latest time a Get gave, however many entries there
+// are, so after a burst of entries expires, a small working set leaves
+// only its own live entries; and a key stored again many times keeps the
+// heap of expiries bounded by about twice the live entries.
+func TestMemoryResultsReclaim(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemoryResults()
 	t0 := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	for i := range minResultSweep - 1 {
-		_ = m.Put(ctx, fmt.Sprint("old", i), []byte("x"), t0.Add(time.Second))
+	for i := range 4096 {
+		_ = m.Put(ctx, fmt.Sprint("burst", i), []byte("payload"), t0.Add(time.Second))
 	}
-	// A Get at a time when the old entries have expired, then the Put that
-	// reaches the sweep threshold.
-	if _, ok, _ := m.Get(ctx, "nothing", t0.Add(time.Minute)); ok {
-		t.Fatal("a hit")
+	if n, _ := m.size(); n != 4096 {
+		t.Fatalf("%d entries after the burst", n)
 	}
-	_ = m.Put(ctx, "live", []byte("y"), t0.Add(time.Hour))
-	if n := m.size(); n != 1 {
-		t.Fatalf("%d entries after the sweep, want only the live one", n)
+	// A small working set after the burst has expired: one key, looked up
+	// and stored again, each time a little later.
+	for i := range 100 {
+		later := t0.Add(time.Duration(i+2) * time.Second)
+		if _, ok, _ := m.Get(ctx, "hot", later); ok && i == 0 {
+			t.Fatal("a hit before the first store")
+		}
+		_ = m.Put(ctx, "hot", []byte("payload"), later.Add(time.Hour))
 	}
-	if got, ok, _ := m.Get(ctx, "live", t0.Add(time.Minute)); !ok || string(got) != "y" {
-		t.Fatalf("the live entry: %q %v", got, ok)
+	if n, h := m.size(); n != 1 || h > minResultRebuild+1 {
+		t.Fatalf("%d entries and %d expiries after the burst expired, want only the hot key's", n, h)
+	}
+	// The hot key, stored again 10000 times within its TTL, keeps one live
+	// entry and a bounded heap.
+	for i := range 10000 {
+		_ = m.Put(ctx, "hot", []byte("payload"), t0.Add(2*time.Hour+time.Duration(i)*time.Millisecond))
+	}
+	if n, h := m.size(); n != 1 || h > minResultRebuild+1 {
+		t.Fatalf("%d entries and %d expiries after the hot key was stored again", n, h)
+	}
+	if got, ok, _ := m.Get(ctx, "hot", t0.Add(time.Hour)); !ok || string(got) != "payload" {
+		t.Fatalf("the hot key: %q %v", got, ok)
+	}
+	// An entry is gone by the first call after its expiry, a Put's
+	// included, once a Get has given a time past it.
+	_ = m.Put(ctx, "short", []byte("x"), t0.Add(3*time.Hour))
+	if _, ok, _ := m.Get(ctx, "other", t0.Add(4*time.Hour)); ok {
+		t.Fatal("a hit for a key never stored")
+	}
+	if n, _ := m.size(); n != 0 {
+		t.Fatalf("%d entries after every expiry passed", n)
 	}
 }
 
