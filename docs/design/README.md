@@ -55,7 +55,11 @@ which replaced the skeleton's interpreter: it runs a compiled program's
 flows in sequence, with input transforms, the `results` routes, `skip_if`,
 `mock`, identity steps, `stop_after_if` and the hook seams of
 [0008](0008-host-hooks.md), and `wltest check` runs the flow fixtures and
-the expression cases on it. Milestone PF1 is the platform facade of
+the expression cases on it. Milestone N1b adds the engine's errors:
+`continue_on_error`, the failure module and recovery, chaining errors, the
+error shapes, the final result and the cancellation outcome, with the
+location rule of [0011](0011-differential-testing.md) extended to the
+chaining errors' suffixes. Milestone PF1 is the platform facade of
 [0007](0007-platform-interface.md) in
 [internal/platform/facade](../../internal/platform/facade/README.md): the
 router behind the stock client, attribution over the intercepted `fetch`

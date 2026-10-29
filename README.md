@@ -5,9 +5,9 @@ folder with Windmill's semantics, but without Windmill's scheduling: no job
 queue, no job per step, and no worker pickup.
 
 **Current state:** first implementation milestones. The engine core runs
-flows of Bun steps in sequence from a compiled program, whose steps reach
-a platform facade; containers, failure modules, waits, retries and the
-platform providers come in the next milestones. The repository holds
+flows of Bun steps in sequence from a compiled program, with their failure
+modules, whose steps reach a platform facade; containers, waits, retries
+and the platform providers come in the next milestones. The repository holds
 a Go module, the `windmill-lite` command, which builds and verifies bundles
 and serves the walking skeleton's host mode but does not run bundles yet,
 CI, a
@@ -16,7 +16,7 @@ Windmill `v1.767.0` behaviour that windmill-lite must match, written as
 numbered findings with conformance cases), and the
 [design](docs/design/README.md) (decision records for the architecture, the
 equivalence contract, the package layout and the implementation milestones).
-Twenty-six milestones have landed. F4 gives the
+Twenty-seven milestones have landed. F4 gives the
 [`windmill-lite` command](cmd/windmill-lite/README.md) its first work, in
 [internal/bundle](internal/bundle/README.md): `build` turns a sync folder
 and a host contract into a bundle (the compiled program, the bundled Bun
@@ -66,7 +66,9 @@ expression cases, lifted into one-step flows, on N1a's engine core in
 run with what the oracle recorded. The engine core runs a compiled
 program's flows in sequence, with Windmill's decision list for input
 transforms, the `results` routes, `skip_if`, `mock`, identity steps and
-`stop_after_if`, and K1's host-hook seams; `host` runs its flows on it
+`stop_after_if`, and K1's host-hook seams, and (N1b) its errors:
+`continue_on_error`, the failure module and recovery, chaining errors,
+the error shapes and the cancellation outcome; `host` runs its flows on it
 too. PF1 gives every step its job identity
 ([internal/platform](internal/platform/README.md)) and a platform facade
 ([internal/platform/facade](internal/platform/facade/README.md)): the
@@ -157,7 +159,7 @@ go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 | [internal/jsonval](internal/jsonval/README.md) | The engine's JSON value type: producer text, the NUL flag, and the stored text, which its jsonb canonicaliser computes and CI checks against PostgreSQL. |
 | [internal/expr](internal/expr/README.md) | The expression pipeline: the compiled-expression IR, the JavaScript-engine and evaluator interfaces, the textual stages (trimming, the shortcuts, the rewrites, statement mode, bound names), the evaluator's shortcuts and bindings, and the program each expression runs as on QuickJS-ng: its preludes, serialisation, error texts, attempt retries and depth check; the expression suite against the E3a recordings and the budget gate. |
 | [internal/expr/quickjs](internal/expr/quickjs/README.md) | The JavaScript engine for expressions: vendored QuickJS-ng `be664ca1` through cgo, with a heap on vendored mimalloc, a pool of prepared runtimes, the heap, stack and time limits, the compile cache and interrupts. |
-| [internal/engine](internal/engine/README.md) | The flow interpreter: the engine core, which runs a compiled program's flows in sequence (input transforms and the argument pipeline, the `results` routes, `skip_if`, `mock`, identity, `stop_after_if`, a static step timeout) through the hook seams and the precedence of host signals; the contracts it is built on (the step executor, the hooks with no-op defaults, the run trace); the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; and the walking skeleton's bundle loader. |
+| [internal/engine](internal/engine/README.md) | The flow interpreter: the engine core, which runs a compiled program's flows in sequence (input transforms and the argument pipeline, the `results` routes, `skip_if`, `mock`, identity, `stop_after_if`, a static step timeout, `continue_on_error`, the failure module and recovery, chaining errors and the cancellation outcome) through the hook seams and the precedence of host signals; the contracts it is built on (the step executor, the hooks with no-op defaults, the run trace); the mapping of a step's outcome to Windmill's stored value and the entrypoint's selection; and the walking skeleton's bundle loader. |
 | [internal/conformance](internal/conformance/README.md) | The shared identity and observation vocabulary (the site-path encoder with its negative tests, run and step statuses, the observation types), the flow-fixture, expression-case and step-case formats, the lifting of expression cases into generated flows, claims and unit cases, the normaliser and the comparator, with the location rule of comparisons with windmill-lite; stub mode's replay table and replay service. |
 | [internal/oracle](internal/oracle/README.md) | The oracle harness: compose with pinned digests, bootstrap, the CLI push, the deployment gate, capture, the walker and recordings with provenance; stub mode's generator and the locator that finds a stub's site in a running job tree; the image lint and the manifest guard; the vendored Apache-2.0 REST schema. |
 | [internal/platform](internal/platform/README.md) | Job identity: the `WM_*` variables of each invocation, with the state path, the token and the host's configuration. |

@@ -97,14 +97,14 @@ milestones PF, so that no milestone id looks like a deviation id of
 | F4 | `internal/bundle`, `windmill-lite build` and `verify`: format, manifest, digest, reproducibility | A5, B1a, C2a | two builds of one fixture give one digest; the static Linux engine starts on an empty base | 4 | yes |
 | N1a | engine core, sequential: transforms, the `results` routes, `skip_if`, stops, identity, mock, the hook seams of K1 | A5, B2b, E1, E3b | the E3b cases that [`internal/oracle/testdata/batches/e3b.json`](../../internal/oracle/testdata/batches/e3b.json) gates on N1a (the others need `continue_on_error`, a failure module, an error shape or chaining error, a retry or a sleep, a branch or a provider, and gate the milestone that implements it, as E3a's do); the sequential, context-free subset of E3a end to end: flow cases whose flows use only plain steps, transforms, `skip_if`, `stop_after_if` and identity, with no failure module, container, wait, retry or platform provider. E3a's other flow cases gate the milestones below that implement their features | 5 | yes |
 | E3e | the remaining recordings, among them the run-and-wait HTTP halves of FX-36 and FX-37, the contested `later` cases and the probe-catalogue reconstruction (Q-OR-16) | E3a, E3b, E3c, E3d, E1 | — | 5 | yes |
-| N1b | engine errors: `continue_on_error`, failure module and recovery, error shapes, chaining errors, final result, cancellation outcome | N1a, E3c | the E3c cases; E3a's failure-module and error-route cases (JE-17/a, JE-26/b–c, JE-35/a–d); the E3b cases gated on N1b (FX-6/b, FX-7/d, FX-10/a, FX-19/e–g and /i, FX-21/a and its failure-module variant) | 6 | yes |
+| N1b | engine errors: `continue_on_error`, failure module and recovery, error shapes, chaining errors, final result, cancellation outcome | N1a, E3c | the E3c cases whose flows need nothing a later milestone implements (the others gate N3c and NI, below); E3a's failure-module and error-route cases (JE-17/a, JE-35/a–c) and its root-pickup expression cases (JE-24/b, JE-24/d); the E3b cases gated on N1b (FX-6/b, FX-7/d, FX-10/a, FX-19/e–g and /i, FX-21/a and its failure-module variant) | 6 | yes |
 | N2 | engine waits and time: `sleep`, `timeout` and its messages, retry arithmetic, jitter and argument reuse, deadlines, the clock | N1a | FX-23 to FX-29 cases; E3a's wait, timeout and retry cases (JE-2/a, JE-22/a–b, JE-28/a–c, JE-29/a, JE-32/a–b, JE-V2/a and /c); E3b's FX-19/h | 6 | yes |
 | N3a | for loops: sequential, collapsed, parallel, `parallelism` | N1a, E3d | the E3d for-loop cases; E3a's for-loop cases (JE-9/e–f, JE-19/a and /c, JE-26/d, JE-27/a–b on loops, JE-30/a–b, JE-36/a–c and /e, JE-37/a, JE-38/c, JE-39/a, JE-V1/a–e) | 6 | yes |
 | N3b | while loops, `branchone`, `branchall` | N1a, E3d | the E3d while and branch cases; E3a's while and branch cases (JE-24/a, JE-27/a–b on `branchall`, JE-31/a–b, JE-36/d and /f); E3b's FX-20/a and its error-stop variant | 6 | yes |
 | G1 | in-repository benchmarks of [0004](0004-harness-protocol.md) and [0005](0005-json-step-boundaries.md), run spans | A1, C1, N1a | a recorded baseline | 6 | yes |
 | PF1 | facade router, interception, attribution and the transport restriction, the 501 policy, job identity | C3b, N1a | the attribution test of [0007](0007-platform-interface.md) | 6 | yes |
-| N3c | subflows by path, `results` across scopes, stop propagation, failure modules in bodies | N1b, N3a, N3b | CF-16 to CF-20, CF-29 and CF-V cases; E3a's cross-scope cases (JE-19/b, JE-38/d) | 7 | yes |
-| NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d) | 7 | yes |
+| N3c | subflows by path, `results` across scopes, stop propagation, failure modules in bodies | N1b, N3a, N3b | CF-16 to CF-20, CF-29 and CF-V cases; E3a's cross-scope cases (JE-19/b, JE-38/d) and its child-pickup case (JE-35/d, a subflow by path); the E3c runs that need a subflow by path or a body's failure module (FX-15/c, FX-33's parent view, FX-34/a) | 7 | yes |
+| NI | integration slice of N1b, N2 and N3: retries, sleeps, cancellation and failure inside containers | N1b, N2, N3a, N3b | CF-21 to CF-28 cases; the E3b cases that need both N1b and N2 (FX-6's retry variant, FX-8/b, FX-19/d); E3a's unrecoverable-stop cases on a module with a `retry` (JE-26/b–c); the E3c runs that need a retry, a javascript `timeout` or a container (FX-14/b, FX-15/b, FX-32/b, FX-36's failed `branchall`) | 7 | yes |
 | PF2 | resources, variables, secrets, the interpolation walker | PF1 | WA-10 to WA-12 and WA-40 to WA-42 cases; the E3b FX-42/h case; E3a's provider cases (JE-11/a, JE-20/a–b, JE-38/b, JE-41/a–c, JE-42/a and /e, JE-V3/a) | 7 | yes |
 | PF3 | flow user state, object store, dispatcher, job registry | PF1 | WA-5, WA-6, WA-14 and WA-16 cases; the dispatch-target restriction case | 7 | yes |
 | E4b | the stub acceptance cases on windmill-lite | E4a, E1, N3c, NI | the cases match the oracle's | 8 | yes |
@@ -250,6 +250,36 @@ waits on an external gate except R1.
   resource of the fixture's `setup.yaml`, or reads the platform through a
   helper or a `$var:`-style reference; the fixture's other runs are
   checked.
+
+- N1b gave the engine core Windmill's continue decision for a flow
+  without retries: `continue_on_error`, the error stops, the
+  unrecoverable stop and the failure module at `s:failure` with its
+  recovery, chaining errors routed by context, the storage failure of a
+  job's result (FX-48 case 1), `wm_failure` (FX-13, WR-17) and the
+  cancellation outcome, whose reason and canceler a host passes as the
+  context's cause (`engine.Cancellation`). The location rule of ADR 0011
+  (`conformance.StripLocations`) now strips the `<loc>` suffixes of
+  FX-50's templates, one per `Error: ` prefix, of the chaining errors and
+  of FX-21's string, where windmill-lite generated the value; a trace
+  records the origin of a carried value the engine sets apart from the
+  job's result, so that rule reaches it too. "The E3c cases" in N1b's row
+  is read as N1a's row reads E3b's: the E3c runs whose flows need nothing
+  a later milestone implements, which `flowsuite.json` lists under N1b.
+  E3c has no `gates`, because two of its runs need features no milestone
+  of the first edition implements, so the rows say where its other runs
+  go: FX-12's Deno variant (L1) and FX-35's preprocessor run (`later`)
+  gate no milestone; the runs that need a subflow by path or a body's
+  failure module gate N3c, which implements both; those that need a retry
+  or a javascript `timeout` gate NI, the first milestone that needs both
+  E3c and N2, and so does FX-36's failed `branchall`, a failure inside a
+  container. By the same rule, E3a's JE-35/d
+  (a subflow by path) moved from N1b's row to N3c's, and JE-26/b–c, whose
+  flows configure a `retry` that the unrecoverable stop never uses, moved
+  to NI's, as E3b gates its FX-19/h (an error stop with an unused `retry`)
+  on N2. The root-pickup expression cases JE-24/b and JE-24/d, which N1a
+  left to N1b's location rule, are N1b's. The failure module runs with its
+  own id at the top level; its copy inside an inline body (FX-34) comes
+  with bodies, in N3c.
 
 ## Spec IDs relied on
 

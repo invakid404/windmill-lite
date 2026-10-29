@@ -6,7 +6,8 @@ E2, the expression-case format, its lifting into generated flows, and the
 claims and unit cases of recording batch E3a, and the replay table and
 replay service of stub mode, milestone E4a, the step-case format and
 its comparison, milestone C3a, and the location rule of comparisons with
-the oracle, milestone E1
+the oracle, milestone E1, which milestone N1b extended to FX-50's
+templates
 ([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
@@ -352,17 +353,30 @@ Comparing windmill-lite with the oracle adds one rule
 ([ADR 0011](../../docs/design/0011-differential-testing.md), Location
 suffixes): windmill-lite generates Windmill's messages without a Rust
 location (D14), so where windmill-lite's value is an error it generated,
-the oracle's location suffix is stripped. `StripLocations(o, at)` applies
-it to the oracle's normalised observation (an expect or a recording): at
-each pointer, a value windmill-lite's trace says it generated, the
-recognised internal error of item 3 loses its `<loc>` marker and the space
-before it. A pointer may name the error object or a failure value
-`{"error":…}`. Nothing else changes: user text never carries the marker,
-since the normaliser masks no location in it and escapes a literal `<loc>`
-(`<<loc>`). `TestStripLocations` holds ADR 0011's positive case (a
-generated `Internal:` error compares equal to the oracle's with its
-location) and its negative one (two user errors that differ only in such a
-suffix still differ), and that an escaped literal is never stripped.
+the oracle's location suffix is stripped, but only from a message that
+matches a catalogue template carrying `<loc>`. `StripLocations(o, at)`
+applies it to the oracle's normalised observation (an expect or a
+recording): at each pointer, a value windmill-lite's trace says it
+generated, these templates lose their suffixes:
+
+| Template | Suffixes removed |
+|---|---|
+| the recognised internal error of item 3, `InternalErr` | its `<loc>` marker and the space before it |
+| a chaining error, named `InternalError` (a later transition) or `Anyhow` (a pickup), whose message is Windmill's generic display ([FX-15](../../docs/semantics/execution.md#fx-15), [FX-50](../../docs/semantics/execution.md#fx-50), [JE-35](../../docs/semantics/expressions.md#je-35)) | one ` @<file>.rs:<line>:<col>` or ` (<file>.rs:<line>)` per leading `Error: `, when the message ends in that many |
+| the string error of a throwing `stop_after_if` ([FX-21](../../docs/semantics/execution.md#fx-21)), the same display | the same |
+
+So `Error: Error: <evaluator text><loc><loc>` loses both suffixes and
+`Error: <typed message><loc>` one, while a typed message with no prefix
+(the sleep messages, `Expected an integer, …`) and a message with fewer
+suffixes than prefixes keep their text, and the comparison shows it. A
+pointer may name the error object or a failure value `{"error":…}`.
+Nothing else changes: user text is never stripped, since a pointer names
+only a value windmill-lite generated; the normaliser masks no location in
+it and escapes a literal `<loc>` (`<<loc>`). `TestStripLocations` holds
+ADR 0011's positive case (a generated `Internal:` error compares equal to
+the oracle's with its location) and its negative one (two user errors
+that differ only in such a suffix still differ), that an escaped literal
+is never stripped, and each template's positive and negative cases.
 
 ## Comparison
 

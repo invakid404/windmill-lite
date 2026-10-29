@@ -40,4 +40,12 @@ const (
 	// container bound to 127.0.0.1 for one session.
 	AdminEmail    = "admin@windmill.dev"
 	AdminPassword = "changeme"
+
+	// CancelAfterReason is the reason a run's cancel_after_ms cancels it
+	// with, and CancelAfterCanceler the canceler Windmill then names: the
+	// superadmin's username (FX-38/a's recording). wltest check cancels
+	// windmill-lite's run with the same two, so the Canceled results
+	// compare.
+	CancelAfterReason   = "wltest: cancel_after_ms"
+	CancelAfterCanceler = "admin"
 )
