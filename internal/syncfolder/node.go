@@ -108,6 +108,16 @@ func (f fields) strings(key string) ([]string, error) {
 	return out, nil
 }
 
+// stringOrList reads a list of strings as strings does, and a single
+// string as a one-element list, as codebase entries read their globs
+// (SY-8).
+func (f fields) stringOrList(key string) ([]string, error) {
+	if n := f.get(key); n != nil && n.Kind == yamlx.String {
+		return []string{n.Text}, nil
+	}
+	return f.strings(key)
+}
+
 // int32 reads an integer within int32, as the JSON number the CLI sends:
 // `30.0` is 30, `30.5` is not an integer.
 func (f fields) int32(key string) (*int32, error) {

@@ -72,6 +72,29 @@
       }
     },
     {
+      "spec": "SY-8/c",
+      "provenance": "source-derived",
+      "title": "includes: [] never matches",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n    includes: []\n  - relative_path: ../shared\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 1,
+                "/codebase/relative_path": "../shared"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "spec": "SY-8",
       "provenance": "source-derived",
       "title": "an exclude vetoes the only entry",
@@ -242,8 +265,7 @@
     },
     {
       "spec": "SY-8",
-      "provenance": "policy",
-      "note": "a reading: the reference says an entry with no includes selects every candidate, and SY-V2 tells an empty list from an absent one",
+      "provenance": "source-derived",
       "title": "an empty includes list selects nothing",
       "given": {
         "files": {
@@ -257,6 +279,40 @@
             "f/a/x": {
               "at": {
                 "/codebase": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "SY-8",
+      "provenance": "source-derived",
+      "title": "a single string counts as a one-element list",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\ncodebases:\n  - relative_path: ../lib\n    includes: 'f/a/**'\n    excludes: 'f/a/skip*'\n  - relative_path: ../shared\n",
+          "f/a/x.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/a/skip.ts": "export async function main() {\n  return 1;\n}\n",
+          "f/b/y.ts": "export async function main() {\n  return 1;\n}\n"
+        }
+      },
+      "expect": {
+        "items": {
+          "script": {
+            "f/a/x": {
+              "at": {
+                "/codebase/index": 0
+              }
+            },
+            "f/a/skip": {
+              "at": {
+                "/codebase/index": 1
+              }
+            },
+            "f/b/y": {
+              "at": {
+                "/codebase/index": 1
               }
             }
           }

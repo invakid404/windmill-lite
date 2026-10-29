@@ -255,21 +255,25 @@ func sameKeyOrder(a, b *jnode) bool {
 // options, so strict key order applies inside it and unordered pointers
 // below it still hold.
 //
-// An exact comparison with no unordered pointer below path is an
-// equivalence that does not depend on the index, so the elements are
-// counted by their canonical texts. Otherwise they are matched one to one
-// by a maximum bipartite matching: in subset mode element equality is not
-// symmetric, so a greedy choice could take the only match of a later
-// element, and a pointer below path makes equality depend on the expected
-// element's index.
+// With no unordered pointer below path, element equality does not depend
+// on the index, and elements with the same canonical text are
+// interchangeable. An exact comparison is then an equivalence, so the
+// elements are counted by their canonical texts. A subset comparison is
+// not symmetric, so a greedy choice could take the only match of a later
+// element: groups of interchangeable elements are matched with their
+// multiplicities instead. A pointer below path makes equality depend on the
+// expected element's index, so the elements are matched one to one by a
+// maximum bipartite matching.
 func (c *comparer) multisetEqual(path []string, got, want []*jnode) bool {
-	if len(got) != len(want) {
+	switch {
+	case len(got) != len(want):
 		return false
-	}
-	if !c.opt.Subset && !c.unorderedBelow(path) {
+	case c.unorderedBelow(path):
+		return c.match(path, got, want)
+	case !c.opt.Subset:
 		return c.sameCanonical(got, want)
 	}
-	return c.match(path, got, want)
+	return c.matchGroups(path, got, want)
 }
 
 // unorderedBelow reports whether an unordered pointer names a value inside
@@ -302,6 +306,103 @@ func (c *comparer) sameCanonical(got, want []*jnode) bool {
 			return false
 		}
 		counts[k]--
+	}
+	return true
+}
+
+// group is a set of elements with one canonical text: first is the index of
+// one of them, and n how many there are.
+type group struct{ first, n int }
+
+// groups collects elements by canonical text, in order of first
+// occurrence. Subset comparisons ignore member order.
+func groups(elems []*jnode) []group {
+	var out []group
+	index := make(map[string]int, len(elems))
+	var b bytes.Buffer
+	for i, e := range elems {
+		b.Reset()
+		e.canonical(&b, false)
+		if k, ok := index[b.String()]; ok {
+			out[k].n++
+			continue
+		}
+		index[b.String()] = len(out)
+		out = append(out, group{first: i, n: 1})
+	}
+	return out
+}
+
+// matchGroups reports whether every expected element can be paired with an
+// equal actual one, for an array whose element equality does not depend on
+// the index. Interchangeable elements form groups, each pair of groups is
+// compared once, and the groups are matched as a flow of len(want) units:
+// the elements have a complete matching exactly when the flow is complete.
+// Repeated elements then cost one comparison, not one per pair.
+func (c *comparer) matchGroups(path []string, got, want []*jnode) bool {
+	wg, gg := groups(want), groups(got)
+	// eq[j][i]: 0 unknown, 1 equal, 2 different.
+	eq := make([][]byte, len(wg))
+	flow := make([][]int, len(wg)) // flow[j][i]: units of wg[j] matched to gg[i]
+	for j := range wg {
+		eq[j], flow[j] = make([]byte, len(gg)), make([]int, len(gg))
+	}
+	equal := func(j, i int) bool {
+		if eq[j][i] == 0 {
+			eq[j][i] = 2
+			if c.nodesEqual(append(append([]string(nil), path...), fmt.Sprint(wg[j].first)), got[gg[i].first], want[wg[j].first]) {
+				eq[j][i] = 1
+			}
+		}
+		return eq[j][i] == 1
+	}
+	free := make([]int, len(gg)) // free[i]: elements of gg[i] not matched yet
+	for i, g := range gg {
+		free[i] = g.n
+	}
+	// augment matches one more unit of wg[j], moving units of other
+	// groups to make room, without revisiting an actual group.
+	var augment func(j int, seen []bool) bool
+	augment = func(j int, seen []bool) bool {
+		for i := range gg {
+			if seen[i] || !equal(j, i) {
+				continue
+			}
+			seen[i] = true
+			if free[i] > 0 {
+				free[i]--
+				flow[j][i]++
+				return true
+			}
+			for k := range wg {
+				if flow[k][i] > 0 && augment(k, seen) {
+					flow[k][i]--
+					flow[j][i]++
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for j, g := range wg {
+		need := g.n
+		// Take free elements of equal groups first, then augment.
+		for i := range gg {
+			if need == 0 {
+				break
+			}
+			if free[i] > 0 && equal(j, i) {
+				n := min(need, free[i])
+				free[i] -= n
+				flow[j][i] += n
+				need -= n
+			}
+		}
+		for ; need > 0; need-- {
+			if !augment(j, make([]bool, len(gg))) {
+				return false
+			}
+		}
 	}
 	return true
 }

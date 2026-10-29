@@ -1,12 +1,12 @@
 // Package syncfolder reads a `wmill sync` folder: it finds the root, reads
 // wmill.yaml, walks the tree, maps files to Windmill paths, applies the
 // filters, and reads scripts, flows, resources, resource types and
-// variables as the wmill CLI would push them (SY-1 to SY-15, SY-V1 to
+// variables as the wmill CLI would push them (SY-1 to SY-19, SY-V1 to
 // SY-V4). It is step 1 of the loader pipeline of ADR 0002.
 //
 // Loading is in two stages. Load and Open classify the files and fail only
-// when the folder as a whole cannot be read: no wmill.yaml, an invalid
-// wmill.yaml, or an I/O error during the walk. Everything about one item is
+// when the folder as a whole cannot be read: an invalid wmill.yaml, a tree
+// pulled in JSON mode, or an I/O error during the walk. Everything about one item is
 // read, checked and reported when the item is asked for (Script, Flow,
 // Resource, Variable, ResourceType, Target), so a build that loads only
 // the items its roots reach fails only for those (ADR 0002, host
@@ -14,6 +14,7 @@
 package syncfolder
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -58,6 +59,10 @@ type Folder struct {
 	fsys    fs.FS
 	closer  io.Closer
 	entries map[ItemKind]map[string]*entry
+	// walked holds the files the CLI's walk reads before it pushes
+	// anything: those it keeps that pass the filter (SY-18). A file among
+	// them that the decoder refuses fails the push (SY-19).
+	walked map[string]bool
 	// dotted maps the path a refused dotted script file would have
 	// without the CLI's truncation to that file, for hints.
 	dotted map[string]string
@@ -91,7 +96,8 @@ type entry struct {
 // Find returns the sync root for a working directory: the nearest
 // directory, from dir upwards, that holds wmill.yaml. The search stops
 // after the git root (a directory holding `.git`) or the file system root
-// (SY-1).
+// (SY-1). When it finds none, the root is dir itself, as the CLI then runs
+// from the working directory with no settings (SY-13); Load says so.
 func Find(dir string) (string, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -110,14 +116,15 @@ func Find(dir string) (string, error) {
 		}
 		d = parent
 	}
-	return "", &Error{Kind: ErrNoConfig, Msg: fmt.Sprintf("no %s in %s or its parents up to the git root", ConfigFile, abs)}
+	return abs, nil
 }
 
 // Open finds the sync root from dir and loads it. Reads are confined to
 // the root: a symbolic link that leads outside it fails to read. The root
-// is always the directory of wmill.yaml, also when wmill.yaml sets
-// noCdToRoot, under which the CLI would walk dir instead (SY-V4); Open
-// then adds a warning. Close the folder when done.
+// is the directory of wmill.yaml, also when wmill.yaml sets noCdToRoot,
+// under which the CLI would walk dir instead (SY-V4); Open then adds a
+// warning. Without a wmill.yaml the root is dir (SY-13). Close the folder
+// when done.
 func Open(dir string) (*Folder, error) {
 	root, err := Find(dir)
 	if err != nil {
@@ -140,31 +147,42 @@ func Open(dir string) (*Folder, error) {
 	return f, nil
 }
 
-// Load classifies the sync folder whose root is fsys. wmill.yaml must be
-// at the root of fsys.
+// noConfigWarning is the CLI's warning when no wmill.yaml is found
+// (SY-13).
+const noConfigWarning = "No wmill.yaml found. Use 'wmill init' to bootstrap it."
+
+// Load classifies the sync folder whose root is fsys, with the wmill.yaml
+// at its root. Without one, every setting takes its absent value, as the
+// CLI runs with no wmill.yaml (SY-13), and Load warns as the CLI does.
 func Load(fsys fs.FS) (*Folder, error) {
 	src, err := fs.ReadFile(fsys, ConfigFile)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, &Error{Kind: ErrNoConfig, Msg: "no " + ConfigFile + " at the root"}
-	}
-	if err != nil {
+	var warnings []string
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		warnings, src = []string{noConfigWarning}, nil
+	case err != nil:
 		return nil, ioError(ConfigFile, err)
+	case bomEncoding(src) != "":
+		e := refusal(ConfigFile, bomEncoding(src))
+		e.Msg = "YAML syntax error in " + ConfigFile + ": " + e.Msg
+		return nil, e
 	}
-	cfg, warnings, err := parseConfig(src)
+	cfg, more, err := parseConfig(bytes.TrimPrefix(src, utf8BOM))
 	if err != nil {
 		return nil, err
 	}
 	f := &Folder{
 		Config:   cfg,
-		Warnings: warnings,
+		Warnings: append(warnings, more...),
 		fsys:     fsys,
 		entries:  map[ItemKind]map[string]*entry{},
+		walked:   map[string]bool{},
 		dotted:   map[string]string{},
 	}
 	for _, k := range itemKinds {
 		f.entries[k] = map[string]*entry{}
 	}
-	w := &walker{f: f, scripts: map[string]*scriptFiles{}, groups: map[ItemKind]map[string][]string{}}
+	w := &walker{f: f, scripts: map[string]*scriptFiles{}, groups: map[ItemKind]map[string][]string{}, flowFiles: map[string][]string{}}
 	if err := w.walk(); err != nil {
 		return nil, err
 	}
@@ -214,8 +232,19 @@ func (f *Folder) Filtered(kind ItemKind) []string {
 // joined, in kind and path order, or nil. It refuses what `wmill sync
 // push` would refuse, and a few things more (the restrictions of ADR 0001
 // §5a); a build that loads only what its roots reach need not call it.
+// Before it pushes anything, the CLI's walk reads every file it keeps, so
+// a file there that the decoder refuses fails the whole push (SY-19); Check
+// then reports those files alone.
 func (f *Folder) Check() error {
 	var errs []error
+	for _, p := range sortedKeys(f.walked) {
+		if err := f.sniff(p); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	for _, k := range itemKinds {
 		for _, p := range f.Paths(k) {
 			if _, err := f.read(k, p); err != nil {

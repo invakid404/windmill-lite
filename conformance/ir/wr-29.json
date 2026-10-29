@@ -37,12 +37,12 @@
       "spec": "WR-29/b",
       "provenance": "source-derived",
       "part": "compile",
-      "note": "The base resolves ./x to f/elsewhere/x; resolving it is the build's (C2a, F4).",
-      "title": "an explicit path overrides the import base",
+      "note": "A deploy reduces the module lists to stored nodes and drops an inline script's explicit path there, at top level and in container bodies, so the step runs from the default base: read as a file, ./x resolves to f/x/main/x. The dependency job's base <path>/flow does not apply: windmill-lite generates no locks. Resolving the imports is the build's (C2a, F4).",
+      "title": "an explicit path in a module list is dropped on deploy",
       "given": {
         "files": {
           "wmill.yaml": "defaultTs: bun\n",
-          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: rawscript\n        path: f/elsewhere/entry\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n"
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: s\n      value:\n        type: rawscript\n        path: f/elsewhere/entry\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1]}\n        modules:\n          - id: s\n            value:\n              type: rawscript\n              path: f/elsewhere/entry\n              language: bun\n              content: \"export async function main() { return 1 }\"\n              input_transforms: {}\n"
         }
       },
       "expect": {
@@ -50,8 +50,91 @@
           "f/x/main m:s": {
             "script": {
               "at": {
-                "/import_base": "f/elsewhere/entry",
+                "/import_base": "f/x/main/s",
                 "/path": "f/x/main/s"
+              }
+            }
+          },
+          "f/x/main m:l/m:s": {
+            "script": {
+              "at": {
+                "/import_base": "f/x/main/flow"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-29/c",
+      "provenance": "source-derived",
+      "part": "compile",
+      "note": "The slots are not reduced, so their explicit path is the run-time base: read as a file, ./x resolves to f/elsewhere/x. The failure module's run is N1b's.",
+      "title": "a deployed failure module and preprocessor keep their explicit path",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: boom\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n  failure_module:\n    id: failure\n    value:\n      type: rawscript\n      path: f/elsewhere/entry\n      language: bun\n      content: \"export async function main() { return 1 }\"\n      input_transforms: {}\n  preprocessor_module:\n    id: preprocessor\n    value:\n      type: rawscript\n      path: f/elsewhere/pre\n      language: bun\n      content: \"export async function main() { return 1 }\"\n      input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main s:failure": {
+            "script": {
+              "at": {
+                "/import_base": "f/elsewhere/entry"
+              }
+            }
+          },
+          "f/x/main s:preprocessor": {
+            "script": {
+              "at": {
+                "/import_base": "f/elsewhere/pre"
+              }
+            }
+          },
+          "f/x/main m:boom": {
+            "script": {
+              "at": {
+                "/import_base": "f/x/main/boom"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "spec": "WR-29",
+      "variant": "slot bodies",
+      "provenance": "source-derived",
+      "note": "Inside a container that fills a slot, module values stay raw too: an explicit path is the base as written, collapsed at a nested-body segment, and a step without one has the collapsed default.",
+      "title": "explicit paths inside a container in the failure slot",
+      "given": {
+        "files": {
+          "wmill.yaml": "defaultTs: bun\n",
+          "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: boom\n      value:\n        type: rawscript\n        language: bun\n        content: \"export async function main() { return 1 }\"\n        input_transforms: {}\n  failure_module:\n    id: failure\n    value:\n      type: forloopflow\n      iterator: {type: static, value: [1]}\n      modules:\n        - id: inner\n          value:\n            type: rawscript\n            path: f/elsewhere/inner\n            language: bun\n            content: \"export async function main() { return 1 }\"\n            input_transforms: {}\n        - id: deep\n          value:\n            type: rawscript\n            path: f/x/main/forloop-0/deep\n            language: bun\n            content: \"export async function main() { return 1 }\"\n            input_transforms: {}\n        - id: plain\n          value:\n            type: rawscript\n            language: bun\n            content: \"export async function main() { return 1 }\"\n            input_transforms: {}\n"
+        }
+      },
+      "expect": {
+        "steps": {
+          "f/x/main s:failure/m:inner": {
+            "script": {
+              "at": {
+                "/import_base": "f/elsewhere/inner"
+              }
+            }
+          },
+          "f/x/main s:failure/m:deep": {
+            "script": {
+              "at": {
+                "/import_base": "f/x/main/flow"
+              }
+            }
+          },
+          "f/x/main s:failure/m:plain": {
+            "script": {
+              "at": {
+                "/import_base": "f/x/main/flow"
               }
             }
           }

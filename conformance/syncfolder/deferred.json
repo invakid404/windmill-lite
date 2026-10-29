@@ -2,29 +2,9 @@
   "note": "Catalogue SY and PA cases that are not sync-folder cases here. Each names why and where it is checked. The test in internal/syncfolder fails unless every SY and PA case of docs/semantics/conformance.md is a case in this directory or listed here.",
   "deferred": [
     {
-      "spec": "SY-4/b",
-      "reason": "a script without metadata is pushed with an inferred schema; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-5/c",
-      "reason": "a leading space is not a lock reference; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
       "spec": "SY-6/c",
       "reason": "what a pull writes after a deploy; the loader reads whatever form the folder holds. The pull round trip is an optional oracle corroboration (Q-OF-1)",
       "expected_in": "E3e records it: conformance/flows/control-flow/pull, whose provenance holds the pulled flow, checked by TestRecordedDeploymentEvidence in internal/oracle"
-    },
-    {
-      "spec": "SY-7/f",
-      "reason": "the fallback for an !inline reference without a dot; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-8/c",
-      "reason": "an `includes: []` entry never matches; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
     },
     {
       "spec": "SY-9/a",
@@ -40,71 +20,6 @@
       "spec": "SY-9/c",
       "reason": "the YAML dialect's own cases",
       "expected_in": "internal/yamlx/testdata/sy9.json (A2)"
-    },
-    {
-      "spec": "SY-10/b",
-      "reason": "a resource without value fails the push; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-11/b",
-      "reason": "a variable without value fails the push; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-13/b",
-      "reason": "with no wmill.yaml the push is unfiltered; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-16/a",
-      "reason": "includes globs are minimatch with default options; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-17/a",
-      "reason": "which files select a script and a flow; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-17/b",
-      "reason": "a new lock file selects nothing; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-17/c",
-      "reason": "an unreferenced file in the folder selects the flow; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-18/a",
-      "reason": "unclassified files are ignored; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-18/b",
-      "reason": "a stray .js file fails the push; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-19/a",
-      "reason": "a UTF-8 byte order mark is stripped; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-19/b",
-      "reason": "a UTF-16 byte order mark is refused; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-19/c",
-      "reason": "a refused lock reached only as a reference resolves to an empty lock with a warning; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
-    },
-    {
-      "spec": "SY-19/d",
-      "reason": "a refused inline file falls back to a readable one; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level",
-      "expected_in": "a follow-up of A4"
     },
     {
       "spec": "PA-3/a",
