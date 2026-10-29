@@ -316,11 +316,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	done := make(chan int, n)
 	nStarted, running, completed, q := 0, 0, 0, 0
 	stopped := conformance.RunStatus("")
-	launch := func(k int) bool {
-		if st, ended := r.iterationEnded(ctx); ended {
-			stopped = st
-			return false
-		}
+	start := func(k int) {
 		started[k] = true
 		nStarted++
 		running++
@@ -328,11 +324,25 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			ends[k] = r.runList(ctx, children[k])
 			done <- k
 		}()
+	}
+	launch := func(k int) bool {
+		if st, ended := r.iterationEnded(ctx); ended {
+			stopped = st
+			return false
+		}
+		start(k)
 		return true
 	}
-	for k, lim := range limits {
-		if (lim < 0 || k < lim) && !launch(k) {
-			break
+	// The children not held start together, after one check of the host
+	// signals (CF-7), so none waits on another's outcome to start; each
+	// held child is checked when it is released.
+	if st, ended := r.iterationEnded(ctx); ended {
+		stopped = st
+	} else {
+		for k, lim := range limits {
+			if lim < 0 || k < lim {
+				start(k)
+			}
 		}
 	}
 	release := func() {

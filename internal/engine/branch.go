@@ -248,17 +248,19 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 	started := 0
 	stopped := conformance.RunStatus("")
 	var wg sync.WaitGroup
-	for k, c := range children {
-		if st, ended := r.iterationEnded(ctx); ended {
-			stopped = st
-			break
+	// The branches start together, after one check of the host signals
+	// (CF-15), so none waits on another's outcome to start.
+	if st, ended := r.iterationEnded(ctx); ended {
+		stopped = st
+	} else {
+		for k, c := range children {
+			started++
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ends[k] = r.runList(ctx, c)
+			}()
 		}
-		started++
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ends[k] = r.runList(ctx, c)
-		}()
 	}
 	wg.Wait()
 	var it iterations
