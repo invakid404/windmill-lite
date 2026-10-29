@@ -62,6 +62,11 @@ cases:
     variant: finally-runs
     provenance: policy
     title: a finally block runs after the exit in warm mode, which a later run of the script sees (with D1)
+    note: >-
+      The fresh reading here only shows a new process; that no catch or
+      finally block runs after a fresh exit is shown by side effects outside
+      the process, in internal/harness's TestBunFreshExitRunsNoMoreCode (c3b
+      review 1, R1-1).
     deviation: D11
     script: |
       export function main(check: boolean) {
@@ -214,25 +219,78 @@ cases:
   - spec: D11
     variant: exit-after-result
     provenance: source-derived
-    title: a process.exit from a timer after the result changes nothing; Windmill's exit came first (WR-2), and the warm process lives on
+    title: a process.exit from a timer after the result never runs; Windmill's exit came first (WR-2), and in warm mode the settle-time fence clears the timer
     note: >-
-      The second run waits until the timer has called process.exit, which it
-      sees only in warm mode (D1). The late error it reports is
-      internal/harness's TestBunWorkAfterTheResultIsLate.
+      The second run waits for a control timer of the process scope, started
+      with the same delay, which the fence leaves alone. Before the fence
+      (C3a) the warm reading was that the timer ran. That a late
+      process.exit from work the fence cannot stop is reported, and changes
+      nothing, is internal/harness's TestBunWorkAfterTheResultIsLate.
     deviation: D11
     script: |
+      const inProcess = globalThis[Symbol.for("windmill-lite.processScope")]?.capture() ?? ((f) => f());
       export async function main(wait: boolean) {
         if (wait) {
-          for (let i = 0; i < 200 && !globalThis.wlLateExit; i++) await Bun.sleep(10);
-          return globalThis.wlLateExit ?? false;
+          for (let i = 0; i < 100 && !globalThis.wlControlFired; i++) await Bun.sleep(10);
+          return [globalThis.wlControlFired ?? false, globalThis.wlLateExit ?? false];
         }
         setTimeout(() => { globalThis.wlLateExit = true; process.exit(9); }, 10);
+        inProcess(() => setTimeout(() => { globalThis.wlControlFired = true; }, 10));
         return "done";
       }
     runs:
       - args: '{}'
         expect: {status: success, result: done}
+        warnings: [left_behind]
+        left: {timeout: 1}
+        settled: completed
       - args: '{"wait":true}'
         by_mode:
-          warm: {expect: {status: success, result: true}}
-          fresh: {expect: {status: success, result: false}}
+          warm: {expect: {status: success, result: [true, false]}}
+          fresh: {expect: {status: success, result: [false, false]}}
+  - spec: D11
+    variant: exit-caught-log
+    provenance: policy
+    title: what a call writes after an exit it caught, and before it ends, is late output; in fresh mode the exit ends the process first
+    deviation: D11
+    script: |
+      export async function main() {
+        try { process.exit(3); } catch {}
+        console.log("after the exit");
+        await Bun.sleep(10);
+        return "after";
+      }
+    runs:
+      - args: '{}'
+        by_mode:
+          warm:
+            claims:
+              - {at: /result/error/exit_code, equals: 3}
+            late: [{kind: log, body: '["after the exit"]'}, {kind: result, final: true, body: '"after"'}]
+            settled: completed
+          fresh:
+            claims:
+              - {at: /result/error/exit_code, equals: 3}
+            settled: process_exited
+  - spec: D11
+    variant: exit-tail
+    provenance: policy
+    title: the error of an exit quotes the step's last log lines (WR-20), which reach the engine in both modes
+    note: >-
+      In warm mode the harness sends the tail with the outcome; in fresh
+      mode the process exits, and the engine takes the tail from the log
+      frames it received. The exact text of a Windmill tail is later
+      (WR-20); its lines here are the step's own.
+    script: |
+      export function main() {
+        console.log("first line");
+        process.stderr.write("second ");
+        process.stderr.write("line\n");
+        console.log("");
+        process.exit(4);
+      }
+    runs:
+      - args: '{}'
+        claims:
+          - {at: /result/error/message, equals: "exit code for \"bun run\": 4, last log lines:\nfirst line\nsecond line"}
+          - {at: /result/error/exit_code, equals: 4}

@@ -19,7 +19,7 @@
         "caps": {
           "fetch": true,
           "native": false,
-          "fresh": false,
+          "fresh": true,
           "host": false
         },
         "bundle": "<bundle>",
@@ -84,6 +84,13 @@
     },
     {
       "release": "i1.release"
+    },
+    {
+      "expect": {
+        "t": "log",
+        "id": "i1",
+        "lines": "<any>"
+      }
     },
     {
       "expect": {

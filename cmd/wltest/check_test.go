@@ -52,12 +52,12 @@ func repo(t *testing.T) string {
 	return root
 }
 
-// TestStepSuite is milestone C3a's exit gate: every step case of
-// conformance/steps passes in warm mode, through the real Bun harness on
-// the pinned Bun, each script built by the Bun build helper or, for a
-// codebase script, by esbuild. With WL_NODE it is also milestone C2b's D13
-// gate: each CommonJS codebase bundle runs on Node too, as on Windmill,
-// and shows its node check there.
+// TestStepSuite is the exit gate of milestones C3a and C3b: every step
+// case of conformance/steps passes in warm mode and in fresh mode, through
+// the real Bun harness on the pinned Bun, each script built by the Bun
+// build helper or, for a codebase script, by esbuild. With WL_NODE it is
+// also milestone C2b's D13 gate: each CommonJS codebase bundle runs on
+// Node too, as on Windmill, and shows its node check there.
 func TestStepSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	node := nodeOrSkip(t)
@@ -71,28 +71,38 @@ func TestStepSuite(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no step files")
 	}
-	sc := &stepChecker{bun: bun, node: node, repo: repo(t), mode: conformance.ModeWarm}
+	var loaded []*conformance.StepFile
 	n := 0
 	for _, path := range files {
 		f, err := conformance.LoadStepFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Run(f.Finding, func(t *testing.T) {
-			t.Parallel()
-			for _, r := range sc.runFile(context.Background(), f) {
-				if len(r.problems) > 0 {
-					t.Errorf("%s:\n  %s\nharness diagnostics:\n%s", r.name, strings.Join(r.problems, "\n  "), r.diag)
-				}
-			}
-		})
+		loaded = append(loaded, f)
 		n += len(f.Cases)
 	}
-	t.Logf("step suite: %d cases in %d files, mode warm", n, len(files))
+	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh} {
+		t.Run(mode, func(t *testing.T) {
+			sc := &stepChecker{bun: bun, node: node, repo: repo(t), mode: mode}
+			for _, f := range loaded {
+				t.Run(f.Finding, func(t *testing.T) {
+					t.Parallel()
+					for _, r := range sc.runFile(context.Background(), f) {
+						if len(r.problems) > 0 {
+							t.Errorf("%s:\n  %s\nharness diagnostics:\n%s", r.name, strings.Join(r.problems, "\n  "), r.diag)
+						}
+					}
+				})
+			}
+		})
+	}
+	t.Logf("step suite: %d cases in %d files, modes warm and fresh", n, len(files))
 }
 
 // The checker fails a case whose expectation does not hold: a result, a
-// claim, a late report and a warning that differ are each reported.
+// claim, a late report, a warning, a count of what was left behind and a
+// late report after settlement that differ are each reported, in both
+// modes.
 func TestStepCheckerReportsDifferences(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "steps", "bun")
@@ -142,6 +152,30 @@ cases:
     runs:
       - args: '{}'
         expect: {status: success, result: {error: {stack: "expected data"}}}
+  - spec: WR-6/f
+    provenance: source-derived
+    title: a wrong count of what was left behind
+    script: |
+      export function main() { setTimeout(() => {}, 1000); setInterval(() => {}, 1000); return 1; }
+    runs:
+      - args: '{}'
+        warnings: [left_behind]
+        left: {timeout: 2}
+  - spec: WR-6/g
+    provenance: source-derived
+    title: a late report that arrives after settlement is not missed
+    script: |
+      export async function main(wait: boolean) {
+        if (wait) { await Bun.sleep(100); return 2; }
+        Bun.sleep(20).then(() => process.exit(9));
+        return 1;
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: 1}
+        settled: completed
+      - args: '{"wait":true}'
+        expect: {status: success, result: 2}
   - spec: WR-6/c
     provenance: source-derived
     title: a case that holds
@@ -153,28 +187,43 @@ cases:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"check", "--bun", bun, "--repo", repo(t), path}, &stdout, &stderr)
-	out := stdout.String()
-	if code != 1 {
-		t.Fatalf("exit %d, want 1\n%s%s", code, out, stderr.String())
-	}
-	for _, want := range []string{
-		"fail wr-6-a ",
-		"run 1: /result: 1 != 2",
-		"fail wr-6-b ",
-		"run 1: /result/error/exit_code: 3 (",
-		"run 1: late 1: body \"after\", want \"before\"",
-		"run 1: warnings [], want [unattributed_error]",
-		"fail wr-6-d ",
-		"run 1: warnings [unattributed_error], want []",
-		"fail wr-6-e ",
-		"run 1: /result/error/stack: \"actual data\" != \"expected data\"",
-		"pass wr-6-c ",
-		"1 passed, 4 failed, 0 unsupported (mode warm)",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output lacks %q:\n%s", want, out)
+	for _, mode := range []string{conformance.ModeWarm, conformance.ModeFresh} {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"check", "--mode", mode, "--bun", bun, "--repo", repo(t), path}, &stdout, &stderr)
+		out := stdout.String()
+		if code != 1 {
+			t.Fatalf("%s: exit %d, want 1\n%s%s", mode, code, out, stderr.String())
+		}
+		wants := []string{
+			"fail wr-6-a ",
+			"run 1: /result: 1 != 2",
+			"fail wr-6-b ",
+			"run 1: /result/error/exit_code: 3 (",
+			"fail wr-6-e ",
+			"run 1: /result/error/stack: \"actual data\" != \"expected data\"",
+			"fail wr-6-f ",
+			"run 1: left behind map[interval:1 timeout:1], want map[timeout:2]",
+			"pass wr-6-c ",
+		}
+		if mode == conformance.ModeWarm {
+			// In fresh mode the exits end the process: no late report or
+			// warning can follow them.
+			wants = append(wants,
+				"run 1: late 1: body \"after\", want \"before\"",
+				"run 1: warnings [], want [unattributed_error]",
+				"fail wr-6-d ",
+				"run 1: warnings [unattributed_error], want []",
+				"fail wr-6-g ",
+				"run 1: 1 late reports, want 0: [error final=false",
+				"1 passed, 6 failed, 0 unsupported (mode warm)",
+			)
+		} else {
+			wants = append(wants, "pass wr-6-d ", "pass wr-6-g ", "3 passed, 4 failed, 0 unsupported (mode fresh)")
+		}
+		for _, want := range wants {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: output lacks %q:\n%s", mode, want, out)
+			}
 		}
 	}
 }
