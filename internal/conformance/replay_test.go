@@ -383,3 +383,45 @@ func TestReplayServiceRacedDuplicates(t *testing.T) {
 		t.Fatalf("%+v", calls)
 	}
 }
+
+// CheckReplay, the check both sides apply after a stub run: every call
+// answered, resolved where the run's observation put its job (a failed
+// attempt k at <site>/r:<k>, the last attempt at <site>), and every job
+// that executed a script called.
+func TestCheckReplay(t *testing.T) {
+	site := func(s string) SitePath {
+		p, err := ParseSitePath(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	walked := map[string]SitePath{
+		"R": {}, "it": site("m:loop/i:0"), "j0": site("m:loop/i:0/m:a/r:0"), "j1": site("m:loop/i:0/m:a/r:1"), "j2": site("m:loop/i:0/m:a"), "k": site("m:b"),
+	}
+	scripts := []string{"j0", "j1", "j2", "k"}
+	call := func(job, s string, attempt int) ReplayCall {
+		return ReplayCall{Job: job, Site: site(s), Attempt: attempt}
+	}
+	good := []ReplayCall{call("j0", "m:loop/i:0/m:a", 0), call("j1", "m:loop/i:0/m:a", 1), call("j2", "m:loop/i:0/m:a", 2), call("k", "m:b", 0)}
+	if err := CheckReplay(good, walked, scripts); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		calls []ReplayCall
+		want  string
+	}{
+		{"a refused call", append(good[:3:3], ReplayCall{Job: "k", Err: `{"error":"replay_miss","site":"m:b","attempt":0}`}), `{"error":"replay_miss","site":"m:b","attempt":0}`},
+		{"the last job counted as a later attempt", []ReplayCall{good[0], good[1], call("j2", "m:loop/i:0/m:a", 3), good[3]}, `{"error":"replay_site_mismatch","job":"j2","resolved":"m:loop/i:0/m:a","attempt":3,"walked":"m:loop/i:0/m:a"}`},
+		{"the last job counted as an earlier attempt", []ReplayCall{good[0], good[1], call("j2", "m:loop/i:0/m:a", 1), good[3]}, `"job":"j2"`},
+		{"a failed attempt counted wrong", []ReplayCall{call("j0", "m:loop/i:0/m:a", 1), good[1], good[2], good[3]}, `"job":"j0"`},
+		{"another site", []ReplayCall{good[0], good[1], good[2], call("k", "m:c", 0)}, `"walked":"m:b"`},
+		{"a job the run did not reach", append(good[:4:4], call("zz", "m:b", 1)), `"walked":"(not walked)"`},
+		{"script jobs that never called", good[1:3], `{"error":"stub_not_called","sites":["m:b","m:loop/i:0/m:a/r:0"]}`},
+	} {
+		if err := CheckReplay(c.calls, walked, scripts); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want %q", c.name, err, c.want)
+		}
+	}
+}

@@ -31,7 +31,7 @@ fixtures on windmill-lite.
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
 | `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
-| `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`: stub mode's replay table and the run-scoped service that answers stubs (see [Stub mode](#stub-mode)) |
+| `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`, `CheckReplay`: stub mode's replay table, the run-scoped service that answers stubs, and the check of a run's calls after it (see [Stub mode](#stub-mode)) |
 
 The engine, the harness, the oracle and `wltest` share this vocabulary, so
 the package imports no other windmill-lite package. Code that runs
@@ -328,6 +328,25 @@ Each answered call is a `ReplayCall` whose `Effect` is
 `{"site","attempt","step","job","flow","root_flow","root","args"}` in that
 order: the resolved site and attempt, then what the stub sent. The runner
 appends the calls to the run's effects.
+
+**After the run**, `CheckReplay(calls, walked, scripts)` is the check
+both sides apply (milestone E4b moved it here from the oracle). `walked`
+maps every job id the run's observation reached to its site, a failed
+attempt `k` at `<module>/r:<k>`: the oracle's walk, or windmill-lite's
+trace. `scripts` are the jobs that executed a script. It fails the run on
+the first refused call (`replay_miss`, `replay_unresolved`, as the stub
+received it), and on a call whose site and attempt disagree with where its
+job was walked (`replay_site_mismatch`: a failed attempt `k` at
+`<site>/r:<k>`, the last job at `<site>` with `k` the number of failed
+attempts before it). It also fails a run in which a script job never
+called (`stub_not_called`, with the sorted sites). The error's text is the
+refusal as one JSON object. `TestCheckReplay` covers each case.
+
+The locator differs by side. On the oracle it walks the job tree
+([internal/oracle](../oracle/README.md#stub-mode)). On windmill-lite,
+`wltest check` records the site each job launches at through the
+engine's invocation-environment hook
+([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures)).
 ## Normalised text
 
 A normalised string ([OR-14](../../docs/semantics/oracle.md#or-14) items 1

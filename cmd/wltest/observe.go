@@ -61,7 +61,11 @@ import (
 // the run declares (copies, declaredCopies). There a comparison with the
 // oracle strips a location suffix (conformance.StripLocations), and
 // nowhere else.
-func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec, copies []conformance.Copy) (conformance.Observation, []string, error) {
+//
+// effects are the run's effects in the order the oracle lists them (the
+// sink's, then each answered stub call, ADR 0011), normalised with the
+// same job ids as the rest of the observation.
+func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure bool, jobs map[string]conformance.SitePath, spec conformance.CompareSpec, copies []conformance.Copy, effects []json.RawMessage) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
 	var children []engine.ChildFlow
 	for _, c := range t.Children {
@@ -296,6 +300,13 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 				return o, nil, err
 			}
 		}
+	}
+	for _, e := range effects {
+		v, err := n.Value(e)
+		if err != nil {
+			return o, nil, err
+		}
+		o.Effects = append(o.Effects, v)
 	}
 	o, err = conformance.MaskPaths(o, spec.Stack, spec.Mask)
 	if err != nil {

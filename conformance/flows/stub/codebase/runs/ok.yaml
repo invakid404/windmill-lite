@@ -1,0 +1,54 @@
+# The CommonJS step fails once for the second item and succeeds on its
+# retry (FX-26): the failed attempt is walked at r:0, the last at the
+# module's site (OR-11, ADR 0011). The esm step then takes the loop's
+# results.
+target: f/wl_stub_cb/order
+args: {order: o-7, qty: 2, items: [bolt, nut]}
+replay:
+  "m:each/i:0/m:reserve": {result: 2}
+  "m:each/i:1/m:reserve":
+    - {error: {message: "inventory busy"}}
+    - {result: 1}
+  "m:confirm": {result: {order: o-7, held: 3}}
+expect:
+  status: success
+  result: {order: o-7, held: 3}
+  steps:
+    "m:each": {status: success, result: [2, 1]}
+    "m:each/i:0/m:reserve": {status: success, args: {item: bolt, qty: 2}, result: 2}
+    "m:each/i:1/m:reserve/r:0": {status: failure, args: {item: nut, qty: 2}, result: {error: {name: Error, message: "inventory busy", stack: "<stack>", step_id: reserve}}}
+    "m:each/i:1/m:reserve": {status: success, args: {item: nut, qty: 2}, result: 1}
+    "m:confirm": {status: success, args: {order: o-7, held: [2, 1]}, result: {order: o-7, held: 3}}
+  effects:
+    - site: "m:each/i:0/m:reserve"
+      attempt: 0
+      step: reserve
+      job: "<job:m:each/i:0/m:reserve>"
+      flow: "<job:m:each/i:0>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [bolt, 2]
+    - site: "m:each/i:1/m:reserve"
+      attempt: 0
+      step: reserve
+      job: "<job:m:each/i:1/m:reserve/r:0>"
+      flow: "<job:m:each/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [nut, 2]
+    - site: "m:each/i:1/m:reserve"
+      attempt: 1
+      step: reserve
+      job: "<job:m:each/i:1/m:reserve>"
+      flow: "<job:m:each/i:1>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [nut, 2]
+    - site: "m:confirm"
+      attempt: 0
+      step: confirm
+      job: "<job:m:confirm>"
+      flow: "<job:>"
+      root_flow: "<job:>"
+      root: "<job:>"
+      args: [o-7, [2, 1]]
