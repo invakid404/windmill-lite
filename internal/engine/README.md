@@ -340,9 +340,11 @@ to it), its own `skip_if`, arguments and launch, with these differences
   path reads the failed job's stored result
   ([FX-10](../../docs/semantics/execution.md#fx-10)); `error` is the
   evaluator's ([JE-17](../../docs/semantics/expressions.md#je-17));
-- its input transforms also see `started_at`, the run's start time as an
-  RFC 3339 string with 0, 3, 6 or 9 fraction digits, and `flow_job_id`, the
-  run's id; its `WM_FLOW_STEP_ID` is its own id;
+- its input transforms also see `started_at`, the start time of the flow
+  it runs in (the run's, or a child flow's or a subflow's for a copy in a
+  body or a subflow's own, N3c) as an RFC 3339 string with 0, 3, 6 or 9
+  fraction digits, and `flow_job_id`, that flow's job id; its
+  `WM_FLOW_STEP_ID` is its own id;
 - a `skip_if` that holds replaces it with a passthrough identity job that
   is never flagged skipped ([FX-17](../../docs/semantics/execution.md#fx-17));
   it has no stop, and its own `continue_on_error` is ignored;
