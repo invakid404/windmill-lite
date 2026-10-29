@@ -48,13 +48,13 @@ behaviour each. Paths such as `f/demo/...` are invented.
 |---|---|---|---|---|---|---|---|---|
 | [OpenFlow model and the sync folder](#openflow) | 149 | 129 | 20 | 0 | 0 | 1 | 0 | 0 |
 | [Flow execution](#execution) | 145 | 102 | 42 | 1 | 0 | 81 | 0 | 1 |
-| [Loops, branches and subflows](#control-flow) | 92 | 71 | 18 | 0 | 3 | 44 | 0 | 0 |
+| [Loops, branches and subflows](#control-flow) | 93 | 71 | 18 | 0 | 4 | 45 | 0 | 0 |
 | [Expressions](#expressions) | 193 | 130 | 63 | 0 | 0 | 167 | 0 | 0 |
 | [Languages and script wrappers](#languages) | 203 | 127 | 76 | 0 | 0 | 27 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 105 | 55 | 45 | 5 | 0 | 0 | 0 | 6 |
 | [The oracle](#oracle) | 88 | 77 | 6 | 2 | 3 | 53 | 11 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 978 | 694 | 270 | 8 | 6 | 373 | 11 | 7 |
+| **Total** | 979 | 694 | 270 | 8 | 7 | 374 | 11 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -3143,7 +3143,9 @@ Findings: [control-flow.md](control-flow.md).
     closed-source runner module in place of the stub that writes this
     text. The case is therefore outside the reference configuration and is
     not recorded; what the CE image does with the same loop is
-    [Q-CF-19](control-flow.md#q-cf-19).
+    [Q-CF-19](control-flow.md#q-cf-19), answered by CF-25/d.
+    Milestone NI's run `later` of `conformance/flows/control-flow/cf-25`,
+    which cites this case, records the CE image instead: CF-25/d.
 - **CF-25/b** · source-derived · EE data semantics ([Q-CF-11](control-flow.md#q-cf-11)).
   - **Given:** EE; the same loop.
   - **Expect:** unverified hypothesis only: the same results as without
@@ -3158,6 +3160,26 @@ Findings: [control-flow.md](control-flow.md).
     and a parallel loop, never start the runners, so the flag has no
     effect. This is decided before the build-dependent runner module is
     called, so it holds on the CE image too.
+- **CF-25/d** · oracle-observed · The CE image runs a squashed loop as an
+  ordinary loop.
+  - **Given:** CE; flows whose loop `l` has `squash: true`: a sequential
+    `forloopflow` over `[1]` with body `[b: echo(x = flow_input.iter.value),
+    c: echo(x = results.b)]` at step 0, and the same after a first step
+    `a: echo(x = 1)`. After that same first step: a `whileloopflow` whose
+    body is `[b: echo(x = flow_input.iter.index), c: echo(x = results.b)]`
+    and whose module has `stop_after_if: true`, ending it after one
+    iteration; a sequential loop over `[1]` with the single-step body
+    `[b]`, which collapses; a parallel loop over `[1, 2]` with body `[b]`;
+    and a sequential loop over `[]`. `echo` returns its argument.
+  - **Expect:** each flow succeeds with the result it has without
+    `squash` (`[1]`, `[1]`, `[0]`, `[1]`, `[1, 2]`, `[]`). Each iteration
+    runs as ordinary child jobs (a `flownode` child flow per iteration with
+    `script` steps; the collapsed body's step directly), and the flow job's
+    stored value keeps `squash: true`. No error is raised.
+  - **Recorded:** [`flows/control-flow/cf-25`](../../conformance/flows/control-flow/cf-25)
+    runs `step0`, `later`, `while`, `collapsed`, `empty` (oracle run
+    40857510216) and `parallel` (oracle run 40852609901), recorded by
+    milestone NI.
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details

@@ -659,19 +659,16 @@ Nothing here may commit the oracle's database credentials unmasked.
   {"name":"UnknownError","message":"Could not parse the error","error":1}]`),
   and (i) with one retry whose `retry_if` is true only for the carried
   value (expected a second branch job).
-- **Squash and `ai` parallelism on the CE image**
-  ([CF-25](../semantics/control-flow.md#cf-25),
-  [Q-CF-19](../semantics/control-flow.md#q-cf-19),
-  [CF-7/e](../semantics/conformance.md#cf-7)). The CE image does not use
-  the open-source stub, so the reference cannot predict what a sequential
-  squashed loop does. Record a sequential `forloopflow` over `[1, 2]` with
-  `squash: true` at step 0 (body `bun(v): return v`, `v =
-  "flow_input.iter.value"`) and a two-iteration `whileloopflow` with
-  `squash: true`: the result or the full error, and every job created.
-  CF-25/c: the flag on a loop module with `sleep: {type: static, value:
-  0}` and on a parallel loop; both expected to give `[1, 2]`. CF-7/e: a
-  parallel loop over `[1, 2]` with `parallelism: {type: ai}`; wait about
-  30 s, check that no iteration started, then cancel.
+- **`ai` parallelism and squash on the CE image**
+  ([CF-7/e, CF-25/c](../semantics/conformance.md#cf-7)). What the CE image
+  does with a squashed loop is now recorded (milestone NI's
+  `control-flow/cf-25`, [CF-25/d](../semantics/conformance.md#cf-25)): it
+  runs as an ordinary loop. Still to record: CF-25/c's two flows (the flag
+  on a loop module with `sleep: {type: static, value: 0}` followed by an
+  identity step, and on a parallel loop as the first step; both expected
+  to give `[1, 2]`), and CF-7/e: a parallel loop over `[1, 2]` with
+  `parallelism: {type: ai}`; wait about 30 s, check that no iteration
+  started, then cancel.
 - **Number notation** ([Q-FX-7](../semantics/execution.md#q-fx-7),
   [Q-JE-13](../semantics/expressions.md#q-je-13)). FX-42/a, /b, /e, /f, /i,
   /j and a stored `1.50e3`, as Q-FX-7 describes; a loop aggregate whose

@@ -1488,7 +1488,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
 <a id="cf-25"></a>
 ### CF-25 · `squash`
 
-**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); low (EE semantics); unknown (the CE image's outcome, [Q-CF-19](#q-cf-19)) · **Status:** confirmed; drafted (the conditions, and the stub's error text)
+**Scope:** EE · **Confidence:** high (when the runners are requested; the stub's text in a build without `private`); high (the CE image's outcome, oracle-observed); low (EE semantics) · **Status:** confirmed; drafted (the conditions, and the stub's error text)
 
 - **Rule:** `squash: true` on a sequential loop asks Windmill to run all
   iterations on one dedicated runner. The worker decides from public code
@@ -1499,9 +1499,16 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
     `Squashing flow loops is not available in OSS` (the full text below).
   - **The published CE image** is built with `features=ce`, which includes
     `private` ([OR-3](oracle.md#or-3)): its release build copies in the
-    closed-source runner module, and the stub is not compiled. Whether the
-    CE image then runs the loop squashed, runs it normally, or fails, and
-    with which text, is not in the public source ([Q-CF-19](#q-cf-19)).
+    closed-source runner module, and the stub is not compiled. The public
+    source cannot say what that module does, but the oracle recorded it
+    ([Q-CF-19](#q-cf-19), [CF-25/d](conformance.md#cf-25)): the CE image
+    runs a squashed loop **as an ordinary loop**. A sequential `forloopflow`
+    at step 0 or after a step, a `whileloopflow`, a loop whose body
+    collapses, a parallel loop and an empty loop all completed with the
+    results they give without `squash`, each iteration's body as ordinary
+    child jobs (a `flownode` child per iteration, `script` steps inside),
+    and the flow job's stored value kept `squash: true`. No error is
+    raised, so on CE the flag has no observable effect.
 
   Empty loops start no runners, and parallel loops do not take the squash
   start path, in every build. Whether squash changes data semantics in EE
@@ -1568,7 +1575,7 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   phase's error leaves the flow handler as a generic error),
   `backend/windmill-worker/src/worker.rs:3822-3840` (pickup conversion),
   `worker_flow.rs:2103-2104` (chaining stores the display)
-- **Conformance:** [CF-25/a–CF-25/c](conformance.md#cf-25)
+- **Conformance:** [CF-25/a–CF-25/d](conformance.md#cf-25)
 - **Revision 2026-10-29 (SC3, source re-check, chain N3a):** milestone N3a
   refuses `squash` and asked whether CE has any route for it. It has none
   that runs squashed: CE fails the loop at its first iteration, or ignores
@@ -1590,6 +1597,12 @@ root. Status, scope and confidence tags are defined in the [index](README.md#leg
   *refuses* `squash` at deploy time; the source shows CE ignoring it where
   no runners start, and only a recording can show what a sequential
   squashed loop does on the CE image.
+- **Revision 2026-10-29 (SC3 validation round 1, recording by milestone
+  NI):** that recording exists: milestone NI's fixture `conformance/flows/control-flow/cf-25`, runs `step0`, `later`, `while`, `collapsed`, `empty` (oracle run 40857510216) and `parallel` (oracle run 40852609901) ran every
+  squashed loop on the CE image as an ordinary loop, with ordinary results
+  and job kinds; the stored flow kept `squash: true`. The rule now states
+  it, new case CF-25/d records it, and [Q-CF-19](#q-cf-19) is answered.
+  CF-25/a still describes only a build without `private`.
 
 <a id="cf-26"></a>
 ### CF-26 · Representation and restart details
@@ -2218,4 +2231,8 @@ These are proposals made while studying the behaviour. They bind nothing.
   `whileloopflow` whose body stops after two iterations, recording the
   flow's result or error and the jobs created (a squashed loop runs its
   iterations on one runner, so the number and kind of iteration jobs tell
-  the paths apart). Added 2026-10-29 (SC3).
+  the paths apart). Added 2026-10-29 (SC3). **Answered 2026-10-29 (SC3
+  validation round 1)** by milestone NI's recordings (fixture `conformance/flows/control-flow/cf-25`, runs `step0`, `later`, `while`, `collapsed`, `empty` (oracle run 40857510216) and `parallel` (oracle run 40852609901)): the CE
+  image runs every squashed loop as an ordinary loop, with the results and
+  child job kinds of an unsquashed one, and raises no error
+  ([CF-25](#cf-25), [CF-25/d](conformance.md#cf-25)).

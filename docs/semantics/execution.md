@@ -2501,8 +2501,9 @@ each one ([Q-FX-18](#q-fx-18) covers the cases no other question names).
   - **`squash`** on loops reuses a warm runtime across iterations. It is
     EE-only; a build without the `private` feature rejects it with
     `Squashing flow loops is not available in OSS`. The published CE image
-    is built with `private` and does not use that stub, so what it does is
-    open ([CF-25](control-flow.md#cf-25), [Q-CF-19](control-flow.md#q-cf-19)).
+    is built with `private` and does not use that stub: the oracle recorded
+    it running a squashed loop as an ordinary loop
+    ([CF-25](control-flow.md#cf-25), [CF-25/d](conformance.md#cf-25)).
   - **Concurrency limits, debouncing, worker tags and `preserve_step_tags`**
     are scheduling only.
   - **`same_worker: true` pinning.** The next job is pinned to the current
