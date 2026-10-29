@@ -183,6 +183,11 @@ const (
 	// an EarlyStopError, while its job succeeded (FX-V2); a sequential
 	// loop takes it as a break (CF-12).
 	endErrorStop
+	// endFailedStop: a clean stop of a module that is Failure: a failed
+	// while loop or branchall whose stop_after_all_iters_if stops cleanly
+	// (CF-13). It carries the module's failure value, and a stop never
+	// continues the flow (FX-2 completion rule 7.1).
+	endFailedStop
 	// endUnrecoverable: a throwing stop_after_if (FX-21): the module is
 	// Failure, carrying the string error, and neither a retry nor
 	// continue_on_error applies (FX-44).
@@ -198,16 +203,16 @@ const (
 	// endInterrupted: the module did not complete because the run was
 	// latched or canceled on its way; the completion check ends the run.
 	endInterrupted
-	// endHalted: a module in the module's loop body ended the run halted
-	// (H8); the completion check still ranks a latch or the cancellation
-	// first.
+	// endHalted: a module in the module's container body ended the run
+	// halted (H8); the completion check still ranks a latch or the
+	// cancellation first.
 	endHalted
 )
 
 // failed reports whether the module is Failure: what H7 and Windmill's
 // continue decision treat as a failure.
 func (e moduleEnd) failed() bool {
-	return e == endFailed || e == endErrorStop || e == endUnrecoverable
+	return e == endFailed || e == endErrorStop || e == endFailedStop || e == endUnrecoverable
 }
 
 // outcome is how one module went.
@@ -226,6 +231,24 @@ type outcome struct {
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
 	chain string
+	// halt is a halt-after (H8) that a module of the container's body
+	// decided and that its completion hands on (pendingHalt).
+	halt *pendingHalt
+}
+
+// pendingHalt is a halt-after (H8) decided at the module whose trace
+// record is idx, when the module's flow then ended: whether the run starts
+// something after that is the containers' to say once they have completed,
+// their own stops included. It applies at the run's next start, an
+// iteration, a branch or a module, and is dropped when the run ends
+// without one or starts a failure module, so a halt never hides how the
+// run would end (ADR 0008).
+type pendingHalt struct{ idx int }
+
+// applyHalt ends the run halted by the halt-after h decided (H8).
+func (r *run) applyHalt(h *pendingHalt) {
+	r.mark(h.idx, "H8")
+	r.halt()
 }
 
 // next is what Windmill's continue decision asks for after a module's
@@ -301,6 +324,14 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 			return ends(conformance.RunSuccess)
 		}
 		return ends(conformance.RunFailure)
+	case endFailedStop:
+		// Rule 1: a clean stop never continues, not even into the failure
+		// module; step 8 turns a tolerated failure at the last module
+		// successful.
+		if tolerated && last {
+			return ends(conformance.RunSuccess)
+		}
+		return ends(conformance.RunFailure)
 	case endUnrecoverable:
 		// Rule 4: the failure module, when there is one (FX-21).
 		if hasFailure {
@@ -329,8 +360,8 @@ func (r *run) decide(fr *frame, m *ir.Module, o outcome, last bool) decision {
 
 // flowEnd is how a frame's flow ended: its status and result (a host
 // verdict's status has none), whether a stop ended it (CF-12), errorStop
-// for a failure that was an error stop, and the generated errors inside
-// the result.
+// for a failure that a stop ended, and the generated errors inside the
+// result.
 type flowEnd struct {
 	status    conformance.RunStatus
 	result    jsonval.Value
@@ -340,6 +371,9 @@ type flowEnd struct {
 	nested    []string
 	// chain is set when a collapsed iteration's push failed (outcome.chain).
 	chain string
+	// halt is a halt-after decided in the flow when it ended, which its
+	// container applies or hands on (pendingHalt).
+	halt *pendingHalt
 }
 
 // run runs the flow and records its outcome.
@@ -391,20 +425,29 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		}
 		d := r.decide(fr, m, o, i == len(fr.modules)-1)
 		canceled := ctx.Err() != nil
+		stop := o.end == endStopped || o.end == endStoppedSkipped || o.end == endErrorStop || o.end == endFailedStop
 		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain,
-			stopped:   o.end == endStopped || o.end == endStoppedSkipped,
-			errorStop: o.end == endErrorStop && d.status == conformance.RunFailure}
-		// When the frame's flow ends, the run goes on when what contains the
-		// frame would start something after that ending (frame.after): a
-		// terminal failure or stop of a loop's body starts nothing more.
-		runContinues := d.next != nextEnd || fr.after != nil && fr.after(end)
-		if AfterContinue(ContinueSignals{RunContinues: runContinues, Final: true, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: r.hooks.HaltAfter(site)}) != Proceed {
+			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
+			errorStop: stop && d.status == conformance.RunFailure}
+		// haltAfter (H8) applies to the module that completed, or to a module
+		// of its container's body whose flow ended with it pending: when the
+		// flow starts its next module, the run halts now; when the flow ends,
+		// a child flow hands the halt to its container, which says after its
+		// own completion whether the run starts something more (pendingHalt),
+		// and the root's ends with nothing more to start.
+		halt := o.halt
+		if halt == nil && r.hooks.HaltAfter(site) {
+			halt = &pendingHalt{idx: idx}
+		}
+		if AfterContinue(ContinueSignals{RunContinues: d.next != nextEnd, Final: true, ToFailureModule: d.next == nextFailure, Canceled: canceled, HaltAfter: halt != nil}) != Proceed {
 			if canceled {
 				return flowEnd{status: conformance.RunCanceled}
 			}
-			r.mark(idx, "H8")
-			r.halt()
+			r.applyHalt(halt)
 			return flowEnd{status: conformance.RunHalted}
+		}
+		if halt != nil && d.next == nextEnd && fr != r.root && !canceled {
+			end.halt = halt
 		}
 		continues = canceled
 		switch d.next {

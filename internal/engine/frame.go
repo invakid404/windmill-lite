@@ -39,15 +39,6 @@ type frame struct {
 	// it at its pickup (FX-15 context 3), where the root's fails that
 	// module (context 2).
 	child bool
-	// after reports whether the run would start something once the frame's
-	// flow has ended as e, which haltAfter needs (AfterContinue): a further
-	// iteration of its loop, which the loop starts only after a success or a
-	// failure skip_failures tolerates, an iteration its parallel loop still
-	// holds, the next branch of its sequential branchall, or what follows
-	// its container, given how the container then ends (afterEnd), asked of
-	// the frames that contain it when it is asked; nil for the root, after
-	// which nothing starts.
-	after func(e flowEnd) bool
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
 	collapsed *ir.Module
@@ -107,25 +98,6 @@ func (fr *frame) moduleAt(i int) *ir.Module {
 
 // isFailure reports whether cursor i is the failure module's.
 func (fr *frame) isFailure(i int) bool { return i == len(fr.modules) }
-
-// afterEnd reports whether the run would start something once module i of
-// fr, a container, has completed as end: what Windmill's continue decision
-// then asks for (decide), the next module under continue_on_error included
-// (FX-30), or, when the decision ends fr's flow, what follows that flow
-// (frame.after), a stop of the flow included (CF-12). A failure module is
-// not something a halt waits for (AfterContinue).
-func (r *run) afterEnd(fr *frame, i int, end moduleEnd) bool {
-	d := r.decide(fr, fr.modules[i], outcome{end: end}, i == len(fr.modules)-1)
-	switch d.next {
-	case nextModule:
-		return true
-	case nextFailure:
-		return false
-	}
-	return fr.after != nil && fr.after(flowEnd{status: d.status,
-		stopped:   end == endStopped || end == endStoppedSkipped,
-		errorStop: end == endErrorStop && d.status == conformance.RunFailure})
-}
 
 // ids returns the ids of the frame's modules, in order.
 func (fr *frame) ids() []string {

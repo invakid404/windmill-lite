@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/expr"
@@ -178,25 +177,6 @@ func (it *iterations) add(e flowEnd) {
 func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval.Value, n int, item func(k int) []byte, o outcome) outcome {
 	m := fr.modules[i]
 	l := bodyOf(m)
-	// What the run starts once an iteration has ended as e: the next
-	// iteration after a success or a failure skip_failures tolerates, else
-	// what follows the loop, which a failure that skip_failures does not
-	// tolerate fails, and a stop breaks (CF-5, CF-12). The loop's own
-	// stop_after_if, which may break it, is not known yet: the next
-	// iteration counts.
-	after := func(k int) func(flowEnd) bool {
-		return func(e flowEnd) bool {
-			failed := e.status == conformance.RunFailure
-			if !e.stopped && !e.errorStop && (!failed || l.skipFailures) && (n < 0 || k < n-1) {
-				return true
-			}
-			end := endSucceeded
-			if failed && !l.skipFailures {
-				end = endFailed
-			}
-			return r.afterEnd(fr, i, end)
-		}
-	}
 	// A collapsed iteration's previous_result is the step before the loop's
 	// result, then the previous iteration's; a loop at the first module of
 	// its flow gives every iteration the flow's input (JE-36 rules 1 and 5).
@@ -207,8 +187,16 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	var it iterations
 	failed, ran := false, false
 	var stopErr error
+	// halt is a halt-after the last iteration ended with: it applies when
+	// the loop starts another iteration, and goes with the loop's outcome
+	// otherwise (pendingHalt).
+	var halt *pendingHalt
 	r.progress(fr, i, nil)
 	for k := 0; n < 0 || k < n; k++ {
+		if halt != nil {
+			r.applyHalt(halt)
+			return r.loopInterrupted(o, &it, ran, conformance.RunHalted)
+		}
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, ran, st)
 		}
@@ -216,7 +204,6 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		var e flowEnd
 		if l.collapse {
 			c := r.collapsedFrame(fr, i, k, item(k), iterPrev)
-			c.after = after(k)
 			e = r.runList(ctx, c)
 			if e.chain != "" {
 				// The push of the iteration's job failed: a chaining error
@@ -234,12 +221,12 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 				return r.chainingAt(fr, k == 0 && i == 0, o, text)
 			}
 			r.addChild(c)
-			c.after = after(k)
 			e = r.runList(ctx, c)
 		}
 		if ended(e.status) {
 			return r.loopInterrupted(o, &it, ran, r.endedStatus(ctx, e.status))
 		}
+		halt = e.halt
 		it.add(e)
 		r.progress(fr, i, it.values)
 		if e.status == conformance.RunFailure {
@@ -272,7 +259,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			}
 		}
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, stopErr)
+	o = r.loopDone(ctx, fr, i, o, &it, failed, stopErr)
+	o.halt = halt
+	return o
 }
 
 // parallelLoop runs a parallel loop's iterations at once, each a child
@@ -318,26 +307,8 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 		children[k] = c
 	}
-	// An iteration's last module is followed by the iterations still held,
-	// which the run would start, and by what follows the loop.
-	var held atomic.Int32
-	var failedChild atomic.Bool
-	held.Store(int32(n))
 	for _, c := range children {
 		r.addChild(c)
-		// An iteration's end is followed by the iterations still held,
-		// which the run would start whatever it was (continue-all), and by
-		// what follows the loop, which a failure skip_failures does not
-		// tolerate fails (CF-7): this iteration's, or one that has already
-		// ended; reading: iterations still running are taken to succeed.
-		c.after = func(e flowEnd) bool {
-			failed := e.status == conformance.RunFailure || failedChild.Load()
-			end := endSucceeded
-			if failed && !l.SkipFailures {
-				end = endFailed
-			}
-			return held.Load() > 0 || r.afterEnd(fr, i, end)
-		}
 	}
 	// A child k is held when k is at or beyond its own parallelism N, and
 	// becomes eligible once k - N + 1 iterations have completed (CF-7,
@@ -364,12 +335,8 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		started[k] = true
 		nStarted++
 		running++
-		held.Add(-1)
 		go func() {
 			ends[k] = r.runList(ctx, children[k])
-			if ends[k].status == conformance.RunFailure {
-				failedChild.Store(true)
-			}
 			done <- k
 		}()
 		return true
@@ -388,6 +355,11 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		}
 	}
 	release()
+	// halt is a halt-after an iteration ended with (pendingHalt): it applies
+	// at once while iterations are still held, which the run would start
+	// whatever that iteration was (continue-all), and goes with the loop's
+	// outcome otherwise; iterations already running are not starts.
+	var halt *pendingHalt
 	for running > 0 || (stopped == "" && nStarted < n) {
 		if running == 0 {
 			// Every remaining child is held and nothing runs to release
@@ -401,9 +373,16 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 			stopped = r.endedStatus(ctx, conformance.RunCanceled)
 			continue
 		}
-		<-done
+		k := <-done
 		running--
 		completed++
+		if halt == nil {
+			halt = ends[k].halt
+		}
+		if halt != nil && stopped == "" && q < len(queue) {
+			r.applyHalt(halt)
+			halt, stopped = nil, conformance.RunHalted
+		}
 		release()
 	}
 	var it iterations
@@ -426,7 +405,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	if stopped != "" || nStarted < n {
 		return r.loopInterrupted(o, &it, nStarted > 0, r.endedStatus(ctx, stopped))
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	o = r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	o.halt = halt
+	return o
 }
 
 // loopDone completes an active loop or branchall: its result is the array
@@ -434,9 +415,12 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 // and a loop whose stop_after_if threw fails as such a step does (FX-21).
 // Then its stop_after_all_iters_if, evaluated once with that array, stops
 // the flow it is in like an ordinary stop_after_if; an evaluation error is
-// an error stop (CF-13, JE-27). Reading: on one that failed only an error
-// stop changes anything, since with no failure module (N1b) a clean stop
-// and the failure both end the flow with the array.
+// an error stop (CF-13, JE-27). On a while loop or a branchall that failed,
+// a clean stop keeps the failure and still stops the flow, even under
+// continue_on_error (endFailedStop, FX-2 completion rule 7.1); a for loop
+// keeps milestone N3a's reading, in which with no failure module a clean
+// stop and the failure both end the flow with the array and
+// continue_on_error takes the failure.
 func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *iterations, failed bool, stopErr error) outcome {
 	m := fr.modules[i]
 	arr := arrayOf(it.values)
@@ -462,7 +446,12 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 		return o
 	case err != nil:
 		o = errorStop(o, "Error evaluating stop_after_all_iters_if expression `"+s.Expr.Text+"`: "+predicateText(err), s, arr)
-	case !v || failed && (s.SkipIfStopped || s.ErrorMessage == nil):
+	case !v:
+		return o
+	case failed && (s.SkipIfStopped || s.ErrorMessage == nil):
+		if m.Kind != ir.KindForLoop {
+			o.end = endFailedStop
+		}
 		return o
 	default:
 		o = applyStop(s, o, arr)

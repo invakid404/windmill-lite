@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"sync"
-	"sync/atomic"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/ir"
@@ -85,11 +84,13 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 		return r.chaining(fr, i, o, text)
 	}
 	r.addChild(c)
-	c.after = func(e flowEnd) bool { return r.afterEnd(fr, i, branchOneEnd(e)) }
 	e := r.runList(ctx, c)
 	if ended(e.status) {
 		return branchInterrupted(o, true, r.endedStatus(ctx, e.status))
 	}
+	// A halt-after the branch ended with goes with the module's outcome,
+	// its stop_after_if included (pendingHalt).
+	o.halt = e.halt
 	r.recordJob(fr, i, e.result)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.rec.ResultOrigin, o.rec.ResultNested, o.rec.CarriedNested = e.result, e.result, e.origin, e.nested, e.nested
@@ -150,26 +151,19 @@ func (r *run) branchAll(ctx context.Context, fr *frame, i int, o outcome) outcom
 // sequentialBranches runs a sequential branchall's branches in order
 // (CF-15): after a failed branch the next starts only when that branch's
 // skip_failure is true, otherwise the module fails with the results so far.
-// A stop in a branch propagates (sequentialStop).
+// A stop in a branch propagates (sequentialStop). A halt-after the last
+// branch ended with applies when the next branch starts, and goes with the
+// module's outcome otherwise (pendingHalt).
 func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcome) outcome {
 	bs := fr.modules[i].BranchAll.Branches
-	// What the run starts once branch k has ended as e: the next branch,
-	// unless e is a stop or a failure the branch's skip_failure does not
-	// tolerate, else what follows the module, given how it then ends. Its
-	// stop_after_all_iters_if, which may stop the flow, is not known yet:
-	// what follows counts.
-	after := func(k int) func(flowEnd) bool {
-		return func(e flowEnd) bool {
-			skip := bs[k].SkipFailure
-			if !e.stopped && !e.errorStop && (e.status != conformance.RunFailure || skip) && k < len(bs)-1 {
-				return true
-			}
-			return r.afterEnd(fr, i, sequentialBranchEnd(e, skip))
-		}
-	}
 	var it iterations
 	failed := false
+	var halt *pendingHalt
 	for k, br := range bs {
+		if halt != nil {
+			r.applyHalt(halt)
+			return r.loopInterrupted(o, &it, true, conformance.RunHalted)
+		}
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, k > 0, st)
 		}
@@ -181,42 +175,40 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, o outcom
 			return r.chainingAt(fr, k == 0 && i == 0, o, text)
 		}
 		r.addChild(c)
-		c.after = after(k)
 		e := r.runList(ctx, c)
 		if ended(e.status) {
 			return r.loopInterrupted(o, &it, true, r.endedStatus(ctx, e.status))
 		}
+		halt = e.halt
 		it.add(e)
 		if e.stopped || e.errorStop {
-			return r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			o = r.sequentialStop(fr, i, o, &it, sequentialBranchEnd(e, br.SkipFailure))
+			o.halt = halt
+			return o
 		}
 		if e.status == conformance.RunFailure && !br.SkipFailure {
 			failed = true
 			break
 		}
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	o = r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	o.halt = halt
+	return o
 }
 
-// sequentialBranchEnd is how a sequential branchall ends when branch k, of
-// skip_failure skip, has ended as e and no further branch runs, before its
-// stop_after_all_iters_if: a clean stop is the module's, with its skipped
-// flag (CF-12 item 2); an error stop, with no failure module (N3c), stops
-// the flow with the branch's skip_failure deciding the status, success or
-// failure (item 4); a failure that skip does not tolerate fails the module
-// (CF-15).
+// sequentialBranchEnd is how a sequential branchall ends when a stop ended
+// one of its branches, of skip_failure skip, as e: a clean stop is the
+// module's, with its skipped flag (CF-12 item 2); a stop of a failed branch,
+// with no failure module (N3c), stops the flow with the branch's
+// skip_failure deciding the status, success or failure (item 4).
 func sequentialBranchEnd(e flowEnd, skip bool) moduleEnd {
 	switch {
 	case e.stopped && e.status == conformance.RunSkipped:
 		return endStoppedSkipped
-	case e.stopped, e.errorStop && skip:
+	case e.stopped, skip:
 		return endStopped
-	case e.errorStop:
-		return endErrorStop
-	case e.status == conformance.RunFailure && !skip:
-		return endFailed
 	}
-	return endSucceeded
+	return endErrorStop
 }
 
 // sequentialStop completes a sequential branchall that a stop in one of its
@@ -245,6 +237,8 @@ func (r *run) sequentialStop(fr *frame, i int, o outcome, it *iterations, end mo
 // every branch has (CF-15). There is no fail-fast (Windmill's continue-all,
 // decisions Q-18): the module fails with the full array when a branch whose
 // skip_failure is false failed, and a stop ends only its own branch (CF-12).
+// A halt-after a branch ended with goes with the module's outcome: the
+// other branches already run, so they are not starts (pendingHalt).
 func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome) outcome {
 	m := fr.modules[i]
 	bs := m.BranchAll.Branches
@@ -264,20 +258,8 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 		}
 		children[k] = c
 	}
-	// A branch's end is followed by what follows the module, which a
-	// failure skip_failure does not tolerate fails: this branch's, or one
-	// that has already ended; reading: branches still running are taken to
-	// succeed.
-	var failedBranch atomic.Bool
-	for k, c := range children {
+	for _, c := range children {
 		r.addChild(c)
-		c.after = func(e flowEnd) bool {
-			end := endSucceeded
-			if e.status == conformance.RunFailure && !bs[k].SkipFailure || failedBranch.Load() {
-				end = endFailed
-			}
-			return r.afterEnd(fr, i, end)
-		}
 	}
 	ends := make([]flowEnd, n)
 	started := 0
@@ -293,17 +275,18 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 		go func() {
 			defer wg.Done()
 			ends[k] = r.runList(ctx, c)
-			if ends[k].status == conformance.RunFailure && !bs[k].SkipFailure {
-				failedBranch.Store(true)
-			}
 		}()
 	}
 	wg.Wait()
 	var it iterations
 	failed := false
+	var halt *pendingHalt
 	for k, e := range ends[:started] {
 		if ended(e.status) && stopped == "" {
 			stopped = e.status
+		}
+		if halt == nil {
+			halt = e.halt
 		}
 		it.add(e)
 		if e.status == conformance.RunFailure && !bs[k].SkipFailure {
@@ -313,7 +296,9 @@ func (r *run) parallelBranches(ctx context.Context, fr *frame, i int, o outcome)
 	if stopped != "" {
 		return r.loopInterrupted(o, &it, started > 0, r.endedStatus(ctx, stopped))
 	}
-	return r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	o = r.loopDone(ctx, fr, i, o, &it, failed, nil)
+	o.halt = halt
+	return o
 }
 
 // branchFrame creates the child flow of a branch of module i of fr (CF-1):

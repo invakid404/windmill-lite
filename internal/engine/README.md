@@ -277,7 +277,8 @@ parallelism, whose error the reference does not give; a preprocessor and
    `FatalError` and records `H7` in the trace's deviations), then
    Windmill's continue decision (below). Last, `AfterContinue` applies
    `haltAfter` when the flow would go on, never on the way to the failure
-   module.
+   module; when the module ends a container's child flow, the halt is
+   pending until the container has completed (below).
 
 **The continue decision** (N1b; [FX-2](../../docs/semantics/execution.md#fx-2)
 completion steps 3, 7 and 8, in a flow with no retry, which is N2's).
@@ -293,6 +294,7 @@ completion steps 3, 7 and 8, in a flow with no retry, which is N2's).
 | failed, not tolerated | the failure module, else the flow fails with the failure value ([FX-31](../../docs/semantics/execution.md#fx-31), [FX-36](../../docs/semantics/execution.md#fx-36)) |
 | an error stop, with a failure module | tolerated: the next module, or past the last one the failure module, entered at cursor `len` with an empty preceding id ([FX-V4](../../docs/semantics/execution.md#fx-v4)); not tolerated: the failure module ([FX-19](../../docs/semantics/execution.md#fx-19)) |
 | an error stop, no failure module | tolerated at the last module: the flow succeeds with the `EarlyStopError`; otherwise it fails with it |
+| a failed while loop or `branchall` whose `stop_after_all_iters_if` stops cleanly (N3b) | a stop never continues, not even into the failure module (rule 7.1): tolerated at the last module, the flow succeeds with the array; otherwise it fails with it ([CF-13](../../docs/semantics/control-flow.md#cf-13)) |
 | a throwing `stop_after_if` | the failure module, else the flow fails with the string error; `continue_on_error` never applies ([FX-21](../../docs/semantics/execution.md#fx-21)) |
 
 **The failure module** sits at the slot `s:failure`, the cursor `len`
@@ -520,7 +522,12 @@ its branch's result with its origin and pointers.
   ([FX-2](../../docs/semantics/execution.md#fx-2) completion rule 7.1,
   [FX-19](../../docs/semantics/execution.md#fx-19)); a clean stop with
   `skip_if_stopped` in a sequential `branchall` flags the `branchall`
-  skipped, as FX-20's "the same skipped flag" says of a `branchone`.
+  skipped, as FX-20's "the same skipped flag" says of a `branchone`; a
+  clean `stop_after_all_iters_if` stop of a failed while loop or
+  `branchall` leaves the module failed, with no skipped flag
+  (`skip_if_stopped` included), carrying its array, and its child flow, if
+  any, forwards it as the stop of a failure; for loops keep N3a's reading
+  of that case (the failure goes on under `continue_on_error`).
 
 **For loops (N3a, `loop.go`).** A loop module that runs is a container: no
 arguments, no H1 or H2, a record whose status is the loop's own and whose
@@ -602,14 +609,15 @@ iterations it started. A halt decided in one parallel iteration stops the
 others at their next module, and wakes a loop whose iterations are all
 held; the run's status ranks the latch, then the cancellation, then the
 halt (ADR 0008), whichever iteration met its signal first. A body
-module's halt-after asks the loops that contain it, at every level and
-given how its flow ended, whether the run would start more: a further
-iteration after a success or a failure `skip_failures` tolerates, an
-iteration a parallel loop still holds, or what follows a loop, which a
-stop breaks to and a failure `skip_failures` does not tolerate fails,
-unless the loop's `continue_on_error` takes it. So a halt never hides a
-failure or a stop that ends the run; reading: a parallel iteration still
-running is taken to succeed. A loop so interrupted records the
+module's halt-after that ends its child flow is pending (N3b): the loop
+completes the iteration, its `stop_after_if` included, and the halt
+applies when the run starts something more, the next iteration, an
+iteration a parallel loop still holds, or, once the loop has completed
+(its `stop_after_all_iters_if` included) and every enclosing container
+too, the next module; a run that ends first keeps the status Windmill
+gives it, and the pending halt is dropped, with no `H8`. So a halt never
+hides a failure or a stop that ends the run; iterations a parallel loop
+has already started are not starts. A loop so interrupted records the
 array so far.
 
 **While loops (N3b, `loop.go`).** A while loop is a sequential loop with
@@ -679,12 +687,11 @@ i) or `<flow path>/branchall-<i>`
    branch.
 
 The host checks run before every branch, as before every iteration, and
-a body module's halt-after asks the container what the run would start:
-the next branch of a sequential `branchall`, or what follows the
-container given how it then ends (`afterEnd`, Windmill's continue
-decision for the module); reading: a parallel branch still running is
-taken to succeed, and a container's `stop_after_all_iters_if` or
-`stop_after_if`, not known yet, is taken not to fire.
+a body module's halt-after that ends a branch is pending as in a loop:
+it applies at the next branch of a sequential `branchall`, or at what
+the run starts once the container has completed, its `stop_after_if` or
+`stop_after_all_iters_if` included; the other branches of a parallel
+`branchall` already run.
 
 **Tests.** `engine_test.go` compiles synthetic sync folders with the IR
 compiler and runs them on the real QuickJS-ng engine, with steps answered
@@ -721,7 +728,10 @@ job's results reads, every stop through a `branchone` and a sequential
 `branchall` and one level up, parallel and sequential `branchall` with
 their skip rules, empty branches and no branches, its
 `stop_after_all_iters_if`, the `same_worker` error, the hooks, halt-after,
-a latch and a cancellation in branches, provenance and concurrent runs.
+a latch and a cancellation in branches, provenance and concurrent runs;
+also a clean `stop_after_all_iters_if` stop of a failed `branchall` or
+while loop under `continue_on_error`, and a halt-after that waits for its
+containers' own stops, for loops' included.
 `env_test.go` (FU5, `TestScriptEnvs`) checks a path script's `envs` in a
 Bun step's environment, a later entry winning and every name the worker
 sets later skipped, and none in a native step's, `nativets` or
