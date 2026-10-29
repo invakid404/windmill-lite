@@ -145,7 +145,7 @@ called from several goroutines at once (a parallel loop's iterations).
 | H8 | `HaltBefore`, `HaltAfter` | end the run halted before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module |
 | H9 | `OnRunEnd`, `OnRunSettled` | the run's end, whose warnings join the run's, and its settlement, once its abandoned invocations have settled; both traces carry the run's platform calls as of its end, as the returned trace does |
 | H12 | `InvocationEnv` | sets or deletes variables of each invocation's job environment before it runs |
-| H3 | `WriteCapable`, `BeforeFirstWrite` | marks the sites the host deems write-capable; before the first of them launches a job in a run, `BeforeFirstWrite` is asked once, and its error vetoes the write and latches the run; parallel launches wait for that one verdict, and a veto stops them all. From that launch on the run reports `MayHaveMutated`, a failed run too. An interception, a provided site, a mock or a skipped module launches no job, so it is never a write |
+| H3 | `WriteCapable`, `BeforeFirstWrite` | marks the sites the host deems write-capable, a leaf or a subflow call (asked about before its child flow starts, so a veto stops every step below it); before the first of them launches a job in a run, `BeforeFirstWrite` is asked once, and its error vetoes the write and latches the run; parallel launches wait for that one verdict, and a veto stops them all. The approval is the commit point: from it on the run reports `MayHaveMutated`, a failed run too, and the pre-write deadline no longer applies, even when what prepares the launch after it (`InvocationEnv`, the arguments' resolution) stops the job. An interception, a provided site, a mock or a skipped module launches no job, so it is never a write |
 | H7 | `FatalErrorNames` | error names that bypass retry, `continue_on_error`, `skip_failures` and `skip_failure`: a module that fails with one latches the run with a `*FatalError`, and the trace lists `H7` among its deviations |
 
 **Selectors** (`Selector`, the host contract's selector type) name call
@@ -185,8 +185,8 @@ Every one of them is off unless a host sets it (F2b).
 
 - **Cancellation and deadlines (H4).** The run's context is its
   cancellation source and its hard deadline; `RunOptions.PreWriteDeadline`
-  is a second deadline that applies only until the run's first
-  write-capable launch (H3), after which it no longer counts. A passed
+  is a second deadline that applies only until the run's first write is
+  approved (H3), after which it no longer counts. A passed
   deadline ends the run canceled, as a cancellation does, with Windmill's
   default reason and canceler in the Canceled error; a cancellation with
   a `*Cancellation` cause names its own. Both are checked at every module
@@ -273,6 +273,8 @@ pre-write deadline (H4): a veto latches and launches nothing, an approval
 is asked once for two write-capable steps and makes the run report
 `MayHaveMutated`, a veto stops parallel write-capable branches, and the
 pre-write deadline ends a run with no write but not one past its first
-write. It needs
+write; a write-capable subflow call asked about before its child flow,
+vetoed and approved, and of two calls of one subflow only the marked one;
+and an H12 veto after the approval, which still counts as written. It needs
 `WL_BUN` and the build helper's dependencies, and skips without them unless
 `WL_REQUIRE_BUN` is set, as CI sets it.

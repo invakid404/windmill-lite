@@ -78,10 +78,10 @@ type RunOptions struct {
 	// nil means the runtime's.
 	Platform *RunPlatform
 	// PreWriteDeadline is the flow run's pre-write deadline (H4): when it
-	// passes before the run's first write-capable site launches
-	// (Hooks.WriteCapable, H3), the run ends canceled, with
-	// ErrPreWriteDeadline as its context's cause; once that launch has
-	// happened it no longer applies. Zero means none. The run's hard
+	// passes before the run's first write is approved (Hooks.WriteCapable
+	// and BeforeFirstWrite, H3), the run ends canceled, with
+	// ErrPreWriteDeadline as its context's cause; once that approval has
+	// been given it no longer applies. Zero means none. The run's hard
 	// deadline is its context's.
 	PreWriteDeadline time.Time
 	// Clock is the flow run's clock (H10), through which every sleep and

@@ -609,7 +609,12 @@ waits on an external gate except R1.
   `conformance/hooks` ([0003](0003-semantics-placement.md)), run through
   `wl`'s public hooks on flows of identity modules; H3, which only a job
   that runs a step reaches, is checked by `wl`'s tests on the Bun harness.
-  The cases read FX-19's error stop as a `stop_after_if` with an
+  H3 applies to a write-capable subflow call as to a leaf's launch, asked
+  before its child flow starts, and its approval is the commit point: the
+  run reports `MayHaveMutated` and the pre-write deadline stops applying
+  from it on, even when the launch it approved is then stopped by H12 or
+  by its arguments' resolution, a conservative reading of H4's "until H3
+  fires". The cases read FX-19's error stop as a `stop_after_if` with an
   `error_message`, which is the only completion the cancellation's
   exception lets through; a plain failure under cancellation never starts
   the failure module. A passed deadline, hard or pre-write, names

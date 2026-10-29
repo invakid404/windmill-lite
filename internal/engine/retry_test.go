@@ -805,3 +805,65 @@ func TestEnginePreWriteExpiryPublishedBeforeUse(t *testing.T) {
 	}
 	wantCalls(t, s)
 }
+
+// verdict is a host that marks modules write-capable and answers the first
+// write with err, counting the sites it is asked about.
+type verdict struct {
+	writes
+	err   error
+	mu    *sync.Mutex
+	asked *[]string
+}
+
+func (h verdict) BeforeFirstWrite(_ context.Context, _ Run, s Site) error {
+	h.mu.Lock()
+	*h.asked = append(*h.asked, s.Path.String())
+	h.mu.Unlock()
+	return h.err
+}
+
+// H3 on a subflow call (ADR 0008): a write-capable subflow step is asked
+// about before its child flow starts, so a veto latches the run with no
+// step below it run, and an approval lets them run and the run report
+// MayHaveMutated. Of two calls of the same subflow, only the marked one
+// asks: the first, unmarked, runs its steps without a verdict.
+func TestEngineFirstWriteOnSubflowCalls(t *testing.T) {
+	call := func(id string) string {
+		return `{"id":"` + id + `","value":{"type":"flow","path":"f/t/child","input_transforms":{}}}`
+	}
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{
+		"f/t/main":  flowOf(call("one"), call("two")),
+		"f/t/child": flowOf(mod("x", "value", inputs("v", static("1")), "")),
+	}, s)
+	veto := errors.New("no writes")
+	for _, c := range []struct {
+		marked    []string
+		err       error
+		status    conformance.RunStatus
+		asked     []string
+		steps     []string
+		mayMutate bool
+	}{
+		{[]string{"one", "two"}, veto, conformance.RunLatched, []string{"m:one"}, nil, false},
+		{[]string{"one", "two"}, nil, conformance.RunSuccess, []string{"m:one"}, []string{"m:one/m:x", "m:two/m:x"}, true},
+		{[]string{"two"}, veto, conformance.RunLatched, []string{"m:two"}, []string{"m:one/m:x"}, false},
+	} {
+		s.mu.Lock()
+		s.invs = nil
+		s.mu.Unlock()
+		var mu sync.Mutex
+		var asked []string
+		at := map[string]bool{}
+		for _, m := range c.marked {
+			at[m] = true
+		}
+		tr := runReq(t, e, RunRequest{Hooks: verdict{writes: writes{at: at}, err: c.err, mu: &mu, asked: &asked}})
+		if tr.Status != c.status || !slices.Equal(asked, c.asked) || !slices.Equal(s.calls(), c.steps) || tr.MayHaveMutated != c.mayMutate {
+			t.Errorf("marked %v, err %v: status %s, asked %q, steps %q, mutated %v", c.marked, c.err, tr.Status, asked, s.calls(), tr.MayHaveMutated)
+		}
+		if c.err != nil && !errors.Is(tr.Latched, veto) {
+			t.Errorf("marked %v: latched %v", c.marked, tr.Latched)
+		}
+	}
+}

@@ -97,15 +97,19 @@ type Hooks struct {
 	// produced after the run ended; resources step code can reach are
 	// released here.
 	OnRunSettled func(t *Trace)
-	// WriteCapable (H3) marks the sites the host deems write-capable.
-	// Before the first of them launches its job in a run, BeforeFirstWrite
-	// is called once; its error vetoes the write and latches the run (H5).
-	// When several write-capable sites launch at once (parallel branches
-	// or iterations), the others wait for that one verdict, and a veto
-	// stops them all. From the first such launch on, the run reports
-	// MayHaveMutated, in a failed run too. Only a job that runs a step is
-	// a write: an interception, a host-provided site, a mock or a skipped
-	// module never is.
+	// WriteCapable (H3) marks the sites the host deems write-capable: a
+	// leaf, or a subflow call, which is asked about before its child flow
+	// starts, so that a veto stops every step below it. Before the first
+	// of them launches its job in a run, BeforeFirstWrite is called once;
+	// its error vetoes the write and latches the run (H5). When several
+	// write-capable sites launch at once (parallel branches or
+	// iterations), the others wait for that one verdict, and a veto stops
+	// them all. The approval is the commit point: from it on the run
+	// reports MayHaveMutated, in a failed run too, and the pre-write
+	// deadline no longer applies, even if what prepares the launch after it
+	// (InvocationEnv, the arguments' resolution) stops the job. Only a job
+	// that runs a step or a flow is a write: an interception, a
+	// host-provided site, a mock or a skipped module never is.
 	WriteCapable     []Selector
 	BeforeFirstWrite func(ctx context.Context, run RunHandle, site Site) error
 	// FatalErrorNames (H7) are error names that bypass retry,
