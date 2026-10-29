@@ -27,7 +27,13 @@
     {"case": "FX-36/d", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
     {"case": "FX-36/e", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
     {"case": "FX-36/f", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
-    {"case": "FX-36/g", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"}
+    {"case": "FX-36/g", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/h", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/i", "milestone": "F7b", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); source-derived, and no E3e run records it either; F7b, the HTTP adapter, implements it"},
+    {"case": "FX-36/j", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/k", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/l", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"},
+    {"case": "FX-36/m", "milestone": "E3e", "reason": "FX-36's HTTP part (later): the run-and-wait response, which the oracle harness never calls (OR-10); E3e records it, gating F7b"}
   ],
   "parts": [
     {"case": "FX-12/a", "part": "over HTTP, run-and-wait returns status 422", "milestone": "E3e", "reason": "FX-36's HTTP part; the oracle harness never calls run-and-wait (OR-10)"},

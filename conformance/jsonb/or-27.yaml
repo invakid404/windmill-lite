@@ -2,8 +2,9 @@ finding: OR-27
 note: >-
   OR-27 is the oracle's recording of FX-48 case 1. The entry checks the
   rejection and the database message recorded on the oracle; rest_in names
-  where the step's outcome is checked. OR-27/b sets no expectation yet and is
-  in deferred.yaml.
+  where the step's outcome is checked. OR-27/b's expectations are step
+  outcomes, recorded in conformance/flows/oracle/nul, and it is in
+  deferred.yaml.
 cases:
   - spec: OR-27/a
     provenance: oracle-observed

@@ -7,36 +7,57 @@
 deferred:
   - case: JE-10/e
     reason: in the evaluation, `results` is a constant and `error` is not; the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-10.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-10.json, TestPipelineCasesOnEngine); batch E3e did not record it
+  - case: JE-11/b
+    reason: the count that places a call's `)` starts at the call, so non-ASCII text before it shifts nothing (Q-JE-13), where internal/expr's pipeline counts from the start of the text; the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
+    checked_in: B2a, at evaluator level (internal/expr/testdata/pipeline/je-11.json); not encoded yet
+  - case: JE-11/c
+    reason: non-ASCII text inside the call moves its `)` early by the extra bytes (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
+    checked_in: B2a, at evaluator level (internal/expr/testdata/pipeline/je-11.json); not encoded yet
+  - case: JE-11/d
+    reason: a call that never closes gets its `)` at the end of its part (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
+    checked_in: B2a, at evaluator level (internal/expr/testdata/pipeline/je-11.json); not encoded yet
+  - case: JE-11/e
+    reason: an insertion inside a multi-byte character fails the evaluation with the runtime's panic report (Q-JE-13), where windmill-lite writes its own text (ADR 0001 section 6); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
+    checked_in: B2a and B2b, at evaluator level (internal/expr/testdata/pipeline/je-11.json); not encoded yet
   - case: JE-15/j
     reason: a replaced `JSON.stringify` supplies the result text unchecked (Q-JE-14); the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-15.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-15.json, TestPipelineCasesOnEngine); batch E3e did not record it
   - case: JE-16/c
     reason: an evaluator-level case (point O1) whose previous_result holds the raw token -0, which no flow input reaches (the job API stores the input as jsonb, which has no negative zero); JE-16/e and JE-16/f record the oracle side
     checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-16.json, TestPipelineCasesOnEngine; B2b's TestBindings checks the same token)
   - case: JE-16/g
     reason: a `__proto__` key sets the prototype, not an own property; the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-16.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-16.json, TestPipelineCasesOnEngine); batch E3e did not record it
+  - case: JE-16/h
+    reason: a fetched `results` read is built by `JSON.parse`, while the previous step served from memory is the rebuilt `previous_result` (Q-JE-13); the semantics reference added the case on 2026-10-29 (design request 10) and no recording holds it yet
+    checked_in: B2b (the rebuilt values) and N1a (the `results` routes), at evaluator level (internal/expr/testdata/pipeline/je-16.json); not encoded yet
   - case: JE-17/d
     reason: the entry fallbacks are falsy tests; the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-17.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-17.json, TestPipelineCasesOnEngine); batch E3e did not record it
+  - case: JE-18/e
+    reason: a repeated module id (OF-2), which the engine's lookup resolves to the last such module with a job and the direct lookup to the one that completed most recently; the semantics reference added the case on 2026-10-29 and no recording holds it yet
+    checked_in: N1a (the `results` routes), with A5's duplicate-id occurrences; not encoded yet
   - case: JE-19/e
     reason: needs a restarted run (restart from a step), which the oracle harness does not drive (Q-JE-8); windmill-lite has no restart (ADR 0001 section 1), so recording batch E3e left the case outside the contract
     checked_in: none
   - case: JE-21/b
     reason: a thrown non-Error value shows its debug form (Q-JE-1); the semantics reference added the case on 2026-10-28 and no recording holds it yet
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-21.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-21.json, TestPipelineCasesOnEngine); batch E3e did not record it
+  - case: JE-44/f
+    reason: after an identity job, `previous_result` is jsonb's printed text, quoted here by a javascript `timeout`'s parse error; the semantics reference added the case on 2026-10-29 and no recording holds it yet
+    checked_in: N1b, whose identity job reads its argument back in jsonb's printed form (internal/engine), end to end with N2's javascript timeout; not encoded yet
   - case: JE-50/a
     reason: in a plain function call, `this` is `undefined` (a strict-mode global script); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-50.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-50.json, TestPipelineCasesOnEngine); batch E3e did not record it
   - case: JE-51/a
     reason: a queued job that throws does not fail the evaluation; the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-51.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-51.json, TestPipelineCasesOnEngine); batch E3e did not record it
   - case: JE-52/a
     reason: an error message with an unpaired surrogate is dropped (O5); the semantics reference added the case on 2026-10-28 and no recording holds it yet (Q-JE-12)
-    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-52.json, TestPipelineCasesOnEngine); recorded in E3e
+    checked_in: FU3, at evaluator level (internal/expr/testdata/pipeline/je-52.json, TestPipelineCasesOnEngine); batch E3e did not record it
   - case: JE-V5/a
-    reason: the transforms are taken in a hash map's random order, so on the oracle which one fails first changes between runs and a recording cannot be stable; it is a host- or evaluator-level case, with a variable service that records its calls
+    reason: the transforms are taken in a hash map's order, which is not fixed and may change between runs, so on the oracle which one fails first is not stable and neither is a recording; it is a host- or evaluator-level case, with a variable service that records its calls
     checked_in: B2b, PF2
 partial:
   - case: JE-36/d
@@ -45,7 +66,7 @@ partial:
     checked_in: none
   - case: JE-V1/a
     recorded: that the parallelism expression is accepted and every child runs (flows/je/loops, je-v1-a)
-    remaining: how many children run at once, which needs at least three workers to tell a cap of two from none, beyond the oracle's two (OR-5; recording batch E3e)
+    remaining: how many children run at once, which needs at least three workers to tell a cap of two from none, beyond the oracle's two (OR-5), so recording batch E3e deferred it with no milestone
     checked_in: none
   - case: JE-28/a
     recorded: the sleep's delay, checked against the recording's provenance timings (a delay claim), not the compared observation

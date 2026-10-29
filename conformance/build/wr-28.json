@@ -1,10 +1,10 @@
 {
   "finding": "WR-28",
-  "note": "Workspace imports resolve from the sync folder (WR-28's design note). The finding is disputed only in its later dynamic-import consequence; the build follows the validation's whole-text reading (ADR 0001 §6, Q-WR-16).",
+  "note": "Workspace imports resolve from the sync folder (WR-28's design note). The dispute over the finding's later dynamic-import consequence is settled for the validation's correction, the whole-text reading the build follows (ADR 0001 §6, Q-WR-16).",
   "cases": [
     {
       "spec": "WR-28/a",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "title": "relative and absolute static imports, plus a transitive import",
       "note": "Contested: no; static-import core.",
       "given": {
@@ -36,7 +36,7 @@
     },
     {
       "spec": "WR-28/b",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "title": "an explicit .ts absolute import",
       "note": "Contested: no; static-import core.",
       "given": {
@@ -61,7 +61,7 @@
     },
     {
       "spec": "WR-28/c",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "scope": "later",
       "title": "a dynamic import with the identical literal of a static import",
       "note": "Contested: no.",
@@ -90,10 +90,10 @@
     },
     {
       "spec": "WR-28/d",
-      "provenance": "disputed",
+      "provenance": "source-derived",
       "scope": "later",
-      "title": "a dynamic import with no static rewrite trigger is not fetched",
-      "note": "Contested: no. Windmill's Bun resolves it against the job directory, where no such file exists; the bundle fails.",
+      "title": "a dynamic import of an extensionless relative path, with no static rewrite trigger, is not fetched",
+      "note": "On Windmill the script cannot be deployed: the specifier stays in the build output, the dependency scan reads it as a package named '.', and bun install fails (WR-26), so the script gets a lock error and no version a run by path can select. Here the bundle fails on the unresolved ./helper.",
       "given": {
         "path": "f/a/main",
         "source": "export async function main() { return (await import(\"./helper\")).h; }",
@@ -112,10 +112,10 @@
     },
     {
       "spec": "WR-28/e",
-      "provenance": "disputed",
+      "provenance": "oracle-observed",
       "scope": "later",
       "title": "a static specifier that matches a substring of a different dynamic specifier",
-      "note": "Contested. The build follows the validation reading: the static rewrite turns the dynamic literal into ./nested/./helper.ts, which is then resolved from the folder.",
+      "note": "The oracle settled it for the validation reading, which the build follows: the static rewrite turns the dynamic literal into ./nested/./helper.ts, which is then resolved from the folder. The catalogue's example reaches another folder (../other/./helper) by the same rule.",
       "given": {
         "path": "f/a/main",
         "source": "import { h } from \"./helper\";\nexport async function main() { const m = await import(\"./nested/./helper\"); return [h, m.h]; }",

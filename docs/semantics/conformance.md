@@ -5,7 +5,7 @@ this reference, grouped by area. The executable fixtures that encode these
 cases live under [`conformance/`](../../conformance) at the repository root,
 in the format the design chose; [OR-15](oracle.md#or-15) describes the
 language-neutral format first proposed for oracle recordings. Recording
-batches E3a to E3d (design record 0012) recorded many cases on the oracle,
+batches E3a to E3e (design record 0012) recorded many cases on the oracle,
 and the cases they recorded name their recording.
 
 ## How to read a case
@@ -46,15 +46,15 @@ behaviour each. Paths such as `f/demo/...` are invented.
 
 | Area | Cases | `core` | `later` | `out` | `EE` | oracle-observed | disputed | policy |
 |---|---|---|---|---|---|---|---|---|
-| [OpenFlow model and the sync folder](#openflow) | 147 | 127 | 20 | 0 | 0 | 0 | 4 | 0 |
-| [Flow execution](#execution) | 125 | 95 | 29 | 1 | 0 | 64 | 8 | 1 |
-| [Loops, branches and subflows](#control-flow) | 87 | 68 | 17 | 0 | 2 | 43 | 0 | 0 |
-| [Expressions](#expressions) | 175 | 123 | 52 | 0 | 0 | 164 | 0 | 0 |
-| [Languages and script wrappers](#languages) | 184 | 125 | 59 | 0 | 0 | 0 | 12 | 0 |
+| [OpenFlow model and the sync folder](#openflow) | 147 | 127 | 20 | 0 | 0 | 1 | 4 | 0 |
+| [Flow execution](#execution) | 140 | 100 | 39 | 1 | 0 | 81 | 0 | 1 |
+| [Loops, branches and subflows](#control-flow) | 87 | 68 | 17 | 0 | 2 | 44 | 0 | 0 |
+| [Expressions](#expressions) | 185 | 128 | 57 | 0 | 0 | 167 | 0 | 0 |
+| [Languages and script wrappers](#languages) | 191 | 125 | 66 | 0 | 0 | 27 | 0 | 0 |
 | [The wmill client API and the platform interface](#client-api) | 93 | 52 | 36 | 5 | 0 | 0 | 0 | 6 |
-| [The oracle](#oracle) | 82 | 75 | 5 | 0 | 2 | 40 | 15 | 0 |
+| [The oracle](#oracle) | 83 | 76 | 5 | 0 | 2 | 53 | 11 | 0 |
 | [Licensing and the clean room](#licensing) | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 896 | 668 | 218 | 6 | 4 | 311 | 39 | 7 |
+| **Total** | 929 | 679 | 240 | 6 | 4 | 373 | 15 | 7 |
 
 <a id="openflow"></a>
 ## OpenFlow model and the sync folder
@@ -666,10 +666,11 @@ assert that arbitrary Bun source yields an empty resolver body.
   - **Given:** the same tree with `nonDottedPaths: true`.
   - **Expect:** load error (wrong format; the CLI says
     `Found N directory(ies) using … format`).
-- **SY-6/c** · source-derived · pull returns the full form
+- **SY-6/c** · oracle-observed · pull returns the full form
   - **Given:** push a flow with `{"type":"identity","extra":7}` and a container
     without `skip_failures`; wait for the deploy; pull.
   - **Expect:** `extra: 7` is still present; `skip_failures: true` is added.
+  - **Recorded:** [`flows/control-flow/pull`](../../conformance/flows/control-flow/pull) run `pulled`, oracle run 40794872025. The pulled identity is `{type: identity, extra: 7}` as submitted; the forloop gains `skip_failures: true` and `parallel: false`; the inline body's files come back as `x.inline_script.ts` and `x.inline_script.lock` ([SY-7](openflow.md#sy-7)).
 
 <a id="sy-7"></a>
 ### SY-7 · Inline scripts inside a flow folder
@@ -1072,11 +1073,12 @@ Findings: [execution.md](execution.md).
   and two suffixes are written `<loc><loc>`. The location text is the source position at
   the pin, so cases never assert it ([0001](../design/0001-equivalence-contract.md)
   §7 matches error text except location suffixes and stacks).
-- Cases recorded by batches E3b, E3c and E3d (design record 0012) are
+- Cases recorded by batches E3b, E3c, E3d and E3e (design record 0012) are
   `oracle-observed` and name their recording; the others are still
   source-derived, and the open questions in
   [execution.md](execution.md#open-questions) say which recording settles
-  each.
+  each. Run-and-wait cases give the HTTP status, the content type when one
+  is sent, and the body.
 
 <a id="fx-1"></a>
 ### FX-1 · Flow run state: a cursor plus one status per module
@@ -1232,13 +1234,14 @@ Findings: [execution.md](execution.md).
   - **Recorded:** [`flows/execution/fx-10`](../../conformance/flows/execution/fx-10)
     run `unknown_id`, oracle run 40684097626, which also shows `null` for the
     same id in the engine and for a step with no job yet, by both routes.
-- **FX-10/c** · source-derived · The empty-id spelling reads the step's own
+- **FX-10/c** · oracle-observed · The empty-id spelling reads the step's own
   result inside `stop_after_if`.
   - **Given:** `[a: bun: return {"k": 1} (stop_after_if: {expr:
     "results[\"\"].k === 1", skip_if_stopped: false}), b: bun: return 9]`.
   - **Expect:** a clean stop: `{success: true, result: {"k": 1}}`; `b`
     never runs. The predicate's preceding id is empty, so `results[""]`
     binds `previous_result`, here `a`'s own result, and the proxy returns it.
+  - **Recorded:** [`flows/execution/fx-10-c`](../../conformance/flows/execution/fx-10-c) run `own`, oracle run 40794872025.
 
 <a id="fx-11"></a>
 ### FX-11 · `flow_env`
@@ -1266,8 +1269,10 @@ Findings: [execution.md](execution.md).
     {"message": "boom", "name": "Error", "stack": <any>, "step_id": "a",
     "extra": {"code": 7}}}}`. Over HTTP, run-and-wait returns status 422.
   - **Recorded:** [`flows/execution/fx-12`](../../conformance/flows/execution/fx-12)
-    run `error_extra`, oracle run 40685766017, except the HTTP 422 half,
-    which batch E3e records with FX-36's HTTP part.
+    run `error_extra`, oracle run 40685766017; the HTTP 422 half by
+    [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http)
+    run `extra`, oracle run 40794872025, whose body is the stored error in
+    `jsonb` key order ([FX-36/b](#fx-36)).
 - **FX-12/b** · oracle-observed · Bun plain-object throw omits absent keys.
   - **Given:** `[a: bun: throw {message: "boom", code: 7}]`.
   - **Expect:** `{"error": {"message": "boom", "step_id": "a", "extra":
@@ -1798,40 +1803,103 @@ array recovers.
 
 **Scope:** core · **Finding:** [FX-36](execution.md#fx-36)
 
-The finding is `needs-evidence` only for non-object (array) results, which no
-case below exercises. None of these expectations is contested; they are
-carried as disputed with the finding until [Q-FX-12](execution.md#q-fx-12)
-is settled. They are FX-36's HTTP part, which batch E3e records with
-run-and-wait; the executor part, which no case here states, is recorded by
+These cases are FX-36's HTTP part, recorded by batch E3e with run-and-wait
+in [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http),
+which also polls each run to completion. The executor part, which no case
+here states, is recorded by
 [`flows/execution/fx-36`](../../conformance/flows/execution/fx-36) (oracle run
-40685766017).
+40685766017). A JSON body is the stored value's `jsonb` text: a space after
+each `:` and `,`, keys shorter first, then by bytes.
 
-- **FX-36/a** · disputed · later · An object result over HTTP.
+- **FX-36/a** · oracle-observed · later · An object result over HTTP.
   - **Given:** `[a: bun: return {"b": 1, "a": 2}]`.
   - **Expect:** HTTP 200 with body `{"a": 2, "b": 1}`.
-- **FX-36/b** · disputed · later · A failed flow over HTTP.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `object`, oracle run 40794872025.
+- **FX-36/b** · oracle-observed · later · A failed flow over HTTP.
   - **Given:** `[a: bun: throw new Error("z")]`.
-  - **Expect:** HTTP 422 with body `{"error": {"message": "z", "name":
-    "Error", "stack": <any>, "step_id": "a"}}`.
-- **FX-36/c** · disputed · later · A status code and nested result.
+  - **Expect:** HTTP 422, content type `application/json`, with the body
+    text `{"error": {"name": "Error", "stack": <stack>, "message": "z", "step_id": "a"}}`,
+    the members in that order.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `failed`, oracle run 40798097155.
+  - **Correction 2026-10-29:** the case wrote the members as `message`,
+    `name`, `stack`, `step_id`. The handler sends the stored result's
+    `jsonb` text, so they come in `jsonb` key order ([FX-36](execution.md#fx-36),
+    [FX-42](execution.md#fx-42)); compared as JSON values the two agree.
+- **FX-36/c** · oracle-observed · later · A status code and nested result.
   - **Given:** `[a: bun: return {windmill_status_code: 201, result: {ok:
     true}}]`.
   - **Expect:** HTTP 201 with body `{"ok": true}`.
-- **FX-36/d** · disputed · later · A status code without a result.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `status_nested`, oracle run 40794872025.
+- **FX-36/d** · oracle-observed · later · A status code without a result.
   - **Given:** `[a: bun: return {windmill_status_code: 200}]`.
-  - **Expect:** HTTP 200 with an empty body.
-- **FX-36/e** · disputed · later · A mistyped status code disables the
+  - **Expect:** HTTP 200 with an empty body and no content type.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `status_only`, oracle run 40794872025.
+- **FX-36/e** · oracle-observed · later · A mistyped status code disables the
   metadata.
   - **Given:** a successful result `{"windmill_status_code": "201", "result":
     7}`.
-  - **Expect:** HTTP 200 with the whole object as the body.
-- **FX-36/f** · disputed · later · A `null` status code is no metadata.
+  - **Expect:** HTTP 200 with the whole object as the body,
+    `{"result": 7, "windmill_status_code": "201"}`.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `status_string`, oracle run 40794872025.
+- **FX-36/f** · oracle-observed · later · A `null` status code is no metadata.
   - **Given:** a successful result `{"windmill_status_code": null, "result":
     7}`.
-  - **Expect:** HTTP 200 with the whole object as the body.
-- **FX-36/g** · disputed · later · Metadata present, no non-null result.
+  - **Expect:** HTTP 200 with the whole object as the body,
+    `{"result": 7, "windmill_status_code": null}`.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `status_null`, oracle run 40794872025.
+- **FX-36/g** · oracle-observed · later · Metadata present, no non-null result.
   - **Given:** a successful result `{"windmill_headers": {}, "result": null}`.
-  - **Expect:** HTTP 204 with an empty body.
+  - **Expect:** HTTP 204 with an empty body and no content type.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `headers_null`, oracle run 40794872025.
+- **FX-36/h** · oracle-observed · later · An array of five is read by
+  position.
+  - **Given:** `[a: bun: return [201, null, null, null, 7]]`.
+  - **Expect:** the flow succeeds with that array as its result;
+    run-and-wait answers HTTP 201, content type `application/json`, body
+    `7`: the elements are the status code, the content type, the headers,
+    the transfer encoding and the result, in that order.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `array`, oracle run 40798097155.
+- **FX-36/i** · source-derived · later · Any other array, or an alias given
+  twice, is no metadata.
+  - **Given:** successful results `[201, null, null, null]`,
+    `[201, null, null, null, 7, 8]`, `["201", null, null, null, 7]` and
+    `{"wm_status_code": 201, "windmill_status_code": 202}`.
+  - **Expect:** each fails to decode (a wrong length, leftover elements, a
+    string status code, a duplicate field), so each is answered HTTP 200
+    with the whole result as the body, for example
+    `[201, null, null, null]`.
+- **FX-36/j** · oracle-observed · later · A content type unquotes a string
+  result.
+  - **Given:** `[a: bun: return {windmill_content_type: "text/plain",
+    result: "hi"}]`.
+  - **Expect:** HTTP 200, content type `text/plain`, body `hi` (no quotes).
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `content_type`, oracle run 40794872025.
+- **FX-36/k** · oracle-observed · later · The content type is sent as given,
+  parameters included.
+  - **Given:** `[a: bun: return {windmill_content_type: "text/plain;
+    charset=iso-8859-1", result: "hi"}]`.
+  - **Expect:** HTTP 200, content type `text/plain; charset=iso-8859-1`,
+    body `hi`.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `charset`, oracle run 40807688503.
+- **FX-36/l** · oracle-observed · later · `base64` transfer encoding sends
+  the decoded bytes.
+  - **Given:** `[a: bun: return {windmill_content_type: "text/plain",
+    windmill_content_transfer_encoding: "base64", result: "aGk="}]`; and the
+    same with content type `application/octet-stream` and result `"/wD+"`.
+  - **Expect:** HTTP 200 with content type `text/plain` and body `hi`; and
+    HTTP 200 with content type `application/octet-stream` and the three
+    bytes `ff 00 fe`, which are not UTF-8.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) runs `base64` (oracle run 40794872025) and `binary` (oracle run 40807688503).
+- **FX-36/m** · oracle-observed · later · A redirect status is answered as it
+  is.
+  - **Given:** `[a: bun: return {windmill_status_code: 302, windmill_headers:
+    {Location: "/elsewhere"}, result: "moved"}]`.
+  - **Expect:** HTTP 302, content type `application/json`, body `"moved"`
+    (without a content type the result is sent as JSON, quotes included),
+    and the header `Location: /elsewhere`.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `redirect`, oracle run 40807688503: the status
+    and body. The client did not follow the redirect, and the recording
+    keeps no headers, so the `Location` header is source-derived.
 
 <a id="fx-37"></a>
 ### FX-37 · `early_return`
@@ -1845,8 +1913,11 @@ run-and-wait; the executor part, which no case here states, is recorded by
   - **Expect:** run-and-wait returns `1` in well under 2 s; the flow later
     completes with result `2`.
   - **Recorded:** [`flows/execution/fx-37`](../../conformance/flows/execution/fx-37)
-    run `early`, oracle run 40685766017: the flow's result `2` only. The
-    run-and-wait half is recorded by batch E3e.
+    run `early`, oracle run 40685766017: the flow's result `2` only; and
+    [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http)
+    run `early`, oracle run 40794872025: run-and-wait answered HTTP 200 with
+    the body `1` about 164 ms after the submission, and the flow completed
+    with `2` after about 2.4 s.
 
 <a id="fx-38"></a>
 ### FX-38 · Cancellation
@@ -2001,6 +2072,49 @@ contested and now carry their own provenance.
     "spelling survives" and the correction "re-serialised, exact output to be
     recorded". The oracle chose the correction; the exact spelling is the
     backend JSON library's ([FX-42](execution.md#fx-42) rule 2).
+- **FX-42/i** · source-derived · later · Where the backend's notation turns
+  to exponent form.
+  - **Given:** a variable with the text
+    `[0.000001, 1e16, 1e15, 100000000000000000000, -0.0, 18446744073709551616, 1.234e-6, 0.00001, 12]`,
+    passed to a Bun step as the static argument `v = "$jsonvar:<path>"`; the
+    step returns the text of its arguments file, as in FX-42/h.
+  - **Expect:** the arguments file is
+    `{"v":[1e-6,1e+16,1000000000000000.0,1e+20,-0.0,1.8446744073709552e+19,1.234e-6,0.00001,12]}`
+    ([FX-42](execution.md#fx-42) rule 9).
+- **FX-42/j** · source-derived · A loop's result text re-prints its
+  children's numbers.
+  - **Given:** `[l: forloopflow(iterator: [1], parallel: false, modules: [x:
+    bun: return [1e20, 0.000001, 1.5e-7, 0.1, 1e21, 2**63, 2**64, -0, 1.5,
+    1e-5]]), q: bun: return 1 (timeout: {type: javascript, expr:
+    "results.l"})]`.
+  - **Expect:** the flow fails at the transition after `l` with
+    `{"error": {"name": "InternalError", "message": "Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [[1e+20,1e-6,1.5e-7,0.1,1e+21,9223372036854776000,1.8446744073709552e+19,0,1.5,0.00001]]"}}`;
+    `q` never runs. Bun wrote
+    `[100000000000000000000,0.000001,1.5e-7,0.1,1e+21,9223372036854776000,18446744073709552000,0,1.5,0.00001]`;
+    `jsonb` printed it in plain decimal, and the loop's result text writes
+    each number again in the backend's notation ([FX-42](execution.md#fx-42)
+    rule 9; the text site as in [JE-44](expressions.md#je-44)).
+- **FX-42/k** · source-derived · later · The token `-0` in a variable's
+  text is negative zero.
+  - **Given:** a variable with the text `[-0, 0, -1e-400, 1e-400]`, passed
+    to a Bun step as the static argument `v = "$jsonvar:<path>"`; the step
+    returns the text of its arguments file, as in FX-42/h, and in a second
+    flow `v.map((x) => Object.is(x, -0))`.
+  - **Expect:** the arguments file is `{"v":[-0.0,0,-0.0,0.0]}`, and the
+    script sees `[true, false, true, false]`: `-0` is negative zero and `0`
+    an integer, and a number too small for a double keeps its sign as zero
+    ([FX-42](execution.md#fx-42) rule 9). The variable's text is parsed as
+    written; a value that went through `jsonb` first carries no negative
+    zero ([JE-16](expressions.md#je-16)).
+- **FX-42/l** · source-derived · later · A number too large for a double is
+  not accepted.
+  - **Given:** a variable with the text `1e400`, passed to a Bun step `a` as
+    the static argument `v = "$jsonvar:<path>"`.
+  - **Expect:** `a` fails before its script runs. Its stored result, and
+    the flow's, is
+    `{"error": {"name": "ExecutionErr", "message": "execution error:\nInternal: Failed to parse $jsonvar value as JSON: number out of range at line 1 column 5<loc>", "step_id": "a"}}`
+    ([FX-42](execution.md#fx-42) rule 9; the envelope as in
+    [FX-51/c](#fx-51), which gives the same error for `{"n": 1e400}`).
 
 <a id="fx-45"></a>
 ### FX-45 · Step identity in the environment
@@ -2044,13 +2158,18 @@ contested and now carry their own provenance.
 
 **Scope:** core · **Finding:** [FX-48](execution.md#fx-48)
 
-- **FX-48/a** · source-derived · A NUL in a result fails the completion
+- **FX-48/a** · oracle-observed · A NUL in a result fails the completion
   insert.
   - **Given:** `[a: bun: return "x\u0000y"]`.
   - **Expect:** after the insert retries (up to 10 × 3 s), `{success: false,
     result: {"error": {"name": "InternalErr", "message": <starts "Internal:
     Could not add completed job ">}}}`. Normalise the job UUID, the database
     detail and the location.
+  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025 (with a second step `b`, which
+    does not run): the message ends `error returned from database: unsupported Unicode escape sequence<loc>`,
+    and the step job ran for about 30 s. Runs `nul_key` and `nul_nested`
+    record the same for a NUL in an object key and in a nested value
+    ([OR-27](#or-27)).
 - **FX-48/b** · source-derived · A NUL generated in args at root pickup.
   - **Given:** `[a: bun(s): return s]` with `s = "String.fromCharCode(0)"`.
   - **Expect:** an `Anyhow` failure of `a`.
@@ -2107,16 +2226,96 @@ contested and now carry their own provenance.
 
 **Scope:** later · **Finding:** [FX-49](execution.md#fx-49)
 
-- **FX-49/a** · disputed · A `skip_expr` that flips during a loop at module 0.
+- **FX-49/a** · oracle-observed · A `skip_expr` that flips during a loop at
+  module 0.
   - **Given:** a flow with `skip_expr: "variable('u/t/skip') === 'yes'"`, the
     variable at `"no"`, and `[l: forloopflow(iterator: [1, 2, 3], parallel:
     false, modules: [x: bun(v): await setVar('u/t/skip', v == 1 ? 'yes' :
     'no'); return v])]` with `v = "flow_input.iter.value"`.
-  - **Expect (as drafted):** the expression is evaluated 3 times, once per
-    start phase; the flow outcome is open.
-  - **Expect (correction):** the expression is evaluated 2 times; the second
-    evaluation is true and stops the loop, giving loop result `[1]` and an
-    ordinary successful completion.
+  - **Expect:** the expression is evaluated 2 times; the second evaluation,
+    at the second iteration's launch, is true and stops the loop, giving
+    loop result `[1]` and an ordinary successful completion with `[1]`.
+  - **Recorded:** [`flows/execution/fx-49`](../../conformance/flows/execution/fx-49) runs `flip` and `flip_body` (a two-step body), oracle run
+    40794872025.
+  - **Correction 2026-10-29:** the case was `disputed` between the drafted
+    three evaluations with the outcome open and the correction above. The
+    oracle chose the correction: inside a sequential loop a stop only breaks
+    the loop ([FX-49](execution.md#fx-49)).
+- **FX-49/b** · oracle-observed · A `skip_expr` that throws during a loop at
+  module 0.
+  - **Given:** FX-49/a with `skip_expr: "variable('u/t/throw') === 'yes' ?
+    (() => { throw new Error('flip') })() : false"` and the loop body
+    setting `u/t/throw`.
+  - **Expect:** the flow fails at the second iteration's launch with the
+    chaining error
+    `{"error": {"name": "InternalError", "message": "Error: QuickJS evaluation error: Error: flip\n    at <anonymous> (eval_script:1:102)\n    at <anonymous> (eval_script:1:116)\n<loc>"}}`;
+    no failure module applies; the loop's status entry stays in progress
+    with `[1]`.
+  - **Recorded:** [`flows/execution/fx-49`](../../conformance/flows/execution/fx-49) run `throws`, oracle run 40794872025.
+
+<a id="fx-50"></a>
+### FX-50 · How error messages gain an `Error: ` prefix and location suffixes
+
+**Scope:** core · **Finding:** [FX-50](execution.md#fx-50)
+
+The recorded shapes are cases of [FX-15](#fx-15), [FX-14](#fx-14) and
+[FX-8](#fx-8). The cases below cover the layer and masking rule.
+
+- **FX-50/a** · source-derived · A failed push reads as a database error.
+  - **Given:** `[a: bun: return 1, b: bun(s): return s]` with
+    `s = "String.fromCharCode(0)"`; and the flow `[b: bun(s): return s]`
+    with the same transform, started through the run API.
+  - **Expect:** pushing `b`'s job fails in the database
+    ([FX-48](execution.md#fx-48) case 2). After `a` (a later transition)
+    the flow fails with
+    `{"error": {"name": "InternalError", "message": "SqlErr: error returned from database: unsupported Unicode escape sequence<loc>"}}`:
+    no `Error: ` prefix, one suffix. At the root's first pickup `b` fails
+    with
+    `{"error": {"name": "Anyhow", "message": "Error: SqlErr: error returned from database: unsupported Unicode escape sequence<loc><loc>"}}`:
+    one `Error: ` prefix, two suffixes.
+- **FX-50/b** · source-derived · Which suffixes are generated.
+  - **Given:** these messages, as Windmill writes them:
+    1. `Error: Error: QuickJS evaluation error: Error: nope is not defined\n @worker_flow.rs:2451:11 @worker.rs:3822:13`;
+    2. `Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {"a": 2, "b": 1}`;
+    3. `Error: Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {"a": 2, "b": 1} @worker.rs:3822:13`;
+    4. `Error: Internal: x @worker.rs:3822:13`, from an internal error built
+       without a location;
+    5. CF-19/c's transform error, which quotes
+       `Failed to fetch result for step 'br': Not found: Completed Job not found at name 00000000-0000-0000-0000-000000000000 (jobs.rs:9074)`
+       before the engine's frame lines;
+    6. `execution error:\nInternal: Failed to parse $jsonvar value as JSON: unexpected end of hex escape at line 1 column 9 @common.rs:299:17`.
+  - **Expect:** the generated suffixes are, in order: the last two; none;
+    the last; the last (two prefixes, one suffix); the parenthesised one
+    after the not-found text, inside the message; and the last, after the
+    `execution error:\n` lead-in. Written with `<loc>`:
+    `…not defined\n<loc><loc>`, unchanged, `…{"a": 2, "b": 1}<loc>`,
+    `Error: Internal: x<loc>`, `…0000-000000000000<loc>` followed by the
+    unchanged frame lines, and `…column 9<loc>`. Message 5's `<loc>` is
+    known to be generated only because the flow reads a result that is
+    missing; its text alone does not show it ([FX-50/d](#fx-50)).
+- **FX-50/c** · source-derived · A suffix in the user's own message is not
+  generated.
+  - **Given:** `[a: bun: return 1, b: bun: return 2 (skip_if: {expr: "(() =>
+    { throw new Error('x @worker.rs:1:2') })()"})]`.
+  - **Expect:** the flow fails at the transition after `a` with an
+    `InternalError` whose message is
+    `Error: QuickJS evaluation error: Error: x @worker.rs:1:2\n` followed
+    by the engine's stack lines and one `<loc>`: one layer prefix, so only
+    the final suffix is generated; the user's ` @worker.rs:1:2` sits before
+    the stack and stays.
+- **FX-50/d** · source-derived · A not-found phrase in the user's own
+  message is not generated.
+  - **Given:** `[a: bun: return 1, b: bun: return 2 (skip_if: {expr: "(() =>
+    { throw new Error('Not found: Completed Job not found at name pretend
+    (user.rs:123)') })()"})]`.
+  - **Expect:** the flow fails at the transition after `a` with an
+    `InternalError` whose message is
+    `Error: QuickJS evaluation error: Error: Not found: Completed Job not found at name pretend (user.rs:123)\n`
+    followed by the engine's stack lines and one `<loc>`. The
+    ` (user.rs:123)` is the user's text and is compared literally: the
+    same flow with `(user.rs:456)` gives a different message. Its shape is
+    the lookup helper's, as in [CF-19](#cf-19)/c, where the same form is
+    generated; only the case's expected text decides which one is masked.
 
 <a id="fx-v1"></a>
 ### FX-V1 · A throwing `stop_after_all_iters_if` uses the EarlyStopError path
@@ -2157,11 +2356,12 @@ contested and now carry their own provenance.
 
 **Scope:** core · **Finding:** [FX-V3](execution.md#fx-v3)
 
-- **FX-V3/a** · source-derived · A skipped flow returns 422.
+- **FX-V3/a** · oracle-observed · A skipped flow returns 422.
   - **Given:** `[a: bun: return 3 (stop_after_if: {expr: "true",
     skip_if_stopped: true})]`, no `early_return`, no response metadata.
   - **Expect:** completed flow status `skipped`; stored result `3`;
     run-and-wait returns HTTP 422 with JSON body `3`.
+  - **Recorded:** [`flows/execution/fx-36-http`](../../conformance/flows/execution/fx-36-http) run `skipped`, oracle run 40794872025.
 
 <a id="fx-v4"></a>
 ### FX-V4 · A tolerated error-stop at the final module enters the failure module
@@ -2358,11 +2558,12 @@ Findings: [control-flow.md](control-flow.md).
     writes from the same source, both carry `skip_failures: true` and
     `parallel: false`.
   - **Recorded:** [`flows/control-flow/cf-6`](../../conformance/flows/control-flow/cf-6) run `a`, oracle run 40692334073 (deployed through the API so the field reaches the server absent; the provenance holds the submitted, materialized and `generate-metadata` values).
-- **CF-6/b** · source-derived · A pulled folder shows the materialized field.
-  - **Given:** after CF-6/a's dependency job, run `wmill sync pull`.
-  - **Expect:** the forloop in `flow.yaml` carries `skip_failures: true`.
-  - **Note:** not recorded yet: the oracle harness has no pull read-back;
-    recording batch E3e records it.
+- **CF-6/b** · oracle-observed · A pulled folder shows the materialized field.
+  - **Given:** push a flow whose forloop omits `skip_failures` (as in
+    CF-6/a), wait for its dependency job, then run `wmill sync pull`.
+  - **Expect:** the forloop in `flow.yaml` carries `skip_failures: true`
+    (and `parallel: false`).
+  - **Recorded:** [`flows/control-flow/pull`](../../conformance/flows/control-flow/pull) run `pulled`, oracle run 40794872025 (deployed through the API with the fields absent; the run's provenance holds the pulled value, whose forloop carries `skip_failures: true` and `parallel: false`).
 - **CF-6/c** · source-derived · Before or without normalization an absent `skip_failures` behaves as `false`.
   - **Given:** the same flow run as a raw flow payload, or a version whose
     dependency job failed.
@@ -3070,7 +3271,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **Rust location suffix:** strip ` @<file>.rs:<line>:<col>` before comparing. `<loc>` in an expected message stands for one such suffix **including its leading space** (or the parenthesised not-found form ` (<file>.rs:<line>)`), with nothing else between it and the text before it; a message that ends in `<loc><loc>` carries two ([FX-50](execution.md#fx-50)).
 - **`…`** in an expected message marks elided text: a stack, a location suffix, or the rest of a library message.
 
-**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); recording batch E3e) and JE-V5/a (which transform fails first changes between runs, so it is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)).
+**Provenance.** Recording batch E3a recorded every case of this area on the v1.767.0 CE oracle except three, each of which names its recording. Cases of the expression files `conformance/exprs/je-*.yaml` were recorded as one-module flows: step `b` is module 0, so its `previous_result` is the flow input, and the observation is `b`'s recorded argument (O2). The rest are runs of the flow fixtures under `conformance/flows/je` and `conformance/flows/cf`. Not recorded, and still `source-derived`: JE-16/c (an evaluator-level case, O1, whose raw `-0` no flow input can carry; checked in milestone B2b), JE-19/e (needs a restarted run, [Q-JE-8](expressions.md#q-je-8); batch E3e deferred it, since a restart is outside windmill-lite's equivalence contract) and JE-V5/a (which transform fails first is not fixed and may change from one pass to the next, as JE-23/e records, so counting the reads is a host- or evaluator-level case; B2b and PF2). New cases added on 2026-10-28 are `source-derived` until recorded: JE-50/a, JE-51/a and JE-52/a ([Q-JE-12](expressions.md#q-je-12)); JE-10/e, JE-15/j, JE-16/g, JE-17/d and JE-21/b (design request 9; [Q-JE-1](expressions.md#q-je-1), [Q-JE-14](expressions.md#q-je-14)). On 2026-10-29, batch E3e recorded three new cases, JE-23/e, JE-44/d and JE-44/e, and the source re-check added seven `source-derived` ones: JE-11/b–e and JE-16/h (design request 10; [Q-JE-13](expressions.md#q-je-13)), JE-18/e (a repeated module id) and JE-44/f (an identity job's text).
 
 <a id="je-1"></a>
 ### JE-1 · QuickJS-ng evaluates every expression that reaches the engine
@@ -3301,6 +3502,18 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** `x = "call variable(1)"` (the expression is a string literal)
   - **Expect:** `"call (await variable(1))"`
   - **Recorded:** [`exprs/je-11.yaml`](../../conformance/exprs/je-11.yaml) case `JE-11/a`, oracle run 40687124625.
+- **JE-11/b** · source-derived · the count starts at the call, so non-ASCII text before it shifts nothing
+  - **Given:** `x = "é variable(1)"` (a string literal)
+  - **Expect:** `"é (await variable(1))"`. A count from the start of the text would put the `)` one byte early.
+- **JE-11/c** · source-derived · non-ASCII text inside the call moves the `)` early by its extra bytes
+  - **Given:** `x = "variable(éa)"` (a string literal)
+  - **Expect:** `"(await variable(é)a)"`: two characters are counted before the call's `)`, and the `)` is inserted at byte 2, just after the two-byte `é`.
+- **JE-11/d** · source-derived · a call that never closes gets its `)` at the end of its part
+  - **Given:** `x = ("variable(ab"` (the parentheses never balance after the call)
+  - **Expect:** `"(await variable(ab"`: the `)` is inserted at the end of the text, where it closes the expression's own `(`.
+- **JE-11/e** · source-derived · an insertion inside a multi-byte character fails the evaluation with the runtime's panic report (O5)
+  - **Given:** `x = "variable(é)"` (a string literal; the `)` would go at byte 1, inside the two-byte `é`)
+  - **Expect:** `b` fails before it runs, like any failed transform ([JE-23](expressions.md#je-23)), with name `ExecutionErr` and the message ``Error during isolated evaluation of expression `"variable(é)"`:\ntask <n> panicked with message "assertion failed: self.is_char_boundary(idx)"`` (shown unescaped), where `<n>` is a decimal task number that differs between runs; compare everything but `<n>`. The flow then fails with that value, as for [JE-23/d](#je-23), and the worker keeps running.
 
 <a id="je-12"></a>
 ### JE-12 · `results.<id>` is rewritten textually into an awaited lookup
@@ -3467,6 +3680,9 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **JE-16/g** · source-derived · later · a `__proto__` key sets the prototype, not an own property
   - **Given:** flow input `{"o":{"__proto__":{"x":1}}}`; `x = [Object.keys(flow_input.o), flow_input.o.x, Object.getPrototypeOf(flow_input.o) === Object.prototype]`
   - **Expect:** `[[],1,false]`. (Built with `JSON.parse`, the value would give `[["__proto__"],undefined,true]`, which serialises as `[["__proto__"],null,true]`.)
+- **JE-16/h** · source-derived · later · a fetched `results` read is built by `JSON.parse`; the previous step served from memory is rebuilt
+  - **Given:** `a` returns `JSON.parse('{"__proto__":{"x":1}}')`, an object with an own `__proto__` key, so its result is `{"__proto__":{"x":1}}`. (1) `b` directly after `a`, with `x = [Object.keys(results.a), results.a.x]`. (2) A step `m` between `a` and `b`, with the same transform.
+  - **Expect:** (1) `[[],1]`: the read is served from memory as the rebuilt `previous_result` ([JE-18](expressions.md#je-18) rule 1). (2) `[["__proto__"],null]`: the read fetches the stored result and parses it with `JSON.parse`, so the key is an own property and nothing is inherited.
 
 <a id="je-17"></a>
 ### JE-17 · The `error` helper variable
@@ -3510,6 +3726,16 @@ O1 is not the only point where pre-database values matter: a step can compute so
   - **Given:** a flow `a`, `b`, `c`; in `b`, `x = results.c`
   - **Expect:** `null`
   - **Recorded:** [`flows/je/shortcuts`](../../conformance/flows/je/shortcuts) run `je18-d`, oracle run 40687124625.
+- **JE-18/e** · source-derived · a repeated module id
+  - **Given:** a flow deployed with two modules of id `a` (accepted,
+    [OF-2](openflow.md#of-2)): `[a: bun: return 1, m: bun: return 2,
+    n: bun(x): return x, a: bun: return 3, d: bun: return 4,
+    e: bun(x): return x, f: bun(x): return x]`, with `x = "results.a + 0"`
+    in `n` and `e` (the engine, step 2) and `x = "results.a"` in `f` (the
+    line-anchored direct lookup).
+  - **Expect:** `n` receives `1` (the second `a` has not started), `e`
+    receives `3` (the last `a` with a job) and `f` receives `3` (the `a`
+    that completed most recently); the flow's result is `3`.
 
 <a id="je-19"></a>
 ### JE-19 · Which `results.<id>` a scope can see
@@ -3535,6 +3761,7 @@ O1 is not the only point where pre-database values matter: a step can compute so
 - **JE-19/e** · source-derived · later · a restarted run reads its original run ([Q-JE-8](expressions.md#q-je-8))
   - **Given:** a flow `a` (returns `17`), `b` (fails), `c` with `x = results.a`; restart the run from `b`, so `a` is not re-run, with `b` succeeding on restart so `c` is reached
   - **Expect:** `c`'s O2 `x` = `17`
+  - **Not recorded:** batch E3e deferred this case with no milestone: a restarted run is outside windmill-lite's equivalence contract, which has no restart, and the harness drives none.
 
 <a id="je-20"></a>
 ### JE-20 · The `variable()`, `resource()` and `flow_user_state()` helpers
@@ -3610,6 +3837,10 @@ Retry, missing-payload and dispatch cases are under [JE-V2](#je-v2), [JE-V4](#je
   - **Given:** `x = nope` on a non-skipped `b`
   - **Expect:** `b`'s result is ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `nope`:\nQuickJS evaluation error: Error: nope is not defined…"}}``.
   - **Recorded:** [`exprs/je-23.yaml`](../../conformance/exprs/je-23.yaml) case `JE-23/d`, oracle run 40687124625.
+- **JE-23/e** · oracle-observed · the evaluation order is not fixed and may change from pass to pass (O5)
+  - **Given:** a sequential loop over sixteen items with `skip_failures: true` and a two-step body whose first step `t` has three transforms, `zz`, `b` and `aa`, each failing with an unknown name; a step after the loop reports which transform each iteration's error names. The flow is deployed twice: by the CLI, whose `flow.yaml` writes the transforms in name order (`aa`, `b`, `zz`), and through the API, created in the written order `zz`, `b`, `aa`.
+  - **Expect:** no order is fixed, neither the written one nor name order, so a fixture must not expect a particular transform to be evaluated, or to fail, first. In the recording, the sixteen errors did not all name the same transform in either deployment. That is an observed sample: freshly seeded maps make it very likely but do not guarantee it, so a check of it is statistical, not a deterministic conformance condition.
+  - **Recorded:** [`flows/je/transform-order`](../../conformance/flows/je/transform-order) run `order` and [`flows/je/transform-order-api`](../../conformance/flows/je/transform-order-api) run `order`, oracle run 40801169516.
 
 <a id="je-24"></a>
 ### JE-24 · Predicates are wrapped as `Boolean(<expr>)`
@@ -3815,7 +4046,7 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
 - **JE-36/d** · oracle-observed · a simple while loop is collapsed in previews too
   - **Given:** a simple while loop after a step returning `9`, with loop `stop_after_if: {expr: "true"}`; run once deployed and once as a preview
   - **Expect:** `p` = `9` on its single iteration, in both runs.
-  - **Recorded:** [`flows/je/branches`](../../conformance/flows/je/branches) run `je36-d`, oracle run 40687124625; recorded in part: the deployed run only; the preview run needs the flow-preview API in the harness ([Q-JE-5](expressions.md#q-je-5), recording batch E3e).
+  - **Recorded:** [`flows/je/branches`](../../conformance/flows/je/branches) run `je36-d`, oracle run 40687124625; recorded in part: the deployed run only; the preview run needs the flow-preview API in the harness ([Q-JE-5](expressions.md#q-je-5)). Batch E3e deferred the preview half with no milestone: windmill-lite has no preview mode, so it is outside the equivalence contract.
 - **JE-36/e** · oracle-observed · a two-step sequential body is not collapsed
   - **Given:** a sequential loop with a two-step body, after a step returning `9`
   - **Expect:** the first body step's `p` is the parent's `flow_input` plus `iter`.
@@ -3962,6 +4193,17 @@ In each case the body's transform is `p = previous_result`, compared as JSON. Ba
   - **Given:** flow input `{"n":1e3}`; `x = flow_input.n`
   - **Expect:** O2 `1000`
   - **Recorded:** [`exprs/je-44.yaml`](../../conformance/exprs/je-44.yaml) case `JE-44/c`, oracle run 40687124625.
+- **JE-44/d** · oracle-observed · a stored flow input's object member is `jsonb`'s spaced text (O5)
+  - **Given:** flow input `{"o": {"b": 1, "a": 2}}`; a step `q` with `timeout: {type: javascript, expr: "flow_input.o"}` ([JE-7](expressions.md#je-7) shortcut, [JE-29](expressions.md#je-29) quotes the value), (1) as the first module, (2) after a step `p` returning `0`.
+  - **Expect:** the integer parse quotes `{"a": 2, "b": 1}` and `q` never runs. (1) At the first pickup: ``{"error":{"name":"Anyhow","message":"Error: Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1}<loc>"}}``. (2) At the transition after `p`: ``{"error":{"name":"InternalError","message":"Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1}"}}``.
+  - **Recorded:** [`flows/je/shortcut-texts`](../../conformance/flows/je/shortcut-texts) runs `fi_first` and `fi_later`, oracle run 40794872025.
+- **JE-44/e** · oracle-observed · right after a loop, `previous_result` is a compact array in `jsonb` key order (O5)
+  - **Given:** a sequential loop `l` over `[1]` whose one-step body returns `{b: 1, a: 2}`; then `q` with `timeout: {type: javascript, expr: "results.l"}` ([JE-8](expressions.md#je-8) shortcut).
+  - **Expect:** `l` succeeds with `[{"a": 2, "b": 1}]`, `q` never runs, and the flow fails with ``{"error":{"name":"InternalError","message":"Error parsing result as i32: invalid type: sequence, expected i32 at line 1 column 0. Value was: [{\"a\":2,\"b\":1}]"}}``: no spaces, and `a` before `b`, not the body's `b`, `a`.
+  - **Recorded:** [`flows/je/shortcut-texts`](../../conformance/flows/je/shortcut-texts) run `loop_prev`, oracle run 40794872025.
+- **JE-44/f** · source-derived · after an identity job, `previous_result` is `jsonb`'s printed text (O5)
+  - **Given:** `a` returns `{"b":1,"a":2}`; then an `identity` module `i`; then `q` with `timeout: {type: javascript, expr: "results.i"}` ([JE-8](expressions.md#je-8) shortcut).
+  - **Expect:** `q` never runs, and the flow fails at the transition after `i` with ``{"error":{"name":"InternalError","message":"Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1}"}}``: spaced and in `jsonb` order, where the producer's text was `{"b":1,"a":2}`. The same holds when `i` is a script step that `skip_if` skips.
 
 <a id="je-48"></a>
 ### JE-48 · The stack limit is quickjs-ng's built-in 1 MiB, measured from where the embedding enters the engine
@@ -4045,7 +4287,7 @@ The cases bracket the limit; none locates it. Batch E3a recorded them ([Q-JE-11]
 - **JE-V1/a** · oracle-observed · the expression sets the limit (O5)
   - **Given:** `a` returns `{"cap":2}`; then a parallel loop over three items, each body sleeping briefly, with `parallelism: {type: javascript, expr: "result.cap"}`
   - **Expect:** at most 2 children run at once (from child start and end times).
-  - **Recorded:** [`flows/je/loops`](../../conformance/flows/je/loops) run `je-v1-a`, oracle run 40687124625; recorded in part: the expression is accepted and every child runs; how many run at once needs three or more oracle workers (recording batch E3e).
+  - **Recorded:** [`flows/je/loops`](../../conformance/flows/je/loops) run `je-v1-a`, oracle run 40687124625; recorded in part: the expression is accepted and every child runs; how many run at once needs three or more oracle workers. Batch E3e deferred that half with no milestone: telling a cap of two from no cap needs three workers, and the oracle has at most two.
 - **JE-V1/b** · oracle-observed · a fractional value fails the u16 parse (O5)
   - **Given:** as JE-V1/a, with `parallelism: {type: javascript, expr: "1.5"}`
   - **Expect:** the flow fails with `{"error":{"name":"InternalError","message":"Error parsing result as u16: …"}}`.
@@ -4151,9 +4393,9 @@ Findings: [languages.md](languages.md).
 - Error expectations name fields of the inner error object. The stored step value is `{"error": <that object>}` ([WR-21](languages.md#wr-21)), unless stated otherwise.
 - In messages, `\n` is the JSON escape for a newline.
 - The oracle harness normalises job ids ([oracle](oracle.md)).
-- No case below has been recorded on the v1.767.0 CE oracle yet ([Q-WR-20](languages.md#q-wr-20)).
-- **Native cases** ([WR-40](#wr-40) to [WR-46](#wr-46)). A `nativets` step is an inline rawscript with `language: nativets`. A `bunnative` step is an inline rawscript with `language: bun` whose first line is `//native`. "Both kinds" means the case runs once as each, with the same expectation. Their recording is [Q-WR-21](languages.md#q-wr-21). In a native error, `<stack>` stands for the two-part `stack` value of [WR-43](languages.md#wr-43). Unlike the Bun errors above, native exception objects carry no `step_id`.
-- **Codebase cases** ([WR-47](#wr-47) to [WR-50](#wr-50)). The sync root holds a `wmill.yaml` with `defaultTs: bun` and one `codebases` entry, `relative_path: f/cb` and `includes: ["f/cb/**"]`, plus the fields each case adds. Scripts live under `f/cb/`, with the `.script.yaml` the CLI generates. The fixture is pushed with the pinned `wmill` CLI from the sync root, to the CE oracle in standalone mode ([OR-4](oracle.md#or-4)), and the script is then run by path.
+- Cases recorded on the v1.767.0 CE oracle are `oracle-observed` and carry a **Recorded:** line: those of WR-3, WR-13, WR-16, WR-28, WR-37, WR-47, WR-49 and WR-50 so far. The rest are source-derived ([Q-WR-20](languages.md#q-wr-20)).
+- **Native cases** ([WR-40](#wr-40) to [WR-46](#wr-46)). A `nativets` step is an inline rawscript with `language: nativets`. A `bunnative` step is an inline rawscript with `language: bun` whose first line is `//native`. "Both kinds" means the case runs once as each, with the same expectation. Their recording is [Q-WR-21](languages.md#q-wr-21). They need a worker that serves the `nativets` tag; the reference oracle's single worker, in the `default` group, does not, so there a native job never starts ([WR-40](languages.md#wr-40)). In a native error, `<stack>` stands for the two-part `stack` value of [WR-43](languages.md#wr-43). Unlike the Bun errors above, native exception objects carry no `step_id`.
+- **Codebase cases** ([WR-47](#wr-47) to [WR-50](#wr-50)). The sync root holds a `wmill.yaml` with `defaultTs: bun` and one `codebases` entry, `relative_path: f/cb` and `includes: ["f/cb/**"]`, plus the fields each case adds. Scripts live under `f/cb/`, with the `.script.yaml` the CLI generates. The fixture is pushed with the pinned `wmill` CLI from the sync root, to the CE oracle in standalone mode ([OR-4](oracle.md#or-4)), and the script is then run by path. The recording fixture `flows/languages/codebase-cases` lays these cases out differently (one entry per case under `f/wl_cbx/`, each script run as step `s` of a one-step flow, shared files under `shared/wl_cbx/`); the behaviour each case states is the same.
 
 <a id="wr-1"></a>
 ### WR-1 · One fresh OS process per script job, in a fresh job directory
@@ -4184,9 +4426,10 @@ Findings: [languages.md](languages.md).
 
 **Scope:** core · **Finding:** [WR-3](languages.md#wr-3)
 
-- **WR-3/a** · source-derived · runtime version (taken from the image recipe; the running binary has not been recorded)
+- **WR-3/a** · oracle-observed · runtime version
   - **Given:** `export function main() { return Bun.version; }`
-  - **Expect:** `"1.3.10"`. The oracle harness records the actual `Bun.version` in its fixture metadata.
+  - **Expect:** `"1.3.10"`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, whose step returns `Bun.version` with its environment, oracle run 40798097155.
 
 <a id="wr-5"></a>
 ### WR-5 · `args.json` is the job's args map after `$var:`/`$res:` resolution, with internal keys removed
@@ -4341,12 +4584,14 @@ Each step returns `Object.keys` of the named input.
 
 **Scope:** core · **Finding:** [WR-13](languages.md#wr-13)
 
-- **WR-13/a** · source-derived · standard serialisation plus the `undefined` replacer and the BigInt patch
+- **WR-13/a** · oracle-observed · standard serialisation plus the `undefined` replacer and the BigInt patch
   - **Given:** `export function main() { return { a: undefined, f() {}, n: 10n, d: new Date(Date.UTC(2024,0,2,3,4,5,6)), m: new Map([[1,2]]), u8: new Uint8Array([1,2]), x: [undefined, NaN, -0] }; }`
   - **Expect:** `{"a":null,"n":"10","d":"2024-01-02T03:04:05.006Z","m":{},"u8":{"0":1,"1":2},"x":[null,null,0]}`.
-- **WR-13/b** · source-derived · a top-level `undefined` becomes `null`
+  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `serialise` (step `a`), oracle run 40771900586.
+- **WR-13/b** · oracle-observed · a top-level `undefined` becomes `null`
   - **Given:** `export function main() { return undefined; }`
   - **Expect:** `null`.
+  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `serialise` (step `c`), oracle run 40771900586.
 - **WR-13/c** · source-derived · a cyclic result fails the job
   - **Given:** the entrypoint returns a cyclic object.
   - **Expect:** the job fails with `error.name` = `TypeError`. The message is engine-specific (on Bun, `JSON.stringify cannot serialize cyclic structures.`); match on `name` only.
@@ -4383,36 +4628,39 @@ Each step returns `Object.keys` of the named input.
 
 **Scope:** later · **Finding:** [WR-16](languages.md#wr-16)
 
-The finding is DISPUTED in two producing-side clauses ([Q-WR-15](languages.md#q-wr-15)). Every case is tagged `disputed`; each one says whether its own expectation is contested.
+All seven cases were recorded as one-step flows whose step `s` runs the script; the dispute they settled ([Q-WR-15](languages.md#q-wr-15)) is closed for the validation's correction.
 
-- **WR-16/a** · disputed · string chunks are joined into the result
+- **WR-16/a** · oracle-observed · string chunks are joined into the result
   - **Given:** `export async function* main() { yield "a\nb"; yield "c"; }`
   - **Expect:** result `"a\nbc"`, a JSON string containing a real newline.
-  - **Contested:** no; both sides expect this result.
-- **WR-16/b** · disputed · a numeric chunk fails
-  - **Given:** `export async function* main() { yield 7; }`
-  - **Expect:** the job fails with `error.name` = `TypeError`.
-  - **Contested:** no.
-- **WR-16/c** · disputed · an inherited custom `replace` returning a string
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-a`, oracle run 40794872025.
+- **WR-16/b** · oracle-observed · a numeric chunk fails
+  - **Given:** `export async function* main() { yield 7; }`, as step `s`.
+  - **Expect:** the job fails with ``{"error":{"name":"TypeError","stack":"<stack>","message":"chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)","step_id":"s"}}``; the message is Bun `1.3.10`'s and quotes the wrapper's call.
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-b`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case named only `error.name`; the recording gives the whole error, message included.
+- **WR-16/c** · oracle-observed · an inherited custom `replace` returning a string
   - **Given:** `class C { replace() { return "x"; } }`, and the entrypoint is an async generator that yields `new C()`.
   - **Expect:** result `"x"`.
-  - **Contested:** no.
-- **WR-16/d** · disputed · a printed stream line is merged into an object result
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-c`, oracle run 40794872025.
+- **WR-16/d** · oracle-observed · a printed stream line is merged into an object result
   - **Given:** `export function main() { console.log("WM_STREAM: hi"); return { k: 1 }; }`
   - **Expect:** `{"k":1,"wm_stream":"hi"}`.
-  - **Contested:** no.
-- **WR-16/e** · disputed · a non-object, non-null result is left unchanged
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-d`, oracle run 40794872025.
+- **WR-16/e** · oracle-observed · a non-object, non-null result is left unchanged
   - **Given:** `export function main() { console.log("WM_STREAM: hi"); return 5; }`
   - **Expect:** `5`.
-  - **Contested:** no.
-- **WR-16/f** · disputed · how a custom `replace` return value is converted
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-e`, oracle run 40794872025.
+- **WR-16/f** · oracle-observed · how a custom `replace` return value is converted
   - **Given:** a chunk whose custom `replace` returns an object whose `valueOf` gives `7` and whose `toString` gives `x`.
-  - **Expect (as drafted):** the object becomes its `toString()`, so the stream text is `x`.
-  - **Expect (validation):** string `+` uses primitive conversion (`valueOf`), so the stream text is `7`.
-- **WR-16/g** · disputed · a raw newline inside a custom `replace` return value
+  - **Expect:** string `+` uses primitive conversion (`valueOf`), so the stream text, and the result, is `"7"`.
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-f`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case gave two expectations, `x` as drafted and `7` from the validation; the oracle settled it for `7`.
+- **WR-16/g** · oracle-observed · a raw newline inside a custom `replace` return value
   - **Given:** a chunk whose custom `replace` returns `a`, a raw LF, then `WM_STREAM: b`. Normal log budget, no masking.
-  - **Expect (as drafted):** only the first printed line carries the prefix, and the rest goes to the logs.
-  - **Expect (validation):** every line is classified on its own, so the accumulated stream is `ab`.
+  - **Expect:** every line is classified on its own, so the accumulated stream, and the result, is `"ab"`.
+  - **Recorded:** [`flows/languages/wr-16`](../../conformance/flows/languages/wr-16) run `wr16-g`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case gave two expectations: only the first line streamed as drafted, and `ab` from the validation. The oracle settled it for `ab`.
 
 <a id="wr-17"></a>
 ### WR-17 · Result markers `wm_failure` and `wm_labels`
@@ -4496,6 +4744,9 @@ Each case runs as step `a`. The expectation shows the inner error object; WR-21 
 - **WR-22/a** · source-derived · step and path variables; `BASE_INTERNAL_URL` is not injected
   - **Given:** flow `f/x/fl`, run manually. Step `s` returns `[process.env.WM_FLOW_STEP_ID, process.env.WM_JOB_PATH, process.env.WM_STATE_PATH, process.env.BASE_INTERNAL_URL ?? "unset"]`. No script, workspace or worker-group env configuration supplies `BASE_INTERNAL_URL`.
   - **Expect:** `["s","f/x/fl/s","f/x/fl/s_user","unset"]`.
+- **WR-22/b** · source-derived · later · the Bun cache directory is set and `NODE_PATH` is not (reference image)
+  - **Given:** the reference image, whose worker has neither `WINDMILL_DIR` nor `NODE_PATH` in its environment. Step `s` returns `[process.env.BUN_INSTALL_CACHE_DIR, process.env.NODE_PATH ?? "unset"]`, once as a plain Bun script and once as a CJS codebase script, which runs on Node ([WR-50](languages.md#wr-50)).
+  - **Expect:** `["/tmp/windmill/cache_nomount/bun","unset"]` both times.
 
 <a id="wr-23"></a>
 ### WR-23 · Filesystem view
@@ -4550,28 +4801,35 @@ Each case runs as step `a`. The expectation shows the inner error object; WR-21 
 
 **Scope:** core · **Finding:** [WR-28](languages.md#wr-28)
 
-The finding is DISPUTED only in its later dynamic-import consequence ([Q-WR-16](languages.md#q-wr-16)). Every case is tagged `disputed`; each one says whether its own expectation is contested.
+The dispute over the later dynamic-import consequence ([Q-WR-16](languages.md#q-wr-16)) is settled for the validation's correction. The recording fixture creates each script through the API in path order, so every imported script exists before its importer, and runs each importer as step `s` of a one-step flow; its folders are `f/wl_wr28a` to `f/wl_wr28d`.
 
-- **WR-28/a** · disputed · relative and absolute static imports, plus a transitive import
+- **WR-28/a** · oracle-observed · relative and absolute static imports, plus a transitive import
   - **Given:** script `f/a/main` with `import { h } from "./lib"` and `import { g } from "/f/b/util"`; `f/a/lib` imports `../c/z`.
-  - **Expect:** loads `f/a/lib` and `f/b/util`, and the nested `../c/z` resolves to `f/c/z`.
-  - **Contested:** no; static-import core.
-- **WR-28/b** · disputed · an explicit `.ts` absolute import
+  - **Expect:** loads `f/a/lib` and `f/b/util`, and the nested `../c/z` resolves to `f/c/z`. The recording's `main` returns `[h(), g()]`, `["lib+z","util"]`.
+  - **Recorded:** [`flows/languages/wr-28`](../../conformance/flows/languages/wr-28) run `wr28-a`, oracle run 40801169516.
+- **WR-28/b** · oracle-observed · an explicit `.ts` absolute import
   - **Given:** `import { k } from "/f/b/util.ts"`.
-  - **Expect:** loads `f/b/util`.
-  - **Contested:** no; static-import core.
-- **WR-28/c** · disputed · later · a dynamic import with the identical literal of a static import
+  - **Expect:** loads `f/b/util`; the recording's `main` returns its `k`, `"k"`.
+  - **Recorded:** [`flows/languages/wr-28`](../../conformance/flows/languages/wr-28) run `wr28-b`, oracle run 40801169516.
+- **WR-28/c** · oracle-observed · later · a dynamic import with the identical literal of a static import
   - **Given:** a static `import { h } from "./helper"` and a dynamic `await import("./helper")` in the same file.
-  - **Expect:** both load workspace script `<dir>/helper`.
-  - **Contested:** no.
-- **WR-28/d** · disputed · later · a dynamic import with no static rewrite trigger
-  - **Given:** only a dynamic `await import("./helper")`.
-  - **Expect:** not fetched from the workspace; resolution fails unless such a file exists locally.
-  - **Contested:** no.
-- **WR-28/e** · disputed · later · a static specifier that matches a substring of a different dynamic specifier
-  - **Given:** a static import of `./helper` and a dynamic `import("./nested/./helper")` in the same file. Workspace helpers exist for both targets, and no local-file shortcut is available.
-  - **Expect (as drafted):** the dynamic literal has no identical static import, so it is not rewritten or intercepted.
-  - **Expect (validation):** the static rewrite turns the dynamic literal into `./nested/./helper.ts`, which then becomes eligible for interception. To be observed under the pinned Bun image.
+  - **Expect:** both load workspace script `<dir>/helper`: the recording returns `["helper","helper"]`.
+  - **Recorded:** [`flows/languages/wr-28`](../../conformance/flows/languages/wr-28) run `wr28-c`, oracle run 40801169516.
+- **WR-28/d** · source-derived · later · a dynamic import of an extensionless relative path, with no static rewrite trigger, cannot be deployed
+  - **Given:** script `<dir>/x` whose only import is a dynamic `await import("./helper")`, deployed without a lock, so the server runs its dependency job; a workspace script `<dir>/helper` exists.
+  - **Expect:** the dependency job fails: the specifier stays in the build output, the dependency scan reads it as a package named `.`, and `bun install` fails with `Package "." with tag "latest" not found` ([WR-26](languages.md#wr-26)). The script gets a lock error and no version a run by path can select. Observed on the oracle (oracle run 40798097155), with no committed recording, since there is no deployed script to run.
+  - **Correction 2026-10-29:** the case expected a run in which the import is not fetched from the workspace and resolution fails unless a local file exists. That run never happens: the deploy fails first ([WR-26](languages.md#wr-26), [WR-28](languages.md#wr-28)).
+- **WR-28/e** · oracle-observed · later · a static specifier that matches a substring of a different dynamic specifier
+  - **Given:** a static import of `./helper` and a dynamic `import("../other/./helper")` in the same file, the dynamic text holding `./helper` as a substring. Workspace helpers exist for both targets, and no local-file shortcut is available. (The recording's importer is `f/wl_wr28d/x_dyn_sub`, its second helper `f/wl_wr28c/helper`, reached as `../wl_wr28c/./helper`.)
+  - **Expect:** the static rewrite turns the dynamic literal into `../other/./helper.ts`, which is intercepted and fetched against the importer's path: the importer returns `["helper","elsewhere"]`, the second value coming from the other folder's helper.
+  - **Recorded:** [`flows/languages/wr-28`](../../conformance/flows/languages/wr-28) run `wr28-e`, oracle run 40801169516.
+  - **Correction 2026-10-29:** the case gave two expectations, not rewritten or intercepted as drafted, and rewritten then intercepted from the validation; the oracle settled it for the validation. Its example specifier `./nested/./helper` is replaced by one that reaches another folder, as the recording does, so that the fetched helper is told apart by its result.
+- **WR-28/f** · source-derived · later · a dynamic `.ts` path needs no static rewrite trigger
+  - **Given:** script `<dir>/x` whose only import is a dynamic `await import("./helper.ts")`, deployed without a lock; workspace script `<dir>/helper` exports `x = "helper"`, and no local file `helper.ts` exists in the job directory. `main` returns `(await import("./helper.ts")).x`.
+  - **Expect:** the deploy succeeds: the resolver plugin claims the specifier in the dependency job's build, so it never reaches the scan. A run by path returns `"helper"`, fetched from the workspace against the importer's path ([WR-28](languages.md#wr-28) rule 3).
+- **WR-28/g** · source-derived · later · a dynamic builtin or package import needs no static rewrite trigger
+  - **Given:** script `<dir>/x` whose only imports are a dynamic `await import("node:path")` and a dynamic `await import("is-number")`, deployed without a lock. `main` returns `[(await import("node:path")).sep, (await import("is-number")).default(5)]`.
+  - **Expect:** the deploy succeeds: the scan skips `node:path` and locks `is-number` at `latest` ([WR-26](languages.md#wr-26)). A run by path returns `["/", true]`.
 
 <a id="wr-29"></a>
 ### WR-29 · The import base for an inline flow script is the flow's path
@@ -4679,9 +4937,10 @@ The finding is DISPUTED only in its later dynamic-import consequence ([Q-WR-16](
 
 **Scope:** core · **Finding:** [WR-37](languages.md#wr-37)
 
-- **WR-37/a** · source-derived · a per-step timeout below the instance cap
+- **WR-37/a** · oracle-observed · a per-step timeout below the instance cap
   - **Given:** flow step `a` with `timeout: {"type":"static","value":1}`, running `await new Promise(r => setTimeout(r, 5000))`.
   - **Expect:** `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}`.
+  - **Recorded:** [`flows/languages/bun-results`](../../conformance/flows/languages/bun-results) run `timeout` (a 3 s sleep under the 1 s timeout), oracle run 40771900586.
 
 <a id="wr-38"></a>
 ### WR-38 · Possible `.ts`-rewrite collisions, depending on the scanner's output
@@ -4754,6 +5013,9 @@ Both cases are pending [Q-WR-13](languages.md#q-wr-13). Setup: workspace scripts
 - **WR-40/f** · source-derived · an uncaught failed dynamic import gives the exception shape, not a load failure (`nativets`; medium)
   - **Given:** no file `/missing.ts` on the worker host; step `a`: `export async function main() { await import("./missing.ts"); return 1; }`
   - **Expect:** `{"error":{"message":"Failed to load file:///missing.ts…","stack":<stack>,"name":…}}`: exactly the three keys, `message` matched on the prefix, and `name` not `ExecutionErr` (its value is [Q-WR-21](languages.md#q-wr-21)). No `failed to load module` text.
+- **WR-40/g** · source-derived · later · the module-level `this` (both kinds, different values)
+  - **Given:** step `a`, on a worker that serves the `nativets` tag: `const t = this; export function main() { return [t === null, t === undefined]; }`.
+  - **Expect:** `[true,false]` as `bunnative`, because Bun's bundler writes the top-level `this` as `null` (on Bun `1.3.10`, run outside Windmill with Windmill's build options); `[false,true]` as `nativets`, whose transpiled ES module keeps `undefined`.
 
 <a id="wr-41"></a>
 ### WR-41 · A fresh isolate per job; how arguments bind
@@ -4809,14 +5071,15 @@ All cases run on both kinds.
 - **WR-43/b** · source-derived · any other thrown value gives three `null`s (both kinds)
   - **Given:** step `a` throwing, in three variants, `"s"`, `{ message: "m", name: "N" }` and `null`.
   - **Expect:** each time `{"error":{"message":null,"stack":null,"name":null}}`.
-- **WR-43/c** · source-derived · the stack starts with the failing source line (both kinds)
+- **WR-43/c** · source-derived · the stack starts with the failing source line (both kinds, as loaded)
   - **Given:**
     ```ts
     export function main() {
       throw new Error("x");
     }
     ```
-  - **Expect:** `error.stack` has a first line containing `throw new Error("x")` (the line as loaded, so its indentation may differ from the source), then a line `Error: x`.
+  - **Expect:** `error.stack` has a first line holding the source line as loaded, then a line `Error: x`. As `nativets` that first line contains `throw new Error("x")`; as `bunnative` it contains `throw Error("x")`, because the bundle is syntax-minified ([WR-43](languages.md#wr-43)). The indentation may differ from the source either way.
+  - **Correction 2026-10-29:** the case expected `throw new Error("x")` for both kinds. Bun `1.3.10`'s syntax minification, which Windmill turns on for the `bunnative` bundle, drops the `new` (checked on the release binary, outside Windmill, with Windmill's build options).
 - **WR-43/d** · source-derived · an unhandled rejection fails the job (medium; both kinds)
   - **Given:** step `a`: `export async function main() { Promise.reject(new Error("late")); await new Promise(r => setTimeout(r, 100)); return 1; }`
   - **Expect:** `{"error":{"message":"late","stack":<stack>,"name":"Error"}}`, not `1`.
@@ -4912,26 +5175,32 @@ All cases run on both kinds.
 
 **Scope:** core · **Finding:** [WR-47](languages.md#wr-47)
 
-The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
+Each case's outcome was recorded on the CE oracle. The bundles' bytes were not read back from it ([Q-WR-24](languages.md#q-wr-24)).
 
-- **WR-47/a** · source-derived · an absent `format` runs as CommonJS on Node
+- **WR-47/a** · oracle-observed · an absent `format` runs as CommonJS on Node
   - **Given:** `f/cb/runtime.ts`: `export function main() { return typeof (globalThis as any).Bun; }`; no `format` in the entry.
   - **Expect:** `"undefined"`.
-- **WR-47/b** · source-derived · `format: esm` runs on Bun
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `cjs_runtime`, oracle run 40794872025.
+- **WR-47/b** · oracle-observed · `format: esm` runs on Bun
   - **Given:** the same script; the entry adds `format: esm`.
   - **Expect:** `"object"`.
-- **WR-47/c** · source-derived · `define` is applied
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `esm_runtime`, oracle run 40794872025; the same probe in the `native_control` run gives `["object","string"]` on Bun.
+- **WR-47/c** · oracle-observed · `define` is applied
   - **Given:** the entry adds `define: {"__MODE__": "\"lite\""}`; `f/cb/mode.ts`: `declare const __MODE__: string; export function main() { return __MODE__; }`.
   - **Expect:** `"lite"`.
-- **WR-47/d** · source-derived · `inject` supplies a free identifier
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `define`, oracle run 40794872025.
+- **WR-47/d** · oracle-observed · `inject` supplies a free identifier
   - **Given:** the entry adds `inject: ["f/cb/shim.ts"]`; `f/cb/shim.ts`: `export const answer = 42;`; `f/cb/inject.ts`: `declare const answer: number; export function main() { return answer; }`.
   - **Expect:** `42`.
-- **WR-47/e** · source-derived · a `loader` map is applied
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `inject`, oracle run 40794872025; the recording's `inject` file lies outside the entry's `relative_path`.
+- **WR-47/e** · oracle-observed · a `loader` map is applied
   - **Given:** the entry adds `loader: {".txt": "text"}`; `f/cb/note.txt` contains `hi`; `f/cb/text.ts`: `import note from "./note.txt"; export function main() { return note; }`.
   - **Expect:** `"hi"`.
-- **WR-47/f** · source-derived · `banner` is prepended
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `loader`, oracle run 40794872025.
+- **WR-47/f** · oracle-observed · `banner` is prepended
   - **Given:** the entry adds `banner: {js: "globalThis.__banner = 1;"}`; `f/cb/banner.ts`: `export function main() { return (globalThis as any).__banner; }`.
   - **Expect:** `1`.
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `banner`, oracle run 40794872025.
 
 <a id="wr-48"></a>
 ### WR-48 · `customBundler`
@@ -4950,14 +5219,15 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
 
 **Scope:** core · **Finding:** [WR-49](languages.md#wr-49)
 
-- **WR-49/a** · source-derived · an asset is unpacked next to `main.js`
+- **WR-49/a** · oracle-observed · an asset is unpacked next to `main.js`
   - **Given:** the entry adds `assets: [{from: "f/cb/data/a.txt", to: "data/a.txt"}]`; `f/cb/data/a.txt` contains `asset`; `f/cb/asset.ts`:
     ```ts
     import { readFileSync } from "node:fs";
     export function main() { return readFileSync("data/a.txt", "utf8"); }
     ```
   - **Expect:** `"asset"`.
-- **WR-49/b** · source-derived · later · several output files drop the assets (medium)
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `asset`, oracle run 40794872025.
+- **WR-49/b** · oracle-observed · later · several output files drop the assets
   - **Given:** the entry adds `loader: {".bin": "file"}` and `assets: [{from: "f/cb/data/a.txt", to: "a.txt"}]`; `f/cb/blob.bin` holds any bytes; `f/cb/multi.ts`:
     ```ts
     import p from "./blob.bin";
@@ -4965,6 +5235,8 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
     export function main() { return [existsSync(p), existsSync("a.txt")]; }
     ```
   - **Expect:** `[true,false]`.
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `multi`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case carried a *medium* mark on the traced tar layout; the recording confirms it, so the mark is dropped.
 
 *Setup for WR-49/c–f:* the WR-47/a fixture, plus a file `f/cb/notes/a.txt` (content `one`) that no script uses. All pushes are `wmill sync push` from the sync root unless a case says otherwise, on a fresh CE standalone oracle. The steps are:
 
@@ -4973,7 +5245,7 @@ The bundles themselves are compared in [Q-WR-24](languages.md#q-wr-24).
 3. Record the `hash` and `codebase` fields of `f/cb/runtime` from `GET /api/w/<ws>/scripts/get/p/f/cb/runtime`.
 4. Make the case's change, push, and compare.
 
-These cases test when a push deploys and which bytes then run, not how the bundle is built.
+These cases test when a push deploys and which bytes then run, not how the bundle is built. Recording batch E3e did not record them: each needs a session that pushes, changes the tree and pushes again.
 
 - **WR-49/c** · source-derived · later · any content change under `relative_path` makes a new version
   - **Given:** the setup; the content of `f/cb/notes/a.txt` changes to `two`.
@@ -4992,30 +5264,45 @@ These cases test when a push deploys and which bytes then run, not how the bundl
     - field `script` first: a script body whose every field the server's no-op check compares equals the deployed script, copied from `GET /api/w/<ws>/scripts/get/h/<H>`. That covers the content, the lock, the metadata, `codebase` and the optional settings, and the body sets `parent_hash` to `H`;
     - field `file` second: a different valid CommonJS bundle, `exports.main = () => "v2";`.
   - **Expect:** status 201 with body `H`, so no new version is created; a response with any other hash means the body did not match and the case is invalid. `GET …/get/p/f/cb/v` still reports `H`, and the next run returns `"v2"`. The same holds when the body omits `is_template`, which the check reads as `false`.
+- **WR-49/h** · source-derived · later · a single-file bundle runs with CRLF line breaks; a tar does not
+  - **Given:** two CJS codebase scripts, each pushed with the pinned `wmill`: `f/cb/crlf.ts` with no assets, and the same body in an entry with one asset, so that its upload is a tar. The body is:
+    ```ts
+    export function main() {
+      const s = main.toString();
+      return [s.includes("\r\n"), s.includes("\n")];
+    }
+    ```
+  - **Expect:** `[true,true]` for the single-file script, whose bundle the form-data encoding sent with CRLF line breaks and which the server and worker kept byte for byte ([WR-49](languages.md#wr-49)); `[false,true]` for the tar.
 
 <a id="wr-50"></a>
 ### WR-50 · How a codebase script runs: lookup, extraction and runtime
 
 **Scope:** core · **Finding:** [WR-50](languages.md#wr-50)
 
-- **WR-50/a** · source-derived · CE standalone deploys and runs a codebase script
+- **WR-50/a** · oracle-observed · CE standalone deploys and runs a codebase script
   - **Given:** the WR-47/a fixture, pushed once to the CE oracle in standalone mode and once to a CE deployment with separate `MODE=server` and `MODE=worker` containers.
   - **Expect:** standalone: the push succeeds and the run returns `"undefined"`. Split: the push of that script fails with HTTP 500 and a body containing `codebase is an EE feature`, and no script exists at the path afterwards.
-- **WR-50/b** · source-derived · later · the Node version is recorded
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `cjs_runtime`, oracle run 40794872025: the standalone half. The split half was not recorded, since the oracle is CE in standalone mode only ([OR-4](oracle.md#or-4)).
+- **WR-50/b** · oracle-observed · later · the Node version is recorded
   - **Given:** `f/cb/node.ts`: `export function main() { return process.version; }`; no `format`.
-  - **Expect:** a string starting `v20.`. Record the exact value ([Q-WR-24](languages.md#q-wr-24)).
+  - **Expect:** a string starting `v20.`. The pinned image's value is `"v20.20.2"`.
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `node_version`, oracle run 40794872025.
 
 *Probe for WR-50/c–d:* the script body `export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version]; }` tells the three runtimes apart: `["object","string"]` on Bun, `["undefined","string"]` on Node, `["undefined","undefined"]` in the native runtime, whose `process` has only `env` ([WR-45](languages.md#wr-45)).
 
-- **WR-50/c** · source-derived · `//native` takes an ESM codebase script into the native runtime
+- **WR-50/c** · source-derived · `//native` takes an ESM codebase script into the native runtime, which only a worker serving `nativets` runs
   - **Given:** the entry adds `format: esm`; `f/cb/native.ts` has the first line `//native`, then the probe body. The same entry without the header is the control.
-  - **Expect:** `["undefined","undefined"]`; the control gives `["object","string"]` (compare [WR-47/b](#wr-47)).
-- **WR-50/d** · source-derived · `//nodejs` takes an ESM codebase script to Node
+  - **Expect:** on a deployment with a worker that serves the `nativets` tag, `["undefined","undefined"]`. On the reference oracle no worker serves it ([WR-40](languages.md#wr-40)), so the job never starts: the flow running it does not complete, and canceling it does not complete it either. That outcome was observed (canceled after 20 s, still incomplete after two minutes, in oracle runs 40794872025 and 40798097155), with no committed recording. The control gives `["object","string"]` (compare [WR-47/b](#wr-47)).
+  - **Correction 2026-10-29:** the case expected the native result on the oracle. The script is stored as `bunnative`, its job is tagged `nativets`, and the reference configuration's one worker, in the `default` group, does not serve that tag.
+- **WR-50/d** · oracle-observed · `//nodejs` takes an ESM codebase script to Node
   - **Given:** the entry adds `format: esm` and `assets: [{from: "f/cb/pkg.json", to: "package.json"}]`, where `f/cb/pkg.json` is `{"type":"module"}`, which makes the ESM interpretation explicit on every Node version; `f/cb/node-esm.ts` has the first line `//nodejs`, then the probe body.
   - **Expect:** `["undefined","string"]`.
-- **WR-50/e** · source-derived · later · without a declared type, the outcome depends on the Node patch
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `node_esm`, oracle run 40794872025.
+- **WR-50/e** · oracle-observed · later · without a declared type, the outcome depends on the Node patch
   - **Given:** the WR-50/d entry without the `package.json` asset, so only the `{}` placeholder applies; `f/cb/node-esm.ts` has the first line `//nodejs`, then `export function main() { return [typeof (globalThis as any).Bun, process.version]; }`.
-  - **Expect:** on Node 20.19.0 or later, `["undefined","v20.<minor>.<patch>"]`: module syntax detection loads the bundle as ESM. On an earlier 20.x the job fails while Node loads `main.js`, with a [WR-19](#wr-19) or [WR-20](#wr-20) error. Record which outcome occurs and the version ([Q-WR-24](languages.md#q-wr-24)).
+  - **Expect:** `["undefined","v20.20.2"]` on the pinned image: its Node, v20.20.2, is 20.19.0 or later, so module syntax detection loads the bundle as ESM. (On an earlier 20.x the job would fail while Node loads `main.js`, with a [WR-19](#wr-19) or [WR-20](#wr-20) error.)
+  - **Recorded:** [`flows/languages/codebase-cases`](../../conformance/flows/languages/codebase-cases) run `node_esm_bare`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case left the outcome to the installed Node patch and asked for it to be recorded; the recording fixes it for the pinned image.
 
 <a id="wr-51"></a>
 ### WR-51 · Signature-parser details: which declaration counts, `this`, qualified types, aliases and the accepted syntax
@@ -5085,6 +5372,24 @@ These cases test when a push deploys and which bytes then run, not how the bundl
 - **WR-54/a** · source-derived · only the exact line switches validation on
   - **Given:** a flow whose inline step `a` has no input transforms and the source `// schema_validation`, then `export function main(x: string) { return x ?? "none"; }`. A second flow is the same with the first line `//schema_validation`.
   - **Expect:** the first fails with `{"message":"execution error:\nProblem with arguments: Argument x is required","name":"ExecutionErr","step_id":"a"}`; the second returns `"none"`.
+
+<a id="wr-55"></a>
+### WR-55 · Processes a job leaves behind: its process group, the wait after it exits, and the kill
+
+**Scope:** later · **Finding:** [WR-55](languages.md#wr-55)
+
+Both cases run on the reference configuration, where the worker is PID 1 of its container ([OR-4](oracle.md#or-4)).
+
+- **WR-55/a** · source-derived · a background child in the job's process group holds the job open
+  - **Given:** step `a`, run with no step timeout:
+    ```ts
+    import { spawn } from "node:child_process";
+    export function main() { spawn("sleep", ["5"], { stdio: "ignore" }).unref(); return Date.now(); }
+    ```
+  - **Expect:** the step succeeds with its result, but its job completes only after the `sleep` exits, at least 5 s after it started; a variant with `detached: true` (a new session, so another process group) completes at once.
+- **WR-55/b** · source-derived · a timeout kills the job's whole process group, even after the script returned
+  - **Given:** the WR-55/a script with `sleep 30`, and the step's `timeout: {"type":"static","value":2}`.
+  - **Expect:** `{"error":{"message":"execution error:\njob process terminated due to timeout after exceeding job-specific duration limit","name":"ExecutionErr","step_id":"a"}}` after about 2 s, although `main` had returned, and the `sleep` process is gone ([WR-37](languages.md#wr-37)).
 
 <a id="wr-v1"></a>
 ### WR-V1 · An override with zero parsed parameters passes the non-internal argument values
@@ -5957,8 +6262,10 @@ Findings: [oracle.md](oracle.md).
   0011 (`m:<id>`, `i:<n>`, `b:<n>`, `s:failure`, `r:<k>`).
 - **Probes** are named after the rows of the
   [Probe catalogue](oracle.md#probe-catalogue), which gives their recipes;
-  `x→v` means input transform `x = <javascript v>`. Rows marked *disputed
-  recipe* there need reconstruction ([OR-V9](oracle.md#or-v9)).
+  `x→v` means input transform `x = <javascript v>`. Rows marked
+  *reconstructed recipe* there did not spell their bindings as recorded;
+  batch E3e's fixture [`flows/oracle/probes`](../../conformance/flows/oracle/probes)
+  spells them ([OR-V9](oracle.md#or-v9)).
 - **Provenance.** `oracle-observed` means recorded in oracle run 1 on CE
   v1.767.0 (arm64, one standalone worker); the raw captures were not retained.
   A case that also ends with a **Recorded:** line was recorded again, or
@@ -5993,6 +6300,7 @@ Findings: [oracle.md](oracle.md).
   - **Given:** a Bun rawscript returning `Bun.version` (probe `env/bun_version`;
     recorded as the `bun` field of the `env` probe).
   - **Expect:** `"1.3.10"`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155.
 - **OR-2/b** · source-derived · Harness self-test: a Bun version mismatch is a
   provenance failure.
   - **Given:** a windmill-lite run whose Bun harness reports a version other than
@@ -6026,10 +6334,14 @@ Findings: [oracle.md](oracle.md).
     for it; the oracle has one worker.
   - **Expect:** the harness refuses without running or hanging:
     `{"error":"fixture_requires_workers","need":2,"have":1}`.
-- **OR-5/b** · source-derived · later · The same fixture on a two-worker profile.
+- **OR-5/b** · oracle-observed · later · The same fixture on a two-worker profile.
   - **Given:** `oracle/blocking_child` on the two-worker profile.
-  - **Expect:** the run completes, and `a`'s result equals the child's result.
-    Pending ([Q-OR-18](oracle.md#q-or-18)).
+  - **Expect:** the run completes, and `a`'s result equals the child's result
+    (recorded: `{"child":7}`, from a step that runs the child script through
+    `run_wait_result` and returns its answer).
+  - **Recorded:** [`flows/oracle/workers2`](../../conformance/flows/oracle/workers2) run `blocking`, oracle run 40792040448 (the workflow's two-worker session).
+  - **Correction 2026-10-29:** this case was `source-derived` and pending
+    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 
 <a id="or-6"></a>
 ### OR-6 · Bootstrap: identity, token, workspace
@@ -6053,11 +6365,16 @@ Findings: [oracle.md](oracle.md).
 
 **Scope:** later · **Finding:** [OR-7](oracle.md#or-7)
 
-- **OR-7/a** · source-derived · Scheduling knobs do not change observations.
+- **OR-7/a** · oracle-observed · Scheduling knobs do not change observations.
   - **Given:** the [OR-20](#or-20) smoke runs, once with
     `LISTEN_NEW_EVENTS_INTERVAL_SEC=1` and once with `10`.
   - **Expect:** byte-identical normalised observations; only timings differ.
-    Pending ([Q-OR-18](oracle.md#q-or-18)).
+  - **Recorded:** [`flows/oracle/smoke`](../../conformance/flows/oracle/smoke)
+    runs `ok` and `fail`, recorded at 1 s on one worker, stay `unchanged` in
+    the oracle workflow's second session at 10 s on two workers, first in
+    oracle run 40792040448 and in every run since.
+  - **Correction 2026-10-29:** this case was `source-derived` and pending
+    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 - **OR-7/b** · source-derived · The result-size limit is execution-observable.
   - **Given:** a profile with `MAX_RESULT_SIZE_MB=3` and a step returning a 4 MB
     result.
@@ -6128,10 +6445,12 @@ Findings: [oracle.md](oracle.md).
     poll `get_result_maybe`.
   - **Expect:** `result == {"result":{"a":1},"windmill_status_code":201}`.
     windmill-lite's flow result must equal this form.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `composite`, oracle run 40794872025.
 - **OR-10/b** · oracle-observed · later · `run_wait_result` rewrites the response.
   - **Given:** the same flow via `run_wait_result/f/f/wl_probe/composite`.
   - **Expect:** HTTP 201, `content-type: application/json`, body `{"a": 1}`
     (a host-adapter concern).
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `composite_wait` (`submit: run_wait_result`), oracle run 40794872025.
 - **OR-10/c** · oracle-observed · Smoke run through submit and poll.
   - **Given:** `POST /api/w/<ws>/jobs/run/f/f/wl_smoke/two_step` with `{"x":3}`.
   - **Expect:** 201 with a text/plain UUID; polling ends with
@@ -6168,7 +6487,9 @@ Findings: [oracle.md](oracle.md).
   - **Contested:** as for OR-11/a, only the identity of the key `l`.
   - **Recorded:** the same shape for an iterator that evaluates to `[]`,
     [`flows/control-flow/cf-2`](../../conformance/flows/control-flow/cf-2)
-    run `a`, oracle run 40685057858 (key `m:l`).
+    run `a`, oracle run 40685057858 (key `m:l`); and the probe itself,
+    [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run
+    `loop_empty`, oracle run 40794872025.
 
 <a id="or-12"></a>
 ### OR-12 · Failure capture: the stored error envelope
@@ -6192,16 +6513,19 @@ Findings: [oracle.md](oracle.md).
   - **Expect:** root `status: failure`, result `{"saw":"boom","handled":true}`;
     the handler job has kind `preview`, args `{"error": <a's error object>}`
     and `parent_module: "a"`; step `b` is `not_run`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `fail_handler`, oracle run 40794872025.
 - **OR-12/c** · oracle-observed · Error subclass with an own property.
   - **Given:** probe `fail_mid`.
   - **Expect:** root `status: failure`, result
     `{"error":{"name":"MyErr","message":"boom","stack":"<stack>","extra":{"code":42},"step_id":"a"}}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `fail_mid`, oracle run 40794872025.
 - **OR-12/d** · oracle-observed · Missing variable reference.
   - **Given:** probe `args_vs_received` with the variable `f/wl_probe/v` absent.
   - **Expect:** step `a` and the root fail with
     ```json
     {"error":{"name":"ExecutionErr","message":"execution error:\nNot found: Variable f/wl_probe/v not found for `s`: Not found: Variable f/wl_probe/v not found","step_id":"a"}}
     ```
+  - **Recorded:** [`flows/oracle/seeded`](../../conformance/flows/oracle/seeded) run `removed`, oracle run 40794872025 (the variable seeded before the push, which removed it).
 
 <a id="or-13"></a>
 ### OR-13 · The oracle stores JSON as Postgres `jsonb`, and that is observable
@@ -6212,6 +6536,7 @@ Findings: [oracle.md](oracle.md).
   - **Given:** probe `key_order` with args `{"zz":1,"a":2,"mmm":3}`.
   - **Expect:** the stored root args, read back with `get_args`, have keys in
     the order `a`, `zz`, `mmm` (`{"a":2,"zz":1,"mmm":3}`).
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `key_order`, oracle run 40794872025, through step `a0`: its stored args (`get_args`) hold `fi_whole` as `{"a": 2, "zz": 1, "mmm": 3}`, and the object it receives has keys `["a","zz","mmm"]`. The harness does not fetch the root's own `get_args`, and `jobs_u/get` gives the root's args in no fixed order ([OR-V1](oracle.md#or-v1)).
 
 <a id="or-14"></a>
 ### OR-14 · Normalisation rules
@@ -6262,11 +6587,13 @@ Findings: [oracle.md](oracle.md).
   - **Expect:** each run records `[{"step":"a"},{"step":"b"}]`, separately per
     run, on the oracle and on windmill-lite. (Run 1 keyed runs by
     `WM_ROOT_FLOW_JOB_ID`; the current body posts `root`, `job` and `step`.)
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) runs `effects_1` and `effects_2`, oracle run 40794872025.
 - **OR-16/b** · oracle-observed · EE · `delete_after_use` blanks nothing on CE.
   - **Given:** probe `delete_after_use` with args `{"x":7}`.
   - **Expect:** root result `{"p":{"secret":7}}`; after completion, step `a`
     still has args `{"x":7}`, result `{"secret":7}` and its log line. This CE
     observation is the default expectation.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `delete_after_use`, oracle run 40794872025 (the log line is not part of an observation). The committed flow no longer carries the `delete_after_use` key, which `generate-metadata` drops and a deployment would drop too ([OR-21](oracle.md#or-21)), so the recording cannot show the option's effect.
 - **OR-16/c** · source-derived · Harness self-test: foreign effects are rejected.
   - **Given:** an effect whose `root` differs from the root job id the harness
     submitted.
@@ -6284,6 +6611,7 @@ Findings: [oracle.md](oracle.md).
   - **Expect:** `timings.b.started_at − timings.a.completed_at ≥ 2000 ms` on
     both systems (observed 2021.971 ms). A bound assertion; never measured
     from `created_at`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `sleep`, oracle run 40794872025 (2048.074 ms; the run's `delays` checks the bound).
 
 <a id="or-18"></a>
 ### OR-18 · Instance lifecycle and hygiene
@@ -6395,12 +6723,19 @@ schema:
 
 **Scope:** EE · **Finding:** [OR-21](oracle.md#or-21)
 
-- **OR-21/a** · source-derived · `delete_after_use` inside a subflow.
+- **OR-21/a** · oracle-observed · `delete_after_use` inside a subflow.
   - **Given:** probe `ee/subflow_delete_after_use`: a flow calling a subflow
-    whose step has `delete_after_use: true`.
-  - **Expect:** on CE, record whether the nested job's args and result are
-    blanked after the parent completes; windmill-lite matches CE by default.
-    Pending ([Q-OR-18](oracle.md#q-or-18)).
+    whose step has `delete_after_use: true`, args `{"x":7}`.
+  - **Expect:** on CE, the nested job's args `{"x":7}` and result
+    `{"secret":7}` are not blanked after the parent completes, and the root
+    result is `{"p":{"secret":7}}`; windmill-lite matches CE by default.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `subflow_dau`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case left the outcome to be recorded
+    ([Q-OR-18](oracle.md#q-or-18)); E3e recorded nothing blanked. The
+    committed subflow no longer carries the `delete_after_use` key: the
+    pinned CLI's `generate-metadata` drops it, and a deployment drops it
+    from the stored flow on any edition ([OR-21](oracle.md#or-21)), so the
+    option never reaches the worker for a deployed flow.
 
 <a id="or-22"></a>
 ### OR-22 · Arguments as stored versus as received
@@ -6413,6 +6748,7 @@ schema:
     `s: {type: static, value: "$var:f/wl_probe/v"}` returns `s`.
   - **Expect:** `steps.a.args` is `{"s":"$var:f/wl_probe/v"}`; `steps.a.result`
     is `"secret-ish"`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `args_vs_received`, oracle run 40794872025.
 
 <a id="or-23"></a>
 ### OR-23 · Top-level `flow_input` key order inside transforms is random per run
@@ -6425,6 +6761,7 @@ schema:
   - **Expect:** `steps.a0.args.fi_keys` is a permutation of `["a","mmm","zz"]`
     (8 runs gave 5 distinct orders); `steps.a0.result.fi_whole_keys` is exactly
     `["a","zz","mmm"]`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `key_order`, oracle run 40794872025 (with `fi_keys` unordered).
 - **OR-23/b** · source-derived · Harness self-test: `unordered` is multiset
   equality.
   - **Given:** expected `["a","mmm","zz"]` at an `unordered` path; actual
@@ -6443,29 +6780,63 @@ schema:
     `r_keys = Object.keys(results.a)` and `p_keys = Object.keys(previous_result)`.
   - **Expect:** `b.result == {"r_keys":["a","cc","bbb"],"p_keys":["zzz","y"]}`,
     with `key_order: strict` on both arrays.
-- **OR-24/b** · source-derived · Integer-index keys enumerate first.
-  - **Given:** a step returning `{"2":1,"a":2,"10":3}`; the next step reports
-    `Object.keys(results.<id>)` from its transform and the keys of the object
-    it receives.
-  - **Expect:** the received object's keys are `["2","10","a"]` (local
-    JavaScript check); the transform-side array is recorded.
-    [Q-OR-12](oracle.md#q-or-12).
-- **OR-24/c** · source-derived · Retry restores the predecessor from storage.
-  - **Given:** `a` returns `{"bbb":1,"a":2,"cc":3}`; `b` has one retry and its
-    body throws; `b`'s `skip_if` returns false while
-    `Object.keys(previous_result)[0]` is `bbb`, and otherwise throws a
-    diagnostic containing the whole key array.
-  - **Expect:** per source, on the retry the diagnostic contains
-    `["a","cc","bbb"]` (the stored predecessor's order). [Q-OR-11](oracle.md#q-or-11) (a).
-- **OR-24/d** · source-derived · A loop aggregate comes from storage.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `key_order2`, oracle run 40794872025.
+- **OR-24/b** · oracle-observed · Integer-index keys enumerate first.
+  - **Given:** a step `a` returning `{"2":1,"a":2,"10":3}`; the next step has
+    transforms `rk = Object.keys(results.a)` and `w = results.a` and returns
+    `{rk, wk: Object.keys(w)}`.
+  - **Expect:** `{"rk":["2","10","a"],"wk":["2","10","a"]}`: the transform
+    side (the in-memory predecessor) and the received object (jsonb order
+    `2, a, 10`) both enumerate the integer-index keys first.
+  - **Recorded:** [`flows/oracle/key-order`](../../conformance/flows/oracle/key-order) run `int_keys`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case set only the received side, from a
+    local JavaScript check, and left the transform side to be recorded
+    ([Q-OR-12](oracle.md#q-or-12)).
+- **OR-24/c** · oracle-observed · Retry restores the predecessor from storage.
+  - **Given:** `a` returns `{"bbb":1,"a":2,"cc":3}`; `b` has one retry
+    (`constant`, 1 attempt, 0 s) and its body throws `Error("b fails")`;
+    `b`'s `skip_if` returns false while `Object.keys(previous_result)[0]` is
+    `bbb`, and otherwise throws a diagnostic containing the whole key array.
+  - **Expect:** the first attempt runs (the in-memory predecessor starts
+    with `bbb`) and fails; on the retry the `skip_if` sees the stored
+    predecessor and throws, which fails the flow with a chaining error
+    ([FX-15](execution.md#fx-15), [FX-50](execution.md#fx-50)):
+    `{"error":{"name":"InternalError","message":"Error: QuickJS evaluation error: Error: keys [\"a\",\"cc\",\"bbb\"]\n    at <anonymous> (eval_script:1:149)\n    at <anonymous> (eval_script:1:168)\n    at <eval> (eval_script:1:175)\n<loc>"}}`.
+    `b` and its failed attempt `r:0` both hold the attempt's
+    `{"error":{"name":"Error","message":"b fails","stack":"<stack>","step_id":"b"}}`.
+  - **Recorded:** [`flows/oracle/key-order`](../../conformance/flows/oracle/key-order) run `retry_keys`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case stated only that the diagnostic
+    holds `["a","cc","bbb"]` ([Q-OR-11](oracle.md#q-or-11) (a)); it now
+    states the whole outcome, the throwing retry predicate failing the flow
+    as a chaining error.
+- **OR-24/d** · oracle-observed · A loop aggregate comes from storage.
   - **Given:** a loop whose iterations return objects; the next step reports
     `Object.keys(previous_result[0])`.
-  - **Expect:** per source, jsonb key order. [Q-OR-11](oracle.md#q-or-11) (b).
+  - **Expect:** jsonb key order: after a loop whose one iteration returned
+    `{b:1,a:2}`, the aggregate reads `[{"a":2,"b":1}]`.
+  - **Recorded:** [`flows/je/shortcut-texts`](../../conformance/flows/je/shortcut-texts) run `loop_prev`, oracle run 40794872025, through the text that `timeout: results.l` quotes rather than `Object.keys`.
+  - **Correction 2026-10-29:** the expectation was "per source"
+    ([Q-OR-11](oracle.md#q-or-11) (b)); it is unchanged.
 - **OR-24/e** · source-derived · Preprocessor-built args keep their order.
   - **Given:** a Bun script with a `preprocessor` that builds `{bbb,a,cc}` and
     reports `Object.keys` of the argument in `main`.
   - **Expect:** per source, the preprocessor's insertion order
     `["bbb","a","cc"]` (no re-sort). [Q-OR-11](oracle.md#q-or-11) (c).
+    Not recorded: a script's own preprocessor runs only for a trigger
+    ([WR-11](languages.md#wr-11)), which the harness does not fire; batch
+    E3e recorded a flow's preprocessor instead (OR-24/f).
+- **OR-24/f** · oracle-observed · A flow preprocessor's object is read back
+  in jsonb order.
+  - **Given:** a flow whose `preprocessor_module` returns
+    `{"o":{"bbb":1,"a":2,"cc":3}}`; its first module has transforms
+    `o = flow_input.o` and `ok = Object.keys(flow_input.o)` and returns
+    `{ok, received: Object.keys(o)}`; submitted with `{}`.
+  - **Expect:** `{"ok":["a","cc","bbb"],"received":["a","cc","bbb"]}`: the
+    root's args are replaced by the preprocessor's stored result, so the
+    object comes back from storage in jsonb order, not the preprocessor's
+    order; the preprocessor job's own args are
+    `{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}` ([FX-35](execution.md#fx-35)).
+  - **Recorded:** [`flows/oracle/key-order`](../../conformance/flows/oracle/key-order) run `pre_keys`, oracle run 40794872025.
 
 <a id="or-25"></a>
 ### OR-25 · An empty chosen `branchone` branch yields the JSON string `"{}"`
@@ -6477,6 +6848,7 @@ schema:
   - **Expect:** root result `{"p":"{}","r":"{}"}` (both values are strings);
     module `br` is `Success` with a nil `job` and
     `branch_chosen: {"type":"branch","branch":0}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `branchone_empty`, oracle run 40794872025.
 
 <a id="or-26"></a>
 ### OR-26 · Empty bodies in `branchall` and `forloopflow`
@@ -6487,9 +6859,11 @@ schema:
   - **Given:** probes `branchall_seq` and `branchall_par`.
   - **Expect:** result `[0,{},2]` for both; three `flowpreview` children, the
     empty one with result `{}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) runs `branchall_seq` and `branchall_par`, oracle run 40794872025; and on two workers, with branch 0 slow, [`flows/oracle/workers2`](../../conformance/flows/oracle/workers2) run `par_slow_empty`, oracle run 40792040448 (the same `[0,{},2]`, branch 2 completing first).
 - **OR-26/b** · oracle-observed · An empty loop yields `[]`.
   - **Given:** probe `loop_empty`.
   - **Expect:** root result `{"p":[],"r":[]}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_empty`, oracle run 40794872025.
 
 <a id="or-27"></a>
 ### OR-27 · A NUL character in a Bun result fails the step at storage time
@@ -6505,11 +6879,20 @@ schema:
     (no `step_id`; `PATH` is the failing step's path); `b` is `not_run`. The
     raw message ended in ` @jobs.rs:1133:22`. The duration (about 30 s) is not
     compared.
-- **OR-27/b** · source-derived · Other NUL positions and languages.
+  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) run `nul`, oracle run 40794872025. The normalised observation keeps the space before the mask: `… escape sequence <loc>` ([OR-27](oracle.md#or-27)).
+- **OR-27/b** · oracle-observed · Other NUL positions and languages.
   - **Given:** variants returning `{"k\u0000":1}` and `{"a":["x\u0000"]}`, a flow
-    arg `"x\u0000"`, and a Python step returning the same.
-  - **Expect:** record the outcomes; no expectation is set
-    ([Q-OR-6](oracle.md#q-or-6)).
+    arg `"x\u0000"`, and a Python step returning the same (`"x\x00y"`), each
+    followed by `b(p→previous_result, r→results.a)`.
+  - **Expect:** the key and the nested value fail exactly as OR-27/a does
+    (`a` and the root `InternalErr`, `b` `not_run`). The Python step
+    succeeds with `"x null y"`, and `b` receives and returns
+    `{"p":"x null y","r":"x null y"}` ([WR-34](languages.md#wr-34)). The
+    flow argument is refused at submission, so there is no run to compare
+    (not recorded).
+  - **Recorded:** [`flows/oracle/nul`](../../conformance/flows/oracle/nul) runs `nul_key`, `nul_nested` and `nul_python`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case set no expectation
+    ([Q-OR-6](oracle.md#q-or-6)); it now states the recorded outcomes.
 
 <a id="or-28"></a>
 ### OR-28 · Job kinds the walker meets
@@ -6540,6 +6923,7 @@ schema:
   - **Given:** probe `env`.
   - **Expect:** after masking ids, timestamps and the username:
     `{"bun":"1.3.10","env":{"WM_FLOW_STEP_ID":"a","WM_JOB_PATH":"f/wl_probe/env/a","WM_FLOW_PATH":"f/wl_probe/env","WM_STATE_PATH":"f/wl_probe/env/a_user","WM_WORKSPACE":"<ws>","WM_PERMISSIONED_AS":"u/admin",…}}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `env`, oracle run 40798097155: all 21 `WM_` variables, with the workspace, object path, scheduled time and runnable id masked by the fixture, and `WM_USERNAME` `admin` under the harness's login token.
 
 <a id="or-30"></a>
 ### OR-30 · Disk and pull behaviour of the oracle image (harness preflight)
@@ -6568,11 +6952,20 @@ schema:
     not contain it, then probe `args_vs_received`.
   - **Expect:** the probe fails with `Variable f/wl_probe/v not found`
     ([OR-12/d](#or-12)); after re-seeding the variable post-push, it passes.
-- **OR-31/b** · source-derived · Harness integration test around a push.
+  - **Recorded:** [`flows/oracle/seeded`](../../conformance/flows/oracle/seeded) run `removed` (seeded before the push), and [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `args_vs_received` (seeded after it), both oracle run 40794872025.
+- **OR-31/b** · oracle-observed · Harness integration test around a push.
   - **Given:** create a variable, push a tree without it, then apply
     `setup.yaml` post-push.
   - **Expect:** after the push, `GET /api/w/<ws>/variables/get/<path>` returns
-    404; after `setup.yaml`, 200. Pending ([Q-OR-18](oracle.md#q-or-18)).
+    404; after `setup.yaml`, 200.
+  - **Recorded:** checked live by every oracle session since batch E3e,
+    first in oracle run 40794872025: the harness reads each `setup.yaml`
+    variable back after the push, requiring 404 for
+    [`flows/oracle/seeded`](../../conformance/flows/oracle/seeded)
+    (`oracle.setup: before_push`) and 200 once `setup.yaml` was applied
+    after the push.
+  - **Correction 2026-10-29:** this case was `source-derived` and pending
+    [Q-OR-18](oracle.md#q-or-18); the expectation is unchanged.
 
 <a id="or-v1"></a>
 ### OR-V1 · Full argument and result capture needs dedicated endpoints
@@ -6587,10 +6980,12 @@ schema:
     and `{"reason":"WINDMILL_TOO_BIG"}` as `b`'s args; the normalised steps
     contain the complete original object in both places, taken from
     `get_result_maybe` and `get_args`.
+  - **Recorded:** [`flows/oracle/big-payload`](../../conformance/flows/oracle/big-payload) run `big_payload`, oracle run 40794872025, with the same sizes; the complete payload is in the recording, and the generic endpoint's substitutes are in that run's raw capture (its CI artifact, not committed), not the observation.
 - **OR-V1/b** · oracle-observed · A literal sentinel string is kept.
   - **Given:** step `c` of `big_payload` returns `"WINDMILL_TOO_BIG"`.
   - **Expect:** `steps.c.result` and the root result are `"WINDMILL_TOO_BIG"`,
     unchanged.
+  - **Recorded:** [`flows/oracle/big-payload`](../../conformance/flows/oracle/big-payload) run `big_payload`, oracle run 40794872025.
 
 <a id="or-v2"></a>
 ### OR-V2 · Distinguish skipped, failed, canceled and never run
@@ -6602,19 +6997,23 @@ schema:
   - **Expect:** poll `success:false`, job `success:true, is_skipped:true`;
     normalised root `{"status":"skipped","result":1,…}`, not failure;
     `steps.a.skipped` is `true`; `steps.b` is `{"status":"not_run","ran":false}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `stop_skip`, oracle run 40794872025.
 - **OR-V2/b** · oracle-observed · An early stop with `skip_if_stopped: false`.
   - **Given:** probe `stop_plain`.
   - **Expect:** root `status: success`, result `1`; `b` is `not_run`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `stop_plain`, oracle run 40794872025.
 - **OR-V2/c** · oracle-observed · An empty loop is not "not run".
   - **Given:** probe `loop_empty`.
   - **Expect:** `steps.l` is `{"status":"success","ran":false,"result":[]}`,
     distinct from `not_run`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_empty`, oracle run 40794872025.
 - **OR-V2/d** · oracle-observed · A `skip_if` step runs as an identity job.
   - **Given:** probe `skip_if` with `{"skip":true}`, then with `{"skip":false}`.
   - **Expect:** `{"skip":true}`: root result `{"p":"a0","r":"a0"}`; step `a` has
     module `skipped:true` and an `identity` job with `success:true`,
     `is_skipped:false`, args `{"previous_result":"a0"}`, result `"a0"`.
     `{"skip":false}`: root result `{"p":"ran a","r":"ran a"}`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) runs `skip_if_true` and `skip_if_false`, oracle run 40794872025.
 - **OR-V2/e** · oracle-observed · A throwing `branchone` predicate.
   - **Given:** step `a`, then a `branchone` `br` whose first predicate throws
     (recorded with `expr: "nope"`, an undefined name; a predicate such as
@@ -6666,6 +7065,7 @@ expectations below are not themselves contested unless stated.
   - **Expect:** `b.result` is
     `{"p_keys":["bbb","a","cc"],"r_keys":["bbb","a","cc"],"p_whole_keys":["a","cc","bbb"],"r_whole_keys":["a","cc","bbb"]}`,
     stable over 8 runs.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `key_order`, oracle run 40794872025.
 - **OR-V4/b** · source-derived · Harness self-test: the normaliser leaves arrays
   alone.
   - **Given:** the observation of OR-V4/a.
@@ -6756,33 +7156,44 @@ expectations below are not themselves contested unless stated.
 
 **Scope:** core · **Finding:** [OR-V9](oracle.md#or-v9)
 
-- **OR-V9/a** · disputed · Reconstructed `loop_seq_multi`.
+- **OR-V9/a** · oracle-observed · Reconstructed `loop_seq_multi`.
   - **Given:** a sequential for-loop `l` over `["a","b"]`; body `x1` with
     `v = flow_input.iter.value` returning `v+"1"`, then `x2` with
     `p = previous_result` returning `p+"2"`.
   - **Expect:** result `["a12","b12"]`; the iterations are two-step child flows
     (`flownode`).
-  - **Contested:** the recorded recipe used a bare `iter.value` next to this
-    result; the correction says no bare `iter` binding exists, so the recipe
-    and the result do not match as written ([Q-OR-16](oracle.md#q-or-16)).
-- **OR-V9/b** · disputed · Literal bare-`iter` variant.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_seq_multi`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case was `disputed` while the recorded
+    recipe's bare `iter.value` contradicted its result
+    ([Q-OR-16](oracle.md#q-or-16)); the rebuilt recipe reproduces the result,
+    and the expectation is unchanged.
+- **OR-V9/b** · oracle-observed · Literal bare-`iter` variant.
   - **Given:** the same loop with `v = iter.value`.
-  - **Expect (correction):** an evaluation failure; capture its exact wrapper,
-    do not invent it.
-  - **Contested:** as recorded, the recipe was reported as succeeding.
-- **OR-V9/c** · disputed · `branchone` with explicit bindings.
+  - **Expect:** `x1` of iteration 0 fails before it runs, with empty args and
+    ``{"error":{"name":"ExecutionErr","message":"Error during isolated evaluation of expression `iter.value`:\nQuickJS evaluation error: Error: iter is not defined\n    at <anonymous> (eval_script:1:1)\n    at <eval> (eval_script:1:39)\n"}}``
+    (no `step_id`); `x2` of that iteration is `not_run`; the loop and the
+    flow fail with `[<that error>]`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_seq_multi_bare`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case expected an evaluation failure with
+    its text left to the recording ([OR-V9](oracle.md#or-v9)); run 1's
+    recipe had been reported as succeeding.
+- **OR-V9/c** · oracle-observed · `branchone` with explicit bindings.
   - **Given:** `br` with predicates `flow_input.n > 10` → `big` returns `'big'`,
     `flow_input.n > 0` → `pos` returns `'pos'`, default `def` returns
     `'default'`; args `{"n":5}`, `{"n":50}`, `{"n":-1}`.
   - **Expect:** `"pos"` (branch 1), `"big"` (branch 0), `"default"` (type
     default), reproducing the recorded results.
-  - **Contested:** the recorded recipe used undeclared shorthand `n`.
-- **OR-V9/d** · disputed · `loop_par` with an explicit transform.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) runs `branchone_5`, `branchone_50` and `branchone_m1`, oracle run 40794872025 (each body a `flowpreview` child).
+  - **Correction 2026-10-29:** the case was `disputed` because the recorded
+    recipe used the shorthand `n`; the expectation is unchanged.
+- **OR-V9/d** · oracle-observed · `loop_par` with an explicit transform.
   - **Given:** a parallel for-loop over `[1,2,3]`; body `x` with
     `v = flow_input.iter.value` returning `v*10`.
   - **Expect:** `[10,20,30]`; `flowpreview` iterations, reproducing the
     recorded result.
-  - **Contested:** the recorded recipe omitted the transform for `v`.
+  - **Recorded:** [`flows/oracle/probes`](../../conformance/flows/oracle/probes) run `loop_par`, oracle run 40794872025.
+  - **Correction 2026-10-29:** the case was `disputed` because the recorded
+    recipe omitted the transform for `v`; the expectation is unchanged.
 
 <a id="licensing"></a>
 ## Licensing and the clean room

@@ -1,4 +1,4 @@
-# Recording batch E3e: FX-49 (later, contested; Q-FX-11). A flow-level
+# Recording batch E3e: FX-49 (later; Q-FX-11, answered). A flow-level
 # skip_expr is evaluated again at every start phase at cursor 0, here each
 # iteration of a sequential loop that is module 0. The loop's body sets the
 # variable the expression reads, through the REST API, so the answer flips
