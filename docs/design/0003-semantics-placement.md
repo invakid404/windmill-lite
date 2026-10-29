@@ -316,7 +316,7 @@ job is to pin each implementation to the reference and to keep the Go and
 harness sides of each boundary in agreement. Cases live under `conformance/`
 as hand-written YAML and JSON, at three run levels, four levels that
 observe no run (decode, jsonb, load and compile), one protocol level (whose
-golden payloads the Go run writes) and one build level:
+golden payloads the Go run writes), one build level and one hooks level:
 
 | Level | Directory | A case is | Compared by |
 |---|---|---|---|
@@ -330,6 +330,7 @@ golden payloads the Go run writes) and one build level:
 | protocol | `conformance/protocol/frames.json`, `conformance/protocol/exchanges/<case>.json` | the harness protocol of [0004](0004-harness-protocol.md), which is windmill-lite's own (provenance `policy`): golden frames of the codec (a message and its canonical payload, a part split, a byte stream and the protocol error it raises), and exchange transcripts (the frames the engine sends and those the harness must answer with) over a synthetic fixture bundle | Go `internal/harness` tests, the exchanges against the real harness on the pinned runtime; each harness's own developer tests run the codec cases |
 | plugins | `conformance/plugins/hooks.yaml` | host-plugin cases (milestone F2c, provenance `policy`): a synthetic flow, a declarative host plugin that answers its hooks and provided sites, and the run's expected status, result, latched error and the plugin's log | Go `wl` tests, through a TypeScript plugin over `host_call` in `warm` and through Go callbacks; Go `cmd/windmill-lite` tests, through the host SDK's plugin in host mode |
 | build | `conformance/build/<finding>.json` | a sync folder and Bun scripts, and what the Bun build records for each (the signature of every export, annotations, the bundler target, workflow-as-code markers, the workspace scripts inlined) or refuses; optionally a run of the built modules' exports, with `process.env` replaced and host-provided modules registered ([WR-6](../semantics/languages.md#wr-6) to [WR-8](../semantics/languages.md#wr-8), [WR-26](../semantics/languages.md#wr-26) to [WR-32](../semantics/languages.md#wr-32), [WR-38](../semantics/languages.md#wr-38), [WR-39](../semantics/languages.md#wr-39), [WA-31](../semantics/client-api.md#wa-31), D12) | Go `internal/bundle` tests, running the Bun build helper and the modules on the pinned Bun; the helper's own developer tests run its scans |
+| hooks | `conformance/hooks/<topic>.yaml` | a synthetic flow, the host's signals of [0008](0008-host-hooks.md) (H1 outcomes, latches and cancellations at a module's start or end, fatal error names, halts, the clock, a pre-write deadline), and what the run must show: its status, its latch, the sites that ran or did not, its result and its deviations; windmill-lite's own rules (provenance `policy`) | Go `wl` tests, through the public API |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
 reproduce an expression whose meaning depends on what ran before it: a
@@ -505,6 +506,14 @@ error, with the database route (a step in between) as its control.
   where its run is checked (the step suite, C3a), and a case can run the
   built modules directly to show that the transforms behave as Windmill's.
   The parse lives in the Bun build helper, but Go is the one comparator.
+- The hooks level was added with milestone F2b. The precedence of host
+  signals (the latch, cancellation and deadlines, fatal error names, halts)
+  against Windmill's continue decision is windmill-lite's own rule
+  ([0008](0008-host-hooks.md)), with no oracle to record, so it fits none of
+  the run levels; its cases run through `wl`'s public hooks, as a host
+  would give them, on flows of identity modules whose jobs H1 answers, so
+  no harness runs. What needs a real job (H3's first write) is checked by
+  `wl`'s tests on the Bun harness instead.
 - The step level took its format with milestone C3a: one
   `conformance/steps/<lang>/<finding>.yaml` per finding (or per deviation
   without one, such as `d11.yaml`), as the expression level has, each case

@@ -33,7 +33,10 @@ F2a gives hosts the hooks of ADR 0008 through it as Go callbacks with
 selectors (interception, argument rewrites, observers, halts, the run's
 end, the invocation environment, per-run platform providers) and runs the
 mandatory host-provided sites of a host contract with the host's
-providers.
+providers; F2b adds its budgets and latches (write-capable steps and the
+first-write signal, the pre-write deadline, the latch, fatal error names,
+the clock and the jitter), whose precedence the `hooks` conformance cases
+hold.
 `build` runs nine earlier
 milestones: the OpenFlow decoder in
 [internal/openflow](internal/openflow/README.md) (A3); the YAML dialect of
@@ -190,7 +193,7 @@ go run ./cmd/windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
 
 | Path | What it covers |
 |---|---|
-| [wl](wl/README.md) | The public Go library API (ADR 0009): `Open` verifies and opens a bundle with the platform services the runtime owns (a host's `cache_ttl` result cache among them), `Run` runs a flow or root script in `warm` or `fresh` mode and returns its status, result, trace and the platform calls its steps made, `BuildInfo` reports the bundle, `Close` drains it; the host hooks as Go callbacks with selectors, the providers of host-provided sites, and per-run platform providers (F2a); `Options.Host` opens it in host mode, serving the runs of the host process whose steps it runs (F3a); host plugins in TypeScript answer the hooks and provided sites over `host_call`, `Options.Plugin` in `warm` and the host's own in host mode (F2c). |
+| [wl](wl/README.md) | The public Go library API (ADR 0009): `Open` verifies and opens a bundle with the platform services the runtime owns (a host's `cache_ttl` result cache among them), `Run` runs a flow or root script in `warm` or `fresh` mode and returns its status, result, trace and the platform calls its steps made, `BuildInfo` reports the bundle, `Close` drains it; the host hooks as Go callbacks with selectors, the providers of host-provided sites, and per-run platform providers (F2a); budgets and latches: write-capable steps, the pre-write deadline, fatal error names, the clock and the jitter (F2b); `Options.Host` opens it in host mode, serving the runs of the host process whose steps it runs (F3a); host plugins in TypeScript answer the hooks and provided sites over `host_call`, `Options.Plugin` in `warm` and the host's own in host mode (F2c). |
 | [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command: `build` writes a bundle from a sync folder, `verify` checks one against a manifest, `run` runs a bundle's flow or script through `wl` and prints the outcome as JSON, `selfcheck` starts the expression engine, `host` serves host mode on a built bundle through `wl` for a host such as the Bun host SDK, `version` prints its version. |
 | [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has three verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, `stub`, which writes the stubbed copy of a sync tree, and `check`, which runs the step cases on windmill-lite's Bun harness (and CommonJS codebase bundles on Node too, D13), and the flow fixtures (stub fixtures and fixtures with effects included, through the effect sink and replay service) and the expression cases, as generated flows, through `wl` in `warm` and `fresh`. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |

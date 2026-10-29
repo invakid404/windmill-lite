@@ -271,7 +271,10 @@ parallelism, whose error the reference does not give; a preprocessor,
    site's provider answers its launch in place of H1 (below). A leaf is
    offered to H1 (`Intercept`), then its entrypoint is chosen
    (`Entrypoint`), H3 asks `BeforeFirstWrite` once per run before the
-   first write-capable launch, H12 edits the environment, and the step
+   first write-capable launch (`firstWrite`, also before a write-capable
+   subflow call's child flow starts; its approval is the commit point that
+   sets `MayHaveMutated` and disarms the pre-write deadline, whatever
+   then stops the launch), H12 edits the environment, and the step
    runs through the `StepExecutor` with its timeout as a timer in the
    engine. The timeout is the module's own, static or evaluated, else a
    path script's own timeout metadata; a request strictly below the
@@ -523,8 +526,8 @@ its branch's result with its origin and pointers.
   printed form, as JE-44's table gives a flow input's member (N1b; N1a
   read it as the compact stored text).
 - An H1 intercept runs no job (`Ran` false), and H3 asks only before a
-  leaf's launch that H1 declined: an intercepted module or an identity job
-  writes nothing.
+  leaf's launch that H1 declined or a subflow call's child flow: an
+  intercepted module or an identity job writes nothing.
 - An argument that jsonb refuses fails the push with PostgreSQL's message
   ([Q-FX-8](../../docs/semantics/execution.md#q-fx-8) leaves the text open).
 - An invalid entrypoint override fails as a pre-run error, with no
@@ -1311,7 +1314,9 @@ timing the leaf), the monitor (a runaway expression, one transition at a
 time, two evaluations in one transition, disabled) and the pre-write
 deadline (one already passed at the start, one that passes while the
 host approves the first write, its states decided by the actual time,
-and a timer that wins the expiry but has not cancelled yet), that the monitor's budget ignores a recording clock other runs
+and a timer that wins the expiry but has not cancelled yet), H3 on
+subflow calls (a veto before the child flow starts, an approval, and of
+two calls of one subflow only the marked one asked, F2b), that the monitor's budget ignores a recording clock other runs
 move on, that child flows refresh their loop's ping, and sleep and
 timeout values that are not JSON.
 

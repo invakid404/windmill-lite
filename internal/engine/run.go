@@ -1386,6 +1386,11 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	case identity:
 		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
 	case m.Kind == ir.KindSubflow:
+		// H3 applies to a write-capable subflow call as to a leaf's launch,
+		// before its child flow starts, so a veto stops every step below it.
+		if !r.firstWrite(ctx, site) {
+			return notLaunched()
+		}
 		return r.subflow(ctx, fr, i, site.Path, o, stored)
 	default:
 		// FX-40: once the job is picked up, before it runs, the result
@@ -1404,29 +1409,8 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 			r.ended(fr, &out)
 			return out
 		}
-		// H3: the host may veto the run's first write-capable launch. H4:
-		// the pre-write deadline applies until that launch, so one that
-		// has passed stops it before the host is asked, and one that
-		// passes while the host decides stops it after; otherwise the
-		// launch disarms it.
-		if r.hooks.WriteCapable(site) {
-			r.writeMu.Lock()
-			if !r.wrote && !r.preWriteDue() {
-				r.wrote = true
-				if err := r.hooks.BeforeFirstWrite(ctx, r, site); err != nil {
-					r.Latch(HookLatchError(ctx, err))
-				}
-				if r.latch.Err() == nil {
-					r.disarmPreWrite()
-				}
-			}
-			r.writeMu.Unlock()
-			if r.latch.Err() != nil || r.preWriteExpired() {
-				return notLaunched()
-			}
-			r.mu.Lock()
-			r.trace.MayHaveMutated = true
-			r.mu.Unlock()
+		if !r.firstWrite(ctx, site) {
+			return notLaunched()
 		}
 		timeout, instanceWide := r.leafTimeout(fr, m, secs)
 		o.rec.Ran = true
@@ -1507,6 +1491,39 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		return o
 	}
 	return r.stop(ctx, fr, i, site.Path, o)
+}
+
+// firstWrite applies H3 and H4 to the launch of a job at site, a leaf's or
+// a subflow call's, and reports whether it may go on. When the host marked
+// the site write-capable, the host may veto the run's first such launch:
+// the pre-write deadline applies until then, so one that has passed stops
+// it before the host is asked, and one that passes while the host decides
+// stops it after; otherwise the approval disarms it, and the run reports
+// MayHaveMutated from then on. The approval is the commit point: what
+// prepares the launch after it (H12, the arguments' resolution) can still
+// stop the job, and the run counts as written all the same.
+func (r *run) firstWrite(ctx context.Context, site Site) bool {
+	if !r.hooks.WriteCapable(site) {
+		return true
+	}
+	r.writeMu.Lock()
+	if !r.wrote && !r.preWriteDue() {
+		r.wrote = true
+		if err := r.hooks.BeforeFirstWrite(ctx, r, site); err != nil {
+			r.Latch(HookLatchError(ctx, err))
+		}
+		if r.latch.Err() == nil {
+			r.disarmPreWrite()
+		}
+	}
+	r.writeMu.Unlock()
+	if r.latch.Err() != nil || r.preWriteExpired() {
+		return false
+	}
+	r.mu.Lock()
+	r.trace.MayHaveMutated = true
+	r.mu.Unlock()
+	return true
 }
 
 // jobEnv is the job identity of module i of fr's leaf job id, as its
