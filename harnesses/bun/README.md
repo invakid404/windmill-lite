@@ -47,7 +47,7 @@ cannot corrupt the protocol.
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
 | `runtime/context.ts` | The per-invocation context: the environment view, the fetch view, the timer fence, the log view, child-process wrapping, the process-level error handlers, the `process.exit` interception, the registry and the process scope |
-| `runtime/frame.ts` | The codec and the send queue: canonical envelopes, the decoding rules and error codes of the Go side, part streams, and the order of messages about one invocation |
+| `runtime/frame.ts` | The codec and the send queue: canonical envelopes, the decoding rules and error codes of the Go side, the frame reader, whose buffer grows by doubling so that a frame read in small pieces is copied a bounded number of times, part streams, and the order of messages about one invocation |
 
 - **Handshake.** It sends `hello` with `Bun.version`, its pid, the SHA-256
   of the bundle's `manifest.json`, and the `fetch`, `native` and `fresh`
