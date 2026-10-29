@@ -41,9 +41,10 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 |---|---|
 | `manifest.json` | the manifest (below), in canonical form |
 | `ir.json` | the compiled program, `(*ir.Program).MarshalIndent` ([internal/ir](../ir/README.md)) |
-| `scripts/bun/<id>.mjs`, `<id>.meta.json` | each Bun script's module and metadata (`BuildBun`, below), named by its inventory id: `scripts/bun/f/app/report.mjs` for the path script `f/app/report`, `scripts/bun/inline-<16 hex>.mjs` for an inline step, as the harness runtime resolves an id |
+| `scripts/bun/<id>.mjs`, `<id>.meta.json` | each Bun script's module and metadata (`BuildBun`, below), named by its inventory id: `scripts/bun/f/app/report.mjs` for the path script `f/app/report`, `scripts/bun/inline-<16 hex>.mjs` for an inline step, as the harness runtime resolves an id; a native-boundary script's module is `<id>.native.js` instead |
 | `scripts/bun/<id>.cjs`, `<id>.meta.json` | a codebase script built as CommonJS (`BuildCodebase`, below); one built as ESM is `<id>.mjs` |
 | `assets/<to>` | every codebase entry's assets, at the path in the working directory they are extracted to |
+| `scripts/native/windmill.js`, `windmill.meta.json` | the native runtime's embedded client, when a script is nativets |
 | `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | each host-provided module's bundled copy and shim, named by its script path |
 | `data/resources.json`, `data/resource_types.json`, `data/variables.json` | every resource and resource type the folder keeps, and every variable but secrets, each file an object keyed by path (a resource type by name), with the record of [internal/syncfolder](../syncfolder/README.md) |
 
@@ -206,7 +207,10 @@ CodebaseConfig)` bundles each with esbuild through its Go API, pinned in
   being resolved, so what it records is kept under a lock. The binding
   name is chosen as the Bun helper chooses it (`spells` applies the same
   rule). `//native` and `//nodejs` scripts are not
-  rewritten.
+  rewritten. A `//native` codebase script runs in the native runtime
+  (WR-50): it is bundled with host-provided modules inlined, and the Bun
+  helper's `native` op writes the bundle's native form,
+  `scripts/bun/<id>.native.js`, in place of its `.cjs` or `.mjs`.
 - **Metadata.** The helper's `parse` op reads each source for its
   annotations, workflow-as-code markers and packages, and records a
   signature for each export of the bundle: the export names come from the
@@ -286,8 +290,10 @@ invocation's environment, and a local binding named `Bun` is left alone. What a 
 imports of the `bun` module (`import { env } from "bun"`), optional chaining
 through the global object (`globalThis?.Bun`), reflection, an alias of the
 global object, and `eval` or `new Function`. The Bun build applies the
-rewrite to Bun-target bundles only; `//native` and `//nodejs` ones are the
-native boundary's (C3n).
+rewrite to Bun-target bundles only: a `//native` script runs at the native
+boundary (C3n), and a `//nodejs` one, which Windmill runs on Node with Bun's
+environment (WR-50), runs on the Bun harness, whose environment view covers
+it at run time (D13).
 
 ## Host-provided modules
 
@@ -323,7 +329,22 @@ of a bundle:
 3. **Warnings**: `host_module_shared_dependency` when a script imports a
    package directly that a host-provided module it uses also imports, so the
    package exists twice in the process (unless the package is itself a
-   listed one, whose shim both resolve to).
+   listed one, whose shim both resolve to); `native_import_unavailable` for
+   each static import of a native-boundary script that the native runtime
+   cannot load (anything but the embedded client, which only a nativets
+   script reaches, [WR-40](../../docs/semantics/languages.md#wr-40)): the
+   script builds, and the step fails when it runs, as on Windmill.
+
+**Native scripts** (deviation D5). `BunScript.Language` is the language a
+deploy records. A `nativets` script, and a Bun-family one whose header says
+`//native`, are built in their native form
+([build/](../../harnesses/bun/build/README.md)): `scripts/bun/<id>.native.js`
+and no `.mjs`. Their `ScriptMeta` has `boundary` `native` and a `native`
+record (`NativeMeta`: the kind, the function's parameter and preamble
+offset, the static imports and the links they need, the `//useragent` and
+`//proxy` header, and a nativets script's transpile error, which does not
+fail the build). A nativets script imports nothing at build time, so it is
+never `missing_lock`.
 
 A script's lock is in the format of
 [WR-25](../../docs/semantics/languages.md#wr-25); scripts with one lock
@@ -350,7 +371,9 @@ The bundle tree it writes:
 | Path | Content |
 |---|---|
 | `scripts/bun/<id>.mjs` | the bundled module |
-| `scripts/bun/<id>.meta.json` | its `ScriptMeta`: import base, target, annotations, workflow-as-code markers, exports, the signature of each export and of each other top-level function declaration, the workspace scripts inlined, packages, host-provided modules used, the metafile |
+| `scripts/bun/<id>.native.js` | a native-boundary script's module, in its native form, instead |
+| `scripts/bun/<id>.meta.json` | its `ScriptMeta`: import base, target, boundary, annotations, workflow-as-code markers, exports, the signature of each export and of each other top-level function declaration, the workspace scripts inlined, packages, host-provided modules used, the metafile, and for a native-boundary script its `native` record |
+| `scripts/native/windmill.js`, `windmill.meta.json` | the embedded client of nativets scripts, in its native form, and its record |
 | `scripts/bun/provided/<id>.mjs` | a host-provided module's bundled copy |
 | `scripts/bun/provided/shims/<id>.mjs` | its shim |
 

@@ -52,9 +52,11 @@ const EnvBinding = "__windmill_lite_Bun"
 // "Bun")`), an alias of the global object (`const g = globalThis; g.Bun`)
 // and code built at run time (`eval`, `new Function`).
 //
-// The Bun build applies the rewrite to Bun-target bundles only: `//native`
-// and `//nodejs` scripts do not run with Bun's globals on Windmill, and their
-// environment is the native boundary's (C3n).
+// The Bun build applies the rewrite to Bun-target bundles only. A
+// `//native` script runs at the native boundary (C3n), whose process.env is
+// its preamble's; a `//nodejs` one runs on Node on Windmill with Bun's
+// environment (WR-50), and on the Bun harness here, whose environment view
+// covers it at run time (D13).
 func EnvRewrite(f Format) (define map[string]string, support string, err error) {
 	define = map[string]string{
 		"Bun":            EnvBinding,

@@ -1,6 +1,9 @@
 package ir
 
-import "github.com/invakid404/windmill-lite/internal/openflow"
+import (
+	"github.com/invakid404/windmill-lite/internal/openflow"
+	"github.com/invakid404/windmill-lite/internal/syncfolder"
+)
 
 // Class is a harness class: the harness that runs a leaf. Placement is
 // decided per leaf by the pool key, of which the class is a part (0004).
@@ -50,6 +53,29 @@ func harnessOf(l openflow.Language) (c Class, b Boundary, ok bool) {
 		return ClassBash, BoundaryOwn, true
 	}
 	return "", "", false
+}
+
+// BoundaryOf returns the boundary a step of language l runs with, the
+// language a deploy records (DeployedLanguage), and false for a language
+// with no harness class (0002).
+func BoundaryOf(l openflow.Language) (Boundary, bool) {
+	_, b, ok := harnessOf(l)
+	return b, ok
+}
+
+// DeployedLanguage is the language a deploy records for a rawscript of
+// language l with source content: a Bun-family one follows its `native`
+// header annotation, in both directions, whatever it said (OF-15, SY-V3,
+// WR-40); any other keeps l. The sync-folder loader applies the same rule
+// to path scripts (SY-3).
+func DeployedLanguage(l openflow.Language, content string) openflow.Language {
+	if l != openflow.LangBun && l != openflow.LangBunNative {
+		return l
+	}
+	if syncfolder.HasNativeAnnotation(content) {
+		return openflow.LangBunNative
+	}
+	return openflow.LangBun
 }
 
 // available reports whether this release has a harness for class c.
