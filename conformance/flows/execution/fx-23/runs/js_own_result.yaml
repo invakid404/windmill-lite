@@ -1,0 +1,12 @@
+# FX-23/a: a returns 2 and sleeps for its own result, so b starts at least
+# 2 s after a ends.
+spec: [FX-23/a, JE-28]
+target: f/wl_fx23/js_own_result
+expect:
+  status: success
+  result: 1
+  steps:
+    "m:a": {status: success, args: {x: 2}, result: 2}
+    "m:b": {status: success, args: {x: 1}, result: 1}
+delays:
+  - {from: "m:a", to: "m:b", at_least_ms: 2000}

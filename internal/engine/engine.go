@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/expr"
@@ -20,14 +21,16 @@ import (
 
 // Engine runs the flows of one compiled program (ir.Program, ADR 0002):
 // the flow interpreter of ADR 0003, milestone N1a's engine core with
-// N1b's errors. It runs a flow's top-level modules in sequence, through
-// Windmill's decision list (FX-2): input transforms and the argument
-// pipeline (FX-7, ADR 0005), the results routes of expressions (FX-10,
-// JE-18), skip_if (FX-17), mock (FX-18), identity (FX-16), stop_after_if
-// and its stops (FX-19, FX-21), a static step timeout, continue_on_error
-// (FX-30), the failure module and recovery (FX-31 to FX-33), chaining
-// errors (FX-15), the final result (FX-36), the cancellation outcome
-// (FX-38), and the host hooks of K1 with their precedence (ADR 0008).
+// N1b's errors and N2's waits and time. It runs a flow's top-level modules
+// in sequence, through Windmill's decision list (FX-2): input transforms
+// and the argument pipeline (FX-7, ADR 0005), the results routes of
+// expressions (FX-10, JE-18), skip_if (FX-17), mock (FX-18), identity
+// (FX-16), stop_after_if and its stops (FX-19, FX-21), sleep (FX-23), the
+// step timeout (FX-24, FX-25), retry and retry_if (FX-26 to FX-29),
+// continue_on_error (FX-30), the failure module and recovery (FX-31 to
+// FX-33), chaining errors (FX-15), the final result (FX-36), the
+// cancellation outcome (FX-38), the monitor of flows that hang between
+// steps (JE-2), and the host hooks of K1 with their precedence (ADR 0008).
 // Features that later milestones implement are refused when the engine
 // opens, with ErrUnsupported, never midway through a run (ADR 0001 §3's
 // rule).
@@ -41,6 +44,10 @@ type Engine struct {
 	eval   expr.Evaluator
 	host   platform.Host
 	cap    time.Duration
+	// transition is the longest a flow may spend between two jobs
+	// evaluating expressions before the monitor cancels it (JE-2); zero
+	// disables the monitor.
+	transition time.Duration
 	// platform is the platform providers the run reads (PF2).
 	platform *platform.Services
 }
@@ -66,6 +73,13 @@ type Config struct {
 	// InstanceTimeout is the instance's maximum job duration (WR-37); zero
 	// means Windmill's self-hosted default of 604800 s.
 	InstanceTimeout time.Duration
+	// TransitionTimeout is Windmill's FLOW_ZOMBIE_TRANSITION_TIMEOUT: the
+	// longest a flow may spend evaluating expressions between two jobs
+	// before the run is canceled by "monitor", as Windmill's monitor of
+	// flows that hang between steps cancels them (JE-2). Zero means
+	// Windmill's default of 60 s; a negative value disables the monitor, as
+	// DISABLE_ZOMBIE_JOBS_MONITORING does.
+	TransitionTimeout time.Duration
 	// Platform holds the resources, variables and secrets that runs read
 	// (ADR 0007, milestone PF2): through a leaf's argument resolution,
 	// flow_env and the expression helpers. nil means none, so every read
@@ -94,6 +108,12 @@ func New(cfg Config) (*Engine, error) {
 	if e.cap == 0 {
 		e.cap = 604800 * time.Second
 	}
+	switch t := cfg.TransitionTimeout; {
+	case t == 0:
+		e.transition = 60 * time.Second
+	case t > 0:
+		e.transition = t
+	}
 	var exprs []*expr.Expr
 	for _, path := range sortedKeys(cfg.Program.Flows) {
 		f := cfg.Program.Flows[path]
@@ -109,6 +129,14 @@ func New(cfg Config) (*Engine, error) {
 			}
 			if m.StopAfterAllItersIf != nil {
 				exprs = append(exprs, m.StopAfterAllItersIf.Expr)
+			}
+			for _, t := range []*ir.Transform{m.Sleep, m.Timeout} {
+				if t != nil && t.Expr != nil {
+					exprs = append(exprs, t.Expr)
+				}
+			}
+			if m.Retry != nil && m.Retry.RetryIf != nil {
+				exprs = append(exprs, m.Retry.RetryIf)
 			}
 			if m.Leaf != nil {
 				for _, in := range m.Leaf.Inputs {
@@ -164,7 +192,11 @@ func flowModules(f *ir.Flow) []*ir.Module {
 
 // supported checks that f uses only what the engine runs, scripts being
 // the program's inventory. Each refusal names the milestone of ADR 0012
-// that implements the feature.
+// that implements the feature. A flow's own timeout (its metadata's,
+// OF-16) is accepted and has no effect: a flow job bypasses every executor
+// timer, so nothing enforces it (FX-24, path 4). N2's waits and retries run
+// on the flow's own modules; on a for loop, in its body, or as the sleep
+// that delays a loop's start, they are NI's (waits).
 func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	switch {
 	case f.PreprocessorModule != nil:
@@ -173,8 +205,11 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 		return unsupported("a flow skip_expr")
 	case f.CacheTTL != nil:
 		return unsupported("a flow cache_ttl (N4)")
-	case f.Timeout != nil:
-		return unsupported("a flow timeout (N2)")
+	}
+	for i, m := range f.Modules {
+		if i > 0 && m.Kind == ir.KindForLoop && f.Modules[i-1].Sleep != nil {
+			return unsupported("module %q: a sleep before a for loop (NI)", f.Modules[i-1].ID)
+		}
 	}
 	// A loop's bodies carry the flow's failure module (CF-1, CF-16), and a
 	// loop never collapses in a flow that has one (CF-8).
@@ -192,11 +227,37 @@ func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	return nil
 }
 
-// supportedList checks the modules of a loop's body.
+// supportedList checks the modules of a loop's body, where N2's waits and
+// retries are NI's.
 func supportedList(ms []*ir.Module, scripts map[string]*ir.Script) error {
 	for _, m := range ms {
-		if err := supportedModule(m, scripts); err != nil {
+		err := niWaits(m, "in a for loop's body")
+		if err == nil {
+			err = supportedModule(m, scripts)
+		}
+		if err != nil {
 			return fmt.Errorf("module %q: %w", m.ID, err)
+		}
+	}
+	return nil
+}
+
+// niWaits refuses N2's waits and retries on a module where milestone NI
+// integrates them with containers (ADR 0012): a sleep, a retry with
+// attempts or retry_if, a javascript or negative timeout.
+func niWaits(m *ir.Module, where string) error {
+	r := m.Retry
+	switch {
+	case m.Sleep != nil:
+		return unsupported("a sleep %s (NI)", where)
+	case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
+		return unsupported("a retry %s (NI)", where)
+	case m.Timeout != nil && m.Timeout.Type != ir.Static:
+		return unsupported("a %s timeout %s (NI)", m.Timeout.Type, where)
+	}
+	if t := m.Timeout; t != nil {
+		if _, err := staticTimeout(t.Value); err == errNegativeTimeout {
+			return unsupported("a negative timeout %s (NI)", where)
 		}
 	}
 	return nil
@@ -226,6 +287,9 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 	case ir.KindSubflow:
 		return unsupported("a subflow by path (N3c)")
 	case ir.KindForLoop:
+		if err := niWaits(m, "on a for loop"); err != nil {
+			return err
+		}
 		if err := supportedLoop(m.ForLoop, scripts); err != nil {
 			return err
 		}
@@ -238,21 +302,18 @@ func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 	default:
 		return unsupported("a %s module", m.Kind)
 	}
-	r := m.Retry
 	switch {
-	case m.Sleep != nil:
-		return unsupported("sleep (N2)")
-	case m.Timeout != nil && m.Timeout.Type != ir.Static:
-		return unsupported("a %s timeout (N2)", m.Timeout.Type)
-	case r != nil && (r.RetryIf != nil || r.Constant != nil && r.Constant.Attempts > 0 || r.Exponential != nil && r.Exponential.Attempts > 0):
-		return unsupported("retry (N2)")
+	case m.Sleep != nil && m.Sleep.Type == ir.AI:
+		return unsupported("an ai sleep (later)")
+	case m.Timeout != nil && m.Timeout.Type == ir.AI:
+		return unsupported("an ai timeout (later)")
 	case m.CacheTTL != nil:
 		return unsupported("cache_ttl (N4)")
 	case m.StopAfterAllItersIf != nil && m.Kind != ir.KindForLoop:
 		return unsupported("stop_after_all_iters_if on a %s (N3b)", m.Kind)
 	}
-	if t := m.Timeout; t != nil {
-		if _, err := staticTimeout(t.Value); err != nil {
+	if t := m.Timeout; t != nil && t.Type == ir.Static {
+		if _, err := staticTimeout(t.Value); err != nil && err != errNegativeTimeout {
 			return err
 		}
 	}
@@ -277,20 +338,20 @@ func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
 	return supportedList(l.Modules, scripts)
 }
 
-// staticTimeout reads a static step timeout: seconds, or nil for none
-// (OF-V2). A negative timeout fails the step's start with a chaining error
-// (FX-15), which is milestone N2's with the timeout's messages.
+// staticTimeout reads a static step timeout: seconds, or nil for none.
+// The decoder admits only an i32 or null (OF-V2); a negative one fails the
+// module's start with errNegativeTimeout, a chaining error (FX-24, FX-15).
 func staticTimeout(raw []byte) (*int64, error) {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 || string(t) == "null" {
 		return nil, nil
 	}
-	var secs int64
-	if _, err := fmt.Sscan(string(t), &secs); err != nil || fmt.Sprint(secs) != string(t) {
-		return nil, fmt.Errorf("timeout %s is not an integer", t)
+	secs, err := strconv.ParseInt(string(t), 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("engine: timeout %s is not an i32", t)
 	}
 	if secs < 0 {
-		return nil, unsupported("a negative timeout (N2)")
+		return nil, errNegativeTimeout
 	}
 	return &secs, nil
 }
@@ -312,10 +373,27 @@ type RunRequest struct {
 	Exec StepExecutor
 	// Seed seeds the run's shuffles of unspecified orders: the top-level
 	// keys of the flow input and of every argument map, and the order input
-	// transforms are evaluated in (ADR 0001 §2, FX-42, JE-V5). Zero means a
-	// random seed.
+	// transforms are evaluated in (ADR 0001 §2, FX-42, JE-V5), and the
+	// retry jitter when Jitter is nil. Zero means a random seed.
 	Seed uint64
+	// Clock is the run's clock (H10), through which every sleep and retry
+	// delay waits; nil means RealClock. A run whose clock is not RealClock,
+	// such as a *RecordClock, records H10 among its trace's deviations.
+	Clock Clock
+	// Jitter is the run's retry-jitter source (H10, FX-26); nil draws from
+	// a source seeded with Seed.
+	Jitter Jitter
+	// PreWriteDeadline is the run's pre-write deadline (H4): when it passes
+	// before the run's first write-capable module launched (H3), the run
+	// ends canceled, as at its hard deadline, the context's. Zero means
+	// none.
+	PreWriteDeadline time.Time
 }
+
+// ErrPreWriteDeadline is the cause of a run's context when its pre-write
+// deadline passed before its first write (H4). It wraps
+// context.DeadlineExceeded.
+var ErrPreWriteDeadline = fmt.Errorf("engine: the run's pre-write deadline passed before its first write: %w", context.DeadlineExceeded)
 
 // Run runs a flow to its end and returns its trace. ctx is the run's
 // cancellation and deadline (H4): a run whose ctx ends finishes canceled,
@@ -361,9 +439,37 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 		_, _ = cryptoRead(b[:])
 		seed = binary.LittleEndian.Uint64(b[:])
 	}
-	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)))
+	clock := req.Clock
+	if clock == nil {
+		clock = RealClock{}
+	}
+	jitter := req.Jitter
+	if jitter == nil {
+		jitter = SeededJitter(seed ^ 0xa0761d6478bd642f)
+	}
+	// The run's own context: the monitor of JE-2 and the pre-write
+	// deadline (H4) cancel it with their causes, as a host's cancellation
+	// would.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
 	r.env = flowEnv(f)
+	if _, real := clock.(RealClock); !real {
+		r.trace.Deviations = append(r.trace.Deviations, "H10")
+	}
+	if !req.PreWriteDeadline.IsZero() {
+		// H4: a deadline that has passed cancels the run before it starts;
+		// a later one expires on time, unless the first write disarmed it
+		// first (run.disarmPreWrite).
+		r.preWriteAt = req.PreWriteDeadline
+		if !time.Now().Before(r.preWriteAt) {
+			r.expirePreWrite()
+		} else {
+			t := time.AfterFunc(time.Until(r.preWriteAt), func() { r.expirePreWrite() })
+			defer t.Stop()
+		}
+	}
 	if !r.env.IsZero() {
 		// The flow job's reserved variables, which flow_env's resolution
 		// reads (JE-38): a top-level flow, with no parent, its own

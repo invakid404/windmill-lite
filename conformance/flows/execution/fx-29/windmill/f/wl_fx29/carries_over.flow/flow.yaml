@@ -1,0 +1,32 @@
+summary: 'FX-29/a the counter carries over'
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          msg:
+            type: static
+            value: a
+        path: f/wl_fx29/fail
+      retry:
+        constant:
+          attempts: 2
+          seconds: 0
+      continue_on_error: true
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          msg:
+            type: static
+            value: b
+        path: f/wl_fx29/fail
+      retry:
+        constant:
+          attempts: 2
+          seconds: 0
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

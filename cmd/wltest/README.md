@@ -253,7 +253,10 @@ a few at a time (`flows.go`):
    (`oracle.CancelAfterReason`, `wltest: cancel_after_ms`, by
    `oracle.CancelAfterCanceler`, `admin`), which the engine's `Canceled`
    result quotes ([FX-38](../../docs/semantics/execution.md#fx-38)), and a
-   run that has not ended after 60 s fails. Each run has its own id, which its
+   run that has not ended after 150 s fails: sleeps and retry delays are
+   waited for on the real clock, and the monitor of flows that hang between
+   steps ends a runaway expression's run after 60 s, as on the oracle
+   (JE-2/a, milestone N2). Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
    `WM_ROOT_JOB_ID`, and the checker
    records the id of every invocation it makes (`WM_JOB_ID`) with its site.
@@ -278,7 +281,17 @@ a few at a time (`flows.go`):
    a child flow's id its iteration's site, as the walker reaches it), and
    a failed site's stack is masked wherever its value is carried
    ([OR-V3](../../docs/semantics/oracle.md#or-v3) clause a); then the
-   fixture's `stack` and `mask` pointers apply.
+   fixture's `stack` and `mask` pointers apply. Retries (milestone N2):
+   a failed attempt is a site `<module>/r:<k>`, and a module's record
+   lists the failed attempts of the flow-wide retry state, which the walker
+   fetches at `<module>/r:<k>` too, so an earlier module's attempt appears
+   again under a later module whose status lists it
+   ([FX-27](../../docs/semantics/execution.md#fx-27),
+   [FX-29](../../docs/semantics/execution.md#fx-29)); a job id becomes the
+   placeholder of the site whose record names it, an attempt's own. The
+   virtual `<id>-v` step of a final sleep is left out, as the walker leaves
+   it ([OF-17](../../docs/semantics/openflow.md#of-17),
+   [OR-V7](../../docs/semantics/oracle.md#or-v7)).
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location
@@ -296,7 +309,10 @@ a few at a time (`flows.go`):
    depth (milestone N3a). A carried value that differs from the result
    with no recorded origin is never stripped, nor a user's error beside
    generated ones. Claims are checked on windmill-lite's observation as it
-   is, so a claim about a location suffix holds only on the oracle. A run
+   is, so a claim about a location suffix holds only on the oracle. A
+   run's `delays` are checked on the trace's job times (milestone N2): each
+   `to` site's job starts at least `at_least_ms` after the `from` site's job
+   ended, where the oracle's side reads the recording's provenance. A run
    with nothing to compare fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
@@ -305,13 +321,11 @@ A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
 (L1), a flow the engine refuses at open (`engine.ErrUnsupported`, which
-names the milestone: waits, retries, while loops and branches, subflows, a
-for loop in a flow with a failure module, caching, a preprocessor), and a
-flow that reads flow user state through the helper `flow_user_state()`
-(its compiled program holds the text), which needs milestone PF3. The
-fixture's other runs are checked. So is a run the oracle canceled on its
-own, with no `cancel_after_ms` (JE-2/a: its monitor of flows that hang
-between steps), which has no counterpart on windmill-lite.
+names the milestone: while loops and branches, subflows, a for loop in a
+flow with a failure module, N2's waits and retries in or on a for loop
+(NI), caching, a preprocessor), and a flow that reads flow user state
+through the helper `flow_user_state()` (its compiled program holds the
+text), which needs milestone PF3. The fixture's other runs are checked.
 
 ### Expression files
 
@@ -361,8 +375,8 @@ Windmill v1.767.0's image).
   step, WR-22 and WR-45) and `TestNativeCodebaseFlowStep` (WR-50/c reached
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
-- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a and
-  PF2 (with PF1's fixture):
+- `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, PF2
+  (with PF1's fixture) and N2:
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
@@ -396,7 +410,11 @@ Windmill v1.767.0's image).
   generated values) and which reference
   a run is compared with, including the location rule's positive and
   negative cases for a result, for a carried value in either member order,
-  and for a carried value with its own origin.
+  and for a carried value with its own origin. `TestObserveTraceRetries`
+  checks the attempt sites, a later module's copies of an earlier one's
+  attempts with the attempt's own placeholder, a listed attempt with no
+  record, and the virtual step left out; `TestCheckDelays` checks a run's
+  `delays` on the trace's job times (milestone N2).
 
 ## Version
 

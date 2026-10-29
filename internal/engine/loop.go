@@ -79,7 +79,7 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 	case ir.Static:
 		text = orNull(it.Value)
 	case ir.Javascript:
-		v, err := r.evaluate(ctx, it.Expr, site, r.startScope(fr, prev, prevID))
+		v, err := r.evaluate(ctx, fr, it.Expr, site, r.startScope(fr, prev, prevID))
 		if err != nil {
 			return nil, "Error: " + evalText(err), err
 		}
@@ -179,6 +179,9 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 			r.addChild(c)
 			c.after = after(k)
 			e = r.runList(ctx, c)
+			// The child flow's completion refreshes the loop's flow's
+			// ping (JE-2).
+			r.ping(fr)
 		}
 		if ended(e.status) {
 			return r.loopInterrupted(o, &it, ran, r.endedStatus(ctx, e.status))
@@ -202,7 +205,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		// The loop's own stop_after_if, after each successful iteration, is
 		// a break; skip_if_stopped and error_message have no effect (CF-11).
 		if s := m.StopAfterIf; s != nil {
-			v, err := r.predicate(ctx, s.Expr, fr.sites[i], r.iterStopScope(fr, s.Expr, e.result, it.values))
+			v, err := r.predicate(ctx, fr, s.Expr, fr.sites[i], r.iterStopScope(fr, s.Expr, e.result, it.values))
 			if err != nil {
 				if ctx.Err() != nil {
 					return r.loopInterrupted(o, &it, ran, conformance.RunCanceled)
@@ -343,6 +346,9 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 		<-done
 		running--
 		completed++
+		// The loop's goroutine refreshes its flow's ping as each child
+		// flow completes (JE-2).
+		r.ping(fr)
 		release()
 	}
 	var it iterations
@@ -394,7 +400,7 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 	if s == nil {
 		return o
 	}
-	v, err := r.predicate(ctx, s.Expr, fr.sites[i], r.stopScope(fr, s.Expr, arr))
+	v, err := r.predicate(ctx, fr, s.Expr, fr.sites[i], r.stopScope(fr, s.Expr, arr))
 	switch {
 	case err != nil && ctx.Err() != nil:
 		o.end = endInterrupted
@@ -502,7 +508,7 @@ func (r *run) parallelism(ctx context.Context, fr *frame, m *ir.Module, site con
 		Results:    r.results(fr),
 		Helpers:    helpers{r.e.platform},
 	}
-	v, err := r.evaluate(ctx, t.Expr, site, s)
+	v, err := r.evaluate(ctx, fr, t.Expr, site, s)
 	if err != nil {
 		return 0, "Error during evaluation of expression `" + t.Expr.Text + "`:\n" + evalText(err), err
 	}
@@ -529,7 +535,7 @@ func (r *run) childFrame(fr *frame, i, k int, item []byte, parallel bool) (*fram
 		return nil, databaseError(err).Error()
 	}
 	c := newFrame(m.ForLoop.Modules, fr.sites[i].Child(conformance.Iteration(k)))
-	c.site, c.child, c.id = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID()
+	c.site, c.child, c.id, c.pinged = fr.sites[i].Child(conformance.Iteration(k)), true, newUUID(), r.clock.Now()
 	c.input = jsonval.FromProducer(flowInputText(stored, fr.rng))
 	c.path, c.scope, c.nodes, c.rng = fr.path+"/loop-"+strconv.Itoa(k), fr.scope, fr.nodes, fr.rng
 	if parallel {

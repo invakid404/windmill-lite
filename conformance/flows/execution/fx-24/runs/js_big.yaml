@@ -1,0 +1,9 @@
+# JE-29: an integer beyond the i32 range is an invalid value.
+spec: [JE-29, FX-15]
+target: f/wl_fx24/js_big
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error parsing result as i32: invalid value: integer `5000000000`, expected i32 at line 1 column 10. Value was: 5000000000"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

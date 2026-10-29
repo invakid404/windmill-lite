@@ -1,0 +1,16 @@
+summary: "FX-24 a flow's own timeout is not enforced"
+timeout: 1
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          ms:
+            type: static
+            value: 3000
+        path: f/wl_fx24/slow
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}

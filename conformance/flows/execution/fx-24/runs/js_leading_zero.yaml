@@ -1,0 +1,10 @@
+# JE-29, JE-15: a leading zero is serde_json's invalid number, before the
+# trailing text.
+spec: [JE-29, JE-15, FX-15]
+target: f/wl_fx24/js_leading_zero
+expect:
+  status: failure
+  result: {error: {name: InternalError, message: "Error parsing result as i32: invalid number at line 1 column 2. Value was: 01"}}
+  steps:
+    "m:x": {status: success, args: {x: 1}, result: 1}
+    "m:a": {status: not_run}

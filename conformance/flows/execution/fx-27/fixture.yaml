@@ -1,0 +1,13 @@
+# FX-27: what a retry re-runs. The retry reuses the failed attempt's
+# arguments without evaluating the transform again: x is
+# Math.random(), and the step f/wl_fx27/once compares the two attempts'
+# x itself, since the value differs from run to run (masked). Synthetic,
+# written for this repository from docs/semantics/execution.md#fx-27.
+id: execution/fx-27
+spec: [FX-27, FX-27/a, JE-V2]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1}
+compare:
+  mask: [/steps/m:a/args/x, /steps/m:a~1r:0/args/x]

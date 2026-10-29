@@ -1,0 +1,11 @@
+# FX-23/b: a static 0.25 is 250 ms (JE-28: a fraction is milliseconds).
+spec: [FX-23/b, JE-28]
+target: f/wl_fx23/static_fraction
+expect:
+  status: success
+  result: 2
+  steps:
+    "m:a": {status: success, args: {x: 1}, result: 1}
+    "m:b": {status: success, args: {x: 2}, result: 2}
+delays:
+  - {from: "m:a", to: "m:b", at_least_ms: 250}
