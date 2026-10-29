@@ -17,6 +17,15 @@ expect:
     "m:a":
       status: success
       args: {v: "$jsonvar:f/wl_fx42/numbers", o: {aaa: 1, zz: 2}}
+      # Point O3 (JE-V3): v resolved, in the arguments file's spelling,
+      # and o as stored; and the step's own result as it is carried on in
+      # memory, its producer's text (FX-42 rule 3), where JavaScript wrote
+      # 1e21 as 1e+21. Milestone PF2.
+      resolved_args: {v: {zz: 1000.0, b: 1e+21, aaa: 12345678901234567891, big: 1.2345678901234568e+29, n: 1500.0, s: A/}, o: {zz: 2, aaa: 1}}
+      carried:
+        v_keys: [zz, b, aaa, big, n, s]
+        o_keys: [zz, aaa]
+        v: {zz: 1000, b: 1e+21, aaa: 12345678901234567000, big: 1.2345678901234568e+29, n: 1500, s: A/}
       result:
         v_keys: [zz, b, aaa, big, n, s]
         o_keys: [zz, aaa]

@@ -1,9 +1,10 @@
 // Package platform holds what the platform interface of ADR 0007 shares
 // between the engine and the facade: job identity (milestone PF1), the
-// variables of WR-22 and WA-4 that every invocation's environment carries.
-// The facade's router, its transports and the 501 policy are in
-// internal/platform/facade; the services behind it arrive with milestones
-// PF2 and PF3.
+// variables of WR-22 and WA-4 that every invocation's environment carries,
+// and the resource, variable and secret services with their local defaults
+// and the interpolation walker (milestone PF2). The facade's router, its
+// transports and the 501 policy are in internal/platform/facade; the other
+// services behind it arrive with milestone PF3.
 package platform
 
 import (

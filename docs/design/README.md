@@ -68,7 +68,13 @@ platform facade of [0007](0007-platform-interface.md) in
 [internal/platform/facade](../../internal/platform/facade/README.md): the
 router behind the stock client, attribution over the intercepted `fetch`
 and loopback TCP, the 501 policy, and job identity in
-[internal/platform](../../internal/platform/README.md).
+[internal/platform](../../internal/platform/README.md). Milestone PF2 adds
+its resource, variable and secret services, with their local defaults, the
+host secret layer and the one interpolation walker for the three
+resource-read contracts, in
+[internal/platform](../../internal/platform/README.md); the facade serves
+the reads, and the engine resolves a leaf's arguments, `flow_env` and the
+expression helpers through the same services.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

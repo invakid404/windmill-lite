@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -29,12 +30,15 @@ type run struct {
 	exec  StepExecutor
 	// root is the frame of the flow's own modules, its failure module in
 	// the slot after them; its input is the flow input, stored, with its
-	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env, or
-	// zero (JE-38), which its child flows inherit (CF-1).
-	root   *frame
-	env    jsonval.Value
-	latch  Latch
-	settle *RunSettlement
+	// top-level keys shuffled (FX-42 item 1). env is the flow's flow_env as
+	// stored, or zero (JE-38), which its child flows inherit (CF-1), and
+	// each transition resolves into its frame (resolveEnv) with the flow
+	// job's reserved variables, flowJobEnv.
+	root       *frame
+	env        jsonval.Value
+	flowJobEnv map[string]string
+	latch      Latch
+	settle     *RunSettlement
 	// halted is set once a module ended the run halted (H8), so that the
 	// iterations of a parallel loop start nothing more; wake is closed, once,
 	// when the run is latched or halted, which wakes a parallel loop whose
@@ -545,6 +549,8 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	if r.latch.Err() != nil {
 		return notLaunched()
 	}
+	// The transition that starts the module resolves flow_env again (JE-38).
+	r.resolveEnv(ctx, fr)
 
 	// Start step 7: skip_if, with P as result and previous_result (FX-17,
 	// JE-25). A throw, or a value that is not a boolean, is a chaining
@@ -634,8 +640,9 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	if err != nil {
 		return r.chaining(fr, i, o, err.Error())
 	}
-	// The resolution of $var: and $res: (JE-41) is the platform providers'
-	// (PF2); until then the resolved arguments are the recorded ones.
+	// The arguments are resolved when the job is picked up, in invoke
+	// (JE-41); an identity job, or a launch a hook answers, resolves
+	// nothing.
 	o.rec.RecordedArgs, o.rec.ResolvedArgs = stored, stored
 	if answered {
 		return r.identityJob(ctx, fr, i, site.Path, o, stored, skipped)
@@ -684,11 +691,24 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		// Start step 9: the timeout, of a leaf only (FX-24).
 		timeout, instanceWide := r.timeout(fr, m)
 		o.rec.Ran = true
-		out, job, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
+		var resolved jsonval.Value
+		out, job, resolved, err = r.invoke(ctx, fr, i, site, entry, stored, timeout, idx)
+		if !resolved.IsZero() {
+			// The script got the resolved arguments, however its job ended
+			// (O3, JE-V3).
+			o.rec.ResolvedArgs = resolved
+		}
+		var rf *resolveFailure
 		switch {
 		case errors.Is(err, errNotLaunched):
 			o.rec.Ran = false
 			return notLaunched()
+		case errors.As(err, &rf):
+			// JE-42 rule 4, WR-5: the job fails before its script runs, with
+			// the worker's execution error.
+			res := fail(workerError(fr.stepID(i), "execution error:\n"+rf.Error()), OriginEngine)
+			r.recordJob(fr, i, res.rec.Result)
+			return res
 		case errors.Is(err, CancelTimeout):
 			o.rec.Abandoned = true
 			// The worker's text for a step that ran out of time: WR-37's
@@ -898,8 +918,9 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 			{Name: "resume", Value: jsonNull}, {Name: "resumes", Value: jsonEmpty}, {Name: "approvers", Value: jsonEmpty},
 		},
 		FlowInput: fr.input,
-		FlowEnv:   r.env,
+		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
+		Helpers:   helpers{r.e.platform},
 	}
 }
 
@@ -916,8 +937,9 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 			{Name: "resume", Value: jsonNull}, {Name: "resumes", Value: jsonEmpty}, {Name: "approvers", Value: jsonEmpty},
 		},
 		FlowInput: fr.input,
-		FlowEnv:   r.env,
+		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
+		Helpers:   helpers{r.e.platform},
 	}
 	if fr.isFailure(i) {
 		s.Context = append(s.Context,
@@ -931,18 +953,22 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 // (FX-8, JE-22, JE-27): own as result and previous_result, in its producer
 // text (FX-42 item 3); an empty previous id; results only when the text
 // holds results., results[ or results?.; flow_env only when it holds
-// flow_env.
+// flow_env, the flow's cached resolved map once one exists (JE-38).
 func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope {
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
+		Helpers:   helpers{r.e.platform},
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {
 		s.Results = r.results(fr)
 	}
 	if strings.Contains(t, "flow_env") {
-		s.FlowEnv = r.env
+		s.FlowEnv = r.envOf(fr)
+		if !fr.envCached.IsZero() {
+			s.FlowEnv = fr.envCached
+		}
 	}
 	return s
 }
@@ -1037,10 +1063,12 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 
 // invoke runs the module at cursor i of fr in its harness, with its
 // timeout as a timer in the engine (ADR 0004 §Cancellation and deadlines
-// item 2), and returns its outcome and its job's id, WM_JOB_ID. The job
-// identity follows the flow the job runs in (WA-6, WA-V1, ADR 0007): its
-// job id, its innermost scope and its runnable path.
-func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, error) {
+// item 2), and returns its outcome, its job's id, WM_JOB_ID, and the
+// arguments its script received: args after the worker's resolution
+// (JE-41, JE-42), which fails it with a *resolveFailure before it runs.
+// The job identity follows the flow the job runs in (WA-6, WA-V1,
+// ADR 0007): its job id, its innermost scope and its runnable path.
+func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
 	in := fr.owner()
 	inv := Invocation{
@@ -1067,13 +1095,25 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
 	}.Env(r.e.host)
+	// The job's reserved variables, which its argument resolution reads
+	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
+	// strings in a resource an argument names; neither the script's own
+	// envs nor H12's changes are among them.
+	reserved := maps.Clone(inv.Env)
 	addScriptEnvs(inv.Env, r.e.prog.Scripts[m.Leaf.Script], inv.Boundary)
 	if err := r.hooks.InvocationEnv(ctx, r, site, inv.Env); err != nil {
 		r.Latch(HookLatchError(ctx, err))
 	}
 	if r.latch.Err() != nil {
-		return StepOutcome{}, "", errNotLaunched
+		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
 	}
+	// The worker resolves the arguments once it has picked the job up,
+	// before the script runs (JE-41, JE-42, WR-5).
+	resolved, err := r.e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
+	if err != nil {
+		return StepOutcome{}, inv.ID, jsonval.Value{}, &resolveFailure{err}
+	}
+	inv.Args = resolved
 	inv.Report = r.settle.Track(&runReporter{run: r, idx: idx})
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -1086,7 +1126,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	start := time.Now()
 	out, err := r.exec.Execute(stepCtx, inv)
 	r.span(site.Path, SpanHarness, start)
-	return out, inv.ID, err
+	return out, inv.ID, resolved, err
 }
 
 // runReporter records what an invocation produces late in its module's

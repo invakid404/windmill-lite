@@ -1,16 +1,16 @@
 # internal/platform/facade
 
-**Current state:** milestone PF1 of
+**Current state:** milestones PF1 and PF2 of
 [ADR 0012](../../../docs/design/0012-layout-and-milestones.md): the platform
 facade of [ADR 0007](../../../docs/design/0007-platform-interface.md). This
 README covers `internal/platform/facade`. It is the Go router behind the
 stock client's platform calls: the routes of Windmill's API, attribution of
 every call to the invocation that made it over two transports, the 501
 policy for the routes windmill-lite does not serve, and Windmill's
-`text/plain` error bodies. It serves one route itself, the root lookup;
-the services behind the others (resources, variables, flow user state,
-object store, dispatch, the job registry) are milestones PF2 and PF3,
-which register their handlers here. Job identity is
+`text/plain` error bodies. It serves the root lookup (PF1) and the
+resource and variable reads (PF2); the services behind the others (flow
+user state, object store, dispatch, the job registry) are milestone PF3,
+which registers its handlers here. Job identity and the services are
 [internal/platform](../README.md).
 
 ## Files
@@ -21,8 +21,9 @@ which register their handlers here. Job identity is
 | `routes.go`, `routes.json` | The route table and its matching |
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |
-| `jobs.go` | The root lookup, `getRootJobId` |
-| `errors.go` | `Error`: the error variants of WA-42 and their bodies |
+| `jobs.go` | The root lookup, `getRootJobId`, and the job environment a read's `job_id` names |
+| `providers.go` | The resource and variable reads (PF2) |
+| `errors.go` | `Error`: an API error as a reply, with the variants of `platform.Error` (WA-42) |
 
 ## Routes
 
@@ -62,6 +63,26 @@ a JSON string ([WA-14](../../../docs/semantics/client-api.md#wa-14),
 of the invocations registered at the time (D3): the job of any of them, or
 a flow scope or root it runs in. A job it does not know of answers 501,
 because answering it needs PF3's job registry.
+
+**The resource and variable reads** (PF2) answer from `Config.Platform`
+([internal/platform](../README.md#services)), nil meaning none, so every
+read is a not-found. They keep the three resource-read contracts of
+[WA-40](../../../docs/semantics/client-api.md#wa-40) apart, and answer
+`application/json` on success and WA-42's `text/plain` errors:
+
+| Operation | Route | Answer |
+|---|---|---|
+| `getResourceValueInterpolated` | `GET /w/{ws}/resources/get_value_interpolated/{path}` | the interpolated value (contract (b), [WA-12](../../../docs/semantics/client-api.md#wa-12)); `$WM_*` strings stay literal unless `job_id` names a live invocation, whose stored fields they then are (`platform.APIEnv`); a `job_id` the facade does not know of answers 501, as the root lookup does, until PF3's job registry; `allow_cache` is ignored |
+| `getResourceValue` | `GET /w/{ws}/resources/get_value/{path}` | the stored value, nothing resolved (contract (a)) |
+| `existsResource`, `existsVariable` | `GET /w/{ws}/resources/exists/{path}`, `…/variables/exists/{path}` | `true` or `false` |
+| `getVariableValue` | `GET /w/{ws}/variables/get_value/{path}` | the value as a JSON string, a secret's plaintext through `Secrets` and the value resolvers ([WA-11](../../../docs/semantics/client-api.md#wa-11)) |
+
+The writes (`createResource`, `updateResourceValue`, `createVariable`,
+`updateVariable`) are `later` and answer 501, as does state's write
+(`setState`); `getState` reads the state path through
+`get_value_interpolated`, so a state never written is a 404, which the
+stock client turns into `undefined`
+([WA-41](../../../docs/semantics/client-api.md#wa-41)/b).
 
 ## Attribution and transports
 
@@ -155,6 +176,11 @@ comparison. An abandoned invocation has no outcome to replace.
   (`TestHandlerFailuresBothTransports`), bodyless replies to `HEAD` and
   204 on both (`TestBodylessReplies`), WA-42/a's rows, and handler
   registration.
+- `providers_test.go`, without Bun: the resource and variable reads on
+  both transports, their statuses, content types and bodies (WA-11/a,
+  WA-12/a, WA-40's raw read and exists, WA-42/b and /c, WA-V3/a), a read
+  with a live invocation's `job_id` and with an unknown one, a write's 501,
+  and a facade with no platform.
 - `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's
@@ -176,8 +202,17 @@ comparison. An abandoned invocation has no outcome to replace.
     the stock client, in both modes and both policies;
   - `TestUnawaitedUnsupportedCall`: a warm step's unsupported call that it
     never awaits, whose 3 MiB body travels in part frames, fails it 50 of
-    50 times.
+    50 times;
+  - `TestProvidersOnTheClient` (PF2): the stock client's `getResource`
+    and `getVariable` against the reads, in warm and fresh mode: its `$res:`
+    and `res://` prefixes, `var://` stripped and `$var:` not (WA-11/a), a
+    missing resource's wrapped error and `undefined` (WA-10/a), the wrapped
+    depth error (WA-12/c) and nested not-found (WA-42/c), `$WM_*` left
+    literal (WA-V3/a), a secret's plaintext, and `getState()` returning
+    `undefined` for a state never written (WA-41/b), with no unsupported
+    call.
 
 The step cases of [conformance/steps](../../../conformance/README.md)
-(`wa-2.yaml`, `wa-5.yaml`, `wa-31.yaml`, `wa-41.yaml`) run the facade
-through `wltest check` in `warm` and `fresh`.
+(`wa-2.yaml`, `wa-5.yaml`, `wa-31.yaml`, `wa-41.yaml`, and PF2's
+`wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`, `wa-42.yaml`, `wa-v3.yaml`) run
+the facade through `wltest check` in `warm` and `fresh`.

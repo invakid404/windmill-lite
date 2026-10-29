@@ -1,12 +1,13 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a and PF1 of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, PF1 and PF2 of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
     "N1a",
     "N1b",
     "E3e",
     "PF1",
-    "N3a"
+    "N3a",
+    "PF2"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -20,6 +21,7 @@
     "conformance/exprs/je-10.yaml/je-10-b": "N1a",
     "conformance/exprs/je-10.yaml/je-10-c": "N1a",
     "conformance/exprs/je-10.yaml/je-10-d": "N1a",
+    "conformance/exprs/je-11.yaml/je-11-a": "PF2",
     "conformance/exprs/je-13.yaml/je-13-a": "N1a",
     "conformance/exprs/je-13.yaml/je-13-b": "N1a",
     "conformance/exprs/je-13.yaml/je-13-c": "N1a",
@@ -76,6 +78,9 @@
     "conformance/flows/cf/cf-19/cf19-b": "N1a",
     "conformance/flows/client-api/identity/identity": "PF1",
     "conformance/flows/client-api/job-env/envs": "E1",
+    "conformance/flows/client-api/providers/invalid_path": "PF2",
+    "conformance/flows/client-api/providers/missing_resource": "PF2",
+    "conformance/flows/client-api/providers/services": "PF2",
     "conformance/flows/control-flow/cf-11/a": "N3a",
     "conformance/flows/control-flow/cf-12/a": "N3a",
     "conformance/flows/control-flow/cf-12/c-fail": "N3a",
@@ -158,8 +163,21 @@
     "conformance/flows/je/loops/je39-a": "N3a",
     "conformance/flows/je/loops/je40-ab": "N3a",
     "conformance/flows/je/loops/je9-ef": "N3a",
+    "conformance/flows/je/providers/je-v3-a": "PF2",
+    "conformance/flows/je/providers/je20-a": "PF2",
+    "conformance/flows/je/providers/je20-b": "PF2",
+    "conformance/flows/je/providers/je38-ab": "PF2",
+    "conformance/flows/je/providers/je41-a": "PF2",
+    "conformance/flows/je/providers/je41-b": "PF2",
     "conformance/flows/je/providers/je41-c": "N1a",
+    "conformance/flows/je/providers/je42-a": "PF2",
+    "conformance/flows/je/providers/je42-b": "PF2",
     "conformance/flows/je/providers/je42-c": "N1a",
+    "conformance/flows/je/providers/je42-d": "PF2",
+    "conformance/flows/je/providers/je42-e": "PF2",
+    "conformance/flows/je/providers/je42-f": "PF2",
+    "conformance/flows/je/providers/je42-g": "PF2",
+    "conformance/flows/je/providers/je42-h": "PF2",
     "conformance/flows/je/scopes/je19-b": "N3a",
     "conformance/flows/je/shortcuts/je12": "N1a",
     "conformance/flows/je/shortcuts/je12-d": "N1a",
@@ -209,6 +227,7 @@
     "conformance/flows/oracle/nul/nul": "N1b",
     "conformance/flows/oracle/nul/nul_key": "N1b",
     "conformance/flows/oracle/nul/nul_nested": "N1b",
+    "conformance/flows/oracle/seeded/removed": "PF2",
     "conformance/flows/oracle/smoke/fail": "N1a",
     "conformance/flows/oracle/smoke/ok": "N1a"
   }

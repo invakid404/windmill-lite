@@ -1,0 +1,30 @@
+# Created after the push (OR-31). The secret is passed to windmill-lite as
+# a host passes its secrets, never through a bundle (ADR 0010).
+resource_types:
+  - name: c_wl_pf2_object
+    schema: {type: object}
+    description: PF2's resources
+variables:
+  - path: f/wl_pf2_prov/v
+    value: s3cr3t
+  - path: f/wl_pf2_prov/pw
+    value: pw-value
+    is_secret: true
+  - path: f/wl_pf2_prov/j
+    value: '{"x": "$var:f/wl_pf2_prov/v", "n": 1e3}'
+resources:
+  - path: f/wl_pf2_prov/context
+    resource_type: c_wl_pf2_object
+    value: {root: "$WM_ROOT_JOB_ID"}
+  - path: f/wl_pf2_prov/db
+    resource_type: c_wl_pf2_object
+    value: {host: h, password: "$var:f/wl_pf2_prov/pw", nested: {r: "$res:f/wl_pf2_prov/context"}}
+  - path: f/wl_pf2_prov/outer
+    resource_type: c_wl_pf2_object
+    value: {x: "$res:f/wl_pf2_prov/missing"}
+  - path: f/wl_pf2_prov/terminal
+    resource_type: c_wl_pf2_object
+    value: {f: "$jsonvar:f/wl_pf2_prov/j"}
+  - path: f/wl_pf2_prov/deep
+    resource_type: c_wl_pf2_object
+    value: {"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":{"k":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
