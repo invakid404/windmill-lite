@@ -11,6 +11,6 @@
 id: execution/fx-23
 spec: [FX-23, FX-23/a, FX-23/b, FX-23/c, JE-28, OF-17, FX-38]
 scope: core
-provenance: source-derived
+provenance: oracle-observed
 languages: [bun]
 oracle: {workers: 1}
