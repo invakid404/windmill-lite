@@ -314,8 +314,12 @@ func TestBunWarmRetiresEndedChildren(t *testing.T) {
 		return nil
 	}
 	waitFor(t, "the engine to hold the child's group", func() bool { return len(held()) == 1 })
-	if g := held()[0]; g.pgid != pid || len(g.seen) == 0 {
-		t.Fatalf("held %+v for the child %d", g, pid)
+	g := held()[0]
+	g.mu.Lock()
+	seen := len(g.seen)
+	g.mu.Unlock()
+	if g.pgid != pid || seen == 0 {
+		t.Fatalf("held group %d with %d members for the child %d", g.pgid, seen, pid)
 	}
 	waitFor(t, "the child to exit", func() bool { return gone(pid) })
 	// Only the guardian is left: the engine forgets the group, then ends it.
