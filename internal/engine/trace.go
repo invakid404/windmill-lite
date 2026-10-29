@@ -117,9 +117,12 @@ type StepRecord struct {
 	// its own retried attempts and, after a tolerated failure, an earlier
 	// module's (FX-27, FX-29). Each names the record of that attempt.
 	FailedRetries []conformance.SitePath
-	// Job is the id of the site's leaf job, the invocation's WM_JOB_ID,
-	// once it launched; empty for identity jobs, which have no
-	// invocation, and for sites with no job.
+	// Job is the id of the site's job, once it launched: for a script
+	// step, its leaf job, the invocation's WM_JOB_ID; for a subflow
+	// step, the child flow's job, which its steps see as WM_FLOW_JOB_ID
+	// (CF-17); for a leaf the result cache answered, the id of the job
+	// that completed without running (FX-40). Empty for identity jobs,
+	// which have no invocation, and for sites with no job.
 	Job string
 
 	// Status is the status of the site's job (OR-V2), or StepNotRun when it

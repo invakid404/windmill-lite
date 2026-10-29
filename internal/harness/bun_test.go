@@ -479,50 +479,84 @@ func TestBunCancelAbandonsAndSettlesLate(t *testing.T) {
 // A cancel queued while a large invoke is still being written follows its
 // last part, so the harness knows the invocation when the cancel arrives
 // and abandons it. Ahead of the invoke it would name an unknown invocation
-// and be ignored, and the harness would report the call as in flight.
+// and be ignored, and the harness would report the call as in flight (ADR
+// 0004: messages about one invocation keep their order). The test holds
+// the invoke's delivery after its first part, so the cancel comes while
+// its stream is open, and the step is a gate, which runs until the test
+// opens it, so the invocation is still abandoned when the harness answers
+// the ping that follows the cancel (FU7: no deadline and no sleep that a
+// slow run could outlast).
 func TestBunCancelDuringLargeInvoke(t *testing.T) {
+	dir := t.TempDir()
 	cfg, _ := bunConfig(t)
+	g := newGate(t, dir, "large")
 	p := spawn(t, cfg)
 	rec := newRecorder()
+	args, _ := json.Marshal(map[string]string{"started": g.started, "release": g.release, "pad": strings.Repeat("y", 24<<20)})
+	inv := newInvocation("gate", string(args), rec)
+	held, resume := make(chan struct{}), make(chan struct{})
+	var holdOnce, resumeOnce sync.Once
+	hold := func(about string, last bool) {
+		if about == inv.ID && !last {
+			holdOnce.Do(func() {
+				close(held)
+				<-resume
+			})
+		}
+	}
+	partWritten.Store(&hold)
+	// Before the process's own cleanup: the writer must not stay held.
+	t.Cleanup(func() {
+		partWritten.Store(nil)
+		resumeOnce.Do(func() { close(resume) })
+	})
 	ctx, cancel := context.WithCancelCause(context.Background())
-	inv := newInvocation("sleep", `{"ms":1500,"pad":"`+strings.Repeat("y", 24<<20)+`"}`, rec)
 	done := make(chan error, 1)
 	go func() {
 		_, err := p.Execute(ctx, inv)
 		done <- err
 	}()
-	// Cancel as soon as it is dispatched, while its parts are still going
-	// out.
-	for in, _ := p.Load(); in == 0; in, _ = p.Load() {
-		time.Sleep(50 * time.Microsecond)
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the invoke's first part was never written")
 	}
 	cancel(engine.CancelCanceled)
 	if err := <-done; !errors.Is(err, engine.CancelCanceled) {
 		t.Fatalf("got %v", err)
 	}
-	// A ping is about no invocation, so it may overtake the invoke; ask
-	// until the harness has the invocation.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		h, err := p.Ping(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if h.InFlight+h.Abandoned == 1 {
-			if h.Abandoned != 1 {
-				t.Fatalf("the harness runs the invocation as in flight: %+v", h)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the harness never had the invocation: %+v", h)
-		}
-		time.Sleep(10 * time.Millisecond)
+	// The invoke's stream is open, and the cancel waits behind it.
+	queued := func() bool {
+		p.conn.mu.Lock()
+		defer p.conn.mu.Unlock()
+		s := p.conn.latest[inv.ID]
+		return s != nil && len(s.after) == 1 && s.after[0].frame != nil && typeOf(s.after[0].frame[4:]) == TypeCancel
+	}
+	if !queued() {
+		t.Fatal("the cancel is not queued behind the invoke's open stream")
+	}
+	resumeOnce.Do(func() { close(resume) })
+	// The cancel goes when the last part has; a ping sent once the stream
+	// is done goes after it, and the harness answers it having taken both.
+	waitFor(t, "the invoke's last part", func() bool {
+		p.conn.mu.Lock()
+		defer p.conn.mu.Unlock()
+		return p.conn.latest[inv.ID] == nil
+	})
+	h, err := p.Ping(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Abandoned != 1 || h.InFlight != 0 {
+		t.Fatalf("after the cancel, the harness reports %+v, want the invocation abandoned", h)
+	}
+	if err := os.WriteFile(g.release, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if k := rec.waitSettled(t, 10*time.Second); k != engine.SettleCompleted {
 		t.Fatalf("settled %s", k)
 	}
-	if got := rec.log(); got != "late result final=true 1500; settled completed" {
+	if got := rec.log(); got != `late result final=true "released"; settled completed` {
 		t.Fatalf("reporter calls %q", got)
 	}
 }
