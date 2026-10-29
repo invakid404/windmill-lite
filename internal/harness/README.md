@@ -172,6 +172,9 @@ process the harness starts in the group so that its id stays reserved,
 which the engine finds among the members by its arguments
 (`processHasGuard`: `/proc/<pid>/cmdline` on Linux, `kern.procargs2` on
 macOS, which gives another process's arguments but not its environment).
+It looks for the guardian again at each look until it finds it, since a
+guardian whose exec of `sleep` has not yet set up its arguments shows no
+token.
 `continues` takes the group for the original while the guardian is among
 its members, or, without one, while a member seen before is still there;
 otherwise the group is given up for good and never signalled. A group
