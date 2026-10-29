@@ -9,7 +9,8 @@ every call to the invocation that made it over two transports, the 501
 policy for the routes windmill-lite does not serve, and Windmill's
 `text/plain` error bodies. It serves the root lookup (PF1), the resource
 and variable reads (PF2), and the job registry's lookups, flow user state,
-dispatch and its result polls, and the object store (PF3). Job identity
+dispatch and its result polls, and the object store (PF3), and a
+variable's update (F1). Job identity
 and the services are [internal/platform](../README.md).
 
 ## Files
@@ -21,7 +22,7 @@ and the services are [internal/platform](../README.md).
 | `transport.go` | The two origins and the harness's handler (`Platform`) |
 | `executor.go` | `Executor`: a step executor that registers each invocation and applies the 501 policy |
 | `jobs.go` | The root lookup, the job environment a read's `job_id` names, flow user state and the result polls, from the job registry and the dispatcher (PF1, PF3) |
-| `providers.go` | The resource and variable reads (PF2) |
+| `providers.go` | The resource and variable reads (PF2), and the variable update (F1) |
 | `dispatch.go` | The dispatch routes (PF3) |
 | `objects.go` | The object store's job helpers (PF3) |
 | `errors.go` | `Error`: an API error as a reply, with the variants of `platform.Error` (WA-42) |
@@ -83,9 +84,19 @@ read is a not-found. They keep the three resource-read contracts of
 | `existsResource`, `existsVariable` | `GET /w/{ws}/resources/exists/{path}`, `…/variables/exists/{path}` | `true` or `false` |
 | `getVariableValue` | `GET /w/{ws}/variables/get_value/{path}` | the value as a JSON string, a secret's plaintext through `Secrets` and the value resolvers ([WA-11](../../../docs/semantics/client-api.md#wa-11)) |
 
-The writes (`createResource`, `updateResourceValue`, `createVariable`,
-`updateVariable`) are `later` and answer 501, as does state's write
-(`setState`); `getState` reads the state path through
+`updateVariable`, `POST /w/{ws}/variables/update/{path}` (F1,
+[WA-11](../../../docs/semantics/client-api.md#wa-11)), updates an existing
+variable in the services' variable store (`platform.Services.UpdateVariable`),
+which later reads, the engine's included, see: the body is an
+`EditVariable`, whose `value` replaces the value and whose `is_secret`
+sets its secrecy; a missing variable is the read's 404, and a body that is
+not an `EditVariable` a 400. It answers 200 `text/plain` (`updated variable
+<path>`), as the API's schema gives it; the reference does not give
+Windmill's text. A rename (a `path` other than the route's), a value
+already encrypted (`already_encrypted=true`) and an update of a read-only
+variable service answer 501. The other writes (`createResource`,
+`updateResourceValue`, `createVariable`) are `later` and answer 501, as
+does state's write (`setState`); `getState` reads the state path through
 `get_value_interpolated`, so a state never written is a 404, which the
 stock client turns into `undefined`
 ([WA-41](../../../docs/semantics/client-api.md#wa-41)/b).
@@ -259,7 +270,9 @@ comparison. An abandoned invocation has no outcome to replace.
   both transports, their statuses, content types and bodies (WA-11/a,
   WA-12/a, WA-40's raw read and exists, WA-42/b and /c, WA-V3/a), a read
   with a live invocation's `job_id` and with an unknown one, a write's 501,
-  and a facade with no platform.
+  and a facade with no platform; and the variable update (WA-11, F1): a
+  value later reads see, its secrecy, a missing variable's 404, and the
+  501s of a rename, an encrypted value and a read-only service.
 - `bun_test.go`, on the pinned Bun with the stock `windmill-client@1.767.0`
   (`WL_BUN`, `WL_WINDMILL_CLIENT`; CI sets both and `WL_REQUIRE_BUN`):
   - `TestAttribution`, ADR 0007's attribution test and milestone PF1's

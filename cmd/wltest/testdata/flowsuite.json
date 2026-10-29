@@ -1,5 +1,5 @@
 {
-  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, PF1, PF2, N2, PF3 and NI of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm mode, which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
+  "about": "The flow suite of wltest check on windmill-lite (ADR 0011, milestones E1, N1a, N1b, N3a, N3b, N3c, PF1, PF2, N2, PF3, NI and F1 of ADR 0012): the flow fixtures' runs, and the runs of the expression files of conformance/exprs as their generated one-step flow fixtures, that must pass in warm and in fresh mode, through wl (F1), which TestFlowSuite checks. A run is required when runs lists it, with the milestone whose pull request first made it pass, or when a recording batch's manifest (internal/oracle/testdata/batches/<batch>.json) gates it on a milestone listed in implemented. A required run stays required: a later engine must keep passing it. runs is not a batch's gates, which name the milestone whose exit gate must make a run pass; a run may pass earlier, as the E3b and E3c runs below do on W1's walking skeleton and as E3a's provider cases that read no provider do on N1a's engine. An expression file's run is <file>/<case>. Every other run is still run, reported, and must not fail to load.",
   "implemented": [
     "E1",
     "N1a",
@@ -12,7 +12,8 @@
     "N3b",
     "PF3",
     "N3c",
-    "NI"
+    "NI",
+    "F1"
   ],
   "runs": {
     "conformance/exprs/je-1.yaml/je-1-a": "N1a",
@@ -212,6 +213,7 @@
     "conformance/flows/execution/fx-15/child_pickup": "N3c",
     "conformance/flows/execution/fx-15/later_transition": "N1b",
     "conformance/flows/execution/fx-15/root_pickup": "N3c",
+    "conformance/flows/execution/fx-17/skip_on_retry": "F1",
     "conformance/flows/execution/fx-19/retry_then_handler": "N2",
     "conformance/flows/execution/fx-23/after_skip": "N2",
     "conformance/flows/execution/fx-23/after_tolerated": "N2",
@@ -359,6 +361,8 @@
     "conformance/flows/je/sites/je49-a": "E1",
     "conformance/flows/je/sites/je49-b": "N1a",
     "conformance/flows/je/sites/je49-c": "E1",
+    "conformance/flows/je/waits/je-v2-a": "F1",
+    "conformance/flows/je/waits/je-v2-b": "F1",
     "conformance/flows/je/waits/je-v2-c": "N2",
     "conformance/flows/je/waits/je22-a": "N2",
     "conformance/flows/je/waits/je22-b": "N2",

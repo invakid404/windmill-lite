@@ -824,3 +824,36 @@ func TestEngineConcurrentRuns(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// ADR 0006: the engine's module state, warm unless Config names one, is
+// recorded in the trace and handed to the executor with every invocation;
+// New refuses an unknown one.
+func TestEngineModuleState(t *testing.T) {
+	folder, err := syncfolder.Load(testFolder(map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("1")), ""))}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer folder.Close()
+	prog, err := ir.Compile(folder, nil, ir.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
+	if jsErr != nil {
+		t.Fatal(jsErr)
+	}
+	for _, c := range []struct{ state, want ModuleState }{{"", ModuleStateWarm}, {ModuleStateWarm, ModuleStateWarm}, {ModuleStateFresh, ModuleStateFresh}} {
+		s := &scripts{}
+		e, err := New(Config{Program: prog, ModuleState: c.state, Exec: s, JS: jsEng})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr := runIt(t, e, `{}`, nil)
+		if tr.ModuleState != c.want || len(s.invs) != 1 || s.invs[0].ModuleState != c.want {
+			t.Fatalf("module state %q: trace %q, invocations %+v", c.state, tr.ModuleState, s.invs)
+		}
+	}
+	if _, err := New(Config{Program: prog, ModuleState: "tepid", Exec: &scripts{}, JS: jsEng}); err == nil {
+		t.Error("opened an engine with an unknown module state")
+	}
+}

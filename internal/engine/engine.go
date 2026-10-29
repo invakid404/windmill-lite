@@ -42,6 +42,7 @@ import (
 type Engine struct {
 	prog   *ir.Program
 	bundle string
+	state  ModuleState
 	exec   StepExecutor
 	eval   expr.Evaluator
 	host   platform.Host
@@ -61,6 +62,10 @@ type Config struct {
 	// trace.
 	Program *ir.Program
 	Bundle  string
+	// ModuleState is the module-state mode the steps run in (ADR 0006),
+	// recorded in every trace and handed to the executor with each
+	// invocation; empty means ModuleStateWarm.
+	ModuleState ModuleState
 	// Exec runs the steps unless a run names its own.
 	Exec StepExecutor
 	// JS is the engine the program's expressions run on, when no shortcut
@@ -106,7 +111,14 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.JS == nil {
 		return nil, errors.New("engine: no expression engine")
 	}
-	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout, platform: cfg.Platform}
+	e := &Engine{prog: cfg.Program, bundle: cfg.Bundle, state: cfg.ModuleState, exec: cfg.Exec, host: cfg.Host, cap: cfg.InstanceTimeout, platform: cfg.Platform}
+	switch e.state {
+	case "":
+		e.state = ModuleStateWarm
+	case ModuleStateWarm, ModuleStateFresh:
+	default:
+		return nil, fmt.Errorf("engine: unknown module state %q", e.state)
+	}
 	if cfg.Workspace != "" {
 		e.host.Workspace = cfg.Workspace
 	}

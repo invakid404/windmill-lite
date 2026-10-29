@@ -84,7 +84,7 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	r.root = newFrame(f.Modules, conformance.SitePath{})
 	r.root.failure, r.root.def, r.root.started = f.FailureModule, f, now
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
-	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: ModuleStateWarm}
+	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.state}
 	r.settle = NewRunSettlement(func() { hooks.OnRunSettled(r.snapshot()) })
 	return r
 }
@@ -149,6 +149,7 @@ func (r *run) snapshot() *Trace {
 	t.Warnings = append([]Warning(nil), r.trace.Warnings...)
 	t.Deviations = append([]string(nil), r.trace.Deviations...)
 	t.Spans = append([]Span(nil), r.trace.Spans...)
+	t.PlatformCalls = append([]PlatformCall(nil), r.trace.PlatformCalls...)
 	return &t
 }
 
@@ -1915,7 +1916,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		Entry:       entry,
 		Args:        args,
 		Boundary:    Boundary(m.Leaf.Boundary),
-		ModuleState: ModuleStateWarm,
+		ModuleState: r.e.state,
 	}
 	// Job identity (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs in
 	// is its parent (a child flow, or the loop's flow for a collapsed

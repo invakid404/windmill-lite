@@ -338,6 +338,40 @@ func TestWriteArchive(t *testing.T) {
 	_ = manifest
 }
 
+// Extract writes a verified archive's bundle into a new directory, which
+// then verifies with the archive's digest; it refuses a directory that is
+// not empty and an archive that does not verify.
+func TestExtract(t *testing.T) {
+	dir, _ := writeBundle(t, testFiles)
+	archive := filepath.Join(t.TempDir(), "b"+ArchiveExt)
+	if err := WriteArchiveFile(dir, archive); err != nil {
+		t.Fatal(err)
+	}
+	want, err := Verify(archive, VerifyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "x")
+	v, err := Extract(archive, out, VerifyOptions{Digest: want.Digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Digest != want.Digest {
+		t.Fatalf("digest %s, want %s", v.Digest, want.Digest)
+	}
+	for p, content := range testFiles {
+		if got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(p))); err != nil || string(got) != content {
+			t.Errorf("%s: %q, %v", p, got, err)
+		}
+	}
+	if _, err := Extract(archive, out, VerifyOptions{}); err == nil {
+		t.Error("extracted into a directory that is not empty")
+	}
+	if _, err := Extract(archive, filepath.Join(t.TempDir(), "y"), VerifyOptions{Digest: "sha256:" + strings.Repeat("0", 64)}); err == nil {
+		t.Error("extracted an archive whose digest is not the pinned one")
+	}
+}
+
 // TestVerifyArchiveEntries checks the archive reader's refusals and that
 // the order of entries does not matter.
 func TestVerifyArchiveEntries(t *testing.T) {

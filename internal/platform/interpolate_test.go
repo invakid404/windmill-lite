@@ -423,3 +423,38 @@ func TestAPIEnv(t *testing.T) {
 		}
 	}
 }
+
+// WA-11, milestone F1: an update of a Store's variable replaces its value,
+// which is then plaintext, and its secrecy; a missing variable is the
+// read's not-found, and a variable service that is not a VariableUpdater
+// (a chain) is read-only.
+func TestUpdateVariable(t *testing.T) {
+	ctx := context.Background()
+	store := NewStore()
+	store.SetVariable("u/x/v", Variable{Value: "cipher", IsSecret: true, Encrypted: true})
+	s := &Services{Variables: store}
+	value, public := "plain", false
+	if err := s.UpdateVariable(ctx, "u/x/v", &value, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, _ := store.Variable(ctx, "u/x/v"); v != (Variable{Value: "plain", IsSecret: true}) {
+		t.Fatalf("after a value update: %+v", v)
+	}
+	if err := s.UpdateVariable(ctx, "u/x/v", nil, &public); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := s.VariableValue(ctx, "u/x/v"); err != nil || v != "plain" {
+		t.Fatalf("after a secrecy update: %q, %v", v, err)
+	}
+	var pe *Error
+	if err := s.UpdateVariable(ctx, "u/x/none", &value, nil); !errors.As(err, &pe) || pe.HTTPStatus() != 404 {
+		t.Errorf("a missing variable: %v", err)
+	}
+	ro := &Services{Variables: VariableChain{store}}
+	if err := ro.UpdateVariable(ctx, "u/x/v", &value, nil); !errors.Is(err, ErrReadOnlyVariables) {
+		t.Errorf("a chain: %v", err)
+	}
+	if err := (*Services)(nil).UpdateVariable(ctx, "u/x/v", &value, nil); !errors.Is(err, ErrReadOnlyVariables) {
+		t.Errorf("no services: %v", err)
+	}
+}

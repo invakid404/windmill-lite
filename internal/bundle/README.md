@@ -16,7 +16,9 @@ windmill-lite bundles ([ADR 0010](../../docs/design/0010-packaging.md)):
   `BuildCodebase`, which bundles codebase scripts with esbuild through its
   Go API, with the same env rewrite and shims, and carries their assets.
 
-Nothing opens a bundle to run it yet: that is `wl.Open` (F1).
+[wl](../../wl/README.md)`.Open` (F1) opens a bundle to run it: it calls
+`Verify`, or `Extract` for an archive, and `TreeDigest` for the harness
+runtime.
 
 ## Files
 
@@ -25,7 +27,7 @@ Nothing opens a bundle to run it yet: that is `wl.Open` (F1).
 | `build.go` | `Build` and `Config`: the whole build, its refusals, `data/` |
 | `manifest.go` | `Manifest`, `Canonicalize`, `Digest`, `ParseManifest`, the deviations a bundle lists |
 | `sources.go` | the recording file system behind the source inventory; `TreeDigest` |
-| `archive.go` | `WriteArchive`, `WriteArchiveFile` and `Verify` |
+| `archive.go` | `WriteArchive`, `WriteArchiveFile`, `Verify` and `Extract` |
 | `env.go` | `EnvRewrite`: the define table and support module of the env rewrite |
 | `shim.go` | `Shim`: the shim of a host-provided module; the registry key |
 | `importbase.go` | `ImportBase`: an inline script's import base |
@@ -140,7 +142,8 @@ Before bundling it refuses, with `unsupported_feature`, a host-provided
 module that is not a script of the folder: a host-provided package would
 need a lock, which the contract cannot give yet. Problems with scripts and modules come back
 together as a `*BuildError`, sorted by item; a path script is named
-`script <path>`, an inline step `<flow> step '<id>' (script <inventory id>)`.
+`script <path>`, an inline step `<flow> step '<id>' (script <inventory id>)`
+(`ScriptItem`, so a caller can tell which of its roots reach the script).
 
 `Config.Out` must not exist or be empty. The build writes a sibling
 directory and renames it to `Out` last, so a failed build leaves nothing
@@ -170,6 +173,12 @@ Differences come back together as a `*MismatchError`. A
 bundle checked only against its own manifest proves it is intact, not that
 it is the one released: a changed file with a manifest rewritten to match
 passes alone and fails against the release manifest or digest.
+
+`Extract(archive, dir, VerifyOptions)` writes a `.wlb` into `dir`, which
+must not exist or be empty: it verifies the archive first, so its entries
+are clean relative names that make one tree, writes every regular entry
+with mode 0644 and without following or replacing anything, and verifies
+the written directory again against the archive's digest.
 
 ## Codebase scripts
 
@@ -434,6 +443,8 @@ WL_BUN=/path/to/bun-1.3.10/bun go test -race ./internal/bundle
   `TestBuildRefusesUnbuilt` and `TestBuildCompileErrors` cover the output
   directory and the refusals.
 - `TestVerify`, `TestVerifyArchiveEntries`, `TestWriteArchive`,
+  `TestExtract` (an archive extracted into an empty directory verifies with
+  the archive's digest; a non-empty directory is refused),
   `TestParseManifest`, `TestTreeDigest`, `TestCanonicalize` and
   `TestManifestDeviations` need
   no Bun: they cover a changed, extra or missing file, a symbolic link, a

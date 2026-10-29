@@ -7,11 +7,11 @@ queue, no job per step, and no worker pickup.
 **Current state:** first implementation milestones. The engine core runs
 flows of Bun steps in sequence from a compiled program, with their failure
 modules and for loops, whose steps reach a platform facade that serves
-resources and variables, and with their sleeps, timeouts and retries; the
-other containers and the rest of the platform come in the next
-milestones. The repository holds
-a Go module, the `windmill-lite` command, which builds and verifies bundles
-and serves the walking skeleton's host mode but does not run bundles yet,
+resources and variables, and with their sleeps, timeouts and retries; the public `wl` package opens
+a built bundle and runs its flows, and the hooks, budgets and adapters
+come in the next milestones. The repository holds
+a Go module, the `windmill-lite` command, which builds, verifies and runs
+bundles and serves the walking skeleton's host mode,
 CI, a
 documentation gate, the [semantics reference](docs/semantics/README.md) (the
 Windmill `v1.767.0` behaviour that windmill-lite must match, written as
@@ -25,7 +25,10 @@ and a host contract into a bundle (the compiled program, the bundled Bun
 scripts and the folder's data) with a manifest that records the digest of
 every file and of every input, and whose own digest identifies the bundle;
 `verify` checks a bundle against a release manifest; `selfcheck` starts the
-expression engine. Nothing runs a built bundle yet. `build` runs nine earlier
+expression engine. F1's [wl](wl/README.md), the public Go API, opens a
+built bundle and runs its flows and root scripts, in `warm` or `fresh`
+mode, with the platform services it owns, and `run` is its command line.
+`build` runs nine earlier
 milestones: the OpenFlow decoder in
 [internal/openflow](internal/openflow/README.md) (A3); the YAML dialect of
 the `wmill` CLI in [internal/yamlx](internal/yamlx/README.md) (A2); the
@@ -64,8 +67,8 @@ harness, in `warm` and `fresh` mode, and runs each CommonJS codebase bundle
 on Node as well, where Windmill runs it (C2b, deviation D13), and (E1, N1a)
 the flow fixtures of [conformance/flows](conformance/README.md) and the
 expression cases, lifted into one-step flows, on N1a's engine core in
-[internal/engine](internal/engine/README.md), in `warm`, comparing each
-run with what the oracle recorded. The engine core runs a compiled
+[internal/engine](internal/engine/README.md), through `wl` in `warm` and
+`fresh` (F1), comparing each run with what the oracle recorded. The engine core runs a compiled
 program's flows in sequence, with Windmill's decision list for input
 transforms, the `results` routes, `skip_if`, `mock`, identity steps and
 `stop_after_if`, and K1's host-hook seams, and (N1b) its errors:
@@ -166,12 +169,20 @@ go run ./cmd/windmill-lite build internal/bundle/testdata/fixture/windmill \
 go run ./cmd/windmill-lite verify /tmp/fixture.wlb
 ```
 
+To run a flow of a built bundle, on the harness runtime it was built for:
+
+```sh
+go run ./cmd/windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
+  --args '{"name": "lite"}' -harness-runtime harnesses/bun/runtime
+```
+
 ## Index
 
 | Path | What it covers |
 |---|---|
-| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command: `build` writes a bundle from a sync folder, `verify` checks one against a manifest, `selfcheck` starts the expression engine, `host` serves host mode for the Bun host SDK on the walking skeleton's layout and the engine core, `version` prints its version. |
-| [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has three verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, `stub`, which writes the stubbed copy of a sync tree, and `check`, which runs the step cases on windmill-lite's Bun harness (and CommonJS codebase bundles on Node too, D13), and the flow fixtures and the expression cases, as generated flows, on its engine core. |
+| [wl](wl/README.md) | The public Go library API (ADR 0009): `Open` verifies and opens a bundle with the platform services the runtime owns, `Run` runs a flow or root script in `warm` or `fresh` mode and returns its status, result, trace and the platform calls its steps made, `BuildInfo` reports the bundle, `Close` drains it. |
+| [cmd/windmill-lite](cmd/windmill-lite/README.md) | The `windmill-lite` command: `build` writes a bundle from a sync folder, `verify` checks one against a manifest, `run` runs a bundle's flow or script through `wl` and prints the outcome as JSON, `selfcheck` starts the expression engine, `host` serves host mode for the Bun host SDK on the walking skeleton's layout and the engine core, `version` prints its version. |
+| [cmd/wltest](cmd/wltest/README.md) | The conformance and oracle runner. Today it has three verbs: `record`, which records flow fixtures, stub fixtures included, and expression cases lifted into generated flows on the Windmill CE oracle, `stub`, which writes the stubbed copy of a sync tree, and `check`, which runs the step cases on windmill-lite's Bun harness (and CommonJS codebase bundles on Node too, D13), and the flow fixtures and the expression cases, as generated flows, through `wl` in `warm` and `fresh`. |
 | [internal/openflow](internal/openflow/README.md) | OpenFlow types and Windmill's effective decoder for flow values, with the vendored Apache-2.0 schema and the schema-coverage test. |
 | [internal/yamlx](internal/yamlx/README.md) | Parses sync-folder YAML into the values the `wmill` CLI would send to Windmill (SY-9); refuses YAML it cannot read as the CLI does. |
 | [internal/syncfolder](internal/syncfolder/README.md) | Reads a `wmill sync` folder as the CLI pushes it: the root, `wmill.yaml` and its filters, Windmill paths, scripts with their metadata and locks, flows with their inline scripts, resources, resource types and variables (SY-1 to SY-19). |

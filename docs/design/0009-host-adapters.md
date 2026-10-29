@@ -33,7 +33,10 @@ only engine API. In outline:
    and returns its status, final result, `mayHaveMutated` flag, trace and
    warnings. `runOptions` carries hooks ([0008](0008-host-hooks.md)),
    per-run platform providers ([0007](0007-platform-interface.md)), deadlines,
-   the clock, run data, and a module-state override.
+   the clock, run data, and a module-state override. (F1 takes the
+   module-state mode in `options`, once per runtime, since one harness pool
+   and one engine hold it; see [0012](0012-layout-and-milestones.md)'s
+   Consequences.)
 3. `runtime.BuildInfo()` reports the bundle digest, engine and harness
    versions, the Bun version, the host contract and the deviations in effect.
 4. `runtime.Close()` drains the pools.

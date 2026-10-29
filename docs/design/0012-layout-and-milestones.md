@@ -496,6 +496,26 @@ waits on an external gate except R1.
   the rule that a case needing two milestones gates the first that needs
   both; `flowsuite.json` already requires them under N2.
 
+- F1 opens a built bundle with `wl.Open` and runs it with `Runtime.Run`;
+  `windmill-lite run` and `wltest check` are both transports over these
+  calls, so the flow suite runs the code path a host runs. `wltest check`
+  builds each fixture with `bundle.Build`, whose contract's roots are the
+  targets the compiler and the engine accept, and opens the bundle once
+  per mode; the whole suite passes the same runs in `warm` and in `fresh`.
+  JE-V2/a and /b and FX-17/b each have a step write a variable through the
+  job API, a route that was `later` until F1 ([WA-11](../semantics/client-api.md#wa-11)'s
+  `updateVariable`); the runtime owns its variable store, the bundle's
+  `data/` with the host's variables over it, so a later run reads the
+  write. ADR 0009 puts the module-state override in `runOptions`; F1
+  takes it in `Options`, once per runtime, because the harness pool and
+  the engine hold one mode, and a run's override can be added later as a
+  run option without breaking a host. The trace carries the platform
+  calls each step made (`Trace.PlatformCalls`), which the runtime collects
+  from the facade's records. PF3's job registry still registers no loop
+  iteration, branch or subflow, so a dispatch from inside one gets no
+  parent path; no case of F1's row needs it, and it stays open. A retry
+  on a subflow step stays refused.
+
 ## Spec IDs relied on
 
 The milestone rows cite the finding families each one encodes; the records

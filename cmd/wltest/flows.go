@@ -20,27 +20,26 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/expr"
-	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
-	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/oracle"
-	"github.com/invakid404/windmill-lite/internal/platform"
-	"github.com/invakid404/windmill-lite/internal/platform/facade"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
+	"github.com/invakid404/windmill-lite/wl"
 )
 
 // flowChecker runs flow fixtures (OR-15, the flow level of ADR 0003) on
-// windmill-lite, in one configuration (milestone E1). For each fixture it
-// compiles every run's target flow from the fixture's sync tree with the
-// IR compiler (internal/ir), the target as the only root; builds the Bun
-// scripts those flows reach with the Bun build helper into one bundle;
-// and runs the runs, in the order of conformance.RunBatches, on the engine
-// core (engine.Engine, milestone N1a), one per target's program, over one
-// pool of Bun harness processes. That pool is the warm configuration:
-// module state and globalThis survive from one invocation to the next
-// (D1). Each run's trace becomes an observation (observeTrace), compared
-// with the run's expect, or with its recording when it has none
-// (ADR 0011), and checked against its claims.
+// windmill-lite through package wl (milestone F1), in one module state:
+// warm, where module state and globalThis survive from one invocation to
+// the next (D1), or fresh, one harness process per invocation. For each
+// fixture it compiles every run's target flow from the fixture's sync tree
+// with the IR compiler (internal/ir), the target as the only root, to sort
+// the targets it can run from those it cannot; builds one bundle
+// (bundle.Build, ADR 0010) whose contract's roots are the targets it can
+// run and the fixture's other roots; opens it with wl.Open, with the
+// fixture's secrets and setup as the host's data; and runs the runs, in
+// the order of conformance.RunBatches, with Runtime.Run. Each run's trace
+// becomes an observation (observeTrace), compared with the run's expect,
+// or with its recording when it has none (ADR 0011), and checked against
+// its claims.
 //
 // A run whose flow needs what windmill-lite cannot run yet is reported as
 // unsupported, with the reason, and never compared: a feature the
@@ -138,10 +137,6 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	whole := ""
 	switch {
-	case fc.mode != conformance.ModeWarm:
-		// The walking skeleton and this runner's pool run warm; the flow
-		// suite runs in fresh and warm through wl (ADR 0012, F1).
-		whole = "flow fixtures run in warm mode only until milestone F1, whose gate runs the flow suite in fresh and warm"
 	case f.Stub:
 		whole = "stub mode on windmill-lite is milestone E4b's"
 	case f.Oracle.Effects:
@@ -164,70 +159,21 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		return failRuns(results, "build: "+err.Error())
 	}
 	var diag syncBuffer
-	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
-	// pool reaches it through the intercepted fetch, at an origin where
-	// nothing listens, and every step's calls are attributed to it. It
-	// serves the fixture's resources and variables, which the engine reads
-	// too (milestone PF2).
-	fac, err := facade.New(facade.Config{Platform: b.platform})
-	if err != nil {
-		return failRuns(results, "facade: "+err.Error())
-	}
-	defer fac.Close()
-	path, args := harness.BunCommand(fc.bun, filepath.Join(fc.repo, "harnesses", "bun", "runtime", "main.ts"), b.out)
-	pool, err := harness.NewPool(harness.PoolConfig{
-		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: engine.ModuleStateWarm},
-		Process: harness.ProcessConfig{
-			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
-			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
-			// The same kind of origin as a warm step case's, so a native step
-			// reads the facade's origin as BASE_URL and BASE_INTERNAL_URL in
-			// both (WR-45).
-			Facade: fac.WarmOrigin(), Platform: fac.Platform(),
-		},
-	})
-	if err != nil {
-		return failRuns(results, "pool: "+err.Error())
-	}
-	defer func() {
-		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		pool.Close(cctx)
-	}()
-
-	engines := map[string]*engine.Engine{}
-	for _, target := range b.order {
-		t := b.targets[target]
-		if t.unsupported != "" || t.problem != "" {
-			continue
+	var rt *wl.Runtime
+	if b.out != "" {
+		// The runtime owns the fixture's platform services (ADR 0007): the
+		// bundle's resources and variables with the host's, its secrets
+		// and setup; the facade its steps reach, which attributes their
+		// calls; and the default dispatcher (milestone PF3) over the
+		// bundle's program, which runs the fixture's other roots.
+		rt, err = wl.Open(b.out, wl.Options{
+			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
+			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
+		})
+		if err != nil {
+			return failRuns(results, "open: "+err.Error())
 		}
-		// One engine per target's program, so that a flow it refuses
-		// leaves the fixture's others to run.
-		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform})
-		switch {
-		case errors.Is(err, engine.ErrUnsupported):
-			t.unsupported = "the engine does not run it yet: " + err.Error()
-		case err != nil:
-			t.problem = "engine: " + err.Error()
-		default:
-			engines[target] = e
-		}
-	}
-
-	if t := b.targets[rootsTarget]; t != nil && t.unsupported == "" && t.problem == "" {
-		// The default dispatcher (milestone PF3) runs the fixture's other
-		// roots, through the facade's executor so that their calls are
-		// attributed, on the pool; it is in the services before any run
-		// starts, and closes before the pool does.
-		if e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform}); err == nil {
-			d := engine.NewDispatcher(e, fac.Executor(pool))
-			b.platform.Dispatcher = d
-			defer func() {
-				cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				d.Close(cctx)
-			}()
-		}
+		defer rt.Close()
 	}
 
 	byName := map[string]int{}
@@ -260,7 +206,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t)
+				res.problems = fc.runOne(ctx, f, r, rt, t)
 			}()
 		}
 		wg.Wait()
@@ -275,6 +221,12 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	return results
 }
 
+// harnessRuntime is the Bun harness runtime the bundles are built for and
+// run on.
+func (fc *flowChecker) harnessRuntime() string {
+	return filepath.Join(fc.repo, "harnesses", "bun", "runtime")
+}
+
 func failRuns(rs []runResult, problem string) []runResult {
 	for i := range rs {
 		rs[i].problems = []string{problem}
@@ -282,13 +234,15 @@ func failRuns(rs []runResult, problem string) []runResult {
 	return rs
 }
 
-// fixtureBundle is the bundle of one fixture: its Bun scripts, what each
-// run's target flow needs, and the platform services its runs read.
+// fixtureBundle is the bundle of one fixture, what each run's target flow
+// needs, and the host's data its runtime is opened with.
 type fixtureBundle struct {
-	out, digest string
-	targets     map[string]*target
-	order       []string // the targets in the order of their first run
-	platform    *platform.Services
+	// out is the bundle; empty when no target can run.
+	out       string
+	targets   map[string]*target
+	order     []string // the targets in the order of their first run
+	variables map[string]wl.Variable
+	resources map[string]wl.Resource
 }
 
 // target is one flow that runs of the fixture run.
@@ -298,10 +252,8 @@ type target struct {
 	modules []string // the module ids of the flow, in order
 	virtual []bool   // which modules are the generated `<id>-v` step (OF-17)
 	failure bool     // the flow has a failure module
-	// reached are the scripts the flow reaches, and names how a problem
-	// names each, by inventory id.
-	reached []*ir.Script
-	names   map[string]string
+	// reached are the scripts the flow reaches, by inventory id.
+	reached []string
 	// unsupported or problem, when set, is why the flow's runs are not
 	// checked, or fail.
 	unsupported, problem string
@@ -312,19 +264,16 @@ type target struct {
 // failed.
 var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLanguage: true, ir.ErrPinnedHash: true}
 
-// build compiles each run's target flow and builds the Bun scripts they
-// reach into one bundle below work: scripts/bun/<id>.mjs and
-// <id>.meta.json, named by each script's inventory id (ir.Script.ID), as a
-// bundle names them (ADR 0010). Codebase scripts are built with esbuild
-// (bundle.BuildCodebase, milestone C2b), each with the settings of the
-// codebases entry that selects it: scripts/bun/<id>.cjs (or .mjs) and
-// <id>.meta.json, with their assets.
-// Its manifest lists the host-provided modules, none, which is all the
-// harness reads of it besides its digest; the bundle format is F4's.
+// build compiles each run's target flow alone, and opens its program on
+// the engine, to sort the targets it can run from those it cannot; then it
+// builds one bundle below work with bundle.Build (ADR 0010), whose
+// contract's roots are the targets it can run and the fixture's other
+// roots, and the engine version wl's.
 //
-// What goes wrong with one target (a compile error, a refused script, a
-// build problem of a script it reaches) is that target's; only a folder
-// that does not load, or a build that fails as a whole, fails the fixture.
+// What goes wrong with one target (a compile error, a refused feature, a
+// build problem of a script it reaches) is that target's: the bundle is
+// built again without it. Only a folder that does not load, or a build
+// that fails as a whole, fails the fixture.
 func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work string) (*fixtureBundle, error) {
 	root, err := syncfolder.Find(f.SyncTree())
 	if err != nil {
@@ -341,39 +290,23 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 	}
 	defer folder.Close()
 
-	b := &fixtureBundle{out: filepath.Join(work, "bundle"), targets: map[string]*target{}}
-	if b.platform, err = platformOf(folder, f.Setup, f.Oracle.SetupPolicy(), filepath.Join(work, "objects")); err != nil {
+	b := &fixtureBundle{targets: map[string]*target{}}
+	if b.variables, b.resources, err = hostDataOf(folder, f.Setup, f.Oracle.SetupPolicy()); err != nil {
 		return nil, err
 	}
-	entries := map[string]bundle.BunScript{}
-	codebase := map[string]bundle.CodebaseScript{}
-	users := map[string][]string{} // inventory id → the targets that reach it
-	// add puts the scripts t reaches into the bundle's entries.
-	add := func(key string, t *target) {
-		for _, s := range t.reached {
-			if s.Bundling == ir.BundlingCodebase {
-				// One inventory id is one script, and its file one entry.
-				if _, ok := codebase[s.ID]; !ok {
-					codebase[s.ID] = bundle.CodebaseScript{ID: s.ID, Path: s.Path, File: s.File,
-						Settings: folder.Config.Codebases[s.Codebase.Index].Settings}
-				}
-				users[s.ID] = append(users[s.ID], key)
-				continue
+	// items maps how a build problem names a script (bundle.ScriptItem) to
+	// its inventory id.
+	items := map[string]string{}
+	open := func(t *target) {
+		if _, err := engine.New(engine.Config{Program: t.prog, JS: fc.js}); errors.Is(err, engine.ErrUnsupported) {
+			t.unsupported = "the engine does not run it yet: " + err.Error()
+		} else if err != nil {
+			t.problem = "engine: " + err.Error()
+		}
+		if t.prog != nil {
+			for id, s := range t.prog.Scripts {
+				items[bundle.ScriptItem(s)] = id
 			}
-			e := bundle.BunScript{ID: s.ID, Path: s.ImportBase, Lock: lockText(s.Lock), Language: string(s.Language)}
-			if s.Kind == ir.PathScript {
-				e.File = s.File
-			} else {
-				e.Content = s.Content
-			}
-			if prev, ok := entries[s.ID]; ok && prev != e {
-				// One inventory id is one script in every compile of the
-				// folder; two readings of it are the compiler's fault.
-				t.problem = "build: script " + s.ID + " compiled to two different entries"
-				break
-			}
-			entries[s.ID] = e
-			users[s.ID] = append(users[s.ID], key)
 		}
 	}
 	for _, run := range f.Runs {
@@ -383,21 +316,19 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 		t := &target{}
 		b.targets[run.Target] = t
 		b.order = append(b.order, run.Target)
-		fc.compile(folder, run.Target, t)
-		if t.unsupported != "" || t.problem != "" {
-			continue
+		if fc.compile(folder, run.Target, t) {
+			open(t)
 		}
-		add(run.Target, t)
 	}
+	var roots []ir.Root
 	if len(f.Roots) > 0 {
 		// The bundle's other roots (the targets its steps dispatch, which
-		// a host contract lists, ADR 0002), compiled together as the
-		// default dispatcher's program (milestone PF3); a problem of
-		// theirs fails no run, only the dispatches that would reach them.
+		// a host contract lists, ADR 0002), which the default dispatcher
+		// runs (milestone PF3); a problem of theirs fails no run, only the
+		// dispatches that would reach them.
 		t := &target{}
 		b.targets[rootsTarget] = t
 		flows := folder.Paths(syncfolder.KindFlow)
-		var roots []ir.Root
 		for _, p := range f.Roots {
 			if slices.Contains(flows, p) {
 				roots = append(roots, ir.Root{Flow: p})
@@ -406,63 +337,66 @@ func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work s
 			}
 		}
 		if fc.compileRoots(folder, roots, t) {
-			add(rootsTarget, t)
+			open(t)
 		}
 	}
 
-	cfg := bundle.BunConfig{
-		Bun:     fc.bun,
-		Helper:  filepath.Join(fc.repo, "harnesses", "bun", "build", "main.ts"),
-		Folder:  root,
-		Out:     b.out,
-		Work:    filepath.Join(work, "build"),
-		Scripts: folderScripts(folder),
-	}
-	for _, p := range slices.Sorted(maps.Keys(entries)) {
-		cfg.Entries = append(cfg.Entries, entries[p])
-	}
-	if err := os.MkdirAll(b.out, 0o755); err != nil {
-		return nil, err
-	}
-	// A problem of one script is the problem of the targets that reach it.
-	attribute := func(err error) error {
+	for attempt := 0; ; attempt++ {
+		var contract ir.Contract
+		for _, p := range b.order {
+			if t := b.targets[p]; t.unsupported == "" && t.problem == "" {
+				contract.Roots = append(contract.Roots, ir.Root{Flow: p})
+			}
+		}
+		if t := b.targets[rootsTarget]; t != nil && t.unsupported == "" && t.problem == "" {
+			contract.Roots = append(contract.Roots, roots...)
+		}
+		if len(contract.Roots) == 0 {
+			return b, nil
+		}
+		data, err := json.Marshal(contract)
+		if err != nil {
+			return nil, err
+		}
+		out := filepath.Join(work, fmt.Sprintf("bundle-%d", attempt))
+		_, err = bundle.Build(ctx, bundle.Config{
+			Folder:         root,
+			Contract:       data,
+			ModuleState:    engine.ModuleState(fc.mode),
+			EngineVersion:  wl.Version(),
+			Bun:            fc.bun,
+			Helper:         filepath.Join(fc.repo, "harnesses", "bun", "build", "main.ts"),
+			HarnessRuntime: fc.harnessRuntime(),
+			Out:            out,
+			Work:           filepath.Join(work, "build"),
+		})
 		var be *bundle.BuildError
 		switch {
-		case errors.As(err, &be):
-			for _, p := range be.Problems {
-				id, isScript := strings.CutPrefix(p.Item, "script ")
-				if !isScript {
-					return err
-				}
-				for _, tp := range users[id] {
-					if t := b.targets[tp]; t.problem == "" {
-						t.problem = "build: script " + t.names[id] + ": " + p.Kind + ": " + p.Message
-					}
+		case err == nil:
+			b.out = out
+			return b, nil
+		case !errors.As(err, &be):
+			return nil, err
+		}
+		// A problem of one script is the problem of the targets that reach
+		// it, which the next build leaves out.
+		blamed := false
+		for _, p := range be.Problems {
+			id, ok := items[p.Item]
+			if !ok {
+				return nil, err
+			}
+			for _, key := range append(slices.Clone(b.order), rootsTarget) {
+				if t := b.targets[key]; t != nil && t.problem == "" && t.unsupported == "" && slices.Contains(t.reached, id) {
+					t.problem = "build: " + p.Item + ": " + p.Kind + ": " + p.Message
+					blamed = true
 				}
 			}
-		case err != nil:
-			return err
 		}
-		return nil
-	}
-	if len(cfg.Entries) > 0 {
-		if _, err := bundle.BuildBun(ctx, cfg); attribute(err) != nil {
+		if !blamed {
 			return nil, err
 		}
 	}
-	if len(codebase) > 0 {
-		cc := bundle.CodebaseConfig{Bun: cfg.Bun, Helper: cfg.Helper, Folder: root, Out: b.out, Work: filepath.Join(work, "codebase")}
-		for _, id := range slices.Sorted(maps.Keys(codebase)) {
-			cc.Entries = append(cc.Entries, codebase[id])
-		}
-		if _, err := bundle.BuildCodebase(ctx, cc); attribute(err) != nil {
-			return nil, err
-		}
-	}
-	if b.digest, err = writeManifest(b.out, "windmill-lite-flow-fixture", "Built by wltest check for one flow fixture; the bundle format is milestone F4's.", nil); err != nil {
-		return nil, err
-	}
-	return b, nil
 }
 
 // rootsTarget keys the default dispatcher's program among a fixture's
@@ -472,21 +406,22 @@ const rootsTarget = "(roots)"
 // compile compiles one target flow, with it as the only root, into t: its
 // program, its module ids and the scripts it reaches. A feature the
 // compiler or this runner refuses makes t unsupported; a compile error is
-// t's problem.
-func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target) {
+// t's problem. It reports whether t has neither.
+func (fc *flowChecker) compile(folder *syncfolder.Folder, path string, t *target) bool {
 	if !fc.compileRoots(folder, []ir.Root{{Flow: path}}, t) {
-		return
+		return false
 	}
 	fl := t.prog.Flows[path]
 	if fl == nil {
 		t.problem = "compile: no flow " + path
-		return
+		return false
 	}
 	for _, m := range fl.Modules {
 		t.modules = append(t.modules, m.ID)
 		t.virtual = append(t.virtual, m.Virtual)
 	}
 	t.failure = fl.FailureModule != nil
+	return true
 }
 
 // compileRoots compiles the folder with roots as its contract's roots into
@@ -514,7 +449,6 @@ func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, 
 		return false
 	}
 	t.prog = prog
-	t.names = map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(prog.Scripts)) {
 		s := prog.Scripts[id]
 		// The Bun harness runs both its boundaries, and the engine invokes
@@ -523,32 +457,9 @@ func (fc *flowChecker) compileRoots(folder *syncfolder.Folder, roots []ir.Root, 
 			t.unsupported = fmt.Sprintf("script %s runs in the %s boundary of the %s harness, which windmill-lite does not have yet", s.Path, s.Boundary, s.Harness)
 			return false
 		}
-		t.reached = append(t.reached, s)
-		t.names[id] = s.Path
-		if s.Kind != ir.PathScript {
-			t.names[id] = fmt.Sprintf("%s (inline step %s of %s)", id, s.Module, s.Flow)
-		}
+		t.reached = append(t.reached, id)
 	}
 	return true
-}
-
-// folderScripts maps every TypeScript script of the folder to its file: the
-// scripts that workspace imports resolve to (WR-28).
-func folderScripts(f *syncfolder.Folder) map[string]string {
-	files := map[string]string{}
-	for _, p := range f.Paths(syncfolder.KindScript) {
-		if s, err := f.Script(p); err == nil && strings.HasSuffix(s.File, ".ts") {
-			files[p] = s.File
-		}
-	}
-	return files
-}
-
-func lockText(l *string) string {
-	if l == nil {
-		return ""
-	}
-	return *l
 }
 
 // hostModuleEntry is a host-provided module in a step or fixture bundle's
@@ -582,34 +493,37 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// runOne runs one run on the engine and compares its observation. A run's
+// runOne runs one run on the runtime and compares its observation. A run's
 // cancel_after_ms cancels it with the reason and the canceler the oracle's
 // cancellation names (FX-38).
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target) []string {
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, rt *wl.Runtime, t *target) []string {
 	cctx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)
 	defer cancel()
 	if r.CancelAfterMS != nil {
 		stop := time.AfterFunc(time.Duration(*r.CancelAfterMS)*time.Millisecond, func() {
-			cancelRun(&engine.Cancellation{Reason: oracle.CancelAfterReason, Canceler: oracle.CancelAfterCanceler})
+			cancelRun(&wl.Cancellation{Reason: oracle.CancelAfterReason, Canceler: oracle.CancelAfterCanceler})
 		})
 		defer stop.Stop()
 	}
-	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
-	tr, err := e.Run(rctx, engine.RunRequest{
-		ID:   newUUID(),
-		Path: r.Target,
-		Args: jsonval.FromProducer(r.ArgsOrEmpty()),
-		Exec: exec,
-	})
+	res, err := rt.Run(rctx, r.Target, r.ArgsOrEmpty(), wl.RunOptions{ID: newUUID()})
 	if err != nil {
 		return []string{"run: " + err.Error()}
 	}
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies)
+	tr := res.Trace
+	// Every job the run's steps ran, superseded attempts' included, which
+	// the normaliser replaces with its site's placeholder (OR-14).
+	jobs := map[string]conformance.SitePath{}
+	for _, rec := range tr.Steps {
+		if rec.Job != "" {
+			jobs[rec.Job] = rec.Site
+		}
+	}
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, jobs, f.Compare, r.Copies)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}
@@ -695,32 +609,4 @@ func compareRun(f *conformance.Fixture, r conformance.Run, got conformance.Obser
 		problems = append(problems, "observed "+compactJSON(got))
 	}
 	return problems
-}
-
-// jobRecorder is the executor of one run. It records the site of every
-// invocation the run makes, by its id, which the normaliser replaces with
-// the site's placeholder (OR-14), and passes the invocation on. The engine
-// names an invocation's script by its inventory id, as the bundle does
-// (ADR 0002), and gives its job path as WM_JOB_PATH (WR-29).
-type jobRecorder struct {
-	exec engine.StepExecutor
-	mu   sync.Mutex
-	jobs map[string]conformance.SitePath
-}
-
-func (j *jobRecorder) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
-	j.mu.Lock()
-	j.jobs[inv.ID] = inv.Site
-	j.mu.Unlock()
-	return j.exec.Execute(ctx, inv)
-}
-
-func (j *jobRecorder) ids() map[string]conformance.SitePath {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	out := make(map[string]conformance.SitePath, len(j.jobs))
-	for id, site := range j.jobs {
-		out[id] = site
-	}
-	return out
 }

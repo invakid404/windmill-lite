@@ -181,7 +181,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	names := map[string]string{} // script id → how problems name it
 	for _, id := range ids {
 		s := prog.Scripts[id]
-		names[id] = scriptName(s)
+		names[id] = ScriptItem(s)
 		if s.Bundling == ir.BundlingCodebase {
 			// esbuild bundles it with its entry's settings (C2b).
 			codebase = append(codebase, CodebaseScript{ID: id, Path: s.Path, File: s.File,
@@ -466,9 +466,10 @@ func lockText(l *string) string {
 	return *l
 }
 
-// scriptName is how problems name an inventory script: a path script by
-// its path, an inline script by its flow and step.
-func scriptName(s *ir.Script) string {
+// ScriptItem is how Build's problems name an inventory script
+// (ItemProblem.Item): a path script by its path, an inline script by its
+// flow and step, with its inventory id.
+func ScriptItem(s *ir.Script) string {
 	if s.Kind == ir.InlineScript {
 		return fmt.Sprintf("%s step '%s' (script %s)", s.Flow, s.Module, s.ID)
 	}

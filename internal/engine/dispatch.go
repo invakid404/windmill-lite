@@ -121,7 +121,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		Args:        resolved,
 		Env:         env,
 		Boundary:    boundary,
-		ModuleState: ModuleStateWarm,
+		ModuleState: e.state,
 		Report:      NopReporter{},
 	})
 	switch {

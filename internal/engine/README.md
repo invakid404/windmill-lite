@@ -38,7 +38,7 @@ harness that executes steps is [internal/harness](../harness/README.md).
 | `hooks.go` | `Hooks` (H1–H3, H6–H9, H12 of [ADR 0008](../../docs/design/0008-host-hooks.md)), `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch` (H5), `Clock` and `RealClock` (H10); `StaticIntercepts`, H1's no-code form | N1a calls them; F2a, F2b and F2c expose them to hosts |
 | `waits.go` | H10's `Jitter`, `SeededJitter` and `RecordClock`; the values of `sleep` and `timeout` and the retry schedule (below) | N2 calls them; F2b exposes the clock and the jitter to hosts |
 | `precedence.go` | `Start`, `Completion`, `AfterContinue` and their `Verdict` | N1a's decision list |
-| `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md)). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
+| `trace.go` | `Trace`, `StepRecord`, `ChildFlow`, `Origin`, `Late`, `Warning`, `Span`, `PlatformCall` (H9; run spans of [ADR 0011](../../docs/design/0011-differential-testing.md); the platform calls of a run's steps, which wl fills from the facade's records, since the engine does not see the facade). The trace a run returns is a snapshot nothing changes later; late output goes to the snapshot `OnRunSettled` receives | N1a fills it; wl returns it |
 | `engine.go`, `run.go`, `values.go` | `Engine`, `Config`, `New`, `RunRequest`, `Cancellation`, `ErrUnsupported`, `ErrPreWriteDeadline`, `FatalError`: the engine core (below) | the flow runner of `wltest check`; `Skeleton`; wl (F1) |
 | `providers.go` | What a run reads of the platform (PF2, below): the expression helpers, `flow_env`'s resolution per transition, a resolution failure | the engine core |
 | `dispatch.go` | `RunScript`, `ScriptRequest`, `ScriptResult`: a root script's run as a script job; `Dispatcher`, `NewDispatcher`: the default dispatcher of [ADR 0007](../../docs/design/0007-platform-interface.md) (PF3, below) | a host's `platform.Services`; `wltest check` |
@@ -196,7 +196,12 @@ The compiler has already run the expressions' textual stages
 RunRequest)` runs one flow to its end and returns its trace; an error
 means the run could not start (an unknown flow, arguments that are not a
 JSON object or that jsonb refuses, no executor). An `Engine` is safe for
-concurrent use.
+concurrent use. `Config.ModuleState` is the module-state mode its steps run
+in ([ADR 0006](../../docs/design/0006-module-state.md)), `warm` unless set:
+the engine hands it to the executor with every invocation, the
+dispatcher's and a root script's included, and records it in every trace;
+the executor must run in that mode (a harness pool refuses an invocation
+of the other).
 
 **What it runs (N1a, N1b, N3a, N3b, N3c, N2, NI).** A flow's modules in sequence:
 `script` and `rawscript` Bun steps, `identity`, input transforms,
@@ -921,7 +926,8 @@ H2 and the skipped classification, `stop_after_if` (each stop, a throw, a
 non-boolean, the textual `results` condition), the chaining errors, the
 argument failures and the keys at the storage boundary, the timeouts'
 precedence, repeated ids, every hook seam and its precedence, the
-refusals, and concurrent runs under `-race`. `errors_test.go` (N1b)
+refusals, concurrent runs under `-race`, and the module state each trace
+records and each invocation carries. `errors_test.go` (N1b)
 covers `continue_on_error`, the failure module (its scope, a failing,
 skipped or chaining one, no stop), the recovery table, the error-stop
 matrix with and without tolerance and a failure module, the unrecoverable

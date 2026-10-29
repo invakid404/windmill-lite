@@ -18,11 +18,11 @@ and the default dispatcher, which runs a bundle's roots, is the engine's
 | File | Contents |
 |---|---|
 | `identity.go` | `Identity`, `Host`, `StatePath`, `NewToken`: job identity (PF1) |
-| `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services` |
+| `services.go` | `Resource`, `Variable`, the `Resources`, `Variables`, `VariableUpdater`, `Secrets` and `ValueResolver` interfaces, `LocalSecrets`, `Store`, `ResourceChain`, `VariableChain`, `Services` |
 | `jobs.go` | `Job`, `JobKind`, the `Jobs` and `FlowUserState` interfaces, `Registry` and `UserStates`, their local defaults, and the services' lookups: `RootJob`, `JobEnv`, `FlowUserState`, `SetFlowUserState` (PF3) |
 | `objects.go` | `Object`, the `ObjectStore` interface, `DirObjects`, `DefaultStorage` (PF3) |
 | `dispatch.go` | `Dispatch`, `DispatchKind`, `JobResult`, the `Dispatcher` interface, `NotInBundleError` (PF3) |
-| `interpolate.go` | the walker: `RawResource`, `InterpolatedResource`, `ResourceExists`, `VariableExists`, `VariableValue`, `ResolveArgs`, `APIEnv` |
+| `interpolate.go` | the walker: `RawResource`, `InterpolatedResource`, `ResourceExists`, `VariableExists`, `VariableValue`, `ResolveArgs`, `APIEnv`; `UpdateVariable` |
 | `json.go` | JSON values as Windmill's backend JSON library parses and writes them, `JSONString` |
 | `errors.go` | `Error`: the variants of the API's error type, their statuses and displays (WA-42) |
 | `data.go` | `LoadData`: a bundle's `data/` as a `Store` |
@@ -108,6 +108,15 @@ starts.
   secret, so the host supplies secrets. `SetResource` refuses a value
   jsonb would refuse (a NUL escape, an unpaired surrogate escape, a number
   beyond numeric's range), as Windmill refuses to create one.
+- **Updates** (F1, [WA-11](../../docs/semantics/client-api.md#wa-11)).
+  `Services.UpdateVariable` updates an existing variable through the
+  variable service when it is a `VariableUpdater`, as `Store` is: a new
+  value replaces the old one (and is plaintext, no longer `Encrypted`), and
+  a new secrecy replaces the old; a missing variable is the read's
+  not-found. A variable service that is not one, a chain among them, is
+  read-only (`ErrReadOnlyVariables`), and the facade answers 501. A runtime
+  that owns its store ([wl](../../wl/README.md)) thus keeps a step's update
+  for the runs after it.
 - **Host overrides.** `ResourceChain` and `VariableChain` put services in
   order, the first that has a path answering for it (WA-40's design note):
   a host's own store before the bundle's.
