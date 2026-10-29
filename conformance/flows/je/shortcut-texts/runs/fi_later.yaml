@@ -1,4 +1,11 @@
-# JE-7 after a step: the same read after module p.
+# JE-7 after a step (request 8): the same spaced text, {"a": 2, "b": 1},
+# in the chaining InternalError after p.
 spec: [JE-7, JE-29, JE-44]
 target: f/wl_je_texts/fi_later
 args: {o: {b: 1, a: 2}}
+expect:
+  status: failure
+  result: {"error": {"name": "InternalError", "message": "Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1}"}}
+  steps:
+    "m:p": {"status": "success", "args": {}, "result": 0}
+    "m:q": {"status": "not_run", "ran": false}

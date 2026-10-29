@@ -1,7 +1,7 @@
 # WR-28/c: the static import's rewrite also rewrites the identical dynamic
 # literal, so both load the workspace helper.
 spec: [WR-28/c]
-target: f/wl_wr28a/wr28_c
+target: f/wl_wr28d/wr28_c
 expect:
   status: success
   result: [helper, helper]

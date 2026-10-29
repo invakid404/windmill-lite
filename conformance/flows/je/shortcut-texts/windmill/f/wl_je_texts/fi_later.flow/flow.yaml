@@ -1,18 +1,20 @@
-summary: "JE-7 after a step: timeout flow_input.o"
+summary: 'JE-7 after a step: timeout flow_input.o'
 value:
   modules:
     - id: p
       value:
         type: rawscript
-        language: bun
         content: '!inline p.ts'
         input_transforms: {}
+        lock: '!inline p.lock'
+        language: bun
     - id: q
       value:
         type: rawscript
-        language: bun
         content: '!inline q.ts'
         input_transforms: {}
+        lock: '!inline q.lock'
+        language: bun
       timeout:
         type: javascript
         expr: flow_input.o

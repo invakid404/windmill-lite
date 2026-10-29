@@ -1,5 +1,7 @@
-# FX-36/b: HTTP 422 with the failure value as the body; the stack
-# is masked inside the text.
+# FX-36/b: HTTP 422 with the failure value as the body; the stack is
+# masked inside the text. The body is jsonb's text output, so its members
+# come in jsonb order (name, stack, message, step_id), not the order the
+# catalogue writes them in (batches/e3e.json, contradictions).
 spec: [FX-36/b]
 target: f/wl_fx36h/failed
 submit: run_wait_result
@@ -8,4 +10,4 @@ expect:
   result: {error: {name: Error, message: z, stack: "<stack>", step_id: a}}
   steps:
     "m:a": {status: failure, args: {}, result: {error: {name: Error, message: z, stack: "<stack>", step_id: a}}}
-  response: {status: 422, content_type: application/json, body: '{"error": {"message": "z", "name": "Error", "stack": "<stack>", "step_id": "a"}}'}
+  response: {status: 422, content_type: application/json, body: '{"error": {"name": "Error", "stack": "<stack>", "message": "z", "step_id": "a"}}'}

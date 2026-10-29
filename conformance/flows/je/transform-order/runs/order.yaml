@@ -1,4 +1,43 @@
-# The catalogue says only that the order is unspecified (a hash map); the
-# run's expect is the recorded observation.
+# JE-23: the order is unspecified (a hash map). Recorded: not the same
+# transform first in every evaluation, so "varies", whatever the order in
+# which the flow writes the transforms.
 spec: [JE-23, JE-V5]
 target: f/wl_je_order/order
+expect:
+  status: success
+  result: varies
+  steps:
+    "m:l": {status: success, result: "<masked>"}
+    "m:l/i:0/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:0/m:u": {status: not_run, ran: false}
+    "m:l/i:1/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:1/m:u": {status: not_run, ran: false}
+    "m:l/i:2/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:2/m:u": {status: not_run, ran: false}
+    "m:l/i:3/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:3/m:u": {status: not_run, ran: false}
+    "m:l/i:4/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:4/m:u": {status: not_run, ran: false}
+    "m:l/i:5/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:5/m:u": {status: not_run, ran: false}
+    "m:l/i:6/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:6/m:u": {status: not_run, ran: false}
+    "m:l/i:7/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:7/m:u": {status: not_run, ran: false}
+    "m:l/i:8/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:8/m:u": {status: not_run, ran: false}
+    "m:l/i:9/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:9/m:u": {status: not_run, ran: false}
+    "m:l/i:10/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:10/m:u": {status: not_run, ran: false}
+    "m:l/i:11/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:11/m:u": {status: not_run, ran: false}
+    "m:l/i:12/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:12/m:u": {status: not_run, ran: false}
+    "m:l/i:13/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:13/m:u": {status: not_run, ran: false}
+    "m:l/i:14/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:14/m:u": {status: not_run, ran: false}
+    "m:l/i:15/m:t": {status: failure, args: {}, result: "<masked>"}
+    "m:l/i:15/m:u": {status: not_run, ran: false}
+    "m:s": {status: success, args: {seen: varies}, result: varies}

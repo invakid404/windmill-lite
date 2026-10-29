@@ -1,25 +1,26 @@
-summary: "probe delete_after_use: a step whose job would be cleaned up"
+summary: 'probe delete_after_use: a step whose job would be cleaned up'
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
-        input_transforms: 
+        input_transforms:
           x:
             type: javascript
-            expr: "flow_input.x"
-      delete_after_use: true
+            expr: flow_input.x
+        lock: '!inline a.lock'
+        language: bun
     - id: b
       value:
         type: rawscript
-        language: bun
         content: '!inline b.ts'
-        input_transforms: 
+        input_transforms:
           p:
             type: javascript
-            expr: "previous_result"
+            expr: previous_result
+        lock: '!inline b.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

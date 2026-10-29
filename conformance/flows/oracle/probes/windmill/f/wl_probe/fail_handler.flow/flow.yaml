@@ -1,28 +1,31 @@
-summary: "probe fail_handler: a failure module that reports the error"
+summary: 'probe fail_handler: a failure module that reports the error'
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
     - id: b
       value:
         type: rawscript
-        language: bun
         content: '!inline b.ts'
         input_transforms: {}
+        lock: '!inline b.lock'
+        language: bun
   failure_module:
     id: failure
     value:
       type: rawscript
-      language: bun
       content: '!inline failure.ts'
       input_transforms:
         error:
           type: javascript
           expr: error
+      lock: '!inline failure.lock'
+      language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

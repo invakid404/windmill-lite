@@ -5,12 +5,18 @@
 # dynamic import() with and without a static import of the same or an
 # overlapping specifier (WR-28/c to WR-28/e, later). Each case is a flow
 # whose one step runs the importing script by path; every helper is a
-# workspace script of its own, so no local-file shortcut applies.
-# Synthetic, written for this repository from
+# workspace script of its own, so no local-file shortcut applies. The tree
+# is created through the API (oracle.deploy api) in path order, so each
+# imported script exists before the script that imports it: the CLI's
+# generate-metadata, which runs before a push, cannot lock a relative
+# import of a script the workspace does not hold yet (its first oracle run
+# failed so). WR-28/e's second helper is f/wl_wr28c/helper, reached by the
+# dynamic ../wl_wr28c/./helper, which holds the static ./helper as a
+# substring. Synthetic, written for this repository from
 # docs/semantics/conformance.md#wr-28.
 id: languages/wr-28
 spec: [WR-28]
 scope: core
 provenance: oracle-observed
 languages: [bun]
-oracle: {workers: 1}
+oracle: {workers: 1, deploy: api}

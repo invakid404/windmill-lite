@@ -1,33 +1,36 @@
-summary: "probe loop_seq_multi (OR-V9/a): a two-step body bound to flow_input.iter.value"
+summary: 'probe loop_seq_multi (OR-V9/a): a two-step body bound to
+  flow_input.iter.value'
 value:
   modules:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: javascript
-          expr: "[\"a\", \"b\"]"
-        parallel: false
-        skip_failures: false
         modules:
           - id: x1
             value:
               type: rawscript
-              language: bun
               content: '!inline x1.ts'
-              input_transforms: 
+              input_transforms:
                 v:
                   type: javascript
-                  expr: "flow_input.iter.value"
+                  expr: flow_input.iter.value
+              lock: '!inline x1.lock'
+              language: bun
           - id: x2
             value:
               type: rawscript
-              language: bun
               content: '!inline x2.ts'
-              input_transforms: 
+              input_transforms:
                 p:
                   type: javascript
-                  expr: "previous_result"
+                  expr: previous_result
+              lock: '!inline x2.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '["a", "b"]'
+        parallel: false
+        skip_failures: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

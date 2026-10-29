@@ -1,12 +1,13 @@
-summary: "probe retry: a constant retry, the first attempt failing"
+summary: 'probe retry: a constant retry, the first attempt failing'
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
       retry:
         constant:
           attempts: 2

@@ -21,3 +21,15 @@ oracle: {workers: 1, effects: true, setup: each_run}
 compare:
   # key_order's transform sees flow_input's keys in a random order (OR-23/a).
   unordered: [/steps/m:a0/args/fi_keys, /steps/m:a0/result/fi_keys]
+  # env's values that change between runs or sessions: the workspace,
+  # the object path (a timestamp and the job), the scheduled time and the
+  # runnable id (OR-29).
+  mask:
+    - /result/env/WM_WORKSPACE
+    - /result/env/WM_OBJECT_PATH
+    - /result/env/WM_SCHEDULED_FOR
+    - /result/env/WM_RUNNABLE_ID
+    - /steps/m:a/result/env/WM_WORKSPACE
+    - /steps/m:a/result/env/WM_OBJECT_PATH
+    - /steps/m:a/result/env/WM_SCHEDULED_FOR
+    - /steps/m:a/result/env/WM_RUNNABLE_ID

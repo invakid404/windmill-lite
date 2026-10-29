@@ -1,27 +1,29 @@
-summary: "JE-8 right after a loop: timeout results.l"
+summary: 'JE-8 right after a loop: timeout results.l'
 value:
   modules:
     - id: l
       value:
         type: forloopflow
+        modules:
+          - id: x
+            value:
+              type: rawscript
+              content: '!inline x.ts'
+              input_transforms: {}
+              lock: '!inline x.lock'
+              language: bun
         iterator:
           type: javascript
           expr: '[1]'
         parallel: false
         skip_failures: false
-        modules:
-          - id: x
-            value:
-              type: rawscript
-              language: bun
-              content: '!inline x.ts'
-              input_transforms: {}
     - id: q
       value:
         type: rawscript
-        language: bun
         content: '!inline q.ts'
         input_transforms: {}
+        lock: '!inline q.lock'
+        language: bun
       timeout:
         type: javascript
         expr: results.l

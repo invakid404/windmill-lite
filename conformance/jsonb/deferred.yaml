@@ -17,8 +17,8 @@ deferred:
     reason: its text is FX-48/b's; that the push failure is an InternalError at a later transition is the engine's routing (FX-15)
     expected_in: N1b
   - spec: OR-27/b
-    reason: the catalogue sets no expectation until Q-OR-6 is recorded; jsonb's rejection of a NUL in a key and in a nested value is checked by the FX-48 variants nul-in-key and nul-nested
-    expected_in: E3e (records Q-OR-6)
+    reason: the catalogue sets no expectation; recording batch E3e recorded Q-OR-6 (conformance/flows/oracle/nul) - a NUL in a key or a nested value of a Bun result fails like OR-27/a, and a Python result's NUL is stored as the text " null " - and jsonb's rejection of a NUL in a key and in a nested value is checked here by the FX-48 variants nul-in-key and nul-nested
+    expected_in: E3e (conformance/flows/oracle/nul); the step's outcome is N1b's
   - spec: WR-10/c
     reason: the preprocessor's output reaches main in memory inside the harness; no producer or stored text is involved
     expected_in: the step suite, once script preprocessors (WR-11, later scope) have a milestone; none in docs/design/0012 yet

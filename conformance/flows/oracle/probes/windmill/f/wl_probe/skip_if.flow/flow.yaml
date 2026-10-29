@@ -1,32 +1,35 @@
-summary: "probe skip_if: a skipped step runs as an identity job"
+summary: 'probe skip_if: a skipped step runs as an identity job'
 value:
   modules:
     - id: a0
       value:
         type: rawscript
-        language: bun
         content: '!inline a0.ts'
         input_transforms: {}
+        lock: '!inline a0.lock'
+        language: bun
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
         input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
       skip_if:
         expr: flow_input.skip
     - id: b
       value:
         type: rawscript
-        language: bun
         content: '!inline b.ts'
-        input_transforms: 
+        input_transforms:
           p:
             type: javascript
-            expr: "previous_result"
+            expr: previous_result
           r:
             type: javascript
-            expr: "results.a"
+            expr: results.a
+        lock: '!inline b.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

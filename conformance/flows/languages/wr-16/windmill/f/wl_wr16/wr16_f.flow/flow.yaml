@@ -1,12 +1,13 @@
-summary: "WR-16/f: how a custom replace return value is converted"
+summary: 'WR-16/f: how a custom replace return value is converted'
 value:
   modules:
     - id: s
       value:
         type: rawscript
-        language: bun
         content: '!inline s.ts'
         input_transforms: {}
+        lock: '!inline s.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

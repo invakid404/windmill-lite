@@ -1,14 +1,14 @@
-summary: "WR-47: f/wl_cbx/cjs/rel"
+summary: 'WR-47: f/wl_cbx/cjs/rel'
 value:
   modules:
     - id: s
       value:
         type: script
-        path: f/wl_cbx/cjs/rel
-        input_transforms: 
+        input_transforms:
           x:
             type: javascript
             expr: flow_input.x
+        path: f/wl_cbx/cjs/rel
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

@@ -1,15 +1,16 @@
-summary: "probe args_vs_received with the variable removed by the push"
+summary: probe args_vs_received with the variable removed by the push
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
         input_transforms:
           s:
             type: static
             value: $var:f/wl_probe/v
+        lock: '!inline a.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

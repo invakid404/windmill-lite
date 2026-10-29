@@ -21,7 +21,7 @@ import (
 // flowscript, identity or preview has no flow_status, and a flow, flownode
 // or flowpreview job has one.
 func TestReplayRecordedCaptures(t *testing.T) {
-	// spec: OR-28/a, OR-11/a, OR-12/a, OR-20/a, OR-20/b, FX-19/d, CF-3/a, CF-12/b, CF-12/e, CF-12/f, CF-13/a, CF-14/c, CF-15/f, FX-40/b, FX-40/d
+	// spec: OR-28/a, OR-11/a, OR-12/a, OR-20/a, OR-20/b, FX-19/d, CF-3/a, CF-12/b, CF-12/e, CF-12/f, CF-13/a, CF-14/c, CF-15/f, FX-40/b, FX-40/d, OR-V9/a, OR-V9/b, OR-V9/c, OR-V9/d, OR-11/b, OR-12/b, OR-16/a, OR-21/a, OR-25/a, OR-26/a, OR-V2/a, OR-V2/d, OR-10/b, FX-37/a, FX-49/a, CF-6/b
 	paths, err := filepath.Glob("testdata/captures/*.json")
 	if err != nil {
 		t.Fatal(err)

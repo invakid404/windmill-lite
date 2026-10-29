@@ -14,7 +14,7 @@
     {
       "spec": "SY-6/c",
       "reason": "what a pull writes after a deploy; the loader reads whatever form the folder holds. The pull round trip is an optional oracle corroboration (Q-OF-1)",
-      "expected_in": "E3e"
+      "expected_in": "E3e records it: conformance/flows/control-flow/pull, whose provenance holds the pulled flow, checked by TestRecordedDeploymentEvidence in internal/oracle"
     },
     {
       "spec": "SY-7/f",

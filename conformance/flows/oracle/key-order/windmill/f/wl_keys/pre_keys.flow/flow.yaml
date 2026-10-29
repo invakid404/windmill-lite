@@ -1,25 +1,27 @@
-summary: "OR-24/e: an object the preprocessor built"
+summary: 'OR-24: an object the flow''s preprocessor built'
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
-        input_transforms: 
-          ok:
-            type: javascript
-            expr: "Object.keys(flow_input.o)"
+        input_transforms:
           o:
             type: javascript
-            expr: "flow_input.o"
+            expr: flow_input.o
+          ok:
+            type: javascript
+            expr: Object.keys(flow_input.o)
+        lock: '!inline a.lock'
+        language: bun
   preprocessor_module:
     id: preprocessor
     value:
       type: rawscript
-      language: bun
       content: '!inline preprocessor.ts'
       input_transforms: {}
+      lock: '!inline preprocessor.lock'
+      language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

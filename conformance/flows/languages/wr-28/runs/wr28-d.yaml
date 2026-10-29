@@ -1,4 +1,4 @@
 # WR-28/d: with no static trigger, the dynamic import is not fetched from
 # the workspace and resolution fails; the error is recorded.
 spec: [WR-28/d]
-target: f/wl_wr28a/wr28_d
+target: f/wl_wr28d/wr28_d

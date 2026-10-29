@@ -21,8 +21,8 @@ deferred:
     reason: the entry fallbacks are falsy tests; the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
     checked_in: a follow-up of B2b
   - case: JE-19/e
-    reason: needs a restarted run (restart from a step), which the oracle harness does not drive yet (Q-JE-8)
-    checked_in: E3e
+    reason: needs a restarted run (restart from a step), which the oracle harness does not drive (Q-JE-8); windmill-lite has no restart (ADR 0001 section 1), so recording batch E3e left the case outside the contract
+    checked_in: none
   - case: JE-21/b
     reason: a thrown non-Error value shows its debug form (Q-JE-1); the semantics reference added the case on 2026-10-28 and it is not yet encoded at this level
     checked_in: a follow-up of B2b
@@ -41,12 +41,12 @@ deferred:
 partial:
   - case: JE-36/d
     recorded: the deployed run (flows/je/branches, je36-d)
-    remaining: the preview run (Q-JE-5), which needs the flow-preview API in the harness
-    checked_in: E3e
+    remaining: the preview run (Q-JE-5); windmill-lite has no preview mode (ADR 0001 section 1), so recording batch E3e left it outside the contract
+    checked_in: none
   - case: JE-V1/a
     recorded: that the parallelism expression is accepted and every child runs (flows/je/loops, je-v1-a)
-    remaining: how many children run at once, which needs at least three workers to tell a cap of two from none
-    checked_in: E3e
+    remaining: how many children run at once, which needs at least three workers to tell a cap of two from none, beyond the oracle's two (OR-5; recording batch E3e)
+    checked_in: none
   - case: JE-28/a
     recorded: the sleep's delay, checked against the recording's provenance timings (a delay claim), not the compared observation
     remaining: nothing; timings are never compared between recordings (OR-17)

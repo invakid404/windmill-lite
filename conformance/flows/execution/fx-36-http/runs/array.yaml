@@ -1,5 +1,7 @@
-# Q-FX-12: the catalogue sets no expectation; whether an array decodes
-# positionally as response metadata is recorded.
+# Q-FX-12: the catalogue sets no expectation. The oracle decodes the array
+# positionally as the response metadata's fields, in order: the status
+# code 201, then null content type, headers and transfer encoding, then
+# the result 7, written as the JSON body.
 spec: [FX-36]
 target: f/wl_fx36h/array
 submit: run_wait_result
@@ -8,4 +10,4 @@ expect:
   result: [201, null, null, null, 7]
   steps:
     "m:a": {status: success, args: {}, result: [201, null, null, null, 7]}
-  response: {status: 200, content_type: application/json, body: '[201, null, null, null, 7]'}
+  response: {status: 201, content_type: application/json, body: '7'}

@@ -1,4 +1,9 @@
-# WR-16/b: the job fails with a TypeError (both readings); the message is
-# recorded.
+# WR-16/b: the numeric chunk has no replace method, so the step fails with
+# a TypeError, whose message quotes the wrapper's call (both readings).
 spec: [WR-16/b]
 target: f/wl_wr16/wr16_b
+expect:
+  status: failure
+  result: {"error": {"name": "TypeError", "stack": "<stack>", "message": "chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)", "step_id": "s"}}
+  steps:
+    "m:s": {"status": "failure", "args": {}, "result": {"error": {"name": "TypeError", "stack": "<stack>", "message": "chunk.replace is not a function. (In 'chunk.replace(/\\n/g, \"\\\\n\")', 'chunk.replace' is undefined)", "step_id": "s"}}}

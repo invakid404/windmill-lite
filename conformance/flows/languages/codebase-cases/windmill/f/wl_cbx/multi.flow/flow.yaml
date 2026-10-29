@@ -1,11 +1,11 @@
-summary: "WR-49/b: f/wl_cbx/multi/multi"
+summary: 'WR-49/b: f/wl_cbx/multi/multi'
 value:
   modules:
     - id: s
       value:
         type: script
-        path: f/wl_cbx/multi/multi
         input_transforms: {}
+        path: f/wl_cbx/multi/multi
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

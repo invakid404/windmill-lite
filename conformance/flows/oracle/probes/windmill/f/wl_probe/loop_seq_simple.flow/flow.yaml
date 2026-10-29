@@ -1,27 +1,28 @@
-summary: "probe loop_seq_simple: a collapsed sequential loop"
+summary: 'probe loop_seq_simple: a collapsed sequential loop'
 value:
   modules:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: javascript
-          expr: "[10, 20, 30]"
-        parallel: false
-        skip_failures: false
         modules:
           - id: x
             value:
               type: rawscript
-              language: bun
               content: '!inline x.ts'
-              input_transforms: 
-                v:
-                  type: javascript
-                  expr: "flow_input.iter.value"
+              input_transforms:
                 i:
                   type: javascript
-                  expr: "flow_input.iter.index"
+                  expr: flow_input.iter.index
+                v:
+                  type: javascript
+                  expr: flow_input.iter.value
+              lock: '!inline x.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[10, 20, 30]'
+        parallel: false
+        skip_failures: false
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

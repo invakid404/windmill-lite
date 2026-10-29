@@ -1,0 +1,34 @@
+version: v2
+locks:
+  f/wl_cbx/asset.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/asset/asset: c46d37b66b6510b28738a38e3d85535d6eb817728b7e47b95115867405369e52
+  f/wl_cbx/banner.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/banner/banner: 568b5c11fba75bfa00660969e6218492b9d293a91821a73fd6d27df4d0dac623
+  f/wl_cbx/cjs_rel.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/cjs_runtime.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/cjs/lib/tag: d03f452de8153ff75b79a6e07986ce83778581bc438a5b4696281fba9772a97b
+  f/wl_cbx/cjs/node: 855944764547404b883daef6e17e91979e488266b632105a2e5d620f255ecfa8
+  f/wl_cbx/cjs/rel: 7ce266147f9267d9ab8e859c7939bcb04eb627ad0339d654d434c0506fc21e31
+  f/wl_cbx/cjs/runtime: 996778ce0650f19adacb345955dedac8929cf91fa53005c93433249f49d3f4e9
+  f/wl_cbx/define.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/define/mode: f760ae46a80d24f306d3a70552358fe0f0eb3e3addda85a6a9402caefb1e8558
+  f/wl_cbx/esm_rel.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/esm_runtime.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/esm/lib/tag: d03f452de8153ff75b79a6e07986ce83778581bc438a5b4696281fba9772a97b
+  f/wl_cbx/esm/probe: dd970541aa628008bf9abaf70074544586c2e3bdbf6dd83697dee2b6aa8f2e27
+  f/wl_cbx/esm/rel: 4f4574a1b16796789a672b1812599025e9ba1573f8e17d429c4768785826c76c
+  f/wl_cbx/esm/runtime: 56844e2aba2409900f99d9f5b9b289158c7f2d78ce45f6314b4032d46e590c27
+  f/wl_cbx/inject.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/inject/inject: 968aab78d3ca4bca15673a8032d89796d9c8883114c6baf7a38ccb54535c3d85
+  f/wl_cbx/loader.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/loader/text: cb57ede167391286a19004064778ef0e634889ec6d4d7978ac8e0280ffae9c69
+  f/wl_cbx/multi.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/multi/multi: 81a2f2657b3bd6c4b63222fc05eb501a7d297e7f7a44d7b7b2d99bcea80313bc
+  f/wl_cbx/native_control.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/native.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/native/native: c2e8ec0541fe9edc2dba33a2f71bc0bd1dd09d168a646e7f8c97079d4b0a37e8
+  f/wl_cbx/node_esm_bare.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/node_esm.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/node_version.flow+__flow_hash: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+  f/wl_cbx/nodeesm_bare/node_esm: 17999af88d02fd5f94a79bc7546ea2617158b3870809dced25da65f8ad07825e
+  f/wl_cbx/nodeesm/node_esm: e4fd5fca7dc4d47fab4eab52c1241320a1456accff96d3a2387a5dd7574042b1

@@ -1,11 +1,11 @@
-summary: "WR-47/a: f/wl_cbx/cjs/runtime"
+summary: 'WR-47/a: f/wl_cbx/cjs/runtime'
 value:
   modules:
     - id: s
       value:
         type: script
-        path: f/wl_cbx/cjs/runtime
         input_transforms: {}
+        path: f/wl_cbx/cjs/runtime
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

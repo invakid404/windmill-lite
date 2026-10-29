@@ -1,7 +1,7 @@
-# WR-28/a: both static imports load, and lib's ../wl_wr28c/z resolves to
-# f/wl_wr28c/z.
+# WR-28/a: both static imports load, and lib's ../wl_wr28a/z resolves to
+# f/wl_wr28a/z.
 spec: [WR-28/a]
-target: f/wl_wr28a/wr28_a
+target: f/wl_wr28d/wr28_a
 expect:
   status: success
   result: ["lib+z", util]

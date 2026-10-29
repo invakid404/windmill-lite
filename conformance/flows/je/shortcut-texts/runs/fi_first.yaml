@@ -1,5 +1,12 @@
-# JE-7 at the first module: the flow input's text, quoted by the timeout's
-# parse error. The run's expect is the recorded observation.
+# JE-7 at the first module (request 8): the flow input is read from
+# storage, and the shortcut answers jsonb's spaced text, {"a": 2, "b": 1},
+# which the timeout's i32 parse error quotes. At the first module the
+# error is the first-pickup Anyhow of JE-35 route (b).
 spec: [JE-7, JE-29, JE-44]
 target: f/wl_je_texts/fi_first
 args: {o: {b: 1, a: 2}}
+expect:
+  status: failure
+  result: {"error": {"name": "Anyhow", "message": "Error: Error parsing result as i32: invalid type: map, expected i32 at line 1 column 0. Value was: {\"a\": 2, \"b\": 1} @worker.rs:3822:13"}}
+  steps:
+    "m:q": {"status": "failure", "ran": false}

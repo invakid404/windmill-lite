@@ -1,19 +1,13 @@
-summary: "FX-49/a with a two-step body: each iteration is a child flow"
+summary: 'FX-49/a with a two-step body: each iteration is a child flow'
 value:
   modules:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: javascript
-          expr: '[1, 2, 3]'
-        parallel: false
-        skip_failures: false
         modules:
           - id: x
             value:
               type: script
-              path: f/wl_fx49/set
               input_transforms:
                 name:
                   type: static
@@ -21,16 +15,23 @@ value:
                 v:
                   type: javascript
                   expr: flow_input.iter.value
+              path: f/wl_fx49/set
           - id: y
             value:
               type: rawscript
-              language: bun
               content: '!inline y.ts'
               input_transforms:
                 p:
                   type: javascript
                   expr: previous_result
-  skip_expr: "variable('f/wl_fx49/skip') === 'yes'"
+              lock: '!inline y.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1, 2, 3]'
+        parallel: false
+        skip_failures: false
+  skip_expr: variable('f/wl_fx49/skip') === 'yes'
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

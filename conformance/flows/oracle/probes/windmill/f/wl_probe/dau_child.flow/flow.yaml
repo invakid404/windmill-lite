@@ -1,16 +1,16 @@
-summary: "probe ee/subflow_delete_after_use's subflow"
+summary: probe ee/subflow_delete_after_use's subflow
 value:
   modules:
     - id: a
       value:
         type: rawscript
-        language: bun
         content: '!inline a.ts'
-        input_transforms: 
+        input_transforms:
           x:
             type: javascript
-            expr: "flow_input.x"
-      delete_after_use: true
+            expr: flow_input.x
+        lock: '!inline a.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object

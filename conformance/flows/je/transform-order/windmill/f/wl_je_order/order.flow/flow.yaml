@@ -4,42 +4,45 @@ value:
     - id: l
       value:
         type: forloopflow
-        iterator:
-          type: javascript
-          expr: "Array.from({ length: 16 }, (_, i) => i)"
-        parallel: false
-        skip_failures: true
         modules:
           - id: t
             value:
               type: rawscript
-              language: bun
               content: '!inline t.ts'
               input_transforms:
-                zz:
-                  type: javascript
-                  expr: zz_first
-                b:
-                  type: javascript
-                  expr: b_first
                 aa:
                   type: javascript
                   expr: aa_first
+                b:
+                  type: javascript
+                  expr: b_first
+                zz:
+                  type: javascript
+                  expr: zz_first
+              lock: '!inline t.lock'
+              language: bun
           - id: u
             value:
               type: rawscript
-              language: bun
               content: '!inline u.ts'
               input_transforms: {}
+              lock: '!inline u.lock'
+              language: bun
+        iterator:
+          type: javascript
+          expr: 'Array.from({ length: 16 }, (_, i) => i)'
+        parallel: false
+        skip_failures: true
     - id: s
       value:
         type: rawscript
-        language: bun
         content: '!inline s.ts'
-        input_transforms: 
+        input_transforms:
           seen:
             type: javascript
-            expr: "[...new Set(results.l.map((r) => r.error.message.split('`')[1]))].sort()"
+            expr: "(() => { const s = [...new Set(results.l.map((r) => r.error.message.split('`')[1]))]; return s.length > 1 ? 'varies' : s[0]; })()"
+        lock: '!inline s.lock'
+        language: bun
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   type: object
