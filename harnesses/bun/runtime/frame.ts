@@ -43,9 +43,9 @@ export type Outgoing = { t: string; [k: string]: unknown };
 
 /** Field order of each message type, after `t` (ADR 0004 message table). */
 const FIELDS: Record<string, readonly string[]> = {
-  hello: ["proto", "harness", "runtime", "caps", "bundle", "pid", "workdir"],
+  hello: ["proto", "harness", "runtime", "caps", "bundle", "pid", "workdir", "plugin"],
   welcome: ["proto", "engine", "bundle", "config", "reject"],
-  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary"],
+  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around"],
   result: ["id", "outcome", "body", "origin", "tail", "exit_code", "settled"],
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
@@ -55,9 +55,11 @@ const FIELDS: Record<string, readonly string[]> = {
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept"],
-  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "error"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "error"],
   run_cancel: ["id"],
   run_settled: ["id"],
+  host_call: ["id", "hook", "run", "site", "payload"],
+  host_reply: ["id", "payload", "error"],
   ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   part: ["id", "seq", "last", "chunk"],
@@ -171,6 +173,8 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   run_done: { id: "string" },
   run_cancel: { id: "string" },
   run_settled: { id: "string" },
+  host_call: { id: "string", hook: "string", run: "string", site: "string", payload: "raw" },
+  host_reply: { id: "string" },
   ping: { id: "string" },
   pong: { id: "string" },
   part: { id: "string", seq: "int", last: "bool", chunk: "string" },
@@ -227,6 +231,24 @@ export function decode(payload: Uint8Array): Message {
       checkNested(m.t, m, "caps", { fetch: "bool", native: "bool", fresh: "bool", host: "bool" });
       // A host's working directory, in host mode (ADR 0004, item 5).
       if (m.workdir != null) checkField(m.t, m, "workdir", "string");
+      // The host plugin's declaration (F2c).
+      if (m.plugin != null && (typeof m.plugin !== "object" || Array.isArray(m.plugin))) throw new ProtocolError("bad_field", "hello plugin is not an object");
+      break;
+    case "invoke":
+      if (m.around != null && !(Array.isArray(m.around) && m.around.every(isInt))) throw new ProtocolError("bad_field", 'field "around" has the wrong type');
+      break;
+    case "host_call":
+      if (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload)) throw new ProtocolError("bad_field", "host_call payload is not an object");
+      break;
+    case "host_reply":
+      if (m.error != null) {
+        checkField(m.t, m, "error", "object");
+        checkNested(m.t, m, "error", { code: "string", message: "string" });
+        if (m.payload != null) throw new ProtocolError("bad_field", "host_reply has both payload and error");
+      } else {
+        checkField(m.t, m, "payload", "raw");
+        if (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload)) throw new ProtocolError("bad_field", "host_reply payload is not an object");
+      }
       break;
     case "welcome":
       if (m.config != null && m.reject != null) throw new ProtocolError("bad_field", "welcome has both config and reject");
@@ -307,6 +329,7 @@ export function decode(payload: Uint8Array): Message {
         if (!RUN_STATUSES.includes(m.status)) throw new ProtocolError("bad_field", `run_done status ${JSON.stringify(m.status)}`);
       }
       if (m.may_have_mutated != null) checkField(m.t, m, "may_have_mutated", "bool");
+      if (m.latched != null) checkField(m.t, m, "latched", "string");
       if (m.warnings != null && !Array.isArray(m.warnings)) throw new ProtocolError("bad_field", "run_done warnings is not an array");
       break;
     case "ping":
@@ -335,6 +358,9 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   late: ["body"],
   run: ["args", "intercept"],
   run_done: ["result", "warnings"],
+  hello: ["plugin"],
+  host_call: ["payload"],
+  host_reply: ["payload"],
 };
 
 /** Whether a result of this outcome has field k: body for ok and error,

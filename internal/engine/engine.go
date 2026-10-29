@@ -470,6 +470,12 @@ type RunRequest struct {
 	// ends canceled, as at its hard deadline, the context's. Zero means
 	// none.
 	PreWriteDeadline time.Time
+	// Around, when set, gives the around wrappers of a host plugin that
+	// apply at a leaf's site (ADR 0008 H1, milestone F2c), which the
+	// engine puts on the leaf's invocation (Invocation.Around); the
+	// harness runs the step inside them. It is called once per
+	// invocation, from the goroutine that launches it.
+	Around func(Site) []int
 }
 
 // ErrPreWriteDeadline is the cause of a run's context when its pre-write
@@ -535,6 +541,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
+	r.around = req.Around
 	if req.Platform != nil {
 		r.platform, r.own = req.Platform, true
 	}

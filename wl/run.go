@@ -149,7 +149,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
-		req := engine.ScriptRequest{ID: opts.ID, Path: path, Args: jsonval.FromProducer(args)}
+		req := engine.ScriptRequest{ID: opts.ID, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -179,20 +179,23 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if id == "" {
 		id = newUUID()
 	}
-	h, err := engineHooks(opts.Hooks, rt.prog)
+	h, err := engineHooks(rt.withPlugin(opts.Hooks), rt.prog)
 	if err != nil {
 		return nil, err
 	}
 	var services *platform.Services
-	if opts.Platform != nil {
-		if services, err = rt.runServices(opts.Platform); err != nil {
+	if opts.Platform != nil || rt.answersPlatform() {
+		if services, err = rt.runServices(opts.Platform, id); err != nil {
 			return nil, err
 		}
 	}
 	calls := rt.exec.begin(id)
 	defer rt.exec.end(id)
-	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services}
+	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services, Around: rt.aroundAt()}
 	switch {
+	case h != nil && extra != nil:
+		// Host mode's static intercepts answer first, then the hooks.
+		h.calls, req.Hooks = calls.taken, interceptFirst{Hooks: h, first: extra}
 	case h != nil:
 		h.calls, req.Hooks = calls.taken, h
 	case extra != nil:
@@ -226,22 +229,26 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 }
 
 // runServices are the services of a run with its own providers (H13): its
-// resources and variables over the runtime's, and its resolver.
-func (rt *Runtime) runServices(p *RunPlatform) (*platform.Services, error) {
-	store := platform.NewStore()
-	for path, r := range p.Resources {
-		if err := store.SetResource(path, platform.Resource{Type: r.Type, Value: r.Value}); err != nil {
-			return nil, fmt.Errorf("wl: RunPlatform.Resources[%s]: %w", path, err)
+// resources and variables, when p is not nil, then the host plugin's
+// (F2c), over the runtime's, and its resolver.
+func (rt *Runtime) runServices(p *RunPlatform, run string) (*platform.Services, error) {
+	var store *platform.Store
+	var resolvers []platform.ValueResolver
+	if p != nil {
+		store = platform.NewStore()
+		for path, r := range p.Resources {
+			if err := store.SetResource(path, platform.Resource{Type: r.Type, Value: r.Value}); err != nil {
+				return nil, fmt.Errorf("wl: RunPlatform.Resources[%s]: %w", path, err)
+			}
+		}
+		for path, v := range p.Variables {
+			store.SetVariable(path, platform.Variable{Value: v.Value, IsSecret: v.Secret, Encrypted: v.Ciphertext})
+		}
+		if p.Resolve != nil {
+			resolvers = append(slices.Clone(rt.services.Resolvers), resolver(p.Resolve))
 		}
 	}
-	for path, v := range p.Variables {
-		store.SetVariable(path, platform.Variable{Value: v.Value, IsSecret: v.Secret, Encrypted: v.Ciphertext})
-	}
-	providers := platform.Providers{Resources: platform.ResourceChain{store, rt.store}, Variables: platform.VariableChain{store, rt.store}}
-	if p.Resolve != nil {
-		providers.Resolvers = append(slices.Clone(rt.services.Resolvers), resolver(p.Resolve))
-	}
-	return rt.services.WithProviders(providers), nil
+	return rt.pluginServices(run, store, resolvers), nil
 }
 
 // resolver is a RunPlatform's Resolve as a value resolver.

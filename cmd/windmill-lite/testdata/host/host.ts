@@ -8,14 +8,29 @@
 //
 // Environment: WL_ENGINE (the engine binary), WL_BUNDLE, WL_HOST_SOCKET,
 // WL_KILL_AFTER_MS (the watchdog's threshold), WL_WORKDIR (the working
-// directory it passes; its own by default) and WL_RECYCLE_MODULES (the
-// modules recycle trigger, unset by default).
+// directory it passes; its own by default), WL_RECYCLE_MODULES (the
+// modules recycle trigger, unset by default), WL_PLUGIN_CASES (a JSON file
+// of plugin cases, whose case plugin the host connects with, milestone
+// F2c) and WL_ENGINE_FLAGS (flags for the engine, space-separated).
 
-import { connect, HostError } from "../../../../harnesses/bun/host/index.ts";
+import { readFileSync } from "node:fs";
+import { connect, HostError, type Plugin } from "../../../../harnesses/bun/host/index.ts";
+import { casePlugin } from "../../../../harnesses/bun/test/caseplugin.ts";
 import * as scopes from "../hostfolder/f/host/scopes.ts";
 
 const env = process.env;
 let recycled: string | null = null;
+// The case plugin, whose onRunEnd also reports the tenant scope it runs in
+// (H11: a plugin call re-enters the run's scope).
+let plugin: Plugin | undefined;
+if (env.WL_PLUGIN_CASES) {
+  const p = casePlugin(JSON.parse(readFileSync(env.WL_PLUGIN_CASES, "utf8")));
+  const end = p.onRunEnd!;
+  plugin = {
+    ...p,
+    onRunEnd: async (t) => [...((await end(t)) ?? []), { code: "plugin_scope", message: scopes.store.getStore()?.tenant ?? "" }],
+  };
+}
 let host;
 try {
   host = await connect({
@@ -26,6 +41,8 @@ try {
     watchdog: { killAfter: Number(env.WL_KILL_AFTER_MS ?? "30000") },
     recycle: env.WL_RECYCLE_MODULES ? { modules: Number(env.WL_RECYCLE_MODULES) } : undefined,
     onRecycle: (reason) => (recycled = reason),
+    plugin,
+    engineFlags: env.WL_ENGINE_FLAGS ? env.WL_ENGINE_FLAGS.split(" ") : undefined,
   });
 } catch (e) {
   // The supervisor's test reads why the host could not connect.

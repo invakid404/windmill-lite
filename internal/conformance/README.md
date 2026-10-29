@@ -9,7 +9,8 @@ its comparison, milestone C3a, the location rule of comparisons with
 the oracle, milestone E1, which milestones N1b and N3a extended to the
 flow engine's templates, and the run-and-wait response, the setup policies
 and the pull of recording batch E3e
-([ADR 0012](../../docs/design/0012-layout-and-milestones.md)). This README
+([ADR 0012](../../docs/design/0012-layout-and-milestones.md)), and the
+host-plugin case format of milestone F2c. This README
 covers `internal/conformance` and its `testdata/`. The oracle harness
 ([internal/oracle](../oracle/README.md)) uses all of it; `wltest check`
 ([cmd/wltest](../../cmd/wltest/README.md)) runs the step cases and the flow
@@ -31,6 +32,7 @@ fixtures on windmill-lite.
 | `text.go` | `EncodeText`, `ParseText`, `SplitJobIDs`: normalised strings, with the escape that keeps them injective |
 | `normalise.go` | `Normaliser` and `MaskPaths`: the value and text rules of [OR-14](../../docs/semantics/oracle.md#or-14); `StripLocations` and `StripNotFoundLocations`, the rules a comparison with windmill-lite adds (see [Location suffixes](#location-suffixes)) |
 | `yamljson.go` | `YAMLToJSON`: fixture YAML to JSON text, keeping member order and number text |
+| `plugins.go` | `PluginFile`, `PluginCase`, `PluginSpec`, `PluginExpect`, `PluginOutcome`, `LoadPluginFile`: the host-plugin cases of `conformance/plugins` (F2c), their folder and host contract, and the check of a run's outcome |
 | `replay.go` | `ReplayTable`, `Outcome`, `ReplayService`, `Locator`, `ReplayCall`, `ReplayEffect`, `CheckReplay`: stub mode's replay table, the run-scoped service that answers stubs, and the check of a run's calls after it (see [Stub mode](#stub-mode)) |
 
 The engine, the harness, the oracle and `wltest` share this vocabulary, so

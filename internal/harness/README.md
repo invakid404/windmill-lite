@@ -21,7 +21,9 @@ environment (WR-22/b). Milestone F3a completed host mode: the
 working-directory checks (`CheckWorkdir`), refusing a host the engine
 cannot serve, the host's drain, `run_settled`, `run_done`'s new fields,
 `BASE_URL` and `args.json` for a host's invocations, and a pidfd for the
-watchdog on Linux.
+watchdog on Linux. Milestone F2c added host plugins: `host_call` and
+`host_reply`, the hello's plugin declaration, the invoke's `around` and
+run_done's `latched` (below).
 `Pool` and `Process` implement `engine.StepExecutor`; their user is the
 [wl](../../wl/README.md) runtime: its pool of spawned processes, and in
 host mode (`wl.Options.Host`, which `windmill-lite host` in
@@ -34,8 +36,6 @@ Not here yet:
 - The facade behind the platform frames is
   [internal/platform/facade](../platform/facade/README.md) (PF1). A
   process without a handler answers each call with a 501.
-- The `host_call` and `host_reply` frames, which are refused as
-  `unknown_type` until F2c adds them.
 - Mapping an outcome to Windmill's stored value: `engine.StoreOutcome`
   does it from the `engine.StepOutcome` this package returns
   ([internal/engine](../engine/README.md)).
@@ -55,6 +55,7 @@ is `engine.OriginHarness` (`process.go`, milestone FU5).
 | `conn.go` | One socket's writer and reader goroutines, and when the last frame arrived |
 | `process.go` | `Spawn`, `Process`: the handshake, invocations, settlement, death, the watchdog, platform calls |
 | `host.go` | `AttachHost`, `HostConn`, `HostChildren`, `CheckWorkdir`: host mode on the engine's side, its handshake checks, its runs and their settlement, the host's drain, and its watchdog |
+| `hostcall.go` | `Process.HostCall`, `Pool.HostCall`, `Pool.Plugin`, `HostCallError`, `ErrNoPlugin`: a harness's host plugin, asked over `host_call` |
 | `target_linux.go`, `target_other.go` | What host mode's watchdog signals: a pidfd of the host on Linux, kill(2) elsewhere |
 | `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines, recent reporters, signal names |
@@ -397,6 +398,36 @@ take that number.
   Then it ends the connection, which ends the engine. It reports no run
   outcome; their only receiver was the host.
 
+## Host plugins
+
+A harness that loaded a host plugin (milestone F2c, ADR 0004 §Host
+plugins) says so in its hello: `Hello.Plugin` is the plugin's declaration,
+a raw JSON object of the hooks it answers and their selectors, which the
+engine's user (the [wl](../../wl/README.md) runtime) checks and turns into
+hooks.
+
+- **Handshake.** `ProcessConfig.ExpectPlugin` holds a process to a
+  declaration, byte for byte, else `plugin_mismatch` (`RejectPlugin`): a
+  `Pool` holds each process it spawns after its first to the first one's
+  declaration. In host mode `HostConfig.Check` is the engine's own check of
+  the hello, before the welcome; the runtime refuses there a host whose
+  declaration it cannot use.
+- **Calls.** `Process.HostCall(ctx, hook, run, site, payload)` sends a
+  `host_call` (`id` `hc<n>`, `hook`, `run`, `site`, raw `payload`) and
+  waits for its `host_reply`: its raw `payload`, or its `error` as a
+  `*HostCallError` (`plugin_error`, `unknown_hook`). It returns ctx's cause
+  when ctx ends first, `ErrHostLost` (host mode) or an exit error when the
+  connection ends, `ErrNoPlugin` for a harness without a plugin. A reply
+  that comes after the call stopped waiting is dropped (the last 256 such
+  ids are remembered); one to no call, and a `host_call` from a harness,
+  are protocol errors. `Pool.HostCall` asks the run's process, or the
+  least loaded, starting one when none serves; a `fresh` pool refuses.
+  `Pool.Plugin` returns the declaration of the pool's first process,
+  starting it.
+- **`around`.** An invocation's `engine.Invocation.Around` goes on its
+  `invoke` as `around`; one with wrappers is not dispatched to a harness
+  that loaded no plugin.
+
 ## Pools
 
 A `Pool` serves one `Key`: harness class, runtime pin, dependency set and
@@ -475,6 +506,13 @@ The shared cases are in [conformance/protocol](../../conformance/README.md).
   and a run sent the moment the welcome arrives, whose invocation already
   has its `args.json`. `conn_test.go` checks the barrier: behind open run
   streams and what waits about them, with a pong still overtaking them.
+  F2c added the host plugin's tests: a `host_call` answered and answered
+  with an error, one whose context ends (its late reply dropped), a reply
+  to no call ending the connection, no plugin (`ErrNoPlugin`), `around`
+  refused without a plugin, a `host_call` from the harness, and a
+  declaration refused by the host's `Check` and by `ExpectPlugin` (the fake
+  harness's `plugin` mode, which also answers `Pool.HostCall` and
+  `Pool.Plugin` in `TestPoolHostCall`).
 - `exchange_test.go` plays the engine's side of every transcript in
   `conformance/protocol/exchanges/` against the real Bun harness. This is
   the C1 exit gate: protocol golden tests on Bun 1.3.10. The fixture

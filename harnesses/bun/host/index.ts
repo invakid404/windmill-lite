@@ -18,7 +18,10 @@ import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { exitProcess, realStderr } from "../runtime/context.ts";
+import type { Plugin } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
+
+export type { AroundCall, Call, Outcome, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, Warning } from "../runtime/plugin.ts";
 
 /** The process-wide registry of host-provided modules: module path to the
  * module's namespace (ADR 0010). */
@@ -53,6 +56,14 @@ export type ConnectOptions = {
   /** The host's own instances of the bundle's host-provided modules, by
    * module path. */
   hostModules?: Record<string, object>;
+  /** The host's plugin (ADR 0008, milestone F2c): TypeScript hooks for the
+   * host's runs (H1, H2, H6, H8, H9, H12, H13), around wrappers, and the
+   * providers of the bundle's host-provided sites, which the engine calls
+   * over host_call, each in the scope of the run it serves (H11). The
+   * engine checks its declaration in the handshake and refuses the host
+   * (plugin_mismatch) when a selector is malformed or ambiguous, or a
+   * provider the host contract names is missing. */
+  plugin?: Plugin;
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
   watchdog?: { killAfter: number };
@@ -98,6 +109,8 @@ export type RunResult = {
   result?: unknown;
   mayHaveMutated: boolean;
   warnings: { code: string; message: string }[];
+  /** The error a latched run latched (H5), such as provider_declined. */
+  latched?: string;
 };
 
 export type Health = HostHealth & {
@@ -271,6 +284,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     host: true,
     children,
     diag,
+    plugin: o.plugin,
     transport: {
       // Accepting nothing while the socket's buffer is full keeps the
       // sender's order: a small frame waits behind at most one part frame
@@ -345,6 +359,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             result: o.result === undefined ? undefined : JSON.parse(o.result),
             mayHaveMutated: o.may_have_mutated,
             warnings: o.warnings,
+            latched: o.latched,
           }),
           (e) => {
             throw e instanceof RunError ? new HostError(e.code, e.detail) : e;

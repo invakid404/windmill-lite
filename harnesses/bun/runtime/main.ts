@@ -1,6 +1,6 @@
 // Entry point of the Bun harness runtime:
 //
-//   bun harnesses/bun/runtime/main.ts --bundle <dir>
+//   bun harnesses/bun/runtime/main.ts --bundle <dir> [--plugin <module>]
 //
 // The engine spawns it with one end of a socketpair as file descriptor 3,
 // which carries every protocol frame (ADR 0004); stdout and stderr stay
@@ -8,7 +8,9 @@
 
 import { writeSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { exitProcess } from "./context.ts";
+import { loadPlugin } from "./plugin.ts";
 import { extractAssets, registerHostModules, Runtime } from "./runtime.ts";
 
 const EXIT_STARTUP = 4;
@@ -20,8 +22,11 @@ function fail(message: string): never {
 
 const args = process.argv.slice(2);
 const at = args.indexOf("--bundle");
-if (at < 0 || at + 1 >= args.length) fail("usage: main.ts --bundle <dir>");
+if (at < 0 || at + 1 >= args.length) fail("usage: main.ts --bundle <dir> [--plugin <module>]");
 const bundleDir = args[at + 1];
+const pluginAt = args.indexOf("--plugin");
+if (pluginAt >= 0 && pluginAt + 1 >= args.length) fail("usage: main.ts --bundle <dir> [--plugin <module>]");
+const pluginPath = pluginAt >= 0 ? args[pluginAt + 1] : undefined;
 
 // The bundle digest is the SHA-256 of the bundle's manifest.json
 // (ADR 0010); the engine rejects a harness that loaded another bundle.
@@ -95,6 +100,17 @@ try {
   await registerHostModules(bundleDir, JSON.parse(new TextDecoder().decode(manifest)));
 } catch (e) {
   fail(`cannot register the bundle's host-provided modules: ${(e as Error).message}`);
+}
+
+// The host plugin the engine named (ADR 0008, F2c), loaded once the
+// runtime's process-wide hooks are in place and before the harness greets
+// the engine, whose hello carries its declaration.
+if (pluginPath !== undefined) {
+  try {
+    runtime.usePlugin(await loadPlugin(pathToFileURL(pluginPath).href));
+  } catch (e) {
+    fail(`cannot load the host plugin ${pluginPath}: ${(e as Error).message}`);
+  }
 }
 
 socket = await Bun.connect({

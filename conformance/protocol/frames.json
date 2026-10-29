@@ -55,6 +55,40 @@
       "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\"}"
     },
     {
+      "case": "hello-host-plugin",
+      "title": "a harness's hello carries its host plugin's declaration, raw, after its workdir (F2c)",
+      "message": {
+        "t": "hello",
+        "proto": 1,
+        "harness": {
+          "kind": "bun",
+          "version": "0.0.0-c1"
+        },
+        "runtime": "1.3.10",
+        "caps": {
+          "fetch": true,
+          "native": true,
+          "fresh": false,
+          "host": true
+        },
+        "bundle": "sha256:abc",
+        "pid": 4242,
+        "workdir": "/srv/host",
+        "plugin": {
+          "intercept": [
+            {
+              "selector": {
+                "flow": "f/x",
+                "module": "a"
+              }
+            }
+          ],
+          "on_run_end": true
+        }
+      },
+      "payload": "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"0.0.0-c1\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"sha256:abc\",\"pid\":4242,\"workdir\":\"/srv/host\",\"plugin\":{\"intercept\":[{\"selector\":{\"flow\":\"f/x\",\"module\":\"a\"}}],\"on_run_end\":true}}"
+    },
+    {
       "case": "welcome-config",
       "title": "the engine accepts a harness",
       "message": {
@@ -111,6 +145,26 @@
         "boundary": "bun"
       },
       "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{\"x\":[1,2],\"y\":{\"z\":null}},\"env\":{\"WM_FLOW_STEP_ID\":\"a\",\"WM_JOB_ID\":\"j1\"},\"boundary\":\"bun\"}"
+    },
+    {
+      "case": "invoke-around",
+      "title": "an invoke names the host plugin's around wrappers for its site, by index, after boundary (F2c)",
+      "message": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {},
+        "env": {},
+        "boundary": "bun",
+        "around": [
+          0,
+          2
+        ]
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0,2]}"
     },
     {
       "case": "invoke-env-escaping",
@@ -587,6 +641,86 @@
       "payload": "{\"t\":\"run_settled\",\"id\":\"r2\"}"
     },
     {
+      "case": "run-done-latched",
+      "title": "a latched run's run_done names its latched error (F2c)",
+      "message": {
+        "t": "run_done",
+        "id": "r2",
+        "status": "latched",
+        "latched": "provider_declined: the provider declined"
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"latched\",\"latched\":\"provider_declined: the provider declined\"}"
+    },
+    {
+      "case": "host-call",
+      "title": "the engine asks the host plugin to answer a hook for a run at a site, with a raw payload (F2c)",
+      "message": {
+        "t": "host_call",
+        "id": "hc1",
+        "hook": "intercept",
+        "run": "r1",
+        "site": "m:a",
+        "payload": {
+          "index": 0,
+          "site": {
+            "path": "m:a",
+            "flow": "f/x",
+            "module": "a",
+            "script": "f/x/a"
+          },
+          "args": {
+            "x": 1
+          }
+        }
+      },
+      "raw": {
+        "payload": "{\"index\":0,\"site\":{\"path\":\"m:a\",\"flow\":\"f/x\",\"module\":\"a\",\"script\":\"f/x/a\"},\"args\":{\"x\":1}}"
+      },
+      "payload": "{\"t\":\"host_call\",\"id\":\"hc1\",\"hook\":\"intercept\",\"run\":\"r1\",\"site\":\"m:a\",\"payload\":{\"index\":0,\"site\":{\"path\":\"m:a\",\"flow\":\"f/x\",\"module\":\"a\",\"script\":\"f/x/a\"},\"args\":{\"x\":1}}}"
+    },
+    {
+      "case": "host-call-run-hook",
+      "title": "a hook of the run as a whole has an empty site",
+      "message": {
+        "t": "host_call",
+        "id": "hc2",
+        "hook": "on_run_end",
+        "run": "r1",
+        "site": "",
+        "payload": {
+          "trace": {
+            "run": "r1"
+          }
+        }
+      },
+      "payload": "{\"t\":\"host_call\",\"id\":\"hc2\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{\"trace\":{\"run\":\"r1\"}}}"
+    },
+    {
+      "case": "host-reply",
+      "title": "the plugin's answer, a raw object",
+      "message": {
+        "t": "host_reply",
+        "id": "hc1",
+        "payload": {
+          "result": 7
+        }
+      },
+      "payload": "{\"t\":\"host_reply\",\"id\":\"hc1\",\"payload\":{\"result\":7}}"
+    },
+    {
+      "case": "host-reply-error",
+      "title": "a plugin that gives no answer says why",
+      "message": {
+        "t": "host_reply",
+        "id": "hc1",
+        "error": {
+          "code": "unknown_hook",
+          "message": "the plugin declares no intercept entry 3"
+        }
+      },
+      "payload": "{\"t\":\"host_reply\",\"id\":\"hc1\",\"error\":{\"code\":\"unknown_hook\",\"message\":\"the plugin declares no intercept entry 3\"}}"
+    },
+    {
       "case": "run-cancel",
       "title": "the host cancels a run it submitted",
       "message": {
@@ -860,9 +994,9 @@
     },
     {
       "case": "unknown-type",
-      "title": "a type this milestone does not implement",
+      "title": "a type the protocol does not have",
       "frames": [
-        "{\"t\":\"host_call\",\"id\":\"p1\"}"
+        "{\"t\":\"host_poke\",\"id\":\"p1\"}"
       ],
       "error": "unknown_type"
     },
@@ -1282,6 +1416,62 @@
       "title": "a hello's workdir is a string",
       "frames": [
         "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"workdir\":7}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "hello-plugin-not-object",
+      "title": "a hello's plugin is an object",
+      "frames": [
+        "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.3.10\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"plugin\":[]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "invoke-around-not-integers",
+      "title": "an invoke's around holds integers",
+      "frames": [
+        "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"s\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[\"0\"]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "host-call-payload-not-object",
+      "title": "a host_call's payload is an object",
+      "frames": [
+        "{\"t\":\"host_call\",\"id\":\"hc1\",\"hook\":\"intercept\",\"run\":\"r1\",\"site\":\"\",\"payload\":[]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "host-call-missing-hook",
+      "title": "a host_call names its hook",
+      "frames": [
+        "{\"t\":\"host_call\",\"id\":\"hc1\",\"run\":\"r1\",\"site\":\"\",\"payload\":{}}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "host-reply-payload-and-error",
+      "title": "a host_reply has a payload or an error, not both",
+      "frames": [
+        "{\"t\":\"host_reply\",\"id\":\"hc1\",\"payload\":{},\"error\":{\"code\":\"plugin_error\",\"message\":\"m\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "host-reply-neither",
+      "title": "a host_reply without an error needs its payload",
+      "frames": [
+        "{\"t\":\"host_reply\",\"id\":\"hc1\"}"
+      ],
+      "error": "missing_field"
+    },
+    {
+      "case": "run-done-latched-not-string",
+      "title": "a run_done's latched is a string",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r2\",\"status\":\"latched\",\"latched\":1}"
       ],
       "error": "bad_field"
     },

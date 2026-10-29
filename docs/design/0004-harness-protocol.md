@@ -85,9 +85,9 @@ step without failing the others.
 
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
-| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7) | handshake |
+| `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7), `plugin` (raw: the declaration of the host plugin it loaded, §Host plugins) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`; facade origin and log limits with the milestones that use them) or `reject` (`code`, `message`) | handshake result |
-| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`) | run one step |
+| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [0011](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`), `around` (the host plugin's around wrappers for its site, by index, §Host plugins) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
@@ -96,8 +96,8 @@ step without failing the others.
 | `warning` | harness → engine | `id`, `code` (`unattributed_error`, `left_behind`, `native_untracked`), `message`, `left` (for `left_behind`: an object of counts by kind), `untracked` (for `native_untracked`: an object of counts by kind) | a process-level error no invocation's context raised, sent to each invocation in flight when it happened (failure model item 3); what an invocation still had when it settled, sent just before the frame that settles it (item 4); or what the native boundary handed a native invocation but does not track, sent just before that frame too (D5 in [0001](0001-equivalence-contract.md)) |
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([0007](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
-| `host_call` / `host_reply` | either way | `id`, `hook`, `site`, `payload` | a host plugin hook ([0008](0008-host-hooks.md)) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`; `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
+| `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([0008](0008-host-hooks.md), §Host plugins) |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([0009](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`; `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), `latched` (a latched run's error), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
@@ -702,6 +702,44 @@ mode): a step computes synchronously for 2 s and returns, with
 - **With the watchdog disabled** (`killAfter` 0), the step completes in all
   three.
 
+### Host plugins
+
+A host plugin ([0008](0008-host-hooks.md)) is TypeScript the harness runs:
+the host's own in host mode, or a module the runtime names, which each
+`warm` process the engine spawns loads before its hello. Its hello carries
+the plugin's **declaration**: the hooks it answers, each with its
+selectors, a static interception with its value. The engine checks the
+declaration (selectors well formed and unambiguous, every provider the
+host contract names provided) and refuses a harness whose declaration it
+cannot use with `plugin_mismatch`; a pool holds its later processes to its
+first one's declaration. From the declaration the engine builds the same
+hooks a Go host passes, so selectors match in Go only: each call of a
+declared hook is a `host_call`, naming the entry it is for by its index,
+answered by a `host_reply`.
+
+1. **Answering.** The harness runs the hook outside every invocation, in
+   host mode inside the scope the host had when it submitted the run
+   (H11). A hook that throws, or answers what the hook does not answer,
+   replies `plugin_error`; a hook or entry the plugin does not declare
+   replies `unknown_hook`. Either error latches the run (H5), as a Go
+   hook's error does.
+2. **Waiting.** A `host_call` waits for its reply no longer than the plugin
+   timeout (60 s by default; the runtime's option): then the hook fails
+   with `host_call_timeout`, which latches the run. When the run's own
+   context ends first, the hook returns that cause, which latches nothing.
+   A reply that comes after the engine stopped waiting is dropped; one to
+   no `host_call` is a protocol error, as is a `host_call` from a harness.
+3. **`around`.** The engine names on each `invoke` the plugin's around
+   wrappers whose selectors match the invocation's site; the harness runs
+   the step inside them, outermost first. A wrapper that throws, or never
+   runs the step, is reported in a `warning` with code `plugin_error`,
+   ahead of the frame that settles the invocation, and the engine latches
+   the run on it. An invocation with around wrappers never reaches a
+   harness without a plugin.
+4. **Where.** Every hook call goes to the run's process in a `warm` pool
+   (or the least loaded), and to the host in host mode. A `fresh` runtime
+   takes no plugin: its processes live for one step.
+
 ### Parallel loops
 
 The engine owns concurrency. A parallel `forloopflow` or `branchall` starts
@@ -1005,6 +1043,12 @@ Beyond `parallelism`, the only limit is a host-set cap, if any (D15).
     engine's `NODE_PATH` only when it has one; a script's own `NODE_PATH`
     entry then does not reach the step.
 
+- Milestone F2c defined `host_call` and `host_reply` (the table had them
+  "either way", with no `run`, reply form or errors): calls go from the
+  engine to the harness only, carry the run whose scope a host re-enters,
+  and are answered with a payload or an error. It added the hello's
+  `plugin`, the invoke's `around` and run_done's `latched`, and §Host
+  plugins.
 - Milestone F3a completed host mode on the engine's `wl` library and real
   bundles: `hello` gained `workdir` and the engine checks the host's
   working directory (host mode item 7, with the `engine_refused` reject

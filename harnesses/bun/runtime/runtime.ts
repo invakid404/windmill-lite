@@ -64,6 +64,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
+import { declaration, dispatch, HostCallFailure, type Plugin, type StepOutcome } from "./plugin.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf } from "./wrapper.ts";
 
 export { TAIL_LENGTH } from "./context.ts";
@@ -140,6 +141,9 @@ export type Options = {
    * the runtime's own timer, outside every invocation (the host SDK's
    * recycle triggers). */
   onHeartbeat?: (h: HostHealth) => void;
+  /** The host plugin (ADR 0008, milestone F2c), whose declaration the
+   * hello carries and whose hooks answer the engine's host_calls. */
+  plugin?: Plugin;
 };
 
 /** An invocation from invoke until the frame that settles it is queued:
@@ -167,7 +171,7 @@ export type Mode = "warm" | "fresh";
 
 /** A run's outcome, as run_done reports it: result is its JSON text,
  * warnings its warnings, each with a code and a message. */
-export type RunOutcome = { status: string; result?: string; may_have_mutated: boolean; warnings: { code: string; message: string }[] };
+export type RunOutcome = { status: string; result?: string; may_have_mutated: boolean; warnings: { code: string; message: string }[]; latched?: string };
 
 /** A run the engine did not start (run_done with an error): code is
  * "draining" while the engine drains, else "refused". */
@@ -184,6 +188,22 @@ export class RunError extends Error {
  * oldest abandoned invocation and the number of script modules loaded,
  * which the host SDK's health() exposes. */
 export type HostHealth = Health & { oldest_abandoned_ms: number; modules: number };
+
+/** The warning code of a host plugin's around wrapper that failed (F2c),
+ * which latches the run (engine.WarningPluginError). */
+const PLUGIN_ERROR = "plugin_error";
+
+/** An outcome as an around wrapper's next() gives it. */
+function stepView(o: Outcome): StepOutcome {
+  if (o.outcome === "ok" || o.outcome === "error") {
+    try {
+      return { outcome: o.outcome, result: JSON.parse(o.body) };
+    } catch {
+      return { outcome: o.outcome };
+    }
+  }
+  return { outcome: o.outcome };
+}
 
 /** How an invocation ended. An escaped one's tail is the invocation's log
  * when its frame is sent (WR-20), after print, the error the process would
@@ -271,6 +291,14 @@ export class Runtime {
     this.native.capture();
   }
 
+  /** Sets the host plugin before start, for a harness that loads it once
+   * the runtime has installed its process-wide hooks (main.ts). */
+  usePlugin(p: Plugin) {
+    if (this.welcomed) throw new Error("windmill-lite: a plugin is set before the handshake");
+    declaration(p);
+    this.opts.plugin = p;
+  }
+
   /** Sends hello; the engine answers with welcome. */
   start() {
     this.send({
@@ -285,6 +313,8 @@ export class Runtime {
       // The host's working directory, which the engine checks against the
       // directory the host passed it (ADR 0004, item 5).
       workdir: this.opts.host ? process.cwd() : undefined,
+      // The host plugin's hooks and selectors (F2c).
+      plugin: this.opts.plugin ? new Raw(JSON.stringify(declaration(this.opts.plugin))) : undefined,
     });
   }
 
@@ -348,6 +378,9 @@ export class Runtime {
         break;
       case "run_settled":
         this.onRunSettled(m);
+        break;
+      case "host_call":
+        this.onHostCall(m);
         break;
       case "drain":
         if (this.opts.host) throw new ProtocolError("unexpected_message", "drain from the engine in host mode");
@@ -456,8 +489,9 @@ export class Runtime {
     inv.context = ctx;
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
-    // submitted the run.
-    const go = () => invocations.run(ctx, () => this.run(m));
+    // submitted the run; inside the host plugin's around wrappers, when
+    // the engine names any (F2c).
+    const go = () => invocations.run(ctx, () => (Array.isArray(m.around) && m.around.length > 0 ? this.runAround(m, inv) : this.run(m)));
     const scope = this.scopes.get(m.run);
     // Nothing that goes wrong while one invocation ends may end the
     // process: it would take every co-resident invocation with it.
@@ -467,6 +501,76 @@ export class Runtime {
         this.diag(`windmill-lite harness: invocation ${JSON.stringify(inv.id)}: ${describe(e)}`);
         this.finish(inv, { outcome: "escaped", exit_code: 1 });
       });
+  }
+
+  /** Runs one invocation inside the host plugin's around wrappers that
+   * m.around names, outermost first (ADR 0008 H1, F2c). Each wrapper calls
+   * next() once to run what is inside it; the step's outcome is its own,
+   * whatever a wrapper returns. A wrapper that throws, or that never calls
+   * next(), is reported in a plugin_error warning, ahead of the frame that
+   * settles the invocation, which latches the run; a step that did not
+   * run then fails with an error the harness generated. */
+  private async runAround(m: Message, inv: Invocation): Promise<Outcome> {
+    const plugin = this.opts.plugin;
+    const indices = m.around as number[];
+    const wrappers = indices.map((i) => plugin?.around?.[i]);
+    let result: Outcome | undefined;
+    const failed = (index: number, reason: string) => this.sendWarning(inv.id, `around[${index}] at ${m.site}: ${reason}`, PLUGIN_ERROR);
+    const missing = indices.filter((_, k) => !wrappers[k]);
+    if (missing.length > 0) {
+      failed(missing[0], "the harness's host plugin has no such around wrapper");
+      return { outcome: "error", body: JSON.stringify({ name: "PluginError", message: "the harness's host plugin has no such around wrapper" }), origin: "harness" };
+    }
+    const call = { run: m.run, site: m.site, script: m.script, args: m.args as Record<string, unknown>, env: { ...(m.env as Record<string, string>) } };
+    const at = async (k: number): Promise<void> => {
+      if (k === wrappers.length) {
+        result = await this.run(m);
+        return;
+      }
+      let inner: Promise<StepOutcome> | undefined;
+      const next = () => (inner ??= at(k + 1).then(() => stepView(result!)));
+      try {
+        await wrappers[k]!.fn(call, next);
+      } catch (e) {
+        failed(indices[k], `it threw ${describe(e)}`);
+      }
+      if (inner === undefined) failed(indices[k], "it never called next()");
+      else await inner.catch(() => {});
+    };
+    await at(0);
+    return result ?? { outcome: "error", body: JSON.stringify({ name: "PluginError", message: "a host plugin's around wrapper did not run the step" }), origin: "harness" };
+  }
+
+  /** Answers a host_call with the host plugin's hook (F2c): outside every
+   * invocation, and in host mode inside the scope the host had when it
+   * submitted the run (H11). The reply goes out whatever happens; a
+   * failure is its error. */
+  private onHostCall(m: Message) {
+    const plugin = this.opts.plugin;
+    const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
+      try {
+        this.send(error ? { t: "host_reply", id: m.id, error } : { t: "host_reply", id: m.id, payload: new Raw(JSON.stringify(payload)) });
+      } catch (e) {
+        // An answer too large, or not JSON: the engine hears why.
+        this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
+      }
+    };
+    if (!plugin) {
+      reply(undefined, { code: "unknown_hook", message: "the harness loaded no host plugin" });
+      return;
+    }
+    const answer = () => invocations.exit(() => dispatch(plugin, m.hook, m.run, m.payload as Record<string, unknown>));
+    const scope = this.scopes.get(m.run);
+    let p: Promise<Record<string, unknown>>;
+    try {
+      p = scope ? scope(answer) : answer();
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    p.then(
+      (payload) => reply(payload),
+      (e) => reply(undefined, e instanceof HostCallFailure ? { code: e.code, message: e.message } : { code: "plugin_error", message: describe(e) }),
+    );
   }
 
   /** Runs one invocation with the wrapper's rules, in the wrapper's order
@@ -969,9 +1073,9 @@ export class Runtime {
     const run = this.runs.get(m.id);
     if (!this.opts.host || !run) throw new ProtocolError("unexpected_message", `run_done for unknown run ${JSON.stringify(m.id)}`);
     this.runs.delete(m.id);
-    this.scopes.delete(m.id);
     if (m.error) {
       // Not started: it never settles either.
+      this.scopes.delete(m.id);
       this.settledHandlers.delete(m.id);
       run.reject(new RunError(m.error.code, m.error.message));
       return;
@@ -979,7 +1083,13 @@ export class Runtime {
     const warnings = Array.isArray(m.warnings)
       ? m.warnings.map((w: { code?: unknown; message?: unknown }) => ({ code: String(w?.code ?? ""), message: String(w?.message ?? "") }))
       : [];
-    run.resolve({ status: m.status, result: m.result === undefined ? undefined : JSON.stringify(m.result), may_have_mutated: m.may_have_mutated === true, warnings });
+    run.resolve({
+      status: m.status,
+      result: m.result === undefined ? undefined : JSON.stringify(m.result),
+      may_have_mutated: m.may_have_mutated === true,
+      warnings,
+      latched: typeof m.latched === "string" ? m.latched : undefined,
+    });
   }
 
   /** A run settled (ADR 0004 host mode item 5): its handler runs outside
@@ -989,6 +1099,9 @@ export class Runtime {
     if (!this.opts.host || this.runs.has(m.id)) throw new ProtocolError("unexpected_message", `run_settled for run ${JSON.stringify(m.id)}, which has no outcome`);
     const on = this.settledHandlers.get(m.id);
     this.settledHandlers.delete(m.id);
+    // The run's scope was kept for its host plugin's hooks, onRunSettled
+    // among them, which come before this frame (F2c).
+    this.scopes.delete(m.id);
     if (on) this.guard("a run's onSettled", on);
   }
 

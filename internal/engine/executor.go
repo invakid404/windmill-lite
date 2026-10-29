@@ -87,6 +87,11 @@ type Invocation struct {
 	// own (RunRequest.Platform, H13), which the facade answers the step's
 	// resource and variable reads from; nil means the facade's own.
 	Platform *platform.Services
+	// Around lists the host plugin's around wrappers whose selectors match
+	// the site, by their index in the plugin's declaration, outermost
+	// first (ADR 0008 H1, milestone F2c): the harness runs the step inside
+	// them. Empty for none (RunRequest.Around).
+	Around []int
 }
 
 // Boundary is a step's boundary mode (ADR 0002).

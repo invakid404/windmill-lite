@@ -149,6 +149,7 @@ connection ends, SIGTERM or SIGINT ([wl](../../wl/README.md), host mode;
 | `-data` | the data directory the runtime writes into; a temporary one, removed afterwards, by default |
 | `-digest` | the bundle digest the bundle must have |
 | `-variables`, `-resources` | the host's variables and resources, as for `run` |
+| `-plugin-timeout` | how long a `host_call` to the host's plugin waits for its reply (default 1m; F2c) |
 
 ## Version
 
@@ -197,13 +198,14 @@ that only restarts the host when it exits runs it. The tests:
 | `TestHostScopesThroughACodebaseScript` | C2b's gate: `f/hostcb/cb_scope.ts`, the CommonJS codebase script of the folder, its import of `f/host/scopes.ts` resolved to the module's generated shim, reads the host's scope in 16 of 16 concurrent runs on Bun's CommonJS loader (D12, D13), and reads `Bun.env` through the env rewrite |
 | `TestHostCodebaseAsset` | F3a's gate: the codebase script `f/hostcb/cb_asset.ts` reads its asset, which the SDK extracted into the host's working directory, by a relative path and beside its module, and reads the `args.json` the engine wrote there |
 | `TestHostWorkdirRefusedBySDK` | F3a's gate: the SDK refuses to connect with `workdir_mismatch` for another directory than the host's own, and `workdir_not_writable` for a read-only one |
-| `TestHostWorkdirRefusedByEngine` | F3a's gate, from the engine's side: the test plays the host, starts `windmill-lite host` with a socketpair as file descriptor 3 (and none as 4) and greets it; the engine welcomes a host in its own working directory, refuses one whose hello names another (`workdir_mismatch`) or a read-only one (`workdir_not_writable`), and refuses with `engine_refused` when the bundle does not open |
+| `TestHostWorkdirRefusedByEngine` | F3a's gate, from the engine's side: the test plays the host, starts `windmill-lite host` with a socketpair as file descriptor 3 (and none as 4) and greets it; the engine welcomes a host in its own working directory, refuses one whose hello names another (`workdir_mismatch`) or a read-only one (`workdir_not_writable`), and refuses with `engine_refused` when the bundle does not open; a host whose plugin declaration has a malformed selector is refused with `plugin_mismatch`, and one with a usable declaration welcomed (F2c) |
 | `TestHostDrain` | `drain` refuses a new run (`draining`), waits for the run in flight, which completes, and the host lives on |
 | `TestHostDrainAfterALargeOutcome` | a drain that starts while a run with a 3 MiB outcome is in flight (`f/host/big`) ends only after that run's caller has its whole outcome |
 | `TestHostRunSettled` | a step that its timeout abandons runs on: the run's outcome comes at about 1 s and its `onSettled` at about 1.5 s, in the run's own tenant scope; a run that abandons nothing settles with its outcome |
 | `TestHostScriptRun` | a root script runs as a script job; a run of no target is refused |
 | `TestHostFacade` | a step reads a variable of the bundle through the job API at the `BASE_URL` its invocation carries |
 | `TestHostRecycleModules` | the modules recycle trigger trips once a second module loads, in `health()` and `onRecycle` |
+| `TestHostPluginCases` | F2c's gate in host mode: the cases of `conformance/plugins/hooks.yaml` on a bundle built from them, answered by the host's TypeScript plugin (the case plugin, from `WL_PLUGIN_CASES`) over `host_call`, each with its expected status, result, latched error, log and warnings; every hook in the run's own tenant scope (H11); and the plugin's `onRunSettled` |
 | `TestHostSurvivesADetachedRejection` | one detached rejection does not end the host; it is counted in health |
 | `TestHostNeverSettlingStep` | ADR 0004's never-settling-step test: after one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation; the host is never restarted |
 | `TestHostChildUnderBackpressure` | a step backs up the host's socket, starts a child and blocks the event loop; its timeout still kills the child, announced on the child channel (WR-55) |

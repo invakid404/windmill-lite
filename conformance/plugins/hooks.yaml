@@ -1,0 +1,233 @@
+# Milestone F2c's host-plugin cases: every hook of F2a (H1, H2, H6, H8,
+# H9, H12, H13) and a mandatory host-provided site answered by a host
+# plugin over host_call (ADR 0004, ADR 0008), an around wrapper around a
+# step, and a plugin's error, a provider's decline and error, and a
+# host_call that times out, which latch the run. These are windmill-lite's
+# rules for its hosts, not Windmill's, so nothing is recorded on the
+# oracle. Synthetic, written for this repository from
+# docs/design/0008-host-hooks.md and docs/design/0007-platform-interface.md.
+#
+# Each case's flow is f/plugins/<id>, built with the scripts below into one
+# bundle, whose host contract has every flow as a root and the cases'
+# provided sites. Each case's plugin is declarative, so that one set of
+# cases runs three ways and must give one answer:
+#   - a TypeScript plugin in warm harness processes (wl.Options.Plugin):
+#     harnesses/bun/test/caseplugin.ts, which reads these cases (go test ./wl);
+#   - the same plugin in host mode, the host SDK's (go test ./cmd/windmill-lite);
+#   - Go callbacks built from the same plugin (wl.Hooks, wl.Options.Providers),
+#     F2a's path, for the cases go does not exclude.
+#
+# plugin (selectors name modules of the case's own flow):
+#   intercept: [{module, result | failed (an error value) | decline | static | throw}]
+#   rewrite_args: [{module, args}]
+#   halt_before / halt_after: [module ids]
+#   around: [{module, throw: before | after}]: logs around-before:<site>
+#     and around-after:<site>:<outcome> (TypeScript only)
+#   observe: true: logs start:<site> and end:<site>:<status> (H6)
+#   env: {name: value}: H12 sets them in each invocation's environment
+#   variables: {path: value}: H13's provider bridge answers them
+#   providers: {name: result | failed | decline | throw | delay_ms}
+#   warnings: [{code, message}]: what onRunEnd adds, besides the log
+# Every plugin also answers onRunEnd (H9) with the warning plugin_log,
+# whose message is its log of the run, as JSON.
+# provided: the case's host-provided sites: [{module, provider}].
+# expect: status; result (the run's result); latched (a text the latched
+# error contains); log; warnings (codes besides plugin_log); not_ran
+# (sites with no job).
+# go: false runs a case only through the TypeScript plugin.
+# timeout_ms: the plugin timeout of the runtimes that run these cases.
+timeout_ms: 1000
+scripts:
+  f/plugins/echo.ts: |
+    // Returns its arguments and the variable H12 sets.
+    export async function main(x?: unknown, y?: unknown) {
+      return { x: x ?? null, y: y ?? null, tenant: process.env.PLUGIN_TENANT ?? null };
+    }
+  f/plugins/getvar.ts: |
+    // Reads the variable u/plugins/v through the job API at BASE_URL, and
+    // returns it with the value its argument v resolved to.
+    export async function main(v: string) {
+      const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables/get_value/u/plugins/v`, {
+        headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` },
+      });
+      return { api: r.status === 200 ? await r.json() : r.status, arg: v };
+    }
+cases:
+  - id: h1_result
+    spec: [H1]
+    title: an interception's result stands for the job, and the next step sees it
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 2}}}}
+        - {id: c, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: javascript, expr: previous_result}}}}
+    plugin: {intercept: [{module: b, result: 7}]}
+    expect: {status: success, result: {x: 7, y: null, tenant: null}, not_ran: ["m:b"]}
+
+  - id: h1_decline
+    spec: [H1]
+    title: an interception that declines lets the real step run
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 3}}}}
+    plugin: {intercept: [{module: a, decline: true}]}
+    expect: {status: success, result: {x: 3, y: null, tenant: null}}
+
+  - id: h1_static
+    spec: [H1]
+    title: a static interception answers with its value and asks the plugin nothing
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {intercept: [{module: a, static: {stood: in}}]}
+    expect: {status: success, result: {stood: in}, not_ran: ["m:a"]}
+
+  - id: h1_failed
+    spec: [H1, FX-30]
+    title: an interception's error value fails the step, and continue_on_error carries it on
+    flow:
+      modules:
+        - {id: a, continue_on_error: true, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {intercept: [{module: a, failed: {name: Denied, message: no}}]}
+    expect: {status: success, result: {error: {name: Denied, message: no}}}
+
+  - id: h2_rewrite
+    spec: [H2]
+    title: a rewrite changes the arguments the step runs with
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+    plugin: {rewrite_args: [{module: a, args: {x: 2, y: rewritten}}]}
+    expect: {status: success, result: {x: 2, y: rewritten, tenant: null}}
+
+  - id: h6_observe
+    spec: [H6]
+    title: the observers see every module start and end, in order
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: identity}}
+    plugin: {observe: true}
+    expect: {status: success, log: ["start:m:a", "end:m:a:success", "start:m:b", "end:m:b:success"]}
+
+  - id: h8_before
+    spec: [H8]
+    title: a halt before a module ends the run halted there
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {halt_before: [b]}
+    expect: {status: halted, not_ran: ["m:b"]}
+
+  - id: h8_after
+    spec: [H8]
+    title: a halt after a module ends the run halted once it has its outcome
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+        - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {halt_after: [a]}
+    expect: {status: halted, not_ran: ["m:b"]}
+
+  - id: h9_warnings
+    spec: [H9]
+    title: onRunEnd's warnings are appended to the run's, whose status stands
+    flow:
+      modules:
+        - {id: a, value: {type: identity}}
+    plugin: {warnings: [{code: host_note, message: replayed}]}
+    expect: {status: success, warnings: [host_note]}
+
+  - id: h12_env
+    spec: [H12]
+    title: the environment hook sets a variable the step reads
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    plugin: {env: {PLUGIN_TENANT: tenant-1}}
+    expect: {status: success, result: {x: null, y: null, tenant: tenant-1}}
+
+  - id: h13_variable
+    spec: [H13]
+    title: the provider bridge answers a variable, for the job API and for $var argument resolution
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/getvar, input_transforms: {v: {type: static, value: "$var:u/plugins/v"}}}}
+    plugin: {variables: {u/plugins/v: from the plugin}}
+    expect: {status: success, result: {api: from the plugin, arg: from the plugin}}
+
+  - id: provided_result
+    spec: [H1]
+    title: a mandatory provided site's provider answers in place of the job
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 4}}}}
+    provided: [{module: a, provider: p_result}]
+    plugin: {providers: {p_result: {result: {granted: true}}}}
+    expect: {status: success, result: {granted: true}}
+
+  - id: provided_decline
+    spec: [H5]
+    title: a provider that declines latches provider_declined, and the run fails closed
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+        - {id: b, value: {type: identity}}
+    provided: [{module: a, provider: p_decline}]
+    plugin: {providers: {p_decline: {decline: true}}}
+    expect: {status: latched, latched: provider_declined, not_ran: ["m:b"]}
+
+  - id: provided_throw
+    spec: [H5]
+    title: a provider that throws latches the run with the plugin's error
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    provided: [{module: a, provider: p_throw}]
+    plugin: {providers: {p_throw: {throw: no permit service}}}
+    expect: {status: latched, latched: plugin_error}
+    go: false
+
+  - id: provided_timeout
+    spec: [H5]
+    title: a provider whose answer does not come within the plugin timeout latches host_call_timeout
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+    provided: [{module: a, provider: p_slow}]
+    plugin: {providers: {p_slow: {delay_ms: 3000}}}
+    expect: {status: latched, latched: host_call_timeout}
+    go: false
+
+  - id: hook_throw
+    spec: [H5]
+    title: an interception that throws latches the run, and the step does not run
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
+        - {id: b, value: {type: identity}}
+    plugin: {intercept: [{module: a, throw: interceptor down}]}
+    expect: {status: latched, latched: plugin_error, not_ran: ["m:a", "m:b"]}
+    go: false
+
+  - id: around
+    spec: [H1]
+    title: an around wrapper runs before and after the step, whose outcome stays its own
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 5}}}}
+    plugin: {around: [{module: a}]}
+    expect: {status: success, result: {x: 5, y: null, tenant: null}, log: ["around-before:m:a", "around-after:m:a:ok"]}
+    go: false
+
+  - id: around_throw
+    spec: [H1, H5]
+    title: an around wrapper that throws before running the step latches the run
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 5}}}}
+        - {id: b, value: {type: identity}}
+    plugin: {around: [{module: a, throw: before}]}
+    expect: {status: latched, latched: plugin_error, not_ran: ["m:b"]}
+    go: false

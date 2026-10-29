@@ -76,7 +76,7 @@ func (rt *Runtime) Done() <-chan struct{} {
 // attachHost connects the runtime to its host, whose runs it then serves:
 // the handshake checks the host as it checks a spawned harness, plus its
 // working directory. Runs can start as soon as it returns.
-func (rt *Runtime) attachHost(h *Host, diag io.Writer) error {
+func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 	killAfter := h.KillAfter
 	if killAfter < 0 {
 		killAfter = harness.WatchdogOff
@@ -93,6 +93,7 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer) error {
 		Facade:        rt.fac.WarmOrigin(),
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
+		Check:         rt.hostCheck(opts),
 		Run:           rt.serveHost,
 	})
 	if err != nil {
@@ -150,6 +151,9 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 		return refused(err)
 	}
 	done := harness.RunDone{Status: res.Status, MayHaveMutated: res.MayHaveMutated, Settled: settled}
+	if res.Latched != nil {
+		done.Latched = res.Latched.Error()
+	}
 	if res.Result != nil {
 		done.Result = jsonval.FromProducer(res.Result)
 	}
@@ -214,4 +218,19 @@ type settlingExec struct {
 func (x settlingExec) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
 	inv.Report = x.settle.Track(inv.Report)
 	return x.inner.Execute(ctx, inv)
+}
+
+// interceptFirst are a run's hooks with host mode's static intercepts
+// asked first (H1's no-code form, from the run frame), then the hooks'
+// own interceptions.
+type interceptFirst struct {
+	engine.Hooks
+	first engine.Hooks
+}
+
+func (x interceptFirst) Intercept(ctx context.Context, r engine.Run, s engine.Site, args jsonval.Value) (engine.StepOutcome, bool, error) {
+	if out, ok, err := x.first.Intercept(ctx, r, s, args); ok || err != nil {
+		return out, ok, err
+	}
+	return x.Hooks.Intercept(ctx, r, s, args)
 }

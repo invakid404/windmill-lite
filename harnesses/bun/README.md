@@ -14,8 +14,9 @@ milestone PF1, which gave intercepted replies their reason phrase, kept a
 result behind its own platform call, and fixed the borrowed reading
 methods of the fetch view (below); and milestone FU6, which gave each
 invocation's children a process group of their own
-([WR-55](../../docs/semantics/languages.md#wr-55), below); and milestone
-F3a, which completed the host SDK (below). This
+([WR-55](../../docs/semantics/languages.md#wr-55), below); milestone
+F3a, which completed the host SDK; and milestone F2c, host plugins
+answered over `host_call` (below). This
 README covers `harnesses/bun`: `runtime/`, the harness side of the protocol
 of [ADR 0004](../../docs/design/0004-harness-protocol.md); `host/`, the Bun
 host SDK of [ADR 0009](../../docs/design/0009-host-adapters.md); and
@@ -43,7 +44,8 @@ cannot corrupt the protocol.
 
 | File | Contents |
 |---|---|
-| `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, connects to fd 3, starts the runtime |
+| `runtime/main.ts` | Reads the bundle's digest, extracts its codebase assets, registers its host-provided modules, loads the host plugin `--plugin` names, connects to fd 3, starts the runtime |
+| `runtime/plugin.ts` | Host plugins (F2c): the `Plugin` type a host writes, its declaration, the answer to each `host_call`, `loadPlugin` |
 | `runtime/runtime.ts` | The handshake, the step runner, cancel, health, drain, platform calls, and host mode's runs |
 | `runtime/wrapper.ts` | Windmill's wrapper rules: binding, `Date` hydration, the result and error serialisation |
 | `runtime/native.ts` | The native boundary mode: a realm per invocation with the native runtime's globals, the boundary between it and the web APIs, the preamble, imports and the embedded client, binding, the result and the error shapes |
@@ -374,7 +376,10 @@ calls on its current connection.
 ## Host mode and the host SDK
 
 `host/index.ts` is the SDK for a host that is itself a Bun program
-(ADR 0009). `connect(options)`:
+(ADR 0009). Its `plugin` option is the host's plugin (below, Host
+plugins), whose declaration goes in the hello and which the engine checks
+there, refusing a host it cannot use with `plugin_mismatch`; the SDK
+re-exports the plugin types. `connect(options)`:
 
 1. checks `workdir` (`checkWorkdir`): it must be a directory this process
    can write, else `workdir_not_writable`, and already the process's
@@ -415,7 +420,8 @@ It returns a `Host`:
 
 - `run(path, args, {kind, intercept, signal, onSettled})` submits a run of
   a flow, or with `kind: "script"` a script, and resolves with its `id`,
-  `status`, `result`, `mayHaveMutated` and `warnings`, or rejects with a
+  `status`, `result`, `mayHaveMutated`, `warnings` and, for a latched run,
+  `latched` (the error it latched), or rejects with a
   `HostError` when the engine does not start it (`draining`, or `refused`:
   no such target, arguments that are not an object). An aborted `signal`
   cancels it. The scope the caller has when it calls `run` is captured
@@ -456,6 +462,45 @@ event loop stops answering (`watchdog.killAfter`, default 30 s, 0 disables
 it). A step reads a host scope only through a host-provided module; the
 bundle's step imports it through the shim the build generates, which
 takes each export from the registry.
+
+## Host plugins
+
+A host plugin (milestone F2c, ADR 0008 and ADR 0004 §Host plugins) is a
+`Plugin` (`runtime/plugin.ts`): `intercept` (with a static value or `fn`),
+`rewriteArgs`, `haltBefore`, `haltAfter`, `around`, `onModuleStart`,
+`onModuleEnd`, `invocationEnv`, `onRunEnd`, `onRunSettled`, `providers`
+(the named providers of mandatory host-provided sites), and `resource`
+and `variable`, the provider bridge of H13 (raw values the engine's
+router interpolates). Each list entry has a selector, the host
+contract's form; the engine matches them.
+
+- **Where it comes from.** In host mode, the host SDK's `connect` option
+  `plugin`. In a `warm` harness the engine spawned, the default export (or
+  the export `plugin`) of the module `--plugin` names, which `main.ts`
+  loads once the runtime's process-wide hooks are in place and before the
+  hello (`Runtime.usePlugin`; the engine names it with
+  `wl.Options.Plugin`).
+- **The declaration** (`declaration`) goes in the hello as `plugin`: the
+  hooks the plugin answers, each list's selectors, static values. A plugin
+  whose shape is wrong (an interception with both or neither of `static`
+  and `fn`, a hook that is no function) is refused before the hello.
+- **Answers.** The runtime answers a `host_call` with `dispatch`, outside
+  every invocation, and in host mode inside the scope the host had when it
+  submitted the run (H11); that scope is kept until the run settles, for
+  `onRunSettled`. A hook's throw replies `plugin_error`, a hook or entry
+  the plugin lacks `unknown_hook`, and a harness without a plugin replies
+  `unknown_hook` to every call.
+- **`around`.** When an `invoke` names around wrappers, the runtime runs
+  the step inside them, outermost first, in the invocation's context
+  (`runAround`): each calls `next()` once and gets the step's outcome
+  (`{outcome, result}`), which stays the step's own. A wrapper that throws
+  or never calls `next()` is reported in a `plugin_error` warning before
+  the invocation's result, which latches the run; a step that never ran
+  then fails with an error the harness generated.
+
+`test/caseplugin.ts` is the plugin of the cases of
+`conformance/plugins/hooks.yaml`, which the Go tests load in `warm`
+processes and in a compiled host.
 
 ## The step runner
 
@@ -694,7 +739,10 @@ the environment of child processes, and their process groups (the
 liveness check and `revoke`, a group that outlives its first process, the
 sync forms and `exec`, killed at settlement or on `revoke`, a `detached`
 child left running, and a fresh process's children left in its group);
-and `test/host.test.ts` the SDK: the shared working-directory cases of
+`test/plugin.test.ts` host plugins: the declaration, each hook's answer
+and the `unknown_hook` and `plugin_error` refusals, and the runtime
+answering a `host_call` in the run's scope; and `test/host.test.ts` the
+SDK: the shared working-directory cases of
 `conformance/protocol/host/workdir.json` through `checkWorkdir`, the
 refusals before the engine starts, the assets extracted into the
 working directory before it does, and a run's `onSettled` running in its

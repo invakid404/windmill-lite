@@ -43,6 +43,10 @@ type ScriptRequest struct {
 	// first of RootJob, ParentJob and itself that is set, and its flow path
 	// ParentPath, so its state path is <ParentPath>/nostep_user (WA-5).
 	ParentJob, RootJob, ParentPath string
+	// Around, when set, gives a host plugin's around wrappers at the
+	// script job's site, a site with no path whose Script is the script's
+	// path (RunRequest.Around).
+	Around func(Site) []int
 }
 
 // ScriptResult is how a script job ended: its stored result, or its
@@ -95,6 +99,10 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	env := ident.Env(e.host)
 	reserved := maps.Clone(env)
 	addScriptEnvs(env, s, boundary)
+	var around []int
+	if req.Around != nil {
+		around = req.Around(Site{Script: s.Path})
+	}
 	// FX-40: the script's own cache_ttl, under which the result cache may
 	// answer the job before it runs, and keeps its result when it
 	// succeeds. A hit is still a job with its identity, which the job
@@ -144,6 +152,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 		Boundary:    boundary,
 		ModuleState: e.moduleState,
 		Report:      NopReporter{},
+		Around:      around,
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
