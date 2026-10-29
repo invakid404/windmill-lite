@@ -1,11 +1,13 @@
 # internal/ir
 
 **Current state:** implemented (milestone A5 of
-[0012](../../docs/design/0012-layout-and-milestones.md)); `ir.Compile` has
-two callers: the build of [internal/bundle](../bundle/README.md),
-`bundle.Build`, and the flow runner of `wltest check`
-([cmd/wltest](../../cmd/wltest/README.md)), which compiles each target flow
-as its only root. This README covers `internal/ir/` and its `testdata/`. The
+[0012](../../docs/design/0012-layout-and-milestones.md)), with every
+expression compiled (milestone N1a). `ir.Compile` has two callers: the
+build of [internal/bundle](../bundle/README.md), `bundle.Build`, and the
+flow runner of `wltest check` ([cmd/wltest](../../cmd/wltest/README.md)),
+which compiles each target flow as its only root; the engine
+([internal/engine](../engine/README.md)) runs the programs it returns.
+This README covers `internal/ir/` and its `testdata/`. The
 package is the compiler of [0002](../../docs/design/0002-ir-and-loader.md):
 `ir.Compile` turns a sync folder, read by
 [internal/syncfolder](../syncfolder/README.md), and a host contract into the
@@ -15,11 +17,12 @@ decided program, and it validates what the contract's roots reach.
 
 What it does not do, and which milestone does:
 
-- **Expressions:** an expression holds its site and its text as written.
-  B2a's textual pipeline, `expr.Compile` (trimming, shortcuts, rewrites,
-  mode, bound names, the engine source; JE-5 to JE-15), computes the rest
-  of [`expr.Expr`](../expr/README.md), but `compileExpr` still fills only
-  `Site` and `Text`: filling the rest from `expr.Compile` is still to do.
+- **Expressions' bytecode:** the compiler runs every expression's textual
+  stages with [`expr.Compile`](../expr/README.md) (trimming, shortcuts,
+  rewrites, mode, bound names, the engine source; JE-5 to JE-15), which
+  depend on the site and the text alone, so `ir.json` carries them. The
+  engine compiles each source to bytecode when it opens the program
+  (ADR 0003).
 - **The build:** signatures, the relative-import closure, workflow-as-code
   detection and the refusal of a bundled script that imports a bare
   package with no lock need the Bun helper's scans (C2a), and bundling is
@@ -38,7 +41,7 @@ What it does not do, and which milestone does:
 | `ParseContract(src)`, `(*Contract).Validate` | Read and check a host contract (below). |
 | `Program`, `Flow`, `Module`, `Leaf`, `Subflow`, `ForLoop`, `WhileLoop`, `BranchOne`, `BranchAll`, `Provided`, `Transform`, `Stop`, `Retry`, `Mock` | The IR, a tree of plain values. |
 | `Script` | One entry of the script inventory. |
-| `(*Program).MarshalIndent` | The JSON form, `ir.json` ([0010](../../docs/design/0010-packaging.md)); it decodes back to the same program. |
+| `(*Program).MarshalIndent` | The JSON form, `ir.json` ([0010](../../docs/design/0010-packaging.md)); it decodes back to the same program. `Version` 2 carries the expressions compiled; version 1 held only their site and text. |
 | `*Error` | Every failure: `Kind`, the flow and step, the script, or the provided site, a message, and the wrapped `*syncfolder.Error` of a load failure. |
 
 ## Normalising to the deployed form
@@ -102,7 +105,7 @@ as `m:<id>~<k>` ([0011](../../docs/design/0011-differential-testing.md)).
 
 **Transforms** are `static` (the JSON text verbatim,
 [JE-40](../../docs/semantics/expressions.md#je-40)), `javascript` (an
-expression with its site kind) or `ai`, which the engine leaves out of a
+expression compiled for its site kind) or `ai`, which the engine leaves out of a
 step's arguments ([FX-7](../../docs/semantics/execution.md#fx-7)). The input
 transforms of the failure module itself have the site
 `failure_input_transform` ([JE-35](../../docs/semantics/expressions.md#je-35)).

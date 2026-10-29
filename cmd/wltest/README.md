@@ -3,8 +3,9 @@
 **Current state:** three verbs, `record` (milestone E2 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md); recording batch
 E3a added expression files), `stub` (milestone E4a) and `check`, for step
-cases (milestone C3a; C2b added codebase scripts and their Node side) and
-flow fixtures (milestone E1). This README covers the `wltest` command in
+cases (milestone C3a; C2b added codebase scripts and their Node side),
+flow fixtures (milestone E1) and, on the engine core, expression files run
+end to end (milestone N1a). This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -107,14 +108,14 @@ exit 1.
 ## check
 
 ```sh
-WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture or directory>...
+WL_BUN=/path/to/bun-1.3.10/bun bin/wltest check [--mode warm|fresh] [--bun PATH] [--node PATH] [--repo DIR] [-v] <step file, fixture, expression file or directory>...
 ```
 
-Runs the step cases of `conformance/steps` and the flow fixtures of
-`conformance/flows` on windmill-lite. Each argument is a step file, a
-fixture directory (one holding `fixture.yaml`), or a directory searched for
-both. An explicit file of any other kind is refused (exit 2); expression
-cases are checked by `go test ./internal/expr`, not here.
+Runs the step cases of `conformance/steps`, the flow fixtures of
+`conformance/flows` and the expression cases of `conformance/exprs` on
+windmill-lite. Each argument is a step file, a fixture directory (one
+holding `fixture.yaml`), an expression file, or a directory searched for
+all three. An explicit file of any other kind is refused (exit 2).
 
 It prints `pass` or `fail`, the case and its file, or the fixture and the
 run, then each difference; `unsupported`, the fixture, the run and why it
@@ -205,17 +206,16 @@ a few at a time (`flows.go`):
    wrong with one target (a compile error, a refused script, a script that
    does not build) fails or skips only the runs of that target; a folder
    that does not load, or a build that fails as a whole, fails them all.
-2. **Run.** Each target flow gets a walking skeleton of its own
-   (`engine.Skeleton`, milestone W1), and every run goes to one pool of Bun
+2. **Run.** Each target flow's program gets an engine of its own
+   (`engine.Engine`, milestone N1a), and every run goes to one pool of Bun
    harness processes per fixture, the `warm` configuration. Runs go in name
    order, a `group` at its first run's place with its runs concurrent
    (`conformance.RunBatches`); `cancel_after_ms` cancels a run, and a run
    that has not ended after 60 s fails. Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, and the checker
    records the id of every invocation it makes (`WM_JOB_ID`) with its site.
-   The skeleton names an invocation's script by its job path, which stays
-   the step's `WM_JOB_PATH`; the checker sends it with the inventory id of
-   the script the compiler put at that site.
+   The engine names an invocation's script by its inventory id, as the
+   bundle does, and gives its job path as `WM_JOB_PATH`.
 3. **Observe** (`observe.go`). The run's trace becomes the observation the
    oracle's walker produces ([ADR 0011](../../docs/design/0011-differential-testing.md),
    [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow that
@@ -241,12 +241,35 @@ a few at a time (`flows.go`):
    origin and is never stripped. A run with nothing to compare fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
-(milestone E4b), a fixture with `setup.yaml` (resources and variables,
-PF2) or effects (the effect sink), a script run (`kind: script`), a flow the
-compiler refuses as an unsupported feature, language or pinned hash, a
-script of another harness or boundary (C3n), or a flow the walking
-skeleton refuses at load (containers, failure modules, `skip_if`, retries
-and the other features N1a and its successors implement).
+(milestone E4b), a fixture with effects (the effect sink), a script run
+(`kind: script`), a flow the compiler refuses as an unsupported feature,
+language or pinned hash, a script of another harness or boundary (C3n), a
+flow the engine refuses at open (`engine.ErrUnsupported`, which names the
+milestone: failure modules, waits, retries, containers, subflows), and a
+flow that reads the platform, which needs the platform providers of PF2:
+its compiled program holds `variable(`, `resource(`, `flow_user_state(`,
+`$var:`, `$res:`, `$jsonvar:` or `$encrypted:`, or it or a script it
+reaches names a variable or resource of the fixture's `setup.yaml`. The
+fixture's other runs are checked. So is a run the oracle canceled on its
+own, with no `cancel_after_ms` (JE-2/a: its monitor of flows that hang
+between steps), which has no counterpart on windmill-lite.
+
+### Expression files
+
+An expression-case file of `conformance/exprs`
+([ADR 0003](../../docs/design/0003-semantics-placement.md), the expression
+level) runs end to end as the generated one-step flow fixture that `record`
+lifts it into (`conformance.LiftExprFile`), in a temporary directory: one
+flow per case, whose module `b` runs a sink script with the case's
+expression as its input `x` (or as its `skip_if`), compared with the case's
+recording and claims. `check` takes such a file explicitly, and finds them
+in the directories it is given, as `record` does. The unit-level checks of
+the same cases are `go test ./internal/expr`'s (milestones B2a and B2b).
+Cases that differ by a named deviation fail here as they do there, and
+the flow suite does not require them: the transcendental `Math` cases of
+JE-1, whose last digit depends on the C library (D16: the Linux runner's
+glibc and macOS each differ from Windmill's image on some of them), and
+JE-48/a, which does not overflow the 1 MiB stack (D17).
 
 ### Tests
 
@@ -264,19 +287,21 @@ Windmill v1.767.0's image).
   that a wrong or unstated Node difference fails, and `TestStepCatalogue`
   that every catalogue case of a finding with a step file is a step case or
   deferred.
-- `TestFlowSuite` is milestone E1's exit gate: every run the flow suite
-  requires passes in `warm`. `testdata/flowsuite.json` lists them in
+- `TestFlowSuite` is the exit gate of milestones E1 and N1a: every run the
+  flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there. A required run stays required. The test runs every
-  other fixture of `conformance/flows` as well: each must load, and the log
+  other fixture of `conformance/flows`, and every expression file of
+  `conformance/exprs` as its generated fixture (a run is keyed
+  `<file>/<case>`), as well: each must load, and the log
   gives the counts of passing, failing and unsupported runs, and names the
   runs that pass without being required.
 - `TestFlowCheckerReportsDifferences` checks that a run whose result, job
   placeholder, recording or claim differs fails with its differences, that
-  a flow the skeleton refuses is unsupported, that an inline step and a
+  a flow the engine refuses is unsupported, that an inline step and a
   path script sharing a job path both run and both see it, that a script
   that does not build fails only the runs that reach it, and that a run
   that holds passes. `TestFlowCheckerIsolatesCodebaseFailures` does the

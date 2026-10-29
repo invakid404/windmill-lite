@@ -9,8 +9,9 @@ import (
 
 // Version is the version of the IR's JSON form. ir.json is a cache for one
 // engine version, not an exchange format (0010); the number changes when
-// the form does.
-const Version = 1
+// the form does. Version 2 carries every expression compiled (expr.Expr's
+// textual stages, milestone N1a); version 1 held only its site and text.
+const Version = 2
 
 // Program is a compiled bundle: every flow and script the roots reach, the
 // host contract it was built against, and the deviations its content puts

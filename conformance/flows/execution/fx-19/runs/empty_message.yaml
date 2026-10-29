@@ -6,4 +6,12 @@ expect:
   status: failure
   result: {error: {name: EarlyStopError, message: "stop after if: result > 2", result: 3}}
   steps:
-    "m:a": {status: success, module: failure, args: {}, result: 3}
+    "m:a":
+      status: success
+      module: failure
+      args: {}
+      result: 3
+      # FX-2 completion step 4: the error stop replaces the value a
+      # carries on with the EarlyStopError, the flow's result; the oracle
+      # exposes no carried value, so the recording cannot show it.
+      carried: {error: {name: EarlyStopError, message: "stop after if: result > 2", result: 3}}
