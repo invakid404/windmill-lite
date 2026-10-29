@@ -377,6 +377,70 @@ func (s *ReplayService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reply(w, c)
 }
 
+// CheckReplay holds a stub run's answered calls against where the run's
+// observation puts each job: walked maps every job id it reached to its
+// site, a failed attempt k at <module>/r:<k> (on the oracle from the walk,
+// on windmill-lite from the run trace), and scripts are the ids of the
+// jobs that executed a script. Both sides apply the same rules:
+//
+//   - every call was answered: a call the table had no outcome for
+//     (replay_miss) or whose job was not found in time (replay_unresolved)
+//     fails the run, since the fixture's table or tree is wrong;
+//   - every call was resolved where the observation puts its job: a failed
+//     attempt k at <site>/r:<k>, the module's last job at <site> itself
+//     with k equal to the number of failed attempts before it
+//     (replay_site_mismatch);
+//   - every job that executed a script called the service, so no original
+//     body ran (stub_not_called).
+//
+// The error's text is the refusal as one JSON object.
+func CheckReplay(calls []ReplayCall, walked map[string]SitePath, scripts []string) error {
+	called := map[string]bool{}
+	attempts := map[SitePath]bool{}
+	for _, site := range walked {
+		if segs := site.Segments(); len(segs) > 0 && segs[len(segs)-1].Kind() == KindAttempt {
+			attempts[site] = true
+		}
+	}
+	for _, c := range calls {
+		if c.Err != "" {
+			return errors.New(c.Err)
+		}
+		called[c.Job] = true
+		at, ok := walked[c.Job]
+		failed := c.Site.Child(Attempt(c.Attempt))
+		last := at == c.Site && !attempts[failed] && (c.Attempt == 0 || attempts[c.Site.Child(Attempt(c.Attempt-1))])
+		if !ok || at != failed && !last {
+			got := "(not walked)"
+			if ok {
+				got = at.String()
+			}
+			return fmt.Errorf(`{"error":"replay_site_mismatch","job":%s,"resolved":%s,"attempt":%d,"walked":%s}`,
+				jsonText(c.Job), jsonText(c.Site.String()), c.Attempt, jsonText(got))
+		}
+	}
+	var missing []string
+	for _, id := range scripts {
+		if !called[id] {
+			missing = append(missing, walked[id].String())
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		var b bytes.Buffer
+		b.WriteString(`{"error":"stub_not_called","sites":[`)
+		for i, s := range missing {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			writeJSONString(&b, s)
+		}
+		b.WriteString("]}")
+		return errors.New(b.String())
+	}
+	return nil
+}
+
 func reply(w http.ResponseWriter, c *ReplayCall) {
 	w.Header().Set("Content-Type", "application/json")
 	if c.Outcome != nil {

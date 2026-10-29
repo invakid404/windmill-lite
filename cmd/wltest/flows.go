@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -136,20 +137,12 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	for i, r := range f.Runs {
 		results[i] = runResult{fixture: f.Dir, run: r.Name}
 	}
-	whole := ""
-	switch {
-	case fc.mode != conformance.ModeWarm:
-		// The walking skeleton and this runner's pool run warm; the flow
-		// suite runs in fresh and warm through wl (ADR 0012, F1).
-		whole = "flow fixtures run in warm mode only until milestone F1, whose gate runs the flow suite in fresh and warm"
-	case f.Stub:
-		whole = "stub mode on windmill-lite is milestone E4b's"
-	case f.Oracle.Effects:
-		whole = "the effect sink is not injected on windmill-lite yet (ADR 0011, Effects)"
-	}
-	if whole != "" {
+	if len(f.Roots) > 0 && (f.Stub || f.Oracle.Effects) {
+		// The default dispatcher's runs (milestone PF3) run without a
+		// run's hooks, so their jobs would get no WL_EFFECT_SINK, while on
+		// the oracle every job gets it.
 		for i := range results {
-			results[i].unsupported = whole
+			results[i].unsupported = "a fixture with roots gets no effect sink in its dispatched runs yet (ADR 0011, Effects)"
 		}
 		return results
 	}
@@ -159,31 +152,57 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	defer os.RemoveAll(work)
 
-	b, err := fc.build(ctx, f, work)
+	tree := f.SyncTree()
+	if f.Stub {
+		// Stub mode (ADR 0011, milestone E4b): the runs run the stubbed
+		// copy of the tree that wltest record pushes to the oracle, every
+		// script body replaced by a stub that asks the replay service.
+		root, err := syncfolder.Find(tree)
+		if err != nil {
+			return failRuns(results, "stub: "+err.Error())
+		}
+		tree = filepath.Join(work, "stubbed")
+		if _, err := oracle.StubTree(root, tree); err != nil {
+			return failRuns(results, "stub: "+err.Error())
+		}
+	}
+	b, err := fc.build(ctx, f, tree, work)
 	if err != nil {
 		return failRuns(results, "build: "+err.Error())
 	}
+	var effects *effectServer
+	if f.Stub || f.Oracle.Effects {
+		// The fixture's effect sink and replay service (ADR 0011).
+		if effects, err = newEffectServer(); err != nil {
+			return failRuns(results, "effect sink: "+err.Error())
+		}
+		defer effects.Close()
+	}
 	var diag syncBuffer
-	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
+	// The fixture's platform facade (ADR 0007, milestone PF1): a warm
 	// pool reaches it through the intercepted fetch, at an origin where
-	// nothing listens, and every step's calls are attributed to it. It
-	// serves the fixture's resources and variables, which the engine reads
-	// too (milestone PF2).
+	// nothing listens, and a fresh one over loopback TCP, and every step's
+	// calls are attributed to it. It serves the fixture's resources and
+	// variables, which the engine reads too (milestone PF2).
 	fac, err := facade.New(facade.Config{Platform: b.platform})
 	if err != nil {
 		return failRuns(results, "facade: "+err.Error())
 	}
 	defer fac.Close()
 	path, args := harness.BunCommand(fc.bun, filepath.Join(fc.repo, "harnesses", "bun", "runtime", "main.ts"), b.out)
+	state, origin := engine.ModuleState(fc.mode), fac.WarmOrigin()
+	if fc.mode == conformance.ModeFresh {
+		origin = fac.FreshOrigin()
+	}
 	pool, err := harness.NewPool(harness.PoolConfig{
-		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: engine.ModuleStateWarm},
+		Key: harness.Key{Class: "bun", Runtime: harness.PinnedBun, Deps: "wltest-flows", ModuleState: state},
 		Process: harness.ProcessConfig{
 			Path: path, Args: args, WorkRoot: work, Kind: "bun", Runtime: harness.PinnedBun,
 			Bundle: b.digest, EngineVersion: "wltest-check", Diagnostics: &diag,
-			// The same kind of origin as a warm step case's, so a native step
-			// reads the facade's origin as BASE_URL and BASE_INTERNAL_URL in
-			// both (WR-45).
-			Facade: fac.WarmOrigin(), Platform: fac.Platform(),
+			// The same kind of origin as a step case's in the same mode, so
+			// a native step reads the facade's origin as BASE_URL and
+			// BASE_INTERNAL_URL in both (WR-45).
+			Facade: origin, Platform: fac.Platform(),
 		},
 	})
 	if err != nil {
@@ -203,7 +222,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 		// One engine per target's program, so that a flow it refuses
 		// leaves the fixture's others to run.
-		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform})
+		e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform, ModuleState: state})
 		switch {
 		case errors.Is(err, engine.ErrUnsupported):
 			t.unsupported = "the engine does not run it yet: " + err.Error()
@@ -219,7 +238,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		// roots, through the facade's executor so that their calls are
 		// attributed, on the pool; it is in the services before any run
 		// starts, and closes before the pool does.
-		if e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform}); err == nil {
+		if e, err := engine.New(engine.Config{Program: t.prog, Bundle: b.digest, Exec: pool, JS: fc.js, Platform: b.platform, ModuleState: state}); err == nil {
 			d := engine.NewDispatcher(e, fac.Executor(pool))
 			b.platform.Dispatcher = d
 			defer func() {
@@ -235,35 +254,65 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		byName[r.Name] = i
 	}
 	for _, batch := range conformance.RunBatches(f.Runs) {
-		var wg sync.WaitGroup
+		var live []conformance.Run
 		for _, r := range batch {
 			res := &results[byName[r.Name]]
 			t := b.targets[r.Target]
 			switch {
 			case r.IsScript():
 				res.unsupported = "a script run (kind: script) has no runner on windmill-lite yet"
-				continue
 			case r.RunsAndWaits():
 				res.unsupported = "a run-and-wait response (submit: " + conformance.SubmitRunWait + ") needs the HTTP adapter of milestone F7b"
-				continue
 			case t == nil:
 				res.problems = []string{"no target " + r.Target}
-				continue
 			case t.unsupported != "":
 				res.unsupported = t.unsupported
-				continue
 			case t.problem != "":
 				res.problems = []string{t.problem}
-				continue
+			default:
+				live = append(live, r)
 			}
-			// Runs of one group are concurrent outer runs (OR-15).
+		}
+		// Runs of one group are concurrent outer runs (OR-15), and one test
+		// of them (ADR 0011): a group runs whole or not at all.
+		group := batch[0].Group
+		if group != "" && len(live) < len(batch) {
+			why := groupUnrunnable(group, batch, results, byName)
+			for _, r := range live {
+				results[byName[r.Name]].unsupported, results[byName[r.Name]].problems = why.unsupported, why.problems
+			}
+			continue
+		}
+		var g *runGroup
+		if group != "" {
+			g = newRunGroup(group, len(live))
+		}
+		var wg sync.WaitGroup
+		for _, r := range live {
+			res := &results[byName[r.Name]]
+			var gm *groupMember
+			if g != nil {
+				gm = g.member(r.Name)
+			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t)
+				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), b.targets[r.Target], effects, gm)
 			}()
 		}
 		wg.Wait()
+		if g != nil {
+			names := make([]string, len(live))
+			for i, r := range live {
+				names[i] = r.Name
+			}
+			err := g.conclude(names, func(run string) bool { return len(results[byName[run]].problems) > 0 })
+			for _, r := range live {
+				if res := &results[byName[r.Name]]; err != nil && len(res.problems) == 0 {
+					res.problems = []string{err.Error()}
+				}
+			}
+		}
 	}
 	if d := diag.String(); d != "" {
 		for i := range results {
@@ -273,6 +322,33 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 		}
 	}
 	return results
+}
+
+// groupUnrunnable is what becomes of the runs of group that could start
+// when another run of it could not (batch is the group's runs): the group
+// is unsupported when a run of it is, and fails as a whole when a run of
+// it failed before it started (group_member_failed).
+func groupUnrunnable(group string, batch []conformance.Run, results []runResult, byName map[string]int) runResult {
+	for _, r := range batch {
+		if res := results[byName[r.Name]]; res.unsupported != "" {
+			return runResult{unsupported: "run " + r.Name + " of group " + group + " is unsupported: " + res.unsupported}
+		}
+	}
+	for _, r := range batch {
+		if len(results[byName[r.Name]].problems) > 0 {
+			return runResult{problems: []string{`{"error":"group_member_failed","group":` + jsonText(group) + `,"run":` + jsonText(r.Name) + `}`}}
+		}
+	}
+	return runResult{}
+}
+
+// jsonText is s as a JSON string, as refusals quote their members.
+func jsonText(s string) string {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s) // a string always encodes
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func failRuns(rs []runResult, problem string) []runResult {
@@ -312,8 +388,9 @@ type target struct {
 // failed.
 var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLanguage: true, ir.ErrPinnedHash: true}
 
-// build compiles each run's target flow and builds the Bun scripts they
-// reach into one bundle below work: scripts/bun/<id>.mjs and
+// build compiles each run's target flow from the sync tree at tree (the
+// fixture's, or its stubbed copy in stub mode) and builds the Bun scripts
+// they reach into one bundle below work: scripts/bun/<id>.mjs and
 // <id>.meta.json, named by each script's inventory id (ir.Script.ID), as a
 // bundle names them (ADR 0010). Codebase scripts are built with esbuild
 // (bundle.BuildCodebase, milestone C2b), each with the settings of the
@@ -325,8 +402,8 @@ var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLang
 // What goes wrong with one target (a compile error, a refused script, a
 // build problem of a script it reaches) is that target's; only a folder
 // that does not load, or a build that fails as a whole, fails the fixture.
-func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work string) (*fixtureBundle, error) {
-	root, err := syncfolder.Find(f.SyncTree())
+func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, work string) (*fixtureBundle, error) {
+	root, err := syncfolder.Find(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -584,8 +661,15 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 
 // runOne runs one run on the engine and compares its observation. A run's
 // cancel_after_ms cancels it with the reason and the canceler the oracle's
-// cancellation names (FX-38).
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target) []string {
+// cancellation names (FX-38). With the fixture's effect server (es, nil
+// when the fixture has neither effects nor stub mode), the run's effects
+// are observed as the oracle's are: the sink's, then, in stub mode, each
+// answered stub call, once the calls agree with the trace
+// (conformance.CheckReplay). A run of a group (gm, nil for a run of no
+// group) is held at its first module until the group's other runs are in
+// flight, and its span, from submission to end, is recorded for the
+// group's check.
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target, es *effectServer, gm *groupMember) []string {
 	cctx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)
@@ -596,24 +680,57 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 		})
 		defer stop.Stop()
 	}
+	id := newUUID()
+	var hooks engine.Hooks
+	if es != nil || gm != nil {
+		h := &runHooks{grp: gm}
+		if es != nil {
+			h.fx = es.openRun(id, f.Stub, r.Replay)
+		}
+		hooks = h
+	}
 	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
+	submitted := time.Now()
 	tr, err := e.Run(rctx, engine.RunRequest{
-		ID:   newUUID(),
-		Path: r.Target,
-		Args: jsonval.FromProducer(r.ArgsOrEmpty()),
-		Exec: exec,
+		ID:    id,
+		Path:  r.Target,
+		Args:  jsonval.FromProducer(r.ArgsOrEmpty()),
+		Exec:  exec,
+		Hooks: hooks,
 	})
+	if gm != nil {
+		gm.ended(submitted, time.Now())
+	}
+	var effects []json.RawMessage
+	var calls []conformance.ReplayCall
+	if es != nil {
+		effects, calls = es.closeRun(id)
+	}
 	if err != nil {
 		return []string{"run: " + err.Error()}
 	}
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies)
-	if err != nil {
-		return []string{"observe: " + err.Error()}
+	// A run whose calls disagree with its trace fails, and its observation
+	// is still compared, so that what made its steps fail is shown too.
+	var problems []string
+	if f.Stub {
+		if err := checkStub(tr, t.prog, r.Target, calls); err != nil {
+			problems = append(problems, "stub: "+err.Error())
+		}
+		for _, c := range calls {
+			if c.Effect != nil {
+				effects = append(effects, c.Effect)
+			}
+		}
 	}
-	return append(compareRun(f, r, got, generated), checkDelays(tr, r.Delays)...)
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies, effects)
+	if err != nil {
+		return append(problems, "observe: "+err.Error())
+	}
+	problems = append(problems, compareRun(f, r, got, generated)...)
+	return append(problems, checkDelays(tr, r.Delays)...)
 }
 
 // checkDelays checks a run's delays on windmill-lite's side (JE-28, FX-23,

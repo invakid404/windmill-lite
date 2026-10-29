@@ -54,7 +54,7 @@ them, per runtime or per run ([0008](0008-host-hooks.md)).
 | `ObjectStore` | `job_helpers/download_s3_file`, `upload_s3_file`, `delete_s3_file` | a local directory keyed by (storage, key) | core (explicit keys), later (the rest) |
 | `Dispatcher` | `jobs/run/p`, `run/h`, `run/f`, `jobs_u/completed/get_result_maybe`, `get_result` | runs the target from the bundle as a detached run of the same runtime | core (interface) |
 | `Jobs` | `jobs_u/get`, `jobs_u/get_args/{id}`, job tree lookups | answers from the run registry for windmill-lite ids ([0001](0001-equivalence-contract.md) D3) | later; core for root lookup |
-| `ResultCache` | none (engine-internal, `cache_ttl`) | per process (D4); the key and TTL rules of [FX-40](../semantics/execution.md#fx-40) | later |
+| `ResultCache` | none (engine-internal, `cache_ttl`) | per process (D4); the key and TTL rules of [FX-40](../semantics/execution.md#fx-40) | core (N4); later (S3-aware argument hashing) |
 | `Resume` | `jobs/resume_urls` | none: a step that asks gets `UnsupportedPlatformCall`; a host provider may return `{approvalPage, resume, cancel}` | core (call shape, provider interface); out (resuming, since `suspend` is rejected) |
 
 ### One interpolation walker, three modes
@@ -434,6 +434,41 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **Not yet:** a host's per-run services (H13) are F2a's; deletion,
     generated keys and presigning in the object store, and job
     introspection beyond the root lookup and dispatched runs, are `later`.
+
+- Milestone N4 implemented the result cache
+  ([internal/platform](../../internal/platform/README.md), the engine's
+  use of it in [internal/engine](../../internal/engine/README.md)):
+  - **The interface is a store.** `platform.ResultCache` has two calls:
+    `Get(key, now)`, the value stored under a key while it expires after
+    now, and `Put(key, value, expires)`. The engine owns the key, the TTL
+    rules of FX-40, what a value holds and when a job stores, so a host's
+    store keeps opaque bytes and compares expiries with the time the engine
+    gives, its run's clock (H10). `platform.Services` gained `Results`; a
+    nil one is one `platform.MemoryResults` per `Services`, made when first
+    needed, so every engine that shares a `*Services` shares it (D4's
+    process scope), and an engine with no services keeps its own. The
+    default keeps a heap of expiries and drops, on every call, each entry
+    that expired by the latest time a caller gave, so it holds only live
+    entries whatever their number.
+  - **A hit is a job.** A leaf's or a script root's hit gets the identity
+    it would have run with and is registered in the job registry, known
+    while its root lives, as a job that ran is. A flow job's hit goes
+    through the host's start and completion checks (0008, H4, H5), so a
+    cached result never turns a canceled run into a successful one.
+  - **The key** is a SHA-256 over the bundle's digest, the job's kind, its
+    runnable (an inline step's inventory id, a path script's path, a
+    flow's path) and its arguments in sorted key order, each as its name
+    and stored text. Windmill keys a deployed job by a runnable id, never by
+    a path that differs between jobs, which is why the iterations of one
+    collapsed loop share an entry (FX-40/d); the bundle's digest stands for
+    the deployed version those ids belong to, so an entry never crosses
+    bundles in a shared store.
+  - **A store's failure** is a miss and a run warning
+    (`result_cache_unavailable`), never a failed run.
+  - **Not yet:** S3-aware argument hashing, which includes an object's ETag
+    (FX-40), needs an ETag the object store does not keep: an argument
+    that names an S3 object is hashed as its JSON, and
+    `cache_ignore_s3_path` is refused (`later`).
 
 ## Spec IDs relied on
 

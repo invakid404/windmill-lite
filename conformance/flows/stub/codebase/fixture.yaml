@@ -1,0 +1,15 @@
+# Stub mode (ADR 0011) on codebase scripts (SY-8): a retry inside a loop on
+# a codebase script of an entry with no format, CommonJS, which Windmill
+# runs on Node, then a codebase script of an esm entry, which it runs on
+# Bun (WR-47, WR-50). Stubbed, both stay codebase scripts: the CLI bundles
+# each stub with esbuild when it pushes the stubbed tree, as wltest check
+# builds it (milestone C2b; the CommonJS stub on Bun's CommonJS loader is
+# deviation D13), and every call takes its outcome from the run's replay
+# table. Synthetic, written for this repository.
+id: stub/codebase
+spec: [SY-8, WR-47, WR-50, FX-26, CF-4, OR-11]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 1, effects: true}
+stub: true

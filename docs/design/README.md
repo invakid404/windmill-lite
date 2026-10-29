@@ -70,7 +70,11 @@ adds subflows by path, each a child flow with its own results scope,
 failure module and `flow_env`, and the failure module's copy in every
 container body, with the location rule of
 [0011](0011-differential-testing.md) extended to the copies of a
-generated error and the not-found location a run declares. Milestone PF1 is the
+generated error and the not-found location a run declares. Milestone N4
+adds the `cache_ttl` result cache: a store behind the result cache
+service of [0007](0007-platform-interface.md), which a host may replace
+and whose default is in memory, keyed and timed by the rules of FX-40.
+Milestone PF1 is the
 platform facade of [0007](0007-platform-interface.md) in
 [internal/platform/facade](../../internal/platform/facade/README.md): the
 router behind the stock client, attribution over the intercepted `fetch`
@@ -96,7 +100,13 @@ and refuses any other target (the restriction of
 waits and retries, the cancellation and failures with the containers of
 N3a and N3b, with its fixtures `cf-21` to `cf-28` and `waits` recorded on
 the oracle, and observations of a container's failed attempts as the
-walker of [0011](0011-differential-testing.md) meets them.
+walker of [0011](0011-differential-testing.md) meets them. Milestone E4b
+runs the stub mode of [0011](0011-differential-testing.md) on
+windmill-lite. `wltest check` serves the oracle's effect sink and replay
+service to every run that needs them and holds the stub calls against the
+run's trace with the same check the oracle applies to its walk. The stub
+acceptance cases, together with a case on codebase scripts, match the
+oracle's recordings.
 This README covers `docs/design/`: this index and the decision records it
 links. The records decide the architecture, the equivalence contract with
 Windmill `v1.767.0`, the Go package layout and the implementation

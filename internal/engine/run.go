@@ -82,9 +82,9 @@ func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rn
 	now := clock.Now()
 	r := &run{e: e, f: f, id: id, rootID: id, hooks: hooks, exec: exec, wake: make(chan struct{}), clock: clock, jitter: jitter, cancel: cancel}
 	r.root = newFrame(f.Modules, conformance.SitePath{})
-	r.root.failure, r.root.def, r.root.started = f.FailureModule, f, now
+	r.root.failure, r.root.def, r.root.started, r.root.cacheTTL = f.FailureModule, f, now, flowTTL(f)
 	r.root.path, r.root.id, r.root.scope, r.root.nodes, r.root.rng, r.root.pinged = f.Path, id, id, newNodeScope(nil), rng, now
-	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: ModuleStateWarm}
+	r.trace = Trace{RunID: id, Bundle: e.bundle, ModuleState: e.moduleState}
 	r.settle = NewRunSettlement(func() { hooks.OnRunSettled(r.snapshot()) })
 	return r
 }
@@ -456,6 +456,13 @@ type flowEnd struct {
 	// args are a collapsed iteration's body job's stored arguments, the
 	// input of its job (CF-22 rule 3).
 	args jsonval.Value
+	// lastJobOK: the job whose completion ended the flow succeeded, the
+	// last module's or the failure module's, which is when a flow job
+	// stores its result in the result cache, before and whatever the
+	// recover check decides (FX-40). cached: the result cache answered
+	// the flow job, and no module ran.
+	lastJobOK bool
+	cached    bool
 }
 
 // run runs the flow and records its outcome.
@@ -465,15 +472,78 @@ func (r *run) run(ctx context.Context) {
 		r.endBy(ctx, e.status)
 		return
 	}
+	if e.cached {
+		r.mu.Lock()
+		r.trace.Cached = true
+		r.mu.Unlock()
+	}
 	r.end(e.status, e.result, e.origin, e.nested)
 }
 
-// runList runs a frame's modules in order (FX-2): the start checks of the
-// host (Start), the module's own start and completion, then the host's
+// runList runs a frame's flow job: its modules (runModules), or, for the
+// root or a subflow whose flow has a cache_ttl, the result cache's entry
+// for the flow and its input, which completes the job successfully at once
+// with no module run; a flow job whose last job succeeded stores its
+// result until now plus the TTL, a failed flow's included when its failure
+// module's job succeeded (FX-40).
+func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
+	if fr.cacheTTL <= 0 {
+		return r.runModules(ctx, fr)
+	}
+	key, ok := r.e.cacheKey(cacheKindFlow, fr.def.Path, fr.input)
+	if ok {
+		// A hit is the flow job's start and completion at once, so the
+		// host's checks of both apply (ADR 0008, H4, H5; FX-38): a latch,
+		// the cancellation (a passed pre-write deadline's included) or a
+		// halt that is there before the lookup ends the flow without it,
+		// and one that arrives during the lookup still ends it, so a cached
+		// result never turns a canceled run into a successful one.
+		if st, end := r.hostEnd(ctx, true); end {
+			return flowEnd{status: st}
+		}
+		if c, hit := r.lookup(ctx, key); hit {
+			if st, end := r.hostEnd(ctx, false); end {
+				return flowEnd{status: st}
+			}
+			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, lastJobOK: true, cached: true}
+		}
+	}
+	e := r.runModules(ctx, fr)
+	if ok && e.lastJobOK && !ended(e.status) {
+		r.store(ctx, key, fr.cacheTTL, e.result, e.origin, e.nested)
+		// The store comes before the flow job's completion, so a latch or
+		// the cancellation that arrives while it runs ends the flow too.
+		if st, end := r.hostEnd(ctx, false); end {
+			return flowEnd{status: st}
+		}
+	}
+	return e
+}
+
+// hostEnd applies the host's checks around a flow job's cache I/O, with
+// no module of its own: the start checks (Start) when start says so, and
+// a halt decided elsewhere, else the completion checks (Completion), the
+// latch and then the cancel flag. It returns the status the run ends with
+// and true when one of them ends it.
+func (r *run) hostEnd(ctx context.Context, start bool) (conformance.RunStatus, bool) {
+	if !start {
+		return Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status()
+	}
+	if st, end := Start(StartSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
+		return st, true
+	}
+	if r.halted.Load() {
+		return conformance.RunHalted, true
+	}
+	return "", false
+}
+
+// runModules runs a frame's modules in order (FX-2): the start checks of
+// the host (Start), the module's own start and completion, then the host's
 // completion checks (Completion) and Windmill's continue decision, then
 // haltAfter (AfterContinue). A failure the decision does not tolerate
 // enters the failure module (failure).
-func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
+func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 	// FX-6, JE-36, CF-9: the first module's previous_result is the flow's
 	// input; FX-3: a flow with no modules returns it.
 	prev, prevID := fr.prev, ""
@@ -566,7 +636,8 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		end := flowEnd{status: d.status, result: d.result, origin: d.origin, nested: d.nested, chain: o.chain, args: o.rec.RecordedArgs,
 			stopped:   stop && d.status != conformance.RunFailure && o.end != endErrorStop,
 			errorStop: stop && d.status == conformance.RunFailure,
-			handled:   o.handled && d.status == conformance.RunFailure}
+			handled:   o.handled && d.status == conformance.RunFailure,
+			lastJobOK: o.rec.Status == conformance.StepSuccess || o.rec.Status == conformance.StepSkipped}
 		// haltAfter (H8): when the flow starts its next module, the run halts
 		// now; when a child flow ends, the halt is pending until the run's
 		// next start, after its containers' completions (pendingHalt); the
@@ -605,7 +676,7 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 	if st, end := Completion(CompletionSignals{Latched: r.latch.Err() != nil, Canceled: ctx.Err() != nil}).Status(); end {
 		return flowEnd{status: st}
 	}
-	return flowEnd{status: conformance.RunSuccess, result: prev}
+	return flowEnd{status: conformance.RunSuccess, result: prev, lastJobOK: true}
 }
 
 // failure runs fr's failure module (FX-31) with the failing value as its
@@ -664,8 +735,10 @@ func (r *run) failure(ctx context.Context, fr *frame, prev jsonval.Value, prevID
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true}
-	case o.end == endSucceeded, o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, lastJobOK: true}
+	case o.end == endSucceeded:
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, lastJobOK: true}
+	case o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
 		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true}
 	}
 	return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), origin: OriginEngine}
@@ -1228,6 +1301,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		return notLaunched()
 	}
 	var job string // the id of the leaf's job, once it ran
+	// The key and TTL of the leaf's job in the result cache, when a TTL
+	// applies (FX-40).
+	var cacheKey string
+	var cacheTTL time.Duration
 	switch {
 	case intercepted:
 		o.rec.Hooks = append(o.rec.Hooks, "H1")
@@ -1236,6 +1313,13 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	case m.Kind == ir.KindSubflow:
 		return r.subflow(ctx, fr, i, site.Path, o, stored)
 	default:
+		// FX-40: once the job is picked up, before it runs, the result
+		// cache may answer it.
+		if cacheKey, cacheTTL = r.leafCache(fr, m, stored); cacheTTL > 0 {
+			if c, hit := r.lookup(ctx, cacheKey); hit {
+				return r.cachedJob(ctx, fr, i, site.Path, o, c)
+			}
+		}
 		entry, _, err := Entrypoint(stored)
 		if err != nil {
 			// WR-12: the job fails before any wrapper runs.
@@ -1337,6 +1421,10 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	}
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, st.Value, st.Value
 	o.carried = st.Value
+	if cacheTTL > 0 {
+		// The job succeeded: its result is cached (FX-40).
+		r.store(ctx, cacheKey, cacheTTL, st.Value, st.Origin, nil)
+	}
 	if skipped {
 		// An intercepted identity is classified as its identity job would
 		// have been (FX-18).
@@ -1344,6 +1432,25 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 		return o
 	}
 	return r.stop(ctx, fr, i, site.Path, o)
+}
+
+// jobEnv is the job identity of module i of fr's leaf job id, as its
+// reserved variables (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs
+// in is its parent (a child flow, or the loop's flow for a collapsed
+// iteration), with that flow's innermost scope and runnable path, under
+// the run as its effective root.
+func (r *run) jobEnv(fr *frame, i int, id string) map[string]string {
+	in := fr.owner()
+	return platform.Identity{
+		JobID:         id,
+		FlowJobID:     in.id,
+		RootFlowJobID: in.scope,
+		RootJobID:     r.rootID,
+		FlowPath:      in.path,
+		StepID:        fr.stepID(i),
+		JobPath:       r.jobPath(fr, i),
+		Token:         platform.NewToken(),
+	}.Env(r.e.host)
 }
 
 // The states of a pre-write deadline (run.preWrite).
@@ -1906,7 +2013,6 @@ var errNotLaunched = errors.New("engine: the run latched before the step launche
 // ADR 0007): its job id, its innermost scope and its runnable path.
 func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry string, args jsonval.Value, timeout time.Duration, idx int) (StepOutcome, string, jsonval.Value, error) {
 	m := fr.moduleAt(i)
-	in := fr.owner()
 	inv := Invocation{
 		ID:          newUUID(),
 		Run:         r.id,
@@ -1915,22 +2021,9 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		Entry:       entry,
 		Args:        args,
 		Boundary:    Boundary(m.Leaf.Boundary),
-		ModuleState: ModuleStateWarm,
+		ModuleState: r.e.moduleState,
 	}
-	// Job identity (ADR 0007, WA-4, WA-6, WA-V1): the flow the job runs in
-	// is its parent (a child flow, or the loop's flow for a collapsed
-	// iteration), with that flow's innermost scope and runnable path, under
-	// the run as its effective root.
-	inv.Env = platform.Identity{
-		JobID:         inv.ID,
-		FlowJobID:     in.id,
-		RootFlowJobID: in.scope,
-		RootJobID:     r.rootID,
-		FlowPath:      in.path,
-		StepID:        fr.stepID(i),
-		JobPath:       r.jobPath(fr, i),
-		Token:         platform.NewToken(),
-	}.Env(r.e.host)
+	inv.Env = r.jobEnv(fr, i, inv.ID)
 	// The job's reserved variables, which its argument resolution reads
 	// (WR-5, WA-V3): $<NAME> strings, and, with its stored root, $WM_*
 	// strings in a resource an argument names; neither the script's own
