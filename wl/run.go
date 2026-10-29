@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -76,7 +77,46 @@ type RunOptions struct {
 	// which a host chooses from its run data, for example per tenant;
 	// nil means the runtime's.
 	Platform *RunPlatform
+	// PreWriteDeadline is the flow run's pre-write deadline (H4): when it
+	// passes before the run's first write is approved (Hooks.WriteCapable
+	// and BeforeFirstWrite, H3), the run ends canceled, with
+	// ErrPreWriteDeadline as its context's cause; once that approval has
+	// been given it no longer applies. Zero means none. The run's hard
+	// deadline is its context's.
+	PreWriteDeadline time.Time
+	// Clock is the flow run's clock (H10), through which every sleep and
+	// retry delay waits: nil means the real clock; a *RecordClock records
+	// each requested wait and returns at once (quick waits), and the trace
+	// then lists H10 among its deviations.
+	Clock Clock
+	// Jitter is the flow run's retry-jitter source (H10, FX-26); nil draws
+	// from one seeded with Seed. SeededJitter fixes it.
+	Jitter Jitter
 }
+
+// Clock is a run's clock (H10): Now, and Wait, which waits for a duration
+// or until the context ends.
+type Clock = engine.Clock
+
+// RealClock is the real clock, the default.
+type RealClock = engine.RealClock
+
+// RecordClock is H10's record mode: each requested wait is recorded and
+// returns at once, its time added to the clock's Now; Waits lists them.
+// Its zero value is ready to use; share one only between runs whose waits
+// may be mixed.
+type RecordClock = engine.RecordClock
+
+// Jitter is a run's retry-jitter source (H10, FX-26).
+type Jitter = engine.Jitter
+
+// SeededJitter returns a jitter source fixed by seed (H10).
+func SeededJitter(seed uint64) Jitter { return engine.SeededJitter(seed) }
+
+// ErrPreWriteDeadline is the cause of a run's context when its pre-write
+// deadline passed before its first write (H4); it wraps
+// context.DeadlineExceeded.
+var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
 // RunPlatform is a run's own platform providers (H13, ADR 0008). The run's
 // argument resolution, flow_env, expression helpers and its steps' API
@@ -191,7 +231,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	}
 	calls := rt.exec.begin(id)
 	defer rt.exec.end(id)
-	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services}
+	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
+		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter}
 	switch {
 	case h != nil:
 		h.calls, req.Hooks = calls.taken, h

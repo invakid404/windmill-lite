@@ -3,6 +3,7 @@ package wl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,7 +48,10 @@ const setScript = `export async function main(v: string) {
 
 // buildBundle builds a real bundle (bundle.Build) of a folder with the
 // script f/t/set and the flow f/t/flow, which runs it on u/t/v, and the
-// flow f/t/env, whose inline step returns its WL_TENANT variable, and the
+// flow f/t/env, whose inline step returns its WL_TENANT variable, the flow
+// f/t/writes, whose steps w1 and w2 return 1 and 2 with a 1 s sleep between
+// them, the flow f/t/subs, which calls f/t/env twice, as steps one and two,
+// the flow f/t/par, whose parallel branchall runs p1 and p2, and the
 // flow f/t/cached, whose inline step returns a random number with a
 // cache_ttl (FX-40: a path script's step would drop it).
 func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
@@ -65,6 +69,15 @@ func buildBundle(t *testing.T, bun string) (out, runtimeDir string) {
 			`"content":"export async function main() { return Math.random() }","input_transforms":{}}}]}}`,
 		"f/t/env.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
 			`"content":"export async function main() { return process.env.WL_TENANT ?? null }","input_transforms":{}}}]}}`,
+		"f/t/writes.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
+			`{"id":"w1","sleep":{"type":"static","value":1},"value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}},` +
+			`{"id":"w2","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 2 }","input_transforms":{}}}]}}`,
+		"f/t/subs.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
+			`{"id":"one","value":{"type":"flow","path":"f/t/env","input_transforms":{}}},` +
+			`{"id":"two","value":{"type":"flow","path":"f/t/env","input_transforms":{}}}]}}`,
+		"f/t/par.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"all","value":{"type":"branchall","parallel":true,"branches":[` +
+			`{"skip_failure":false,"modules":[{"id":"p1","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}}]},` +
+			`{"skip_failure":false,"modules":[{"id":"p2","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 2 }","input_transforms":{}}}]}]}}]}}`,
 	} {
 		f := filepath.Join(folder, filepath.FromSlash(p))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
@@ -339,4 +352,107 @@ func TestRunEndKeepsCalls(t *testing.T) {
 		t.Run(mode, func(t *testing.T) { check(t, mode, "first", false) })
 	}
 	t.Run("fresh canceled", func(t *testing.T) { check(t, ModuleStateFresh, "slow", true) })
+}
+
+// H3 and H4 on the Bun harness (ADR 0008): before the first write-capable
+// step launches, BeforeFirstWrite is asked once; a veto latches the run
+// and launches nothing, while an approval lets every write-capable step
+// launch and the run report MayHaveMutated. Parallel write-capable launches
+// wait for the one verdict, and a veto stops them all. A write-capable
+// subflow call is asked about before its child flow starts. The approval
+// is the commit point, which a later H12 veto does not undo. The pre-write
+// deadline applies only until the first write: after it, a sleep longer
+// than the deadline is waited out; without a write, the deadline ends the
+// run canceled.
+func TestWritesAndDeadlines(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBundle(t, bun)
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	w1, w2 := Selector{Script: "f/t/writes/w1"}, Selector{Script: "f/t/writes/w2"}
+	var mu sync.Mutex
+	var asked []string
+	ask := func(verdict error) func(context.Context, RunHandle, Site) error {
+		return func(_ context.Context, _ RunHandle, s Site) error {
+			mu.Lock()
+			asked = append(asked, s.Script)
+			mu.Unlock()
+			time.Sleep(50 * time.Millisecond)
+			return verdict
+		}
+	}
+	run := func(flow string, opts RunOptions) *Result {
+		t.Helper()
+		mu.Lock()
+		asked = nil
+		mu.Unlock()
+		res, err := rt.Run(context.Background(), flow, nil, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	launched := func(res *Result, site string) bool {
+		rec, ok := res.Trace.Step(mustSite(t, site))
+		return ok && rec.Job != ""
+	}
+
+	veto := errors.New("host: no writes")
+	res := run("f/t/writes", RunOptions{Hooks: &Hooks{WriteCapable: []Selector{w1, w2}, BeforeFirstWrite: ask(veto)}})
+	if res.Status != StatusLatched || !errors.Is(res.Latched, veto) || res.MayHaveMutated || launched(res, "m:w1") || len(asked) != 1 {
+		t.Fatalf("a veto: %s %v, mutated %v, asked %q", res.Status, res.Latched, res.MayHaveMutated, asked)
+	}
+	res = run("f/t/writes", RunOptions{Hooks: &Hooks{WriteCapable: []Selector{w1, w2}, BeforeFirstWrite: ask(nil)}})
+	if res.Status != StatusSuccess || !res.MayHaveMutated || !launched(res, "m:w1") || !launched(res, "m:w2") || len(asked) != 1 || asked[0] != "f/t/writes/w1" {
+		t.Fatalf("an approval: %s, mutated %v, asked %q", res.Status, res.MayHaveMutated, asked)
+	}
+	res = run("f/t/writes", RunOptions{})
+	if res.Status != StatusSuccess || res.MayHaveMutated {
+		t.Fatalf("no write-capable site: %s, mutated %v", res.Status, res.MayHaveMutated)
+	}
+
+	sels := []Selector{{Script: "f/t/par/p1"}, {Script: "f/t/par/p2"}}
+	res = run("f/t/par", RunOptions{Hooks: &Hooks{WriteCapable: sels, BeforeFirstWrite: ask(veto)}})
+	if res.Status != StatusLatched || launched(res, "m:all/b:0/m:p1") || launched(res, "m:all/b:1/m:p2") || len(asked) != 1 {
+		t.Fatalf("parallel writes vetoed: %s, asked %q", res.Status, asked)
+	}
+
+	// A write-capable subflow call is asked about before its child flow
+	// starts: a veto stops every step below it, an approval lets them run.
+	// Of two calls of one subflow, only the marked one asks.
+	one, two := module("f/t/subs", "one"), module("f/t/subs", "two")
+	res = run("f/t/subs", RunOptions{Hooks: &Hooks{WriteCapable: []Selector{one}, BeforeFirstWrite: ask(veto)}})
+	if res.Status != StatusLatched || res.MayHaveMutated || launched(res, "m:one/m:a") || launched(res, "m:two/m:a") || len(asked) != 1 {
+		t.Fatalf("a vetoed subflow call: %s, mutated %v, asked %q", res.Status, res.MayHaveMutated, asked)
+	}
+	res = run("f/t/subs", RunOptions{Hooks: &Hooks{WriteCapable: []Selector{one, two}, BeforeFirstWrite: ask(nil)}})
+	if res.Status != StatusSuccess || !res.MayHaveMutated || !launched(res, "m:one/m:a") || !launched(res, "m:two/m:a") || len(asked) != 1 {
+		t.Fatalf("an approved subflow call: %s, mutated %v, asked %q", res.Status, res.MayHaveMutated, asked)
+	}
+	res = run("f/t/subs", RunOptions{Hooks: &Hooks{WriteCapable: []Selector{two}, BeforeFirstWrite: ask(veto)}})
+	if res.Status != StatusLatched || !launched(res, "m:one/m:a") || launched(res, "m:two/m:a") || len(asked) != 1 {
+		t.Fatalf("only the second call marked: %s, asked %q", res.Status, asked)
+	}
+
+	// The approval is the first write's commit point: an H12 veto of the
+	// approved step's invocation still leaves the run counted as written.
+	envVeto := errors.New("host: no environment")
+	res = run("f/t/writes", RunOptions{Hooks: &Hooks{WriteCapable: []Selector{w1}, BeforeFirstWrite: ask(nil),
+		InvocationEnv: func(context.Context, RunHandle, Site, map[string]string) error { return envVeto }}})
+	if res.Status != StatusLatched || !errors.Is(res.Latched, envVeto) || !res.MayHaveMutated || launched(res, "m:w1") {
+		t.Fatalf("an H12 veto after the approval: %s %v, mutated %v", res.Status, res.Latched, res.MayHaveMutated)
+	}
+
+	deadline := func() time.Time { return time.Now().Add(400 * time.Millisecond) }
+	res = run("f/t/writes", RunOptions{PreWriteDeadline: deadline(), Hooks: &Hooks{WriteCapable: []Selector{w1}}})
+	if res.Status != StatusSuccess || string(res.Result) != `2` {
+		t.Fatalf("a deadline disarmed by the first write: %s %s", res.Status, res.Result)
+	}
+	res = run("f/t/writes", RunOptions{PreWriteDeadline: deadline()})
+	if res.Status != StatusCanceled || launched(res, "m:w2") {
+		t.Fatalf("a deadline with no write: %s %s", res.Status, res.Result)
+	}
 }
