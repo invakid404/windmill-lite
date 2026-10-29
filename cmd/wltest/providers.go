@@ -6,6 +6,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
+	"github.com/invakid404/windmill-lite/wl"
 )
 
 // platformOf returns the platform services of a flow fixture or a step
@@ -58,4 +59,35 @@ func platformOf(folder *syncfolder.Folder, setup *conformance.Setup, policy, obj
 		return nil, err
 	}
 	return &platform.Services{Resources: store, Variables: store, Objects: dir}, nil
+}
+
+// hostDataOf returns what a flow fixture's runtime is opened with as the
+// host's data (wl.Options), which replaces the bundle's data/ (ADR 0007):
+// the secrets of its sync folder, which a bundle never holds (ADR 0010),
+// as the folder holds them (ciphertext without plainSecrets), then the
+// variables and resources of its setup, as platformOf reads them.
+func hostDataOf(folder *syncfolder.Folder, setup *conformance.Setup, policy string) (map[string]wl.Variable, map[string]wl.Resource, error) {
+	variables := map[string]wl.Variable{}
+	resources := map[string]wl.Resource{}
+	for _, p := range folder.Paths(syncfolder.KindVariable) {
+		v, err := folder.Variable(p)
+		var se *syncfolder.Error
+		switch {
+		case errors.As(err, &se) && se.Kind == syncfolder.ErrFiltered:
+			continue
+		case err != nil:
+			return nil, nil, err
+		case v.IsSecret:
+			variables[p] = wl.Variable{Value: v.Value, Secret: true, Ciphertext: v.Encrypted}
+		}
+	}
+	if setup != nil && policy != conformance.SetupBeforePush {
+		for _, v := range setup.Variables {
+			variables[v.Path] = wl.Variable{Value: v.Value, Secret: v.IsSecret}
+		}
+		for _, r := range setup.Resources {
+			resources[r.Path] = wl.Resource{Type: r.ResourceType, Value: r.Value}
+		}
+	}
+	return variables, resources, nil
 }

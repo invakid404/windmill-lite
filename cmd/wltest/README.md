@@ -10,8 +10,9 @@ end to end (milestone N1a), with the for loops of milestone N3a, the
 while loops and branches of N3b, the platform providers of milestone PF2
 (`providers.go`), the job registry, flow user state, object store and
 dispatcher of milestone PF3, the containers' waits, retries and
-cancellation of milestone NI, and the effect sink and stub mode of
-milestone E4b (`effects.go`). This README covers the `wltest` command in
+cancellation of milestone NI, the effect sink and stub mode of milestone
+E4b (`effects.go`), and, since milestone F1, through the public
+[wl](../../wl/README.md) library in `warm` and `fresh`. This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -137,10 +138,9 @@ run, then each difference; `unsupported`, the fixture, the run and why it
 was not checked; and a summary. It exits 1 when a case or run failed or a
 file or fixture is invalid, and 2 for usage errors. Unsupported runs do not
 fail it. `--mode` is `warm` (the default) or `fresh` (milestone C3b); host
-mode is F3b's. Flow fixtures run in either mode (milestone N4): in
-`fresh` mode each step gets a harness process of its own, as a step case
-does; the flow suite's gate (`TestFlowSuite`) runs them in `warm`, and
-F1's runs it through `wl` in both. `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
+mode is F3b's. Flow fixtures run in either mode, through `wl` (milestone
+F1): in `fresh` each step gets a harness process of its own, as a step case
+does. `--bun` defaults to `WL_BUN`, then `bun`; `--node` to
 `WL_NODE`, and empty skips the Node side of CommonJS codebase cases
 (below); the build refuses any Bun but the pin. `--repo` defaults to the
 nearest directory up from the working directory that holds `harnesses/bun`, whose build helper needs its
@@ -232,64 +232,71 @@ For each fixture (the format of [OR-15](../../docs/semantics/oracle.md#or-15),
 loaded by [internal/conformance](../../internal/conformance/README.md#fixtures)),
 a few at a time (`flows.go`):
 
-1. **Build.** It reads the sync tree with
+1. **Build.** It reads the sync tree (in stub mode its stubbed copy, see
+   Effects and stub mode below) with
    [internal/syncfolder](../../internal/syncfolder/README.md) and compiles
    each run's target flow with [internal/ir](../../internal/ir/README.md),
-   the target as the bundle's only root, so that a flow the compiler refuses
-   leaves the fixture's others to run. The Bun scripts the targets reach are
-   built with `bundle.BuildBun` into one bundle, each named by its inventory
-   id ([ADR 0002](../../docs/design/0002-ir-and-loader.md)):
-   `scripts/bun/<path>.mjs` for a path script, `scripts/bun/inline-<16
-   hex>.mjs` for an inline step. A script's job path
-   ([WR-29](../../docs/semantics/languages.md#wr-29)) cannot name it, since
-   an inline step `a` of flow `f/x` and a path script `f/x/a` share one. A
-   codebase script ([SY-8](../../docs/semantics/openflow.md#sy-8)) is built
-   with esbuild (`bundle.BuildCodebase`, milestone C2b), with the settings
-   of the `codebases` entry that selects it, into the same bundle. What goes
-   wrong with one target (a compile error, a refused script, a script that
-   does not build) fails or skips only the runs of that target; a folder
-   that does not load, or a build that fails as a whole, fails them all.
-2. **Run.** Each target flow's program gets an engine of its own
-   (`engine.Engine`, milestone N1a), which invokes each step with its
-   boundary, a native one included (C3n), and every run goes to one pool
-   of Bun harness processes per fixture, in the checker's mode, through
-   the fixture's platform facade (milestone PF1): in `warm`, the pool's
-   processes get its non-listening origin as `BASE_URL` and intercept
-   their fetches to it, and in `fresh` (one process per invocation,
-   milestone N4) they reach its listening origin over loopback TCP; a
-   native step reads the same origin as `BASE_URL` and
-   `BASE_INTERNAL_URL`, and its `Executor` attributes every call and
-   applies the 501 policy in `fail` mode. The engines run in the same
-   module state (`engine.Config.ModuleState`). The facade and the engine read
-   one set of platform services (milestone PF2, `providers.go`): the
-   resources and variables of the fixture's sync folder, then those of its
-   `setup.yaml`, which the oracle creates after the push and so replace
-   the folder's; a setup applied before the push holds nothing at run time,
-   since the push removes it (OR-31). A secret is held as the folder holds
-   it (ciphertext without `plainSecrets`); a setup's secret is its
-   plaintext, passed in as a host passes its secrets, never through a
-   bundle. The services' job registry knows every run and step (milestone
-   PF3), their object store is a directory of the fixture's own, and when
-   the fixture lists `roots`, the bundle's other roots (the targets its
-   steps dispatch, which a host contract lists, ADR 0002), they are
-   compiled together as a program of their own, their scripts built into
-   the same bundle, and an `engine.Dispatcher` over that program and the
-   facade's executor is the services' dispatcher, so a dispatched run goes
-   to the same pool and its calls are attributed; without `roots` no
-   dispatch target is in the bundle. Runs go in name
+   the target as the only root, and opens its program on the engine, to
+   sort the targets it can run from those the compiler or the engine
+   refuses (unsupported) or cannot compile (failed). When the fixture lists
+   `roots`, the bundle's other roots (the targets its steps dispatch, which
+   a host contract lists, ADR 0002), they are compiled together the same
+   way. It then builds one bundle of
+   [ADR 0010](../../docs/design/0010-packaging.md) with `bundle.Build`
+   ([internal/bundle](../../internal/bundle/README.md)), whose contract's
+   roots are the targets it can run and the roots, with `wl`'s engine
+   version and the module state of `--mode`: the program, the Bun scripts
+   the roots reach, built with the Bun build helper and each named by its
+   inventory id ([ADR 0002](../../docs/design/0002-ir-and-loader.md)),
+   `scripts/bun/<path>.mjs` for a path script and `scripts/bun/inline-<16
+   hex>.mjs` for an inline step (a script's job path,
+   [WR-29](../../docs/semantics/languages.md#wr-29), cannot name it, since
+   an inline step `a` of flow `f/x` and a path script `f/x/a` share one),
+   codebase scripts ([SY-8](../../docs/semantics/openflow.md#sy-8)) built
+   with esbuild with the settings of the `codebases` entry that selects
+   them (C2b), the folder's resources and variables but its secrets in
+   `data/`, and the manifest. A build problem of one script
+   (`bundle.ScriptItem` names it) fails the targets that reach it, and the
+   bundle is built again without them; a folder that does not load, or a
+   build that fails as a whole, fails every run.
+2. **Run.** The bundle is opened with `wl.Open`
+   ([wl](../../wl/README.md)) in the mode of `--mode`, on the pinned Bun and
+   the repository's harness runtime, with the fixture's host data
+   (`hostDataOf`, `providers.go`): the folder's secrets, as the folder
+   holds them (ciphertext without `plainSecrets`), then the variables and
+   resources of its `setup.yaml`, which the oracle creates after the push
+   and so replace the folder's; a setup applied before the push holds
+   nothing at run time, since the push removes it (OR-31). A setup's secret
+   is its plaintext, passed in as a host passes its secrets, never through
+   a bundle. The runtime owns the platform services (milestones PF1 to
+   PF3): its facade, in its default `fail` policy, which attributes every
+   call (a warm process reaches it through its intercepted `fetch` at a
+   non-listening origin, which a native step reads as `BASE_URL` and
+   `BASE_INTERNAL_URL`, a fresh one over loopback TCP); the store of the
+   bundle's `data/` and the host data, which the engine reads too; the job
+   registry, which knows every run and step; an object store in the
+   fixture's work directory; and the default dispatcher over the bundle's
+   program, so a step that dispatches one of the `roots` starts a run of
+   the same runtime and its calls are attributed. In `warm` mode every run
+   goes to one pool of Bun harness processes; in `fresh` mode each step has
+   a process of its own. The engine invokes each step with its boundary, a
+   native one included (C3n). Runs go in name
    order, a `group` at its first run's place with its runs concurrent
-   (`conformance.RunBatches`, `groups.go`). A group is one test of
+   (`conformance.RunBatches`, `groups.go`), each with `Runtime.Run`. A
+   group is one test of
    concurrent outer runs (ADR 0011), so it runs whole or not at all: when
    one of its runs is unsupported, so are the others, and when one fails
    before it starts, the others fail with `group_member_failed`. Each run
    of a group waits at its first module, through the module-start hook
-   (H6), until every run of the group is in flight, or for 10 s at most.
+   (H6, passed as `wl.RunOptions.Hooks`), until every run of the group is
+   in flight, or for 10 s at most.
    So the runs are in flight together by construction, not by the
    scheduler's chance. After the runs, as `record` does on the oracle, the
    group fails as a whole when one of its runs failed (`group_member_failed`)
    or when one started after another ended (`group_not_concurrent`), by
-   each run's span from submission to end. `cancel_after_ms` cancels a run with the
-   reason and the canceler the oracle's cancellation names
+   each run's span from submission to end. `cancel_after_ms` cancels a
+   run's context with a `wl.Cancellation` naming the reason and the
+   canceler the oracle's cancellation names
    (`oracle.CancelAfterReason`, `wltest: cancel_after_ms`, by
    `oracle.CancelAfterCanceler`, `admin`), which the engine's `Canceled`
    result quotes ([FX-38](../../docs/semantics/execution.md#fx-38)), and a
@@ -298,8 +305,8 @@ a few at a time (`flows.go`):
    steps ends a runaway expression's run after 60 s, as on the oracle
    (JE-2/a, milestone N2). Each run has its own id, which its
    steps see as `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
-   `WM_ROOT_JOB_ID`, and the checker
-   records the id of every invocation it makes (`WM_JOB_ID`) with its site.
+   `WM_ROOT_JOB_ID`; the trace records each step's job id (`WM_JOB_ID`),
+   superseded attempts' included, with its site.
    The engine names an invocation's script by its inventory id, as the
    bundle does, and gives its job path as `WM_JOB_PATH`.
 3. **Observe** (`observe.go`). The run's trace becomes the observation the
@@ -395,8 +402,9 @@ own: the oracle's effect sink (`oracle.Sink`,
 them, on a free loopback port. Every invocation of a run gets the
 server's URL as `WL_EFFECT_SINK` through the engine's
 invocation-environment hook (H12), which also records the site each job
-(`WM_JOB_ID`) launches at. Host hooks expose that seam (milestone F2a),
-so a run made through `wl` can use the same wiring. The sink keeps
+(`WM_JOB_ID`) launches at. The hooks go to the run as
+`wl.RunOptions.Hooks` (the engine's hook interface, until milestone F2a
+gives hosts Go callbacks for that seam). The sink keeps
 the effects whose `root` is the run's id (`WM_ROOT_JOB_ID`), so the runs
 of a group stay apart, and refuses any other root with 409 (OR-16/c).
 In stub mode the runs run the stubbed copy of the sync tree that `record`
@@ -491,8 +499,10 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI and E4b:
-  every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
+  N3c, N4, PF2 (with PF1's fixture), N2, PF3, NI, E4b and F1:
+  every run the flow suite requires passes in `warm` and in `fresh`,
+  through `wl` (F1, whose own runs are JE-V2/a and /b and FX-17/b: a retry
+  with a variable that the step updates through the job API). `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
