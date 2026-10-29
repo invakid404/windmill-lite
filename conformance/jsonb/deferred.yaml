@@ -28,6 +28,9 @@ deferred:
   - spec: FX-48/c
     reason: its text is FX-48/b's; that the push failure is an InternalError at a later transition is the engine's routing (FX-15)
     expected_in: N1b
+  - spec: FX-48/d
+    reason: a NUL in the incoming input refuses the run request with HTTP 400, text/plain and the database's text, and no job is created; jsonb's rejection of a NUL in a value and in a key is checked here (FX-48/b, the variants nul-nested and nul-in-key), and the engine refuses a run whose input cannot be stored before it starts (internal/engine); the semantics reference added the case on 2026-10-29 (SC3) and no recording holds it yet; docs/design/README.md requests one from a future batch E3f
+    expected_in: F7b, the HTTP adapter, which answers the run request; E3f records it
   - spec: OR-27/b
     reason: the catalogue's expectations are step outcomes, which recording batch E3e recorded (conformance/flows/oracle/nul, Q-OR-6) - a NUL in a key or a nested value of a Bun result fails like OR-27/a, and a Python result's NUL is stored as the text " null " - and jsonb's rejection of a NUL in a key and in a nested value is checked here by the FX-48 variants nul-in-key and nul-nested; the flow-argument variant is refused at submission, so no run records it
     expected_in: E3e (conformance/flows/oracle/nul); the step's outcome is N1b's
