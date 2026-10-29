@@ -110,7 +110,8 @@ const (
 	OutcomeFailed         = "failed"
 	OutcomeRefused        = "refused"
 	// OutcomeSkipped is a run of a fixture that needs more workers than
-	// the session has, under SkipUnmetWorkers.
+	// the session has, under SkipUnmetWorkers, or of a fixture with
+	// host-provided sites, which only windmill-lite runs.
 	OutcomeSkipped = "skipped"
 )
 
@@ -412,6 +413,14 @@ func (s *Session) session(ctx context.Context, rep *Report, fixtures []*conforma
 	}
 	for i, f := range fixtures {
 		name := s.rel(f.Dir)
+		if len(f.Provided) > 0 {
+			// A fixture of windmill-lite's host-provided sites: the oracle
+			// would run the real targets, so its runs are skipped.
+			for _, r := range f.Runs {
+				rep.Runs = append(rep.Runs, RunReport{Fixture: name, Run: r.Name, Outcome: OutcomeSkipped, Error: ErrProvidedSites(len(f.Provided)).Error()})
+			}
+			continue
+		}
 		if need := f.Oracle.NeedWorkers(); need > s.Workers {
 			outcome := OutcomeRefused
 			if s.SkipUnmetWorkers {

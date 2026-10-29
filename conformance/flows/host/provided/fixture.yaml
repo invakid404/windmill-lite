@@ -1,0 +1,33 @@
+# Milestone F2a's policy case: the run-time half of the provided-site
+# policy case of ADR 0002, on windmill-lite only. Each flow's step wait
+# calls f/wl_provided/semaphore, a flow that suspends (FX-39), which
+# windmill-lite does not run: the compiler refuses it unless the host
+# contract provides the site, and then the host's provider answers the
+# site in place of the subflow (ADR 0008, mandatory provided sites). The
+# site keeps its envelope, so its stop_after_if (FX-19) and the next
+# step's results route (FX-10) apply to the provided value as to the
+# subflow's. The oracle would run the real semaphore, which suspends, so
+# the fixture holds expects written from the ADRs, not recordings.
+# Synthetic, written for this repository.
+id: host/provided
+spec: [FX-39, FX-19, FX-10, FX-12]
+scope: core
+provenance: policy
+languages: [bun]
+provided:
+  - selector: {flow: f/wl_provided/granted, module: wait}
+    provider: permit
+    mandatory: true
+  - selector: {flow: f/wl_provided/refused, module: wait}
+    static: {granted: false}
+    mandatory: true
+  - selector: {flow: f/wl_provided/declined, module: wait}
+    provider: refuse
+    mandatory: true
+  - selector: {flow: f/wl_provided/failed, module: wait}
+    provider: deny
+    mandatory: true
+providers:
+  permit: {result: {granted: true, ticket: t-1}}
+  refuse: {decline: true}
+  deny: {error: {name: PermitDenied, message: no permit}}

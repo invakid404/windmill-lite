@@ -20,8 +20,11 @@ import (
 
 // inputsOf returns the input transforms of m, a leaf or a flow step.
 func inputsOf(m *ir.Module) []ir.Input {
-	if m.Subflow != nil {
+	switch {
+	case m.Subflow != nil:
 		return m.Subflow.Inputs
+	case m.Provided != nil:
+		return m.Provided.Inputs
 	}
 	return m.Leaf.Inputs
 }

@@ -48,6 +48,13 @@ type Caller struct {
 	// Env is the invocation's job environment as the step received it
 	// (ADR 0007, job identity), after host changes (H12).
 	Env map[string]string
+	// Platform, when set, is the platform services of a run that chose
+	// its own providers (H13, engine.Invocation.Platform), which the
+	// resource and variable routes answer the invocation from; nil means
+	// Config.Platform. The other routes always answer from Config.Platform,
+	// whose job registry, flow user state, object store and dispatcher
+	// such services share.
+	Platform *platform.Services
 }
 
 // Call is one platform call, attributed to its caller.
@@ -268,7 +275,13 @@ type Session struct {
 // WM_JOB_ID (id when unset), its root WM_ROOT_JOB_ID, and the flow scopes
 // it runs in become known with it.
 func (f *Facade) Register(id, run string, env map[string]string) *Session {
-	e := &entry{caller: Caller{ID: id, Run: run, Env: env}, token: env["WM_TOKEN"], idle: make(chan struct{})}
+	return f.register(id, run, env, nil)
+}
+
+// register is Register for an invocation whose run chose its own platform
+// services, p (Caller.Platform), or none.
+func (f *Facade) register(id, run string, env map[string]string, p *platform.Services) *Session {
+	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p}, token: env["WM_TOKEN"], idle: make(chan struct{})}
 	job := env["WM_JOB_ID"]
 	if job == "" {
 		job = id

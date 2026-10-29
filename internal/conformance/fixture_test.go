@@ -209,3 +209,50 @@ func TestFixtureOptionChecks(t *testing.T) {
 		})
 	}
 }
+
+// A fixture's provided sites and providers (F2a): each named provider
+// gives exactly one of a result, an error object and a decline, and
+// providers come with provided sites; the sites are read as the host
+// contract writes them, which wltest check validates.
+func TestFixtureProviders(t *testing.T) {
+	const site = "provided:\n  - {selector: {flow: f/x/y, module: a}, provider: p, mandatory: true}\n"
+	for _, c := range []struct {
+		name, extra, err string
+	}{
+		{name: "a result", extra: site + "providers:\n  p: {result: {ok: true}}\n"},
+		{name: "a null result", extra: site + "providers:\n  p: {result: null}\n"},
+		{name: "an error", extra: site + "providers:\n  p: {error: {name: E, message: m}}\n"},
+		{name: "a decline", extra: site + "providers:\n  p: {decline: true}\n"},
+		{name: "a static site alone", extra: "provided:\n  - {selector: {flow: f/x/y, module: a}, static: 1, mandatory: true}\n"},
+		{name: "nothing", extra: site + "providers:\n  p: {}\n", err: "exactly one of result, error and decline"},
+		{name: "two", extra: site + "providers:\n  p: {result: 1, decline: true}\n", err: "exactly one of result, error and decline"},
+		{name: "an error that is no object", extra: site + "providers:\n  p: {error: boom}\n", err: "must be an object"},
+		{name: "providers without sites", extra: "providers:\n  p: {decline: true}\n", err: "providers without provided sites"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range map[string]string{
+				FixtureFile:           "id: x\nspec: [OR-15]\nscope: core\nprovenance: policy\n" + c.extra,
+				"runs/r.yaml":         "target: f/x/y\n",
+				"windmill/wmill.yaml": "includes: [\"f/**\"]\n",
+			} {
+				p := filepath.Join(dir, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f, err := LoadFixture(dir)
+			switch {
+			case c.err == "" && err != nil:
+				t.Fatal(err)
+			case c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)):
+				t.Fatalf("got %v, want an error with %q", err, c.err)
+			case c.err == "" && len(f.Provided) != 1:
+				t.Fatalf("provided %s", f.Provided)
+			}
+		})
+	}
+}

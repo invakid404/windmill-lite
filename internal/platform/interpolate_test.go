@@ -427,7 +427,8 @@ func TestAPIEnv(t *testing.T) {
 // WA-11, milestone F1: an update of a Store's variable replaces its value,
 // which is then plaintext, and its secrecy; a missing variable is the
 // read's not-found, and a variable service that is not a VariableUpdater
-// (a chain) is read-only.
+// is read-only. A chain updates the service a read answers from (F2a),
+// which must itself be an updater.
 func TestUpdateVariable(t *testing.T) {
 	ctx := context.Background()
 	store := NewStore()
@@ -450,11 +451,83 @@ func TestUpdateVariable(t *testing.T) {
 	if err := s.UpdateVariable(ctx, "u/x/none", &value, nil); !errors.As(err, &pe) || pe.HTTPStatus() != 404 {
 		t.Errorf("a missing variable: %v", err)
 	}
-	ro := &Services{Variables: VariableChain{store}}
+	ro := &Services{Variables: readOnly{store}}
 	if err := ro.UpdateVariable(ctx, "u/x/v", &value, nil); !errors.Is(err, ErrReadOnlyVariables) {
-		t.Errorf("a chain: %v", err)
+		t.Errorf("a read-only service: %v", err)
+	}
+	// A chain updates its first service that has the variable, and is
+	// read-only where that service is.
+	front := NewStore()
+	front.SetVariable("u/x/w", Variable{Value: "front"})
+	chain := &Services{Variables: VariableChain{front, store}}
+	other := "other"
+	if err := chain.UpdateVariable(ctx, "u/x/w", &other, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := chain.UpdateVariable(ctx, "u/x/v", &other, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, _ := front.Variable(ctx, "u/x/w"); v.Value != "other" {
+		t.Errorf("the chain's first service: %+v", v)
+	}
+	if v, _, _ := store.Variable(ctx, "u/x/v"); v.Value != "other" {
+		t.Errorf("the chain's second service: %+v", v)
+	}
+	if err := (&Services{Variables: VariableChain{readOnly{front}, store}}).UpdateVariable(ctx, "u/x/w", &other, nil); !errors.Is(err, ErrReadOnlyVariables) {
+		t.Errorf("a chain whose answering service is read-only: %v", err)
+	}
+	if err := chain.UpdateVariable(ctx, "u/x/none", &other, nil); !errors.As(err, &pe) || pe.HTTPStatus() != 404 {
+		t.Errorf("a chain's missing variable: %v", err)
 	}
 	if err := (*Services)(nil).UpdateVariable(ctx, "u/x/v", &value, nil); !errors.Is(err, ErrReadOnlyVariables) {
 		t.Errorf("no services: %v", err)
+	}
+}
+
+// readOnly is a variable service that is not a VariableUpdater.
+type readOnly struct{ v Variables }
+
+func (r readOnly) Variable(ctx context.Context, path string) (Variable, bool, error) {
+	return r.v.Variable(ctx, path)
+}
+
+// H13 (ADR 0008): services with a run's own providers answer reads from
+// them, and the base's where the run set none, and share the base's job
+// registry, flow user state, object store and result cache.
+func TestWithProviders(t *testing.T) {
+	ctx := context.Background()
+	objects, err := NewDirObjects(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := &Services{Objects: objects}
+	baseStore := NewStore()
+	baseStore.SetVariable("u/x/v", Variable{Value: "base"})
+	baseStore.SetVariable("u/x/w", Variable{Value: "base"})
+	base.Resources, base.Variables = baseStore, baseStore
+	run := NewStore()
+	run.SetVariable("u/x/v", Variable{Value: "run"})
+	v := base.WithProviders(Providers{Variables: VariableChain{run, baseStore}})
+	for path, want := range map[string]string{"u/x/v": "run", "u/x/w": "base"} {
+		if got, err := v.VariableValue(ctx, path); err != nil || got != want {
+			t.Errorf("%s: %q %v, want %q", path, got, err, want)
+		}
+	}
+	if got, _ := base.VariableValue(ctx, "u/x/v"); got != "base" {
+		t.Errorf("the base reads %q", got)
+	}
+	end := base.JobRegistry().Begin(Job{ID: "j", Kind: JobFlow, Path: "f/x"})
+	defer end()
+	if root, ok := v.RootJob("j"); !ok || root != "j" {
+		t.Errorf("the view's registry: %q %v", root, ok)
+	}
+	if err := v.SetFlowUserState(ctx, "j", "k", []byte(`1`)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := base.FlowUserState(ctx, "j", "k"); err != nil || string(got) != "1" {
+		t.Errorf("the base's user state: %s %v", got, err)
+	}
+	if v.ResultCache() != base.ResultCache() || v.Objects != base.Objects {
+		t.Error("the view does not share the result cache and the object store")
 	}
 }

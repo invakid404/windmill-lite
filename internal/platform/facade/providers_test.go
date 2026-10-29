@@ -1,10 +1,13 @@
 package facade
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -119,9 +122,58 @@ func TestVariableUpdate(t *testing.T) {
 		}
 	}
 	// A variable service that takes no writes.
-	ro := newFacade(t, Config{Platform: &platform.Services{Variables: platform.VariableChain{store}}})
+	ro := newFacade(t, Config{Platform: &platform.Services{Variables: readOnly{store}}})
 	ro.Register("inv-b", "F", env("S", "F", "tok-b"))
 	if rep := intercept(ro, "inv-b", "POST", base+"update/u/x/v", nil, []byte(`{"value":"x"}`)); rep.Status != 501 {
 		t.Fatalf("read-only: %d %s", rep.Status, rep.Body)
 	}
+}
+
+// H13, milestone F2a: an invocation of a run that chose its own providers
+// (engine.Invocation.Platform) reads and updates variables and reads
+// resources from them; another invocation reads the facade's, and the root
+// lookup answers from the job registry the services share.
+func TestCallerPlatform(t *testing.T) {
+	base := platform.NewStore()
+	base.SetVariable("u/x/v", platform.Variable{Value: "base"})
+	services := &platform.Services{Resources: base, Variables: base}
+	f := newFacade(t, Config{Platform: services})
+	run := platform.NewStore()
+	run.SetVariable("u/x/v", platform.Variable{Value: "run"})
+	if err := run.SetResource("u/x/r", platform.Resource{Type: "t", Value: []byte(`{"tenant":"a"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	own := services.WithProviders(platform.Providers{Resources: platform.ResourceChain{run, base}, Variables: platform.VariableChain{run, base}})
+	x := &fakeExec{out: engine.StepOutcome{Kind: engine.OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}}
+	var got []string
+	x.do = func(inv engine.Invocation) {
+		const api = "http://x/api/w/ws/"
+		for _, p := range []string{"variables/get_value/u/x/v", "resources/get_value/u/x/r", "jobs_u/get_root_job_id/" + inv.Env["WM_JOB_ID"]} {
+			rep := intercept(f, inv.ID, "GET", api+p, nil, nil)
+			got = append(got, string(rep.Body))
+		}
+	}
+	for _, c := range []struct {
+		p    *platform.Services
+		want []string
+	}{
+		{own, []string{`"run"`, `{"tenant":"a"}`, `"root-a"`}},
+		{nil, []string{`"base"`, "Not found: Resource u/x/r not found", `"root-a"`}},
+	} {
+		got = nil
+		inv := engine.Invocation{ID: "inv-a", Run: "run-a", Env: env("job-a", "root-a", "tok-a"), Report: &settleRecorder{}, Platform: c.p}
+		if _, err := f.Executor(x).Execute(t.Context(), inv); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 3 || got[0] != c.want[0] || got[1] != c.want[1] || got[2] != c.want[2] {
+			t.Errorf("own services %v: %q, want %q", c.p != nil, got, c.want)
+		}
+	}
+}
+
+// readOnly is a variable service that is not a platform.VariableUpdater.
+type readOnly struct{ v platform.Variables }
+
+func (r readOnly) Variable(ctx context.Context, path string) (platform.Variable, bool, error) {
+	return r.v.Variable(ctx, path)
 }
