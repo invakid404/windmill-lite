@@ -79,9 +79,11 @@ func (r *stubRig) load(t *testing.T) *conformance.Fixture {
 
 // TestSessionRecordsTheStubFixtures records each stub fixture twice per
 // run and requires its expect, then checks the recordings on a second
-// session.
+// session. The fake CLI fails a push from a tree whose codebase paths do
+// not resolve, so stub/outside, whose entry's relative_path and asset lie
+// outside the tree, shows that the pushed copy carries them.
 func TestSessionRecordsTheStubFixtures(t *testing.T) {
-	for _, name := range []string{"collapsed", "nested", "retry_loop", "scopes"} {
+	for _, name := range []string{"collapsed", "nested", "outside", "retry_loop", "scopes"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			rig := newStubRig(t, name)
@@ -101,6 +103,9 @@ func TestSessionRecordsTheStubFixtures(t *testing.T) {
 			}
 			if len(dep.Stubbed) == 0 {
 				t.Fatalf("the deployment lists no stubbed files: %+v", rep.Session.Deployments)
+			}
+			if want := map[string]string{"outside": "../shared"}[name]; strings.Join(dep.Outside, " ") != want {
+				t.Fatalf("the deployment carried %q, want %q", dep.Outside, want)
 			}
 			log, _ := os.ReadFile(rig.cliLog)
 			if strings.Count(string(log), " generate-metadata --yes") != 1 || strings.Count(string(log), " sync push --yes") != 1 {
