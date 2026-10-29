@@ -136,20 +136,11 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	for i, r := range f.Runs {
 		results[i] = runResult{fixture: f.Dir, run: r.Name}
 	}
-	whole := ""
-	switch {
-	case fc.mode != conformance.ModeWarm:
+	if fc.mode != conformance.ModeWarm {
 		// The walking skeleton and this runner's pool run warm; the flow
 		// suite runs in fresh and warm through wl (ADR 0012, F1).
-		whole = "flow fixtures run in warm mode only until milestone F1, whose gate runs the flow suite in fresh and warm"
-	case f.Stub:
-		whole = "stub mode on windmill-lite is milestone E4b's"
-	case f.Oracle.Effects:
-		whole = "the effect sink is not injected on windmill-lite yet (ADR 0011, Effects)"
-	}
-	if whole != "" {
 		for i := range results {
-			results[i].unsupported = whole
+			results[i].unsupported = "flow fixtures run in warm mode only until milestone F1, whose gate runs the flow suite in fresh and warm"
 		}
 		return results
 	}
@@ -159,9 +150,31 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 	}
 	defer os.RemoveAll(work)
 
-	b, err := fc.build(ctx, f, work)
+	tree := f.SyncTree()
+	if f.Stub {
+		// Stub mode (ADR 0011, milestone E4b): the runs run the stubbed
+		// copy of the tree that wltest record pushes to the oracle, every
+		// script body replaced by a stub that asks the replay service.
+		root, err := syncfolder.Find(tree)
+		if err != nil {
+			return failRuns(results, "stub: "+err.Error())
+		}
+		tree = filepath.Join(work, "stubbed")
+		if _, err := oracle.StubTree(root, tree); err != nil {
+			return failRuns(results, "stub: "+err.Error())
+		}
+	}
+	b, err := fc.build(ctx, f, tree, work)
 	if err != nil {
 		return failRuns(results, "build: "+err.Error())
+	}
+	var effects *effectServer
+	if f.Stub || f.Oracle.Effects {
+		// The fixture's effect sink and replay service (ADR 0011).
+		if effects, err = newEffectServer(); err != nil {
+			return failRuns(results, "effect sink: "+err.Error())
+		}
+		defer effects.Close()
 	}
 	var diag syncBuffer
 	// The fixture's platform facade (ADR 0007, milestone PF1): the warm
@@ -260,7 +273,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t)
+				res.problems = fc.runOne(ctx, f, r, engines[r.Target], fac.Executor(pool), t, effects)
 			}()
 		}
 		wg.Wait()
@@ -312,8 +325,9 @@ type target struct {
 // failed.
 var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLanguage: true, ir.ErrPinnedHash: true}
 
-// build compiles each run's target flow and builds the Bun scripts they
-// reach into one bundle below work: scripts/bun/<id>.mjs and
+// build compiles each run's target flow from the sync tree at tree (the
+// fixture's, or its stubbed copy in stub mode) and builds the Bun scripts
+// they reach into one bundle below work: scripts/bun/<id>.mjs and
 // <id>.meta.json, named by each script's inventory id (ir.Script.ID), as a
 // bundle names them (ADR 0010). Codebase scripts are built with esbuild
 // (bundle.BuildCodebase, milestone C2b), each with the settings of the
@@ -325,8 +339,8 @@ var unsupportedKinds = map[ir.ErrorKind]bool{ir.ErrUnsupported: true, ir.ErrLang
 // What goes wrong with one target (a compile error, a refused script, a
 // build problem of a script it reaches) is that target's; only a folder
 // that does not load, or a build that fails as a whole, fails the fixture.
-func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, work string) (*fixtureBundle, error) {
-	root, err := syncfolder.Find(f.SyncTree())
+func (fc *flowChecker) build(ctx context.Context, f *conformance.Fixture, tree, work string) (*fixtureBundle, error) {
+	root, err := syncfolder.Find(tree)
 	if err != nil {
 		return nil, err
 	}
@@ -584,8 +598,12 @@ func writeManifest(out, format, note string, hosts []hostModuleEntry) (string, e
 
 // runOne runs one run on the engine and compares its observation. A run's
 // cancel_after_ms cancels it with the reason and the canceler the oracle's
-// cancellation names (FX-38).
-func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target) []string {
+// cancellation names (FX-38). With the fixture's effect server (es, nil
+// when the fixture has neither effects nor stub mode), the run's effects
+// are observed as the oracle's are: the sink's, then, in stub mode, each
+// answered stub call, once the calls agree with the trace
+// (conformance.CheckReplay).
+func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r conformance.Run, e *engine.Engine, pool engine.StepExecutor, t *target, es *effectServer) []string {
 	cctx, cancelRun := context.WithCancelCause(ctx)
 	defer cancelRun(nil)
 	rctx, cancel := context.WithTimeout(cctx, flowRunTimeout)
@@ -596,20 +614,39 @@ func (fc *flowChecker) runOne(ctx context.Context, f *conformance.Fixture, r con
 		})
 		defer stop.Stop()
 	}
+	id := newUUID()
+	var hooks engine.Hooks
+	if es != nil {
+		hooks = es.open(id, f.Stub, r.Replay)
+	}
 	exec := &jobRecorder{exec: pool, jobs: map[string]conformance.SitePath{}}
 	tr, err := e.Run(rctx, engine.RunRequest{
-		ID:   newUUID(),
-		Path: r.Target,
-		Args: jsonval.FromProducer(r.ArgsOrEmpty()),
-		Exec: exec,
+		ID:    id,
+		Path:  r.Target,
+		Args:  jsonval.FromProducer(r.ArgsOrEmpty()),
+		Exec:  exec,
+		Hooks: hooks,
 	})
+	var effects []json.RawMessage
+	var calls []conformance.ReplayCall
+	if es != nil {
+		effects, calls = es.close(id, f.Stub)
+	}
 	if err != nil {
 		return []string{"run: " + err.Error()}
 	}
 	if r.CancelAfterMS == nil && errors.Is(context.Cause(rctx), context.DeadlineExceeded) {
 		return []string{fmt.Sprintf("the run did not end within %s", flowRunTimeout)}
 	}
-	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies)
+	if f.Stub {
+		if err := checkStub(tr, calls); err != nil {
+			return []string{"stub: " + err.Error()}
+		}
+		for _, c := range calls {
+			effects = append(effects, c.Effect)
+		}
+	}
+	got, generated, err := observeTrace(tr, t.modules, t.virtual, t.failure, exec.ids(), f.Compare, r.Copies, effects)
 	if err != nil {
 		return []string{"observe: " + err.Error()}
 	}

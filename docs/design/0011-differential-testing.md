@@ -465,6 +465,20 @@ their root jobs were not in flight together.
   failure module copies a generated error, passes through N3c's declared
   `copies`.
 
+- Milestone E4b runs the stub acceptance cases on windmill-lite, and
+  they match both their `expect`s and the oracle's recordings, effects
+  included. `wltest check` serves the oracle's effect sink and replay
+  service on loopback for every fixture that declares effects or stub
+  mode. Each invocation gets `WL_EFFECT_SINK` through the engine's
+  invocation-environment hook (H12), the seam host hooks expose. That
+  hook also records the site each job launches at, and this record is
+  the windmill-lite locator, read from the trace's own sites. The check
+  after a run (`conformance.CheckReplay`) is one function that both
+  sides apply: to the oracle's walk, and to windmill-lite's trace, where
+  a leaf's job is any record's job that is no child flow's. The effect
+  sink also made the probe catalogue's effect runs (OR-16/a) checkable on
+  windmill-lite.
+
 ## Spec IDs relied on
 
 OR-1 to OR-31, OR-V1 to OR-V8, OF-2, Q-OR-10, Q-OR-16, Q-OR-17, LIC-1,

@@ -48,7 +48,7 @@ repository to exercise one behaviour each.
 | compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
 | protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec cases, by `bun test` in `harnesses/bun` |
 | build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI), with the platform providers (PF2) |
+| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2), `flows/control-flow/cf-*` (E3d, N3c, NI) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a), `flows/je/*` and `flows/cf/cf-19` (E3a), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2); recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, in `warm`, on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI), with the platform providers (PF2), the effect sink and stub mode (E4b) |
 | step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
 | expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
 
@@ -86,6 +86,7 @@ and recording in [internal/oracle](../internal/oracle/README.md).
 | `flows/stub/collapsed` | Stub mode: a collapsed body ([CF-8](../docs/semantics/control-flow.md#cf-8)), each iteration at `i:<n>/m:book`, then a path script. The body takes a `Date` through a local alias, which the stub keeps ([WR-V3](../docs/semantics/languages.md#wr-v3)). |
 | `flows/stub/nested` | Stub mode: nested loops whose bodies do not collapse, the inner one reading the outer iteration as `iter_parent` ([CF-3](../docs/semantics/control-flow.md#cf-3)). |
 | `flows/stub/scopes` | Stub mode: a named subflow and a parallel loop under one outer run (run `alone`), and two concurrent outer runs (`r` and `t`, group `rt`), with every call's `WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID` and `WM_JOB_ID` ([OR-V6](../docs/semantics/oracle.md#or-v6)/a, [Q-OR-10](../docs/semantics/oracle.md#q-or-10)). |
+| `flows/stub/codebase` | Stub mode on codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)): a retry inside a loop on a CommonJS codebase script, then an esm one ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)); the stubs stay codebase scripts, bundled with esbuild by the CLI and by windmill-lite (milestone E4b). |
 | `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
 | `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
 | `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. JE-26/b–c configure a `retry` and gate NI, JE-35/d's subflow by path gates N3c, and the others gate N1b. |
@@ -149,6 +150,8 @@ A stub fixture (`stub: true`) commits its original tree; each run's
 `.invalid`, which nothing resolves, so a script that kept its body would
 fail. The stubbed tree is written and its metadata regenerated in a
 temporary copy on every recording ([internal/oracle](../internal/oracle/README.md#stub-mode)).
+`wltest check` runs the same stubbed copy on windmill-lite, with the same
+replay service (milestone E4b, [cmd/wltest](../cmd/wltest/README.md#flow-fixtures)).
 
 Each E3b run's `expect` was written from the reference before the oracle
 first ran it. Where the oracle disagreed, the run's `note` says what was

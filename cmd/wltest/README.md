@@ -9,8 +9,9 @@ flow fixtures (milestone E1) and, on the engine core, expression files run
 end to end (milestone N1a), with the for loops of milestone N3a, the
 while loops and branches of N3b, the platform providers of milestone PF2
 (`providers.go`), the job registry, flow user state, object store and
-dispatcher of milestone PF3, and the containers' waits, retries and
-cancellation of milestone NI. This README covers the `wltest` command in
+dispatcher of milestone PF3, the containers' waits, retries and
+cancellation of milestone NI, and the effect sink and stub mode of
+milestone E4b (`effects.go`). This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -363,8 +364,38 @@ a few at a time (`flows.go`):
    side reads the recording's provenance. A run
    with nothing to compare fails.
 
-A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
-(milestone E4b), a fixture with effects (the effect sink), a script run
+**Effects and stub mode** (milestone E4b, `effects.go`). A fixture with
+`oracle: {effects: true}` or `stub: true` gets an effect server of its
+own: the oracle's effect sink (`oracle.Sink`,
+[OR-16](../../docs/semantics/oracle.md#or-16)) with the replay service
+(`conformance.ReplayService`) at `/replay` below it, as `record` serves
+them, on a free loopback port. Every invocation of a run gets the
+server's URL as `WL_EFFECT_SINK` through the engine's
+invocation-environment hook (H12), which also records the site each job
+(`WM_JOB_ID`) launches at. Host hooks expose that same seam (milestone
+F2a), so a run made through `wl` can use the same wiring. The sink keeps
+the effects whose `root` is the run's id (`WM_ROOT_JOB_ID`), so the runs
+of a group stay apart, and refuses any other root with 409 (OR-16/c).
+In stub mode the runs run the stubbed copy of the sync tree that `record`
+pushes (`oracle.StubTree`, written to the fixture's work directory and
+built instead of the tree), and each run's `replay` table answers its
+stubs. The service locates a stub's job at the site the hook recorded:
+the module's site, never an attempt, since the service counts attempts
+itself (ADR 0011). After the run, `conformance.CheckReplay`, the check
+`record` applies to its walk, holds the calls against the trace. Each
+call must have been answered, with no `replay_miss` or
+`replay_unresolved`. Each must have resolved where the trace put its job
+(`StepRecord.Job`): a failed attempt `k` at `<site>/r:<k>`, the last
+attempt at `<site>`. Every leaf job of the trace must have called;
+`stub_not_called` names the sites that did not. A subflow step's job is
+its child flow's, and a superseded record is not walked. The run's
+effects are then the sink's in arrival order, followed by each answered
+call (`{site, attempt, step, job, flow, root_flow, root, args}`), as the
+oracle lists them. They are normalised with the observation's job ids
+and compared like the rest of it. A tree the stub generator refuses
+(`stub_unsupported`) fails the fixture's runs.
+
+A run is `unsupported` when windmill-lite cannot run it yet: a script run
 (`kind: script`), a run-and-wait run (`submit: run_wait_result`, whose
 response is the HTTP adapter's, F7b), a flow the compiler refuses as an
 unsupported feature, language or pinned hash, a script of another harness
@@ -421,15 +452,17 @@ Windmill v1.767.0's image).
   through a flow: a `//native` ESM codebase script runs natively, its
   control on Bun).
 - `TestFlowSuite` is the exit gate of milestones E1, N1a, N1b, N3a, N3b,
-  N3c, PF2 (with PF1's fixture), N2, PF3 and NI:
+  N3c, PF2 (with PF1's fixture), N2, PF3, NI and E4b:
   every run the flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
   (`internal/oracle/testdata/batches/<batch>.json`) gates on a milestone
   listed in its `implemented` is required too, so a later engine milestone
   adds itself there; recording batch E3e listed the runs of its fixtures
-  that windmill-lite already passes, and FU5 the `oracle/nul` runs that
-  N1b's engine passes. A required run stays required. The test runs every
+  that windmill-lite already passes, FU5 the `oracle/nul` runs that
+  N1b's engine passes, and E4b the stub runs and the runs of the probe
+  catalogue (`oracle/probes`, a fixture with effects) that the effect sink
+  made checkable. A required run stays required. The test runs every
   other fixture of `conformance/flows`, and every expression file of
   `conformance/exprs` as its generated fixture (a run is keyed
   `<file>/<case>`), as well: each must load, and the log
@@ -473,6 +506,20 @@ Windmill v1.767.0's image).
   `r:0`, the superseded first attempt left out, and a later module's copy
   of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
   the copy of a body module's carried-over attempt inside that subtree.
+- `TestStubCasesMatchTheOracle` is milestone E4b's exit gate. It runs
+  ADR 0011's stub acceptance cases (`conformance/flows/stub`: a retry
+  inside a loop, a collapsed body, nested loops, a named subflow and a
+  parallel loop, and two concurrent outer runs) on windmill-lite. Each run
+  must match its `expect` and, with the `expect` dropped, the oracle's
+  recording, effects included. `TestStubModeAndEffects` checks the
+  failures: a table without an attempt the run makes fails it with
+  `replay_miss`, an effect that differs is shown, and a tree the generator
+  refuses fails with `stub_unsupported`. It also checks that a plain sink
+  fixture observes its own effect while a foreign root gets 409 and is not
+  observed. `TestRunEffectsLocates`, `TestEffectServerKeepsRunsApart` and
+  `TestCheckStub` need no Bun. They check the hook, the per-run routing of
+  effects and stub calls, and the trace side of the replay check: attempt
+  sites, a subflow step's job, and a superseded job.
 
 ## Version
 

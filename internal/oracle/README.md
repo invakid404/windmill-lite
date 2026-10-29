@@ -28,8 +28,9 @@ the walker and added the API deployment (below), E3a the session and
 its own batch tests, and E3e the run-and-wait submission, the setup
 policies, the pull read-back and the two-worker session (below). `wltest
 check` compares windmill-lite's flow runs with each run's `expect` or
-recording (milestone E1, [cmd/wltest](../../cmd/wltest/README.md)); stub
-mode on windmill-lite (E4b) does not exist yet.
+recording (milestone E1, [cmd/wltest](../../cmd/wltest/README.md)), and
+since milestone E4b runs stub fixtures there with this package's stub
+generator and effect sink.
 
 ## A session
 
@@ -145,7 +146,7 @@ for example `{"error":"fixture_requires_workers","need":2,"have":1}`.
 | `sink.go` | The effect sink ([OR-16](../../docs/semantics/oracle.md#or-16), [OR-V6](../../docs/semantics/oracle.md#or-v6)): it keeps an effect only when its `root` is the submitted root of a run that is open (several can be, for concurrent outer runs), and answers anything else with `{"error":"foreign_effect"}`. It also serves the replay service at `/replay`. |
 | `stub.go`, `stubts.go` | Stub mode's generator: `StubTree` writes a stubbed copy of a sync tree, `StubSource` the stub of one Bun script, `CheckStubSignatures` compares schemas after `generate-metadata`. |
 | `locate.go` | The oracle's `Locator` for the replay service: the site of a stub's job in a run that is still in progress. |
-| `replay.go` | `checkReplay`, which holds a stub run's answered calls against its walk. |
+| `replay.go` | `checkReplay`, which holds a stub run's answered calls against its walk with `conformance.CheckReplay`. |
 | `walk.go` | The walker ([OR-11](../../docs/semantics/oracle.md#or-11)). |
 | `record.go` | The session, `Observe` (walk to normalised observation) and provenance. |
 | `lint.go` | The repository checks: `LintImages` and `GuardManifests`. |
@@ -298,7 +299,10 @@ for again until the call's deadline (60 s), which reports the last walk's
 error. Completed jobs are cached. The attempt is the
 replay service's count of distinct jobs already seen at the site.
 
-**After the run.** `checkReplay` fails the run when a call was refused
+**After the run.** `checkReplay` applies `conformance.CheckReplay`, the
+check `wltest check` applies to windmill-lite's trace too, to the walk's
+job ids and the walked jobs of the kinds that execute a script. It fails
+the run when a call was refused
 (`replay_miss`: the table has no outcome for the site and attempt;
 `replay_unresolved`), when a call's site and attempt disagree with where
 the walk put its job (`replay_site_mismatch`: a failed attempt `k` must be
