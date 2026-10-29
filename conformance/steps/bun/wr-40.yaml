@@ -107,7 +107,11 @@ cases:
   - spec: WR-40/f
     provenance: source-derived
     title: an uncaught failed dynamic import gives the exception shape, not a load failure
-    note: The error's name is Q-WR-21's; windmill-lite's is Error.
+    note: >-
+      The reference's revision SC4 gives the error's name, TypeError, and
+      its whole message, which Q-WR-21 had left to the oracle;
+      windmill-lite's name is Error, so the claims hold only what both
+      share.
     language: nativets
     script: |
       export async function main() { await import("./missing.ts"); return 1; }

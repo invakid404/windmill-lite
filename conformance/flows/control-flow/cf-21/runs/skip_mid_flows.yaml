@@ -1,6 +1,6 @@
-# CF-21 (Q-CF-6): the same with a two-step body, so each iteration is a
+# CF-21/b (Q-CF-6): the same with a two-step body, so each iteration is a
 # child flow; the skip_if before iteration 2 sees iteration 1's result.
-spec: [CF-21, Q-CF-6]
+spec: [CF-21/b, Q-CF-6]
 target: f/cf21/skip_mid_flows
 expect:
   status: success
