@@ -112,8 +112,10 @@ codebase entries name paths outside it (`relative_path`, assets' `from`,
 `inject`), `wmill.yaml` is kept as written and those paths are carried at
 the same places relative to the stubbed tree: the stubbed tree is then
 `<dir>/<root>`, below as many of the tree's parent directories' names as
-the furthest path climbs, and the command prints a `carried <path>` line
-per carried path and a `tree <root>` line
+the furthest path climbs as it is spelled, and the command prints a
+`carried <path>` line per carried path, a `made <dir>` line per directory
+outside the tree that a spelling passes through (made empty), and a
+`tree <root>` line
 ([internal/oracle](../../internal/oracle/README.md#copies-of-a-sync-tree)).
 The copy's metadata still describes the originals, so run `npx -y
 windmill-cli@1.767.0 generate-metadata` in the stubbed tree before pushing

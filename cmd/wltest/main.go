@@ -264,6 +264,9 @@ func stub(args []string, stdout, stderr io.Writer) int {
 	for _, o := range rep.Outside {
 		fmt.Fprintln(stdout, "carried", o)
 	}
+	for _, d := range rep.Dirs {
+		fmt.Fprintln(stdout, "made", d)
+	}
 	tree := *out
 	if rep.Root != "." {
 		fmt.Fprintln(stdout, "tree", rep.Root)

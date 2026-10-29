@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -33,40 +34,49 @@ func writeFiles(t *testing.T, dir string, files map[string]string) string {
 // with directories beside it and above it.
 var outsideBase = map[string]string{
 	"top/repo/windmill/f/cb/a.ts":          okScript,
-	"top/repo/windmill/f/cb/lib/x.ts":      "export const x = 1;\n",
+	"top/repo/windmill/f/cb/lib/x.ts":      "export function main() { return 1 }\n",
+	"top/repo/windmill/data/n.txt":         "n\n",
 	"top/repo/shared/lib/label.ts":         "export const label = 'l';\n",
 	"top/repo/shared/lib/assets/child.mjs": "export const child = 1;\n",
 	"top/repo/shared-x/a.txt":              "a\n",
 	"top/repo/assets/b.txt":                "b\n",
+	"top/repo/detour/d.txt":                "d\n",
 	"top/inject/shim.ts":                   "export const shim = 1;\n",
 	"top/repo/fixture.yaml":                "id: x\n",
 }
 
 // TestPlanLayout lays a copy out from the paths the codebase entries name:
 // paths inside the tree, absolute or missing ones are not carried, a path
-// below another is carried with it, a spelling that leaves the tree and
-// comes back in is inside it, and the copied tree sits below as many of
-// its parents' names as the furthest path climbs.
+// below another is carried with it, and the copied tree sits below as
+// many of its parents' names as the furthest path climbs as spelled, also
+// when it comes back into the tree; the directories a spelling passes
+// through outside the tree are made when they exist in the original and
+// no carried path makes them.
 func TestPlanLayout(t *testing.T) {
 	abs := t.TempDir()
 	cases := []struct {
 		name, codebases string
 		root            string
-		outside         []string
+		outside, dirs   []string
 	}{
-		{"no codebases", "", ".", nil},
-		{"inside", "  - relative_path: f/cb\n    assets: [{from: f/cb/lib/x.ts, to: x.ts}]\n", ".", nil},
-		{"come back in", "  - relative_path: ../windmill/f/cb\n    inject: [./f/../f/cb/a.ts]\n", ".", nil},
-		{"relative_path and its asset", "  - relative_path: ../shared\n    assets: [{from: ../shared/lib/assets/child.mjs, to: child.mjs}]\n", "windmill", []string{"../shared"}},
-		{"asset alone", "  - relative_path: f/cb\n    assets: [{from: ../assets/b.txt, to: b.txt}]\n", "windmill", []string{"../assets/b.txt"}},
-		{"a name that starts like another", "  - relative_path: ../shared\n    assets: [{from: ../shared-x/a.txt, to: a.txt}, {from: ../shared/lib/label.ts, to: l.ts}]\n", "windmill", []string{"../shared", "../shared-x/a.txt"}},
-		{"twice", "  - relative_path: ../shared\n  - relative_path: ../shared/\n", "windmill", []string{"../shared"}},
-		{"two levels up", "  - relative_path: ../shared\n    inject: [../../inject/shim.ts]\n", "repo/windmill", []string{"../../inject/shim.ts", "../shared"}},
-		{"the tree's parent", "  - relative_path: ..\n    assets: [{from: ../shared/lib/label.ts, to: l.ts}]\n", "windmill", []string{".."}},
-		{"climbs past the tree's parent", "  - relative_path: ..\n    inject: [../../inject/shim.ts]\n", "repo/windmill", []string{"..", "../../inject/shim.ts"}},
-		{"through a file", "  - relative_path: ../fixture.yaml/x\n", ".", nil},
-		{"missing and absolute", "  - relative_path: ../nowhere\n    assets: [{from: " + filepath.ToSlash(filepath.Join(abs, "x")) + ", to: x}]\n", ".", nil},
-		{"wrong types", "  - relative_path: 3\n    assets: ../shared\n    inject: ../shared\n  - x\n", ".", nil},
+		{"no codebases", "", ".", nil, nil},
+		{"inside", "  - relative_path: f/cb\n    assets: [{from: f/cb/lib/x.ts, to: x.ts}]\n    inject: [./f/../f/cb/a.ts]\n", ".", nil, nil},
+		{"come back in", "  - relative_path: ../windmill/f/cb\n", "windmill", nil, nil},
+		{"come back in from two levels up", "  - relative_path: f/cb\n    assets: [{from: ../../repo/windmill/f/cb/lib/x.ts, to: x.ts}]\n", "repo/windmill", nil, nil},
+		{"detour", "  - relative_path: f/cb\n    assets: [{from: ../detour/../shared-x/a.txt, to: a.txt}]\n", "windmill", []string{"../shared-x/a.txt"}, []string{"../detour"}},
+		{"detour through a missing directory", "  - relative_path: f/cb\n    assets: [{from: ../nowhere/../shared-x/a.txt, to: a.txt}]\n", "windmill", []string{"../shared-x/a.txt"}, nil},
+		{"detour a carried path makes", "  - relative_path: ../shared/lib/../lib/assets\n    inject: [../shared/lib/label.ts]\n", "windmill", []string{"../shared/lib/assets", "../shared/lib/label.ts"}, nil},
+		{"detour into the tree", "  - relative_path: ../detour/../windmill/f/cb\n", "windmill", nil, []string{"../detour"}},
+		{"relative_path and its asset", "  - relative_path: ../shared\n    assets: [{from: ../shared/lib/assets/child.mjs, to: child.mjs}]\n", "windmill", []string{"../shared"}, nil},
+		{"asset alone", "  - relative_path: f/cb\n    assets: [{from: ../assets/b.txt, to: b.txt}]\n", "windmill", []string{"../assets/b.txt"}, nil},
+		{"a name that starts like another", "  - relative_path: ../shared\n    assets: [{from: ../shared-x/a.txt, to: a.txt}, {from: ../shared/lib/label.ts, to: l.ts}]\n", "windmill", []string{"../shared", "../shared-x/a.txt"}, nil},
+		{"twice", "  - relative_path: ../shared\n  - relative_path: ../shared/\n", "windmill", []string{"../shared"}, nil},
+		{"two levels up", "  - relative_path: ../shared\n    inject: [../../inject/shim.ts]\n", "repo/windmill", []string{"../../inject/shim.ts", "../shared"}, nil},
+		{"the tree's parent", "  - relative_path: ..\n    assets: [{from: ../shared/lib/label.ts, to: l.ts}]\n", "windmill", []string{".."}, nil},
+		{"climbs past the tree's parent", "  - relative_path: ..\n    inject: [../../inject/shim.ts]\n", "repo/windmill", []string{"..", "../../inject/shim.ts"}, nil},
+		{"through a file", "  - relative_path: ../fixture.yaml/x\n", ".", nil, nil},
+		{"missing and absolute", "  - relative_path: ../nowhere\n    assets: [{from: " + filepath.ToSlash(filepath.Join(abs, "x")) + ", to: x}]\n", ".", nil, nil},
+		{"wrong types", "  - relative_path: 3\n    assets: ../shared\n    inject: ../shared\n  - x\n", ".", nil, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -82,8 +92,8 @@ func TestPlanLayout(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if l.Root != c.root || strings.Join(l.Outside, " ") != strings.Join(c.outside, " ") {
-				t.Fatalf("got root %q outside %q, want %q %q", l.Root, l.Outside, c.root, c.outside)
+			if l.Root != c.root || strings.Join(l.Outside, " ") != strings.Join(c.outside, " ") || strings.Join(l.Dirs, " ") != strings.Join(c.dirs, " ") {
+				t.Fatalf("got root %q outside %q dirs %q, want %q %q %q", l.Root, l.Outside, l.Dirs, c.root, c.outside, c.dirs)
 			}
 		})
 	}
@@ -160,6 +170,7 @@ func TestCopyLayout(t *testing.T) {
 		"f repo/assets/b.txt",
 		"f repo/shared/lib/assets/child.mjs",
 		"f repo/shared/lib/label.ts",
+		"f repo/windmill/data/n.txt",
 		"f repo/windmill/f/cb/a.ts",
 		"f repo/windmill/f/cb/lib/x.ts",
 		"f repo/windmill/wmill.yaml",
@@ -183,6 +194,95 @@ func TestCopyLayout(t *testing.T) {
 	if got, want := listFiles(t, dst), listFiles(t, filepath.Join(dir, "top/repo")); got != want {
 		t.Fatalf("the copy holds:\n%s\nwant\n%s", got, want)
 	}
+}
+
+// TestCopiesResolveTheSpellings reads every path a codebase entry names,
+// unchanged, from both copies of a tree, CopyLayout's and StubTree's: as
+// spelled, walked on disk by the operating system, and with "." and ".."
+// applied first, as windmill-lite's build joins it. Each reaches what it
+// reaches from the original: plain outside paths, spellings that come back
+// into the tree through its own name or its parents', and detours through
+// a directory outside the tree, for relative_path, inject and assets.
+func TestCopiesResolveTheSpellings(t *testing.T) {
+	for _, c := range []struct{ name, entry string }{
+		{"outside", "relative_path: ../shared\n    inject: [../../inject/shim.ts]\n    assets: [{from: ../shared/lib/assets/child.mjs, to: c.mjs}, {from: ../assets/b.txt, to: b.txt}]"},
+		{"come back in", "relative_path: ../windmill/data\n    inject: [../windmill/data/n.txt]\n    assets: [{from: ../../repo/windmill/data/n.txt, to: n.txt}]"},
+		{"detour", "relative_path: ../detour/../shared\n    inject: [../detour/../../inject/shim.ts]\n    assets: [{from: ../detour/../assets/b.txt, to: b.txt}, {from: ../detour/../windmill/data/n.txt, to: n.txt}]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			wmill := "defaultTs: bun\ncodebases:\n  - " + c.entry + "\n"
+			files := map[string]string{"top/repo/windmill/wmill.yaml": wmill}
+			for p, s := range outsideBase {
+				files[p] = s
+			}
+			src := filepath.Join(writeFiles(t, t.TempDir(), files), "top/repo/windmill")
+			doc, err := yamlx.Parse([]byte(wmill))
+			if err != nil {
+				t.Fatal(err)
+			}
+			paths := codebasePaths(doc)
+			for _, stub := range []bool{false, true} {
+				dst := filepath.Join(t.TempDir(), "copy")
+				var l *Layout
+				if stub {
+					rep, err := StubTree(src, dst)
+					if err != nil {
+						t.Fatal(err)
+					}
+					l = &rep.Layout
+				} else if l, err = CopyLayout(src, dst); err != nil {
+					t.Fatal(err)
+				}
+				tree := filepath.Join(dst, filepath.FromSlash(l.Root))
+				for _, p := range paths {
+					want := readPath(t, src+string(filepath.Separator)+filepath.FromSlash(p))
+					if want == "" {
+						t.Fatalf("%s does not resolve from the original", p)
+					}
+					spelled := readPath(t, tree+string(filepath.Separator)+filepath.FromSlash(p))
+					joined := readPath(t, filepath.Join(tree, filepath.FromSlash(p)))
+					if spelled != want || joined != want {
+						t.Errorf("stub %v, layout %+v: %s reads\n%q as spelled and\n%q joined, want\n%q", stub, l, p, spelled, joined, want)
+					}
+				}
+				if got, _ := os.ReadFile(filepath.Join(tree, "wmill.yaml")); string(got) != wmill {
+					t.Fatalf("wmill.yaml changed:\n%s", got)
+				}
+			}
+		})
+	}
+}
+
+// readPath reads the file at p, or lists the regular files below the
+// directory at p with their contents, with p given to the operating system
+// as it is spelled; "" when p does not resolve.
+func readPath(t *testing.T, p string) string {
+	t.Helper()
+	info, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	if !info.IsDir() {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	var b strings.Builder
+	err = filepath.WalkDir(p, func(f string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(p, f)
+		data, err := os.ReadFile(f)
+		fmt.Fprintf(&b, "%s: %s", filepath.ToSlash(rel), data)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
 }
 
 // TestCopyLayoutRefuses refuses an output that exists or lies inside a

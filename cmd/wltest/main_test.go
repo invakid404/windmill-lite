@@ -90,6 +90,32 @@ func TestStub(t *testing.T) {
 			t.Fatalf("%s: %q %v", p, got, err)
 		}
 	}
+	// A detour through a directory outside the tree is made, empty.
+	base := t.TempDir()
+	for p, s := range map[string]string{
+		"w/wmill.yaml":   "defaultTs: bun\ncodebases:\n  - relative_path: ../detour/../shared\n",
+		"w/f/x/a.ts":     "export async function main(x: number) { return x }\n",
+		"shared/a.txt":   "a\n",
+		"detour/old.txt": "o\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(base, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, p), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out = filepath.Join(t.TempDir(), "stubbed")
+	stdout.Reset()
+	if code := run(context.Background(), []string{"stub", "--out", out, filepath.Join(base, "w")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if stdout.String() != "stubbed f/x/a.ts\ncarried ../shared\nmade ../detour\ntree w\n" {
+		t.Fatalf("stdout %q", stdout.String())
+	}
+	if got, err := os.ReadFile(out + "/w/../detour/../shared/a.txt"); err != nil || string(got) != "a\n" {
+		t.Fatalf("the spelled path from the stubbed tree: %q %v", got, err)
+	}
 
 	tree := t.TempDir()
 	for p, s := range map[string]string{"wmill.yaml": "defaultTs: bun\n", "f/x/a.py": "def main():\n  pass\n"} {

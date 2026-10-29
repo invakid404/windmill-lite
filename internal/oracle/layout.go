@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -23,26 +24,39 @@ import (
 // directory. A copy must not rewrite them, because the CLI digests the
 // entry's settings as written; it carries those paths instead, at the same
 // places relative to the copied root. The tree is copied below as many of
-// its own parent directories' names as the furthest of those paths climbs,
-// and each path beside it, so that every path of the copy reaches a copy of
-// what the original's reaches.
+// its own parent directories' names as the furthest of those paths climbs
+// as it is spelled, and each path beside it, so that every path of the copy
+// reaches a copy of what the original's reaches, whether "." and ".." are
+// applied to the spelling first or walked through on disk.
 type Layout struct {
 	// Root is the copied tree's directory, relative to the copy's
-	// directory, in slash form: "." when no entry reaches outside the tree.
+	// directory, in slash form: "." when no entry's path climbs out of the
+	// tree.
 	Root string `json:"root"`
 	// Outside are the paths outside the tree that the copy carries,
 	// relative to the tree's root, in slash form and sorted: a directory
 	// with everything below it, or a file.
 	Outside []string `json:"outside,omitempty"`
+	// Dirs are the directories outside the tree, and not carried, that a
+	// path's spelling passes through on its way (the detour of
+	// ../detour/../shared/a.txt), relative to the tree's root, in slash
+	// form and sorted. The copy makes each one, empty, so that the
+	// spelling resolves when it is walked on disk.
+	Dirs []string `json:"dirs,omitempty"`
 }
 
 // PlanLayout returns the layout of a copy of the sync tree at src, the
-// directory of its wmill.yaml. Its outside paths are the relative_path,
-// asset from and inject paths of the codebase entries that resolve, after
-// "." and ".." are applied to the spelling, outside the tree. A path below
-// another is carried with it, and one that does not exist is left out, as
-// the original does not resolve it either; an absolute path resolves the
-// same from a copy. An import of a codebase script that leaves the tree
+// directory of its wmill.yaml, from the relative_path, asset from and
+// inject paths of the codebase entries. Each path is walked as it is
+// spelled: the furthest it climbs above the tree sets Root, even when it
+// comes back in (../windmill/f from a tree named windmill), the
+// directories it passes through outside the tree that exist in the
+// original are Dirs, and its target, "." and ".." applied, is carried when
+// it lies outside the tree. A target below another is carried with it, and
+// a path whose target does not exist is left out, as the original does
+// not resolve it either; an absolute path resolves the same from a copy. A
+// path that climbs above the file system root cannot be laid out inside
+// the copy and is refused. An import of a codebase script that leaves the tree
 // resolves in the copy when it lands below one of these paths, as an
 // import of a shared library below the entry's relative_path does:
 // esbuild follows imports wherever they lead (WR-47), and PlanLayout does
@@ -66,7 +80,8 @@ func PlanLayout(src string) (*Layout, error) {
 	if err != nil {
 		return l, nil
 	}
-	var outside []string
+	var outside, through []string
+	up := 0
 	for _, p := range codebasePaths(doc) {
 		p = filepath.FromSlash(p)
 		if p == "" || filepath.IsAbs(p) {
@@ -76,38 +91,37 @@ func PlanLayout(src string) (*Layout, error) {
 		if err != nil {
 			return nil, err
 		}
-		if climbs(rel) == 0 {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(abs, rel)); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		if _, err := os.Stat(filepath.Join(abs, rel)); missing(err) {
 			continue
 		} else if err != nil {
 			return nil, err
 		}
-		outside = append(outside, filepath.ToSlash(rel))
-	}
-	sort.Strings(outside)
-	up := 0
-	for _, o := range outside {
-		// o is below k when it starts with k's components and climbs no
-		// further: ../../x is not below .., though it starts with "../".
-		carried := false
-		for _, k := range outside {
-			if k != o && strings.HasPrefix(o, k+"/") && climbs(filepath.FromSlash(o)) == climbs(filepath.FromSlash(k)) {
-				carried = true
-				break
+		peak, dirs := walkSpelling(p)
+		up = max(up, peak)
+		for _, d := range dirs {
+			// Spelled through the tree's own name or its parents' names,
+			// a directory may be the tree, inside it, or one of the
+			// parents the copy has anyway.
+			if d, err = filepath.Rel(abs, filepath.Join(abs, d)); err != nil {
+				return nil, err
+			}
+			if n := climbs(d); n == 0 || n == len(strings.Split(d, string(filepath.Separator))) {
+				continue
+			}
+			if info, err := os.Stat(filepath.Join(abs, d)); err == nil && info.IsDir() {
+				through = append(through, filepath.ToSlash(d))
+			} else if err != nil && !missing(err) {
+				return nil, err
 			}
 		}
-		if carried || (len(l.Outside) > 0 && l.Outside[len(l.Outside)-1] == o) {
-			continue
+		if climbs(rel) > 0 {
+			outside = append(outside, filepath.ToSlash(rel))
 		}
-		l.Outside = append(l.Outside, o)
-		up = max(up, climbs(filepath.FromSlash(o)))
 	}
+	l.Outside = outermost(outside, nil)
+	l.Dirs = outermost(through, l.Outside)
 	var names []string
 	for d := abs; len(names) < up; d = filepath.Dir(d) {
-		// Defensive: filepath.Join stops ".." at the file system root, so
-		// no path climbs further than abs is deep.
 		if filepath.Dir(d) == d {
 			return nil, fmt.Errorf("oracle: a codebase path of %s climbs above the file system root", src)
 		}
@@ -148,6 +162,64 @@ func codebasePaths(doc *yamlx.Node) []string {
 		}
 	}
 	return out
+}
+
+// walkSpelling walks a relative path as it is spelled, one component at a
+// time from the tree's root, and returns the furthest it climbs above the
+// root and the directories it passes through on the way while above the
+// root, as clean paths relative to the root: for
+// ../detour/../shared/a.txt, 1 and [../detour].
+func walkSpelling(p string) (peak int, dirs []string) {
+	parts := strings.Split(p, string(filepath.Separator))
+	up, down := 0, []string{}
+	for i, c := range parts {
+		switch c {
+		case "", ".":
+			continue
+		case "..":
+			if len(down) > 0 {
+				down = down[:len(down)-1]
+			} else {
+				up++
+				peak = max(peak, up)
+			}
+		default:
+			down = append(down, c)
+		}
+		if i < len(parts)-1 && up > 0 && len(down) > 0 {
+			dirs = append(dirs, filepath.Join(append(slices.Repeat([]string{".."}, up), down...)...))
+		}
+	}
+	return peak, dirs
+}
+
+// outermost returns the slash paths of list that are not below another of
+// list, sorted and once each, leaving out those that a carried path
+// holds, is, or lies below, since copying it makes them. A path is below k
+// when it starts with k's components and climbs no further: ../../x is not
+// below .., though it starts with "../".
+func outermost(list, carried []string) []string {
+	below := func(o, k string) bool {
+		return strings.HasPrefix(o, k+"/") && climbs(filepath.FromSlash(o)) == climbs(filepath.FromSlash(k))
+	}
+	sort.Strings(list)
+	var out []string
+	for i, o := range list {
+		if i > 0 && list[i-1] == o || slices.ContainsFunc(list, func(k string) bool { return below(o, k) }) {
+			continue
+		}
+		if slices.ContainsFunc(carried, func(k string) bool { return k == o || below(o, k) || below(k, o) }) {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// missing reports whether a Stat error says the path does not resolve: it
+// does not exist, or a component of it is a file.
+func missing(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
 }
 
 // realDir returns the absolute path of the directory dir with its symbolic
@@ -202,9 +274,9 @@ func (l *Layout) target(src, dst string) (created string, err error) {
 
 // copy writes the copy of the tree at src, links in its path resolved,
 // into dst: each outside path at its place relative to the copied root,
-// and then the tree at dst/Root. A
-// carried directory that holds the tree (relative_path ..) writes the
-// tree's files too, and the tree's own copy writes the same files again.
+// then the tree at dst/Root, then each of Dirs, empty. A carried directory
+// that holds the tree (relative_path ..) writes the tree's files too, and
+// the tree's own copy writes the same files again.
 func (l *Layout) copy(src, dst string) error {
 	real, err := realDir(src)
 	if err != nil {
@@ -217,7 +289,15 @@ func (l *Layout) copy(src, dst string) error {
 			return err
 		}
 	}
-	return copyPath(real, root)
+	if err := copyPath(real, root); err != nil {
+		return err
+	}
+	for _, d := range l.Dirs {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CopyLayout copies the sync tree at src into dst as PlanLayout lays it
