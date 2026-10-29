@@ -537,6 +537,50 @@ func TestObserveContainerAttempts(t *testing.T) {
 	}
 }
 
+// CF-22, FX-29, OR-11: when a later module lists a retried container's
+// failed attempt, the walker walks the attempt's child flow again below
+// it, each module with the attempts its own status lists: a body module
+// that lists an earlier body module's attempt (FX-29) shows it below the
+// copy too.
+func TestObserveNestedAttemptCopies(t *testing.T) {
+	js, err := quickjs.New(quickjs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer js.Close()
+	// A branchone whose predicate throws fails in place (CF-14).
+	fail := func(id string) *ir.Module {
+		return &ir.Module{ID: id, Kind: ir.KindBranchOne, BranchOne: &ir.BranchOne{Branches: []ir.OneBranch{{Expr: expr.Compile(expr.SiteBranchOne, "missing.x"), Modules: []*ir.Module{{ID: "unused", Kind: ir.KindIdentity}}}}}}
+	}
+	a := fail("a")
+	a.ContinueOnError, a.Retry = true, &ir.Retry{Constant: &ir.ConstantRetry{Attempts: 1}}
+	loop := &ir.Module{ID: "l", Kind: ir.KindForLoop, ContinueOnError: true, Retry: &ir.Retry{Constant: &ir.ConstantRetry{Attempts: 1}},
+		ForLoop: &ir.ForLoop{Iterator: ir.Transform{Type: ir.Static, Value: json.RawMessage(`[1]`)}, Modules: []*ir.Module{a, {ID: "b", Kind: ir.KindIdentity}, fail("c")}}}
+	e, err := engine.New(engine.Config{JS: js, Program: &ir.Program{Flows: map[string]*ir.Flow{"f/t/main": {Path: "f/t/main", Modules: []*ir.Module{loop, {ID: "d", Kind: ir.KindIdentity}}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := e.Run(context.Background(), engine.RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := observeTrace(tr, []string{"l", "d"}, nil, false, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prefix := range []string{"m:l/i:0", "m:l/r:0", "m:d/r:0"} {
+		for _, s := range []string{"/m:a", "/m:a/r:0", "/m:b", "/m:b/r:0", "/m:c"} {
+			p, _ := conformance.ParseSitePath(prefix + s)
+			if _, ok := got.Steps[p]; !ok {
+				t.Errorf("no site %s%s in %s", prefix, s, compactJSON(got))
+			}
+		}
+	}
+	if len(got.Steps) != 2+1+5+1+5+5 {
+		t.Fatalf("%d sites: %s", len(got.Steps), compactJSON(got))
+	}
+}
+
 // A run's derived pointers name values a step copied from an error
 // windmill-lite generated (FX-15/b): the location rule reaches them by its
 // templates only, so a user's message with a location still differs, and

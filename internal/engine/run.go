@@ -465,6 +465,16 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 	if prev.IsZero() {
 		prev = fr.input
 	}
+	// A child flow scheduled for later, by the sleep before its container
+	// or a retry's delay (CF-21, FX-23, FX-26), is picked up then: none of
+	// its modules starts before. A cancellation while it is queued fails
+	// it without running its body (CF-28 rule 2). A collapsed iteration's
+	// body job waits as any job does (begin.due).
+	if !fr.due.IsZero() && fr.collapsed == nil {
+		if err := r.wait(ctx, fr.site, fr.due); err != nil {
+			return flowEnd{status: r.endedStatus(ctx, conformance.RunCanceled)}
+		}
+	}
 	// continues is set when the start that follows is what the continue
 	// decision asked for after an error stop that coincided with the
 	// cancellation, which Completion let through (FX-38).
@@ -488,9 +498,9 @@ func (r *run) runList(ctx context.Context, fr *frame) flowEnd {
 		// (FX-15 context 2); the previous module's sleep applies to a
 		// module's first start (FX-23).
 		b := begin{first: i == 0}
-		if i == 0 {
-			// The sleep before the flow's container delays its first job
-			// (CF-21).
+		if i == 0 && fr.collapsed != nil {
+			// The sleep before a collapsed loop, or its retry's delay,
+			// schedules its first body job (CF-21).
 			b.due = fr.due
 		}
 		if i > 0 && fr.modules[i-1].Sleep != nil {
@@ -1033,8 +1043,12 @@ func (r *run) module(ctx context.Context, fr *frame, i int, prev jsonval.Value, 
 	if r.latch.Err() != nil {
 		return notLaunched()
 	}
-	// The transition that starts the module resolves flow_env again (JE-38).
-	r.resolveEnv(ctx, fr)
+	// The transition that starts the module resolves flow_env again (JE-38);
+	// a collapsed iteration's job is pushed by its loop's transition, which
+	// resolved it (sequentialLoop).
+	if fr.collapsed == nil {
+		r.resolveEnv(ctx, fr)
+	}
 
 	// Start step 5: the previous module's sleep sets when the module's job
 	// may start; a retry's delay set it at re-entry (FX-23, FX-26). Its
@@ -1592,10 +1606,7 @@ func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope 
 		s.Results = r.results(fr)
 	}
 	if strings.Contains(t, "flow_env") {
-		s.FlowEnv = r.envOf(fr)
-		if !fr.envCached.IsZero() {
-			s.FlowEnv = fr.envCached
-		}
+		s.FlowEnv = r.cachedEnvOf(fr)
 	}
 	return s
 }
@@ -1641,10 +1652,7 @@ func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Sc
 		Helpers:   helpers{r.e.platform, r.rootID},
 	}
 	if strings.Contains(x.Trimmed, "flow_env") {
-		s.FlowEnv = r.envOf(fr)
-		if !fr.envCached.IsZero() {
-			s.FlowEnv = fr.envCached
-		}
+		s.FlowEnv = r.cachedEnvOf(fr)
 	}
 	return s
 }

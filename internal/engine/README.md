@@ -1074,10 +1074,15 @@ the reference left to them.
   children: the first child of a sequential loop or `branchall`, the
   chosen branch of a `branchone`, every child of a parallel loop or
   `branchall`, all pushed at once (recorded by
-  `cf-21/sleep_before_par`). Each such child's first job waits
-  (`frame.due`); later children do not. A container's own sleep delays
-  the module after it, evaluated with the container's result, as any
-  module's.
+  `cf-21/sleep_before_par`); later children do not wait. Such a child
+  flow is scheduled (`frame.due`): it is picked up once the delay has
+  passed, before any of its modules starts, so a first module that
+  completes without a job, an empty container, does not use the delay
+  up, and a cancellation while it is queued fails it without running its
+  body (CF-28); a collapsed iteration's body job waits as any job does. A
+  container's retry delay schedules its first push the same way. A
+  container's own sleep delays the module after it, evaluated with the
+  container's result, as any module's.
 - **A container's timeout** is evaluated for each child it pushes, in the
   container's own scope: its previous_result, its preceding id and its
   flow's input, with no `iter`, a collapsed loop's included (recorded by
@@ -1104,6 +1109,13 @@ the reference left to them.
   count. What else the failed attempt ran is superseded
   (`StepRecord.Superseded`, `ChildFlow.Superseded`), since the walker no
   longer reaches it.
+- **`flow_env`** is resolved again (JE-38) at each transition of a
+  sequential container's flow that pushes its next child, after the
+  previous one completed, so the next push's `skip_if`, timeout and a
+  collapsed body job's arguments see what the previous child changed. A
+  collapsed iteration's job belongs to its loop's flow, whose resolution
+  it uses (`frame.owner`); the predicates evaluated after a child
+  completes keep reading the flow's cached map.
 - **A sequential loop's `skip_if`** (for or while) is evaluated again
   before every iteration after the first, with the flow's last result as
   `previous_result` (the previous iteration's, or the flow's input for a
@@ -1140,8 +1152,10 @@ the reference left to them.
   loop (recorded by `cf-21/skip_mid_flows`).
 
 **Tests.** `containers_test.go` covers the sleep before every kind of
-container on the recording clock, a container's timeout per child and its
-routes, a container's retry (the re-run, the attempt record, `iter_parent`,
+container on the recording clock (a child flow whose first module is an
+empty loop, and a cancellation while the child is queued, included),
+`flow_env` resolved again before each sequential push, a container's
+timeout per child and its routes, a container's retry (the re-run, the attempt record, `iter_parent`,
 a `branchall`, spent attempts), the mid-loop `skip_if` (collapsed, child
 flows, while, parallel, a throw), `squash`, and the waits and retries in a
 parallel loop's child flows with the virtual identity; `while_test.go`

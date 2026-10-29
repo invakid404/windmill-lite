@@ -1,12 +1,15 @@
 package engine
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // The tests of milestone NI: N2's waits and retries inside containers, and
@@ -36,6 +39,83 @@ func TestContainerSleepBefore(t *testing.T) {
 			tr := runReq(t, e, RunRequest{Clock: clock})
 			wantStatus(t, tr, conformance.RunSuccess, c.result)
 			waitsNear(t, clock, 3*time.Second)
+		})
+	}
+
+	// The delayed child is the child flow itself, picked up once the sleep
+	// has passed: a first module that completes without a job, an empty
+	// loop, does not use the delay up (FX-23).
+	empty := loopOf("empty", []string{value("unused", "1", "")}, `"iterator":{"type":"static","value":[]},"skip_failures":false`, "")
+	body := []string{empty, value("b", "7", "")}
+	for _, container := range []string{
+		branchOneOf("l", nil, body, ""),
+		loopOf("l", body, `"iterator":{"type":"static","value":[1]},"skip_failures":false`, ""),
+	} {
+		e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("0")), `"sleep":`+static("3")), container)}, &scripts{})
+		clock := &RecordClock{}
+		wantStatus(t, runReq(t, e, RunRequest{Clock: clock}), conformance.RunSuccess, "")
+		waitsNear(t, clock, 3*time.Second)
+	}
+
+	// A cancellation while the child is still scheduled fails it without
+	// running its body (CF-28 rule 2): the loop fails with its Canceled
+	// error and the run ends canceled.
+	s := &scripts{}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(mod("a", "value", inputs("v", static("0")), `"sleep":`+static("30")), loopOf("l", two, `"iterator":{"type":"static","value":[1]},"skip_failures":false`, ""))}, s)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	time.AfterFunc(100*time.Millisecond, func() { cancel(&Cancellation{Reason: "r", Canceler: "u"}) })
+	tr, err := e.Run(ctx, RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, tr, conformance.RunCanceled, "")
+	wantCalls(t, s, "m:a")
+	if l := record(t, tr, site("l")); l.Status != conformance.StepFailure {
+		t.Fatalf("l %+v", l)
+	} else {
+		sameJSON(t, "the loop's array", l.Result, `[{"error":{"message":"Job canceled: r by u","name":"Canceled","reason":"r","canceler":"u"}}]`)
+	}
+}
+
+// JE-38, CF-21: each child a sequential container pushes after the previous
+// one completed is pushed by a transition of the container's flow, which
+// resolves flow_env again, so its skip_if and its timeout see what the
+// previous child changed, for collapsed jobs and child flows alike, and
+// for a sequential branchall's timeout.
+func TestContainerEnvPerTransition(t *testing.T) {
+	for _, mode := range []string{"skip collapsed", "skip flow", "timeout collapsed", "timeout flow", "timeout branchall"} {
+		t.Run(mode, func(t *testing.T) {
+			store := platform.NewStore()
+			store.SetVariable("u/t/flag", platform.Variable{Value: "0"})
+			s := &scripts{}
+			// Every step sets the variable once it has run.
+			exec := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+				out, err := s.Execute(ctx, inv)
+				store.SetVariable("u/t/flag", platform.Variable{Value: "1"})
+				return out, err
+			})
+			body := []string{mod("b", "value", inputs("v", js("flow_input.iter.value")), "")}
+			if strings.HasSuffix(mode, "flow") {
+				body = append(body, mod("c", "value", inputs("v", js("results.b")), ""))
+			}
+			envelope := `"skip_if":` + exprOf("flow_env.flag === '1'")
+			if strings.HasPrefix(mode, "timeout") {
+				envelope = `"timeout":` + js("flow_env.flag === '1' ? -1 : 10")
+			}
+			container := loopOf("l", body, `"iterator":{"type":"static","value":[1,2,3]},"skip_failures":false`, envelope)
+			if mode == "timeout branchall" {
+				container = branchAllOf("l", []string{branch(skipFailure(false), value("b", "1", "")), branch(skipFailure(false), value("c", "2", ""))}, false, envelope)
+			}
+			e := openWithPlatform(t, map[string]string{"f/t/main": `{"modules":[` + container + `],"flow_env":{"flag":"$var:u/t/flag"}}`}, exec, &platform.Services{Variables: store, Resources: store})
+			tr := runReq(t, e, RunRequest{})
+			if strings.HasPrefix(mode, "timeout") {
+				wantStatus(t, tr, conformance.RunFailure, `{"error":{"message":"Timeout value cannot be negative","name":"InternalError"}}`)
+			} else if l := record(t, tr, site("l")); !l.Skipped {
+				t.Fatalf("l %+v", l)
+			}
+			if n := len(s.calls()); n != len(body) {
+				t.Fatalf("calls %v", s.calls())
+			}
 		})
 	}
 }

@@ -40,9 +40,10 @@ type frame struct {
 	// it at its pickup (FX-15 context 3), where the root's fails that
 	// module (context 2).
 	child bool
-	// due is the time before which the flow's first job may not start: the
-	// sleep of the module before its container, which delays the
-	// container's first child only (CF-21); zero for none.
+	// due is when the flow is scheduled, the sleep of the module before
+	// its container or the container's retry delay (CF-21, FX-26): a child
+	// flow is picked up then, before any of its modules starts, and a
+	// collapsed iteration's body job starts then; zero for none.
 	due time.Time
 	// collapsed is the loop whose iteration iter this frame runs collapsed,
 	// as a job of parent; nil for a flow.
@@ -82,11 +83,12 @@ type frame struct {
 	succeeded []bool
 	spent     time.Duration
 	pinged    time.Time
-	// env is flow_env as the transition that started the frame's current
-	// module resolved it, and envCached the last resolution that succeeded,
-	// which the predicates after a child completes read (JE-38); zero
-	// before the frame's first module, where its flow's stored map stands
-	// (run.envOf). Only the goroutine that drives the frame touches them.
+	// env is flow_env as the flow's current transition resolved it, and
+	// envCached the last resolution that succeeded, which the predicates
+	// after a child completes read (JE-38); zero before the frame's first
+	// module, where its flow's stored map stands (run.envOf). A collapsed
+	// iteration's are its loop's flow's (owner). Only the goroutine that
+	// drives the frame touches them.
 	env, envCached jsonval.Value
 }
 

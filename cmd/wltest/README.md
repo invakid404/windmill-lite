@@ -319,7 +319,8 @@ a few at a time (`flows.go`):
    flow's modules below it
    ([CF-22](../../docs/semantics/control-flow.md#cf-22)), which a later
    module that lists the attempt (FX-29) shows again below its own
-   `r:<k>`, as the walker walks the attempt's flow there; what a loop ran
+   `r:<k>`, with everything below it, its modules' own attempts
+   included, as the walker walks the attempt's flow there; what a loop ran
    before its `skip_if` held mid-loop
    ([CF-21](../../docs/semantics/control-flow.md#cf-21)); and a collapsed
    iteration's job that was never pushed.
@@ -449,7 +450,9 @@ Windmill v1.767.0's image).
   `TestObserveContainerAttempts` (milestone NI, end to end on the engine)
   checks a retried loop's failed attempt, its child flow's modules below
   `r:0`, the superseded first attempt left out, and a later module's copy
-  of the attempt with its subtree; `TestCompareRunDerived` checks that a
+  of the attempt with its subtree, and `TestObserveNestedAttemptCopies`
+  the copy of a body module's carried-over attempt inside that subtree;
+  `TestCompareRunDerived` checks that a
   run's `derived` pointers strip a generated template's suffix and never
   a user's.
 

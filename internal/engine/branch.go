@@ -179,6 +179,11 @@ func (r *run) sequentialBranches(ctx context.Context, fr *frame, i int, prev jso
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, k > 0, st)
 		}
+		if k > 0 {
+			// The previous branch's completion starts a transition of the
+			// module's flow, which resolves flow_env again (JE-38).
+			r.resolveEnv(ctx, fr)
+		}
 		// The module's timeout is evaluated for each child it pushes (CF-21).
 		// A failure, or the push of the branch's child flow failing, is a
 		// chaining error of the module's flow, at its pickup only for the

@@ -235,6 +235,13 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 		if st, ended := r.iterationEnded(ctx); ended {
 			return r.loopInterrupted(o, &it, ran, st)
 		}
+		if k > 0 {
+			// The previous child's completion starts a transition of the
+			// loop's flow, which pushes the next child: flow_env is resolved
+			// again (JE-38) for what it evaluates, the loop's skip_if and
+			// timeout and a collapsed body job's arguments.
+			r.resolveEnv(ctx, fr)
+		}
 		if k > 0 && m.SkipIf != nil {
 			// A sequential loop's skip_if is evaluated again before every
 			// iteration after the first (CF-21, Q-CF-6); a throw is a chaining

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
@@ -115,10 +116,15 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 	var expanded []engine.StepRecord
 	// moves are the failed attempts the walker meets again below a later
 	// module (FX-29): an attempt that is a child flow's job, a retried
-	// container's (CF-22), is walked in turn there, its modules with it.
+	// container's (CF-22), is walked in turn there, with everything the
+	// walker met below it the first time, its modules' own attempts
+	// included (OR-11).
 	type move struct{ from, to conformance.SitePath }
 	var moves []move
 	rebase := func(p conformance.SitePath, m move) (conformance.SitePath, bool) {
+		if p == m.from {
+			return m.to, true
+		}
 		rest, ok := strings.CutPrefix(p.String(), m.from.String()+"/")
 		if !ok {
 			return p, false
@@ -141,13 +147,17 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 				continue
 			}
 			// The walker meets the attempt's job again here: a copy whose
-			// pointers are its own, and the records below it.
-			src.Site, src.FailedRetries = site, nil
-			expanded = append(expanded, src)
+			// pointers are its own, and copies of what it met below it,
+			// which a trace records before any module lists the attempt,
+			// so expanded already holds it, attempts and their copies
+			// included.
 			m := move{at, site}
 			moves = append(moves, m)
-			for _, sub := range live {
-				if q, ok := rebase(sub.Site, m); ok && !hidden[sub.Site] {
+			n := len(expanded)
+			src.Site, src.FailedRetries = site, nil
+			expanded = append(expanded, src)
+			for _, sub := range expanded[:n] {
+				if q, ok := rebase(sub.Site, m); ok && sub.Site != at {
 					sub.Site, sub.FailedRetries = q, nil
 					expanded = append(expanded, sub)
 				}
@@ -212,23 +222,28 @@ func observeTrace(t *engine.Trace, modules []string, virtual []bool, failure boo
 		segs = append(segs, conformance.FailureSlot())
 	}
 	notRun(conformance.SitePath{}, segs)
-	for _, c := range children {
-		notRun(c.Site, conformance.ModuleSegments(c.Modules))
-		for _, m := range moves {
-			at, ok := rebase(c.Site, m)
-			if c.Site == m.from {
-				at, ok = m.to, true
-			}
-			if ok {
-				csegs := conformance.ModuleSegments(c.Modules)
-				for i, v := range c.Virtual {
-					if v {
-						hidden[at.Child(csegs[i])] = true
-					}
-				}
-				notRun(at, csegs)
+	// The child flows the walker meets: the trace's, then their copies
+	// below each move, in the order the moves were made, so that a copy of
+	// a copy is found.
+	flows := slices.Clone(children)
+	for _, m := range moves {
+		for _, c := range flows {
+			if at, ok := rebase(c.Site, m); ok {
+				c.Site = at
+				flows = append(flows, c)
 			}
 		}
+	}
+	for _, c := range flows[len(children):] {
+		csegs := conformance.ModuleSegments(c.Modules)
+		for i, v := range c.Virtual {
+			if v {
+				hidden[c.Site.Child(csegs[i])] = true
+			}
+		}
+	}
+	for _, c := range flows {
+		notRun(c.Site, conformance.ModuleSegments(c.Modules))
 	}
 	if t.ResultOrigin.Generated() {
 		generated = append(generated, "/result")
