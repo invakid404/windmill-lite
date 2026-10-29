@@ -1,5 +1,5 @@
 # CF-25: a parallel loop does not take the squash start path.
-spec: [CF-25]
+spec: [CF-25/d]
 target: f/cf25/parallel
 expect:
   status: success
