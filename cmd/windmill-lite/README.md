@@ -1,14 +1,15 @@
 # cmd/windmill-lite
 
-**Current state:** milestone F4 of
+**Current state:** milestones F4 and F1 of
 [ADR 0012](../../docs/design/0012-layout-and-milestones.md), with the
 walking skeleton's host command (milestone W1). This README covers the
 `windmill-lite` command in this directory and its `testdata/`. The command
 prints its version, builds a bundle from a Windmill sync folder, verifies a
-bundle, checks that its expression engine starts, and serves host mode on
-the walking skeleton's layout, whose flows the engine core runs
-(milestone N1a). The commands that run a bundle (`run`, `serve`), pack
-it (`pack`, `image`) or generate clients (`gen`) do not exist yet.
+bundle, runs a bundle's flow or script through the [wl](../../wl/README.md)
+library (F1), checks that its expression engine starts, and serves host
+mode on the walking skeleton's layout, whose flows the engine core runs
+(milestone N1a). The commands that serve a bundle (`serve`), pack it
+(`pack`, `image`) or generate clients (`gen`) do not exist yet.
 
 ## Usage
 
@@ -17,6 +18,7 @@ go run ./cmd/windmill-lite            # windmill-lite (devel)
 go run ./cmd/windmill-lite version    # same; --version, -version and -v also work
 windmill-lite build <folder> -o <bundle> [flags]
 windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
+windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [flags]
 windmill-lite selfcheck
 windmill-lite host --bundle <dir> [--kill-after <duration>]
 ```
@@ -70,6 +72,43 @@ otherwise it lists every difference and exits with status 1. A bundle that
 a different engine version built still verifies, with a note that this
 engine would not open it.
 
+### run
+
+`windmill-lite run <path> --bundle <bundle>` is the command-line adapter of
+[ADR 0009](../../docs/design/0009-host-adapters.md): it opens the bundle
+with `wl.Open`, runs the flow (or, with `-kind script`, the root script)
+at `<path>` with `Runtime.Run`, and prints the outcome as JSON on standard
+output: `id`, `status`, `result` (the final result in its stored form),
+`may_have_mutated`, `warnings`, and with `-trace` a summary of the trace
+(`module_state`, each step's site, attempt, job, status and result, and
+each platform call's site, job, route and status), which is for debugging,
+not the trace's wire form. It exits with status 0 when the run succeeded or
+was skipped, and 1 when it failed or was canceled, or could not start;
+SIGINT and SIGTERM cancel the run.
+
+| Flag | Meaning |
+|---|---|
+| `--bundle` | the bundle: a directory, or a `.wlb` archive, which is extracted into a directory of its own under the data directory and removed afterwards. It is required |
+| `--args` | the arguments: a JSON object, or `@file` holding one; `{}` by default |
+| `-kind` | `flow` (default) or `script` |
+| `-id` | the run's job id; a new UUID by default |
+| `-bun` | the Bun executable, which must be Bun 1.3.10; `$WL_BUN`, or `bun` on the `PATH` |
+| `-harness-runtime` | the Bun harness runtime directory the bundle was built for, whose digest must be the manifest's; `$WL_HARNESS_RUNTIME`. A bundle with steps needs it |
+| `-module-state` | `warm` or `fresh`; the bundle's by default |
+| `-data` | the data directory the runtime writes into; a temporary one, removed afterwards, by default |
+| `-digest` | the bundle digest the bundle must have |
+| `-variables` | a JSON file of the host's variables, keyed by path, as in a bundle's `data/variables.json` (`value`, `is_secret`, `encrypted`); secrets go here, since a bundle never holds one |
+| `-resources` | a JSON file of the host's resources, keyed by path, as in a bundle's `data/resources.json` (`resource_type`, `value`) |
+| `-trace` | print the trace summary with the outcome |
+
+The engine version (below) must be the one that built the bundle. With the
+fixture built as above:
+
+```sh
+windmill-lite run f/app/main --bundle /tmp/fixture.wlb \
+  --args '{"name": "lite"}' -harness-runtime harnesses/bun/runtime
+```
+
 ### selfcheck
 
 `windmill-lite selfcheck` starts the expression engine (QuickJS-ng, through
@@ -104,8 +143,8 @@ loader with host mode on the `wl` library and its bundles.
 
 ## Version
 
-The printed version, which `build` records as the engine version, is, in
-order of preference:
+The printed version, which `build` records as the engine version and `run`
+requires of a bundle, is, in order of preference:
 
 1. the value linked in with `-ldflags "-X main.version=<version>"`;
 2. the module version from the binary's build information: the version of
@@ -122,6 +161,14 @@ internal/bundle built as a directory and as an archive gives one digest,
 which `verify` confirms against the release manifest, and a changed file
 fails verification. The build test needs the pinned Bun in `WL_BUN` and
 skips without it, unless `WL_REQUIRE_BUN` is set, as CI sets it.
+
+`runcmd_test.go` covers `run`: its usage errors, and arguments or a bundle
+that do not open, which exit with status 1 and print nothing on standard
+output; and, with the pinned Bun, a synthetic folder built as an archive
+whose flow reads a host's secret through argument resolution, run in
+`warm` and `fresh` mode: a successful run exits 0 with its result and
+trace summary, a failing one exits 1 with its error, and a run without the
+harness runtime the bundle was built for does not start.
 
 `host_test.go` runs host mode end to end: the host-mode half of W1's exit
 gate, and the host-mode gate of milestone C2b. `testdata/host/host.ts` is a Bun host that embeds the SDK, registers

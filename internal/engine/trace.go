@@ -62,6 +62,28 @@ type Trace struct {
 	Deviations []string
 	// Spans are the run's timings (ADR 0011, run spans).
 	Spans []Span
+	// PlatformCalls are the platform calls the run's steps made, as the
+	// platform facade recorded them (ADR 0007). The runtime that serves
+	// the facade fills them (wl, milestone F1); the engine itself does
+	// not see the facade.
+	PlatformCalls []PlatformCall
+}
+
+// PlatformCall is one platform call a step of the run made, as the facade
+// recorded it when the step's invocation was released (ADR 0007): the
+// step's site and invocation id, the request as sent, the route it matched
+// ("" for none), the answer's status, and, for a call answered 501, the
+// answer's text, which the 501 policy quotes.
+type PlatformCall struct {
+	Site        conformance.SitePath
+	Job         string
+	Method      string
+	Path        string
+	Query       string
+	Route       string
+	Status      int
+	Unsupported bool
+	Message     string
 }
 
 // Step returns the record of the site at p.
