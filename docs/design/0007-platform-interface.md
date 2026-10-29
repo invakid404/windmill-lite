@@ -165,7 +165,17 @@ and [WA-4](../semantics/client-api.md#wa-4):
   the path rules of [WA-5](../semantics/client-api.md#wa-5) and
   [WA-6](../semantics/client-api.md#wa-6);
 - `WM_WORKSPACE`, `WM_EMAIL`, `WM_USERNAME` and `WM_PERMISSIONED_AS` are host
-  configuration.
+  configuration, and so are `WM_BASE_URL` and `WM_WORKER_GROUP`
+  (`default`, the reference configuration's group; windmill-lite has no
+  worker groups);
+- the remaining variables of WA-4 are set as a job windmill-lite runs has
+  them (milestone FU7): `WM_SCHEDULED_FOR` is the job's launch, after any
+  sleep or retry delay, since every job is scheduled to start at once;
+  `WM_OBJECT_PATH` follows WA-4's formula for a manually started job;
+  `WM_SCHEDULE_PATH`, `WM_END_USER_EMAIL`, `WM_TESTED_RUNNABLE` and
+  `WM_RUNNABLE_ID` are empty, since no schedule, app or CI test starts a
+  job and windmill-lite keeps no script hashes
+  ([WA-V10](../semantics/client-api.md#wa-v10)).
 
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation

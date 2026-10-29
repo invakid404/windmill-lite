@@ -87,7 +87,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (ScriptResult
 	}
 	args := jsonval.FromProducer(stored)
 	boundary := Boundary(s.Boundary)
-	ident := platform.Identity{JobID: id, RootJobID: id, JobPath: s.Path, Token: platform.NewToken()}
+	ident := platform.Identity{JobID: id, RootJobID: id, JobPath: s.Path, Token: platform.NewToken(), Start: time.Now()}
 	if req.ParentJob != "" || req.RootJob != "" {
 		ident.FlowJobID, ident.RootFlowJobID, ident.FlowPath = req.ParentJob, req.RootJob, req.ParentPath
 		ident.RootJobID = cmp.Or(req.RootJob, req.ParentJob, id)

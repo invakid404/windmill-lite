@@ -82,11 +82,15 @@ func (m *MemoryResults) Put(_ context.Context, key string, value []byte, expires
 	heap.Push(&m.byExpiry, expiry{key: key, at: expires})
 	if n := m.byExpiry.Len(); n > minResultRebuild && n > 2*len(m.entries) {
 		// Most of the heap is older expiries of keys stored again: keep
-		// only the live entries' own.
-		m.byExpiry = m.byExpiry[:0]
+		// only the live entries' own, in the same backing array, and
+		// clear the slots past them, so that their keys can be collected
+		// (N4 review, P3).
+		old := m.byExpiry
+		m.byExpiry = old[:0]
 		for k, e := range m.entries {
 			m.byExpiry = append(m.byExpiry, expiry{key: k, at: e.expires})
 		}
+		clear(old[len(m.byExpiry):])
 		heap.Init(&m.byExpiry)
 	}
 	m.dropExpired()
@@ -95,13 +99,17 @@ func (m *MemoryResults) Put(_ context.Context, key string, value []byte, expires
 
 // dropExpired removes, earliest first, every entry that expired by the
 // latest time a Get gave, and the heap's older expiries of keys stored
-// again as they come up. Called with mu held.
+// again as they come up. A heap it empties gives its backing array up,
+// however large a burst made it. Called with mu held.
 func (m *MemoryResults) dropExpired() {
 	for m.byExpiry.Len() > 0 && !m.byExpiry[0].at.After(m.latest) {
 		x := heap.Pop(&m.byExpiry).(expiry)
 		if e, ok := m.entries[x.key]; ok && !e.expires.After(m.latest) {
 			delete(m.entries, x.key)
 		}
+	}
+	if m.byExpiry.Len() == 0 {
+		m.byExpiry = nil
 	}
 }
 
@@ -126,9 +134,13 @@ func (h expiryHeap) Len() int           { return len(h) }
 func (h expiryHeap) Less(i, j int) bool { return h[i].at.Before(h[j].at) }
 func (h expiryHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 func (h *expiryHeap) Push(x any)        { *h = append(*h, x.(expiry)) }
+
+// Pop clears the slot it removes, so the heap's backing array holds no key
+// it has given up.
 func (h *expiryHeap) Pop() any {
 	old := *h
 	x := old[len(old)-1]
+	old[len(old)-1] = expiry{}
 	*h = old[:len(old)-1]
 	return x
 }

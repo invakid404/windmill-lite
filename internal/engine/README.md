@@ -1230,7 +1230,9 @@ retry delay as a scheduled job. So a runaway expression, whose three
 
 **The trace.** A failed attempt's record moves to `<site>/r:<k>`; it has
 no module status and carries nothing on. Each record's `Attempt` is the
-module's attempt it is of, `Job` its leaf job's id, and `Start` and
+module's attempt it is of, `Job` its job's id (a script step's leaf job,
+a subflow step's child flow job, or the job a result-cache hit completed
+without running), and `Start` and
 `Duration` time its job, from its launch after any wait to its outcome,
 which is what `wltest check` reads a run's `delays` from.
 
