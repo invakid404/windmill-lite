@@ -5,7 +5,7 @@
 E3a added expression files), `stub` (milestone E4a) and `check`, for step
 cases (milestone C3a; C2b added codebase scripts and their Node side),
 flow fixtures (milestone E1) and, on the engine core, expression files run
-end to end (milestone N1a). This README covers the `wltest` command in
+end to end (milestone N1a), with the for loops of milestone N3a. This README covers the `wltest` command in
 this directory, its `testdata/`, and `noderun.mjs`, the Node driver `check`
 embeds. `diff`, which
 [ADR 0011](../../docs/design/0011-differential-testing.md) describes as
@@ -218,27 +218,34 @@ a few at a time (`flows.go`):
    bundle does, and gives its job path as `WM_JOB_PATH`.
 3. **Observe** (`observe.go`). The run's trace becomes the observation the
    oracle's walker produces ([ADR 0011](../../docs/design/0011-differential-testing.md),
-   [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow that
-   the trace has no record of is `not_run`; the root's result and each
+   [OR-11](../../docs/semantics/oracle.md#or-11)): a module of the flow, or
+   of a child flow the trace lists (a loop iteration's body, below its
+   iteration's site `m:<loop>/i:<n>`), that the trace has no record of is
+   `not_run`; the root's result and each
    site's `args` and `result` are in their stored form, as the job API
    returns them ([ADR 0005](../../docs/design/0005-json-step-boundaries.md));
    `carried` and `resolved_args` keep the trace's texts, the value carried
    on in memory and the arguments the script received, and are written only
-   where their text differs. The values are then normalised by
+   where their text differs, and a site with no result has no `carried`
+   (a module that failed at the root's pickup with no job carries its
+   error to the flow's result). The values are then normalised by
    [OR-14](../../docs/semantics/oracle.md#or-14)'s rules: job ids become the
-   placeholders of their sites (the run's own id is the root, `<job:>`), and
+   placeholders of their sites (the run's own id is the root, `<job:>`, and
+   a child flow's id its iteration's site, as the walker reaches it), and
    a failed site's stack is masked wherever its value is carried
    ([OR-V3](../../docs/semantics/oracle.md#or-v3) clause a); then the
    fixture's `stack` and `mask` pointers apply.
 4. **Compare.** With the run's `expect`, `carried` and `resolved_args`
    included, or with its recording when it has none, which holds neither;
    then its `claims` are checked. On the reference's side, the location of
-   the recognised internal error is stripped where windmill-lite generated
-   the value (`conformance.StripLocations`, ADR 0011's location rule): a
-   result whose origin the trace records as the engine, a harness or the
-   facade, and a carried value that is the same value, in either member
-   order. A carried value that differs from the result has no recorded
-   origin and is never stripped. A run with nothing to compare fails.
+   a templated error is stripped where windmill-lite generated the value
+   (`conformance.StripLocations`, ADR 0011's location rule): a result
+   whose origin the trace records as the engine, a harness or the facade,
+   a carried value that is the same value, in either member order, and a
+   carried value whose own recorded origin is one of those (the
+   `EarlyStopError` an error stop carries over a step's result, FX-V2). A
+   carried value with no generated origin is never stripped. A run with
+   nothing to compare fails.
 
 A run is `unsupported` when windmill-lite cannot run it yet: a stub fixture
 (milestone E4b), a fixture with effects (the effect sink), a script run
@@ -287,7 +294,7 @@ Windmill v1.767.0's image).
   that a wrong or unstated Node difference fails, and `TestStepCatalogue`
   that every catalogue case of a finding with a step file is a step case or
   deferred.
-- `TestFlowSuite` is the exit gate of milestones E1 and N1a: every run the
+- `TestFlowSuite` is the exit gate of milestones E1, N1a and N3a: every run the
   flow suite requires passes in `warm`. `testdata/flowsuite.json` lists them in
   `runs`, each with the milestone whose pull request first made it pass;
   a run that a recording batch's manifest
@@ -308,10 +315,12 @@ Windmill v1.767.0's image).
   same for codebase scripts: one that does not bundle and one whose asset
   collides fail their own flows, while a flow whose codebase script reads
   its asset passes; `TestStepCheckerIsolatesCodebaseFailures` checks the
-  same isolation for codebase step cases. `TestObserveTrace`, `TestCompareRun` and
+  same isolation for codebase step cases. `TestObserveTrace`,
+  `TestObserveChildFlows`, `TestCompareRun` and
   `TestCarriedLocation` need no Bun: they check the observation of a trace
-  (stored forms, `not_run` sites, placeholders, stack masking, the kept
-  `carried` and `resolved_args`, the generated values) and which reference
+  (stored forms, `not_run` sites, a child flow's sites and id, placeholders,
+  stack masking, the kept `carried` and `resolved_args`, the generated
+  values) and which reference
   a run is compared with, including the location rule's positive and
   negative cases for a result and for a carried value in either member
   order.

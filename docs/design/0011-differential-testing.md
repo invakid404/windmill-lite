@@ -394,6 +394,17 @@ their root jobs were not in flight together.
   result whose recorded origin is windmill-lite's, and a carried value that
   is the same value. Steps run the scripts the compiler's inventory names,
   never a script found by its job path, which two scripts can share.
+- Milestone N3a gave the location rule the flow engine's templates: the
+  pickup error (`Anyhow`, `Error: …`, one or two locations), the chaining
+  error (`InternalError`) and the error stop of a failed
+  `stop_after_all_iters_if`; the internal error of OR-27 stays the only one
+  whose location the normaliser masks. The trace records a carried value's
+  origin apart from its result's, so the rule also applies to a carried
+  value windmill-lite generated over a step's own result, such as that
+  error stop's `EarlyStopError`; a user's `error_message` matches no
+  template. A child flow's modules are observed below its iteration's
+  site, `not_run` where the trace has no record of them, and its job id is
+  that site.
 
 ## Spec IDs relied on
 

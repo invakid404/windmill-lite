@@ -188,18 +188,39 @@ func MaskPaths(o Observation, stack, mask []string) (Observation, error) {
 	return out, nil
 }
 
+// locTemplates are the catalogue's errors that the flow engine generates
+// and whose oracle messages end in Rust locations, which the normaliser
+// leaves alone (ADR 0011, Location suffixes): by error name, the prefix of
+// the message. A pickup error, named Anyhow, ends in one location or two
+// (FX-15 contexts 2 and 3, CF-23 routes 1 and 2, JE-35 (b) and (c)); a
+// chaining error at a later transition, named InternalError, in one when
+// it wraps an evaluation error (FX-15 context 1, JE-35 (a)); the error
+// stop of a stop_after_all_iters_if that fails to evaluate in one (CF-13,
+// JE-27).
+var locTemplates = map[string]string{
+	"Anyhow":         "Error: ",
+	"InternalError":  "",
+	"EarlyStopError": "Error evaluating stop_after_all_iters_if expression `",
+}
+
+// locSuffixes are the trailing Rust locations of a message, " @<file>:
+// <line>:<col>" once or more.
+var locSuffixes = regexp.MustCompile(`( @[^ @\n]+:[0-9]+:[0-9]+)+$`)
+
 // StripLocations applies the one rule that comparing windmill-lite with
 // the oracle adds to OR-14 (ADR 0011, Location suffixes; ADR 0001 §2, D14).
 // Each pointer names a value of windmill-lite's observation that
 // windmill-lite generated (an engine, harness or facade error, never a
-// user's). Where the oracle's normalised observation o holds there the
-// recognised internal error of OR-27, whose location the normaliser
-// masked, the marker and the space before it are removed, leaving the
-// message windmill-lite writes without a Rust location. The value at a
-// pointer is the error object, or an object whose error member is it, as
-// a stored failure value is. Nothing else is stripped: the normaliser
-// never masks a location in a user's message, and a pointer that does not
-// resolve, or names another value, is skipped.
+// user's). Where the oracle's normalised observation o holds there an
+// error of a catalogue template with a location, the location goes,
+// leaving the message windmill-lite writes without one: the marker and the
+// space before it for the recognised internal error of OR-27, whose
+// location the normaliser masked, and the trailing locations of a
+// template of locTemplates. The value at a pointer is the error object,
+// or an object whose error member is it, as a stored failure value is.
+// Nothing else is stripped: the normaliser never masks a location in a
+// user's message, and a pointer that does not resolve, or names another
+// value, is skipped.
 func StripLocations(o Observation, at []string) (Observation, error) {
 	if len(at) == 0 {
 		return o, nil
@@ -230,10 +251,17 @@ func StripLocations(o Observation, at []string) (Observation, error) {
 			continue
 		}
 		name, msg := v.member("name"), v.member("message")
-		if name == nil || name.kind != kindString || name.str() != "InternalErr" || msg == nil || msg.kind != kindString {
+		if name == nil || name.kind != kindString || msg == nil || msg.kind != kindString {
 			continue
 		}
-		if s := msg.str(); strings.HasPrefix(s, internalErrPrefix) && strings.HasSuffix(s, suffix) {
+		s := msg.str()
+		if prefix, ok := locTemplates[name.str()]; ok && strings.HasPrefix(s, prefix) {
+			if loc := locSuffixes.FindStringIndex(s); loc != nil {
+				*msg = jnode{kind: kindString, text: quote(s[:loc[0]])}
+			}
+			continue
+		}
+		if name.str() == "InternalErr" && strings.HasPrefix(s, internalErrPrefix) && strings.HasSuffix(s, suffix) {
 			*msg = jnode{kind: kindString, text: quote(strings.TrimSuffix(s, suffix))}
 		}
 	}

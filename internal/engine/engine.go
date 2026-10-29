@@ -82,15 +82,18 @@ func New(cfg Config) (*Engine, error) {
 	var exprs []*expr.Expr
 	for _, path := range sortedKeys(cfg.Program.Flows) {
 		f := cfg.Program.Flows[path]
-		if err := supported(f); err != nil {
+		if err := supported(f, cfg.Program.Scripts); err != nil {
 			return nil, fmt.Errorf("engine: flow %s: %w", path, err)
 		}
-		for _, m := range f.Modules {
+		walk(f.Modules, func(m *ir.Module) {
 			if m.SkipIf != nil {
 				exprs = append(exprs, m.SkipIf)
 			}
 			if m.StopAfterIf != nil {
 				exprs = append(exprs, m.StopAfterIf.Expr)
+			}
+			if m.StopAfterAllItersIf != nil {
+				exprs = append(exprs, m.StopAfterAllItersIf.Expr)
 			}
 			if m.Leaf != nil {
 				for _, in := range m.Leaf.Inputs {
@@ -99,7 +102,15 @@ func New(cfg Config) (*Engine, error) {
 					}
 				}
 			}
-		}
+			if l := m.ForLoop; l != nil {
+				if l.Iterator.Expr != nil {
+					exprs = append(exprs, l.Iterator.Expr)
+				}
+				if l.Parallelism != nil && l.Parallelism.Expr != nil {
+					exprs = append(exprs, l.Parallelism.Expr)
+				}
+			}
+		})
 	}
 	for _, x := range exprs {
 		if x.Mode == 0 {
@@ -112,13 +123,25 @@ func New(cfg Config) (*Engine, error) {
 	return e, nil
 }
 
+// walk calls fn for every module of ms, a for loop's body modules after
+// the loop.
+func walk(ms []*ir.Module, fn func(*ir.Module)) {
+	for _, m := range ms {
+		fn(m)
+		if m.ForLoop != nil {
+			walk(m.ForLoop.Modules, fn)
+		}
+	}
+}
+
 func unsupported(format string, args ...any) error {
 	return fmt.Errorf("%s: %w", fmt.Sprintf(format, args...), ErrUnsupported)
 }
 
-// supported checks that f uses only what the engine runs. Each refusal
-// names the milestone of ADR 0012 that implements the feature.
-func supported(f *ir.Flow) error {
+// supported checks that f uses only what the engine runs, scripts being
+// the program's inventory. Each refusal names the milestone of ADR 0012
+// that implements the feature.
+func supported(f *ir.Flow, scripts map[string]*ir.Script) error {
 	switch {
 	case f.FailureModule != nil:
 		return unsupported("a failure module (N1b)")
@@ -131,15 +154,19 @@ func supported(f *ir.Flow) error {
 	case f.Timeout != nil:
 		return unsupported("a flow timeout (N2)")
 	}
-	for _, m := range f.Modules {
-		if err := supportedModule(m); err != nil {
+	return supportedList(f.Modules, scripts)
+}
+
+func supportedList(ms []*ir.Module, scripts map[string]*ir.Script) error {
+	for _, m := range ms {
+		if err := supportedModule(m, scripts); err != nil {
 			return fmt.Errorf("module %q: %w", m.ID, err)
 		}
 	}
 	return nil
 }
 
-func supportedModule(m *ir.Module) error {
+func supportedModule(m *ir.Module, scripts map[string]*ir.Script) error {
 	switch m.Kind {
 	case ir.KindScript, ir.KindRawScript:
 		l := m.Leaf
@@ -149,11 +176,18 @@ func supportedModule(m *ir.Module) error {
 		if l.Harness != ir.ClassBun || l.Boundary != ir.BoundaryBun {
 			return unsupported("a %s step in the %s boundary (C3n)", l.Harness, l.Boundary)
 		}
+		if s := scripts[l.Script]; s != nil && s.Metadata != nil && s.Metadata.CacheTTL != nil {
+			return unsupported("a script's own cache_ttl (N4)")
+		}
 	case ir.KindIdentity:
 	case ir.KindSubflow:
 		return unsupported("a subflow by path (N3c)")
-	case ir.KindForLoop, ir.KindWhileLoop:
-		return unsupported("a %s (N3a, N3b)", m.Kind)
+	case ir.KindForLoop:
+		if err := supportedLoop(m.ForLoop, scripts); err != nil {
+			return err
+		}
+	case ir.KindWhileLoop:
+		return unsupported("a %s (N3b)", m.Kind)
 	case ir.KindBranchOne, ir.KindBranchAll:
 		return unsupported("a %s (N3b)", m.Kind)
 	case ir.KindProvided:
@@ -173,8 +207,8 @@ func supportedModule(m *ir.Module) error {
 		return unsupported("retry (N2)")
 	case m.CacheTTL != nil:
 		return unsupported("cache_ttl (N4)")
-	case m.StopAfterAllItersIf != nil:
-		return unsupported("stop_after_all_iters_if (N3a, N3b)")
+	case m.StopAfterAllItersIf != nil && m.Kind != ir.KindForLoop:
+		return unsupported("stop_after_all_iters_if on a %s (N3b)", m.Kind)
 	}
 	if t := m.Timeout; t != nil {
 		if _, err := staticTimeout(t.Value); err != nil {
@@ -182,6 +216,24 @@ func supportedModule(m *ir.Module) error {
 		}
 	}
 	return nil
+}
+
+// supportedLoop checks a for loop: its body, and the fields the engine
+// runs.
+func supportedLoop(l *ir.ForLoop, scripts map[string]*ir.Script) error {
+	switch {
+	case l == nil:
+		return errors.New("a forloopflow module with no loop")
+	case l.Squash:
+		// CE fails a squashed sequential loop that starts runners (CF-25),
+		// whose route the reference leaves open; squash is EE.
+		return unsupported("a squashed for loop (CF-25, EE)")
+	case l.Parallelism != nil && l.Parallelism.Type == ir.AI:
+		// An ai iterator fails the loop with CF-2's text; the reference
+		// gives none for an ai parallelism.
+		return unsupported("an ai parallelism")
+	}
+	return supportedList(l.Modules, scripts)
 }
 
 // staticTimeout reads a static step timeout: seconds, or nil for none
@@ -253,7 +305,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	if exec == nil {
 		exec = e.exec
 	}
-	if exec == nil && slices.ContainsFunc(f.Modules, func(m *ir.Module) bool { return m.Leaf != nil }) {
+	if exec == nil && hasLeaf(f.Modules) {
 		return nil, errors.New("engine: no step executor for the run")
 	}
 	id := req.ID
@@ -267,7 +319,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 		seed = binary.LittleEndian.Uint64(b[:])
 	}
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)))
-	r.input = jsonval.FromProducer(flowInputText(stored, r.rng))
+	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
 	r.env = flowEnv(f)
 	r.run(ctx)
 	// H9: OnRunEnd sees the outcome first; its warnings are part of the
@@ -308,6 +360,13 @@ func flowEnv(f *ir.Flow) jsonval.Value {
 		return jsonval.FromProducer(s)
 	}
 	return v
+}
+
+// hasLeaf reports whether a step runs anywhere in ms.
+func hasLeaf(ms []*ir.Module) bool {
+	found := false
+	walk(ms, func(m *ir.Module) { found = found || m.Leaf != nil })
+	return found
 }
 
 func sortedKeys[V any](m map[string]V) []string {

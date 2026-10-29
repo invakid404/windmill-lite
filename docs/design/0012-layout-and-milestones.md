@@ -240,6 +240,27 @@ waits on an external gate except R1.
   resource of the fixture's `setup.yaml`, or reads the platform through a
   helper or a `$var:`-style reference; the fixture's other runs are
   checked.
+- N3a runs for loops on frames: the engine runs the root flow and each
+  non-collapsed iteration's child flow with one interpreter, each with
+  its own results scope where CF-19 starts one, and a collapsed iteration
+  as a job of its loop's flow. "The E3d for-loop cases" in its row are
+  E3d's runs whose flows hold a for loop and no while loop, branch,
+  failure module or subflow: those of `cf-2` to `cf-9`, `cf-11`, `cf-13`
+  and runs `a`, `c-fail`, `c-skip`, `f` and `f-skip` of `cf-12`; `cf-12`'s
+  `b` needs a failure module in a body (N3c), and `fx-40`'s loop runs need
+  caching (N4, as ADR 0001 §6 says). Their recorded messages end in Rust
+  locations at the pickup and chaining routes and in
+  `stop_after_all_iters_if`'s error stop, so N3a extended the location
+  rule of [0011](0011-differential-testing.md) to those catalogue
+  templates (`Anyhow`, `InternalError`, that `EarlyStopError`), and the
+  trace records a carried value's origin apart from its result's. That
+  also makes JE-24/b and /d pass, which the flow suite now requires, with
+  JE-19/b, a parallel iteration's scope, of E3a's cross-scope cases. The
+  trace lists the child flows a run created (`Trace.Children`), from
+  which `wltest check` writes a body module that never got a job as
+  `not_run` and names a child flow's job id by its iteration's site, as
+  the walker does. The engine now also refuses a path script's own
+  `cache_ttl` (N4), which a loop body made reachable.
 
 ## Spec IDs relied on
 

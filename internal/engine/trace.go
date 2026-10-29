@@ -40,6 +40,9 @@ type Trace struct {
 	// Steps holds one record per site the run reached, in the order the
 	// engine recorded them; compare them by Site, never by position.
 	Steps []StepRecord
+	// Children are the child flows the run created (CF-1), in the order it
+	// created them.
+	Children []ChildFlow
 	// Warnings are the run's warnings: unattributed process-level errors
 	// and the work invocations left behind when they settled (D9), and
 	// those that hooks appended (H9).
@@ -105,7 +108,12 @@ type StepRecord struct {
 	Carried jsonval.Value
 	// ResultOrigin is who produced Result when it is an error, which decides
 	// what a comparison may normalise in it (ADR 0001 §2, OR-V3).
-	ResultOrigin Origin
+	// CarriedOrigin is who produced Carried when it is an error: the same
+	// as ResultOrigin for a failed job, the engine for the EarlyStopError
+	// of an error stop carried over a step's result (FX-V2), and for the
+	// error of a module that failed with no job (FX-15 context 2).
+	ResultOrigin  Origin
+	CarriedOrigin Origin
 	// BranchChosen is the branch a branchone took.
 	BranchChosen *conformance.BranchChosen
 
@@ -114,6 +122,20 @@ type StepRecord struct {
 	// Late holds what the invocation produced after it settled or was
 	// abandoned, up to the snapshot's time (D9).
 	Late []Late
+}
+
+// ChildFlow is a child flow a run created: the body of a for-loop
+// iteration that ran as a flow of its own, not collapsed (CF-1, CF-8).
+type ChildFlow struct {
+	// Site is the iteration's site, <loop>/i:<n> (ADR 0011), under which
+	// the child's modules have theirs.
+	Site conformance.SitePath
+	// ID is the child flow's job id, which its steps see as
+	// WM_FLOW_JOB_ID (WA-6).
+	ID string
+	// Modules are the ids of the child's modules, in order: a module with
+	// no record in Steps never got a job (OR-11).
+	Modules []string
 }
 
 // Origin is who produced an error value (ADR 0001 §2). Only errors that

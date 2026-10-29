@@ -14,26 +14,35 @@ import (
 // here from a run's trace (ADR 0011), then normalised by the same rules
 // (OR-14) and masked by the fixture's stack and mask pointers.
 //
-//   - modules are the ids of the run's flow, in order: each is a site, and
-//     a module the trace has no record of never got a job, so it is
-//     not_run, as the walker reads a flow_status entry without one;
+//   - modules are the ids of the run's flow, in order, and the trace's
+//     child flows name theirs (a loop iteration's body, CF-1): each is a
+//     site, and a module the trace has no record of never got a job, so it
+//     is not_run, as the walker reads a flow_status entry without one;
 //   - jobs maps the id of every invocation the run made, which steps see as
 //     WM_JOB_ID, to its site; the run's own id, WM_FLOW_JOB_ID and
-//     WM_ROOT_JOB_ID, is the root (OR-11);
+//     WM_ROOT_JOB_ID, is the root, and a child flow's id is its iteration's
+//     site, as the walker reaches it through flow_jobs (OR-11);
 //   - stored values (the root's result, each site's args and result) are in
 //     their stored form, as the job API returns them (ADR 0005), while
 //     carried and resolved_args keep the texts the trace holds: the value
-//     carried on in memory, and the arguments as the script received them;
+//     carried on in memory, and the arguments as the script received them.
+//     A site with no result shows no carried either: a module that failed
+//     with no job (FX-15 context 2) carries its error to the flow's result,
+//     where the observation shows it;
 //   - a failed site whose job ran is a runtime error for stack masking
 //     (OR-V3 clause a), as a failed leaf that executed a script is.
 //
 // It also returns the pointers of the values windmill-lite generated (the
 // errors whose origin is the engine, a harness or the facade): a site's
-// result, its carried value when that is the same value, and the root's
-// result. There a comparison with the oracle strips a location suffix
+// result, its carried value when the trace records its origin as generated
+// or it is the same value as a generated result, and the root's result.
+// There a comparison with the oracle strips a location suffix
 // (conformance.StripLocations).
 func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance.SitePath, spec conformance.CompareSpec) (conformance.Observation, []string, error) {
 	ids := map[string]conformance.SitePath{t.RunID: {}}
+	for _, c := range t.Children {
+		ids[c.ID] = c.Site
+	}
 	for id, site := range jobs {
 		ids[id] = site
 	}
@@ -68,29 +77,42 @@ func observeTrace(t *engine.Trace, modules []string, jobs map[string]conformance
 		}
 		st.Args, st.ResolvedArgs = value(rec.RecordedArgs, true), value(rec.ResolvedArgs, false)
 		st.Result, st.Carried = value(rec.Result, true), value(rec.Carried, false)
+		if st.Result == nil {
+			st.Carried = nil
+		}
 		if rec.Status == conformance.StepFailure && rec.Ran && st.Result != nil {
 			n.RuntimeErrors = append(n.RuntimeErrors, st.Result)
 		}
+		carried := conformance.JoinPointer([]string{"steps", rec.Site.String(), "carried"})
 		if rec.ResultOrigin.Generated() {
 			generated = append(generated, conformance.JoinPointer([]string{"steps", rec.Site.String(), "result"}))
-			// The trace records the provenance of the result only. A
-			// carried value that is the same value, in whatever member
-			// order, has it too; one that differs, such as an error stop's
-			// EarlyStopError carried over a user's result, has none
-			// recorded and is never stripped.
-			if !rec.Carried.IsZero() {
+			// A carried value that is the same value, in whatever member
+			// order, has the result's provenance.
+			if !rec.Carried.IsZero() && !rec.CarriedOrigin.Generated() {
 				if same, err := conformance.SameJSON(rec.Carried.Producer(), rec.Result.Producer(), false); err == nil && same {
-					generated = append(generated, conformance.JoinPointer([]string{"steps", rec.Site.String(), "carried"}))
+					generated = append(generated, carried)
 				}
 			}
 		}
+		// One that differs has its own, such as an error stop's
+		// EarlyStopError carried over a user's result; with none recorded
+		// it is never stripped.
+		if st.Carried != nil && rec.CarriedOrigin.Generated() {
+			generated = append(generated, carried)
+		}
 		steps[rec.Site] = st
 	}
-	for _, seg := range conformance.ModuleSegments(modules) {
-		site := conformance.SitePath{}.Child(seg)
-		if _, ok := steps[site]; !ok {
-			steps[site] = conformance.StepObservation{Status: conformance.StepNotRun}
+	notRun := func(prefix conformance.SitePath, modules []string) {
+		for _, seg := range conformance.ModuleSegments(modules) {
+			site := prefix.Child(seg)
+			if _, ok := steps[site]; !ok {
+				steps[site] = conformance.StepObservation{Status: conformance.StepNotRun}
+			}
 		}
+	}
+	notRun(conformance.SitePath{}, modules)
+	for _, c := range t.Children {
+		notRun(c.Site, c.Modules)
 	}
 	if t.ResultOrigin.Generated() {
 		generated = append(generated, "/result")

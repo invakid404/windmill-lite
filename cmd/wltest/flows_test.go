@@ -406,6 +406,53 @@ func TestCompareRun(t *testing.T) {
 // keeps it: its stored result and its carried value, which keeps the
 // producer's member order (ADR 0011). It never reaches a user's error, nor
 // a carried value that is not the generated result.
+// A child flow's modules are sites below its iteration's, a module it
+// has no record of is not_run, and its id is its iteration's site (OR-11);
+// a module with no result shows no carried (FX-15 context 2); a carried
+// value the trace says the engine produced is generated even when it
+// differs from the result (FX-V2).
+func TestObserveChildFlows(t *testing.T) {
+	const child = "44444444-4444-4444-8444-444444444444"
+	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
+	p := func(s string) conformance.SitePath {
+		site, err := conformance.ParseSitePath(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return site
+	}
+	stop := `{"error":{"name":"EarlyStopError","message":"halt"}}`
+	tr := &engine.Trace{
+		RunID: "root", Status: conformance.RunFailure, Result: v(`[` + stop + `]`),
+		Children: []engine.ChildFlow{{Site: p("m:l/i:0"), ID: child, Modules: []string{"b", "c"}}},
+		Steps: []engine.StepRecord{
+			{Site: p("m:l"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Ran: true, Result: v(`[` + stop + `]`), Carried: v(`[` + stop + `]`)},
+			{Site: p("m:l/i:0/m:b"), Status: conformance.StepSuccess, Module: conformance.ModuleFailure, Ran: true, RecordedArgs: v(`{"f":"` + child + `"}`), ResolvedArgs: v(`{"f":"` + child + `"}`),
+				Result: v(`1`), Carried: v(stop), CarriedOrigin: engine.OriginEngine},
+			{Site: p("m:p"), Status: conformance.StepFailure, Module: conformance.ModuleFailure, Carried: v(`{"error":{"name":"Anyhow","message":"Error: x"}}`), CarriedOrigin: engine.OriginEngine},
+		},
+	}
+	got, generated, err := observeTrace(tr, []string{"l", "p", "n"}, nil, conformance.CompareSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(generated, []string{"/steps/m:l~1i:0~1m:b/carried"}) {
+		t.Fatalf("generated %v", generated)
+	}
+	var want conformance.Observation
+	if err := json.Unmarshal([]byte(`{"status":"failure","result":[`+stop+`],"steps":{`+
+		`"m:l":{"status":"failure","result":[`+stop+`]},`+
+		`"m:l/i:0/m:b":{"status":"success","module":"failure","args":{"f":"<job:m:l/i:0>"},"result":1,"carried":`+stop+`},`+
+		`"m:l/i:0/m:c":{"status":"not_run"},`+
+		`"m:p":{"status":"failure","ran":false},`+
+		`"m:n":{"status":"not_run"}}}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := conformance.Compare(got, want, conformance.CompareOptions{}); err != nil || len(d) != 0 {
+		t.Fatalf("differences %v %v\ngot %s", d, err, compactJSON(got))
+	}
+}
+
 func TestCarriedLocation(t *testing.T) {
 	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
 	const msg = "Internal: Could not add completed job x: error returned from database: unsupported Unicode escape sequence"

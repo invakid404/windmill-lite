@@ -222,14 +222,19 @@ func (e *transformFailure) Unwrap() error { return e.err }
 
 // transformError is the failure value of a step whose input transform
 // failed (FX-14, JE-23): ExecutionErr, quoting the expression as written
-// and the evaluator's text.
-func transformError(err error) jsonval.Value {
+// and the evaluator's text; the body step of a collapsed loop prefixes it
+// with "could not transform input using an expr: " (JE-23, JE-39).
+func transformError(err error, collapsed bool) jsonval.Value {
 	text := ""
 	var tf *transformFailure
 	if errors.As(err, &tf) {
 		text = tf.text
 	}
-	return engineError("ExecutionErr", "Error during isolated evaluation of expression `"+text+"`:\n"+evalText(err))
+	msg := "Error during isolated evaluation of expression `" + text + "`:\n" + evalText(err)
+	if collapsed {
+		msg = "could not transform input using an expr: " + msg
+	}
+	return engineError("ExecutionErr", msg)
 }
 
 // evalText is an evaluation's error text: the evaluator's message, with
