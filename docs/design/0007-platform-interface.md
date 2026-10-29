@@ -227,6 +227,71 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   continuing with a wrong value.
 - Hosts get one extension point per service and one secret layer, not a
   fork of the facade.
+- Milestone PF1 implemented the router, both transports, attribution, the
+  501 policy and job identity
+  ([internal/platform/facade](../../internal/platform/facade/README.md),
+  [internal/platform](../../internal/platform/README.md)), and fixed what
+  this record left open:
+  - **The warm origin.** Its port is the local end of a loopback
+    connection the engine holds both ends of, so no other socket is given
+    the port and nothing listens on it. A socket that is only bound would
+    not do: macOS drops the SYNs that reach a bound socket that does not
+    listen, so a client would wait for its timeout instead of being
+    refused. On Linux and macOS alike the kernel refuses every connection
+    to it.
+  - **Fresh processes** are not told the facade in their welcome, so their
+    calls go over TCP to the listening origin, attributed by their token,
+    `WM_TOKEN`: `wl_` and 128 random bits. "Recorded against the process"
+    became recorded as a stray call: the TCP server cannot tell which
+    process sent a call whose token names none.
+  - **In order.** The harness hands the facade each `platform` frame on
+    the connection's reader, in frame order, and the facade decides there
+    whether the call is unsupported; the harness never sends a result
+    ahead of a large platform call of its invocation
+    ([0004](0004-harness-protocol.md)). So the 501 policy counts every call
+    whose frame arrived before the step's result, an unawaited one
+    included. Over TCP the call and the result travel on different
+    connections, so a call a fresh step never awaited may be counted or
+    not, as on Windmill, where the process exits under it. The policy also
+    waits for the answers of calls still being answered, until the step's
+    context ends, so a handler's 501 counts.
+  - **Naming a 501.** The route template is the API's, from the vendored
+    Apache-2.0 schema, with its workspace parameter written `{ws}`, as the
+    reference's cases write it (WA-41/a, WA-V5); a path that no route of
+    the API has, and one outside `/api/`, answer 501 too, named by the
+    method and the path as sent. Every 501, a handler's included, counts.
+  - **The policy's error** replaces any outcome, a thrown error included;
+    it carries no `step_id`, and its origin is `facade`. `calls` lists each
+    unsupported call as `<METHOD> <route template>`, in order, repeats
+    included.
+  - **The root lookup** (`getRootJobId`) answers from the identities of the
+    invocations registered at the time, the job of any of them or a flow
+    scope or root it runs in; a job it does not know of answers 501 until
+    the job registry of milestone PF3.
+  - **An intercepted reply** carries the reason phrase Go's `net/http`
+    writes for its status, so the two transports give a client the same
+    response (WA-30/a, checked on the stock client by
+    `TestTransportsAgree`); a raw `fetch` without the token is attributed
+    in warm and refused in fresh, which the stock client never does.
+  - **Job identity** sets the core variables of WA-4 and the host's
+    `WM_EMAIL`, `WM_USERNAME` and `WM_PERMISSIONED_AS`, with windmill-lite
+    placeholders where the host sets none; the `later` variables are not
+    set. No schedule triggers a run, so the state path's trigger part is
+    always `user` (WA-5).
+  - **Fix round 1 of PF1's review.** A handler that panics, or answers a
+    status outside 200 to 599, gets a `502` on both transports, which the
+    record keeps, and its call stops counting as in flight however it
+    ended, so the 501 policy never waits on a failed call. The answer to
+    `HEAD`, and one with a null-body status (204, 205, 304), has no body on
+    either transport. A token two registrations carried names none until
+    both have ended. The API has no `HEAD` operation, so a `HEAD` request
+    answers 501; whether Windmill answers `HEAD` on its `GET` routes is not
+    in the reference.
+  - **Not yet:** recorded calls are the facade's (`Record`), not part of the
+    run trace; host mode stays on the walking skeleton without a facade
+    until F3a, whose SDK must set `BASE_URL` from the welcome before any
+    step module loads; and a call's `{workspace}` is not checked against
+    the caller's `WM_WORKSPACE`.
 
 ## Spec IDs relied on
 

@@ -32,7 +32,7 @@ internal/expr/              expression pipeline: shortcuts, rewrites, binding, s
 internal/expr/quickjs/      vendored quickjs-ng source, the native (cgo) backend, the pool (0003)
 internal/engine/            the flow interpreter: run state, decision list, containers, waits, hooks (0003, 0008)
 internal/harness/           the Go side of the protocol: frames, processes, pools (0004)
-internal/platform/          service interfaces, local defaults, interpolation walker (0007)
+internal/platform/          job identity, service interfaces, local defaults, interpolation walker (0007)
 internal/platform/facade/   the HTTP router behind the client and the fetch interception (0007)
 internal/platform/remote/   hybrid dispatch to a real Windmill; waits for a human decision (0007)
 internal/bundle/            bundle format, build orchestration, manifest, identity, verify (0010)
@@ -171,6 +171,10 @@ waits on an external gate except R1.
   neither of which depends on the other gates the first milestone that needs
   both: NI for N1b with N2, and F1 for N2 with PF2, where E3a's JE-V2/b is.
   A milestone's exit gate includes the runs a manifest assigns to it.
+- Milestone PF1 put job identity, which the engine and the facade share,
+  in `internal/platform` beside the service interfaces PF2 and PF3 add;
+  the facade's route table is generated from the Apache-2.0 schema that
+  E2 vendored in `internal/oracle/openapi`, so the schema is vendored once.
 - `conformance/protocol/` holds the harness protocol's golden frames and
   exchange transcripts, a level that [0003](0003-semantics-placement.md)
   added with milestone C1; C1's exit gate is the exchanges passing against
@@ -246,6 +250,30 @@ waits on an external gate except R1.
   resource of the fixture's `setup.yaml`, or reads the platform through a
   helper or a `$var:`-style reference; the fixture's other runs are
   checked.
+- N3a runs for loops on frames: the engine runs the root flow and each
+  non-collapsed iteration's child flow with one interpreter, each with
+  its own results scope where CF-19 starts one, and a collapsed iteration
+  as a job of its loop's flow. "The E3d for-loop cases" in its row are
+  E3d's runs whose flows hold a for loop and no while loop, branch,
+  failure module or subflow: those of `cf-2` to `cf-9`, `cf-11`, `cf-13`
+  and runs `a`, `c-fail`, `c-skip`, `f` and `f-skip` of `cf-12`; `cf-12`'s
+  `b` needs a failure module in a body (N3c), and `fx-40`'s loop runs need
+  caching (N4, as ADR 0001 §6 says). Their recorded messages end in Rust
+  locations at the pickup and chaining routes, which N1b's location rule
+  strips, and in `stop_after_all_iters_if`'s error stop, for which N3a
+  added a template to the rule of [0011](0011-differential-testing.md);
+  the trace points to the generated errors inside a loop's array
+  (`ResultNested`), at any depth, so that the rule reaches them and a
+  user's error beside them keeps its difference. Of E3a's cross-scope
+  cases the flow suite also requires JE-19/b, a parallel iteration's
+  scope. The trace lists the child flows a run created
+  (`Trace.Children`), from which `wltest check` writes a body module that
+  never got a job as `not_run` and names a child flow's job id by its
+  iteration's site, as the walker does. With N1b merged first, the engine
+  refuses a for loop in a flow with a failure module, since every body
+  then runs as a child flow that carries a copy of it, which is N3c's;
+  it also refuses a path script's own `cache_ttl` (N4), which a loop body
+  made reachable.
 
 - N1b gave the engine core Windmill's continue decision for a flow
   without retries: `continue_on_error`, the error stops, the

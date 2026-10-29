@@ -1,0 +1,129 @@
+finding: WA-41
+scope: core
+note: >-
+  Milestone PF1: the 501 policy in its default fail mode (ADR 0007, the
+  design note of WA-41). An unsupported route answers 501 text/plain,
+  "Not implemented in windmill-lite: <METHOD> <route template>", recorded
+  against the invocation, and a step that made such a call fails with
+  UnsupportedPlatformCall, naming the first and listing all, whatever its
+  own outcome. Each script calls the facade as the stock client does, by
+  fetch at BASE_URL with its token, so the cases need no client; the stock
+  client's own reactions (WA-41/a, WA-V5/a–c, getIdToken) are checked with
+  windmill-client@1.767.0 by internal/platform/facade's
+  TestUnsupportedPolicyOnTheClient, in fail and observe mode. The same calls
+  are recorded through the intercepted fetch (warm) and over loopback TCP
+  (fresh), as WA-30/a requires.
+cases:
+  - spec: WA-41/b
+    variant: async-dispatch
+    provenance: policy
+    title: an async dispatch whose 501 body the script takes for a job id, as the client does (WA-V5/a), fails the step though it returned normally
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs/run/p/u/t/x`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${e.WM_TOKEN}`, "content-type": "application/json" },
+          body: "{}",
+        });
+        return await res.text();
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: POST /w/{ws}/jobs/run/p/{path}", calls: ["POST /w/{ws}/jobs/run/p/{path}"]}}
+        calls: ["501 POST /w/{ws}/jobs/run/p/{path}"]
+  - spec: WA-41/b
+    variant: swallowed
+    provenance: policy
+    title: a flow-state write whose 501 the script swallows, as setFlowUserState does (WA-V5/b), fails the step; the served root lookup does not count
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        const root = await (await fetch(`${base}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: auth })).json();
+        const res = await fetch(`${base}/jobs/flow/user_states/${root}/k`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "1" });
+        if (!res.ok) console.error(`Error setting flow user state at k: ${await res.text()}`);
+        return null;
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: POST /w/{ws}/jobs/flow/user_states/{id}/{key}", calls: ["POST /w/{ws}/jobs/flow/user_states/{id}/{key}"]}}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}", "501 POST /w/{ws}/jobs/flow/user_states/{id}/{key}"]
+  - spec: WA-41/b
+    variant: every-call
+    provenance: policy
+    title: the error names the first unsupported call and lists every one, in order, repeats included
+    script: |
+      export async function main() {
+        const e = process.env;
+        const auth = { authorization: `Bearer ${e.WM_TOKEN}` };
+        const base = `${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`;
+        // Each body is read, as the client reads it: one left unread is
+        // counted as left behind in fresh mode, where the fetch is not
+        // intercepted (D9).
+        await (await fetch(`${base}/oidc/token/aud`, { method: "POST", headers: auth })).text();
+        await (await fetch(`${base}/jobs_u/get/j1`, { headers: auth })).text();
+        await (await fetch(`${base}/oidc/token/aud`, { method: "POST", headers: auth })).text();
+        return 1;
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result:
+            error:
+              name: UnsupportedPlatformCall
+              message: "Not implemented in windmill-lite: POST /w/{ws}/oidc/token/{audience}"
+              calls: ["POST /w/{ws}/oidc/token/{audience}", "GET /w/{ws}/jobs_u/get/{id}", "POST /w/{ws}/oidc/token/{audience}"]
+        calls: ["501 POST /w/{ws}/oidc/token/{audience}", "501 GET /w/{ws}/jobs_u/get/{id}", "501 POST /w/{ws}/oidc/token/{audience}"]
+  - spec: WA-41/b
+    variant: thrown
+    provenance: policy
+    title: a step that throws after an unsupported call fails with UnsupportedPlatformCall, not its own error
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get/j1`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        throw new Error(`the job lookup answered ${res.status}: ${await res.text()}`);
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: GET /w/{ws}/jobs_u/get/{id}", calls: ["GET /w/{ws}/jobs_u/get/{id}"]}}
+        calls: ["501 GET /w/{ws}/jobs_u/get/{id}"]
+  - spec: WA-41/b
+    variant: no-route
+    provenance: policy
+    title: a path no route of the API has answers 501 too, named by its method and path, never 404
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/not_a_route`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return [res.status, await res.text()];
+      }
+    runs:
+      - args: '{}'
+        expect:
+          status: failure
+          result: {error: {name: UnsupportedPlatformCall, message: "Not implemented in windmill-lite: GET /w/wl_step/not_a_route", calls: ["GET /w/wl_step/not_a_route"]}}
+        calls: ["501 GET /w/wl_step/not_a_route"]
+  - spec: WA-41/b
+    variant: supported
+    provenance: policy
+    title: a step whose calls were all served keeps its outcome, and sees the status line the facade sent
+    script: |
+      export async function main() {
+        const e = process.env;
+        const res = await fetch(`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/jobs_u/get_root_job_id/${e.WM_JOB_ID}`, { headers: { authorization: `Bearer ${e.WM_TOKEN}` } });
+        return [res.status, res.statusText, res.headers.get("content-type"), (await res.json()) === e.WM_ROOT_JOB_ID];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [200, "OK", "application/json", true]}
+        calls: ["200 GET /w/{ws}/jobs_u/get_root_job_id/{id}"]

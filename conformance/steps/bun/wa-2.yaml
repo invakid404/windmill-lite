@@ -1,0 +1,32 @@
+finding: WA-2
+scope: core
+note: >-
+  Milestone PF1: the base URL a Bun step sees. windmill-lite sets BASE_URL to
+  the platform facade's origin on 127.0.0.1 before any module loads, and
+  never sets BASE_INTERNAL_URL for Bun, as Windmill's worker does
+  (ADR 0004, ADR 0007). The origin is the facade's in both modes: one where
+  nothing listens for a warm process, which intercepts its fetches, and one
+  that listens for a fresh process.
+cases:
+  - spec: WA-2/a
+    provenance: source-derived
+    title: a Bun job sees BASE_URL but not BASE_INTERNAL_URL
+    script: |
+      export function main() {
+        return [process.env.BASE_INTERNAL_URL ?? null, typeof process.env.BASE_URL];
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: [null, "string"]}
+        calls: []
+  - spec: WA-2
+    variant: facade-origin
+    provenance: policy
+    title: BASE_URL is the facade's loopback origin, on 127.0.0.1 as Windmill writes it for localhost
+    script: |
+      export function main() {
+        return /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(process.env.BASE_URL);
+      }
+    runs:
+      - args: '{}'
+        expect: {status: success, result: true}

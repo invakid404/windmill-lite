@@ -49,7 +49,8 @@ var ansiEscape = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])")
 //     then it fails, kept as it is with a ManualFailure error added
 //     (ManualFailure).
 //   - OutcomeError: the wrapper's error object, wrapped as {"error": …}
-//     unless it is already a pre-shaped ManualFailure (WR-21, WR-V5).
+//     unless it is already a pre-shaped ManualFailure (WR-21, WR-V5); its
+//     origin is the user's, or the outcome's own Origin when set.
 //   - OutcomeEscaped, by a signal: the worker's
 //     `execution error:\nprocess terminated by signal: <signal>` (WR-4,
 //     WR-37); by an exit: the log-tail error of WR-20, with exit_code.
@@ -63,7 +64,11 @@ func StoreOutcome(out StepOutcome, stepID string) Stored {
 		}
 		return Stored{Value: out.Body}
 	case OutcomeError:
-		return Stored{Failed: true, Value: FailureValue(out.Body.Producer()), Origin: OriginUser}
+		origin := OriginUser
+		if out.Origin != OriginNone {
+			origin = out.Origin
+		}
+		return Stored{Failed: true, Value: FailureValue(out.Body.Producer()), Origin: origin}
 	case OutcomeEscaped:
 		if out.Signal != "" {
 			return Stored{Failed: true, Value: workerError(stepID, "execution error:\nprocess terminated by signal: "+out.Signal), Origin: OriginHarness}
