@@ -402,10 +402,6 @@ func TestCompareRun(t *testing.T) {
 	}
 }
 
-// The location rule reaches a generated error wherever the observation
-// keeps it: its stored result and its carried value, which keeps the
-// producer's member order (ADR 0011). It never reaches a user's error, nor
-// a carried value that is not the generated result.
 // A child flow's modules are sites below its iteration's, a module it
 // has no record of is not_run, and its id is its iteration's site (OR-11);
 // a module with no result shows no carried (FX-15 context 2); a carried
@@ -453,6 +449,11 @@ func TestObserveChildFlows(t *testing.T) {
 	}
 }
 
+// The location rule reaches a generated error wherever the observation
+// keeps it: its stored result and its carried value, which keeps the
+// producer's member order (ADR 0011). It never reaches a user's error, nor
+// a carried value that is not the generated result and has no generated
+// origin of its own (TestObserveChildFlows has one that does).
 func TestCarriedLocation(t *testing.T) {
 	v := func(s string) jsonval.Value { return jsonval.FromProducer([]byte(s)) }
 	const msg = "Internal: Could not add completed job x: error returned from database: unsupported Unicode escape sequence"
