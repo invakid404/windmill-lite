@@ -8,7 +8,7 @@
 # their keys there and see k (WA-14, sharing). Step b reads p1 through the
 # helper and p2 through the route; the helper gives null for a missing key
 # (JE-20).
-spec: [WA-14/a, WA-V1, JE-20]
+spec: [WA-14/a, WA-14/e, WA-V1, JE-20]
 target: f/wl_pf3_us/basic
 expect:
   status: success

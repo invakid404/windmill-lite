@@ -1,5 +1,5 @@
 {
-  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason. CF-6, CF-15 and the hash-pinned FX-40/d runs are deployed through the API (oracle.deploy api), so their trees reach the server as written. TestRecordingBatches enforces it.",
+  "about": "Recording batch E3d of ADR 0012, CF: the catalogue cases of CF-2 to CF-15, with the contested CF-12 cases (Q-CF-14) and the contested FX-40 cases (Q-FX-17); CF-13/c is given as CF-V2/a, which it also records. Each case is recorded on the CE oracle by a run of the fixtures below, or deferred with a milestone and a reason; CF-7/f, CF-12/g and FX-40/e to FX-40/m, which the reference added in its revision SC4, are requested from batch E3f. CF-6, CF-15 and the hash-pinned FX-40/d runs are deployed through the API (oracle.deploy api), so their trees reach the server as written. TestRecordingBatches enforces it.",
   "batch": "E3d",
   "findings": [
     "CF-2",
@@ -56,9 +56,64 @@
       "reason": "later; source-derived in the reference's revision of 2026-10-29 (SC3): CE deploys an ai parallelism and holds every iteration job, so no body starts; no run of this batch records it, and docs/design/README.md requests the recording from a future batch E3f (squash and ai parallelism on the CE image). windmill-lite runs an ai parallelism since the follow-up milestone FU8: the decoder takes {type: ai} in the restricted parallelism slot (internal/openflow, TestRestrictedTransforms), and the engine evaluates it to 0 and holds every iteration until the run ends (internal/engine, TestLoopParallelism)"
     },
     {
+      "case": "CF-7/f",
+      "milestone": "N3c",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (a container's own settings on handled failures and forwarded stops, item 4). A parallel loop with skip_failures: false that fails under its continue_on_error (deployed, run by path; an omitted flag would be stored as true, CF-6, and the loop would succeed) aborts the flow with an InternalError whose message starts `Bad request: Unrecognized module status for ForloopFlow Failure {`, alone too, and with a failure module, whose copy each iteration runs while the flow's own does not. continue_on_error is N1b's, and N3c runs a failure module in loop bodies"
+    },
+    {
       "case": "CF-8/d",
       "milestone": "none",
       "reason": "a raw parent submission (Q-CF-15): windmill-lite never runs raw submissions, so ADR 0001 section 6 needs no recording; the harness runs deployed flows by path only"
+    },
+    {
+      "case": "CF-12/g",
+      "milestone": "N3c",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (a container's own settings on handled failures and forwarded stops, item 3). An error stop forwarded out of a loop body ignores the loop's continue_on_error, so the flow fails with the loop's array, alone too, while a retry on the loop runs it twice before the same failure. N3c propagates stops out of bodies; the retry variant also needs NI's retry on a container"
+    },
+    {
+      "case": "FX-40/e",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A failure tolerated at the flow's last module is stored, so the second call is a hit and a does not run. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/f",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). An error stop is not stored, so a runs on both calls; with a failure module, the module's result is stored, and the second call succeeds with it from the cache. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/g",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A clean stop with skip_if_stopped is stored: the first call completes skipped, and the hit completes success, not skipped, with no step run. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/h",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A parallel loop at the last module stores by its own outcome: with skip_failures: false and a failing iteration both calls fail and run their iterations; with skip_failures: true, or the flag left out on a deployed flow, which deployment stores as true (CF-6), the second call is a hit. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/i",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). Arguments match as jsonb values: an object with its keys in another order is a hit, while {\"n\": 1} and {\"n\": 1.0} miss. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/j",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A hit does not resolve a static $var: input, so after the variable changed the second call still returns the first value. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/k",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). Without workspace object storage an S3 object input hashes as plain JSON and cache_ignore_s3_path does nothing. windmill-lite refuses cache_ignore_s3_path as not supported yet (internal/engine), so a follow-up of N4 decides it"
+    },
+    {
+      "case": "FX-40/l",
+      "milestone": "N4",
+      "reason": "source-derived in the reference's revision SC4 (2026-10-29), and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). stop_after_if applies to a hit: both calls stop after a, the second with a's result from the cache, its new job logging the cache line. N4 implements the result cache"
+    },
+    {
+      "case": "FX-40/m",
+      "milestone": "N4",
+      "reason": "source-derived, added in the reference's revision SC4 (2026-10-29) by its validation round 1, and no run of this batch records it; docs/design/README.md requests the recording from batch E3f (the result cache). A step with cache_ttl 0 hits an entry that a step with a positive TTL stored under the same key (the same kind, script hash and arguments; the step paths are not in the key), while an entry stored with TTL 0 has already expired, so two TTL-0 steps both run. windmill-lite differs today: a cache_ttl of 0 neither stores nor looks up (internal/engine, cache.go), and a step pinned to a script hash cannot run from a folder (fx-40-hash's runs stay unsupported); a follow-up of N4 implements the lookup"
     }
   ],
   "parts": [

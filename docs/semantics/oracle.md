@@ -1827,7 +1827,7 @@ validation. Open questions are `Q-OR-n`.
 <a id="or-27"></a>
 ### OR-27 · A NUL character in a Bun result fails the step at storage time
 
-**Scope:** core (the failure); later (Python); out (the delay) · **Confidence:** high (error shape and positions, oracle-observed); medium (a flow argument, source-read) · **Status:** confirmed; drafted (a flow argument, added 2026-10-29)
+**Scope:** core (the failure); later (Python); out (the delay) · **Confidence:** high (error shape and positions, oracle-observed); medium (a flow argument, source-read); medium (the delay of the next job: source-traced, and the recorded timings agree) · **Status:** confirmed; drafted (a flow argument, added 2026-10-29; the delay of the next job, added 2026-10-29 by SC4)
 
 - **Rule:**
   - **Windmill:** a Bun step whose result contains U+0000 anywhere, in a
@@ -1851,8 +1851,27 @@ validation. Open questions are `Q-OR-n`.
     HTTP 400 with its text. The harness cannot record it as a run.
   - **Not recorded:** a Deno result ([Q-OR-6](#q-or-6)).
   - **Out of scope:** the run took about 30 s (30,279 ms), and the next flow on
-    the same worker took about 10 s instead of 0.27 s. The cause is unknown
-    ([Q-OR-5](#q-or-5)).
+    the same worker took about 10 s instead of 0.27 s. Both delays come from
+    the worker (drafted, [Q-OR-5](#q-or-5) answered):
+    - the 30 s are the completion insert's retries, ten 3-second pauses
+      before the job is failed ([FX-48](execution.md#fx-48) case 1);
+    - the next 10 s are the worker throttling itself. A worker hands each
+      finished job to its background result processor and notes when it did.
+      Once the processor has finished with that job (here, the 30 s of
+      retries, the error record and the flow's update), it records how many
+      whole seconds passed since the hand-over. At the top of its next loop,
+      before it pulls another job, the worker reads that figure: above 5 it
+      sleeps 5 s, above 10 it sleeps 10 s, then clears the figure and goes on.
+      So the first job the worker would pull after a NUL failure, whatever it
+      is, waits about 10 s in the queue. The recordings show it: the run
+      after each failing run waited about 10 s between its root job's
+      creation and its start (runs `nul_key`, `nul_nested` and `nul_python`:
+      the harness executes each run twice and records the first execution,
+      so the execution just before each of these was a failing NUL run),
+      while `nul`, which followed no failure, started at once. Any
+      completion that keeps the processor busy for more than 5 s delays the
+      next pull the same way (an unpaired surrogate in a result,
+      [FX-51](execution.md#fx-51), takes the same 30 s of retries).
   - **Harness normalisation:** for an `InternalErr` whose message matches that
     exact prefix, and only for it, the job id is replaced and the location
     `@<file>:<line>:<col>` is masked to `<loc>`, after the space that
@@ -1869,7 +1888,14 @@ validation. Open questions are `Q-OR-n`.
   result unless skipped); `backend/windmill-common/src/worker.rs:954`
   (`skip_result_postprocessing`); `backend/windmill-common/src/error.rs:250-260`
   (an SQL error answers 400); Postgres jsonb rejects `\u0000`; recorded by
-  `conformance/flows/oracle/nul` (oracle run 40794872025).
+  `conformance/flows/oracle/nul` (oracle run 40794872025). The delay of the
+  next job: `backend/windmill-queue/src/jobs.rs:995-1017` (ten retries, 3 s
+  apart); `backend/windmill-worker/src/worker.rs:1337-1340` (the hand-over
+  time is taken when the finished job is sent to the processor),
+  `backend/windmill-worker/src/result_processor.rs:447-448`, `:501-502`
+  (the elapsed whole seconds are stored after each completion or flow
+  update), `backend/windmill-worker/src/worker.rs:2427-2437` (the next loop
+  sleeps 5 or 10 s before pulling, then clears the figure).
 - **Conformance:** [OR-27/a, OR-27/b](conformance.md#or-27)
 - **Revision 2026-10-29 (oracle, batch E3e; source re-check):** other
   positions and languages were open ([Q-OR-6](#q-or-6)). E3e recorded a NUL
@@ -1879,6 +1905,12 @@ validation. Open questions are `Q-OR-n`.
   holding a NUL was refused at submission, which is not a run; the source
   says why. The normalisation bullet now says the space before `<loc>`
   stays, as the recordings show. Each NUL failure took about 30 s again.
+- **Revision 2026-10-29 (SC4, source re-check, Q-OR-5):** the cause of the
+  next flow's extra 10 s was unknown. It is the worker's own throttle: after
+  a completion whose background processing took more than 10 s (5 s), the
+  worker sleeps 10 s (5 s) before its next pull. The out-of-scope bullet now
+  says so, with the recorded queue waits that agree. No case changes: the
+  delay is timing, scoped `out`.
 
 <a id="or-28"></a>
 ### OR-28 · Job kinds the walker meets
@@ -2625,6 +2657,16 @@ no ports, and `mem_limit: 2g`.
   and error paths does not explain the following run's extra 10 s, which
   only the server logs can show. Still open, out of scope; not requested
   from batch E3f.
+  **Answered 2026-10-29 (SC4)** from the source: the extra 10 s are the
+  worker's throttle, not the server. After the background result processor
+  has spent more than 10 s on one completion (here the 30 s of insert
+  retries), the worker sleeps 10 s before it pulls its next job (5 s after
+  more than 5 s), whatever that job is ([OR-27](#or-27);
+  `backend/windmill-worker/src/worker.rs:2427-2437`,
+  `backend/windmill-worker/src/result_processor.rs:447-448`). The
+  recordings agree: in `conformance/flows/oracle/nul` the root job of each
+  run that followed a failing run waited about 10 s between creation and
+  start. No server log is needed. Status: closed.
 
 <a id="q-or-6"></a>
 - **Q-OR-6** · affects [OR-27](#or-27) · **Answered 2026-10-29** (except
@@ -2838,6 +2880,20 @@ no ports, and `mem_limit: 2g`.
   until those captures exist. *2026-10-29 (SC3):* nothing in the source
   settles this: the encoding is a harness design choice (already made), and
   what remains is the colliding-pair captures, requested from batch E3f.
+  *2026-10-29 (SC4):* the source does settle the two premises of the
+  captures. (1) The "if unusual ids are admitted" branch is taken: the
+  flows API checks no module id, neither its characters nor its uniqueness
+  ([OF-2](openflow.md#of-2); `backend/windmill-api-flows/src/flows.rs:501-513`),
+  so `a/b`, `a%2Fb`, an ordinary module named `failure` and one named
+  `preprocessor` all deploy through it, and the captures must keep them
+  distinct rather than record a rejection. (2) Windmill itself never mixes
+  a slot with a list member: the stored flow status keeps the module list,
+  the failure module and the preprocessor module in three separate fields
+  (`backend/windmill-types/src/flow_status.rs:20-24`, each slot's entry
+  named by its own id, `failure` when the flow has none, `:504-531`), so an
+  ordinary module `failure` and the failure slot are two status entries in
+  different places, as the typed site paths `m:failure` and `s:failure`
+  assume. Still open for the captures.
 
 <a id="q-or-18"></a>
 - **Q-OR-18** · affects [OR-5](#or-5), [OR-7](#or-7), [OR-8](#or-8),

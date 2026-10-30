@@ -1,6 +1,6 @@
-# CF-22, FX-26: the retried loop fails again, its one attempt spent, and the
+# CF-22/d, FX-26: the retried loop fails again, its one attempt spent, and the
 # flow fails with the second attempt's array.
-spec: [CF-22, FX-26]
+spec: [CF-22/d, FX-26]
 target: f/cf22/exhausted
 note: "Corrected after recording: oracle run 40852609901 walked the failed attempt's child flow modules below m:l/r:0, which the prediction left out."
 expect:

@@ -6,7 +6,7 @@ note: >-
   is the flow fixture client-api/providers. Each script reads the platform as the stock client does, by fetch at BASE_URL with its token, so the cases need no client: the same reads go through the intercepted fetch (warm) and over loopback TCP (fresh), and the case's setup is what the facade serves. The stock client's own handling of the answers (its prefixes and error wrapping) is checked with windmill-client@1.767.0 by internal/platform/facade's TestProvidersOnTheClient, and the walker's rules at unit level by internal/platform/testdata/interpolation.json.
 cases:
   - spec: WA-V3/b
-    provenance: source-derived
+    provenance: oracle-observed
     title: "$jsonvar: output is not substituted again"
     setup:
       variables:

@@ -465,6 +465,17 @@ contract leaves out, and to the milestone that checks it what no run of
 the batch records: FX-36/i and FX-36/m's `Location` header to F7b, the
 HTTP adapter, WR-28/f to C2a, and WR-50/c and WR-50/f to C3n.
 
+Milestone N5 recorded its own fixture,
+`conformance/flows/control-flow/subflow-retry`, without a manifest, since
+no catalogue case gated it. The reference's revision SC4 made catalogue
+cases of its recordings (CF-17/b–i, CF-22/f–g, FX-14/c and FX-29/c), so
+the manifest of each one's batch (`n3c.json`, `ni.json`, `e3c.json`,
+`n2.json`) defers it to N5 with the run that records it; N5's gate runs
+those runs on windmill-lite. The cases SC4 added from the source alone
+are deferred to the milestone that implements them, with the recording
+that [docs/design/README.md](../../docs/design/README.md#recording-requests-for-batch-e3f)
+requests from a future batch E3f.
+
 Batch E3a was built beside these manifests and has none: most of its runs
 state partial `claims` rather than a whole `expect`, and half of its cases
 are expression cases, whose lifted runs have no `expect` at all. Its
